@@ -655,7 +655,8 @@ implicit conversion, ownership transfer, effect, disposal or proof authority.
   the binder. The mathematical elaborator accepts this in standalone calls
   returning `Unit` when it can derive the callee's output value. Each name
   must be fresh in the enclosing local environment and among the call's
-  declarations. The mutable locals enter scope together after the call.
+  declarations. The mutable locals enter scope together after the call and
+  leave scope at the end of its block. Sibling blocks may reuse their names.
 - Local bindings use `let name = value` or `let T name = value` for immutable
   bindings, and `var name = value` or `var T name = value` for mutable bindings.
   The optional annotation chooses type inference independently of mutability.

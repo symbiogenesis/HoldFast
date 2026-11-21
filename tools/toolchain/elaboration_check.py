@@ -651,6 +651,21 @@ public Nat UseOutInit()
     InitPair(10, out a, out b);
     return a + b;
 }
+public Nat ReuseBlockOutputs()
+    ensures result == 34
+{
+    var total = 0;
+    if (true) {
+        InitPair(10, out var a, out var b);
+        total = a + b;
+    }
+    {
+        InitPair(3, out var a, out var b);
+        total += a + b;
+    }
+    InitPair(0, out var a, out var b);
+    return total + b;
+}
 public interface Steppable<T> {
     T Step(T x);
     lemma StepSelf(T x) ensures Step(x) == Step(x);
@@ -983,6 +998,15 @@ public Nat RoundTripOwned()
         ("out-missing-call-modifier",
          "public Unit Init(out Nat dst) { dst = 1; return; } "
          "public Unit Wrong() { var x = 0; Init(x); return; }", "type"),
+        *(("out-scope-" + label, "public Unit Init(out Nat x) { x = 7; } "
+           f"public Nat Wrong(bool flag) {{ {branch} return value; }}", "name")
+          for label, branch in (
+              ("nested-block", "{ Init(out var value); }"),
+              ("constant-branch", "if (true) { Init(out var value); }"),
+              ("then-continuation", "if (flag) { Init(out var value); } else { return 5; }"),
+              ("else-continuation", "if (flag) { return 5; } else { Init(out var value); }"),
+              ("match-continuation", "match (flag) { true => { Init(out var value); }, false => return 5;, }"),
+          )),
         ("interface-blanket-impl",
          "public interface IdIface<T> { T Id(T x); } "
          "public impl<T> IdIface<T> { public definition T Id(T x) => x; }", "type"),
