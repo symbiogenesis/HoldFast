@@ -677,6 +677,9 @@ class _PatternsMixin:
             scrutinee = _Binding(self.check(value_node, expected_scrutinee_type, environment), expected_scrutinee_type)
         else:
             scrutinee = self.expression(value_node, environment)
+        if synthetic and self.last_call_updates:
+            environment = dict(environment)
+            self._consume_call_updates(environment, value_node)
         root_var = self.fresh(scrutinee.type)
         root_var_id = cast("int", root_var.value)
         motive_node = node["motive"]
@@ -851,12 +854,18 @@ class _PatternsMixin:
                 leaf_expected = (self.substitute(motive_body, root_var_id, leaf_pattern)
                                  if motive_body is not None else inferred_result[0])
                 if expression_arms:
+                    if synthetic:
+                        self.uninitialized_out_params = set(initial_uninit_out)
                     value_node = self.node(arm["value"])
                     if leaf_expected is None:
                         evaluated = self.expression(value_node, arm_env)
                         inferred_result[0] = evaluated.type
-                        return evaluated.term
-                    return self.check(value_node, leaf_expected, arm_env)
+                        value = evaluated.term
+                    else:
+                        value = self.check(value_node, leaf_expected, arm_env)
+                    if synthetic:
+                        arm_uninit_sets.append(set(self.uninitialized_out_params))
+                    return value
                 block_node = {"kind": "block", "span": arm["span"], "statements": arm["statements"]}
                 self.uninitialized_out_params = set(initial_uninit_out)
                 evaluated = self.block(block_node, arm_env, leaf_expected, facts=arm_facts)
@@ -1563,7 +1572,7 @@ class _PatternsMixin:
                     self.uninitialized_out_params = set(initial_uninit_out)
                     self.block(block_node, arm_env, result_type, facts=facts)
                     arm_uninit_sets.append(set(self.uninitialized_out_params))
-        if not expression_arms and arm_uninit_sets:
+        if arm_uninit_sets:
             merged_uninit: set[str] = set()
             for s in arm_uninit_sets:
                 merged_uninit |= s

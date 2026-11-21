@@ -970,7 +970,12 @@ enclosing scope (`return`, `break`, `continue` or diverging handler/propagation)
 and discharge non-matching resources, leaving the pattern's bindings in scope for
 the remainder of the enclosing block. In conditional headers, `if (EXPR is PATTERN)`
 binds `PATTERN`'s variables in the `then` branch and refines the complement in
-`else` under the same exhaustive split. At module, `record`, `struct`, `union`
+`else` under the same exhaustive split. In `if (item is Some(n) && n > limit)`,
+a successful match binds `n` for the right operand and the true branch. Further
+`&&` operands can introduce additional patterns. Each operand runs only after
+all preceding operands succeed. Grouping preserves this scope. Bindings end
+at the false branch, the end of the conditional, or a surrounding `||`.
+At module, `record`, `struct`, `union`
 and `impl` declaration scope, `[visibility] [ghost] T Name [contracts] => EXPR;`
 parses as a located `property` declaration with `visibility`, `ghost`,
 `attributes`, `modifiers`, `name`, `return_type`, `contracts` (excluding

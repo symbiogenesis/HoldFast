@@ -368,6 +368,20 @@ public Nat UnwrapGuarded(Option<Nat> item, Nat fallback) {
     }
     return if (item is Some(inner)) current + inner else fallback;
 }
+public Nat AboveLimit(Option<Nat> item, Nat limit) {
+    var answer = 0;
+    if (item is Some(n) && n > limit) { answer = n; }
+    return answer;
+}
+public definition Nat AboveBoth(Option<Nat> a, Option<Nat> b) =>
+    if (a is Some(x) && (b is Some(y) && x > y)) x + y else 0;
+public lemma CompoundGuards()
+    ensures (AboveLimit(Some(4), 3) == 4 && AboveLimit(Some(3), 3) == 0
+        && AboveLimit(None, 0) == 0 && AboveBoth(Some(5), Some(2)) == 7
+        && AboveBoth(Some(5), None) == 0) == true
+    proof { assert (AboveLimit(Some(4), 3) == 4 && AboveLimit(Some(3), 3) == 0
+        && AboveLimit(None, 0) == 0 && AboveBoth(Some(5), Some(2)) == 7
+        && AboveBoth(Some(5), None) == 0) == true; }
 public lemma UnwrapSome(Nat value, Nat fallback)
     ensures UnwrapOr(Some(Value: value), fallback) == value
     proof { assert UnwrapOr(Some(Value: value), fallback) == value; }
@@ -818,6 +832,12 @@ public Nat RoundTripOwned()
         ("proof-hole", "definition Nat Hole() => ?proof;", "inference"),
         ("unsupported-contract", "definition Nat Contract() requires true => 0;", "unsupported"),
         ("unbound-value", "definition Nat Wrong() => missing;", "name"),
+        ("pattern-conjunction-else-scope", "definition Nat Wrong(Nat a) => "
+         "if (a is Succ(n) && n > 0) n else n;", "name"),
+        ("pattern-conjunction-next-scope", "Nat Wrong(Nat a) { "
+         "if (a is Succ(n) && n > 0) { return n; } return n; }", "name"),
+        ("pattern-disjunction-no-binding", "definition bool Wrong(Nat a) => "
+         "a is Succ(n) || n > 0;", "name"),
         ("unknown-call-label", "definition Nat Id(Nat value) => value; "
          "definition Nat Wrong() => Id(missing: 1);", "name"),
         ("out-of-order-call-label", "definition Nat Pick(Nat first,Nat second) => first; "
