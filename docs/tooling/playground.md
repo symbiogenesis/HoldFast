@@ -174,10 +174,11 @@ also include the elaborator's `protocol` and `inference` categories.
 
 Successful compilation returns `findings`, a list of
 `{ "code": "VELA105", "message": "text", "line": 1, "column": 1 }`
-naming warnings in source order. Require at most 8,192 findings, exact keys, known code,
+naming warnings and `VELA107` precedence warnings from the native mathematical
+compiler in source order. Require at most 8,192 findings, exact keys, known code,
 nonempty text and original source positions. Duplicate, unordered, malformed
 or oversized findings refuse the result. Warnings do not prevent Gallina output;
-failed compilation returns no findings. A source without naming warnings returns
+failed compilation returns no findings. A source without lint warnings returns
 an empty list.
 
 Use the existing strict protocol JSON reader and its nesting/byte limits, and

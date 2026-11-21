@@ -22,6 +22,12 @@ class Elaboration:
     gallina: str
 
 
+@dataclass(frozen=True)
+class CheckedElaboration(Elaboration):
+    source_sha256: str
+    contextual_literal_types: dict[int, str]
+
+
 type Node = dict[str, object]
 
 

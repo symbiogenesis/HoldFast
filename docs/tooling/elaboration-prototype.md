@@ -94,7 +94,7 @@ The supported increment includes:
   for binders), and nullary constructors are written bare without `()`.
 - Conditional `if (cond) a else b` expressions (`if_expression`), Boolean
   `expr is Pattern` tests, flow-refined `if (expr is Pattern)` statements and
-  expressions (binding `Pattern`'s variables in the `then` branch), scoped
+  expressions (binding `Pattern`'s variables in later `&&` operands and the `then` branch), scoped
   early-exit `let Pattern = expr else { return ...; }` (`let_else`) guards in
   blocks and `assert ... by { ... }` proof blocks, and postfix `expr?`
   early-return propagation over 2-variant `Option<T>` (`None`, `Some(v)`) and
@@ -107,6 +107,11 @@ The supported increment includes:
   a call, ownership transfer or block evaluation; write the earlier computation
   as an explicit local first. The dedicated `&&`/`||` guard evaluates its left
   operand once before deciding whether to propagate from its right operand.
+  A statement such as `if (value is Some(n) && Update(ref count, n))` threads
+  the mutable loan through the successful path. A compound pattern guard used
+  as a Boolean value or in a conditional expression requires read-only calls.
+  Propagating such a Boolean value with `?` in a function with borrowed outputs
+  requires explicit control flow.
 - Nominal `record Name(T1 Field1, ...)` and `union Name { Case1(...); ... }`
   declarations with primary-constructor fields and tagged sum variants (lowering
   non-dependent field telescopes to `@Corelib.Init.Datatypes.prod` and dependent
@@ -198,6 +203,11 @@ The supported increment includes:
   `VacantRange`, `VacantSuffix` and `PrefixModel`) and two-step bulk relocation
   (`CopyRepresentation` followed by `TransferType<T>`) with capacity-independent
   region verification.
+- Inline `out var name` declarations in standalone `Unit` calls introduce
+  fresh mutable locals after the call returns. Each local takes its type from
+  its output parameter and its value from the checked callee update. Calls
+  through an abstract interface output require a concrete update before they
+  can introduce a local this way.
 - Write-only initialization loan parameters (`out T`) and `out target` call-site
   arguments, with path-sensitive initialization tracking across `if`/`else`,
   `match`, `let_else`/`var_else` and loops, refusal of reading, partially

@@ -650,6 +650,13 @@ implicit conversion, ownership transfer, effect, disposal or proof authority.
   Located `argument` nodes contain an optional `label` and a `value`; label
   names and values retain their original byte spans. Both pure syntax routes
   and mathematical elaboration validate labels against the resolved callable.
+- A call argument may declare an output with `out var name`, including after
+  an argument label. Its located `out_variable` node spans both keywords and
+  the binder. The mathematical elaborator accepts this in standalone calls
+  returning `Unit` when it can derive the callee's output value. Each name
+  must be fresh in the enclosing local environment and among the call's
+  declarations. The mutable locals enter scope together after the call and
+  leave scope at the end of its block. Sibling blocks may reuse their names.
 - Local bindings use `let name = value` or `let T name = value` for immutable
   bindings, and `var name = value` or `var T name = value` for mutable bindings.
   The optional annotation chooses type inference independently of mutability.
@@ -964,7 +971,12 @@ enclosing scope (`return`, `break`, `continue` or diverging handler/propagation)
 and discharge non-matching resources, leaving the pattern's bindings in scope for
 the remainder of the enclosing block. In conditional headers, `if (EXPR is PATTERN)`
 binds `PATTERN`'s variables in the `then` branch and refines the complement in
-`else` under the same exhaustive split. At module, `record`, `struct`, `union`
+`else` under the same exhaustive split. In `if (item is Some(n) && n > limit)`,
+a successful match binds `n` for the right operand and the true branch. Further
+`&&` operands can introduce additional patterns. Each operand runs only after
+all preceding operands succeed. Grouping preserves this scope. Bindings end
+at the false branch, the end of the conditional, or a surrounding `||`.
+At module, `record`, `struct`, `union`
 and `impl` declaration scope, `[visibility] [ghost] T Name [contracts] => EXPR;`
 parses as a located `property` declaration with `visibility`, `ghost`,
 `attributes`, `modifiers`, `name`, `return_type`, `contracts` (excluding

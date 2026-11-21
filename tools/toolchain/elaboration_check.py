@@ -368,6 +368,32 @@ public Nat UnwrapGuarded(Option<Nat> item, Nat fallback) {
     }
     return if (item is Some(inner)) current + inner else fallback;
 }
+public Nat AboveLimit(Option<Nat> item, Nat limit) {
+    var answer = 0;
+    if (item is Some(n) && n > limit) { answer = n; }
+    return answer;
+}
+public definition Nat AboveBoth(Option<Nat> a, Option<Nat> b) =>
+    if (a is Some(x) && (b is Some(y) && x > y)) x + y else 0;
+public bool Touch(ref Nat count) { count = 1; return true; }
+public Unit UpdateIfPresent(Option<Nat> item, ref Nat count) {
+    if (item is Some(n) && Touch(ref count)) { return; } else { return; }
+}
+public Nat ObserveGuard(Option<Nat> item) {
+    var count = 0;
+    UpdateIfPresent(item, ref count);
+    return count;
+}
+public lemma ConditionalLoan()
+    ensures (ObserveGuard(None) == 0 && ObserveGuard(Some(3)) == 1) == true
+    proof { assert (ObserveGuard(None) == 0 && ObserveGuard(Some(3)) == 1) == true; }
+public lemma CompoundGuards()
+    ensures (AboveLimit(Some(4), 3) == 4 && AboveLimit(Some(3), 3) == 0
+        && AboveLimit(None, 0) == 0 && AboveBoth(Some(5), Some(2)) == 7
+        && AboveBoth(Some(5), None) == 0) == true
+    proof { assert (AboveLimit(Some(4), 3) == 4 && AboveLimit(Some(3), 3) == 0
+        && AboveLimit(None, 0) == 0 && AboveBoth(Some(5), Some(2)) == 7
+        && AboveBoth(Some(5), None) == 0) == true; }
 public lemma UnwrapSome(Nat value, Nat fallback)
     ensures UnwrapOr(Some(Value: value), fallback) == value
     proof { assert UnwrapOr(Some(Value: value), fallback) == value; }
@@ -625,6 +651,21 @@ public Nat UseOutInit()
     InitPair(10, out a, out b);
     return a + b;
 }
+public Nat ReuseBlockOutputs()
+    ensures result == 34
+{
+    var total = 0;
+    if (true) {
+        InitPair(10, out var a, out var b);
+        total = a + b;
+    }
+    {
+        InitPair(3, out var a, out var b);
+        total += a + b;
+    }
+    InitPair(0, out var a, out var b);
+    return total + b;
+}
 public interface Steppable<T> {
     T Step(T x);
     lemma StepSelf(T x) ensures Step(x) == Step(x);
@@ -818,6 +859,12 @@ public Nat RoundTripOwned()
         ("proof-hole", "definition Nat Hole() => ?proof;", "inference"),
         ("unsupported-contract", "definition Nat Contract() requires true => 0;", "unsupported"),
         ("unbound-value", "definition Nat Wrong() => missing;", "name"),
+        ("pattern-conjunction-else-scope", "definition Nat Wrong(Nat a) => "
+         "if (a is Succ(n) && n > 0) n else n;", "name"),
+        ("pattern-conjunction-next-scope", "Nat Wrong(Nat a) { "
+         "if (a is Succ(n) && n > 0) { return n; } return n; }", "name"),
+        ("pattern-disjunction-no-binding", "definition bool Wrong(Nat a) => "
+         "a is Succ(n) || n > 0;", "name"),
         ("unknown-call-label", "definition Nat Id(Nat value) => value; "
          "definition Nat Wrong() => Id(missing: 1);", "name"),
         ("out-of-order-call-label", "definition Nat Pick(Nat first,Nat second) => first; "
@@ -951,6 +998,15 @@ public Nat RoundTripOwned()
         ("out-missing-call-modifier",
          "public Unit Init(out Nat dst) { dst = 1; return; } "
          "public Unit Wrong() { var x = 0; Init(x); return; }", "type"),
+        *(("out-scope-" + label, "public Unit Init(out Nat x) { x = 7; } "
+           f"public Nat Wrong(bool flag) {{ {branch} return value; }}", "name")
+          for label, branch in (
+              ("nested-block", "{ Init(out var value); }"),
+              ("constant-branch", "if (true) { Init(out var value); }"),
+              ("then-continuation", "if (flag) { Init(out var value); } else { return 5; }"),
+              ("else-continuation", "if (flag) { return 5; } else { Init(out var value); }"),
+              ("match-continuation", "match (flag) { true => { Init(out var value); }, false => return 5;, }"),
+          )),
         ("interface-blanket-impl",
          "public interface IdIface<T> { T Id(T x); } "
          "public impl<T> IdIface<T> { public definition T Id(T x) => x; }", "type"),

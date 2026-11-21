@@ -239,7 +239,7 @@ discharges no release obligation.
 | Member call `x.Method(a)` | Supplies the declaration's receiver loan; other arguments repeat their modes | M |
 | Conditional `if (c) a else b` | Mandatory `else`; the same join as a two-arm match | M |
 | Match expression | `match (e) { Pattern => value, ... }`, exhaustive, optional final comma | M |
-| Pattern test `e is P` | Boolean test; `if (e is P)` binds `P`'s variables in the `then` branch | M |
+| Pattern test `e is P` | A successful pattern binds its variables in later operands of the same `&&` chain and in the `then` branch of an `if` guard | M |
 | Record update `move base with { F = v }` | Declaration-order update; linear or affine records require `move` | M |
 | Formatting `Format.Write(ref builder, $"n={n}")` | Writes into a bounded buffer, returning `Result<usize, CapacityError>`; no heap string | M |
 
@@ -287,7 +287,7 @@ public Nat CountSome(Option<Nat> first, Option<Nat> second)
         Some(value) => { count += 1; },
         None => { },
     }
-    if (second is Some(other)) { count += 1; }
+    if (second is Some(other) && other > 0) { count += 1; }
     return count;
 }
 ```
@@ -318,6 +318,7 @@ public Nat CountTo(Nat limit)
 | `in T x` / `in place` | Shared-read loan | M |
 | `ref T x` / `ref place` | Initialized exclusive loan | M |
 | `out T x` / `out place` | Initialization loan: no read before initialization, initialized on every normal return | M |
+| `out var x` | Declares a fresh mutable output local in a standalone `Unit` call. Its type comes from the `out` parameter and its scope begins after the call | M (checked callee output) |
 | Receiver `this`, `ref this.Tail` | The receiver and a receiver loan limited to a named view | M (`this`), S (views) |
 | Named view `view Tail = slots[length], length grows;` | A part of a struct a signature can lend separately | S |
 | Place-named loan `'input`, `'this.text`; `region 'r` | A loan tied to one parameter or field; a region parameter only where no place can be named | S |

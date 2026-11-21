@@ -34,6 +34,8 @@ from toolchain.elaborate_types import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from toolchain.elaborate import _Elaborator
 
 
@@ -1083,6 +1085,8 @@ class _IntrinsicsMixin:
                     f"integer literal {val} is out of range for '{spec.name}' ({spec.min_val}..{spec.max_val})",
                     node,
                 )
+            if not suffix:
+                self.contextual_literal_types[cast("list[int]", operand_node["span"])[0]] = spec.name
             return _Binding(_int_term(spec, val), spec.const)
         if operator in {"-", "~"}:
             if expected_int is not None and self._int_spec(expected_int) is not None:
@@ -1127,6 +1131,12 @@ class _IntrinsicsMixin:
         operator = self.operator(node["operator"])
         left_node = self.node(node["left"])
         right_node = self.node(node["right"])
+        if operator == "&&" and (operands := self._pattern_conjuncts(node)):
+            literal: Node = {"kind": "bool", "span": node["span"], "value": True}
+            guarded = self._guard_conditional(
+                node, operands, literal, {**literal, "value": False}, environment,
+            )
+            return self._check_guard_value(guarded, environment, _BOOL)
         if operator in {"&&", "||", "==>", "<==>"}:
             left_b = _Binding(self.check(left_node, _BOOL, environment), _BOOL)
             if operator in {"&&", "==>"}:
@@ -1514,6 +1524,10 @@ class _IntrinsicsMixin:
                 is_in_param = p_mod == "in"
                 is_owned_param = p_mod == "owned"
                 arg_val_node = self._unwrap_group(self.node(arg_node["value"]))
+                if arg_val_node["kind"] == "out_variable":
+                    if not is_out_param:
+                        raise self.fail("type", "'out var' requires an 'out' parameter", arg_val_node)
+                    raise self.fail("unsupported", "'out var' requires a checked callee output value", arg_val_node)
                 arg_mod = (
                     cast("Node", arg_val_node["operator"]).get("text")
                     if (
@@ -1643,7 +1657,7 @@ class _IntrinsicsMixin:
             self.uninitialized_out_params.discard(vname)
         for t_node, t_dom in loan_targets.values():
             upd_term = self.fresh(t_dom)
-            self.last_call_updates.append((t_node, _Binding(upd_term, t_dom)))
+            self._record_call_update(t_node, _Binding(upd_term, t_dom))
         if mspec.name in ensures_dict:
             rem_m_ids, ens_props = ensures_dict[mspec.name]
             rem_vals = [*m_gen_args, *arg_terms]
@@ -1861,10 +1875,23 @@ class _IntrinsicsMixin:
             _apps(_constant(f"int_{binary_ops[name]}_{spec.name}"), lhs_b.term, rhs_b.term), ret_type
         )
 
-    def expression(self: _Elaborator, node: Node, environment: dict[str, _Binding]) -> _Binding:
+    def expression(
+        self: _Elaborator, node: Node, environment: dict[str, _Binding], *, standalone_call: bool = False
+    ) -> _Binding:
         self.tick()
         self.site = node
         kind = node["kind"]
+        if kind == "guard_scope":
+            return self.expression(self.node(node["value"]), self._guard_environment(node, environment))
+        if kind == "guard_block_state":
+            return self._guard_block_state(node, environment)
+        if kind == "guard_return":
+            result = self.branch(self.node(node["body"]), environment, cast("_Term | None", node["expected"]),
+                                 facts=cast("tuple[_Binding, ...]", node["facts"]))
+            return self._pack_guard_state(cast("tuple[str, ...]", node["mutable"]), self.final_ref_bindings, result)
+        if kind == "guard_resume":
+            resume = cast("Callable[[bool, dict[str, _Binding]], _Term]", node["resume"])
+            return _Binding(resume(cast("bool", node["truth"]), environment), cast("_Term", node["type"]))
         if kind == "nat":
             mag = _parse_numeric_magnitude(cast("str", node["value"]))
             suffix = cast("str", node["suffix"])
@@ -1985,6 +2012,18 @@ class _IntrinsicsMixin:
         if kind == "call":
             callee = self.node(node["callee"])
             call_args = self.nodes(node["arguments"])
+            declared: set[str] = set()
+            for arg in call_args:
+                target = self.node(arg["value"])
+                if target["kind"] == "out_variable":
+                    if not standalone_call:
+                        raise self.fail("type", "'out var' requires a standalone call statement", target)
+                    name = self.name(target["name"])
+                    if name == "_":
+                        raise self.fail("name", "'out var' requires a named output local", target)
+                    if name in environment or name in declared:
+                        raise self.fail("name", f"'out var' requires a fresh local name; '{name}' is already bound", target)
+                    declared.add(name)
             if callee["kind"] == "generic_application":
                 base_callee = self.node(callee["value"])
                 gen_args = self.nodes(callee["arguments"])

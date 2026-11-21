@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import cast, override
 
 from toolchain.ast import IDENTIFIER, MAX_SOURCE_BYTES
-from toolchain.authoring import LINT_CODES, is_pascal_case
+from toolchain.authoring import LINT_CODES, MATHEMATICAL_LINT_CODES, is_pascal_case
 from toolchain.lsp import Server
 from toolchain.playground_worker import require_parser
 from toolchain.protocol_json import MAX_BODY_BYTES, decode_message, encode_body
@@ -92,7 +92,7 @@ def _validate_findings(findings: object, source: str, *, mathematical: bool = Fa
     snapshot = SourceSnapshot("vela:playground-findings", 0, source, 1)
     lines = source.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     previous = (0, 0)
-    allowed = {"VELA105"} if mathematical else LINT_CODES - {"VELA105"}
+    allowed = set(MATHEMATICAL_LINT_CODES) if mathematical else LINT_CODES - {"VELA105"}
     for finding in findings:
         if (not isinstance(finding, dict) or set(finding) != {"code", "message", "line", "column"}
                 or not isinstance(finding["code"], str) or finding["code"] not in allowed
@@ -103,12 +103,18 @@ def _validate_findings(findings: object, source: str, *, mathematical: bool = Fa
         if mathematical:
             site = (finding["line"], finding["column"])
             line, column = lines[site[0] - 1], site[1] - 1
+            if site <= previous:
+                raise ValueError("mathematical findings must be in source order")
+            previous = site
+            if finding["code"] == "VELA107":
+                if line[column:column + 1] not in {"&", "^", "|"} or line[column:column + 2] in {"&&", "||"}:
+                    raise ValueError("mathematical precedence finding does not identify a bitwise operator")
+                continue
             name = IDENTIFIER.match(line, column)
-            if (site <= previous or name is None or is_pascal_case(name.group())
+            if (name is None or is_pascal_case(name.group())
                     or (column and (line[column - 1].isascii()
                                     and (line[column - 1].isalnum() or line[column - 1] == "_")))):
                 raise ValueError("mathematical naming finding does not identify a source name")
-            previous = site
 
 
 def _compiler_response(request: dict[str, object], digest: str, *,

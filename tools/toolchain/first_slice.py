@@ -35,6 +35,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, cast
@@ -58,6 +59,7 @@ from toolchain import (
     parser as vela_parser,
 )
 from toolchain.atomic import atomic_path
+from toolchain.elaborate_types import CheckedElaboration, _parse_numeric_magnitude
 from toolchain.jsonutil import unique_object
 
 TIMEOUT: Final = 120
@@ -1084,6 +1086,7 @@ def _lower_function_to_c(
     decl: dict[str, object],
     ctor_map: dict[str, int],
     record_fields: dict[str, list[tuple[str, str]]],
+    literal_type: Callable[[dict[str, object]], str],
 ) -> str:
     fname = _node_text(decl.get("name"))
     params = cast("list[dict[str, object]]", decl.get("parameters", []))
@@ -1136,6 +1139,8 @@ def _lower_function_to_c(
         if _is_span_call(val) is not None:
             return True, "struct vela_span_byte"
         vkind = str(val.get("kind", ""))
+        if vkind == "nat":
+            return False, _c_scalar_type(literal_type(val))
         if vkind == "index":
             return False, "unsigned char"
         if vkind == "call":
@@ -1201,9 +1206,11 @@ def _lower_function_to_c(
         node = _unwrap_arg(expr)
         ekind = str(node.get("kind", ""))
         if ekind == "nat":
-            raw_val = str(node.get("value", "0")).replace("_", "")
-            suffix = str(node.get("suffix") or "")
-            return f"{raw_val}UL" if suffix == "usize" else f"{raw_val}U"
+            width = literal_type(node)
+            digits = cast("str", node["value"]).replace("_", "")
+            # C treats leading zeros as octal, while Vela uses decimal.
+            magnitude = digits if digits.lower().startswith("0x") else str(_parse_numeric_magnitude(digits))
+            return magnitude + ("UL" if width == "usize" else "U")
         if ekind == "bool":
             return "1" if node.get("value") is True else "0"
         if ekind == "name":
@@ -1407,7 +1414,9 @@ def _lower_function_to_c(
     return "\n".join([header, *all_body, "}"])
 
 
-def lower_to_c(source: bytes, parsed: object, *, perturb_check: int = 0) -> tuple[str, int]:
+def lower_to_c(
+    source: bytes, parsed: object, *, perturb_check: int = 0, checked: CheckedElaboration | None = None
+) -> tuple[str, int]:
     """Lower the executable subset of `first_slice.vela` from its checked AST to C.
 
     Verifies that the parsed AST carries the expected executable type and callable
@@ -1417,6 +1426,8 @@ def lower_to_c(source: bytes, parsed: object, *, perturb_check: int = 0) -> tupl
     executable union, record, and function AST nodes into a self-contained C
     translation unit in the `verifiedos-scalar-source-v1` subset.
     """
+    if checked is not None and checked.source_sha256 != _sha256(source):
+        raise ValueError("packet literal types belong to a different source")
     decl_map = _extract_decl_map(parsed)
     required_callables = (
         ("ValidationError", "union"),
@@ -1450,11 +1461,24 @@ def lower_to_c(source: bytes, parsed: object, *, perturb_check: int = 0) -> tupl
         if actual != expected_kind:
             raise ValueError(f"first_slice AST missing executable declaration {name} ({expected_kind}), got {actual}")
 
+    def literal_type(node: dict[str, object]) -> str:
+        nonlocal checked
+        width = node.get("suffix")
+        if not width:
+            if checked is None:
+                checked = vela_elaborate.elaborate(source, parsed)
+            width = checked.contextual_literal_types.get(cast("list[int]", node["span"])[0])
+        if width is None:
+            raise ValueError("unconstrained packet integer literal requires an explicit type annotation or suffix")
+        if width not in ("usize", "u8", "byte"):
+            raise ValueError(f"packet literal requires a usize or byte representation, got {width!r}")
+        return cast("str", width)
+
     union_c, ctor_map = _lower_union_to_c(decl_map["ValidationError"])
     record_c, packet_fields = _lower_record_to_c(decl_map["ValidatedPacket"])
     record_fields = {"ValidatedPacket": packet_fields}
     fn_c_blocks = [
-        _lower_function_to_c(decl_map[fn_name], ctor_map, record_fields)
+        _lower_function_to_c(decl_map[fn_name], ctor_map, record_fields, literal_type)
         for fn_name in (
             "WritePacket8",
             "CopyPacketToDst",
@@ -2019,7 +2043,7 @@ def _qualify_attempt(
     neg_controls = _run_negative_controls(compiled, directory)
 
     # 5. Lower executable AST to Clight/C and execute on CompCert + Sail emulator
-    c_source, check_count = lower_to_c(source, parsed)
+    c_source, check_count = lower_to_c(source, parsed, checked=translated)
     c_path = directory / "first_slice.c"
     c_path.write_text(c_source, encoding="utf-8", newline="\n")
 
@@ -2086,7 +2110,7 @@ def _qualify_attempt(
         }]
         perturbed_runs: list[dict[str, object]] = []
         for check_id, label in PERTURBED_CASES:
-            p_src, p_checks = lower_to_c(source, parsed, perturb_check=check_id)
+            p_src, p_checks = lower_to_c(source, parsed, perturb_check=check_id, checked=translated)
             p_prog = cd.Program(label, "given", p_src, p_checks, check_id)
             processes: list[dict[str, object]] = []
             p_rep = cd.run_program(p_prog, ccomp_cmd, directory, simulator, profile, "", interp=True,

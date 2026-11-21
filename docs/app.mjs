@@ -4517,6 +4517,18 @@ export function projectGrammarSemanticTokens(sourceText) {
     }
   }
 
+  function walkCondition(expr, typeParams, valueParams, locals) {
+    if (expr.kind === "binary" && expr.op === "&&") {
+      walkCondition(expr.left, typeParams, valueParams, locals);
+      walkCondition(expr.right, typeParams, valueParams, locals);
+    } else if (expr.kind === "is_expr") {
+      walkExpr(expr.target, typeParams, valueParams, locals);
+      walkPattern(expr.pattern, typeParams, valueParams, locals);
+    } else {
+      walkExpr(expr, typeParams, valueParams, locals);
+    }
+  }
+
   function walkExpr(expr, typeParams, valueParams, locals) {
     if (!expr) return;
     if (expr.kind === "name") {
@@ -4582,6 +4594,10 @@ export function projectGrammarSemanticTokens(sourceText) {
       return;
     }
     if (expr.kind === "binary") {
+      if (expr.op === "&&") {
+        walkCondition(expr, typeParams, valueParams, new Map(locals));
+        return;
+      }
       walkExpr(expr.left, typeParams, valueParams, locals);
       walkExpr(expr.right, typeParams, valueParams, locals);
       return;
@@ -4592,11 +4608,8 @@ export function projectGrammarSemanticTokens(sourceText) {
       return;
     }
     if (expr.kind === "if_expr") {
-      walkExpr(expr.condition, typeParams, valueParams, locals);
       const thenLocals = new Map(locals);
-      if (expr.condition.kind === "is_expr") {
-        walkPattern(expr.condition.pattern, typeParams, valueParams, thenLocals);
-      }
+      walkCondition(expr.condition, typeParams, valueParams, thenLocals);
       walkExpr(expr.thenExpr, typeParams, valueParams, thenLocals);
       walkExpr(expr.elseExpr, typeParams, valueParams, locals);
       return;
@@ -4670,11 +4683,8 @@ export function projectGrammarSemanticTokens(sourceText) {
         }
         walkPattern(stmt.pattern, typeParams, valueParams, blockLocals);
       } else if (stmt.kind === "if_stmt") {
-        walkExpr(stmt.condition, typeParams, valueParams, blockLocals);
         const thenLocals = new Map(blockLocals);
-        if (stmt.condition.kind === "is_expr") {
-          walkPattern(stmt.condition.pattern, typeParams, valueParams, thenLocals);
-        }
+        walkCondition(stmt.condition, typeParams, valueParams, thenLocals);
         walkBlock(stmt.thenBranch, typeParams, valueParams, thenLocals);
         if (stmt.elseBranch) {
           walkBlock(stmt.elseBranch, typeParams, valueParams, new Map(blockLocals));
@@ -5316,6 +5326,28 @@ function parseFormatSegments(template, site) {
   return segments;
 }
 
+// The right side of a short-circuited guard is checked in the scope it
+// would have after a successful match, without constructing any values.
+function guardScope(condition, env) {
+  const scope = new Map(env);
+  function declare(node) {
+    if (node.kind === "binary" && node.op === "&&") {
+      declare(node.left);
+      declare(node.right);
+    } else if (node.kind === "is_expr") {
+      declare(node.pattern);
+    } else if (node.kind === "ctor_pat") {
+      for (const arg of node.args) declare(arg.pattern);
+    } else if (node.kind === "tuple_pat") {
+      for (const item of node.items) declare(item);
+    } else if (node.kind === "var_pat") {
+      scope.set(node.name, null);
+    }
+  }
+  declare(condition);
+  return scope;
+}
+
 function checkScalarValue(type, value, site, binding) {
   if (type?.kind !== "named_type") return;
   if ((type.name === "Nat" && (typeof value !== "bigint" || value < 0n)) ||
@@ -5443,6 +5475,35 @@ class MathElaborator {
     return { matched: false, bindings: new Map() };
   }
 
+  evalCondition(expr, env, typeError = "if condition must be bool") {
+    if (expr.kind === "binary" && expr.op === "&&") {
+      this.step(expr.site);
+      if (!this.evalCondition(expr.left, env, "operator '&&' requires bool")) {
+        this.checkSkippedBoolean(expr.right, guardScope(expr.left, env), "&&");
+        return false;
+      }
+      return this.evalCondition(expr.right, env, "operator '&&' requires bool");
+    }
+    if (expr.kind === "is_expr") {
+      this.step(expr.site);
+      const result = this.matchPattern(expr.pattern, this.evalExpr(expr.target, env));
+      if (result.matched) {
+        for (const [name, value] of result.bindings) {
+          if (env.has(name)) {
+            throw new VelaError("name", expr.site.line, expr.site.column, `duplicate or invalid local binding '${name}'`);
+          }
+          env.set(name, value);
+        }
+      }
+      return result.matched;
+    }
+    const value = this.evalExpr(expr, env);
+    if (typeof value !== "boolean") {
+      throw new VelaError("type", expr.site.line, expr.site.column, typeError);
+    }
+    return value;
+  }
+
   evalBlock(block, env) {
     if (block.kind === "expr_body") {
       return { returned: true, value: this.evalExpr(block.expr, env) };
@@ -5495,29 +5556,9 @@ class MathElaborator {
         continue;
       }
       if (stmt.kind === "if_stmt") {
-        if (stmt.condition.kind === "is_expr") {
-          const targetVal = this.evalExpr(stmt.condition.target, localEnv);
-          const matched = this.matchPattern(stmt.condition.pattern, targetVal);
-          if (matched.matched) {
-            const branchEnv = new Map(localEnv);
-            for (const [k, v] of matched.bindings.entries()) branchEnv.set(k, v);
-            const res = this.evalBlock(stmt.thenBranch, branchEnv);
-            if (res.returned) return res;
-            for (const [k, v] of branchEnv.entries()) {
-              if (localEnv.has(k) && !matched.bindings.has(k)) localEnv.set(k, v);
-            }
-          } else if (stmt.elseBranch) {
-            const res = this.evalBlock(stmt.elseBranch, localEnv);
-            if (res.returned) return res;
-          }
-          continue;
-        }
-        const cond = this.evalExpr(stmt.condition, localEnv);
-        if (typeof cond !== "boolean") {
-          throw new VelaError("type", stmt.site.line, stmt.site.column, "if condition must be bool");
-        }
-        if (cond) {
-          const res = this.evalBlock(stmt.thenBranch, localEnv);
+        const thenEnv = new Map(localEnv);
+        if (this.evalCondition(stmt.condition, thenEnv)) {
+          const res = this.evalBlock(stmt.thenBranch, thenEnv);
           if (res.returned) return res;
         } else if (stmt.elseBranch) {
           const res = this.evalBlock(stmt.elseBranch, localEnv);
@@ -5598,6 +5639,13 @@ class MathElaborator {
     return { returned: false, value: { __kind: "unit" } };
   }
 
+  checkSkippedBoolean(expr, env, operator) {
+    const type = this.scalarType(expr, env);
+    if (type && type !== "bool") {
+      throw new VelaError("type", expr.site.line, expr.site.column, `operator '${operator}' requires bool`);
+    }
+  }
+
   // Check the type of skipped Boolean operands without reducing their calls.
   scalarType(expr, env) {
     this.step(expr.site);
@@ -5616,9 +5664,13 @@ class MathElaborator {
       }
       throw new VelaError("name", expr.site.line, expr.site.column, `unknown identifier '${expr.name}'`);
     }
+    if (expr.kind === "is_expr") {
+      this.scalarType(expr.target, env);
+      return "bool";
+    }
     if (expr.kind === "binary") {
       const left = this.scalarType(expr.left, env);
-      const right = this.scalarType(expr.right, env);
+      const right = this.scalarType(expr.right, expr.op === "&&" ? guardScope(expr.left, env) : env);
       if (expr.op === "==" || expr.op === "!=") {
         if (left && right && left !== right) {
           throw new VelaError("type", expr.site.line, expr.site.column, `operator '${expr.op}' requires operands of matching types`);
@@ -5666,6 +5718,9 @@ class MathElaborator {
   }
 
   evalExpr(expr, env) {
+    if (expr.kind === "binary" && expr.op === "&&") {
+      return this.evalCondition(expr, new Map(env));
+    }
     this.step(expr.site);
     if (expr.kind === "nat") return boundedNatural(expr.value, expr.site);
     if (expr.kind === "bool") return expr.value;
@@ -5724,26 +5779,10 @@ class MathElaborator {
       return Boolean(this.evalExpr(expr.body, qEnv));
     }
     if (expr.kind === "if_expr") {
-      if (expr.condition.kind === "is_expr") {
-        const targetVal = this.evalExpr(expr.condition.target, env);
-        const m = this.matchPattern(expr.condition.pattern, targetVal);
-        if (m.matched) {
-          const thenEnv = new Map(env);
-          for (const [k, v] of m.bindings.entries()) thenEnv.set(k, v);
-          return this.evalExpr(expr.thenExpr, thenEnv);
-        }
-        return this.evalExpr(expr.elseExpr, env);
-      }
-      const cond = this.evalExpr(expr.condition, env);
-      if (typeof cond !== "boolean") {
-        throw new VelaError(
-          "type",
-          expr.site.line,
-          expr.site.column,
-          "if condition must have type bool"
-        );
-      }
-      return cond ? this.evalExpr(expr.thenExpr, env) : this.evalExpr(expr.elseExpr, env);
+      const thenEnv = new Map(env);
+      return this.evalCondition(expr.condition, thenEnv)
+        ? this.evalExpr(expr.thenExpr, thenEnv)
+        : this.evalExpr(expr.elseExpr, env);
     }
     if (expr.kind === "is_expr") {
       const targetVal = this.evalExpr(expr.target, env);
@@ -5843,17 +5882,14 @@ class MathElaborator {
     }
     if (expr.kind === "binary") {
       const op = expr.op;
-      if (op === "&&" || op === "||" || op === "==>") {
+      if (op === "||" || op === "==>") {
         const left = this.evalExpr(expr.left, env);
         if (typeof left !== "boolean") {
           throw new VelaError("type", expr.site.line, expr.site.column, `operator '${op}' requires bool`);
         }
-        if ((op === "&&" && !left) || (op === "||" && left) || (op === "==>" && !left)) {
-          const rightType = this.scalarType(expr.right, env);
-          if (rightType && rightType !== "bool") {
-            throw new VelaError("type", expr.site.line, expr.site.column, `operator '${op}' requires bool`);
-          }
-          return op !== "&&";
+        if ((op === "||" && left) || (op === "==>" && !left)) {
+          this.checkSkippedBoolean(expr.right, env, op);
+          return true;
         }
         const right = this.evalExpr(expr.right, env);
         if (typeof right !== "boolean") {
@@ -7064,7 +7100,7 @@ function initPlaygroundUi() {
     const position = error ? compilerPosition(error.line, error.column) : null;
     const findings = result.ok ? result.findings : [];
     if (!Array.isArray(findings)) {
-      throw new Error("The compiler returned incomplete naming findings.");
+      throw new Error("The compiler returned incomplete lint findings.");
     }
     publishDiagnostics(
       error
@@ -7083,7 +7119,7 @@ function initPlaygroundUi() {
               severity: 2,
               message: finding.message,
               code: finding.code,
-              source: "Vela naming lint",
+              source: "Vela lint",
             };
           })
     );

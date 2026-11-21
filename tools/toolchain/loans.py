@@ -1862,6 +1862,33 @@ class _FunctionLowerer:
                 self._register_owner(bname, borrowed=False)
         return current
 
+    def _lower_condition(
+        self, current: str | None, condition: dict[str, object],
+    ) -> tuple[str | None, str, dict[str, str]]:
+        pending = [condition]
+        failure = self._fresh_node("if_else")
+        outer_handles: dict[str, str] | None = None
+        while pending:
+            operand = pending.pop()
+            if operand.get("kind") == "group":
+                pending.append(_ast_node(operand.get("expression") or operand["value"]))
+                continue
+            if operand.get("kind") == "binary" and _op_text(operand["operator"]) == "&&":
+                pending.extend((_ast_node(operand["right"]), _ast_node(operand["left"])))
+                continue
+            current, captures = self._lower_expr(current, operand)
+            if outer_handles is None:
+                outer_handles = dict(self.handles)
+            split = self._emit(current, Nop(), "if_split")
+            current = self._fresh_node("if_then")
+            self._connect(split, current)
+            self._connect(split, failure)
+            if operand.get("kind") in {"is", "is_expression"}:
+                current = self._bind_pattern_from_captures(
+                    current, _ast_node(operand["pattern"]), captures, self._try_place(_ast_node(operand["value"])),
+                )
+        return current, failure, outer_handles if outer_handles is not None else {}
+
     def _lower_expr(
         self, current: str | None, expr: dict[str, object]
     ) -> tuple[str | None, tuple[str, ...]]:
@@ -1983,6 +2010,12 @@ class _FunctionLowerer:
                 return current, ()
 
             if kind == "binary":
+                if _op_text(expr["operator"]) == "&&":
+                    success, failure, self.handles = self._lower_condition(current, expr)
+                    join = self._fresh_node("join_and")
+                    self._connect(success, join)
+                    self._connect(failure, join)
+                    return join, ()
                 left = _ast_node(expr["left"])
                 right = _ast_node(expr["right"])
                 current, _ = self._lower_expr(current, left)
@@ -2033,19 +2066,7 @@ class _FunctionLowerer:
                 cond = _ast_node(expr["condition"])
                 then_br = _ast_node(expr.get("then_branch") or expr["then"])
                 else_br = _ast_node(expr.get("else_branch") or expr["else"])
-                current, cond_caps = self._lower_expr(current, cond)
-                split = self._emit(current, Nop(), "if_split")
-                then_entry = self._fresh_node("if_then")
-                else_entry = self._fresh_node("if_else")
-                self._connect(split, then_entry)
-                self._connect(split, else_entry)
-                saved_handles = dict(self.handles)
-                if cond.get("kind") in {"is", "is_expression"}:
-                    pat = _ast_node(cond["pattern"])
-                    src_place = self._try_place(_ast_node(cond["value"]))
-                    then_entry = self._bind_pattern_from_captures(
-                        then_entry, pat, cond_caps, src_place
-                    )
+                then_entry, else_entry, saved_handles = self._lower_condition(current, cond)
                 then_exit, then_caps = self._lower_expr(then_entry, then_br)
                 self.handles = dict(saved_handles)
                 else_exit, else_caps = self._lower_expr(else_entry, else_br)
@@ -2417,19 +2438,7 @@ class _FunctionLowerer:
                 else_raw = stmt.get("else_body") if "else_body" in stmt else stmt.get("else")
                 then_body = _body_statements(then_raw)
                 else_body = _body_statements(else_raw)
-                current, cond_caps = self._lower_expr(current, cond)
-                split = self._emit(current, Nop(), "if_split")
-                then_entry = self._fresh_node("if_then")
-                else_entry = self._fresh_node("if_else")
-                self._connect(split, then_entry)
-                self._connect(split, else_entry)
-                saved_handles = dict(self.handles)
-                if cond.get("kind") in {"is", "is_expression"}:
-                    pat = _ast_node(cond["pattern"])
-                    src_place = self._try_place(_ast_node(cond["value"]))
-                    then_entry = self._bind_pattern_from_captures(
-                        then_entry, pat, cond_caps, src_place
-                    )
+                then_entry, else_entry, saved_handles = self._lower_condition(current, cond)
                 then_exit = self._lower_statements(
                     then_entry, then_body, loop_header=loop_header, loop_exit=loop_exit
                 )

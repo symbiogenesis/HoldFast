@@ -2114,6 +2114,35 @@ def _raw_strings_and_checked_formatting() -> None:
     )
     _refuses(alias_read, "type", "alias")
 
+    snapshot = _Fixture("FormatSnapshot")
+    count = _call(_variable("Written"), _variable("b"))
+    snapshot.function(
+        "WriteLength",
+        _type("TextBuilder", _natural(16)),
+        (("b", _type("TextBuilder", _natural(16))),),
+        _block_stmts(
+            _let_stmt("writtenBeforeFormat", count),
+            _return_stmt(_call(
+                _member(_variable("Format"), "Write"),
+                _ref_arg(_variable("b")),
+                _interpolated_literal('$"n={writtenBeforeFormat:x4}"'),
+            )),
+        ),
+        block=True,
+    )
+    ensure("vela_Written" in elaborate(*snapshot.response()).gallina,
+           "a previously evaluated count still conflicts with the formatting loan")
+
+    count_conflict = _Fixture("FormatSnapshotHint")
+    count_conflict.definition(
+        "WriteLength",
+        _type("TextBuilder", _natural(16)),
+        (("b", _type("TextBuilder", _natural(16))),),
+        _call(_member(_variable("Format"), "Write"), _ref_arg(_variable("b")), _interpolated_literal('$"n={Written(b):x4}"')),
+    )
+    _refuses(count_conflict, "type", "exclusive 'ref' target loan starts at line")
+    _refuses(count_conflict, "type", 'let writtenBeforeFormat = Written(b) in Format.Write(ref b, $"n={writtenBeforeFormat:x4}")')
+
     bad_hole_syntax = _Fixture("BadHoleSyntax")
     bad_hole_syntax.definition(
         "Wrong",
@@ -2178,6 +2207,98 @@ def _pat_labeled(label: str, pattern: Form) -> Form:
         pat_node = pattern(fixture)
         return fixture.node("labeled_pattern", start, label=lbl_node, pattern=pat_node)
     return form
+
+
+def _pattern_conjunctions() -> None:
+    match = _is_expr(_variable("value"), _pat_ctor("Succ", _pat_bind("n")))
+    guard = _binary("&&", match, _binary(">", _variable("n"), _natural(1)))
+    params = (("value", _NAT),)
+    fixture = _Fixture("PatternConjunction")
+    fixture.function(
+        "Pick", _NAT, params, _block_stmts(
+            _var_stmt("answer", _natural(0)),
+            _if_stmt(guard, _block_stmts(_assign_stmt(_variable("answer"), "=", _variable("n")))),
+            _return_stmt(_variable("answer")),
+        ), block=True,
+    )
+    fixture.definition("Guard", _BOOL, params, guard)
+    fixture.definition("PickExpression", _NAT, params, _if_expr(guard, _variable("n"), _natural(0)))
+    fixture.function(
+        "PickLoop", _NAT, params, _block_stmts(
+            _var_stmt("answer", _natural(0)),
+            _foreach_range("i", _natural(0), _natural(1), (
+                _if_stmt(guard, _block_stmts(_assign_stmt(_variable("answer"), "=", _variable("n")))),
+            )),
+            _return_stmt(_variable("answer")),
+        ), block=True,
+    )
+    fixture.union("Option", (("None", ()), ("Some", (("Value", _T),))), generics=_POLY)
+    opt = _type("Option", _BOOL)
+    propagated = _binary("&&", match, _binary("==", _propagate(_variable("other")),
+                                               _binary(">", _variable("n"), _natural(0))))
+    fixture.function(
+        "GuardOptional", opt, (*params, ("other", opt)), _block_stmts(
+            _let_stmt("passed", propagated), _return_stmt(_call("Some", _variable("passed"))),
+        ), block=True,
+    )
+    for index, (value, flag, expected) in enumerate((
+        (0, _variable("None", _BOOL), _call("Some", _boolean(False))),
+        (2, _variable("None", _BOOL), _variable("None", _BOOL)),
+        (3, _call("Some", _boolean(True)), _call("Some", _boolean(True))),
+    )):
+        equality = _binary("==", _call("GuardOptional", _natural(value), flag), expected)
+        fixture.theorem(f"Propagate{index}", (), equality, _assert(equality))
+    for value, result in ((4, 3), (2, 0), (0, 0)):
+        for name in ("Pick", "PickExpression", "PickLoop", "Guard"):
+            expected = _boolean(result != 0) if name == "Guard" else _natural(result)
+            equality = _binary("==", _call(name, _natural(value)), expected)
+            fixture.theorem(f"{name}At{value}", (), equality, _assert(equality))
+    elaborate(*fixture.response())
+    for name, body in (
+        ("ElseEscape", _if_expr(guard, _natural(0), _variable("n"))),
+        ("LeftEscape", _if_expr(_binary("&&", _binary(">", _variable("n"), _natural(0)), match),
+                                _natural(1), _natural(0))),
+        ("OrEscape", _if_expr(_binary("||", match, _binary(">", _variable("n"), _natural(0))),
+                              _natural(1), _natural(0))),
+    ):
+        invalid = _Fixture(name)
+        invalid.definition("Wrong", _NAT, params, body)
+        _refuses(invalid, "name", "n")
+    missing = _Fixture("MissingGuardedOutput")
+    missing.function("Wrong", _type("Unit"), (*params, ("dst", _modified("out", _NAT))), _block_stmts(
+        _if_stmt(guard, _block_stmts(_assign_stmt(_variable("dst"), "=", _variable("n")))), _return_stmt(),
+    ), block=True)
+    _refuses(missing, "type", "initialized")
+
+
+def _pattern_guard_mutation() -> None:
+    def fixture_with_touch() -> _Fixture:
+        fixture = _Fixture("BorrowedPatternState")
+        fixture.function("Touch", _BOOL, (("dst", _modified("ref", _NAT)),), _block_stmts(
+            _assign_stmt(_variable("dst"), "=", _natural(1)), _return_stmt(_boolean(True)),
+        ), block=True)
+        return fixture
+
+    pattern = _is_expr(_variable("value"), _pat_ctor("Succ", _pat_bind("n")))
+    guard = _binary("&&", pattern, _call("Touch", _ref_arg(_variable("dst"))))
+    fixture = fixture_with_touch()
+    fixture.function("Set", _type("Unit"), (("value", _NAT), ("dst", _modified("ref", _NAT))), _block_stmts(
+        _if_stmt(guard, _block_stmts(_return_stmt()), _block_stmts(_return_stmt())),
+    ), block=True)
+    fixture.function("Observe", _NAT, (("value", _NAT),), _block_stmts(
+        _var_stmt("dst", _natural(0)), _expr_stmt(_call("Set", _variable("value"), _ref_arg(_variable("dst")))),
+        _return_stmt(_variable("dst")),
+    ), block=True)
+    for value, expected in ((0, 0), (2, 1)):
+        claim = _binary("==", _call("Observe", _natural(value)), _natural(expected))
+        fixture.theorem(f"ObserveAt{value}", (), claim, _assert(claim))
+    elaborate(*fixture.response())
+    for value_expression in (guard, _if_expr(guard, _variable("n"), _natural(0))):
+        invalid = fixture_with_touch()
+        invalid.function("Wrong", _NAT, (("value", _NAT),), _block_stmts(
+            _var_stmt("dst", _natural(0)), _let_stmt("ignored", value_expression), _return_stmt(_variable("dst")),
+        ), block=True)
+        _refuses(invalid, "unsupported", "mutable loan update")
 
 
 def _let_else_block(pattern: Form, value: Form, otherwise: Form, body: Form) -> Form:
@@ -5087,6 +5208,15 @@ def _out_arg(value: Form) -> Form:
     return form
 
 
+def _out_var(name: str) -> Form:
+    def form(fixture: _Fixture) -> Node:
+        start = fixture.offset
+        fixture.write("out var ")
+        return fixture.node("out_variable", start, name=fixture.name(name))
+
+    return form
+
+
 def _import_decl(fixture: _Fixture, module_path: str) -> None:
     fixture.write("\n")
     start = fixture.offset
@@ -5325,8 +5455,45 @@ def _out_loan_parameters_and_initialization_tracking() -> None:
         block=True,
         contracts=(_contract("ensures", _binary("==", _variable("result"), _natural(23))),),
     )
+    fixture.function(
+        "UseInlineOut",
+        _NAT,
+        (),
+        _block_stmts(
+            _expr_stmt(_call("DelegateOut", _natural(10), _out_var("a"), _out_var("b"), labels=(None, "a", "b"))),
+            _assign_stmt(_variable("a"), "+=", _natural(1)),
+            _return_stmt(_binary("+", _variable("a"), _variable("b"))),
+        ),
+        block=True,
+        contracts=(_contract("ensures", _binary("==", _variable("result"), _natural(24))),),
+    )
     source, response = fixture.response()
     elaborate(source, response)
+
+    for statements, category, diagnostic in (
+        ((_expr_stmt(_call("Init", _out_var("x"), _out_var("x"))),), "name", "already bound"),
+        ((_var_stmt("x", _natural(0)), _expr_stmt(_call("Init", _out_var("x"), _out_var("y")))), "name", "already bound"),
+        ((_expr_stmt(_call("Input", _out_var("x"), _variable("x"))),), "name", "unknown or forward name 'x'"),
+        ((_expr_stmt(_call("Input", _out_var("x"), _out_var("y"))),), "type", "requires an 'out' parameter"),
+        ((_expr_stmt(_call("Produce", _out_var("x"))),), "type", "must return Unit"),
+        ((_return_stmt(_call("Init", _out_var("x"), _out_var("y"))),), "type", "standalone call statement"),
+    ):
+        refused = _Fixture("RefusedInlineOut")
+        refused.function(
+            "Init", _type("Unit"), (("a", _modified("out", _NAT)), ("b", _modified("out", _NAT))),
+            _block_stmts(_assign_stmt(_variable("a"), "=", _natural(1)), _assign_stmt(_variable("b"), "=", _natural(2))),
+            block=True,
+        )
+        refused.function(
+            "Input", _type("Unit"), (("output", _modified("out", _NAT)), ("value", _NAT)),
+            _block_stmts(_assign_stmt(_variable("output"), "=", _variable("value"))), block=True,
+        )
+        refused.function(
+            "Produce", _NAT, (("output", _modified("out", _NAT)),),
+            _block_stmts(_assign_stmt(_variable("output"), "=", _natural(1)), _return_stmt(_natural(2))), block=True,
+        )
+        refused.function("Caller", _type("Unit"), (), _block_stmts(*statements), block=True)
+        _refuses(refused, category, diagnostic)
 
     uninit_return = _Fixture("UninitOutReturn")
     uninit_return.function(
@@ -5914,6 +6081,7 @@ def _source_bound_borrows_and_constructive_postconditions() -> None:
         block=True,
     )
     _refuses(read_while_exclusive, "type", "suspended-parent")
+    _refuses(read_while_exclusive, "type", "exclusive loan of 'x' created at line")
 
     same_field_conflict = _Fixture("BorrowSameFieldConflict")
     same_field_conflict.record("Pair", (("Left", _type("u32")), ("Right", _type("u32"))))
@@ -6355,6 +6523,8 @@ def cases() -> list[Case]:
             Case("dependent-records-and-existential-propositions", _dependent_records_and_existential_propositions),
             Case("early-return-propagation-for-option-and-result", _early_return_propagation),
             Case("short-circuit-option-and-result-propagation", _short_circuit_propagation),
+            Case("pattern-bindings-across-positive-conjunctions", _pattern_conjunctions),
+            Case("pattern-guard-conditional-loan-updates", _pattern_guard_mutation),
             Case("propagation-preserves-explicit-evaluation-order", _propagation_evaluation_order),
             Case("represented-integers-preconditions-and-conversions", _represented_integers_and_conversions),
             Case("pure-sequences-and-model-reasoning", _pure_sequences_and_model_reasoning),

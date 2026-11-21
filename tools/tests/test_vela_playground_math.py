@@ -636,6 +636,47 @@ if (!vela105Compiled.ok || vela105Compiled.findings?.length !== 1) {
 }
 parity.vela105 = vela105Compiled.findings[0];
 
+const guardedSource = [
+  "module PatternGuards;",
+  "public definition bool HasRoom(Nat v) => v is Succ(prev) && prev > 0;",
+  "public definition Nat Pick(Nat v) => if (true && v is Succ(n) && n is Succ(rest)) rest else 10;",
+  "public Nat Read(Nat v) { if (v is Succ(n) && n > 1) { return n; } else { return 0; } }",
+].join("\n");
+for (const source of [ordinarySource, guardedSource]) {
+  const result = await mod.browserApi("/api/evaluate", {
+    source, expression: "if (4 is Succ(prev) && prev > 1) prev else 0", valueType: "Nat",
+  });
+  if (!result.ok || result.value !== "3") {
+    throw new Error(`Pattern guards depended on the surrounding declarations: ${JSON.stringify(result)}`);
+  }
+}
+const guardTokens = mod.projectGrammarSemanticTokens(guardedSource).tokens;
+for (const [line, sourceLine] of guardedSource.split("\n").entries()) {
+  for (const occurrence of sourceLine.matchAll(/\b(n|prev|rest)\b/g)) {
+    if (!guardTokens.some(token => token.line === line && token.character === occurrence.index && token.type === "variable")) {
+      throw new Error(`Missing guarded pattern variable at ${line}:${occurrence.index}`);
+    }
+  }
+}
+for (const [expression, valueType, expected] of [
+  ["HasRoom(0)", "bool", "false"], ["HasRoom(2)", "bool", "true"],
+  ["Pick(1)", "Nat", "10"], ["Pick(5)", "Nat", "3"], ["Read(5)", "Nat", "4"],
+]) {
+  const result = await mod.browserApi("/api/evaluate", { source: guardedSource, expression, valueType });
+  if (!result.ok || result.value !== expected) {
+    throw new Error(`Pattern guard evaluation failed for ${expression}: ${JSON.stringify(result)}`);
+  }
+}
+for (const expression of [
+  "if (0 is Succ(n) && n > 1) 1 else n",
+  "if (0 is Succ(n) || n == 0) 1 else 0",
+]) {
+  const result = await mod.browserApi("/api/evaluate", { source: guardedSource, expression, valueType: "Nat" });
+  if (result.ok || result.error?.kind !== "name") {
+    throw new Error(`Pattern binding escaped in ${expression}: ${JSON.stringify(result)}`);
+  }
+}
+
 class MockElement {
   constructor(tagName = "div", id = "") {
     this.tagName = tagName.toUpperCase();

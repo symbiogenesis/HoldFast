@@ -22,6 +22,8 @@ from toolchain.elaborate import Elaboration
 from toolchain.surface import nodes
 
 _BUILD_CACHE: tuple[tuple[Path, int, int, int], vela_parser.Build] | None = None
+_COMPARISON = frozenset({"==", "!=", "<", "<=", ">", ">="})
+_BITWISE = frozenset({"&", "^", "|"})
 
 
 def _build(parser: Path) -> vela_parser.Build:
@@ -42,26 +44,42 @@ class Compilation(Elaboration):
 
 
 def inspect_source(source: bytes, parsed: object) -> Compilation:
-    """Inspect type binders only after complete exact-source semantic acceptance.
-
-    The [generic naming contract](../../docs/tooling/authoring-tools.md#generic-type-parameter-naming)
-    keeps this advisory inspection separate from mathematical acceptance.
-    """
+    """Inspect accepted syntax after complete exact-source semantic checking."""
     translation = vela_elaborate.elaborate(source, parsed)
     ast = cast("vela_parser.Json", cast("dict[str, object]", parsed)["ast"])
     names: list[tuple[int, Name]] = []
+    precedence: list[Finding] = []
     for item in nodes(ast):
         if item.get("kind") == "generic_parameter" and item.get("mode") == "type":
             identifier = cast("dict[str, vela_parser.Json]", item["name"])
             offset = cast("int", cast("list[vela_parser.Json]", identifier["span"])[0])
             names.append((offset, Name(cast("str", identifier["text"]),
                                        position(source[:offset].decode("utf-8")))))
+        if item.get("kind") == "binary" and _operator(item) in _COMPARISON:
+            for side in ("left", "right"):
+                operand = item.get(side)
+                if isinstance(operand, dict) and operand.get("kind") == "binary" and _operator(operand) in _BITWISE:
+                    byte_span = cast("list[vela_parser.Json]", operand["span"])
+                    start, end = cast("int", byte_span[0]), cast("int", byte_span[1])
+                    operator = cast("dict[str, vela_parser.Json]", operand["operator"])
+                    offset = cast("int", cast("list[vela_parser.Json]", operator["span"])[0])
+                    site = position(source[:offset].decode("utf-8"))
+                    expression = source[start:end].decode("utf-8")
+                    message = "parenthesize this bitwise operand to make comparison precedence explicit"
+                    if len(expression) <= 60 and "\n" not in expression and "\r" not in expression:
+                        message += f": ({expression})"
+                    precedence.append(Finding("VELA107", message, site.line, site.column))
     names.sort(key=lambda item: item[0])
     findings = sorted(
-        generic_type_findings(tuple(name for _, name in names)),
+        (*generic_type_findings(tuple(name for _, name in names)), *precedence),
         key=lambda item: (item.line, item.column, item.code),
     )
     return Compilation(translation.module, translation.gallina, tuple(findings))
+
+
+def _operator(node: dict[str, vela_parser.Json]) -> str:
+    operator = cast("dict[str, vela_parser.Json]", node["operator"])
+    return cast("str", operator["text"])
 
 
 def compile_source(source: bytes, parser: Path) -> Compilation:
