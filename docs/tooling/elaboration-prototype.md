@@ -246,7 +246,10 @@ The supported increment includes:
   exact length of its logical sequence. A vacant range gives write permission and
   bounds. Relocating a readable source additionally requires write permission on
   that source. Publishing the destination as a live prefix requires read permission
-  there, even after its representation has been copied.
+  there, even after its representation has been copied. For a move between
+  independently quantified capacities, the kernel checks destination liveness,
+  both vacancy postconditions and equality of the destination prefix to the
+  source prefix at entry.
 - Inline `out var name` declarations in standalone `Unit` calls introduce
   fresh mutable locals after the call returns. Each local takes its type from
   its output parameter and its value from the checked callee update. Calls

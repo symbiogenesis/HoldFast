@@ -621,6 +621,70 @@ class _ProofsMixin:
                 return _apps(_constant("vela_extent_bound_cases"), base, count, limit, hi, fact.term, refl)
         return None
 
+    def _vacant_prefix_proof(self: _Elaborator, goal: _Term, facts: tuple[_Binding, ...]) -> _Term | None:
+        head, args = self.spine(goal)
+        zero = _int_term(_INT_SPECS["usize"], 0)
+        if head != _constant("Slots_VacantRange") or len(args) != 5 or not self.convertible(args[3], zero):
+            return None
+        elem, cap, slots, _, count = args
+        truth = _term("bool", value=1)
+        for fact in facts:
+            equality = self._extract_equality(fact.type)
+            if equality is None or not self.convertible(equality[2], truth):
+                continue
+            operator, bounds = self.spine(equality[1])
+            if operator != _constant("int_le_usize") or len(bounds) != 2 or not self.convertible(count, bounds[0]):
+                continue
+            larger = _apps(head, elem, cap, slots, zero, bounds[1])
+            premise = _apps(_constant("Eq"), _BOOL, larger, truth)
+            vacancy = next((known.term for known in facts if self._try_unify(known.type, premise)), None)
+            if vacancy is not None:
+                return _apps(_constant("vela_Slots_vacant_shrink"), elem, cap, slots, count, bounds[1], vacancy, fact.term)
+        return None
+
+    def _transferred_vacancy_proof(self: _Elaborator, goal: _Term, facts: tuple[_Binding, ...]) -> _Term | None:
+        head, args = self.spine(goal)
+        if head != _constant("Slots_VacantRange") or len(args) != 5:
+            return None
+        elem, cap, slots, start, stop = args
+        zero = _int_term(_INT_SPECS["usize"], 0)
+        transfer, moved = self.spine(self.whnf(slots))
+        if len(moved) != 4:
+            return None
+        truth = _term("bool", value=1)
+        if transfer == _constant("Slots_TransferSource") and self.convertible(start, zero):
+            for fact in facts:
+                equality = self._extract_equality(fact.type)
+                if equality is None or not self.convertible(equality[2], truth):
+                    continue
+                vacancy, old = self.spine(equality[1])
+                if (vacancy == head and len(old) == 5 and self.convertible(old[2], moved[2])
+                        and self.convertible(old[4], stop)):
+                    return _apps(_constant("vela_Slots_vacant_after_move"), elem, cap, moved[2], moved[3], old[3], stop, fact.term)
+        if transfer == _constant("Slots_TransferDest") and self.convertible(moved[3], start):
+            copy, params = self.spine(self.whnf(moved[2]))
+            if copy != _constant("Slots_CopyRepresentation") or len(params) != 6 or not self.convertible(params[5], start):
+                return None
+            _, src_cap, _, src, dst, _ = params
+            vacant = _apps(_constant("Eq"), _BOOL, _apps(head, elem, cap, dst, zero, stop), truth)
+            bounded = _apps(_constant("Eq"), _BOOL, _apps(_constant("int_le_usize"), start, stop), truth)
+            hv = next((f.term for f in facts if self._try_unify(f.type, vacant)), None)
+            hb = next((f.term for f in facts if self._try_unify(f.type, bounded)), None)
+            if hv is not None and hb is not None:
+                return _apps(_constant("vela_Slots_vacant_after_copy"), elem, src_cap, cap, src, dst, start, stop, hv, hb)
+        return None
+
+    def _repeated_take_proof(self: _Elaborator, lhs: _Term, rhs: _Term) -> _Term | None:
+        head, outer = self.spine(self.whnf(lhs))
+        if head != _constant("Seq_Take") or len(outer) != 3:
+            return None
+        nested = self.whnf(outer[1])
+        inner_head, inner = self.spine(nested)
+        if (inner_head != head or len(inner) != 3 or not self.convertible(inner[2], outer[2])
+                or not self.convertible(nested, rhs)):
+            return None
+        return _apps(_constant("vela_Seq_take_idempotent"), inner[0], inner[2], inner[1])
+
     def _copied_live_prefix_proof(self: _Elaborator, lhs: _Term, facts: tuple[_Binding, ...]) -> _Term | None:
         head, args = self.spine(lhs)
         if head != _constant("Slots_LivePrefix") or len(args) != 4:
@@ -642,9 +706,10 @@ class _ProofsMixin:
         for premise in premises:
             expected = _apps(_constant("Eq"), _BOOL, premise, _term("bool", value=1))
             fact = next((fact for fact in facts if self._try_unify(fact.type, expected)), None)
-            if fact is None:
+            proof = fact.term if fact is not None else self._vacant_prefix_proof(premise, facts)
+            if proof is None:
                 return None
-            proofs.append(fact.term)
+            proofs.append(proof)
         return _apps(_constant("vela_Slots_live_after_copy"), elem, source_cap, cap, source, dest, count, *proofs)
 
     def _prove_span_read_equality(
@@ -910,6 +975,9 @@ class _ProofsMixin:
                 copied = self._copied_live_prefix_proof(lhs_r, all_facts)
                 if copied is not None:
                     return copied
+                vacant = self._transferred_vacancy_proof(lhs_r, all_facts)
+                if vacant is not None:
+                    return vacant
                 lhs_head, lhs_args = self.spine(lhs_r)
                 if lhs_head != _constant("&&") or len(lhs_args) != 2:
                     lhs_w = self.whnf(lhs_r)
@@ -1008,6 +1076,13 @@ class _ProofsMixin:
                                 cmp_args[1],
                                 _term("nat", value=cast("int", k_w.value) - 1),
                             )
+            if allow_refl and self.spine(goal_type_w)[0] == _constant("Seq"):
+                canonical = self._repeated_take_proof(lhs, rhs)
+                if canonical is not None:
+                    return canonical
+                reverse = self._repeated_take_proof(rhs, lhs)
+                if reverse is not None:
+                    return _apps(_constant("Symm"), goal_type_w, rhs, lhs, reverse)
             if allow_refl and goal_type_w == _NAT:
                 lhs_w = self.whnf(lhs)
                 rhs_w = self.whnf(rhs)

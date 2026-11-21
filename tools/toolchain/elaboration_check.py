@@ -50,6 +50,26 @@ class Fixture:
 def fixtures(example: bytes) -> tuple[Fixture, ...]:
     """Independent source examples and well-formed semantic negative neighbors."""
     positives = (
+        ("generic-slot-prefix-relocation", """module SlotsProof;
+public Unit RelocatePrefix<ghost usize M, ghost usize N>(ref Slots<u32, M> dst, ref Slots<u32, N> src, usize count)
+    requires Slots.Disjoint(dst, src)
+    requires count <= N
+    requires count <= M
+    requires src.CanWrite
+    requires dst.CanRead
+    requires LivePrefix(src, count)
+    requires VacantSuffix(src, count)
+    requires VacantRange(dst, 0usize, M)
+    ensures LivePrefix(dst, count)
+    ensures VacantSuffix(dst, count)
+    ensures VacantRange(src, 0usize, N)
+    ensures PrefixModel(dst, count) == old(PrefixModel(src, count))
+{
+    CopyRepresentation(src, ref dst, count);
+    TransferType<u32>(ref src, ref dst, count);
+    return ();
+}
+"""),
         ("short-circuit-propagation", """module ShortCircuitReplay;
 public union Option<T> { None(); Some(T Value); }
 public union Result<T,E> { Ok(T Value); Err(E Error); }
