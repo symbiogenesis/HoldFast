@@ -1700,8 +1700,26 @@ Fixpoint vela_Vec_Model (A : Type@{vela_u0}) (n : nat) {struct n} : vela_Vec A n
   | S k => fun v => vela_Seq_Cons A (@fst A (vela_Vec A k) v) (vela_Vec_Model A k (@snd A (vela_Vec A k) v))
   end.
 
-Definition vela_Span_Model (A : Type@{vela_u0}) (_ : vela_Span A) : vela_Seq (vela_int (0 : nat)) :=
-  vela_Seq_Empty (vela_int (0 : nat)).
+Fixpoint vela_Seq_Tabulate (A : Type@{vela_u0}) (n : nat) (f : nat -> A) : vela_Seq A :=
+  match n with
+  | O => vela_Seq_Empty A
+  | S k => vela_Seq_Cons A (f O) (vela_Seq_Tabulate A k (fun i => f (S i)))
+  end.
+
+Lemma vela_Seq_Count_Tabulate : forall (A : Type@{vela_u0}) n (f : nat -> A),
+  vela_Seq_Count A (vela_Seq_Tabulate A n f) = n.
+Proof. intros A n; induction n; intros f; simpl; auto. Qed.
+
+Lemma vela_Seq_At_Tabulate : forall (A : Type@{vela_u0}) n (f : nat -> A) (d : A) i,
+  vela_Seq_At A d (vela_Seq_Tabulate A n f) i = if Nat.ltb i n then f i else d.
+Proof.
+  intros A n; induction n as [|n IH]; intros f d [|i]; simpl; try reflexivity.
+  apply (IH (fun j => f (S j)) d i).
+Qed.
+
+Definition vela_Span_Model (A : Type@{vela_u0}) (s : vela_Span A) : vela_Seq (vela_int (0 : nat)) :=
+  vela_Seq_Tabulate (vela_int 0) (vela_int_to_nat 4 (vela_Span_Length A s))
+    (fun i => vela_Span_Read A s (vela_nat_to_usize i)).
 
 Inductive vela_Slots (A : Type@{vela_u0}) (cap : nat) : Type@{vela_u0} :=
 | vela_Slots_Mk :

@@ -1206,6 +1206,16 @@ public definition Nat GuardedStep() =>
         ("vela_d13_PacketFits Corelib.Init.Datatypes.tt", "true"),
         ("vela_d23_AdvancedRemaining Corelib.Init.Datatypes.tt", "2"),
         ("vela_d24_GuardedStep Corelib.Init.Datatypes.tt", "15")))
+    span_model = Fixture("span-sequence-projection", b"""module SpanModel;
+definition Nat Size(Span<byte> s) requires s.CanRead => s.Model.Count;
+definition bool HasMark(Span<byte> s) requires s.CanRead => s.Model.Any(b => b == 42u8);
+definition Span<byte> Marked() => Span.Write(Span.AllocZeroed(3usize), 1usize, 42u8);
+definition Nat Nonempty() => Size(Marked());
+definition bool InSlice() => HasMark(Span.Slice(Marked(), 1usize, 1usize));
+definition bool OutsideSlice() => HasMark(Span.Slice(Marked(), 2usize, 1usize));
+definition bool InEmpty() => HasMark(Span.AllocZeroed(0usize));
+""", observations=(("vela_d3_Nonempty tt", "3"), ("vela_d4_InSlice tt", "true"),
+                   ("vela_d5_OutsideSlice tt", "false"), ("vela_d6_InEmpty tt", "false")))
     intervals = Fixture("span-interval-boundaries", b"""module Extents;
 definition bool Apart(usize a, usize n, usize b, usize m) =>
     Span.Disjoint(Span.AllocZeroed(a, n), Span.AllocZeroed(b, m));
@@ -1214,7 +1224,7 @@ definition bool EmptyInside() => Apart(2usize, 4usize, 3usize, 0usize);
 definition bool Touch() => Apart(2usize, 4usize, 6usize, 2usize);
 """, observations=(("vela_d1_LastByte tt", "false"), ("vela_d2_EmptyInside tt", "true"),
                    ("vela_d3_Touch tt", "true")))
-    return (Fixture("authored-example", example), pure, division, dependent_playground, intervals,
+    return (Fixture("authored-example", example), pure, division, dependent_playground, intervals, span_model,
             *(Fixture(name, ("module PureNegativeReplay; " + source).encode(), expected, pure=True)
               for name, source, expected in pure_negatives),
             *(Fixture(name, source.encode()) for name, source in positives),
