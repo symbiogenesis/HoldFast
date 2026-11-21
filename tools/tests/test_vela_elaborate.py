@@ -6405,6 +6405,7 @@ def _call_modes_and_field_writeback() -> None:
         ("value", _ref_arg(_variable("x")), "requires a 'ref' parameter"),
         ("value", _in_arg(_variable("x")), "requires an 'in' parameter"),
         ("ref", _ref_arg(_int_lit("0", "u32")), "requires a variable or record field place"),
+        ("in", _in_arg(_int_lit("0", "u32")), "requires a place"),
     ):
         f = _Fixture("CallMode")
         f.function("Read", word, (("a", word if formal == "value" else _modified(formal, word)),), _variable("a"))
