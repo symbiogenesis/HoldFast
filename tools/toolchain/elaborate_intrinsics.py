@@ -192,12 +192,7 @@ class _IntrinsicsMixin:
                 base_t = _int_term(_INT_SPECS["usize"], 0)
                 cap_t = self.check(arg_nodes[0], _USIZE, environment)
             elif len(arg_nodes) == 2:
-                if self.in_executable_function:
-                    raise self.fail(
-                        "type",
-                        "Span.AllocZeroed(base, length) is a specification constructor and cannot fabricate a capability from an integer address in an executable function",
-                        node,
-                    )
+                self.phase_uses.append((node, "Span.AllocZeroed(base, length) is a specification constructor and cannot fabricate a capability from an integer address in an executable function"))
                 base_t = self.check(arg_nodes[0], _USIZE, environment)
                 cap_t = self.check(arg_nodes[1], _USIZE, environment)
             else:
@@ -1878,6 +1873,10 @@ class _IntrinsicsMixin:
         self: _Elaborator, node: Node, environment: dict[str, _Binding], *, standalone_call: bool = False
     ) -> _Binding:
         binding = self._expression(node, environment, standalone_call=standalone_call)
+        if self.specification_values:
+            resolved, _ = self.spine(self.resolve(binding.term))
+            if resolved.kind == "const" and str(resolved.value) in self.specification_values:
+                self.phase_uses.append((node, self.specification_values[str(resolved.value)]))
         if binding.type.kind != "pi":
             return binding
         head, supplied = self.spine(self.resolve(binding.term))
@@ -1997,6 +1996,8 @@ class _IntrinsicsMixin:
             if kind == "name" and name not in environment and name in self.union_ctors and not self.union_ctors[name][1].fields:
                 return self.apply(self.lookup(name, environment), [], environment)
             found = self.lookup(name, environment)
+            if found.term.kind == "var" and cast("int", found.term.value) in self.ghost_parameters:
+                self.phase_uses.append((node, f"erased parameter '{name}' cannot determine an executable value"))
             if kind == "name" and name in environment and name in self.local_borrows:
                 _mode, owner_name, field_path = self.local_borrows[name]
                 if owner_name in environment:

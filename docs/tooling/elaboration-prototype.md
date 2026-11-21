@@ -36,6 +36,9 @@ The supported increment includes:
 - Generic type and stable ghost-value telescopes, ordinary generic calls and explicit `::<...>` application
   and fresh inferred instantiation at each use. Generic variables in a
   declaration are rigid; inference cannot specialize its promised signature.
+  Executable function bodies reject dependencies on erased values and on
+  specification-only operations through helpers, properties and imports.
+  A mathematical definition may compute with its ghost index in proofs.
 - Numeric predicative universes `Type` and `Type<n>` for levels zero through
   eight, dependent `Fn` telescopes, type-valued parameters and
   computed types. Substitution preserves dependency and avoids capture. Reject

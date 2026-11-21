@@ -839,6 +839,11 @@ public Nat RoundTripOwned()
          "definition Nat Wrong(F function, Nat runtime) => function(runtime);", "type"),
         ("static-callable-requirement-erasure", "alias F = Fn(const Nat index) -> Nat; "
          "definition Fn(Nat index) -> Nat Wrong(F function) => function;", "type"),
+        ("runtime-ghost-result", "bool Wrong<ghost bool hidden>() => hidden;", "type"),
+        ("runtime-ghost-through-definition", "definition bool Reveal<ghost bool hidden>() => hidden; "
+         "bool Wrong<ghost bool x>() => Reveal<x>();", "type"),
+        ("spec-constructor-through-definition", "definition Span<byte> Model(usize addr) => "
+         "Span.AllocZeroed(addr, 1usize); Span<byte> Wrong(usize addr) => Model(addr);", "type"),
         ("quantified-call-precondition", "Nat Guard(Nat x) requires (exists (Nat k) => k + 1 == 0) => x; "
          "Nat Wrong() => Guard(7);", "type"),
         ("callback-precondition-erasure", "u8 Inc(u8 x) requires x < 255u8 => x + 1u8; "

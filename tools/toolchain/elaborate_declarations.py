@@ -424,6 +424,7 @@ class _DeclarationsMixin:
                 self.complete(_term("meta", value=index))
                 self.complete(self.metas[index].type)
             prop_emitted = f"vela_d{len(self.output)}_{name}_{prop_name}"
+            self._classify_phase(prop_emitted, self.node(member_node["value"]), executable=False)
             self.output.append(f"Definition {prop_emitted} : {self.render(prop_sig)} :=\n  {self.render(prop_def)}.")
             prop_binding = _Binding(_constant(prop_emitted), prop_sig, len(generics))
             self.constants[prop_emitted] = prop_binding
@@ -673,6 +674,7 @@ class _DeclarationsMixin:
             self.complete(_term("meta", value=index))
             self.complete(self.metas[index].type)
         m_emitted = f"vela_d{len(self.output)}_{name}_{method_name}"
+        self._classify_phase(m_emitted, body_node, executable=m_kind == "function")
         self.output.append(f"Definition {m_emitted} : {self.render(m_sig)} :=\n  {self.render(m_def)}.")
         m_binding = _Binding(_constant(m_emitted), m_sig, len(generics) + len(m_generics))
         self.constants[m_emitted] = m_binding
@@ -989,6 +991,7 @@ class _DeclarationsMixin:
         self.owned_parameters.update(mod.owned_parameters)
         self.constants.update(mod.constants)
         self.definitions.update(mod.definitions)
+        self.specification_values.update(mod.specification_values)
         self.records_by_type.update(mod.records_by_type)
         self.records_by_ctor.update(mod.records_by_ctor)
         self.record_projections.update(mod.record_projections)
@@ -1777,6 +1780,7 @@ class _DeclarationsMixin:
                     self.complete(_term("meta", value=index))
                     self.complete(self.metas[index].type)
                 m_emitted = f"vela_d{len(self.output)}_impl_{iface_name}_{mname}"
+                self._classify_phase(m_emitted, body_node, executable=True)
                 self.output.append(
                     f"Definition {m_emitted} : {self.render(m_sig)} :=\n  {self.render(m_def)}."
                 )
@@ -2355,6 +2359,40 @@ class _DeclarationsMixin:
                     declared_calls.add(t_ident)
         return declared_reads, declared_writes, declared_calls
 
+    def _classify_phase(self: _Elaborator, emitted: str, body: Node, *, executable: bool) -> None:
+        """Carry resolved specification dependencies across definitions, calls and package imports."""
+        if not self.phase_uses:
+            return
+        start, end = cast("list[int]", body["span"])
+        uses = [(use, reason) for use, reason in self.phase_uses
+                if start <= cast("list[int]", use["span"])[0] and cast("list[int]", use["span"])[1] <= end]
+        if not uses:
+            return
+        erased: list[tuple[int, int]] = []
+        pending = [body]
+        while pending:
+            node = pending.pop()
+            for key, value in node.items():
+                children = value if isinstance(value, list) else [value]
+                for child in children:
+                    if not isinstance(child, dict) or "kind" not in child:
+                        continue
+                    if (child["kind"] in {"proof", "assert", "contract", "calc", "invariant"}
+                        or key in {"type", "signature", "generics"}
+                        or (node["kind"] == "generic_application" and key == "arguments")):
+                        lo, hi = child["span"]
+                        erased.append((lo, hi))
+                    else:
+                        pending.append(child)
+        for use, reason in uses:
+            lo, hi = cast("list[int]", use["span"])
+            if any(a <= lo and hi <= b for a, b in erased):
+                continue
+            if executable:
+                raise self.fail("type", reason, use)
+            self.specification_values[emitted] = reason
+            return
+
     def _collect_runtime_read_names(
         self: _Elaborator,
         node: Node,
@@ -2533,7 +2571,7 @@ class _DeclarationsMixin:
         self.active_lift_scopes = 0
         self.in_loop_depth = 0
         self.active_regions.clear()
-        self.in_executable_function = False
+        self.phase_uses.clear()
         self.slice_views.clear()
         self.restored_view_terms.clear()
         kind = node["kind"]
@@ -2834,7 +2872,6 @@ class _DeclarationsMixin:
                 self.active_facts.extend(entry_body_facts)
                 self.used_domain_solver_in_proof = False
                 self.final_theorem_facts = ()
-                self.in_executable_function = kind == "function"
                 prev_effect_calls = self.active_effect_calls
                 if effects_clauses:
                     self.active_effect_calls = set(declared_effect_calls)
@@ -2939,7 +2976,6 @@ class _DeclarationsMixin:
                         self._check_callable_loans(node)
                 finally:
                     self.active_effect_calls = prev_effect_calls
-                    self.in_executable_function = False
                     self.active_facts = saved_body_facts
                     self.current_rec_var = None
                     self.current_rec_name = None
@@ -2951,6 +2987,9 @@ class _DeclarationsMixin:
                     self.smaller_vars = {}
                     self.current_return_type = None
             emitted = f"vela_d{len(self.output)}_{name}"
+            if kind in {"function", "definition", "property"}:
+                phase_body = self.node(node["value"]) if kind == "property" else body_node
+                self._classify_phase(emitted, phase_body, executable=kind == "function")
             if kind in {"definition", "function", "theorem", "lemma"}:
                 self.callable_source_names[emitted] = name
                 if effects_clauses:

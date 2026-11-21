@@ -186,7 +186,9 @@ class _Elaborator(
         self._in_lifted_target_assignment: str | None = None
         self.in_loop_depth: int = 0
         self.active_regions: set[str] = set()
-        self.in_executable_function: bool = False
+        self.ghost_parameters: set[int] = set()
+        self.specification_values: dict[str, str] = {}
+        self.phase_uses: list[tuple[Node, str]] = []
         self.slice_views: dict[str, str] = {}
         self.restored_view_terms: set[_Term] = set()
         self.local_borrows: dict[str, tuple[str, str, tuple[str, ...]]] = {}
@@ -1146,6 +1148,8 @@ class _Elaborator(
         call_site = self.site
         term, value_type = binding.term, binding.type
         callee_head, callee_gen_args = self.spine(self.resolve(term))
+        if callee_head.kind == "const" and str(callee_head.value) in self.specification_values and call_site is not None:
+            self.phase_uses.append((call_site, self.specification_values[str(callee_head.value)]))
         is_rec_call = (
             self.current_rec_var is not None
             and callee_head == self.current_rec_var
@@ -1529,6 +1533,8 @@ class _Elaborator(
             if mode == "type" and self.whnf(domain).kind != "sort":
                 raise self.fail("type", "a type generic requires a universe kind")
             variable = self.fresh(domain)
+            if mode == "ghost":
+                self.ghost_parameters.add(cast("int", variable.value))
             variables.append(variable)
             self.bind_local(extended, self.name(node["name"]), _Binding(variable, domain))
         for node in parameter_nodes:
