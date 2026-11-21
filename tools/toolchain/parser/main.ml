@@ -15,6 +15,8 @@ let read_source () =
   Bytes.sub_string bytes 0 count
 
 let validate_utf8 source =
+  if String.starts_with ~prefix:"\xEF\xBB\xBF" source then
+    raise (Ast.Refusal ("encoding", 0, "remove the initial UTF-8 byte-order mark"));
   let length = String.length source in
   let byte index = Char.code source.[index] in
   let continuation index = index < length && byte index >= 0x80 && byte index <= 0xbf in

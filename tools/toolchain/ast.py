@@ -194,6 +194,8 @@ def position(prefix: str) -> Site:
 def source_text(source: bytes) -> str:
     if len(source) > MAX_SOURCE_BYTES:
         raise VelaError("limit", 1, 1, f"source exceeds {MAX_SOURCE_BYTES} bytes")
+    if source.startswith(b"\xef\xbb\xbf"):
+        raise VelaError("encoding", 1, 1, "remove the initial UTF-8 byte-order mark")
     try:
         return source.decode("utf-8")
     except UnicodeDecodeError as error:

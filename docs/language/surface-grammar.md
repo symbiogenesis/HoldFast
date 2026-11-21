@@ -39,7 +39,8 @@ retain their spelling, including underscores between digits of one base. The
 [separator contract](../tooling/authoring-tools.md#numeric-separators) owns placement and
 suffix boundaries; only actual digits count toward the literal bound. The
 existing UTF-8, source-byte, literal-digit, delimiter,
-syntax-depth, duration and output bounds apply to both entries.
+syntax-depth, duration and output bounds apply to both entries. Save source as UTF-8
+without an initial byte-order mark. Both entries identify the mark at line 1, column 1.
 
 ## Required syntax
 

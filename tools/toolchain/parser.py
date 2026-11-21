@@ -753,6 +753,7 @@ def _fixtures(compiled: Build) -> list[str]:
         (prefix + b"await 1; }", "unsupported"),
         (b"module M; public Nat out() => 0;", "unsupported"),
         (b"// invalid \xff\n" + source, "encoding"),
+        (b"\xef\xbb\xbf" + source, "encoding"),
         (prefix + b"9" * 257 + b"; }", "limit"),
         (prefix + b"_".join([b"9"] * 257) + b"; }", "limit"),
         (prefix + b"1__0; }", "syntax"),

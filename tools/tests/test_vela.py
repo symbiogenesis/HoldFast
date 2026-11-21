@@ -196,6 +196,8 @@ def _syntax_and_locations() -> None:
     _refuses("module M; public Nat F() { return await 1; }", "unsupported")
     _refuses("module M; public Nat F() requires true { return 1; }", "unsupported")
     _refuses(b"module M;\n// invalid \xff\n", "encoding")
+    bom = _refuses(b"\xef\xbb\xbfmodule M;", "encoding", "UTF-8 byte-order mark")
+    ensure((bom.line, bom.column) == (1, 1), "initial BOM lost its location")
     _refuses("module M; public Nat Café() { return 0; }", "syntax")
     error = _refuses("module M;\r\npublic Nat F() {\r\n  return missing;\r\n}", "name")
     ensure((error.line, error.column) == (3, 10), "CRLF source location drifted")
