@@ -174,6 +174,7 @@ def reuse_findings(root: Path) -> list[str]:
         done = subprocess.run(
             [str(executable), "--root", str(root), "lint", "--lines"],
             cwd=root,
+            env=corpus.git_environment(root),
             stdin=subprocess.DEVNULL,
             capture_output=True,
             encoding="utf-8",
@@ -181,7 +182,7 @@ def reuse_findings(root: Path) -> list[str]:
             check=False,
             timeout=TIMEOUT,
         )
-    except (OSError, subprocess.SubprocessError) as err:
+    except (OSError, RuntimeError, subprocess.SubprocessError) as err:
         return [f"reuse lint failed: {err}"]
     lines = [line.strip() for line in done.stdout.splitlines() if line.strip()]
     if done.returncode == 0 and not lines:
