@@ -1262,7 +1262,7 @@ public definition Nat GuardedStep() =>
         ("vela_d13_PacketFits Corelib.Init.Datatypes.tt", "true"),
         ("vela_d23_AdvancedRemaining Corelib.Init.Datatypes.tt", "2"),
         ("vela_d24_GuardedStep Corelib.Init.Datatypes.tt", "15")))
-    widths = Fixture("symbolic-format-width", b'''module FormatWidth;
+    widths = Fixture("symbolic-format-width", b"""module FormatWidth;
 definition TextBuilder<2> Hex(Nat value) =>
     Format.Write(ref EmptyBuilder<2>(), $"{value:x2}");
 definition TextBuilder<2> Word(u32 value) =>
@@ -1270,7 +1270,7 @@ definition TextBuilder<2> Word(u32 value) =>
 definition bool Fits255() => Fits(Hex(255));
 definition bool Fits256() => Fits(Hex(256));
 definition Nat WordLength() => Written(Word(0xffffffffu32));
-''', observations=(("vela_d2_Fits255 tt", "true"), ("vela_d3_Fits256 tt", "false"),
+""", observations=(("vela_d2_Fits255 tt", "true"), ("vela_d3_Fits256 tt", "false"),
                    ("vela_d4_WordLength tt", "8")))
     capacity = Fixture("specialized-slot-capacity", b"""module SlotCapacity;
 definition usize CapacityOf<ghost Nat n>(Slots<byte,n> s) => s.Capacity;
