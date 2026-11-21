@@ -43,6 +43,12 @@ syntax-depth, duration and output bounds apply to both entries.
 
 ## Required syntax
 
+The machine and hardware words `machine`, `hardware`, `state`, `register`,
+`transition`, `rule`, `when`, `next`, `schedule`, and `cycle` are contextual
+in value positions. Ordinary code can use them as parameter names, local
+bindings, expression names, and members. In a hardware update, `next` precedes
+a named storage place with optional field and index projections.
+
 An import takes a module path and an optional namespace alias, as in
 `import Storage.Blocks as Blocks;`. The alias is a located identifier. The
 [module contract](first-release.md#modules-and-packages) defines its scope.

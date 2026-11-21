@@ -10,6 +10,7 @@ from toolchain.parser_checked import _strip_comments_and_actions
 
 ASSETS = "tools/editor"
 CONFLICTS = [
+    ["source_identifier", "value_identifier"],
     ["postfix_with_19322a5ff8", "prefix_with_a37cc982c0"],
     ["value_identifier", "annotation_path"],
     ["type_modifier", "unary_operator"],
@@ -17,11 +18,11 @@ CONFLICTS = [
     ["parameter_open", "parenthesized_type_bba64590cf"],
     ["statement_expression", "local_kind"],
     ["prefix_with_cea602bb37", "postfix_with_6638f242a8"],
-    ["qualified_name_0cae64d15c", "value_identifier"],
-    ["qualified_name_0cae64d15c", "value_identifier", "annotation_path"],
+    ["qualified_name_248b89b443", "value_identifier"],
+    ["qualified_name_248b89b443", "value_identifier", "annotation_path"],
     ["statement_expression", "open_paren", "parenthesized_type_bba64590cf", "atom_with_e019598904"],
     ["statement_expression", "open_paren", "parenthesized_type_bba64590cf"],
-    ["qualified_name_0cae64d15c", "annotation_path"],
+    ["qualified_name_248b89b443", "annotation_path"],
     ["open_paren", "parenthesized_type_bba64590cf"],
 ]
 PUNCTUATION = {
@@ -114,6 +115,9 @@ def tree_grammar(root: Path) -> str:
                       "DECIMAL": "$.number", "NUMBER": "$.number", "STRING": "$.string",
                       "INTERPOLATED_STRING": "$.interpolated_string", "CHARACTER": "$.character",
                       "LIFETIME": "$.lifetime", "HOLE": "$.hole", "EOF": ""})
+    # The secondary lexer uses a single identifier token for both annotation modes.
+    # Their Menhir rule heads therefore share the same lexical representation.
+    terminals["s_type_identifier"] = terminals["s_plain_value_identifier"] = terminals["ANNOTATION_NAME"]
     emitted: dict[str, str] = {}
     pending: list[tuple[str, tuple[str, ...]]] = []
     instances: dict[tuple[str, tuple[str, ...]], str] = {}
@@ -167,7 +171,7 @@ def tree_grammar(root: Path) -> str:
                 key = (name, tuple(arguments))
                 if key not in instances:
                     suffix = "_" + hashlib.sha256(repr(key).encode()).hexdigest()[:10] if arguments else ""
-                    instances[key] = (name.removeprefix("s_") + suffix)
+                    instances[key] = ("source_identifier" if name == "s_identifier" else name.removeprefix("s_")) + suffix
                     pending.append(key)
                 value = "$." + instances[key]
             if value:

@@ -1,8 +1,6 @@
 {
   "schema": 1,
-  "positive_recovery": {
-    "structural-local-and-lambda-annotations": "Grouped and tuple type annotations use canonical lexer lookahead that the editor GLR parser approximates; highlighting may recover this fixture."
-  },
+  "positive_recovery": {},
   "negative_parse_groups": [
     {
       "reason": "Tree-sitter's contextual keyword lexer can recover reserved words as names in positions where the compiler's lexer refuses them.",

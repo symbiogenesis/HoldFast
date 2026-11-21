@@ -82,8 +82,8 @@ qualification; they cannot yield a successful syntax-assets report.
 ## Recovery and acceptance boundaries
 
 The editor parser approximates lexical lookahead and omits compiler semantic
-actions. One canonical positive, structural local/lambda annotations, currently
-uses recovery. Thirty-five canonical syntax negatives retain an editor tree:
+actions. Every canonical positive, including structural local and lambda
+annotations, parses without recovery. Thirty-five canonical syntax negatives retain an editor tree:
 reserved words in contextual identifier positions; declaration modifiers and
 constant/proof-signature restrictions; constructor-pattern spellings and complete
 binding shape; retired null spellings; bare type-shaped locals; raw-string layout;

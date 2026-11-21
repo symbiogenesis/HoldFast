@@ -1143,6 +1143,11 @@ public async void Invalid(ref BorrowCell<Buffer> cell, tracked Permit permit) {
     Fixture("modules-and-abstraction", """module Library.Storage;
 import Core.Buffers;
 import Storage.Devices as Devices;
+public Nat Advance(Nat state, Nat register, Nat transition, Nat rule, Nat when,
+                   Nat next, Nat schedule, Nat cycle, Nat machine, Nat hardware) {
+    let result = state + register + transition + rule + when + next + schedule + cycle + machine + hardware;
+    return result;
+}
 alias Word = u64;
 namespace Internal {
     public interface Storage<T> {
