@@ -551,7 +551,7 @@ class _ProofsMixin:
     def _coq_store_term(self: _Elaborator, span: _Term, depth: int = 0) -> _Term:
         if depth > MAX_DEPTH:
             return _apps(_constant("vela_Span_Store"), _U8, span)
-        span_r = self.resolve(span)
+        span_r = self.whnf(span)
         head, args = self.spine(span_r)
         if head in {_constant("Span_ReadOnly"), _constant("Span_Invalidate")} and len(args) == 2:
             return self._coq_store_term(args[1], depth + 1)
@@ -594,6 +594,32 @@ class _ProofsMixin:
             off = self._coq_store_slice_offset(view_st)
             return self._coq_store_shift(off, view_st)
         return _apps(_constant("vela_Span_Store"), _U8, span_r)
+
+    def _prove_extent_bound(
+        self: _Elaborator, base: _Term, count: _Term, hi: _Term, facts: tuple[_Binding, ...]
+    ) -> _Term | None:
+        truth = _term("bool", value=1)
+        refl = _apps(_constant("Refl"), _BOOL, truth)
+        start, ceiling = self.whnf(base), self.whnf(hi)
+        if start.kind == "int" and start.value == 0 and self._same_cond_term(count, hi):
+            return _app(_constant("vela_usize_le_refl"), hi)
+        end = self.whnf(_apps(_constant("int_add_usize"), base, count))
+        if self.whnf(_apps(_constant("int_le_usize"), end, hi)) == truth:
+            return refl
+        if start.kind != "int" or ceiling.kind != "int":
+            return None
+        for fact in reversed(facts):
+            equality = self._extract_equality(fact.type)
+            if equality is None or self.whnf(equality[2]) != truth:
+                continue
+            operator, args = self.spine(self.resolve(equality[1]))
+            if operator != _constant("int_le_usize") or len(args) != 2 or not self._same_cond_term(args[0], count):
+                continue
+            limit = self.whnf(args[1])
+            if (limit.kind == "int" and 0 <= cast("int", limit.value) <= 16
+                    and cast("int", start.value) + cast("int", limit.value) <= cast("int", ceiling.value)):
+                return _apps(_constant("vela_extent_bound_cases"), base, count, limit, hi, fact.term, refl)
+        return None
 
     def _prove_span_read_equality(
         self: _Elaborator, lhs: _Term, rhs: _Term, all_facts: tuple[_Binding, ...]
@@ -683,14 +709,9 @@ class _ProofsMixin:
                     cur_st = rest
                 elif st_head == _constant("vela_bs_fill") and len(st_args) == 4:
                     base, length, val, rest = st_args
-                    start = self.whnf(base)
-                    if start.kind == "int" and start.value == 0 and self._same_cond_term(length, hi):
-                        hbound = _app(_constant("vela_usize_le_refl"), hi)
-                    else:
-                        end_off = self.whnf(_apps(_constant("int_add_usize"), base, length))
-                        if self.whnf(_apps(_constant("int_le_usize"), end_off, hi)) != _term("bool", value=1):
-                            break
-                        hbound = _apps(_constant("Refl"), _BOOL, _term("bool", value=1))
+                    hbound = self._prove_extent_bound(base, length, hi, all_facts)
+                    if hbound is None:
+                        break
                     step_p = _apps(
                         _constant("vela_store_lookup_fill_ge"), base, length, hi, idx_l, val, rest, hbound, hge_term
                     )
@@ -700,10 +721,9 @@ class _ProofsMixin:
                     cur_st = rest
                 elif st_head == _constant("vela_bs_copy") and len(st_args) == 5:
                     dbase, sbase, count, src_st, rest = st_args
-                    end_off = self.whnf(_apps(_constant("int_add_usize"), dbase, count))
-                    if self.whnf(_apps(_constant("int_le_usize"), end_off, hi)) != _term("bool", value=1):
+                    hbound = self._prove_extent_bound(dbase, count, hi, all_facts)
+                    if hbound is None:
                         break
-                    hbound = _apps(_constant("Refl"), _BOOL, _term("bool", value=1))
                     step_p = _apps(
                         _constant("vela_store_lookup_copy_ge"),
                         dbase,

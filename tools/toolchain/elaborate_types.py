@@ -437,6 +437,7 @@ _GALLINA = {
     "vela_bs_shift": "vela_bs_shift",
     "vela_Span_Read_write_same": "vela_Span_Read_write_same",
     "vela_Span_Read_write_other_ne": "vela_Span_Read_write_other_ne",
+    "vela_extent_bound_cases": "vela_extent_bound_cases",
     "vela_store_lookup_write_ge": "vela_store_lookup_write_ge",
     "vela_usize_le_refl": "vela_usize_le_refl",
     "vela_store_lookup_fill_ge": "vela_store_lookup_fill_ge",
@@ -1532,6 +1533,64 @@ Definition vela_store_lookup_write_ge (widx hi idx : vela_int (4 : nat)) (val : 
   | false => fun _ => @Corelib.Init.Logic.eq_refl (vela_int (0 : nat)) (vela_store_lookup rest idx)
   end (@Corelib.Init.Logic.eq_refl bool (vela_int_eq (4 : nat) idx widx)).
 
+Lemma vela_word_bits_length : forall n (w : vela_word n), vela_bits_len (vela_word_bits w) = n.
+Proof. intros n w; induction w; simpl; congruence. Qed.
+
+Fixpoint vela_bits_every (shape : vela_bits) (test : vela_bits -> bool) : bool :=
+  match shape with
+  | vela_bnil => test vela_bnil
+  | vela_bcons _ rest => vela_and
+       (vela_bits_every rest (fun xs => test (vela_bcons false xs)))
+       (vela_bits_every rest (fun xs => test (vela_bcons true xs)))
+  end.
+Fixpoint vela_bits_every_le (limit : vela_bits) (test : vela_bits -> bool) : bool :=
+  match limit with
+  | vela_bnil => test vela_bnil
+  | vela_bcons false rest => vela_bits_every_le rest (fun xs => test (vela_bcons false xs))
+  | vela_bcons true rest => vela_and
+       (vela_bits_every rest (fun xs => test (vela_bcons false xs)))
+       (vela_bits_every_le rest (fun xs => test (vela_bcons true xs)))
+  end.
+
+Lemma vela_bits_every_sound : forall shape bs test,
+  vela_bits_len bs = vela_bits_len shape -> vela_bits_every shape test = true -> test bs = true.
+Proof.
+  induction shape as [|a tail IH]; intros [|b bs] test Hlen H; simpl in *; try discriminate.
+  - exact H.
+  - injection Hlen as Hlen. destruct b.
+    + apply (IH bs (fun xs => test (vela_bcons true xs)) Hlen); exact (vela_and_right _ _ H).
+    + apply (IH bs (fun xs => test (vela_bcons false xs)) Hlen); exact (vela_and_left _ _ H).
+Qed.
+
+Lemma vela_bits_every_le_sound : forall limit bs test,
+  vela_bits_len bs = vela_bits_len limit -> vela_bits_ule bs limit = true ->
+  vela_bits_every_le limit test = true -> test bs = true.
+Proof.
+  induction limit as [|a tail IH]; intros [|b bs] test Hlen Hle H; simpl in *; try discriminate.
+  - exact H.
+  - injection Hlen as Hlen. destruct a, b; simpl in *; try discriminate.
+    + apply (IH bs (fun xs => test (vela_bcons true xs)) Hlen Hle); exact (vela_and_right _ _ H).
+    + apply (vela_bits_every_sound tail bs (fun xs => test (vela_bcons false xs)) Hlen); exact (vela_and_left _ _ H).
+    + exact (IH bs (fun xs => test (vela_bcons false xs)) Hlen Hle H).
+Qed.
+
+Definition vela_extent_cases (base limit hi : vela_int 4) : bool :=
+  vela_bits_every_le (vela_int_bits 4 limit) (fun xs =>
+    vela_int_le 4 (vela_extent_end base (vela_mk_int 4 xs)) hi).
+
+Lemma vela_extent_bound_cases : forall base count limit hi,
+  vela_int_le 4 count limit = true -> vela_extent_cases base limit hi = true ->
+  vela_int_le 4 (vela_extent_end base count) hi = true.
+Proof.
+  intros base [count] [limit] hi Hle Hcases.
+  unfold vela_extent_cases in Hcases.
+  pose (test := fun xs => vela_int_le 4 (vela_extent_end base (vela_mk_int 4 xs)) hi).
+  assert (Hlen : vela_bits_len (vela_word_bits count) = vela_bits_len (vela_word_bits limit))
+    by now rewrite !vela_word_bits_length.
+  pose proof (vela_bits_every_le_sound (vela_word_bits limit) (vela_word_bits count) test Hlen Hle Hcases) as H.
+  unfold test, vela_mk_int in H. now rewrite vela_word_roundtrip in H.
+Qed.
+
 Definition vela_in_extent_ge_elim (P : Type@{vela_u0}) (base len hi idx : vela_int (4 : nat))
     (hbound : @Corelib.Init.Logic.eq bool (vela_int_le (4 : nat) (vela_extent_end base len) hi) true)
     (hge : @Corelib.Init.Logic.eq bool (vela_int_ge (4 : nat) idx hi) true)
@@ -1923,9 +1982,6 @@ Proof.
   destruct x, y, z, c1, c2, d1, d2; simpl in Hc; try discriminate Hc;
   simpl; f_equal; eapply IH; reflexivity.
 Qed.
-
-Lemma vela_word_bits_length : forall n (w : vela_word n), vela_bits_len (vela_word_bits w) = n.
-Proof. intros n w; induction w; simpl; congruence. Qed.
 
 Lemma vela_int_width : forall tag (x : vela_int tag), vela_bits_len (vela_int_bits tag x) = vela_tag_bits tag.
 Proof. intros tag [w]; apply vela_word_bits_length. Qed.
