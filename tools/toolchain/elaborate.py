@@ -1142,6 +1142,20 @@ class _Elaborator(
             return specialized if reduced == specialized else self.specialize(reduced, depth + 1)
         return specialized
 
+    def _check_argument_mode(self, expected: str | None, actual: object, site: Node) -> None:
+        marker = "move" if expected == "owned" else expected
+        if actual == marker:
+            return
+        if expected is not None:
+            article = "an" if expected in {"in", "out", "owned"} else "a"
+            marker_article = "an" if marker in {"in", "out"} else "a"
+            raise self.fail(
+                "type", f"{article} '{expected}' parameter requires {marker_article} '{marker}' call-site argument modifier", site
+            )
+        article = "an" if actual in {"in", "out"} else "a"
+        required = "owned" if actual == "move" else actual
+        raise self.fail("type", f"'{actual}' call-site argument modifier requires {article} '{required}' parameter", site)
+
     def apply(self, binding: _Binding, arguments: list[Node], environment: dict[str, _Binding]) -> _Binding:
         call_site = self.site
         term, value_type = binding.term, binding.type
@@ -1252,22 +1266,9 @@ class _Elaborator(
                 )
                 if arg_val_node["kind"] == "out_variable":
                     arg_mod = "out"
-                if is_out_param and arg_mod != "out":
-                    raise self.fail("type", "an 'out' parameter requires an 'out' call-site argument modifier", node)
-                if not is_out_param and arg_mod == "out":
-                    raise self.fail("type", "'out' call-site argument modifier requires an 'out' parameter", node)
-                if is_owned_param and arg_mod != "move":
-                    raise self.fail("type", "an 'owned' parameter requires a 'move' call-site argument modifier", node)
-                if (is_out_param or is_ref_param or is_in_param) and arg_mod == "move":
-                    raise self.fail("type", "cannot pass consuming 'move' argument to a borrowed parameter", node)
-                if is_ref_param and arg_mod == "in":
-                    raise self.fail("type", "a 'ref' parameter requires a 'ref' call-site argument modifier", node)
-                if is_in_param and arg_mod == "ref":
-                    raise self.fail(
-                        "type",
-                        "an 'in' parameter cannot accept an exclusive 'ref' call-site argument modifier",
-                        node,
-                    )
+                mode = ("out" if is_out_param else "ref" if is_ref_param else "in" if is_in_param
+                        else "owned" if is_owned_param else None)
+                self._check_argument_mode(mode, arg_mod, node)
                 if arg_val_node["kind"] == "out_variable":
                     argument = self.fresh(value_type.args[0])
                     loan_targets[idx] = (arg_val_node, value_type.args[0])
@@ -1302,6 +1303,9 @@ class _Elaborator(
                         if arg_mod in {"ref", "in", "move"}
                         else arg_val_node
                     )
+                    if is_ref_param and arg_ident_node["kind"] != "name":
+                        self._resolve_local_borrow_target("ref", arg_ident_node, environment, node)
+                        loan_targets[idx] = (arg_ident_node, value_type.args[0])
                     if arg_ident_node["kind"] == "name":
                         arg_vname = self.name(arg_ident_node["name"])
                         lifted_set = self.lifted_invariants.get(arg_vname)

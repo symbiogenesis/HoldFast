@@ -1521,8 +1521,6 @@ class _IntrinsicsMixin:
                 p_mod = mspec.param_modifiers[idx]
                 is_out_param = p_mod == "out"
                 is_ref_param = p_mod == "ref"
-                is_in_param = p_mod == "in"
-                is_owned_param = p_mod == "owned"
                 arg_val_node = self._unwrap_group(self.node(arg_node["value"]))
                 if arg_val_node["kind"] == "out_variable":
                     if not is_out_param:
@@ -1537,37 +1535,7 @@ class _IntrinsicsMixin:
                     )
                     else None
                 )
-                if is_out_param and arg_mod != "out":
-                    raise self.fail(
-                        "type", "an 'out' parameter requires an 'out' call-site argument modifier", arg_node
-                    )
-                if not is_out_param and arg_mod == "out":
-                    raise self.fail(
-                        "type", "'out' call-site argument modifier requires an 'out' parameter", arg_node
-                    )
-                if is_owned_param and arg_mod != "move":
-                    raise self.fail(
-                        "type", "an 'owned' parameter requires a 'move' call-site argument modifier", arg_node
-                    )
-                if (is_ref_param or is_in_param or is_out_param) and arg_mod == "move":
-                    loan_kind = "out" if is_out_param else ("ref" if is_ref_param else "in")
-                    raise self.fail(
-                        "type",
-                        f"cannot pass 'move' argument to borrowed '{loan_kind}' parameter",
-                        arg_node,
-                    )
-                if is_ref_param and arg_mod == "in":
-                    raise self.fail(
-                        "type",
-                        "cannot pass shared 'in' borrow to mutable 'ref' parameter",
-                        arg_node,
-                    )
-                if not is_ref_param and arg_mod == "ref":
-                    raise self.fail(
-                        "type",
-                        "'ref' call-site argument modifier requires a 'ref' parameter",
-                        arg_node,
-                    )
+                self._check_argument_mode(p_mod if p_mod in {"in", "ref", "out", "owned"} else None, arg_mod, arg_node)
                 if arg_mod == "out":
                     arg_ident_node = self._unwrap_group(self.node(arg_val_node["value"]))
                     if arg_ident_node["kind"] != "name":
@@ -1595,6 +1563,9 @@ class _IntrinsicsMixin:
                         if arg_mod in {"ref", "in", "move"}
                         else arg_val_node
                     )
+                    if is_ref_param and arg_ident_node["kind"] != "name":
+                        self._resolve_local_borrow_target("ref", arg_ident_node, environment, arg_node)
+                        loan_targets[idx] = (arg_ident_node, p_dom)
                     if arg_ident_node["kind"] == "name":
                         arg_vname = self.name(arg_ident_node["name"])
                         if is_ref_param or arg_mod == "ref":

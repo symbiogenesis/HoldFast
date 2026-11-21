@@ -6227,6 +6227,39 @@ def _effects_clause(*items: Form) -> Form:
     return form
 
 
+def _call_modes_and_field_writeback() -> None:
+    word = _type("u32")
+    for formal, argument, message in (
+        ("in", _variable("x"), "'in' call-site argument modifier"),
+        ("ref", _variable("x"), "'ref' call-site argument modifier"),
+        ("value", _ref_arg(_variable("x")), "requires a 'ref' parameter"),
+        ("value", _in_arg(_variable("x")), "requires an 'in' parameter"),
+        ("ref", _ref_arg(_int_lit("0", "u32")), "requires a variable or record field place"),
+    ):
+        f = _Fixture("CallMode")
+        f.function("Read", word, (("a", word if formal == "value" else _modified(formal, word)),), _variable("a"))
+        f.function("Caller", word, (), _block_stmts(
+            _var_stmt("x", _int_lit("3", "u32")), _return_stmt(_call("Read", argument))
+        ), block=True)
+        _refuses(f, "type", message)
+
+    for expected in ("4", "3"):
+        f = _Fixture("FieldWriteback")
+        f.record("Cell", (("X", word),))
+        f.function("Set", _type("Unit"), (("a", _modified("ref", word)),), _block_stmts(
+            _assign_stmt(_variable("a"), "=", _int_lit("4", "u32")), _return_stmt()
+        ), block=True)
+        f.function("Caller", word, (), _block_stmts(
+            _var_stmt("cell", _call("Cell", _int_lit("3", "u32"))),
+            _expr_stmt(_call("Set", _ref_arg(_member(_variable("cell"), "X")))),
+            _return_stmt(_member(_variable("cell"), "X")),
+        ), block=True, contracts=(_contract("ensures", _binary("==", _variable("result"), _int_lit(expected, "u32"))),))
+        if expected == "4":
+            elaborate(*f.response())
+        else:
+            _refuses(f, "type", "assertion could not be established")
+
+
 def _consuming_ownership_general_loans_and_closed_effects() -> None:
     fixture = _Fixture("ConsumingOwnershipLoansAndEffects")
     fixture.record("Token", (("Id", _NAT), ("Quota", _NAT)))
@@ -6545,4 +6578,5 @@ def cases() -> list[Case]:
             Case("callable-member-receiver-once-and-fatal-failures", _callable_member_receiver_and_failures),
             Case("multi-module-imports-and-visibility", _multi_module_imports_and_visibility),
             Case("source-bound-borrows-and-constructive-postconditions", _source_bound_borrows_and_constructive_postconditions),
+            Case("exact-call-modes-and-projected-writeback", _call_modes_and_field_writeback),
             Case("consuming-ownership-general-loans-and-closed-effects", _consuming_ownership_general_loans_and_closed_effects)]

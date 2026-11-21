@@ -349,7 +349,7 @@ public Result<ValidatedPacket<'dst>, ValidationError> PrepareAndValidatePacket<r
         return Err(ChecksumRejected);
     }
     let payloadView = Span.ReadOnly(Span.Slice(dst, 4, payloadLen));
-    return Ok(ValidatedPacket(payloadLen, payloadView));
+    return Ok(ValidatedPacket(payloadLen, in payloadView));
 }
 
 public theorem ValidateEmptyPacketOk(ref Span<byte> dst, in Span<byte> pkt, usize frameIdx)
