@@ -173,6 +173,12 @@ The initial rule identities are defined here:
 | ~~`VELA104`~~ | Retired (`Q25ah`): bare `T x = e;` local declarations are now refused by the parser in favor of mandatory `let T x = e;` or `var T x = e;`; the ID is never reused |
 | `VELA105` | A generic type parameter name does not use a capital initial and ASCII alphanumeric words |
 | ~~`VELA106`~~ | Retired (`Q25ah`): constructor patterns and pattern binders are now distinguished by token shape and nullary constructors are written bare without `()`; the ID is never reused |
+| `VELA107` | An unparenthesized bitwise expression is an operand of a comparison in checked mathematical source |
+
+The mathematical CLI and native playground report `VELA107` for accepted
+expressions such as `flags & mask == 0u8`. Write `(flags & mask) == 0u8` to
+show the existing grouping explicitly. The warning locates the bitwise
+operator and leaves the source unchanged.
 
 `VELA104` and `vela lint --preview-bindings` are permanently retired (`Q25ah`)
 now that local variable declarations require an explicit `let` or `var` keyword;

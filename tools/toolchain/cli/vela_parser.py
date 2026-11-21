@@ -33,7 +33,7 @@ from toolchain import (
     syntax_campaigns as vela_syntax_campaigns,
 )
 from toolchain.atomic import atomic_path
-from toolchain.authoring import Finding
+from toolchain.authoring import MATHEMATICAL_LINT_CODES, Finding
 
 
 def _publish(source: Path, destination: Path, gallina: str) -> None:
@@ -44,7 +44,7 @@ def _publish(source: Path, destination: Path, gallina: str) -> None:
         pending.write_text(gallina, encoding="utf-8", newline="")
 
 
-def _naming(source: Path, findings: tuple[Finding, ...], allowed: set[str], denied: set[str]) -> bool:
+def _report_findings(source: Path, findings: tuple[Finding, ...], allowed: set[str], denied: set[str]) -> bool:
     failed = False
     for finding in findings:
         if finding.code in allowed:
@@ -103,9 +103,9 @@ def main(argv: list[str] | None = None) -> int:
     elaborate.add_argument("source", type=Path)
     elaborate.add_argument("--output", type=Path,
                            help="atomically replace a file in an existing directory")
-    elaborate.add_argument("--allow", action="append", choices=("VELA105",), default=[],
+    elaborate.add_argument("--allow", action="append", choices=MATHEMATICAL_LINT_CODES, default=[],
                            help="suppress an advisory mathematical lint (repeatable)")
-    elaborate.add_argument("--deny", action="append", choices=("VELA105",), default=[],
+    elaborate.add_argument("--deny", action="append", choices=MATHEMATICAL_LINT_CODES, default=[],
                            help="make an advisory mathematical lint an error (repeatable)")
     support = commands.add_parser("support", help="build and kernel-check the pinned Rocq support library")
     support.add_argument("--archive", type=Path, help="use an already downloaded authenticated release archive")
@@ -124,7 +124,7 @@ def main(argv: list[str] | None = None) -> int:
             with vela_parser.cached_build(root) as compiled:
                 parsed = vela_parser.parse_source(compiled, source, surface=True)
             translation = vela_mathematical.inspect_source(source, parsed)
-            if not _naming(args.source, translation.findings, allowed, denied):
+            if not _report_findings(args.source, translation.findings, allowed, denied):
                 return 1
             if args.output is None:
                 print(translation.gallina, end="")

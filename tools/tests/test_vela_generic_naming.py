@@ -13,6 +13,8 @@ from tests.test_vela_elaborate import (
     _binary,
     _boolean,
     _Fixture,
+    _group,
+    _int_lit,
     _match_expr,
     _natural,
     _pat_bind,
@@ -182,4 +184,21 @@ def cases() -> list[Case]:
             Case("generic-type-nested-callable-and-alias-binders", _nested_callable_and_alias_binders),
             Case("generic-type-unicode-and-mixed-newline-source-coordinates", _unicode_and_mixed_newline_coordinates),
             Case("generic-type-invalid-proof-source-and-protocol-refusals", _invalid_source_and_protocol_never_report_partial_warnings),
-            Case("pattern-constructor-shadowing-and-unreachable-arms", _pattern_constructors_and_unreachable_arms)]
+            Case("pattern-constructor-shadowing-and-unreachable-arms", _pattern_constructors_and_unreachable_arms),
+            Case("mathematical-bitwise-comparison-precedence", _bitwise_comparison_precedence)]
+
+
+def _bitwise_comparison_precedence() -> None:
+    fixture = _Fixture("Precedence")
+    params = (("flags", _type("u8")), ("mask", _type("u8")))
+    operand = _binary("&", _variable("flags"), _variable("mask"))
+    fixture.definition("Compare", _type("bool"), params, _binary("==", operand, _int_lit("0", "u8")))
+    fixture.definition("Explicit", _type("bool"), params, _binary("==", _group(operand), _int_lit("0", "u8")))
+    source, parsed = fixture.response()
+    result = adapter.inspect_source(source, parsed)
+    ensure(len(result.findings) == 1, f"expected just the implicit grouping warning: {result.findings!r}")
+    finding = result.findings[0]
+    ensure(finding.code == "VELA107" and finding.message.endswith("(flags & mask)"),
+           f"warning omitted the original grouping: {finding!r}")
+    ensure(source.splitlines()[finding.line - 1][finding.column - 1:finding.column] == b"&",
+           "warning does not identify the bitwise operator")
