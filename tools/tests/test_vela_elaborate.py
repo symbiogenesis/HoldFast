@@ -172,11 +172,12 @@ class _Fixture:
                                            modifiers=["public"]))
 
     def function(self, name: str, result: Form, parameters: tuple[Parameter, ...], value: Form,
-                 *, arrow: bool = True, block: bool = False, constant: bool = False,
+                 *, arrow: bool = True, block: bool = False, constant: bool = False, private: bool = False,
                  generics: tuple[Generic, ...] = (), contracts: tuple[Form, ...] = ()) -> None:
         self.write("\n")
         start = self.offset
-        self.write("public const " if constant else "public ")
+        visibility = "private" if private else "public"
+        self.write(f"{visibility} const " if constant else f"{visibility} ")
         annotation = result(self)
         self.write(" ")
         binding = self.name(name)
@@ -207,7 +208,7 @@ class _Fixture:
         self.declarations.append(self.node("function", start, name=binding, result=annotation,
                                            generics=generic_nodes, parameters=parameter_nodes,
                                            contracts=obligations,
-                                           body=body, cancel=None, modifiers=["public", "const"] if constant else ["public"]))
+                                           body=body, cancel=None, modifiers=[visibility, "const"] if constant else [visibility]))
 
     def alias(self, name: str, value_type: Form, generics: tuple[Generic, ...] = ()) -> None:
         self.write("\n")
@@ -6392,6 +6393,67 @@ def _transient_write_effects() -> None:
             _refuses(f, "type", "not declared in effects writes(...)")
 
 
+def _private_helper_effect_inference() -> None:
+    word = _type("u32")
+    ref_word = _modified("ref", word)
+    unit = _type("Unit")
+    none = _effects_clause(_variable("none"))
+    for allowed in (True, False):
+        f = _Fixture("PrivateEffects")
+        f.function("Identity", word, (("x", word),), _variable("x"), private=True)
+        f.function("Leaf", unit, (("item", ref_word),), _block_stmts(
+            _let_stmt("saved", _variable("item")),
+            _assign_stmt(_variable("item"), "=", _int_lit("0", "u32")),
+            _assign_stmt(_variable("item"), "=", _variable("saved")), _return_stmt(),
+        ), block=True, private=True)
+        f.function("Nested", unit, (("y", ref_word),), _block_stmts(
+            _expr_stmt(_call("Leaf", _ref_arg(_variable("y")))), _return_stmt(),
+        ), block=True, private=True)
+        f.function("PureClient", word, (), _call("Identity", _int_lit("4", "u32")), contracts=(none,))
+        f.function("Client", unit, (("z", ref_word),), _block_stmts(
+            _expr_stmt(_call("Nested", _ref_arg(_variable("z")))), _return_stmt(),
+        ), block=True, contracts=(_effects_clause(_call("writes" if allowed else "reads", _variable("z"))),))
+        if allowed:
+            elaborate(*f.response())
+        else:
+            _refuses(f, "type", "mutates parameter 'z'")
+
+    f = _Fixture("PrivateRead")
+    f.function("Inspect", word, (("a", _modified("in", word)),), _variable("a"), private=True)
+    f.function("MissingRead", word, (("z", _modified("in", word)),), _call("Inspect", _in_arg(_variable("z"))),
+               contracts=(none,))
+    _refuses(f, "type", "reads parameter 'z'")
+
+    f = _Fixture("PrivateIndirect")
+    f.function("Unknown", word, (("cb", _function_type((("v", word),), word)),),
+               _call("cb", _int_lit("0", "u32")), private=True)
+    _refuses(f, "unsupported", "recursive or indirect call needs explicit effects")
+
+    f = _Fixture("PrivateRecursive")
+    f.function("Recur", _NAT, (("n", _NAT),), _match_expr(_variable("n"), (
+        (_pat_nat(0), _natural(0)),
+        (_pat_ctor("Succ", _pat_bind("k")), _call("Recur", _variable("k"))),
+    )), private=True)
+    _refuses(f, "unsupported", "recursive or indirect call needs explicit effects")
+
+    for allowed in (True, False):
+        f = _Fixture("PrivateKnownCall")
+        f.function("Source", word, (), _int_lit("1", "u32"))
+        calls = _effects_clause(_call("calls", _variable("Source")))
+        f.function("Bounded", word, (), _call("Source"), contracts=(calls,))
+        f.function("Forward", word, (), _call("Bounded"), private=True)
+        f.function("Client", word, (), _call("Forward"), contracts=(calls if allowed else none,))
+        if allowed:
+            elaborate(*f.response())
+        else:
+            _refuses(f, "type", "transitively invokes 'Source'")
+
+    f = _Fixture("PrivateOpenCallee")
+    f.function("Unbounded", word, (), _int_lit("0", "u32"))
+    f.function("Hidden", word, (), _call("Unbounded"), private=True)
+    _refuses(f, "unsupported", "direct callee with closed effects")
+
+
 def _consuming_ownership_general_loans_and_closed_effects() -> None:
     fixture = _Fixture("ConsumingOwnershipLoansAndEffects")
     fixture.record("Token", (("Id", _NAT), ("Quota", _NAT)))
@@ -6714,6 +6776,7 @@ def cases() -> list[Case]:
             Case("explicit-transfer-for-owned-aggregate-bindings", _owned_aggregate_copy),
             Case("writeback-to-evaluated-indices", _indexed_call_writeback),
             Case("restoration-through-lender-bound-projections", _restoration_projection_identity),
+            Case("private-direct-helper-effects", _private_helper_effect_inference),
             Case("transient-writes-and-transitive-footprints", _transient_write_effects),
             Case("exact-call-modes-and-projected-writeback", _call_modes_and_field_writeback),
             Case("consuming-ownership-general-loans-and-closed-effects", _consuming_ownership_general_loans_and_closed_effects)]

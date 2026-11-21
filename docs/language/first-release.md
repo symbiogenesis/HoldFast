@@ -29,7 +29,8 @@ The release accepts three authoring costs for these guarantees. Ordinary `+`,
 [primitive semantics](#primitive-semantics): linear facts discharge
 automatically, while nonlinear facts need explicit proof or a checked, wrapping
 or saturating operation. Public `effects` lists are closed and propagate through
-every caller, with no effect polymorphism. Receiver loans start before argument
+every caller, with no effect polymorphism. Direct file-private helpers can use
+the [inferred closed footprint](reference.md#contracts). Receiver loans start before argument
 evaluation, with no two-phase receiver borrows, and no loan is carried across
 loop iterations. [Qualification](#qualification) measures each cost.
 
