@@ -324,7 +324,7 @@ public Result<ValidatedPacket<'dst>, ValidationError> PrepareAndValidatePacket<r
         && dst[4] == 0x00u8 && dst[5] == 0x00u8 && dst[6] == 0x00u8 && dst[7] == 0x00u8)
     ensures ((result is Ok(_)) && dst.Length >= 8 && pkt.Length >= 4 && usize.From(pkt[1]) <= 4
         && 4 + usize.From(pkt[1]) <= dst.Length) ==> result == Ok(ValidatedPacket(
-            usize.From(pkt[1]), Span.ReadOnly(Span.Slice(dst, 4, usize.From(pkt[1])))))
+            usize.From(pkt[1]), in Span.ReadOnly(Span.Slice(dst, 4, usize.From(pkt[1])))))
     ensures match (result)
     {
         Ok(ValidatedPacket(copied, _)) =>
@@ -365,6 +365,7 @@ public Result<ValidatedPacket<'dst>, ValidationError> PrepareAndValidatePacket<r
             else true,
         Err(_) => true
     }
+    ensures (forall (usize i) => (i >= 8 && i < dst.Length && i < old(dst.Length)) ==> dst[i] == old(dst)[i])
 {
     if (dst.Length < 8 || pkt.Length < 4 || !Span.Disjoint(dst, pkt))
     {

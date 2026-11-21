@@ -486,7 +486,8 @@ the exports with `rocqchk` and an empty assumption ledger. On valid input the
 public contract identifies the returned read-only destination slice, the copied
 payload bytes and zero padding for every supported wire length from zero through
 four. Framing rejection preserves the complete entry destination. Later
-protocol rejection clears its eight-byte working area. These guarantees apply
+protocol rejection clears its eight-byte working area. Every exit preserves each
+destination byte beyond that area. These guarantees apply
 to the symbolic source model. Exact executable admission also requires the
 [compiler and machine evidence](#first-slice-qualification).
 
