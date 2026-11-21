@@ -242,7 +242,11 @@ The supported increment includes:
   `Slots.Read`, `Slots.Disjoint`, `Slots.RepEqual`, `LivePrefix`,
   `VacantRange`, `VacantSuffix` and `PrefixModel`) and two-step bulk relocation
   (`CopyRepresentation` followed by `TransferType<T>`) with capacity-independent
-  region verification.
+  region verification. A live prefix gives read permission, its live count and the
+  exact length of its logical sequence. A vacant range gives write permission and
+  bounds. Relocating a readable source additionally requires write permission on
+  that source. Publishing the destination as a live prefix requires read permission
+  there, even after its representation has been copied.
 - Inline `out var name` declarations in standalone `Unit` calls introduce
   fresh mutable locals after the call returns. Each local takes its type from
   its output parameter and its value from the checked callee update. Calls
