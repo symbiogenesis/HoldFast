@@ -3255,17 +3255,6 @@ def _unary_op(operator: str, inner: Form) -> Form:
     return form
 
 
-def _import_decl(fixture: _Fixture, module_name: str) -> None:
-    fixture.write("\n")
-    start = fixture.offset
-    fixture.write("import ")
-    name_node = fixture.name(module_name)
-    fixture.write(";")
-    fixture.declarations.append(
-        fixture.node("import", start, name=name_node)
-    )
-
-
 def _represented_integers_and_conversions() -> None:
     fixture = _Fixture("Numerics")
     _import_decl(fixture, "Vela.Numerics")
@@ -5974,6 +5963,32 @@ def _qualified_imports() -> None:
         raise AssertionError("qualified import introduced a bare interface method")
 
 
+def _upgrade_client_replay() -> None:
+    old, compatible, expanded = (_Fixture("States") for _ in range(3))
+    for module in (old, compatible):
+        module.union("State", (("Ready", ()), ("Busy", ())))
+    compatible.definition("NewOperation", _NAT, (), _natural(0))
+    expanded.union("State", (("Ready", ()), ("Busy", ()), ("Pending", ())))
+    client = _Fixture("Client")
+    _import_decl(client, "States", alias="S")
+    client.definition("Code", _NAT, (("s", _type("S.State")),), _match_expr(_variable("s"), (
+        (_pat_ctor("S.Ready"), _natural(1)), (_pat_ctor("S.Busy"), _natural(0)),
+    )))
+    report = language.check_client_upgrade(old.response(), compatible.response(), [client.response()])
+    ensure(report["status"] == "clients-elaborated" and report["clients"] == ["Client"], "upgrade replay lost its client")
+    for baseline, candidate, observer, diagnosis in (
+        (old, expanded, client, "candidate replay: module 'Client': non-exhaustive"),
+        (expanded, old, client, "baseline replay: module 'Client': non-exhaustive"),
+        (old, compatible, _Fixture("Unrelated"), "does not import"),
+    ):
+        try:
+            language.check_client_upgrade(baseline.response(), candidate.response(), [observer.response()])
+        except VelaError as error:
+            ensure(diagnosis in error.message, f"upgrade refusal lost its source context: {error.message}")
+        else:
+            raise AssertionError("an incomplete or incompatible upgrade replay was accepted")
+
+
 def _selective_imports() -> None:
     lib, client = _Fixture("Flags"), _Fixture("Client")
     lib.union("State", (("Busy", ()), ("Idle", ())))
@@ -6602,7 +6617,8 @@ def _speculative_normalization_rollback() -> None:
 
 
 def cases() -> list[Case]:
-    return [Case("selective-imports-and-renamed-constructors", _selective_imports),
+    return [Case("upgrade-replay-against-unchanged-dependent-clients", _upgrade_client_replay),
+            Case("selective-imports-and-renamed-constructors", _selective_imports),
             Case("constructor-case-and-redundant-patterns", _constructor_spelling_and_shadowed_patterns),
             Case("fresh-polymorphism-and-higher-order-inference", _polymorphism_and_higher_order),
             Case("familiar-generic-markers-and-mathematical-body-source-binding", _familiar_generic_spellings),

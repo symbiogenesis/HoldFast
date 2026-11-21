@@ -1911,12 +1911,8 @@ def _checked_elaboration(
         if available_modules is not None:
             module_key = module.encode("ascii").hex()
             elaborator.emission_prefix = f"vela_m{module_key}"
-        if available_modules:
             elaborator.available_modules = dict(available_modules)
-            elaborator.serial = max(
-                elaborator.serial,
-                *(mod.serial for mod in available_modules.values()),
-            )
+            elaborator.serial = max((mod.serial for mod in available_modules.values()), default=elaborator.serial)
         for declaration in elaborator.nodes(root["declarations"]):
             elaborator.declaration(declaration)
         generated_module = (
@@ -2004,11 +2000,65 @@ def elaborate_package(modules: Sequence[tuple[bytes, object]]) -> dict[str, Elab
     elaborations: dict[str, Elaboration] = {}
     for mname in topo:
         src, parsed, _, _, _ = decoded[mname]
-        elab, elaborator = _checked_elaboration(src, parsed, available_modules=available)
+        try:
+            elab, elaborator = _checked_elaboration(src, parsed, available_modules=available)
+        except VelaError as error:
+            raise VelaError(error.kind, error.line, error.column, f"module '{mname}': {error.message}") from error
         available[mname] = elaborator
         elaborations[mname] = elab
 
     return elaborations
+
+
+def check_client_upgrade(
+    baseline: tuple[bytes, object], candidate: tuple[bytes, object],
+    clients: Sequence[tuple[bytes, object]], dependencies: Sequence[tuple[bytes, object]] = (),
+) -> dict[str, object]:
+    """Elaborate the same importing clients and fixed dependencies against two module revisions."""
+    def describe(module: tuple[bytes, object]) -> tuple[str, set[str]]:
+        source, parsed = module
+        protocol = _Protocol(source)
+        ast = protocol.decode(parsed)
+        probe = _Elaborator(protocol)
+        return probe.name(ast["name"]), {
+            probe.name(decl["name"]) for decl in probe.nodes(ast["declarations"]) if decl["kind"] == "import"
+        }
+
+    owner, _ = describe(baseline)
+    if describe(candidate)[0] != owner:
+        raise VelaError("name", 1, 1, "upgrade revisions must declare the same module")
+    if not clients:
+        raise VelaError("name", 1, 1, "an upgrade requires at least one dependent client")
+    fixed = [*dependencies, *clients]
+    described = [describe(module) for module in fixed]
+    graph = dict(described)
+    client_names = [name for name, _ in described[len(dependencies):]]
+    for client in client_names:
+        pending = list(graph[client])
+        seen: set[str] = set()
+        while pending:
+            current = pending.pop()
+            if current == owner:
+                break
+            if current not in seen:
+                seen.add(current)
+                pending.extend(graph.get(current, ()))
+        else:
+            raise VelaError("name", 1, 1, f"client '{client}' does not import '{owner}' directly or transitively")
+    for phase, revision in (("baseline", baseline), ("candidate", candidate)):
+        try:
+            elaborate_package([revision, *fixed])
+        except VelaError as error:
+            raise VelaError(error.kind, error.line, error.column, f"{phase} replay: {error.message}") from error
+    return {
+        "status": "clients-elaborated", "module": owner, "clients": sorted(client_names),
+        "baseline_sha256": hashlib.sha256(baseline[0]).hexdigest(),
+        "candidate_sha256": hashlib.sha256(candidate[0]).hexdigest(),
+        "fixed_sources_sha256": {
+            name: hashlib.sha256(module[0]).hexdigest()
+            for (name, _), module in zip(described, fixed, strict=True)
+        },
+    }
 
 
 def _console_initializer(elaborator: _Elaborator, protocol: _Protocol, parsed: object,

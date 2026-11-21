@@ -34,6 +34,7 @@ from toolchain import (
 )
 from toolchain.atomic import atomic_path
 from toolchain.authoring import MATHEMATICAL_LINT_CODES, Finding
+from toolchain.elaborate import check_client_upgrade
 
 
 def _publish(source: Path, destination: Path, gallina: str) -> None:
@@ -62,6 +63,11 @@ def main(argv: list[str] | None = None) -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("build", help="make a fresh native parser and receipt")
     commands.add_parser("qualify", help="check independent AST/refusal fixtures and regeneration")
+    upgrade = commands.add_parser("check-upgrade", help="re-elaborate the same clients against two module revisions")
+    upgrade.add_argument("baseline", type=Path)
+    upgrade.add_argument("candidate", type=Path)
+    upgrade.add_argument("--client", required=True, action="append", type=Path, help="dependent client module (repeatable)")
+    upgrade.add_argument("--dependency", action="append", type=Path, default=[], help="fixed dependency module (repeatable)")
     commands.add_parser("migration", help="compare generated AST translation with the retained prototype")
     syntax_campaigns = commands.add_parser(
         "syntax-campaigns",
@@ -131,7 +137,18 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 _publish(args.source, args.output, translation.gallina)
             return 0
-        if args.command == "elaborate-qualify":
+        if args.command == "check-upgrade":
+            with vela_parser.cached_build(root) as compiled:
+                def load_module(path: Path) -> tuple[bytes, object]:
+                    source = vela_parser.read_source(path)
+                    try:
+                        return source, vela_parser.parse_source(compiled, source, surface=True)
+                    except VelaError as error:
+                        raise VelaError(error.kind, error.line, error.column, f"{path}: {error.message}") from error
+                output = check_client_upgrade(load_module(args.baseline), load_module(args.candidate),
+                                              [load_module(path) for path in args.client],
+                                              [load_module(path) for path in args.dependency])
+        elif args.command == "elaborate-qualify":
             output = vela_elaboration_check.qualify(root)
         elif args.command == "first-slice":
             output = vela_first_slice.qualify(root, ccomp_path=getattr(args, "ccomp", None))
@@ -157,7 +174,7 @@ def main(argv: list[str] | None = None) -> int:
             with vela_parser.cached_build(root) as compiled:
                 output = vela_parser.parse_source(compiled, source, surface=args.surface)
     except VelaError as error:
-        site = str(args.source) if args.command in {"parse", "elaborate"} else "qualification"
+        site = str(args.source) if args.command in {"parse", "elaborate"} else args.command
         print(f"{site}:{error.line}:{error.column}: {error.kind}: {error.message}", file=sys.stderr)
         return 1
     except (OSError, RuntimeError, TypeError, ValueError, Timeout) as error:

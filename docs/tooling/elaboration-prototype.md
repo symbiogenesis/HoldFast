@@ -22,6 +22,18 @@ and the compositional constant interface support the bounded mathematical fragme
 General descriptor reflection, generated declaration APIs and composition with
 the refused resource/effect features remain outside it.
 
+## Client upgrade replay
+
+`python tools/run.py vela-parser check-upgrade old.vela new.vela --client client.vela`
+compares two revisions of the same named module. Supply additional
+`--client` and `--dependency` files as needed. Each client must transitively
+import the module under review. A successful replay records the SHA-256 of
+both revisions and every fixed source. An elaboration failure identifies the
+baseline or candidate, the affected module, and the source position.
+The result covers the supplied clients in this mathematical fragment. The
+[release contract](../language/first-release.md#public-api-evolution) also
+accounts for separately compiled consumers, ABI, and replayed kernel evidence.
+
 ## Supported mathematical increment
 
 The increment uses the [surface grammar](../language/surface-grammar.md), with mathematical

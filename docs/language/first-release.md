@@ -274,6 +274,24 @@ interface fingerprint alone cannot reuse stale compilation or proof evidence.
 Until finer dependency tracking is qualified, a semantic dependency change
 invalidates the reachable component closure conservatively.
 
+### Public API evolution
+
+Adding a case to a public closed union can break downstream exhaustive matches;
+adding a public export can make an existing open import ambiguous. Adding a
+required interface method or law changes the obligations of existing instances.
+Parameter labels, required-static status, grades, capture and effect bounds, and
+public representation participate in compatibility alongside parameter/result
+types. An upgrade that strengthens a precondition or weakens a postcondition can
+invalidate callers and their proofs. A release must identify these changes,
+version breaking changes accordingly, and supply a migration or retain an
+adapter where the prior interface can still be implemented. An API intended
+to admit new internal cases can expose an abstract type with stable eliminators.
+
+The local [client replay command](../tooling/elaboration-prototype.md#client-upgrade-replay)
+keeps client and dependency sources fixed and elaborates both revisions, including
+exhaustiveness and proof obligations exercised by those clients. Release
+qualification also requires its kernel, ABI and target-specific evidence.
+
 ## Ownership libraries
 
 The initial client needs a small, proved library of buffers, immutable/mutable

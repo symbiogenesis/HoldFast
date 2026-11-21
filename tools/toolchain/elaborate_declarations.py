@@ -1109,40 +1109,39 @@ class _DeclarationsMixin:
                             conj,
                         )
                 cname = self._dotted_member_path(callee)
-                if cname is not None and cname.split(".", 1)[0] not in environment:
-                    if cname in self.interfaces:
-                        iface = self.interfaces[cname]
-                        arg_nodes = self.nodes(conj["arguments"])
-                        if len(arg_nodes) != len(iface.generic_vars):
-                            raise self.fail(
-                                "type",
-                                f"interface constraint '{cname}' expects {len(iface.generic_vars)} arguments, got {len(arg_nodes)}",
-                                conj,
-                            )
-                        t_args: list[_Term] = []
-                        for idx, anode in enumerate(arg_nodes):
-                            self.node(anode, "argument")
-                            if anode["label"] is not None:
-                                raise self.fail("type", "interface constraint arguments do not accept labels", anode)
-                            aval = self._unwrap_group(self.node(anode["value"]))
-                            g_dom = self.types[cast("int", iface.generic_vars[idx].value)]
-                            for prev_gv, prev_t in zip(iface.generic_vars[:idx], t_args, strict=True):
-                                g_dom = self.substitute(g_dom, cast("int", prev_gv.value), prev_t)
-                            if aval["kind"] == "name":
-                                aname = self.name(aval["name"])
-                                b = self.lookup(aname, environment, raw=True)
-                                t_term = b.term
-                                self.site = anode
-                                self.unify(self.infer(t_term), g_dom)
-                            elif aval["kind"] == "type_expression":
-                                t_term = self.type(self.node(aval["type"]), environment)
-                                self.site = anode
-                                self.unify(self.infer(t_term), g_dom)
-                            else:
-                                t_term = self.argument(aval, g_dom, environment)
-                            t_args.append(self.whnf(t_term))
-                        iface_constraints.append((iface, tuple(t_args), conj))
-                        continue
+                if cname is not None and cname in self.interfaces and cname.split(".", 1)[0] not in environment:
+                    iface = self.interfaces[cname]
+                    arg_nodes = self.nodes(conj["arguments"])
+                    if len(arg_nodes) != len(iface.generic_vars):
+                        raise self.fail(
+                            "type",
+                            f"interface constraint '{cname}' expects {len(iface.generic_vars)} arguments, got {len(arg_nodes)}",
+                            conj,
+                        )
+                    t_args: list[_Term] = []
+                    for idx, anode in enumerate(arg_nodes):
+                        self.node(anode, "argument")
+                        if anode["label"] is not None:
+                            raise self.fail("type", "interface constraint arguments do not accept labels", anode)
+                        aval = self._unwrap_group(self.node(anode["value"]))
+                        g_dom = self.types[cast("int", iface.generic_vars[idx].value)]
+                        for prev_gv, prev_t in zip(iface.generic_vars[:idx], t_args, strict=True):
+                            g_dom = self.substitute(g_dom, cast("int", prev_gv.value), prev_t)
+                        if aval["kind"] == "name":
+                            aname = self.name(aval["name"])
+                            b = self.lookup(aname, environment, raw=True)
+                            t_term = b.term
+                            self.site = anode
+                            self.unify(self.infer(t_term), g_dom)
+                        elif aval["kind"] == "type_expression":
+                            t_term = self.type(self.node(aval["type"]), environment)
+                            self.site = anode
+                            self.unify(self.infer(t_term), g_dom)
+                        else:
+                            t_term = self.argument(aval, g_dom, environment)
+                        t_args.append(self.whnf(t_term))
+                    iface_constraints.append((iface, tuple(t_args), conj))
+                    continue
             prop_contracts.append(
                 {
                     "kind": "contract",
