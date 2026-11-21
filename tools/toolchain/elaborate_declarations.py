@@ -646,6 +646,7 @@ class _DeclarationsMixin:
             self.active_effect_calls = set(m_effect_calls)
         try:
             self.runtime_writes.clear()
+            self.result_bindings.clear()
             body_term = self.check(body_node, result_ty, method_env)
             if effects_clauses:
                 self._verify_closed_effects(
@@ -1743,6 +1744,9 @@ class _DeclarationsMixin:
                 body_node = self.node(raw_body)
                 prev_ret = self.current_return_type
                 self.current_return_type = m_res_type
+                prev_executable = self.in_executable_function
+                self.in_executable_function = mkind == "function"
+                self.result_bindings.clear()
                 saved_body_f = list(self.active_facts)
                 self.active_facts.extend([*inst_req_bools, *self._fact_bool_terms((), m_env)])
                 try:
@@ -1771,6 +1775,7 @@ class _DeclarationsMixin:
                 finally:
                     self.active_facts = saved_body_f
                     self.current_return_type = prev_ret
+                    self.in_executable_function = prev_executable
 
                 full_m_vars = [*impl_generic_vars, *impl_witness_vars, *m_vars]
                 m_sig = self.wrap("pi", full_m_vars, m_res_type)
@@ -2152,8 +2157,22 @@ class _DeclarationsMixin:
             if short_name not in structs:
                 structs[short_name] = sinfo
         fn_name = self.name(fn_node["name"])
-        lowered = loans._FunctionLowerer(fn_name, fn_node, enclosing_type, structs).build()
+        lowerer = loans._FunctionLowerer(fn_name, fn_node, enclosing_type, structs)
+        if self.in_executable_function:
+            lowerer.result_bindings = self.result_bindings
+            for param in self.nodes(fn_node["parameters"]):
+                if param["kind"] == "parameter":
+                    pname = self.name(param["name"])
+                    ptype = self.node(param["type"])
+                    if (ptype.get("modifier") not in {"in", "ref", "out"}
+                            and pname in self.entry_env and self._is_result(self.entry_env[pname].type)):
+                        lowerer.result_parameters.add(pname)
+            lowerer.result_names = set(lowerer.result_bindings.values()) | lowerer.result_parameters
+        lowered = lowerer.build()
         report = loans.analyze(lowered.owners, lowered.graph)
+        if issue := lowerer.unexamined_result(lowered.graph):
+            name, site = issue
+            raise self.fail("type", f"unexamined Result '{name}': match it, propagate it with '?' or return it", site)
         borrow_origins = {
             event.loan.name: (event.loan, lowered.node_sites[cfg_node.name])
             for cfg_node in lowered.graph.nodes
@@ -2832,6 +2851,7 @@ class _DeclarationsMixin:
                 self.final_theorem_facts = ()
                 self.in_executable_function = kind == "function"
                 self.runtime_writes.clear()
+                self.result_bindings.clear()
                 prev_effect_calls = self.active_effect_calls
                 if effects_clauses:
                     self.active_effect_calls = set(declared_effect_calls)

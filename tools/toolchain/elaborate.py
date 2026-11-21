@@ -126,6 +126,7 @@ class _Elaborator(
         self.callable_effect_calls: dict[str, set[str]] = {}
         self.callable_effect_writes: dict[str, set[int]] = {}
         self.runtime_writes: set[str] = set()
+        self.result_bindings: dict[int, str] = {}
         self.untracked_effect_functions: set[str] = set()
         self.active_effect_calls: set[str] | None = None
         self.callable_ensures: dict[
@@ -1143,6 +1144,9 @@ class _Elaborator(
             reduced = self.whnf(specialized)
             return specialized if reduced == specialized else self.specialize(reduced, depth + 1)
         return specialized
+
+    def _is_result(self, value_type: _Term) -> bool:
+        return self.spine(self.whnf(value_type))[0] == _constant("vela_Result")
 
     def _owns_fields(self, value_type: _Term) -> bool:
         self.tick()

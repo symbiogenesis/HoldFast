@@ -1242,6 +1242,12 @@ def _op_text(value: object) -> str:
     return ""
 
 
+def _checks_constructor(pattern: object) -> bool:
+    while isinstance(pattern, dict) and pattern.get("kind") == "group_pattern":
+        pattern = pattern.get("pattern")
+    return isinstance(pattern, dict) and _ast_node(pattern).get("kind") == "constructor_pattern"
+
+
 def _is_ident(node: dict[str, object]) -> bool:
     return node.get("kind") in {"identifier", "name"}
 
@@ -1493,6 +1499,12 @@ class _FunctionLowerer:
     ) -> None:
         self.fn_name = fn_name
         self.fn_node = fn_node
+        self.result_parameters: set[str] = set()
+        self.visible_results: set[str] = set()
+        self.result_names: set[str] = set()
+        self.result_bindings: dict[int, str] = {}
+        self.result_events: dict[str, tuple[str, str]] = {}
+        self.in_proof = False
         self.enclosing_type = enclosing_type
         self.structs = structs
         self.owners: dict[str, Owner] = {}
@@ -1556,6 +1568,42 @@ class _FunctionLowerer:
         nxt = self._fresh_node(prefix, event)
         self._connect(current, nxt)
         return nxt
+
+    def _result_event(self, current: str | None, action: str, name: str) -> str | None:
+        if current is None or self.in_proof or name not in self.result_names or (action == "use" and name not in self.visible_results):
+            return current
+        event = self._fresh_node("result")
+        self._connect(current, event)
+        self.result_events[event] = (action, name)
+        # An independent successor prevents Nop compression from relocating this event's site.
+        end = self._fresh_node("after_result")
+        self._connect(event, end)
+        return end
+
+    def unexamined_result(self, graph: Graph) -> tuple[str, dict[str, object]] | None:
+        if not self.result_names:
+            return None
+        incoming: dict[str, frozenset[str]] = {graph.entry: frozenset(self.result_parameters)}
+        pending = [graph.entry]
+        while pending:
+            point = pending.pop()
+            owed = incoming[point]
+            if point in self.result_events:
+                action, name = self.result_events[point]
+                if action != "use" and name in owed:
+                    return name, self.node_sites[point]
+                if action == "new":
+                    owed = owed | {name}
+                elif action == "use":
+                    owed = owed - {name}
+            if isinstance(self.events[point], Return) and owed:
+                return min(owed), self.node_sites[point]
+            for succ in self.edges[point]:
+                merged = incoming[succ] | owed if succ in incoming else owed
+                if succ not in incoming or merged != incoming[succ]:
+                    incoming[succ] = merged
+                    pending.append(succ)
+        return None
 
     def _register_owner(
         self,
@@ -1890,7 +1938,7 @@ class _FunctionLowerer:
         return current, failure, outer_handles if outer_handles is not None else {}
 
     def _lower_expr(
-        self, current: str | None, expr: dict[str, object]
+        self, current: str | None, expr: dict[str, object], *, handles_result: bool = False,
     ) -> tuple[str | None, tuple[str, ...]]:
         if current is None:
             return None, ()
@@ -1914,6 +1962,8 @@ class _FunctionLowerer:
 
             if _is_ident(expr):
                 name = _id_text(expr["name"])
+                if handles_result:
+                    current = self._result_event(current, "use", name)
                 if name in self.handles:
                     handle = self.handles[name]
                     current = self._emit(current, Use(handle), f"use_{name}")
@@ -1963,6 +2013,8 @@ class _FunctionLowerer:
                 if mode == "move":
                     if _is_ident(inner):
                         sname = _id_text(inner["name"])
+                        if handles_result:
+                            current = self._result_event(current, "use", sname)
                         if sname in self.handles:
                             old_handle = self.handles.pop(sname)
                             moved_handle = self._fresh_loan(f"moved_{sname}")
@@ -2016,19 +2068,30 @@ class _FunctionLowerer:
                     self._connect(success, join)
                     self._connect(failure, join)
                     return join, ()
+                if _op_text(expr["operator"]) == "||":
+                    current, _ = self._lower_expr(current, _ast_node(expr["left"]))
+                    split = self._emit(current, Nop(), "or_split")
+                    join = self._fresh_node("join_or")
+                    right = self._fresh_node("or_right")
+                    self._connect(split, join)
+                    self._connect(split, right)
+                    end, _ = self._lower_expr(right, _ast_node(expr["right"]))
+                    self._connect(end, join)
+                    return join, ()
                 left = _ast_node(expr["left"])
                 right = _ast_node(expr["right"])
                 current, _ = self._lower_expr(current, left)
                 current, _ = self._lower_expr(current, right)
                 return current, ()
 
-            if kind == "group":
+            if kind in {"group", "expression_body"}:
                 inner = _ast_node(expr.get("expression") or expr.get("value"))
-                return self._lower_expr(current, inner)
+                return self._lower_expr(current, inner, handles_result=handles_result)
 
             if kind in {"is", "is_expression", "as", "cast_expression"}:
                 val = _ast_node(expr["value"])
-                return self._lower_expr(current, val)
+                checks_case = kind in {"is", "is_expression"} and _checks_constructor(expr["pattern"])
+                return self._lower_expr(current, val, handles_result=checks_case)
 
             if kind in {"update", "with_expression"}:
                 src = _ast_node(expr.get("source") or expr["value"])
@@ -2067,9 +2130,9 @@ class _FunctionLowerer:
                 then_br = _ast_node(expr.get("then_branch") or expr["then"])
                 else_br = _ast_node(expr.get("else_branch") or expr["else"])
                 then_entry, else_entry, saved_handles = self._lower_condition(current, cond)
-                then_exit, then_caps = self._lower_expr(then_entry, then_br)
+                then_exit, then_caps = self._lower_expr(then_entry, then_br, handles_result=handles_result)
                 self.handles = dict(saved_handles)
-                else_exit, else_caps = self._lower_expr(else_entry, else_br)
+                else_exit, else_caps = self._lower_expr(else_entry, else_br, handles_result=handles_result)
                 self.handles = saved_handles
                 join = self._fresh_node("join_if")
                 self._connect(then_exit, join)
@@ -2078,10 +2141,11 @@ class _FunctionLowerer:
 
             if kind == "match_expression":
                 scrutinee = _ast_node(expr.get("scrutinee") or expr["value"])
-                current, scrut_caps = self._lower_expr(current, scrutinee)
-                scrut_place = self._try_place(scrutinee)
                 raw_arms = expr.get("arms") if "arms" in expr else expr.get("cases", [])
                 arms = _ast_nodes(raw_arms)
+                checks_case = any(_checks_constructor(arm["pattern"]) for arm in arms)
+                current, scrut_caps = self._lower_expr(current, scrutinee, handles_result=checks_case)
+                scrut_place = self._try_place(scrutinee)
                 if not arms:
                     return current, ()
                 split = self._emit(current, Nop(), "match_split")
@@ -2100,7 +2164,7 @@ class _FunctionLowerer:
                     if isinstance(guard, dict):
                         arm_curr, _ = self._lower_expr(arm_curr, guard)
                     body_node = _ast_node(arm.get("body") or arm["value"])
-                    arm_exit, arm_caps = self._lower_expr(arm_curr, body_node)
+                    arm_exit, arm_caps = self._lower_expr(arm_curr, body_node, handles_result=handles_result)
                     self._connect(arm_exit, join)
                     for cap in arm_caps:
                         if cap not in all_caps:
@@ -2113,7 +2177,7 @@ class _FunctionLowerer:
 
             if kind == "propagate":
                 inner = _ast_node(expr["value"])
-                current, caps = self._lower_expr(current, inner)
+                current, caps = self._lower_expr(current, inner, handles_result=True)
                 split = self._emit(current, Nop(), "try_split")
                 err_node = self._fresh_node("try_err", Return("Err"))
                 ok_node = self._fresh_node("try_ok")
@@ -2131,6 +2195,7 @@ class _FunctionLowerer:
         callee = _ast_node(expr["callee"])
         args = _ast_nodes(expr.get("arguments", []))
         arg_loans: list[tuple[str, Mode, Place, bool]] = []
+        transferred_results: list[str] = []
         captured_handles: list[str] = []
 
         # Receiver member call: e.g. `workspace.TryFirst()`.
@@ -2196,6 +2261,7 @@ class _FunctionLowerer:
                 elif amode == "move":
                     if _is_ident(aval):
                         sname = _id_text(aval["name"])
+                        transferred_results.append(sname)
                         if sname in self.handles:
                             old_handle = self.handles.pop(sname)
                             moved_handle = self._fresh_loan(f"moved_{sname}")
@@ -2210,12 +2276,20 @@ class _FunctionLowerer:
                         if aname in self.handles:
                             captured_handles.append(self.handles[aname])
                             continue
+                    direct = aval
+                    while direct.get("kind") == "group":
+                        direct = _ast_node(direct.get("expression") or direct["value"])
+                    if _is_ident(direct):
+                        transferred_results.append(_id_text(direct["name"]))
                     current, caps = self._lower_expr(current, aval)
                     for cap in caps:
                         if cap not in captured_handles:
                             captured_handles.append(cap)
             finally:
                 self.current_site = prev_site
+
+        for name in transferred_results:
+            current = self._result_event(current, "use", name)
 
         # At the call execution point, demand all active `in`/`ref`/`out` argument loans.
         for loan_name, loan_mode, place, is_temp in arg_loans:
@@ -2285,7 +2359,7 @@ class _FunctionLowerer:
             self.handle_modes[loan_name] = loan_mode
             return current
 
-        current, caps = self._lower_expr(current, value_expr)
+        current, caps = self._lower_expr(current, value_expr, handles_result=id(self.current_site) in self.result_bindings)
         if caps:
             if len(caps) == 1 and explicit_loan_mode is not None and caps[0] in self.handle_places:
                 parent_handle = caps[0]
@@ -2332,12 +2406,17 @@ class _FunctionLowerer:
         loop_header: str | None = None,
         loop_exit: str | None = None,
     ) -> str | None:
+        outer_results = set(self.visible_results)
         for stmt in statements:
             if current is None:
                 break
             current = self._lower_statement(
                 current, stmt, loop_header=loop_header, loop_exit=loop_exit
             )
+        for stmt in statements:
+            if id(stmt) in self.result_bindings:
+                current = self._result_event(current, "scope", self.result_bindings[id(stmt)])
+        self.visible_results = outer_results
         return current
 
     def _lower_statement(
@@ -2366,25 +2445,35 @@ class _FunctionLowerer:
             if kind in {"let", "var", "typed_local", "constant_local"}:
                 bname = _id_text(stmt["name"])
                 val = _ast_node(stmt["value"])
-                return self._lower_binding(
+                current = self._lower_binding(
                     current,
                     bname,
                     val,
                     local_type=stmt.get("local_type") or stmt.get("type"),
                 )
+                if id(stmt) in self.result_bindings:
+                    self.visible_results.add(bname)
+                    return self._result_event(current, "new", bname)
+                self.visible_results.discard(bname)
+                return self._result_event(current, "shadow", bname)
 
             if kind in {"let_pattern", "var_pattern"}:
                 pat = _ast_node(stmt["pattern"])
                 val = _ast_node(stmt["value"])
-                current, caps = self._lower_expr(current, val)
-                return self._bind_pattern_from_captures(current, pat, caps, self._try_place(val))
+                current, caps = self._lower_expr(current, val, handles_result=id(stmt) in self.result_bindings)
+                current = self._bind_pattern_from_captures(current, pat, caps, self._try_place(val))
+                if id(stmt) in self.result_bindings:
+                    bname = self.result_bindings[id(stmt)]
+                    self.visible_results.add(bname)
+                    current = self._result_event(current, "new", bname)
+                return current
 
             if kind in {"let_else", "var_else"}:
                 pat = _ast_node(stmt["pattern"])
                 val = _ast_node(stmt["value"])
                 else_raw = stmt.get("else_body") if "else_body" in stmt else stmt.get("else")
                 else_body = _body_statements(else_raw)
-                current, caps = self._lower_expr(current, val)
+                current, caps = self._lower_expr(current, val, handles_result=_checks_constructor(pat))
                 split = self._emit(current, Nop(), "let_else_split")
                 ok_entry = self._fresh_node("let_else_ok")
                 else_entry = self._fresh_node("let_else_err")
@@ -2403,7 +2492,10 @@ class _FunctionLowerer:
                 target = _ast_node(stmt["target"])
                 val = _ast_node(stmt["value"])
                 op = _op_text(stmt.get("operator", "=")) or "="
-                current, _ = self._lower_expr(current, val)
+                tname = _id_text(target["name"]) if _is_ident(target) else ""
+                current, _ = self._lower_expr(current, val, handles_result=tname in self.visible_results)
+                if tname in self.visible_results:
+                    current = self._result_event(current, "new", tname)
                 current = self._eval_index_subexpressions(current, target)
                 if op != "=":
                     current, _ = self._lower_expr(current, target)
@@ -2458,10 +2550,11 @@ class _FunctionLowerer:
 
             if kind == "match":
                 scrutinee = _ast_node(stmt.get("scrutinee") or stmt["value"])
-                current, scrut_caps = self._lower_expr(current, scrutinee)
-                scrut_place = self._try_place(scrutinee)
                 raw_arms = stmt.get("arms") if "arms" in stmt else stmt.get("cases", [])
                 arms = _ast_nodes(raw_arms)
+                checks_case = any(_checks_constructor(arm["pattern"]) for arm in arms)
+                current, scrut_caps = self._lower_expr(current, scrutinee, handles_result=checks_case)
+                scrut_place = self._try_place(scrutinee)
                 if not arms:
                     return current
                 split = self._emit(current, Nop(), "match_split")
@@ -2621,7 +2714,7 @@ class _FunctionLowerer:
                             cname = _id_text(callee["name"])
                             if cname and cname[0].isupper():
                                 outcome = cname
-                    current, caps = self._lower_expr(current, val)
+                    current, caps = self._lower_expr(current, val, handles_result=True)
                     ret_caps = (
                         ()
                         if self.returns_scalar_value and _extract_borrow_expr(val) is None
@@ -2639,7 +2732,11 @@ class _FunctionLowerer:
 
             if kind == "assert":
                 expr = _ast_node(stmt.get("expression") or stmt["value"])
-                current, _ = self._lower_expr(current, expr)
+                self.in_proof = True
+                try:
+                    current, _ = self._lower_expr(current, expr)
+                finally:
+                    self.in_proof = False
                 return current
 
             return current
@@ -2648,6 +2745,7 @@ class _FunctionLowerer:
 
     def build(self) -> LoweredFunction:
         self._collect_signature_facts()
+        self.visible_results = set(self.result_parameters)
         entry = self._fresh_node("entry")
         body = (
             self.fn_node.get("body")
@@ -2659,7 +2757,7 @@ class _FunctionLowerer:
             if end is not None and not isinstance(self.events.get(end), Return):
                 self._emit(end, Return("return"), "ret")
         elif isinstance(body, dict):
-            end, caps = self._lower_expr(entry, body)
+            end, caps = self._lower_expr(entry, body, handles_result=True)
             ret_caps = (
                 ()
                 if self.returns_scalar_value and _extract_borrow_expr(body) is None

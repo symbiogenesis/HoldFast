@@ -4343,6 +4343,36 @@ def _record_invariants_and_selective_lifting() -> None:
     _refuses(task_scope, "unsupported", "'scope' is outside mathematical elaboration")
 
 
+def _mandatory_result_use() -> None:
+    result = _type("Result", _type("Unit"), _type("u32"))
+    outcome = _variable("outcome")
+    success = _call("Ok", _unit(), generics=(_type("Unit"), _type("u32")))
+    handles = _is_expr(outcome, _pat_ctor("Ok", _pat_wild()))
+    for name, statements in (
+        ("Ignored", (_let_stmt("unused", outcome), _return_stmt(_unit()))),
+        ("LostTemporary", (_expr_stmt(success), _return_stmt(_unit()))),
+        ("OnePath", (_if_stmt(_variable("flag"), _block_stmts(_let_stmt("seen", handles))),
+                     _return_stmt(_unit()))),
+        ("Overwrite", (_var_stmt("pending", outcome), _assign_stmt(_variable("pending"), "=", success),
+                       _return_stmt(_unit()))),
+        ("EarlyError", (_let_stmt("other", success), _let_stmt("payload", _propagate(outcome)),
+                        _return_stmt(_variable("other")))),
+    ):
+        fixture = _Fixture(name)
+        fixture.function("Probe", result if name == "EarlyError" else _type("Unit"),
+                         (("outcome", result), ("flag", _BOOL)), _block_stmts(*statements), block=True)
+        _refuses(fixture, "type", "unexamined Result")
+
+    fixture = _Fixture("Handled")
+    fixture.function("Forward", result, (("outcome", result),), outcome)
+    fixture.function("Use", _BOOL, (("outcome", result),),
+                     _block_stmts(_let_stmt("forwarded", _call("Forward", outcome)),
+                                  _return_stmt(_is_expr(_variable("forwarded"), _pat_ctor("Ok", _pat_wild())))),
+                     block=True)
+    source, response = fixture.response()
+    elaborate(source, response)
+
+
 def _vacant_slots_and_two_step_relocation() -> None:
     fixture = _Fixture("SlotsAndRelocation")
     fixture.function(
@@ -6664,6 +6694,7 @@ def cases() -> list[Case]:
             Case("pure-sequences-and-model-reasoning", _pure_sequences_and_model_reasoning),
             Case("mutable-locals-assignments-and-bounded-loops", _mutable_locals_assignments_and_bounded_loops),
             Case("record-invariants-and-selective-lifting", _record_invariants_and_selective_lifting),
+            Case("mandatory-result-use", _mandatory_result_use),
             Case("vacant-slots-and-two-step-relocation", _vacant_slots_and_two_step_relocation),
             Case("characters-conversions-patterns-and-formatting", _characters_conversions_patterns_and_formatting),
             Case("structural-equality-and-seq-contains", _structural_equality_and_seq_contains),

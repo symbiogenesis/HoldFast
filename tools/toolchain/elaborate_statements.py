@@ -1153,7 +1153,9 @@ class _StatementsMixin:
                 if b_name is not None and b_name in updated:
                     updated[b_name] = res_b
                     return updated
-        self.expression(expr_node, updated)
+        value = self.expression(expr_node, updated)
+        if self.in_executable_function and self._is_result(value.type):
+            raise self.fail("type", "unexamined Result: match it, propagate it with '?' or return it", expr_node)
         self._consume_call_updates(updated, statement)
         return updated
 

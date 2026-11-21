@@ -112,6 +112,14 @@ The supported increment includes:
   as a Boolean value or in a conditional expression requires read-only calls.
   Propagating such a Boolean value with `?` in a function with borrowed outputs
   requires explicit control flow.
+- In executable bodies, a bare expression statement cannot discard the built-in
+  `Result<T, E>`. The source control-flow check follows named by-value parameters
+  and inferred or annotated locals through aliases, overwrites, branches, early
+  `?` exits and returns. A constructor test or match examines a result; a return
+  or by-value call forwards it. Proof-only assertions give no runtime handling
+  credit. Represented nested result fields, generic ability constraints and
+  complete resource accounting across separately compiled interfaces remain
+  release obligations.
 - Nominal `record Name(T1 Field1, ...)` and `union Name { Case1(...); ... }`
   declarations with primary-constructor fields and tagged sum variants (lowering
   non-dependent field telescopes to `@Corelib.Init.Datatypes.prod` and dependent
