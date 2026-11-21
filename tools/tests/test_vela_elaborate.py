@@ -843,12 +843,12 @@ def _static_dependency_refusals() -> None:
     _refuses(fixture, "unsupported", "Nat, bool or Unit")
     fixture = _Fixture()
     fixture.constant("Overflow", _NAT, _binary("*", _natural(10 ** 200), _natural(10 ** 200)))
-    _refuses(fixture, "limit", "representation bound")
+    _refuses(fixture, "limit", "elaborator evaluation limit")
     fixture = _Fixture()
     fixture.constant("Boundary", _NAT, _natural(10 ** 256 - 1))
     elaborate(*fixture.response())
     fixture.constant("Overflow", _NAT, _call("Succ", _variable("Boundary")))
-    _refuses(fixture, "limit", "representation bound")
+    _refuses(fixture, "limit", "elaborator evaluation limit")
     fixture = _Fixture()
     fixture.definition("Work", _NAT, (("value", _NAT),), _binary("+", _variable("value"), _natural(1)))
     fixture.constant("Constant", _NAT, _call("Work", _natural(1)))
@@ -6470,6 +6470,21 @@ def _consuming_ownership_general_loans_and_closed_effects() -> None:
     _refuses(missing_call_effect, "type", "not declared in effects calls(...)")
 
 
+def _unbounded_naturals() -> None:
+    elaborator = language._Elaborator(language._Protocol(b""))
+    value = elaborator.fresh(terms._NAT)
+    budget = terms._term("nat", value=elaborator.natural_limit())
+    ensure(not elaborator._prove_comparison("le", None, value, budget, []),
+           "a normalization resource limit became a theorem about open naturals")
+    three = terms._term("nat", value=3)
+    product = terms._apps(terms._constant("*"), value, three)
+    lower, upper, _ = elaborator._term_bounds(product, None, [])
+    ensure(lower == 0 and upper is None, "multiplication bounded an arbitrary natural")
+    constraint = terms._apps(terms._constant("<="), value, three)
+    ensure(elaborator._term_bounds(product, None, [constraint])[:2] == (0, 9),
+           "a source bound failed to constrain the product")
+
+
 def _speculative_normalization_rollback() -> None:
     elaborator = language._Elaborator(language._Protocol(b""))
     unknown = elaborator.meta(terms._NAT, {})
@@ -6526,6 +6541,7 @@ def cases() -> list[Case]:
             Case("pattern-bindings-across-positive-conjunctions", _pattern_conjunctions),
             Case("pattern-guard-conditional-loan-updates", _pattern_guard_mutation),
             Case("propagation-preserves-explicit-evaluation-order", _propagation_evaluation_order),
+            Case("unbounded-mathematical-natural-parameters", _unbounded_naturals),
             Case("represented-integers-preconditions-and-conversions", _represented_integers_and_conversions),
             Case("pure-sequences-and-model-reasoning", _pure_sequences_and_model_reasoning),
             Case("mutable-locals-assignments-and-bounded-loops", _mutable_locals_assignments_and_bounded_loops),

@@ -60,7 +60,7 @@ class _ProofsMixin:
             if normalized.kind != kind:
                 raise self.fail("inference", "constant initializer did not evaluate to an admitted static value", node)
             if kind == "nat" and not 0 <= cast("int", normalized.value) <= self.natural_limit():
-                raise self.fail("limit", "constant natural exceeds representation bound", node)
+                raise self.fail("limit", "constant natural exceeds elaborator evaluation limit", node)
             return _Binding(normalized, value_type, constant=True)
         finally:
             self.static_forbidden = previous

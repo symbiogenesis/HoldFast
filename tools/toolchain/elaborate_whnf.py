@@ -110,7 +110,7 @@ class _WhnfMixin:
             finally:
                 self.static_forbidden = previous
         if term.kind == "nat" and not 0 <= cast("int", term.value) <= self.natural_limit():
-            raise self.fail("limit", "computed natural exceeds representation bound")
+            raise self.fail("limit", "computed natural exceeds elaborator evaluation limit")
         if term.kind in {"if", "bool_match"}:
             condition = self.whnf(term.args[1])
             if condition.kind == "bool":
@@ -395,7 +395,7 @@ class _WhnfMixin:
                     self.tick(True)
                     total = cast("int", used.value) + cast("int", chunk.value)
                     if total > self.natural_limit():
-                        raise self.fail("limit", "computed natural exceeds representation bound")
+                        raise self.fail("limit", "computed natural exceeds elaborator evaluation limit")
                     fits = int(bool(cast("int", ok.value)) and total <= cast("int", cap.value))
                     return _apps(
                         _constant("TextBuilderVal"),
@@ -408,7 +408,7 @@ class _WhnfMixin:
             if value.kind == "nat":
                 self.tick(True)
                 if cast("int", value.value) >= self.natural_limit():
-                    raise self.fail("limit", "computed natural exceeds representation bound")
+                    raise self.fail("limit", "computed natural exceeds elaborator evaluation limit")
                 return _term("nat", value=cast("int", value.value) + 1)
         if name == "!" and len(arguments) == 1:
             value = self.whnf(arguments[0])
@@ -434,10 +434,10 @@ class _WhnfMixin:
                     limit = self.natural_limit()
                     if ((name == "+" and a > limit - b)
                             or (name == "*" and a != 0 and b > limit // a)):
-                        raise self.fail("limit", "computed natural exceeds representation bound")
+                        raise self.fail("limit", "computed natural exceeds elaborator evaluation limit")
                     value = operation()
                     if value > limit:
-                        raise self.fail("limit", "computed natural exceeds representation bound")
+                        raise self.fail("limit", "computed natural exceeds elaborator evaluation limit")
                     kind = "nat" if name in {"+", "*", "-", "/", "%"} else "bool"
                     return _term(kind, value=value)
             if name == "+" and left.kind == "nat":

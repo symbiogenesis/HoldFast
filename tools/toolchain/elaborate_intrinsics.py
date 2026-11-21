@@ -869,6 +869,8 @@ class _IntrinsicsMixin:
                     )
                 ):
                     _, k_hi, _ = self._term_bounds(f_r, f_spec, facts)
+                    if k_hi is None:
+                        continue
                     if f_op == "le":
                         hi = min(hi, k_hi)
                     elif f_op == "lt":
@@ -883,6 +885,8 @@ class _IntrinsicsMixin:
                     )
                 ):
                     _, k_hi, _ = self._term_bounds(fr_args[0], f_spec, facts)
+                    if k_hi is None:
+                        continue
                     if f_op == "le":
                         hi = min(hi, k_hi)
                     elif f_op == "lt":
@@ -935,6 +939,8 @@ class _IntrinsicsMixin:
                     )
                 ):
                     _, k_hi, _ = self._term_bounds(f_r, f_spec, facts)
+                    if k_hi is None:
+                        continue
                     if f_op == "le":
                         hi = min(hi, k_hi)
                     elif f_op == "lt":

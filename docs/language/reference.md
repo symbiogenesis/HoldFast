@@ -135,7 +135,7 @@ public Nat Total<T>(T first, T second) where Sized(type T)
 | Type | Meaning | Status |
 | --- | --- | --- |
 | `bool`, `Unit` | Exactly `false`/`true`, and the single value `()`; no integer truthiness | P (`bool`), M |
-| `Nat` | Mathematical natural; runtime use needs a selected representation and range relation | P |
+| `Nat` | Unbounded mathematical natural number. Runtime use needs a selected representation and range relation | P, M |
 | `u8`…`u64`, `i8`…`i64`, `byte`, `usize` | Fixed-width target integers; `usize` has the target's XLEN width ([primitive semantics](first-release.md#primitive-semantics)) | M (closed values) |
 | `int`, `uint`, `long`, `ulong` | Exact aliases exported by `Vela.Numerics`, requiring import or qualification | M |
 | `char` | One Unicode scalar value | M |
@@ -224,14 +224,16 @@ evaluate the right operand only when needed. A `<` begins a generic call only
 when a complete argument list closes and is followed by `(`
 ([token-only rule](surface-grammar.md#familiar-authoring-migration)).
 
-Ordinary `+`, `-` and `*` compute the exact result and owe a proof that it is
-representable in the result type; `/` and `%` additionally require a nonzero
-divisor. Named `Checked*`, `Wrapping*` and `Saturating*` operations give other
-behavior explicitly ([primitive semantics](first-release.md#primitive-semantics)).
-The pure prototype's demonstration `Nat` arithmetic is total instead, with
-saturating subtraction and `n / 0 == 0`
-([natural division](../tooling/pure-prototype.md#natural-division-and-remainder)); it
-discharges no release obligation.
+For represented integers, ordinary `+`, `-` and `*` require a representable
+result. Both `/` and `%` require a nonzero divisor. Signed division also
+requires a representable quotient. The operation and its diagnostic use the
+operand type's limits. Named `Checked*`, `Wrapping*` and `Saturating*` operations
+have their own [primitive semantics](first-release.md#primitive-semantics).
+
+For mathematical `Nat` in both elaborators, subtraction stops at zero,
+`n / 0 == 0`, and `n % 0 == n`. A quantified natural ranges over all natural
+numbers. Computing a closed term can exceed the elaborator's resource limit.
+See [natural division and remainder](../tooling/pure-prototype.md#natural-division-and-remainder).
 
 | Form | Meaning | Status |
 | --- | --- | --- |
