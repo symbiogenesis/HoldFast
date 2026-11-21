@@ -1083,6 +1083,8 @@ class _IntrinsicsMixin:
                     f"integer literal {val} is out of range for '{spec.name}' ({spec.min_val}..{spec.max_val})",
                     node,
                 )
+            if not suffix:
+                self.contextual_literal_types[cast("list[int]", operand_node["span"])[0]] = spec.name
             return _Binding(_int_term(spec, val), spec.const)
         if operator in {"-", "~"}:
             if expected_int is not None and self._int_spec(expected_int) is not None:

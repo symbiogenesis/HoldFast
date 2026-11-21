@@ -47,6 +47,7 @@ from toolchain.elaborate_types import (
     MAX_STRING_BYTES,
     MAX_UNIVERSE,
     MAX_WORK,
+    CheckedElaboration,
     Elaboration,
     Node,
     _app,
@@ -101,6 +102,7 @@ class _Elaborator(
 ):
     def __init__(self, protocol: _Protocol) -> None:
         self.protocol = protocol
+        self.contextual_literal_types: dict[int, str] = {}
         self.serial = 0
         self.work = MAX_WORK
         self.reductions = MAX_REDUCTIONS
@@ -1795,6 +1797,7 @@ class _Elaborator(
                         f"integer literal {mag} is out of range for '{spec.name}' ({spec.min_val}..{spec.max_val})",
                         node,
                     )
+                self.contextual_literal_types[cast("list[int]", node["span"])[0]] = spec.name
                 return _int_term(spec, mag)
         if node["kind"] == "unary" and self._int_spec(expected) is not None:
             res_u = self._elaborate_unary(node, environment, expected_int=expected)
@@ -1892,7 +1895,7 @@ def _checked_elaboration(
     parsed: object,
     *,
     available_modules: dict[str, _Elaborator] | None = None,
-) -> tuple[Elaboration, _Elaborator]:
+) -> tuple[CheckedElaboration, _Elaborator]:
     protocol = _Protocol(source)
     try:
         root = protocol.decode(parsed)
@@ -1908,16 +1911,17 @@ def _checked_elaboration(
         for declaration in elaborator.nodes(root["declarations"]):
             elaborator.declaration(declaration)
         generated_module = "Vela_" + module.replace(".", "_")
+        source_digest = hashlib.sha256(source).hexdigest()
         # REUSE-IgnoreStart
         gallina = ("(* SPDX-License-Identifier: Apache-2.0 *)\n"
                    # REUSE-IgnoreEnd
                    "(* Vela mathematical elaboration: unqualified kernel proposal. "
-                   f"Source SHA256: {hashlib.sha256(source).hexdigest()} *)\n"
+                   f"Source SHA256: {source_digest} *)\n"
                    f"Module {generated_module}.\n\n" + _PRELUDE + "\n"
                    + "\n\n".join(elaborator.output) + f"\n\nEnd {generated_module}.\n")
         if len(gallina.encode("utf-8")) > MAX_OUTPUT_BYTES:
             raise protocol.error("limit", "generated Gallina exceeds the output bound")
-        return Elaboration(module, gallina), elaborator
+        return CheckedElaboration(module, gallina, source_digest, elaborator.contextual_literal_types), elaborator
     except RecursionError as error:
         raise protocol.error("limit", "elaboration nesting exceeds the host stack bound") from error
 
@@ -1927,7 +1931,7 @@ def elaborate(
     parsed: object,
     *,
     imports: Sequence[tuple[bytes, object]] | None = None,
-) -> Elaboration:
+) -> CheckedElaboration:
     """Check an exact-source schema-2 AST and propose a complete bounded CIC file."""
     available: dict[str, _Elaborator] = {}
     if imports is not None:

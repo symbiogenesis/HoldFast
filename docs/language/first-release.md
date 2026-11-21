@@ -146,6 +146,12 @@ A suffix or annotation conflicting with the bound is an error; an already typed
 operand never changes type to make the range fit. Ambiguous runtime widths need
 an annotation, including an otherwise unconstrained `let count = 0;`.
 
+In the [packet validator](../../examples/first_slice.vela),
+`let magic = pkt[0];` selects `usize` for the index and `magic != 0x56`
+selects `byte` for the compared literal. The packet C lowerer uses the
+elaborator's checked widths. The explicit and inferred spellings produce the
+same Gallina terms and packet C code apart from the source digest.
+
 Inferred indices retain stability and representation checks. Inference never
 changes instance coherence, supplies authority, converts an existing value,
 inserts ownership transfer or drops an obligation. An inferred proof is still

@@ -293,8 +293,8 @@ private u8 ComputePacketChecksum(in Span<byte> pkt, u8 rawLen, usize payloadLen)
     requires payloadLen <= 4usize
     requires 4usize + payloadLen <= pkt.Length
 {
-    var u8 acc = 0x5Au8 ^ rawLen;
-    foreach (let i in 0usize..4usize)
+    var u8 acc = 0x5A ^ rawLen;
+    foreach (let i in 0..4usize)
         invariant i <= 4usize
         decreases 4usize - i
     {
@@ -316,28 +316,28 @@ public Result<ValidatedPacket<'dst>, ValidationError> PrepareAndValidatePacket<r
     ensures match (result)
     {
         Ok(ValidatedPacket(copied, payloadView)) =>
-            copied <= 4usize && payloadView.Length == copied && payloadView.CanRead && !payloadView.CanWrite,
+            copied <= 4 && payloadView.Length == copied && payloadView.CanRead && !payloadView.CanWrite,
         Err(_) =>
             dst.Length == old(dst.Length) && dst.CanRead && dst.CanWrite
     }
     ensures SpecPacketValid(in old(dst), in pkt) <==> (result is Ok(_))
-    ensures (result is Ok(_)) ==> (dst[0usize] == pkt[0usize] && dst[1usize] == pkt[1usize] && dst[2usize] == pkt[2usize] && dst[3usize] == pkt[3usize])
+    ensures (result is Ok(_)) ==> (dst[0] == pkt[0] && dst[1] == pkt[1] && dst[2] == pkt[2] && dst[3] == pkt[3])
 {
-    if (dst.Length < 8usize || pkt.Length < 4usize || !Span.Disjoint(dst, pkt))
+    if (dst.Length < 8 || pkt.Length < 4 || !Span.Disjoint(dst, pkt))
     {
         return Err(FramingShort);
     }
-    Span.Fill(ref dst, 0usize, 8usize, 0x00u8);
-    let magic = pkt[0usize];
-    let rawLen = pkt[1usize];
-    let expectedChecksum = pkt[2usize];
-    let flags = pkt[3usize];
+    Span.Fill(ref dst, 0, 8, 0x00);
+    let magic = pkt[0];
+    let rawLen = pkt[1];
+    let expectedChecksum = pkt[2];
+    let flags = pkt[3];
     let payloadLen = usize.From(rawLen);
-    if (magic != 0x56u8 || flags != 0x01u8)
+    if (magic != 0x56 || flags != 0x01)
     {
         return Err(BadMagicOrFlags);
     }
-    if (payloadLen > 4usize || 4usize + payloadLen > pkt.Length || 4usize + payloadLen > dst.Length)
+    if (payloadLen > 4 || 4 + payloadLen > pkt.Length || 4 + payloadLen > dst.Length)
     {
         return Err(LengthOutOfBounds);
     }
@@ -345,10 +345,10 @@ public Result<ValidatedPacket<'dst>, ValidationError> PrepareAndValidatePacket<r
     let actualChecksum = ComputePacketChecksum(in pkt, rawLen, payloadLen);
     if (actualChecksum != expectedChecksum)
     {
-        Span.Fill(ref dst, 0usize, 8usize, 0x00u8);
+        Span.Fill(ref dst, 0, 8, 0x00);
         return Err(ChecksumRejected);
     }
-    let payloadView = Span.ReadOnly(Span.Slice(dst, 4usize, payloadLen));
+    let payloadView = Span.ReadOnly(Span.Slice(dst, 4, payloadLen));
     return Ok(ValidatedPacket(payloadLen, payloadView));
 }
 
