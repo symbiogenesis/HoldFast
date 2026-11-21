@@ -5,10 +5,9 @@
 Q25ae in [the plan](../../PLAN.md#q-assessment-actions) commissions one unified
 playground using the [mathematical elaborator](elaboration-prototype.md).
 `python tools/run.py vela-playground` runs in the native guest lane and builds
-the locked Menhir parser once before serving. Dependent mathematics is always
-included; there is no separate launch command or language-mode selector.
-Mathematical source uses the existing schema-2 surface parser without a
-replacement parser.
+the locked Menhir parser once before serving. Every local buffer uses the
+schema-2 surface parser and mathematical elaborator. The static playground
+loads its browser parser and elaborator with the page.
 
 Compile elaborates the entire source and displays its actual Gallina. The console
 checks the complete source plus exactly one closed expression, reduces it with the
@@ -18,20 +17,16 @@ explicit equality proofs keep their existing semantics. Reject mismatched length
 out-of-range indices, false proofs, ambiguous inference and declaration injection.
 No browser request may select an executable or filesystem path.
 
-Compile and evaluate select the existing compiler from the complete source in
-the isolated worker. Try the pure compiler first; only its syntax or unsupported
-refusals select mathematical elaboration. Name, type, encoding and resource
-refusals retain their original judgment. Evaluation selects from the source
-before checking the expression, so expression refusal never changes compilers.
-Compile results include an `editorServices` Boolean identifying availability of
-the existing pure editor services, including on semantic refusal. Successful
-compilation always includes `findings`, empty for pure translation. Transport or
-worker failure disables editor services until a fresh source check succeeds.
-Client-supplied `mode` fields refuse. Worker results retain exact source identity
-and strict shape, type, coordinate and budget validation. Parsing and elaboration
-run in the existing timed isolated worker.
-The server binds the prepared parser's executable identity and rejects changed
-parser bytes. Source, expression and result type all invalidate stale output.
+Compile and evaluate use the full playground language from the first request.
+For example, a module defining only `public Nat Square(Nat x) => x * x;`
+can evaluate `At(VCons(Square(7), VNil<Nat>()), FZero<0>())` to `49`.
+Compile results include an `editorServices` Boolean for formatting, navigation
+and other pure editor tools. Successful compilation includes `findings`.
+The local service runs parsing and elaboration in a timed isolated worker.
+It checks the identity of the prepared parser and validates each response's
+source identity, shape, types, coordinates and budget. Compiler requests reject
+client-supplied `mode` fields. Source, expression and result type all invalidate
+stale output.
 
 Runnable examples demonstrate generic instantiation, safe vector lookup, dependent
 length preservation, multi-quote raw string literals with allocation-free checked
@@ -41,17 +36,17 @@ constructor patterns, `if (...) ... else ...` expressions, `let ... else` /
 `if (x is ...)` guards, and explicit proofs, with independently expected console
 answers.
 All examples share one selector and one source buffer. Debounced source checks
-automatically update diagnostics and editor-service availability. Dependent source
-disables pure-only LSP, formatting and pure-lint services explicitly;
-its diagnostics come from mathematical compilation, including the
+automatically update diagnostics and editor-service availability. Compilation
+reports diagnostics for the current buffer, including the
 [generic type parameter naming lint](authoring-tools.md#generic-type-parameter-naming).
-Returning to supported pure source restores those services automatically. Edits
-clear old diagnostics and results, including in plain-text fallback; late analysis
-must never restore services or output for an obsolete source or connection.
+Formatting, pure lints and LSP inspection are available where their producers
+support the source. Edits clear old diagnostics and results, including in
+plain-text fallback. Late analysis must never restore services or output for
+an obsolete source or connection.
 Label elaboration and compile-time reduction accurately: neither is a kernel verdict.
 
 Acceptance requires independent evaluator and injection/refusal controls, actual
-HTTP isolation and automatic compiler-selection controls, browser asset checks, focused retained playground
+HTTP isolation, dependent expressions in ordinary buffers, browser asset checks, focused retained playground
 and pure tests, Python validation and corpus checks. Exercise the native parser
 with accepted and semantically rejected examples locally when available. Hosted
 Host CI on both platforms and every Guest CI lane, including kernel replay of the
@@ -60,9 +55,9 @@ without claiming production qualification.
 
 ## Scope and launch
 
-Q25aa in [the plan](../../PLAN.md#q-assessment-actions) commissions a local
-browser demo of the implemented [pure Nat/bool compiler](pure-prototype.md) and
-[language server](lsp-prototype.md). Launch it with
+The local playground connects the mathematical elaborator,
+[authoring tools](authoring-tools.md) and [language server](lsp-prototype.md).
+Launch it with
 `python tools/run.py vela-playground` (`python3` on Linux), then open the printed
 loopback URL. The command accepts a port, including zero for an available port,
 and stops with Ctrl+C. The server never publishes, writes source files or installs
@@ -104,24 +99,23 @@ evaluation passes across [docs/app.mjs](../app.mjs),
    in-browser parsing enforce mandatory `let`/`var` local bindings, pure
    in-browser translation emits the canonical `Corelib.Init.Datatypes` /
    `Corelib.Init.Nat` Gallina of [tools/toolchain/__init__.py](../../tools/toolchain/__init__.py),
-   and differential tests verify that every catalog example produces identical
-   compilation, findings, and console evaluation across the Python/OCaml worker
-   and `browserApi`.
+   and the example catalog exercises compilation, findings and console evaluation
+   across the Python/OCaml worker and `browserApi`.
 3. **Unified client utilities and highlighting:** Static code cards and Monarch
    share a single grammar-driven lexical table, Web Crypto (`crypto.subtle`)
    replaces custom bitwise SHA-256 boilerplate, and a unified cancellation/ticket
    helper replaces per-panel ticket counters.
-4. **Single-pass worker evaluation and stat-cached binary identity:** Expression
-   evaluation selects the compiler without compiling and translating the module
-   twice, and native-parser digest checks avoid redundant per-request disk reads
-   while still refusing any modified executable before or during worker execution.
+4. **Console evaluation and parser identity.** The local worker passes the source
+   and expression directly to the mathematical evaluator. The browser can reuse
+   the elaborated module for an unchanged source. The local server verifies its
+   parser's identity before accepting worker results.
 
 ## Browser behavior
 
 Provide an editable source pane, examples, a diagnostics view, a read-only
 Gallina output pane and a console for closed expressions. Include accessible
-labels, keyboard actions, a responsive layout, connection/error status and an
-explicit active-fragment scope indication. A successful check means only that
+labels, keyboard actions, a responsive layout and connection/error status.
+A successful check means only that
 the unqualified prototype reported no error. It supplies no kernel, source
 correspondence, native execution or production-admission verdict.
 
@@ -137,10 +131,10 @@ output and hover documentation. Completion, imports and wider semantics are
 not advertised by this demo.
 
 For pure source, Compile shows the actual Gallina returned by `translate` for the exact UTF-8
-source. The expression console selects `Nat` or `bool` and reuses the compiler's
-existing required-static checking and bounded evaluation. A structured compiler
-API validates the complete original source and exactly one synthetic constant
-initializer, returning its typed value without a second parser or evaluator.
+source. The expression console selects `Nat` or `bool` and uses the mathematical
+evaluator for every buffer. The local API validates the complete original
+source and exactly one synthetic constant initializer before returning its
+typed value.
 Reject declaration injection, unsupported constructs and resource exhaustion.
 The authored source stays unchanged; the console describes the value as a
 compile-time result. There is no runtime standard-output or native-code claim.
@@ -159,7 +153,6 @@ The JSON API is same-origin POST with `Authorization: Bearer TOKEN`:
 
 | Path | Request | Response |
 | --- | --- | --- |
-| `/api/capabilities` | `{}` | `{ "mathematical": true or false }` |
 | `/api/session` | `{}` | `{ "session": "opaque-id" }` |
 | `/api/close` | `{ "session": "opaque-id" }` | `{ "closed": true }` (idempotent session release) |
 | `/api/lsp` | `{ "session": "opaque-id", "message": LSP_OBJECT }` | `{ "messages": [LSP_OBJECT] }` |
@@ -184,8 +177,8 @@ Successful compilation returns `findings`, a list of
 naming warnings in source order. Require at most 8,192 findings, exact keys, known code,
 nonempty text and original source positions. Duplicate, unordered, malformed
 or oversized findings refuse the result. Warnings do not prevent Gallina output;
-failed compilation returns no findings. Pure compilation returns an empty list;
-both evaluation routes retain the response shape above.
+failed compilation returns no findings. A source without naming warnings returns
+an empty list.
 
 Use the existing strict protocol JSON reader and its nesting/byte limits, and
 validate endpoint shapes. Bound HTTP reads, concurrent requests, session count
@@ -202,16 +195,17 @@ except the initial local launch URL.
 
 Q25ab in [the plan](../../PLAN.md#q-assessment-actions) extends the local
 playground using the existing [authoring tools](authoring-tools.md) and
-[pure navigation facts](lsp-prototype.md#pure-navigation-increment). Keep the
-pure Nat/bool scope and all existing transport and stale-result constraints.
+[pure navigation facts](lsp-prototype.md#pure-navigation-increment). These editor
+services cover pure Nat/bool source and follow the same transport and
+stale-result constraints as compilation.
 
 An explicit authoring check calls `lint_source` in the
 same bounded isolated worker used by compilation. Return advisory VELA100 through
 VELA103 findings at original one-based compiler positions. Validate the complete response, known
 codes, original-source positions and at most 8,192 findings. Refuse malformed, incomplete, oversized or
 failed producer results; an unavailable inspection is never a clean lint result.
-No checker, parser or edit inference is duplicated in the browser. A check
-changes no source. Invalidate findings on edits and reconnection.
+The static page runs its authoring check in the browser. A check changes no
+source. Invalidate findings on edits and reconnection.
 
 A visible symbol outline queries the existing document-symbol service. Selecting
 a symbol shows its existing plain-text hover, including documentation, and its
@@ -247,8 +241,7 @@ existing compile and expression-console APIs. Add examples for Boolean logic,
 ordering, inequality and saturating natural subtraction, with expressions users
 can evaluate in the console. Highlight the added spellings and retain compiler
 formatting, hover, diagnostics and source-bound stale-result behavior. The
-browser consumes the existing compiler services without parsing or evaluating
-the examples itself. Both Monaco and plain-text mode use the same APIs.
+browser uses the same compile and evaluate APIs in Monaco and plain-text mode.
 
 ## Division and remainder examples
 

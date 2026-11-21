@@ -1205,17 +1205,20 @@ and [generic naming lint](../tooling/authoring-tools.md#generic-type-parameter-n
 The single native-backed `vela-playground` launch
 ([tools/toolchain/playground.py](../../tools/toolchain/playground.py),
 [playground_worker.py](../../tools/toolchain/playground_worker.py))
-automatically selects the pure or mathematical compiler from the source in its
-bounded isolated worker, providing actual Gallina elaboration, bounded
-closed-expression reduction (`evaluate_mathematical`) through the existing
-schema-2 surface parser and reducer, automatic `editorServices` switching, and
+uses the schema-2 surface parser and mathematical elaborator for every buffer
+in its bounded isolated worker. It provides Gallina output, closed-expression
+reduction, an independent `editorServices` indication, and
 source-bound `VELA105` generic type-parameter naming warnings (`--allow VELA105`
 and `--deny VELA105` on `vela-parser elaborate`, with `VELA106` retired at Q25ah).
 
 Generic/higher-order, finite-index `Vec`/`Fin`, record/property/guard, raw-string
 formatting and dependent-function examples return independently expected values,
 while mismatched lengths, out-of-range indices, false proofs and declaration
-injection refuse. Independent evaluator, HTTP, lint and CLI controls
+injection refuse. On 2026-11-21, all 13 catalog examples compiled and all 47
+console suggestions evaluated with the native worker. Headless Edge exercised
+vector lookup in the initial arithmetic buffer, rejection of a mismatched
+`Fin` index and recovery after switching examples in plain-text editing.
+Independent evaluator, HTTP, lint and CLI controls
 ([test_vela_playground_math.py](../../tools/tests/test_vela_playground_math.py),
 [test_vela_generic_naming.py](../../tools/tests/test_vela_generic_naming.py),
 [test_vela_naming_cli.py](../../tools/tests/test_vela_naming_cli.py)), locked
@@ -1225,7 +1228,7 @@ remains user-managed with no hosted pass claimed from local execution. The
 original 16 h estimate, range 12–20, is retained because playground and lint
 intervals were shared across batches; both calibration columns remain `n/a`.
 
-Landed: Tier A. Full review of automatic compiler selection, closed mathematical
+Landed: Tier A. Full review of the playground compiler, closed mathematical
 expression reduction, `VELA105` generic naming checks, browser transport and
 native replay.
 
@@ -1393,13 +1396,13 @@ Accepted on 2026-11-08 under the [playground architecture contract](../tooling/p
    inline `EXAMPLES`, verifies `VELA_GRAMMAR` keyword/type/constant/retired-keyword
    parity against [lexer.mll](../../tools/toolchain/parser/lexer.mll), and refuses
    any reintroduced `tools/toolchain/playground/*` files.
-2. **Single-pass worker evaluation and stat-cached binary identity:**
+2. **Console evaluation and native parser identity.**
    [tools/toolchain/__init__.py](../../tools/toolchain/__init__.py) caches a fresh
    copy of the elaborated pure module environment from `translate(source)` by
-   `(source, budget_key)` so `evaluate(source, expression, value_type)` in
-   [playground_worker.py](../../tools/toolchain/playground_worker.py) evaluates
-   expressions in one pass without spawning `vela-checked-parser` and re-elaborating
-   `source` a second time. [mathematical.py](../../tools/toolchain/mathematical.py)
+   `(source, budget_key)` for callers of the pure evaluator. The
+   [playground worker](../../tools/toolchain/playground_worker.py) passes console
+   requests directly to the mathematical evaluator.
+   [mathematical.py](../../tools/toolchain/mathematical.py)
    caches `vela_parser.Build` by `(parser, st_mtime_ns, st_size, st_ino)` across
    unchanged native parser invocations while preserving fail-closed refusal when the
    executable changes.
@@ -1415,8 +1418,8 @@ Accepted on 2026-11-08 under the [playground architecture contract](../tooling/p
    `purePreviewBindings` in `/api/authoring` matching
    [authoring.py](../../tools/toolchain/authoring.py), emits the exact canonical
    `VELA105` diagnostic in `MathElaborator.elaborate()`, and caches
-   `lastBrowserCompilation` so `browserApi("/api/evaluate", ...)` evaluates both pure
-   and mathematical expressions in a single pass.
+   the elaborated browser module so console expressions can reuse an unchanged
+   source.
    [test_vela_playground_math.py](../../tools/tests/test_vela_playground_math.py)
    verifies differential compilation, evaluation, suggestion, authoring, `Q25ah`,
    and `VELA105` parity between `browserApi` and `playground_worker.compile_request`.
