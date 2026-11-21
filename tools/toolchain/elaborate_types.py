@@ -427,6 +427,10 @@ _GALLINA = {
     "vela_false_elim": "vela_false_elim",
     "vela_false_true_elim": "vela_false_true_elim",
     "vela_and_intro": "vela_and_intro",
+    "vela_Slots_vacant_after_copy": "vela_Slots_vacant_after_copy",
+    "vela_Slots_vacant_after_move": "vela_Slots_vacant_after_move",
+    "vela_Slots_vacant_shrink": "vela_Slots_vacant_shrink",
+    "vela_Seq_take_idempotent": "vela_Seq_take_idempotent",
     "vela_Slots_live_after_copy": "vela_Slots_live_after_copy",
     "vela_and_left": "vela_and_left",
     "vela_and_right": "vela_and_right",
@@ -1996,6 +2000,78 @@ Lemma vela_Seq_Count_take_exact : forall (A : Type@{vela_u0}) k (xs : vela_Seq A
 Proof.
   intros A k. induction k as [|k IH]; intros [|x xs] H; simpl in *;
     try reflexivity; try discriminate. exact (IH xs H).
+Qed.
+
+From Stdlib Require Import Arith.PeanoNat Lia.
+Unset Lia Cache.
+
+Lemma vela_bits_value_order : forall xs ys p q,
+    vela_bits_len xs = vela_bits_len ys ->
+    (or (Nat.lt p q) (and (p = q) (vela_bits_ule xs ys = true))) ->
+    Nat.le (vela_bits_to_nat_acc xs p) (vela_bits_to_nat_acc ys q).
+Proof.
+  induction xs as [|x xs IH]; intros [|y ys] p q Hlen H; simpl in Hlen; try discriminate.
+  - simpl. lia.
+  - injection Hlen as Hlen. destruct x, y; cbn [vela_bits_to_nat_acc vela_bits_ule vela_eq_bool] in *;
+      apply IH; try exact Hlen; intuition lia.
+Qed.
+
+Lemma vela_usize_zero_le : forall x, vela_int_le 4 vela_usize_zero x = true.
+Proof.
+  assert (H : forall n (w : vela_word n),
+      vela_bits_ule (vela_word_bits (vela_bits_word n vela_bnil)) (vela_word_bits w) = true).
+  { intros n w; induction w; simpl; [reflexivity | destruct b; simpl; auto]. }
+  intros [w]. exact (H 64 w).
+Qed.
+
+Lemma vela_Slots_vacant_shrink : forall (A : Type@{vela_u0}) cap (s : vela_Slots A cap) small large,
+  vela_Slots_VacantRange A cap s vela_usize_zero large = true ->
+  vela_int_le 4 small large = true ->
+  vela_Slots_VacantRange A cap s vela_usize_zero small = true.
+Proof.
+  intros A cap s small large Hvac Hle. unfold vela_Slots_VacantRange in *.
+  destruct (vela_Slots_CanWrite A cap s), (vela_int_le 4 (vela_Slots_LiveCount A cap s) vela_usize_zero);
+    cbn [vela_and] in *; try discriminate.
+  rewrite vela_usize_zero_le in Hvac |- *. cbn [vela_and] in *.
+  apply Nat.leb_le in Hvac. apply Nat.leb_le. eapply Nat.le_trans; [|exact Hvac].
+  change (Nat.le (vela_bits_to_nat_acc (vela_int_bits 4 small) O) (vela_bits_to_nat_acc (vela_int_bits 4 large) O)).
+  apply vela_bits_value_order.
+  - destruct small as [ws], large as [wl]. transitivity 64; [apply vela_word_bits_length | symmetry; apply vela_word_bits_length].
+  - right; split; [reflexivity | exact Hle].
+Qed.
+
+Lemma vela_Slots_vacant_after_copy : forall (A : Type@{vela_u0}) n m (src : vela_Slots A n)
+    (dst : vela_Slots A m) k stop,
+  vela_Slots_VacantRange A m dst vela_usize_zero stop = true ->
+  vela_int_le 4 k stop = true ->
+  vela_Slots_VacantRange A m
+    (vela_Slots_TransferDest A m (vela_Slots_CopyRepresentation A n m src dst k) k) k stop = true.
+Proof.
+  intros A n m src dst k stop Hvac Hle. unfold vela_Slots_VacantRange in Hvac |- *.
+  change (vela_and (vela_Slots_CanWrite A m dst) (vela_and (vela_int_le 4 k k)
+    (vela_and (vela_int_le 4 k stop) (Nat.leb (vela_int_to_nat 4 stop) m))) = true).
+  rewrite vela_usize_le_refl, Hle; cbn [vela_and].
+  destruct (vela_Slots_CanWrite A m dst); cbn [vela_and] in *; try discriminate.
+  exact (vela_and_right _ _ (vela_and_right _ _ Hvac)).
+Qed.
+
+Lemma vela_Slots_vacant_after_move : forall (A : Type@{vela_u0}) n (s : vela_Slots A n) k start stop,
+  vela_Slots_VacantRange A n s start stop = true ->
+  vela_Slots_VacantRange A n (vela_Slots_TransferSource A n s k) vela_usize_zero stop = true.
+Proof.
+  intros A n s k start stop Hvac. unfold vela_Slots_VacantRange in Hvac |- *.
+  change (vela_and (vela_Slots_CanWrite A n s) (vela_and (vela_int_le 4 vela_usize_zero vela_usize_zero)
+    (vela_and (vela_int_le 4 vela_usize_zero stop) (Nat.leb (vela_int_to_nat 4 stop) n))) = true).
+  rewrite !vela_usize_zero_le; cbn [vela_and].
+  destruct (vela_Slots_CanWrite A n s); cbn [vela_and] in *; try discriminate.
+  exact (vela_and_right _ _ (vela_and_right _ _ Hvac)).
+Qed.
+
+Lemma vela_Seq_take_idempotent : forall (A : Type@{vela_u0}) n (xs : vela_Seq A),
+  vela_Seq_Take A (vela_Seq_Take A xs n) n = vela_Seq_Take A xs n.
+Proof.
+  intros A n; induction n as [|n IH]; intros [|x xs]; simpl; try reflexivity.
+  now rewrite IH.
 Qed.
 
 Lemma vela_Slots_live_after_copy : forall (A : Type@{vela_u0}) n m

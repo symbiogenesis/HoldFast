@@ -242,7 +242,9 @@ The supported increment includes:
   `Slots.Read`, `Slots.Disjoint`, `Slots.RepEqual`, `LivePrefix`,
   `VacantRange`, `VacantSuffix` and `PrefixModel`) and two-step bulk relocation
   (`CopyRepresentation` followed by `TransferType<T>`) with capacity-independent
-  region verification.
+  region verification. For a move between independently quantified capacities,
+  the kernel reconstructs destination liveness, both vacancy postconditions and
+  equality of the destination prefix to the source prefix at entry.
 - Inline `out var name` declarations in standalone `Unit` calls introduce
   fresh mutable locals after the call returns. Each local takes its type from
   its output parameter and its value from the checked callee update. Calls

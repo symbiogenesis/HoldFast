@@ -459,6 +459,9 @@ class _IntrinsicsMixin:
             return _int_term(_INT_SPECS["usize"], cast("int", cap_w.value))
         if cap_w.kind == "int":
             return cap_w
+        head, args = self.spine(cap_w)
+        if head == _constant("int_to_nat_usize") and len(args) == 1:
+            return args[0]
         return _app(_constant("nat_to_usize"), cap_t)
 
     def _require_slots_binding(self: _Elaborator, arg_node: Node, environment: dict[str, _Binding]) -> tuple[_Binding, _Term, _Term]:
