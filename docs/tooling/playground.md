@@ -37,7 +37,9 @@ length preservation, multi-quote raw string literals with allocation-free checke
 read-only expression properties, `with { ... }` updates, declaration-order labeled
 constructor patterns, `if (...) ... else ...` expressions, `let ... else` /
 `if (x is ...)` guards, and explicit proofs, with independently expected console
-answers.
+answers. The browser parses interpolated expressions with its ordinary expression
+grammar, records source positions in the original template, and validates format
+specifiers against each evaluated value.
 All examples share one selector and one source buffer. Debounced source checks
 automatically update diagnostics and editor-service availability. Compilation
 reports diagnostics for the current buffer, including the

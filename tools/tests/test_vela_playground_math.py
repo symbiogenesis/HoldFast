@@ -556,6 +556,19 @@ const afterFormat = await mod.browserApi("/api/evaluate", { source: candidate, e
 if (!afterFormat.ok || afterFormat.value !== "9") throw new Error("Browser formatter changed evaluation");
 await mod.browserApi("/api/close", { session: fmtSession });
 
+for (const [template, expected] of [
+  [String.raw`{{{ByteLength("}"):d}}}\n`, "4"],
+  ["{match (true) { true => 42, false => 8, }:x4}", "4"],
+  ["{true:x2}", null],
+  ["{15:b8}", null],
+]) {
+  const source = 'module Formatting; public TextBuilder<12> F(){ let TextBuilder<12> b = EmptyBuilder(); return Format.Write(ref b, $"' + template + '"); }';
+  const outcome = await mod.browserApi("/api/evaluate", { source, expression: "Written(F())", valueType: "Nat" });
+  if (expected === null ? outcome.ok || outcome.error?.kind !== "type" : !outcome.ok || outcome.value !== expected) {
+    throw new Error("Browser interpolation disagrees on " + template);
+  }
+}
+
 const unchecked = await mod.browserApi("/api/compile", {
   source: "module Claims; public lemma EveryNatIsZero(Nat n) ensures n == 0 proof { assert n == 0; }",
 });

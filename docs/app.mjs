@@ -2969,15 +2969,23 @@ function parseRawStringLiteral(sourceText, startIndex, startLine, startCol) {
   throw new VelaError("syntax", startLine, startCol, "unterminated raw string literal");
 }
 
-function mathTokenize(sourceText, { allowSemicolon = true } = {}) {
-  checkSourceText(sourceText);
+function mathTokenize(sourceText, { allowSemicolon = true, hole = null } = {}) {
+  if (!hole) checkSourceText(sourceText);
   const tokens = [];
-  let index = 0;
-  let line = 1;
-  let column = 1;
+  let index = hole?.index ?? 0;
+  let line = hole?.line ?? 1;
+  let column = hole?.column ?? 1;
+  let nested = 0;
 
   while (index < sourceText.length) {
     const ch = sourceText[index];
+    if (hole) {
+      if (ch === "\r" || ch === "\n" || line !== hole.line) throw new VelaError("syntax", line, column, "newline in interpolation hole");
+      if (!nested && (ch === "}" || (ch === ":" && !sourceText.startsWith("::", index)))) break;
+      if ("([{".includes(ch)) nested += 1;
+      if (")]}".includes(ch)) nested -= 1;
+      if (nested < 0) throw new VelaError("syntax", line, column, "mismatched interpolation delimiter");
+    }
     if (ch === " " || ch === "\t") {
       index += 1;
       column += 1;
@@ -3039,31 +3047,10 @@ function mathTokenize(sourceText, { allowSemicolon = true } = {}) {
     }
     if (sourceText.startsWith('$"', index)) {
       const startSite = { line, column };
-      index += 2;
-      column += 2;
-      let rawTemplate = "";
-      while (index < sourceText.length && sourceText[index] !== '"') {
-        if (sourceText[index] === "\r" || sourceText[index] === "\n") {
-          throw new VelaError("syntax", startSite.line, startSite.column, "unterminated format string");
-        }
-        if (sourceText[index] === "\\") {
-          rawTemplate += sourceText.slice(index, index + 2);
-          index += 2;
-          column += 2;
-          continue;
-        }
-        const cp = sourceText.codePointAt(index);
-        const step = cp > 0xffff ? 2 : 1;
-        rawTemplate += sourceText.slice(index, index + step);
-        index += step;
-        column += 1;
-      }
-      if (sourceText[index] !== '"') {
-        throw new VelaError("syntax", startSite.line, startSite.column, "unterminated format string");
-      }
-      index += 1;
-      column += 1;
-      tokens.push({ kind: "format", text: rawTemplate, site: startSite });
+      const format = readFormatTemplate(sourceText, index, line, column, (hole?.depth ?? 0) + 1);
+      tokens.push({ kind: "format", text: sourceText.slice(index, format.end), segments: format.segments, site: startSite });
+      index = format.end;
+      column = format.column;
       continue;
     }
     if (sourceText.startsWith('"""', index)) {
@@ -3085,14 +3072,10 @@ function mathTokenize(sourceText, { allowSemicolon = true } = {}) {
           throw new VelaError("syntax", startSite.line, startSite.column, "unterminated string literal");
         }
         if (sourceText[index] === "\\") {
-          const esc = sourceText[index + 1];
-          const map = { n: "\n", r: "\r", t: "\t", '"': '"', "\\": "\\", "0": "\0" };
-          if (map[esc] === undefined) {
-            throw new VelaError("syntax", line, column, `invalid string escape '\\${esc || ""}'`);
-          }
-          val += map[esc];
-          index += 2;
-          column += 2;
+          const escape = mathEscape(sourceText, index, line, column);
+          val += escape.value;
+          column += escape.end - index;
+          index = escape.end;
           continue;
         }
         const cp = sourceText.codePointAt(index);
@@ -3178,7 +3161,7 @@ function mathTokenize(sourceText, { allowSemicolon = true } = {}) {
     }
     throw new VelaError("syntax", line, column, `unexpected character '${ch}'`);
   }
-  tokens.push({ kind: "eof", text: "<eof>", site: { line, column } });
+  tokens.push({ kind: "eof", text: "<eof>", site: { line, column }, offset: index });
   return tokens;
 }
 
@@ -4243,7 +4226,7 @@ class MathParser {
     }
     if (tok.kind === "format") {
       this.advance();
-      return { kind: "format_string", template: tok.text, site: tok.site };
+      return { kind: "format_string", segments: tok.segments, site: tok.site };
     }
     if (tok.kind === "word" && (tok.text === "true" || tok.text === "false")) {
       this.advance();
@@ -5221,63 +5204,74 @@ function valuesEqual(a, b) {
   return false;
 }
 
-function parseFormatSegments(template, site) {
+function mathEscape(source, offset, line, column) {
+  const code = source[offset + 1];
+  const escapes = { n: "\n", r: "\r", t: "\t", '"': '"', "'": "'", "\\": "\\", "0": "\0" };
+  if (Object.hasOwn(escapes, code)) return { value: escapes[code], end: offset + 2 };
+  const scalar = /^\\u\{([0-9a-fA-F]{1,6})\}/.exec(source.slice(offset, offset + 10));
+  if (scalar) {
+    const cp = parseInt(scalar[1], 16);
+    if (cp <= 0x10ffff && !(cp >= 0xd800 && cp <= 0xdfff)) {
+      return { value: String.fromCodePoint(cp), end: offset + scalar[0].length };
+    }
+  }
+  throw new VelaError("syntax", line, column, "invalid string escape");
+}
+
+function readFormatTemplate(source, start, line, column, depth) {
+  if (depth > MAX_EXPRESSION_DEPTH) throw new VelaError("limit", line, column, "format nesting exceeds limit");
   const segments = [];
-  let idx = 0;
   let literal = "";
-  while (idx < template.length) {
-    if (template.startsWith("{{", idx)) {
-      literal += "{";
-      idx += 2;
-      continue;
+  let index = start + 2;
+  column += 2;
+  while (index < source.length && !/[\r\n]/.test(source[index])) {
+    const ch = source[index];
+    if (ch === '"') {
+      if (literal) segments.push({ kind: "text", value: literal });
+      return { segments, end: index + 1, column: column + 1 };
     }
-    if (template.startsWith("}}", idx)) {
-      literal += "}";
-      idx += 2;
-      continue;
+    if (ch === "\\") {
+      const escape = mathEscape(source, index, line, column);
+      literal += escape.value;
+      column += escape.end - index;
+      index = escape.end;
+    } else if (source.startsWith("{{", index) || source.startsWith("}}", index)) {
+      literal += ch;
+      index += 2;
+      column += 2;
+    } else if (ch === "{") {
+      if (literal) segments.push({ kind: "text", value: literal });
+      literal = "";
+      const tokens = mathTokenize(source, { hole: { index: index + 1, line, column: column + 1, depth } });
+      const parser = new MathParser(tokens);
+      const expr = parser.parseExpression();
+      if (parser.current.kind !== "eof") {
+        throw new VelaError("syntax", line, parser.current.site.column, "unexpected token in interpolation hole");
+      }
+      index = parser.current.offset;
+      column = parser.current.site.column;
+      let spec = "";
+      if (source[index] === ":") {
+        const match = /^:([^\s"'{}()[\]:]+)\}/u.exec(source.slice(index));
+        if (!match) throw new VelaError("syntax", line, column, "invalid interpolation format specifier");
+        spec = match[1];
+        index += spec.length + 1;
+        column += Array.from(spec).length + 1;
+      }
+      if (source[index] !== "}") throw new VelaError("syntax", line, column, "unclosed interpolation hole");
+      segments.push({ kind: "hole", expr, spec });
+      index += 1;
+      column += 1;
+    } else if (ch === "}") {
+      throw new VelaError("syntax", line, column, "unescaped closing brace in format string");
+    } else {
+      const codepoint = String.fromCodePoint(source.codePointAt(index));
+      literal += codepoint;
+      index += codepoint.length;
+      column += 1;
     }
-    if (template[idx] === "{") {
-      if (literal.length > 0) {
-        segments.push({ kind: "text", value: literal });
-        literal = "";
-      }
-      const closeIdx = template.indexOf("}", idx + 1);
-      if (closeIdx < 0) {
-        throw new VelaError("syntax", site.line, site.column, "unclosed '{' in format string");
-      }
-      const rawHole = template.slice(idx + 1, closeIdx).trim();
-      if (!rawHole) {
-        throw new VelaError("syntax", site.line, site.column, "empty hole in format string");
-      }
-      let holeText = rawHole;
-      let spec = null;
-      const specMatch = /^([\s\S]+):([xXbB][0-9]*)$/.exec(rawHole);
-      if (specMatch) {
-        holeText = specMatch[1].trim();
-        spec = specMatch[2];
-      }
-      const holeTokens = mathTokenize(holeText, { allowSemicolon: false });
-      const holeParser = new MathParser(holeTokens);
-      const holeExpr = holeParser.parseExpression();
-      if (holeParser.current.kind !== "eof") {
-        throw new VelaError(
-          "syntax",
-          site.line,
-          site.column,
-          "invalid expression in format string hole"
-        );
-      }
-      segments.push({ kind: "hole", expr: holeExpr, spec });
-      idx = closeIdx + 1;
-      continue;
-    }
-    literal += template[idx];
-    idx += 1;
   }
-  if (literal.length > 0) {
-    segments.push({ kind: "text", value: literal });
-  }
-  return segments;
+  throw new VelaError("syntax", line, column, "unterminated format string");
 }
 
 // The right side of a short-circuited guard is checked in the scope it
@@ -5944,38 +5938,29 @@ class MathElaborator {
           "Format.Write second argument must be a format template literal"
         );
       }
-      const segments = parseFormatSegments(fmtArg.value.template, fmtArg.site);
       let addedBytes = 0n;
-      for (const seg of segments) {
+      for (const seg of fmtArg.value.segments) {
         if (seg.kind === "text") {
           addedBytes += BigInt(utf8Bytes(seg.value).length);
         } else {
           const holeVal = this.evalExpr(seg.expr, env);
-          let rendered;
+          let byteCount;
           if (typeof holeVal === "bigint") {
-            if (seg.spec && /^[xX][0-9]*$/.test(seg.spec)) {
-              const width = seg.spec.length > 1 ? Number.parseInt(seg.spec.slice(1), 10) : 0;
-              const hex = holeVal.toString(16).padStart(width, "0");
-              rendered = seg.spec[0] === "X" ? hex.toUpperCase() : hex;
-            } else if (seg.spec && /^[bB][0-9]*$/.test(seg.spec)) {
-              const width = seg.spec.length > 1 ? Number.parseInt(seg.spec.slice(1), 10) : 0;
-              rendered = holeVal.toString(2).padStart(width, "0");
-            } else {
-              rendered = holeVal.toString();
+            if (!["", "d", "x", "X", "x2", "X2", "x4", "X4", "x8", "X8", "b"].includes(seg.spec)) {
+              throw new VelaError("type", seg.expr.site.line, seg.expr.site.column, `unsupported integer format specifier '${seg.spec}'`);
             }
-          } else if (typeof holeVal === "boolean") rendered = holeVal ? "true" : "false";
-          else if (typeof holeVal === "string") rendered = holeVal;
-          else if (holeVal && holeVal.__kind === "vec") {
-            rendered = "x".repeat(Number(holeVal.length));
-          } else {
-            throw new VelaError(
-              "type",
-              fmtArg.site.line,
-              fmtArg.site.column,
-              "format hole must have type Nat, bool, or String"
-            );
-          }
-          addedBytes += BigInt(utf8Bytes(rendered).length);
+            const radix = /^[xX]/.test(seg.spec) ? 16 : seg.spec === "b" ? 2 : 10;
+            if (radix !== 10 && holeVal < 0n) {
+              throw new VelaError("type", seg.expr.site.line, seg.expr.site.column, "nondecimal formatting requires a non-negative integer");
+            }
+            byteCount = BigInt(Math.max(Number(seg.spec[1] || 0), holeVal.toString(radix).length));
+          } else if (seg.spec) {
+            throw new VelaError("type", seg.expr.site.line, seg.expr.site.column, `unsupported format specifier '${seg.spec}'`);
+          } else if (typeof holeVal === "boolean") byteCount = holeVal ? 4n : 5n;
+          else if (typeof holeVal === "string") byteCount = BigInt(utf8Bytes(holeVal).length);
+          else if (holeVal?.__kind === "vec") byteCount = holeVal.length;
+          else throw new VelaError("type", seg.expr.site.line, seg.expr.site.column, "unsupported format hole type");
+          addedBytes += byteCount;
         }
       }
       const cap = builder.capacity ?? 36n;
