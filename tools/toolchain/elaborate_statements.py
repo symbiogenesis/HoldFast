@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Imperative statements, propagation, loops, scopes, and control-flow elaboration for Vela."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from typing import TYPE_CHECKING, cast
 
 from toolchain.ast import VelaError
@@ -52,6 +52,15 @@ class _StatementsMixin:
     @staticmethod
     def _guard_environment(scope: Node, environment: dict[str, _Binding]) -> dict[str, _Binding]:
         return {name: environment[name] for name in cast("tuple[str, ...]", scope["locals"])}
+
+    def _leave_statement_scope(
+        self: _Elaborator, visible: Collection[str], environment: dict[str, _Binding],
+    ) -> dict[str, _Binding]:
+        for name in environment.keys() - visible:
+            self.mutable_locals.discard(name)
+            self.local_borrows.pop(name, None)
+            self.slice_views.pop(name, None)
+        return {name: binding for name, binding in environment.items() if name in visible}
 
     def _guard_conditional(
         self: _Elaborator, kind: str, site: Node, operands: list[Node], yes: Node, no: Node,
@@ -1319,6 +1328,15 @@ class _StatementsMixin:
         environment: dict[str, _Binding],
         facts: tuple[_Binding, ...],
     ) -> tuple[dict[str, _Binding], str | None]:
+        after, control = self._non_returning_statements(block_node, environment, facts)
+        return self._leave_statement_scope(environment.keys(), after), control
+
+    def _non_returning_statements(
+        self: _Elaborator,
+        block_node: Node,
+        environment: dict[str, _Binding],
+        facts: tuple[_Binding, ...],
+    ) -> tuple[dict[str, _Binding], str | None]:
         self.node(block_node, "block")
         statements = self.nodes(block_node["statements"])
         extended = dict(environment)
@@ -2267,7 +2285,12 @@ class _StatementsMixin:
                 self.site = statement
                 kind = cast("str", statement["kind"])
                 if kind == "guard_scope":
-                    extended = self._guard_environment(statement, extended)
+                    extended = self._leave_statement_scope(cast("tuple[str, ...]", statement["locals"]), extended)
+                    continue
+                if kind == "block" and index < len(statements) - 1:
+                    extended, _ = self._elaborate_non_returning_block(
+                        statement, extended, (*active_facts, *statement_facts),
+                    )
                     continue
                 if kind in {"let", "typed_local", "let_pattern", "constant_local", "var", "var_pattern"}:
                     if kind != "constant_local":
@@ -2442,6 +2465,7 @@ class _StatementsMixin:
                         )
                         continue
                     rest_statements = statements[index + 1:]
+                    leave_scope: Node = {"kind": "guard_scope", "span": statement["span"], "locals": tuple(extended)}
                     if then_returns and else_stmts is None:
                         cur_stmt: Node = {
                             **statement,
@@ -2457,19 +2481,16 @@ class _StatementsMixin:
                             "else": {
                                 "kind": "block",
                                 "span": node["span"],
-                                "statements": [*else_stmts, *rest_statements],
+                                "statements": [*else_stmts, leave_scope, *rest_statements],
                             },
                         }
                     elif not then_returns and else_returns:
-                        leave_scope: list[Node] = [
-                            {"kind": "guard_scope", "span": statement["span"], "locals": tuple(extended)}
-                        ] if operands else []
                         cur_stmt = {
                             **statement,
                             "then": {
                                 "kind": "block",
                                 "span": node["span"],
-                                "statements": [*then_stmts, *leave_scope, *rest_statements],
+                                "statements": [*then_stmts, leave_scope, *rest_statements],
                             },
                         }
                     else:
@@ -2479,6 +2500,7 @@ class _StatementsMixin:
                     if lifted is not None:
                         return lifted
                     rest_statements = statements[index + 1:]
+                    leave_scope = {"kind": "guard_scope", "span": statement["span"], "locals": tuple(extended)}
                     new_cases: list[Node] = []
                     for arm in self.nodes(statement["cases"]):
                         arm_stmts = self.nodes(arm["statements"])
@@ -2487,7 +2509,7 @@ class _StatementsMixin:
                         if arm_stmts and arm_stmts[-1]["kind"] == "return":
                             new_cases.append(arm)
                         else:
-                            new_cases.append({**arm, "statements": [*arm_stmts, *rest_statements]})
+                            new_cases.append({**arm, "statements": [*arm_stmts, leave_scope, *rest_statements]})
                     cur_stmt = {**statement, "cases": new_cases}
                 elif index != len(statements) - 1:
                     raise self.fail("unsupported", "a returning terminal must be the final statement")
