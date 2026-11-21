@@ -156,6 +156,8 @@ class _Elaborator(
         self.private_symbols: set[str] = set()
         self.available_modules: dict[str, _Elaborator] = {}
         self.imported_modules: set[str] = set()
+        self.module_aliases: set[str] = set()
+        self.interfaces_by_identity: dict[str, _InterfaceInfo] = {}
         self.inaccessible_private_symbols: dict[str, str] = {}
         self.builtin_unions: set[str] = {"Result", "ArithmeticError", "ConversionError"}
         self.builtin_union_ctors: set[str] = {

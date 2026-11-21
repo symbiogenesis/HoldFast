@@ -785,7 +785,7 @@ class _PatternsMixin:
                 elif (
                     pat.kind == ctor_kind
                     and (ctor_kind != "bool" or pat.value == bool_value)
-                    and (ctor_kind != "union" or pat.value == ctor_name)
+                    and (ctor_kind != "union" or self.union_ctors[cast("str", pat.value)][1].ctor_const == ctor_name)
                 ):
                     specialized.append(_Row(
                         row.patterns[:index] + pat.args + row.patterns[index + 1:],
@@ -1170,7 +1170,7 @@ class _PatternsMixin:
                         body = compile_matrix(
                             subst_cols(without_index, col_var_id, ctor_term),
                             specialize_rows(
-                                active_rows, index, "union", ctor_term, col_var_id, col_type, 0, ctor_name=ctor_info.name
+                                active_rows, index, "union", ctor_term, col_var_id, col_type, 0, ctor_name=ctor_info.ctor_const
                             ),
                             self.substitute(pattern_term, col_var_id, ctor_term),
                         )
@@ -1193,7 +1193,7 @@ class _PatternsMixin:
                             + sub_columns
                             + subst_cols(columns[index + 1:], col_var_id, ctor_term),
                             specialize_rows(
-                                active_rows, index, "union", ctor_term, col_var_id, col_type, 1, ctor_name=ctor_info.name
+                                active_rows, index, "union", ctor_term, col_var_id, col_type, 1, ctor_name=ctor_info.ctor_const
                             ),
                             self.substitute(pattern_term, col_var_id, ctor_term),
                         )
@@ -1249,7 +1249,7 @@ class _PatternsMixin:
                             col_var_id,
                             col_type,
                             len(field_vars),
-                            ctor_name=ctor_info.name,
+                            ctor_name=ctor_info.ctor_const,
                         ),
                         self.substitute(pattern_term, col_var_id, ctor_term),
                     )
@@ -1352,7 +1352,7 @@ class _PatternsMixin:
                         leaf_body = compile_matrix(
                             subst_cols(without_index, col_var_id, ctor_term),
                             specialize_rows(
-                                active_rows, index, "union", ctor_term, col_var_id, col_type, 0, ctor_name=ctor_info.name
+                                active_rows, index, "union", ctor_term, col_var_id, col_type, 0, ctor_name=ctor_info.ctor_const
                             ),
                             self.substitute(pattern_term, col_var_id, ctor_term),
                         )
@@ -1384,7 +1384,7 @@ class _PatternsMixin:
                             + sub_columns
                             + subst_cols(columns[index + 1:], col_var_id, ctor_term),
                             specialize_rows(
-                                active_rows, index, "union", ctor_term, col_var_id, col_type, 1, ctor_name=ctor_info.name
+                                active_rows, index, "union", ctor_term, col_var_id, col_type, 1, ctor_name=ctor_info.ctor_const
                             ),
                             self.substitute(pattern_term, col_var_id, ctor_term),
                         )
@@ -1415,7 +1415,7 @@ class _PatternsMixin:
                                 col_var_id,
                                 col_type,
                                 len(field_vars),
-                                ctor_name=ctor_info.name,
+                                ctor_name=ctor_info.ctor_const,
                             ),
                             self.substitute(pattern_term, col_var_id, ctor_term),
                         )

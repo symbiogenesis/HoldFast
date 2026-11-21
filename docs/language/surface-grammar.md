@@ -43,6 +43,10 @@ syntax-depth, duration and output bounds apply to both entries.
 
 ## Required syntax
 
+An import takes a module path and an optional namespace alias, as in
+`import Storage.Blocks as Blocks;`. The alias is a located identifier. The
+[module contract](first-release.md#modules-and-packages) defines its scope.
+
 The surface entry must express the following features. Grammar actions only
 construct syntax, including syntactically valid programs with semantic errors.
 

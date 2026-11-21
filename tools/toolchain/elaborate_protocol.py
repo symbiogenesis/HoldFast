@@ -761,6 +761,9 @@ class _Protocol:
                 raise self.error("protocol", "import declarations cannot carry modifiers", node)
             cursor = self._token(node, cursor, b"import")
             cursor = self._child(node, span, cursor, node["name"])
+            if "alias" in node:
+                cursor = self._token(node, cursor, b"as")
+                cursor = self._child(node, span, cursor, node["alias"])
             cursor = self._token(node, cursor, b";")
         elif kind == "propagate":
             cursor = self._child(node, span, cursor, node["value"])
@@ -922,7 +925,7 @@ class _Protocol:
             else (
                 {"name"}
                 if kind == "contract"
-                else ({"modifiers"} if kind == "import" else set())
+                else ({"modifiers", "alias"} if kind == "import" else set())
             )
         )
         if (set(node) - optional != {"kind", "span", *fields}

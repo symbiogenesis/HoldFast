@@ -255,8 +255,8 @@ The supported increment includes:
   circular-import refusal, `public` versus `private` visibility enforcement
   across module boundaries for declarations, record properties and methods.
   Emitted package declarations carry their defining module identity, including
-  private helpers in transitive dependencies. Imports support duplicate/conflicting binding refusal and qualified
-  `Module.Path.Name` resolution.
+  private helpers in transitive dependencies. A plain import opens the public
+  names and rejects conflicts. An aliased import exposes only qualified names.
 
 Source callable interfaces preserve explicit arity: `Fn() -> Unit` and
 `Fn(Unit value) -> Unit` require different calls and lambda parameter lists even

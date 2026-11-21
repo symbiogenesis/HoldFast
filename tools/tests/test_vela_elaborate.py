@@ -5218,13 +5218,17 @@ def _out_var(name: str) -> Form:
     return form
 
 
-def _import_decl(fixture: _Fixture, module_path: str) -> None:
+def _import_decl(fixture: _Fixture, module_path: str, *, alias: str | None = None) -> None:
     fixture.write("\n")
     start = fixture.offset
     fixture.write("import ")
     name_node = fixture.name(module_path)
+    fields: Node = {"name": name_node}
+    if alias is not None:
+        fixture.write(" as ")
+        fields["alias"] = fixture.name(alias)
     fixture.write(";")
-    fixture.declarations.append(fixture.node("import", start, name=name_node))
+    fixture.declarations.append(fixture.node("import", start, **fields))
 
 
 def _interface_fn_sig(
@@ -5911,6 +5915,36 @@ def _module_private_identity() -> None:
         raise AssertionError("an imported receiver exposed a private record property")
 
 
+def _qualified_imports() -> None:
+    left, right, consumer = _Fixture("Left"), _Fixture("Right"), _Fixture("Client")
+    for module, alias in ((left, "A"), (right, "B")):
+        module.union("State", (("Busy", ()), ("Idle", ())))
+        _import_decl(consumer, str(module.module["text"]), alias=alias)
+    for alias in ("A", "B"):
+        consumer.definition("Read" + alias, _NAT, (("s", _type(alias + ".State")),),
+                            _match_expr(_variable("s"), (
+                                (_pat_ctor(alias + ".Busy"), _natural(1)),
+                                (_pat_ctor(alias + ".Idle"), _natural(0)),
+                            )))
+        law = _binary("==", _call("Read" + alias, _member(_variable(alias), "Busy")), _natural(1))
+        consumer.theorem("Check" + alias, (), law, _assert(law))
+    elaborate_package([left.response(), consumer.response(), right.response()])
+    producer = _dispatch_fixture(("First",))
+    client = _Fixture("QualifiedClient")
+    _import_decl(client, "InterfaceDispatch", alias="D")
+    step = _member(_member(_variable("D"), "First"), "Step")
+    law = _binary("==", _call(step, _natural(3)), _natural(4))
+    client.theorem("CheckStep", (), law, _assert(law))
+    elaborate_package([client.response(), producer.response()])
+    client.definition("AmbiguousStep", _NAT, (("x", _NAT),), _call("Step", _variable("x")))
+    try:
+        elaborate_package([client.response(), producer.response()])
+    except VelaError as error:
+        ensure(error.kind == "name", "wrong qualified-only dispatch diagnosis")
+    else:
+        raise AssertionError("qualified import introduced a bare interface method")
+
+
 def _multi_module_imports_and_visibility() -> None:
     math_mod = _Fixture("MathMod")
     math_mod.definition(
@@ -6571,6 +6605,7 @@ def cases() -> list[Case]:
             Case("interface-dispatch-qualification-and-arity-selection", _interface_dispatch_qualification_and_arities),
             Case("imported-interface-aliases-share-one-dispatch-identity", _imported_interface_aliases),
             Case("callable-member-receiver-once-and-fatal-failures", _callable_member_receiver_and_failures),
+            Case("qualified-imports", _qualified_imports),
             Case("module-private-identity", _module_private_identity),
             Case("multi-module-imports-and-visibility", _multi_module_imports_and_visibility),
             Case("source-bound-borrows-and-constructive-postconditions", _source_bound_borrows_and_constructive_postconditions),

@@ -195,6 +195,8 @@ class _DeclarationsMixin:
         return "public" in vis
 
     def _record_visibility(self: _Elaborator, name: str, modifiers: list[object], node: Node) -> bool:
+        if name in self.module_aliases:
+            raise self.fail("name", f"declaration '{name}' conflicts with an import alias", node)
         is_pub = self._public_visibility(modifiers, node)
         if is_pub:
             self.public_symbols.add(name)
@@ -963,8 +965,17 @@ class _DeclarationsMixin:
         if modifiers:
             raise self.fail("unsupported", "import declarations do not accept modifiers", node)
         imp_name = self.name(node["name"])
+        namespace = self.name(node["alias"]) if "alias" in node else imp_name
+        qualified_only = "alias" in node
+        if namespace in self.module_aliases or (qualified_only and (
+            namespace in self.globals or namespace in self.interfaces or namespace in self.imported_modules
+        )):
+            raise self.fail("name", f"import namespace '{namespace}' conflicts with an existing binding", node)
+        if qualified_only:
+            self.module_aliases.add(namespace)
         if imp_name == "Vela.Numerics":
-            for alias_name, target_name in _NUMERICS_ALIASES.items():
+            for short_name, target_name in _NUMERICS_ALIASES.items():
+                alias_name = f"{namespace}.{short_name}" if qualified_only else short_name
                 if (alias_name in self.globals and self.globals[alias_name] != self.globals[target_name]) or (
                     alias_name in self.records
                     or alias_name in self.unions
@@ -983,6 +994,7 @@ class _DeclarationsMixin:
         self.imported_modules.add(imp_name)
         mod = self.available_modules[imp_name]
         self.serial = max(self.serial, mod.serial)
+        self.interfaces_by_identity.update(mod.interfaces_by_identity)
         self.types.update(mod.types)
         self.parameter_names.update(mod.parameter_names)
         self.nullary_parameters.update(mod.nullary_parameters)
@@ -1013,39 +1025,27 @@ class _DeclarationsMixin:
                 self.output.append(line)
                 existing_out.add(line)
         for priv_sym in mod.private_symbols:
-            self.inaccessible_private_symbols[f"{imp_name}.{priv_sym}"] = imp_name
-            if priv_sym not in self.globals:
+            self.inaccessible_private_symbols[f"{namespace}.{priv_sym}"] = imp_name
+            if not qualified_only and priv_sym not in self.globals:
                 self.inaccessible_private_symbols[priv_sym] = imp_name
-        for pub_sym in mod.public_symbols:
-            if (
-                pub_sym in self.globals
-                or pub_sym in self.records
-                or pub_sym in self.unions
-                or pub_sym in self.union_ctors
-                or pub_sym in self.interfaces
-            ):
-                raise self.fail(
-                    "name",
-                    f"imported declaration '{pub_sym}' from '{imp_name}' conflicts with an existing binding",
-                    node,
-                )
-            self.inaccessible_private_symbols.pop(pub_sym, None)
-            qual_name = f"{imp_name}.{pub_sym}"
-            if pub_sym in mod.globals:
-                self.globals[pub_sym] = mod.globals[pub_sym]
-                self.globals[qual_name] = mod.globals[pub_sym]
-            if pub_sym in mod.records:
-                self.records[pub_sym] = mod.records[pub_sym]
-                self.records[qual_name] = mod.records[pub_sym]
-            if pub_sym in mod.unions:
-                self.unions[pub_sym] = mod.unions[pub_sym]
-                self.unions[qual_name] = mod.unions[pub_sym]
-            if pub_sym in mod.union_ctors:
-                self.union_ctors[pub_sym] = mod.union_ctors[pub_sym]
-                self.union_ctors[qual_name] = mod.union_ctors[pub_sym]
-            if pub_sym in mod.interfaces:
-                self.interfaces[pub_sym] = mod.interfaces[pub_sym]
-                self.interfaces[qual_name] = mod.interfaces[pub_sym]
+        for pub_sym in sorted(mod.public_symbols):
+            qual_name = f"{namespace}.{pub_sym}"
+            for visible_name in ([qual_name] if qualified_only else [pub_sym, qual_name]):
+                if (visible_name in self.globals or visible_name in self.records or visible_name in self.unions
+                        or visible_name in self.union_ctors or visible_name in self.interfaces
+                        or visible_name in self.module_aliases):
+                    raise self.fail("name", f"imported declaration '{visible_name}' from '{imp_name}' conflicts with an existing binding", node)
+                self.inaccessible_private_symbols.pop(visible_name, None)
+                if pub_sym in mod.globals:
+                    self.globals[visible_name] = mod.globals[pub_sym]
+                if pub_sym in mod.records:
+                    self.records[visible_name] = mod.records[pub_sym]
+                if pub_sym in mod.unions:
+                    self.unions[visible_name] = mod.unions[pub_sym]
+                if pub_sym in mod.union_ctors:
+                    self.union_ctors[visible_name] = mod.union_ctors[pub_sym]
+                if pub_sym in mod.interfaces:
+                    self.interfaces[visible_name] = mod.interfaces[pub_sym]
         for iface_name, mod_inst_list in mod.impls.items():
             target_list = self.impls.setdefault(iface_name, [])
             for inst in mod_inst_list:
@@ -1085,8 +1085,8 @@ class _DeclarationsMixin:
                             f"interface constraint '{cname}' takes arguments in parentheses, not '<...>'",
                             conj,
                         )
-                if callee["kind"] == "name":
-                    cname = self.name(callee["name"])
+                cname = self._dotted_member_path(callee)
+                if cname is not None and cname.split(".", 1)[0] not in environment:
                     if cname in self.interfaces:
                         iface = self.interfaces[cname]
                         arg_nodes = self.nodes(conj["arguments"])
@@ -1215,11 +1215,12 @@ class _DeclarationsMixin:
         generic_vars, generic_env = self.telescope(generics, [], {}, unit=False)
         methods: dict[str, _InterfaceMethodSpec] = {}
         laws: dict[str, _InterfaceLawSpec] = {}
-        active_key = (name, tuple(generic_vars))
+        identity = f"{self.module_name}.{name}" if self.emission_prefix != "vela" else name
+        active_key = (identity, tuple(generic_vars))
         self.active_interface_witnesses[active_key] = {}
         self.active_interface_ensures[active_key] = {}
-        self.interfaces[name] = _InterfaceInfo(
-            name=name,
+        self.interfaces_by_identity[identity] = self.interfaces[name] = _InterfaceInfo(
+            name=identity,
             generic_vars=tuple(generic_vars),
             methods={},
             laws={},
@@ -1418,8 +1419,8 @@ class _DeclarationsMixin:
                         req_props=tuple(l_req_props),
                         ensures_props=tuple(l_ens_props),
                     )
-                self.interfaces[name] = _InterfaceInfo(
-                    name=name,
+                self.interfaces_by_identity[identity] = self.interfaces[name] = _InterfaceInfo(
+                    name=identity,
                     generic_vars=tuple(generic_vars),
                     methods=dict(methods),
                     laws=dict(laws),
@@ -1558,7 +1559,7 @@ class _DeclarationsMixin:
             where_constraints=tuple((wi.name, wt) for wi, wt, _ in where_iface_constraints),
             methods={},
         )
-        for existing_inst in self.impls.get(iface_name, []):
+        for existing_inst in self.impls.get(iface.name, []):
             if self._impl_instances_overlap(existing_inst, candidate_inst):
                 raise self.fail(
                     "type",
@@ -1780,7 +1781,7 @@ class _DeclarationsMixin:
                 for index in range(m_first_meta, len(self.metas)):
                     self.complete(_term("meta", value=index))
                     self.complete(self.metas[index].type)
-                m_emitted = f"{self.emission_prefix}_d{len(self.output)}_impl_{iface_name}_{mname}"
+                m_emitted = f"{self.emission_prefix}_d{len(self.output)}_impl_{iface_name.replace('.', '_')}_{mname}"
                 self.output.append(
                     f"Definition {m_emitted} : {self.render(m_sig)} :=\n  {self.render(m_def)}."
                 )
@@ -1998,7 +1999,7 @@ class _DeclarationsMixin:
                         self.complete(_term("meta", value=index))
                         self.complete(self.metas[index].type)
                     suffix = "" if ens_idx == 0 else f"_ensures_{ens_idx}"
-                    l_emitted = f"{self.emission_prefix}_d{len(self.output)}_impl_{iface_name}_{lname}{suffix}"
+                    l_emitted = f"{self.emission_prefix}_d{len(self.output)}_impl_{iface_name.replace('.', '_')}_{lname}{suffix}"
                     self.output.append(
                         f"Definition {l_emitted} : {self.render(law_sig)} :=\n  {self.render(law_def)}."
                     )
@@ -2023,7 +2024,7 @@ class _DeclarationsMixin:
             where_constraints=tuple((wi.name, wt) for wi, wt, _ in where_iface_constraints),
             methods=emitted_methods,
         )
-        self.impls.setdefault(iface_name, []).append(final_inst)
+        self.impls.setdefault(iface.name, []).append(final_inst)
 
     def _resolve_single_interface_witness(
         self: _Elaborator,
@@ -2039,7 +2040,7 @@ class _DeclarationsMixin:
                     return w_dict, self.active_interface_ensures.get((act_iface, act_t_args), {})
                 self.restore_metas(saved_metas)
 
-        iface = self.interfaces[iface_name]
+        iface = self.interfaces_by_identity[iface_name]
         for impl_inst in self.impls.get(iface_name, []):
             saved_metas = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
             g_metas: list[_Term] = []
@@ -2070,7 +2071,7 @@ class _DeclarationsMixin:
                     sub_w_dict, _ = self._resolve_single_interface_witness(
                         w_iface_name, tuple(w_inst_t_args), environment, call_site
                     )
-                    sub_iface = self.interfaces[w_iface_name]
+                    sub_iface = self.interfaces_by_identity[w_iface_name]
                     if sub_iface.methods:
                         impl_witness_args.extend(
                             sub_w_dict[sub_mname].term for sub_mname in sub_iface.methods
@@ -2129,7 +2130,7 @@ class _DeclarationsMixin:
             w_dict, _ = self._resolve_single_interface_witness(
                 iface_name, tuple(inst_t_args), environment, call_site
             )
-            iface = self.interfaces[iface_name]
+            iface = self.interfaces_by_identity[iface_name]
             if iface.methods:
                 witness_terms.extend(w_dict[mname].term for mname in iface.methods)
             else:

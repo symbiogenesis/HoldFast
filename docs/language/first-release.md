@@ -231,6 +231,8 @@ value when its use is specialized, or the build reports a located obligation or
 refusal with no runtime fallback. [`const` declarations](surface-grammar.md#required-static-constants)
 spell the interface, and [the core's staging rules](core-design.md#refinement-effects-and-staging)
 bound conversion and erasure.
+A plain `import Module.Path;` opens its public names. `import Module.Path as M;`
+imports them solely under `M`, so two libraries can export the same name.
 Qualified names resolve independently of import order. Duplicate local/imported
 bindings are errors unless an explicit alias distinguishes them. A public nominal
 identity comprises the resolved package instance, module path and declaration

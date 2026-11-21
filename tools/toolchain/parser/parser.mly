@@ -265,6 +265,8 @@ s_declaration:
 s_decl:
   IMPORT path=s_path SEMICOLON
     { make "import" $startpos $endpos [("name", path)] [] }
+| IMPORT path=s_path AS visible=s_identifier SEMICOLON
+    { make "import" $startpos $endpos [("name", path); ("alias", visible)] [] }
 | ALIAS alias=s_identifier generics=s_generics contracts=list(s_contract) EQUAL value=s_type SEMICOLON
     { make "alias" $startpos $endpos [("name", alias); ("generics", array generics);
         ("contracts", array contracts); ("type", value.syntax)] (value :: generics @ contracts) }

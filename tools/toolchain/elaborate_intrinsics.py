@@ -807,20 +807,10 @@ class _IntrinsicsMixin:
 
     def _resolve_int_type_receiver(self: _Elaborator, node: Node, environment: dict[str, _Binding]) -> _IntSpec | None:
         path = self._dotted_member_path(node)
-        if path is None:
+        if path is None or path.split(".", 1)[0] in environment:
             return None
-        if "." not in path:
-            if path in environment:
-                return None
-            binding = self.globals.get(path)
-            if binding is not None and binding.type == _SORT:
-                return self._int_spec(binding.term)
-            return None
-        if path.startswith("Vela.Numerics.") and "Vela" not in environment:
-            binding = self.globals.get(path)
-            if binding is not None and binding.type == _SORT:
-                return self._int_spec(binding.term)
-        return None
+        binding = self.globals.get(path)
+        return self._int_spec(binding.term) if binding is not None and binding.type == _SORT else None
 
     def _is_unsuffixed_int_expr(self: _Elaborator, node: Node) -> bool:
         kind = node["kind"]
@@ -2052,48 +2042,18 @@ class _IntrinsicsMixin:
                 receiver = self.node(base_callee["value"])
                 member_name = self.name(base_callee["name"])
                 recv_for_method: _Binding | None = None
-                if (
-                    receiver["kind"] == "name"
-                    and self.name(receiver["name"]) in self.interfaces
-                    and self.name(receiver["name"]) not in environment
-                ):
-                    iface = self.interfaces[self.name(receiver["name"])]
+                iface_receiver = self.node(receiver["value"]) if receiver["kind"] == "generic_application" else receiver
+                iface_path = self._dotted_member_path(iface_receiver)
+                if iface_path is not None and iface_path in self.interfaces and iface_path.split(".", 1)[0] not in environment:
+                    iface = self.interfaces[iface_path]
                     if member_name not in iface.methods:
-                        raise self.fail(
-                            "name",
-                            f"interface '{iface.name}' has no method '{member_name}'",
-                            node,
-                        )
+                        raise self.fail("name", f"interface '{iface.name}' has no method '{member_name}'", node)
+                    if receiver["kind"] == "generic_application":
+                        if gen_args:
+                            raise self.fail("type", "generic arguments cannot be specified on both interface and method in qualified call", node)
+                        gen_args = self.nodes(receiver["arguments"])
                     return self._elaborate_interface_method_call(
                         node, iface, iface.methods[member_name], gen_args, None, call_args, environment
-                    )
-                if (
-                    receiver["kind"] == "generic_application"
-                    and self.node(receiver["value"])["kind"] == "name"
-                    and self.name(self.node(receiver["value"])["name"]) in self.interfaces
-                    and self.name(self.node(receiver["value"])["name"]) not in environment
-                ):
-                    if gen_args:
-                        raise self.fail(
-                            "type",
-                            "generic arguments cannot be specified on both interface and method in qualified call",
-                            node,
-                        )
-                    iface = self.interfaces[self.name(self.node(receiver["value"])["name"])]
-                    if member_name not in iface.methods:
-                        raise self.fail(
-                            "name",
-                            f"interface '{iface.name}' has no method '{member_name}'",
-                            node,
-                        )
-                    return self._elaborate_interface_method_call(
-                        node,
-                        iface,
-                        iface.methods[member_name],
-                        self.nodes(receiver["arguments"]),
-                        None,
-                        call_args,
-                        environment,
                     )
                 if receiver["kind"] == "name" and self.name(receiver["name"]) == "Seq" and "Seq" not in environment:
                     return self._elaborate_seq_intrinsic(node, member_name, gen_args, call_args, environment)
@@ -2246,8 +2206,8 @@ class _IntrinsicsMixin:
                     )
                 candidate_ifaces = [
                     iface
-                    for iface in self.interfaces.values()
-                    if member_name in iface.methods
+                    for spelling, iface in self.interfaces.items()
+                    if "." not in spelling and member_name in iface.methods
                     and not iface.methods[member_name].nullary
                     and len(iface.methods[member_name].param_vars) == 1 + len(call_args)
                 ]
@@ -2325,8 +2285,8 @@ class _IntrinsicsMixin:
                 ):
                     candidate_ifaces = [
                         iface
-                        for iface in self.interfaces.values()
-                        if cname in iface.methods
+                        for spelling, iface in self.interfaces.items()
+                        if "." not in spelling and cname in iface.methods
                     ]
                     if candidate_ifaces:
                         return self._select_interface_method_call(

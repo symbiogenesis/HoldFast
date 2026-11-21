@@ -1142,6 +1142,7 @@ public async void Invalid(ref BorrowCell<Buffer> cell, tracked Permit permit) {
 """, ("tuple", "wildcard_pattern", "let", "lambda", "unary")),
     Fixture("modules-and-abstraction", """module Library.Storage;
 import Core.Buffers;
+import Storage.Devices as Devices;
 alias Word = u64;
 namespace Internal {
     public interface Storage<T> {
