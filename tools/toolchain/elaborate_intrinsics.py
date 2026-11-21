@@ -486,6 +486,13 @@ class _IntrinsicsMixin:
             raise self.fail("type", "expected a Slots<T, capacity> operand", arg_node)
         return b, args[0], args[1]
 
+    def _require_relocatable_element(self: _Elaborator, element: _Term, site: Node) -> None:
+        if self._int_spec(element) is None and self.whnf(element) not in {_BOOL, _CHAR, _UNIT}:
+            raise self.fail(
+                "unsupported", "bulk relocation requires evidence that the element type can be relocated; "
+                "the prototype supports fixed-width integers, bool, char and Unit", site,
+            )
+
     def _check_slots_disjoint(
         self: _Elaborator,
         elem_t: _Term,
@@ -714,6 +721,7 @@ class _IntrinsicsMixin:
             src_b, elem_src, cap_src = self._require_slots_binding(arg_nodes[0], environment)
             dst_b, elem_dst, cap_dst = self._require_slots_binding(arg_nodes[1], environment)
             self.unify(elem_src, elem_dst)
+            self._require_relocatable_element(elem_src, node)
             cnt_t = self._slots_usize_arg(arg_nodes[2], environment)
             if self._is_readonly_span(dst_b.term):
                 raise self.fail("type", "cannot copy representation into a read-only 'in Slots' destination", node)
@@ -751,6 +759,7 @@ class _IntrinsicsMixin:
             src_b, elem_src, cap_src = self._require_slots_binding(arg_nodes[0], environment)
             dst_b, elem_dst, cap_dst = self._require_slots_binding(arg_nodes[1], environment)
             self.unify(elem_src, elem_dst)
+            self._require_relocatable_element(elem_src, node)
             if gen_args:
                 if len(gen_args) != 1:
                     raise self.fail("type", "TransferType accepts at most 1 generic type argument <T>", node)

@@ -345,7 +345,15 @@ or duplicating linear ownership, and the erased operation `TransferType<T>`
 consumes that representation-equality fact with the initialized source prefix and
 vacant destination prefix to transition source `[0..count)` to vacant and
 destination `[0..count)` to live initialized `T` in one capacity-independent range
-step. No allocation, emergency capacity or cleanup retry is
+step. A collection exposes the two steps as one checked prefix-relocation method.
+Its element law establishes that moving a live value to a fresh address preserves
+its invariant and all outstanding observations. An interior pointer into the old
+range, a pinned value, or a device retaining the old address needs a separate
+transition that ends or repairs that dependency. Equality of bytes and tags
+alone cannot establish the law. The mathematical prototype admits fixed-width
+integers, `bool`, `char` and `Unit` at both operations. Generic or opaque
+elements require a checked law before the release implementation can admit them.
+No allocation, emergency capacity or cleanup retry is
 implicit. A later explicit bounded-pool library additionally satisfies the
 [pool declaration and exhaustion contracts](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-08-046), with
 reuse/quiescence proof before returned backing is lent again.

@@ -4366,8 +4366,8 @@ def _vacant_slots_and_two_step_relocation() -> None:
         "RelocatePrefix",
         _type("Unit"),
         (
-            ("dst", _modified("ref", _type("Slots", _T, _variable("M")))),
-            ("src", _modified("ref", _type("Slots", _T, _variable("N")))),
+            ("dst", _modified("ref", _type("Slots", _type("u32"), _variable("M")))),
+            ("src", _modified("ref", _type("Slots", _type("u32"), _variable("N")))),
             ("count", _type("usize")),
         ),
         _block_stmts(
@@ -4385,13 +4385,13 @@ def _vacant_slots_and_two_step_relocation() -> None:
                     _ref_arg(_variable("src")),
                     _ref_arg(_variable("dst")),
                     _variable("count"),
-                    generics=(_T,),
+                    generics=(_type("u32"),),
                 )
             ),
             _return_stmt(_unit()),
         ),
         block=True,
-        generics=(("type", "T", None), ("ghost", "M", _type("usize")), ("ghost", "N", _type("usize"))),
+        generics=(("ghost", "M", _type("usize")), ("ghost", "N", _type("usize"))),
         contracts=(
             _contract("requires", _call(_member(_variable("Slots"), "Disjoint"), _variable("dst"), _variable("src"))),
             _contract("requires", _binary("<=", _variable("count"), _variable("N"))),
@@ -4459,6 +4459,18 @@ def _vacant_slots_and_two_step_relocation() -> None:
         )
         cs, cr = cap_fix.response()
         elaborate(cs, cr)
+
+    for operation in ("CopyRepresentation", "TransferType"):
+        opaque = _Fixture("OpaqueRelocation")
+        slots_t = _modified("ref", _type("Slots", _T, _natural(4)))
+        opaque.function(
+            "RelocateUnknown", _type("Unit"), (("src", slots_t), ("dst", slots_t)),
+            _block_stmts(_expr_stmt(_call(operation, _ref_arg(_variable("src")),
+                                          _ref_arg(_variable("dst")), _int_lit("1", "usize"))),
+                         _return_stmt(_unit())),
+            block=True, generics=(("type", "T", None),),
+        )
+        _refuses(opaque, "unsupported", "element type can be relocated")
 
     read_vacant = _Fixture("SlotsReadVacant")
     read_vacant.function(
