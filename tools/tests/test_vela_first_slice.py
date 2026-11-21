@@ -819,6 +819,30 @@ def _clight_lowering_and_purecap_assembly() -> None:
             ensure(not refusals and size > 0 and elf.is_file(), f"purecap_{mode} failed assembly: {refusals}")
 
 
+def _ordered_scalar_calls() -> None:
+    def call(name: str, *values: Node) -> Node:
+        return {"kind": "call", "callee": {"kind": "name", "name": {"text": name}},
+                "arguments": [{"kind": "argument", "value": v} for v in values]}
+
+    bool_type = {"kind": "type", "name": {"text": "bool"}}
+    results = {"Probe": "bool", "First": "bool", "Second": "bool", "Both": "bool"}
+    condition = {"kind": "binary", "operator": {"text": "&&"},
+                 "left": {"kind": "name", "name": {"text": "vela_eval_0"}},
+                 "right": call("Both", call("First"), call("Second"))}
+    declaration: Node = {"name": {"text": "Probe"}, "result": bool_type,
+                         "parameters": [{"name": {"text": "vela_eval_0"}, "type": bool_type}],
+                         "body": {"kind": "block", "statements": [{"kind": "return", "value": condition}]}}
+    code = vela_first_slice._lower_function_to_c(declaration, {}, {}, lambda _: "usize", results)
+    expected = """    vela_eval_3 = vela_eval_0;
+    if (vela_eval_3) {
+        vela_eval_1 = First();
+        vela_eval_2 = Second();
+        vela_eval_3 = Both(vela_eval_1, vela_eval_2);
+    }
+    return vela_eval_3;"""
+    ensure(expected in code, "guarded scalar calls must execute once in left-to-right order")
+
+
 def _first_slice_source_proofs() -> None:
     root = TOOLS.parent
     source = (root / "examples/first_slice.vela").read_bytes()
@@ -885,6 +909,7 @@ def cases() -> list[Case]:
     return [
         Case("capacity-invariance-and-restores-ensures-obligations", _capacity_invariance_and_contracts),
         Case("semantic-negative-span-refusals", _negative_span_refusals),
+        Case("ordered-scalar-calls-under-short-circuit", _ordered_scalar_calls),
         Case("clight-lowering-and-purecap-cheri-assembly", _clight_lowering_and_purecap_assembly),
         Case("first-slice-constructive-source-proofs-with-fixed-budgets", _first_slice_source_proofs, lane="guest"),
         Case("packet-contextual-literals-match-explicit-representations", _packet_contextual_literals, lane="guest"),
