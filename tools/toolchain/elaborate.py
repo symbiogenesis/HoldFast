@@ -131,7 +131,7 @@ class _Elaborator(
         self.callable_ensures: dict[
             str, list[tuple[tuple[int, ...], tuple[tuple[int, int], ...], int | None, _Term]]
         ] = {}
-        self.last_call_updates: list[tuple[Node, _Binding]] = []
+        self.last_call_updates: list[tuple[Node, _Binding, _Term | None]] = []
         self.guard_value = False
         self.static_forbidden: set[int] | None = None
         self.globals: dict[str, _Binding] = {}
@@ -1210,6 +1210,7 @@ class _Elaborator(
             future = self.whnf(future.args[1])
         val_args: list[_Term] = []
         loan_targets: dict[int, tuple[Node, _Term]] = {}
+        indices: dict[int, _Term] = {}
         seen_loan_names: set[str] = set()
         all_arg_var_names: set[str] = set()
         out_loan_names: set[str] = set()
@@ -1274,6 +1275,13 @@ class _Elaborator(
                 if arg_val_node["kind"] == "out_variable":
                     argument = self.fresh(value_type.args[0])
                     loan_targets[idx] = (arg_val_node, value_type.args[0])
+                    required_static = False
+                elif is_ref_param and self._unwrap_group(self.node(arg_val_node["value"]))["kind"] == "index":
+                    target = self._unwrap_group(self.node(arg_val_node["value"]))
+                    element, indices[idx] = self._indexed_call_loan(target, environment)
+                    self.unify(element.type, value_type.args[0])
+                    loan_targets[idx] = (target, value_type.args[0])
+                    argument = element.term
                     required_static = False
                 elif arg_mod == "out":
                     arg_ident_node = self._unwrap_group(self.node(arg_val_node["value"]))
@@ -1366,6 +1374,7 @@ class _Elaborator(
                     specialized_term = _app(specialized_term, argument)
                 term = _app(term, argument)
                 value_type = self.substitute(value_type.args[1], param_var_id, argument)
+        self._check_indexed_argument_overlap(arguments, indices, environment)
         if (
             callee_head.kind == "const"
             and isinstance(callee_head.value, str)
@@ -1458,7 +1467,7 @@ class _Elaborator(
                 post_loan_terms[idx] = upd_term
                 signature_writes = self.callable_effect_writes.get(str(callee_head.value))
                 self._record_call_update(t_node, _Binding(upd_term, t_dom),
-                                         writes=signature_writes is None or idx in signature_writes)
+                                         writes=signature_writes is None or idx in signature_writes, index=indices.get(idx))
         if (
             callee_head.kind == "const"
             and isinstance(callee_head.value, str)

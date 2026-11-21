@@ -962,13 +962,15 @@ class _StatementsMixin:
                 name = self.local_borrows[name][1]
             self.runtime_writes.add(self.slice_views.get(name, name))
 
-    def _record_call_update(self: _Elaborator, target: Node, value: _Binding, *, writes: bool = True) -> None:
+    def _record_call_update(
+        self: _Elaborator, target: Node, value: _Binding, *, writes: bool = True, index: _Term | None = None
+    ) -> None:
         if writes:
             self._note_runtime_write(target)
         if self.guard_value:
             raise self.fail("unsupported", "a pattern guard used as a value cannot model a mutable loan update; "
                             "use an if statement", target)
-        self.last_call_updates.append((target, value))
+        self.last_call_updates.append((target, value, index))
 
     def _consume_call_updates(
         self: _Elaborator, updated: dict[str, _Binding], site: Node
@@ -977,8 +979,19 @@ class _StatementsMixin:
             return
         pending = list(self.last_call_updates)
         self.last_call_updates.clear()
-        for arg_node, new_b in pending:
-            self._apply_ref_target_update(arg_node, new_b, updated, site)
+        for arg_node, new_b, position in pending:
+            if position is not None:
+                owner = self._unwrap_group(self.node(arg_node["value"]))
+                collection = updated[self.name(owner["name"])]
+                head, targs = self.spine(self.whnf(collection.type))
+                if head == _constant("Vec"):
+                    term = _apps(_constant("Vec_Update"), *targs, position, new_b.term, collection.term)
+                else:
+                    update = {"Span": "Span_Write", "Slots": "Slots_Write", "Seq": "Seq_Update"}[str(head.value)]
+                    term = _apps(_constant(update), *targs, collection.term, position, new_b.term)
+                self._apply_ref_target_update(owner, _Binding(term, collection.type), updated, site)
+            elif not self._apply_ref_target_update(arg_node, new_b, updated, site):
+                raise self.fail("unsupported", "cannot restore this call's exclusive loan target", arg_node)
 
     def _apply_ref_target_update(
         self: _Elaborator, arg_node: Node, new_binding: _Binding, updated: dict[str, _Binding], site: Node

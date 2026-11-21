@@ -6260,6 +6260,35 @@ def _call_modes_and_field_writeback() -> None:
             _refuses(f, "type", "assertion could not be established")
 
 
+def _indexed_call_writeback() -> None:
+    word = _type("u32")
+    for expected in ("9", "3"):
+        f = _Fixture("IndexWriteback")
+        f.function("Set", _type("Unit"), (("x", _modified("ref", word)),), _block_stmts(
+            _assign_stmt(_variable("x"), "=", _int_lit("9", "u32")), _return_stmt()
+        ), block=True)
+        f.function("Caller", word, (), _block_stmts(
+            _var_stmt("xs", _call(_member(_variable("Seq"), "Singleton"), _int_lit("3", "u32"))),
+            _expr_stmt(_call("Set", _ref_arg(_index_expr(_variable("xs"), _natural(0))))),
+            _return_stmt(_index_expr(_variable("xs"), _natural(0))),
+        ), block=True, contracts=(_contract("ensures", _binary("==", _variable("result"), _int_lit(expected, "u32"))),))
+        if expected == "9":
+            elaborate(*f.response())
+        else:
+            _refuses(f, "type", "assertion could not be established")
+
+
+    overlap = _Fixture("IndexOverlap")
+    overlap.function("SetTwo", _type("Unit"), (("x", _modified("ref", word)), ("y", _modified("ref", word))),
+                     _block_stmts(_return_stmt()), block=True)
+    element = _ref_arg(_index_expr(_variable("xs"), _natural(0)))
+    overlap.function("Caller", _type("Unit"), (), _block_stmts(
+        _var_stmt("xs", _call(_member(_variable("Seq"), "Singleton"), _int_lit("3", "u32"))),
+        _expr_stmt(_call("SetTwo", element, element)), _return_stmt()
+    ), block=True)
+    _refuses(overlap, "type", "cannot prove indexed loan of 'xs' is disjoint")
+
+
 def _restoration_projection_identity() -> None:
     span = _type("Span", _type("byte"))
     for field_name in ("Payload", "Renamed", "RestoredDst"):
@@ -6623,6 +6652,7 @@ def cases() -> list[Case]:
             Case("callable-member-receiver-once-and-fatal-failures", _callable_member_receiver_and_failures),
             Case("multi-module-imports-and-visibility", _multi_module_imports_and_visibility),
             Case("source-bound-borrows-and-constructive-postconditions", _source_bound_borrows_and_constructive_postconditions),
+            Case("writeback-to-evaluated-indices", _indexed_call_writeback),
             Case("restoration-through-lender-bound-projections", _restoration_projection_identity),
             Case("transient-writes-and-transitive-footprints", _transient_write_effects),
             Case("exact-call-modes-and-projected-writeback", _call_modes_and_field_writeback),

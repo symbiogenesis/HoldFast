@@ -1358,6 +1358,11 @@ class _IntrinsicsMixin:
         )
 
     def _elaborate_index(self: _Elaborator, node: Node, environment: dict[str, _Binding]) -> _Binding:
+        return self._read_indexed_place(node, environment)[0]
+
+    def _read_indexed_place(
+        self: _Elaborator, node: Node, environment: dict[str, _Binding]
+    ) -> tuple[_Binding, _Binding]:
         self.site = node
         recv_node = self.node(node["value"])
         idx_node = self.node(node["index"])
@@ -1371,7 +1376,7 @@ class _IntrinsicsMixin:
             in_bounds = _apps(_constant("int_lt_usize"), idx_t, len_t)
             if not self._prove_bool_precondition(in_bounds, environment):
                 raise self.fail("type", "cannot prove Span index is within Span.Length bounds", node)
-            return _Binding(_apps(_constant("Span_Read"), _U8, recv_b.term, idx_t), _U8)
+            return _Binding(_apps(_constant("Span_Read"), _U8, recv_b.term, idx_t), _U8), _Binding(idx_t, _USIZE)
         if head == _constant("Slots") and len(targs) == 2:
             elem_t, cap_t = targs
             idx_t = self._slots_usize_arg(idx_node, environment)
@@ -1387,7 +1392,7 @@ class _IntrinsicsMixin:
                     node,
                 )
             d_val = self._default_term_for_type(elem_t)
-            return _Binding(_apps(_constant("Slots_Read"), elem_t, cap_t, d_val, recv_b.term, idx_t), elem_t)
+            return _Binding(_apps(_constant("Slots_Read"), elem_t, cap_t, d_val, recv_b.term, idx_t), elem_t), _Binding(idx_t, _USIZE)
         if head == _constant("Seq") and len(targs) == 1:
             elem_t = targs[0]
             idx_t = self._seq_nat_arg(idx_node, environment)
@@ -1396,7 +1401,7 @@ class _IntrinsicsMixin:
             if not self._prove_bool_precondition(in_bounds, environment):
                 raise self.fail("type", "cannot prove Seq index is within Seq.Count bounds", node)
             d_val = self._default_term_for_type(elem_t)
-            return _Binding(_apps(_constant("Seq_At"), elem_t, d_val, recv_b.term, idx_t), elem_t)
+            return _Binding(_apps(_constant("Seq_At"), elem_t, d_val, recv_b.term, idx_t), elem_t), _Binding(idx_t, _NAT)
         if head == _constant("Vec") and len(targs) == 2:
             elem_t, len_t = targs
             if not self._is_unsuffixed_int_expr(idx_node):
@@ -1405,19 +1410,65 @@ class _IntrinsicsMixin:
                 idx_head, _ = self.spine(self.whnf(idx_b.type))
                 if idx_head == _constant("Fin"):
                     self.unify(idx_b.type, _app(_constant("Fin"), len_t))
-                    return _Binding(_apps(_constant("At"), elem_t, len_t, recv_b.term, idx_b.term), elem_t)
+                    return _Binding(_apps(_constant("At"), elem_t, len_t, recv_b.term, idx_b.term), elem_t), idx_b
                 self.restore_metas(saved_idx_m)
             idx_t = self._seq_nat_arg(idx_node, environment)
             in_bounds = _apps(_constant("<"), idx_t, len_t)
             if not self._prove_bool_precondition(in_bounds, environment):
                 raise self.fail("type", "cannot prove Vec index is within length bounds", node)
             d_val = self._default_term_for_type(elem_t)
-            return _Binding(_apps(_constant("Vec_At_Nat"), elem_t, len_t, d_val, idx_t, recv_b.term), elem_t)
+            return _Binding(_apps(_constant("Vec_At_Nat"), elem_t, len_t, d_val, idx_t, recv_b.term), elem_t), _Binding(idx_t, _NAT)
         raise self.fail(
             "type",
             "indexing requires a Span<byte>, Slots<T, capacity>, Seq<T> or Vec<T, n> operand",
             node,
         )
+
+    def _indexed_call_loan(
+        self: _Elaborator, target: Node, environment: dict[str, _Binding]
+    ) -> tuple[_Binding, _Term]:
+        owner = self._unwrap_group(self.node(target["value"]))
+        if owner["kind"] != "name":
+            raise self.fail("unsupported", "indexed call loans require a named mutable collection", owner)
+        _, _, collection = self._resolve_local_borrow_target("ref", owner, environment, target)
+        element, index = self._read_indexed_place(target, environment)
+        head, targs = self.spine(self.whnf(collection.type))
+        if head == _constant("Span"):
+            self._check_span_can_write(collection.term, environment, target)
+        elif head == _constant("Slots") and not self._prove_bool_precondition(
+            _apps(_constant("Slots_CanWrite"), *targs, collection.term), environment
+        ):
+            raise self.fail("type", "indexed call loan requires Slots.CanWrite", target)
+        if index.type not in {_NAT, _USIZE}:
+            raise self.fail("unsupported", "indexed call writeback requires a Nat or usize index", target)
+        return element, index.term
+
+    def _check_indexed_argument_overlap(
+        self: _Elaborator, args: list[Node], positions: dict[int, _Term], environment: dict[str, _Binding]
+    ) -> None:
+        if not positions:
+            return
+        roots: list[str | None] = []
+        for arg in args:
+            place = self._unwrap_group(self.node(arg["value"]))
+            if place["kind"] == "unary":
+                place = self._unwrap_group(self.node(place["value"]))
+            while place["kind"] in {"index", "member"}:
+                place = self._unwrap_group(self.node(place["value"]))
+            root = self.name(place["name"]) if place["kind"] == "name" else None
+            if root in self.local_borrows:
+                root = self.local_borrows[root][1]
+            roots.append(self.slice_views.get(root, root) if root is not None else None)
+        for i, pos in positions.items():
+            for j, other_root in enumerate(roots):
+                if i == j or roots[i] != other_root:
+                    continue
+                if j in positions:
+                    index_type = self.whnf(self.infer(pos))
+                    ne = _constant("!=") if index_type == _NAT else _constant("int_ne_usize")
+                    if self._prove_bool_precondition(_apps(ne, pos, positions[j]), environment):
+                        continue
+                raise self.fail("type", f"cannot prove indexed loan of '{roots[i]}' is disjoint from argument {j + 1}", args[i])
 
     def _elaborate_interface_method_call(
         self: _Elaborator,
@@ -1455,6 +1506,7 @@ class _IntrinsicsMixin:
             m_gen_args.append(self.meta(dom, environment))
         arg_terms: list[_Term] = []
         loan_targets: dict[int, tuple[Node, _Term]] = {}
+        indices: dict[int, _Term] = {}
         seen_loan_names: set[str] = set()
         all_arg_var_names: set[str] = set()
         out_loan_names: set[str] = set()
@@ -1563,6 +1615,12 @@ class _IntrinsicsMixin:
                         if arg_mod in {"ref", "in", "move"}
                         else arg_val_node
                     )
+                    if is_ref_param and arg_ident_node["kind"] == "index":
+                        element, indices[idx] = self._indexed_call_loan(arg_ident_node, environment)
+                        self.unify(element.type, p_dom)
+                        loan_targets[idx] = (arg_ident_node, p_dom)
+                        arg_terms.append(element.term)
+                        continue
                     if is_ref_param and arg_ident_node["kind"] != "name":
                         self._resolve_local_borrow_target("ref", arg_ident_node, environment, arg_node)
                         loan_targets[idx] = (arg_ident_node, p_dom)
@@ -1608,6 +1666,8 @@ class _IntrinsicsMixin:
                 for j, pv in enumerate(mspec.param_vars):
                     expected_ret = self.substitute(expected_ret, cast("int", pv.value), arg_terms[j])
                 self._try_unify(expected_ret, self.expected_call_type)
+        offset = int(pre_evaluated_recv is not None)
+        self._check_indexed_argument_overlap(call_args, {i - offset: pos for i, pos in indices.items()}, environment)
         resolved_targs = tuple(self.whnf(t) for t in type_args)
         witness_dict, ensures_dict = self._resolve_single_interface_witness(
             iface.name, resolved_targs, environment, node
@@ -1626,9 +1686,9 @@ class _IntrinsicsMixin:
             res_type = self.substitute(res_type, cast("int", sv.value), cv)
         for vname in out_loan_names:
             self.uninitialized_out_params.discard(vname)
-        for t_node, t_dom in loan_targets.values():
+        for idx, (t_node, t_dom) in loan_targets.items():
             upd_term = self.fresh(t_dom)
-            self._record_call_update(t_node, _Binding(upd_term, t_dom))
+            self._record_call_update(t_node, _Binding(upd_term, t_dom), index=indices.get(idx))
         if mspec.name in ensures_dict:
             rem_m_ids, ens_props = ensures_dict[mspec.name]
             rem_vals = [*m_gen_args, *arg_terms]
