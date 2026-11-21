@@ -358,6 +358,17 @@ def _capacity_invariance_and_contracts() -> None:
         len(small_elab.gallina) == len(large_elab.gallina),
         "capacity-invariance gate failed: emitted Gallina size differed between N=8 and N=1,000,000,000",
     )
+    vela_first_slice._check_capacity_structure(small_state, large_state)
+    mismatched = list(large_state.output)
+    mismatched[-1] = mismatched[-1].replace("ensures_0", "ensures_1")
+    ensure(mismatched != large_state.output, "capacity fixture should include its named ensures obligation")
+    large_state.output = mismatched
+    try:
+        vela_first_slice._check_capacity_structure(small_state, large_state)
+    except ValueError as error:
+        ensure("proof structure" in str(error), "changed capacity proof should identify its structural mismatch")
+    else:
+        raise AssertionError("capacity gate accepted different obligation names of equal encoded size")
     for field_tag in ("Base", "Length", "Tag", "PermRead", "PermWrite"):
         ensure(
             f"vela_d0_PrepareHeader_restores_0_{field_tag}" in small_elab.gallina,

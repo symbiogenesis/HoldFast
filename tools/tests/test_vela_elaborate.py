@@ -4447,7 +4447,7 @@ def _vacant_slots_and_two_step_relocation() -> None:
     ensure("Inductive vela_Slots" in emitted and "vela_Slots_TransferType" in emitted,
            "elaborated Gallina omitted Slots definitions")
 
-    # Verify capacity invariance: N = 4usize vs N = 1_000_000_000usize take identical elaboration work
+    # Both concrete capacities must elaborate the same symbolic range transition.
     for cap_lit in ("4", "1000000000"):
         cap_fix = _Fixture(f"SlotsCap_{cap_lit}")
         cap_fix.function(
