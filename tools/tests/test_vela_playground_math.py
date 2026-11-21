@@ -539,6 +539,23 @@ for (const [expression, kind] of [
   }
 }
 
+const commentFormatSource = [
+  "module Grouping;", "// Preserve the sum before multiplying.",
+  "/// Computes the intended value.", "public Nat F()=>((1+2))*3; // result",
+].join("\r\n");
+const fmtSession = (await mod.browserApi("/api/session", {})).session;
+const doc = { uri: "untitled:playground.vela", version: 1, text: commentFormatSource };
+await mod.browserApi("/api/lsp", {session: fmtSession, message: { jsonrpc: "2.0", method: "textDocument/didOpen", params: { textDocument: doc } }});
+const fmtReply = await mod.browserApi("/api/lsp", {session: fmtSession, message: { jsonrpc: "2.0", id: 1, method: "textDocument/formatting", params: { textDocument: { uri: doc.uri } } }});
+const candidate = fmtReply.messages[0].result?.[0]?.newText;
+if (!candidate || !candidate.includes("((1 + 2)) * 3; // result") ||
+    !candidate.includes("// Preserve the sum before multiplying.\n/// Computes the intended value.")) {
+  throw new Error("Browser formatter lost source grouping, comments, or documentation");
+}
+const afterFormat = await mod.browserApi("/api/evaluate", { source: candidate, expression: "F()", valueType: "Nat" });
+if (!afterFormat.ok || afterFormat.value !== "9") throw new Error("Browser formatter changed evaluation");
+await mod.browserApi("/api/close", { session: fmtSession });
+
 const parity = { examples: {} };
 for (const [key, example] of Object.entries(mod.EXAMPLES)) {
   const compiled = await mod.browserApi("/api/compile", { source: example.source });

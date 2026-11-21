@@ -656,7 +656,7 @@ function makeExpr(kind, value, site, children = [], labels = []) {
   return { kind, value, site, children, depth, nesting, labels };
 }
 
-function pureTokenize(sourceText, { allowSemicolon = true } = {}) {
+function pureTokenize(sourceText, { allowSemicolon = true, keepComments = false } = {}) {
   checkSourceText(sourceText);
   const tokens = [];
   let index = 0;
@@ -687,11 +687,14 @@ function pureTokenize(sourceText, { allowSemicolon = true } = {}) {
       continue;
     }
     if (sourceText.startsWith("//", index)) {
+      const start = index;
+      const site = { line, column };
       while (index < sourceText.length && sourceText[index] !== "\r" && sourceText[index] !== "\n") {
         const cp = sourceText.codePointAt(index);
         index += cp > 0xffff ? 2 : 1;
         column += 1;
       }
+      if (keepComments) tokens.push({ kind: "comment", text: sourceText.slice(start, index), site, offset: start });
       continue;
     }
     if (sourceText.startsWith("/*", index)) {
@@ -2173,144 +2176,94 @@ function isCamelCase(text) {
   return /^[a-z][A-Za-z0-9]*$/.test(text);
 }
 
-function formatDecimalLiteral(text) {
-  if (text.includes("_") || text.length < 5) {
-    return text;
-  }
-  const groups = [];
-  let end = text.length;
-  while (end > 0) {
-    const start = Math.max(0, end - 3);
-    groups.push(text.slice(start, end));
-    end = start;
-  }
-  groups.reverse();
-  return groups.join("_");
+function pureFormatParts(sourceText) {
+  const source = normalizeNewlines(sourceText);
+  const tokens = pureTokenize(source, { keepComments: true }).filter((t) => t.kind !== "eof");
+  return tokens.map((token, index) => {
+    const previous = tokens[index - 1];
+    const blankBefore = !!previous && token.site.line > previous.site.line + 1;
+    const inline = token.kind === "comment" && !!previous && token.site.line === previous.site.line;
+    return { ...token, blankBefore, inline };
+  });
 }
 
-function purePrecedence(item) {
-  if (item.kind === "binary") {
-    const op = String(item.value);
-    if (op === "||") return 1;
-    if (op === "&&") return 2;
-    if (PURE_COMPARISON_OPERATORS.has(op)) return 3;
-    if (op === "+" || op === "-") return 4;
-    return 5;
-  }
-  if (item.kind === "unary") return 6;
-  return 7;
-}
+function renderPureParts(parts) {
+  const lines = [];
+  let current = "";
+  let indent = 0;
+  let complete = false;
+  let previous;
 
-function formatPureExpr(item) {
-  if (item.kind === "group") {
-    return formatPureExpr(item.children[0]);
+  function flush() {
+    if (current) lines.push("    ".repeat(indent) + current);
+    current = "";
   }
-  if (item.kind === "nat") {
-    return formatDecimalLiteral(String(item.value));
+  function blank() {
+    flush();
+    if (lines.length && lines.at(-1) !== "") lines.push("");
   }
-  if (item.kind === "bool") {
-    return item.value ? "true" : "false";
-  }
-  if (item.kind === "name") {
-    return String(item.value);
-  }
-  if (item.kind === "call") {
-    const renderedArgs = item.children.map((child, idx) => {
-      const label = item.labels[idx];
-      const val = formatPureExpr(child);
-      return label ? `${label.text}: ${val}` : val;
-    });
-    return `${item.value}(${renderedArgs.join(", ")})`;
-  }
-  if (item.kind === "unary") {
-    const child = item.children[0].kind === "group" ? item.children[0].children[0] : item.children[0];
-    const text = formatPureExpr(child);
-    return purePrecedence(child) < purePrecedence(item) ? `!(${text})` : `!${text}`;
-  }
-  const left = item.children[0].kind === "group" ? item.children[0].children[0] : item.children[0];
-  const right = item.children[1].kind === "group" ? item.children[1].children[0] : item.children[1];
-  const prec = purePrecedence(item);
-  let leftText = formatPureExpr(left);
-  let rightText = formatPureExpr(right);
-  if (purePrecedence(left) < prec) {
-    leftText = `(${leftText})`;
-  }
-  if (
-    purePrecedence(right) < prec ||
-    (purePrecedence(right) === prec && right.kind === "binary")
-  ) {
-    rightText = `(${rightText})`;
-  }
-  return `${leftText} ${item.value} ${rightText}`;
-}
-
-function formatPureBlock(block, indent) {
-  const pad = " ".repeat(indent);
-  const inner = " ".repeat(indent + 4);
-  const lines = [`${pad}{`];
-  for (const stmt of block.bindings) {
-    if (stmt.kind === "constant") {
-      lines.push(
-        `${inner}const ${stmt.valueType} ${stmt.name.text} = ${formatPureExpr(stmt.value)};`
-      );
-    } else if (stmt.kind === "reassignment") {
-      lines.push(`${inner}${stmt.name.text} = ${formatPureExpr(stmt.value)};`);
+  for (const part of parts) {
+    const spelling = part.text;
+    if (previous?.kind === "comment" && part.blankBefore) blank();
+    if (part.kind === "comment") {
+      if (part.inline && current) {
+        current = current.trimEnd() + " " + spelling;
+        flush();
+      } else if (part.inline && lines.length) {
+        while (lines.at(-1) === "") lines.pop();
+        lines[lines.length - 1] += " " + spelling;
+      } else {
+        flush();
+        if (!indent && complete) blank();
+        complete = false;
+        lines.push("    ".repeat(indent) + spelling);
+      }
     } else {
-      const ann = stmt.annotation ? `${stmt.annotation} ` : "";
-      lines.push(`${inner}let ${ann}${stmt.name.text} = ${formatPureExpr(stmt.value)};`);
+      if (!indent && complete) blank();
+      complete = false;
+      if (spelling === "{" || spelling === "}") {
+        flush();
+        if (spelling === "}") indent -= 1;
+        lines.push("    ".repeat(indent) + spelling);
+        if (spelling === "{") indent += 1;
+        complete = indent === 0;
+      } else if (spelling === ";") {
+        current = current.trimEnd() + ";";
+        flush();
+        complete = indent === 0;
+      } else if ([",", ":", ")"].includes(spelling)) {
+        current = current.trimEnd() + spelling + (spelling === ")" ? "" : " ");
+      } else if (spelling === "(") {
+        if (["if", "return"].includes(previous?.text)) current += " ";
+        current += "(";
+      } else if (["=", "=>", "+", "-", "*", "/", "%", "==", "!=", "<", "<=", ">", ">=", "&&", "||"].includes(spelling)) {
+        current = current.trimEnd() + " " + spelling + " ";
+      } else {
+        if (current && !/[ (!]$/.test(current)) current += " ";
+        current += spelling;
+      }
     }
+    previous = part;
   }
-  if (block.terminal.kind === "return") {
-    lines.push(`${inner}return ${formatPureExpr(block.terminal.value)};`);
-  } else {
-    lines.push(
-      `${inner}if (${formatPureExpr(block.terminal.condition)})`,
-      ...formatPureBlock(block.terminal.yes, indent + 4),
-      `${inner}else`,
-      ...formatPureBlock(block.terminal.no, indent + 4)
-    );
-  }
-  lines.push(`${pad}}`);
-  return lines;
+  flush();
+  return lines.join("\n") + "\n";
 }
 
 function pureFormatSource(sourceText) {
-  const { parsed, declarationSites } = parsePureModule(sourceText);
   runPureTranslate(sourceText, false);
-  const lines = [`module ${parsed.name.text};`];
-  for (const decl of parsed.declarations) {
-    lines.push("");
-    const siteKey = `${decl.name.site.line}:${decl.name.site.column}`;
-    const pubSite = declarationSites.get(siteKey);
-    const doc = pubSite ? extractPureDocumentation(sourceText, pubSite) : null;
-    if (doc !== null) {
-      for (const docLine of doc.split("\n")) {
-        lines.push(docLine ? `/// ${docLine}` : "///");
-      }
-    }
-    if (decl.kind === "constant") {
-      lines.push(`public const ${decl.valueType} ${decl.name.text} = ${formatPureExpr(decl.value)};`);
-      continue;
-    }
-    const params = decl.parameters
-      .map(
-        ([pName, pType]) =>
-          `${decl.constParameters.has(pName.text) ? "const " : ""}${pType} ${pName.text}`
-      )
-      .join(", ");
-    const qualifier = decl.isConst ? "const " : "";
-    const sig = `public ${qualifier}${decl.result} ${decl.name.text}(${params})`;
-    if (
-      decl.bodyKind === "expression" &&
-      decl.body.bindings.length === 0 &&
-      decl.body.terminal.kind === "return"
-    ) {
-      lines.push(`${sig} => ${formatPureExpr(decl.body.terminal.value)};`);
-    } else {
-      lines.push(sig, ...formatPureBlock(decl.body, 0));
-    }
+  const parts = pureFormatParts(sourceText);
+  const result = renderPureParts(parts);
+  runPureTranslate(result, false);
+  const rendered = pureFormatParts(result);
+  const unchanged = parts.length === rendered.length && parts.every((part, i) => {
+    const copy = rendered[i];
+    return part.kind === copy.kind && part.text === copy.text && part.inline === copy.inline &&
+      (!part.text.startsWith("///") || part.inline || parts[i + 1]?.blankBefore === rendered[i + 1]?.blankBefore);
+  });
+  if (!unchanged || renderPureParts(rendered) !== result) {
+    throw new VelaError("format", 1, 1, "formatting changed tokens, comments or documentation attachment");
   }
-  return `${lines.join("\n")}\n`;
+  return result;
 }
 
 function unwrapPureGroup(expr) {

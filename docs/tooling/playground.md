@@ -205,6 +205,8 @@ same bounded isolated worker used by compilation. Return advisory VELA100 throug
 VELA103 findings at original one-based compiler positions. Validate the complete response, known
 codes, original-source positions and at most 8,192 findings. Refuse malformed, incomplete, oversized or
 failed producer results; an unavailable inspection is never a clean lint result.
+The static formatter lays out the original pure tokens and line comments. It rechecks the candidate and compares token spellings, inline comments, documentation attachment and idempotence before offering an edit.
+
 The static page runs its authoring check in the browser. A check changes no
 source. Invalidate findings on edits and reconnection.
 
