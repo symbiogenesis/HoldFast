@@ -3,9 +3,13 @@
 
 from collections.abc import Callable
 from itertools import product
+from pathlib import Path
 from typing import cast
 
 from tests.harness import Case, ensure
+from toolchain import parser
+from toolchain.ast import VelaError
+from toolchain.elaborate import elaborate
 from toolchain.loans import (
     Access,
     AnalysisRefusalError,
@@ -1167,8 +1171,79 @@ def _vela_parser_schema2_surface_ast_lowering() -> None:
     )
 
 
+def _located_receiver_timing() -> None:
+    source = b"""module ReceiverTrial;
+public struct Buffer {
+    public Nat length;
+    public Nat payload;
+    public view Data = payload;
+    public Unit Update(ref this, Nat x);
+    public Nat Mutate(ref this);
+    public Unit WriteData(ref this.Data, Nat x);
+    public in<'this.payload> Nat BorrowData(in this.Data);
+}
+public Unit Direct(ref Buffer buf) { buf.Update(buf.length); }
+public Unit Snapshot(ref Buffer buf) { let n = buf.length; buf.Update(n); }
+public Unit Nested(ref Buffer buf) { buf.Update(buf.Mutate()); }
+public Unit Disjoint(ref Buffer buf) { buf.WriteData(buf.length); }
+public Unit Overlap(ref Buffer buf) { buf.WriteData(buf.payload); }
+public Unit Hold(ref Buffer buf) { let in Nat loan = buf.BorrowData(); buf.Update(0); Observe(in loan); }
+"""
+    with parser.cached_build(Path(__file__).resolve().parents[2]) as compiled:
+        tree = parser.parse_source(compiled, source, surface=True)
+    for name, rejected in (("Direct", True), ("Snapshot", False), ("Nested", True),
+                           ("Disjoint", False), ("Overlap", True), ("Hold", True)):
+        lowered = lower_function(tree, name)
+        report = analyze(lowered.owners, lowered.graph).paths[0]
+        ensure(bool(report.issues) == rejected, f"unexpected receiver result in {name}: {report.issues}")
+        for issue in report.issues:
+            span = cast("list[int]", lowered.node_sites[issue.node]["span"])
+            ensure(source[span[0]:span[1]] in {b"buf.length", b"buf.Mutate", b"buf.payload", b"buf.Update"},
+                   f"receiver conflict points outside its competing access in {name}: {source[span[0]:span[1]]!r}")
+        receiver_borrows = [node.event.loan for node in lowered.graph.nodes
+                            if isinstance(node.event, Borrow) and node.event.loan.name.startswith("_recv_")]
+        ensure(bool(receiver_borrows), f"missing receiver borrow in {name}")
+        events = [node.event for node in lowered.graph.nodes]
+        if name in {"Direct", "Snapshot"}:
+            read = next(i for i, e in enumerate(events) if isinstance(e, Access) and e.place == Place("buf", ("length",)))
+            begin = next(i for i, e in enumerate(events) if isinstance(e, Borrow))
+            end = next(i for i, e in enumerate(events) if isinstance(e, Drop) and e.name == receiver_borrows[0].name)
+            ensure(read < begin < end if name == "Snapshot" else begin < read < end,
+                   f"incorrect order of the length read and receiver loan in {name}")
+        if name in {"Disjoint", "Overlap"}:
+            ensure(receiver_borrows[0].place == Place("buf", ("payload",)), "named receiver view lost its field footprint")
+        if name == "Nested":
+            ensure(len(receiver_borrows) == 2, "nested method receiver was evaluated more than once or skipped")
+        if name == "Hold":
+            ensure(receiver_borrows[0].mode == "shared" and not receiver_borrows[0].scoped,
+                   "the source-declared receiver return loan was discarded at the call")
+
+
+def _checked_receiver_snapshot() -> None:
+    with parser.cached_build(Path(__file__).resolve().parents[2]) as compiled:
+        for snapshot in (False, True):
+            statements = (
+                b"let next = buf.LiveCount; return buf.Write(next, 7u8);"
+                if snapshot else b"return buf.Write(buf.LiveCount, 7u8);"
+            )
+            source = (b"module ReceiverMath; public Slots<u8, 4> Fill() { "
+                      b"let buf = Slots.AllocVacant<u8, 4>(); " + statements + b" }")
+            tree = parser.parse_source(compiled, source, surface=True)
+            try:
+                elaborate(source, tree)
+            except VelaError as error:
+                ensure(not snapshot and "live exclusive loan of 'buf'" in str(error), str(error))
+                ensure(error.column == source.index(b"buf.LiveCount") + 1,
+                       f"receiver conflict has the wrong source column: {error}")
+            else:
+                ensure(snapshot, "semantic receiver dispatch skipped the overlapping slot index read")
+
+
 def cases() -> list[Case]:
-    return [Case("last-use restoration and unresolved facts", _last_use_and_residuals),
+    return [
+        Case("located receiver order, snapshots, views and retained loans", _located_receiver_timing, lane="toolchain"),
+        Case("checked receiver snapshot on actual slots", _checked_receiver_snapshot, lane="toolchain"),
+            Case("last-use restoration and unresolved facts", _last_use_and_residuals),
             Case("nested restoration and suspended ancestors", _nested_restoration_and_suspension),
             Case("declared field partitions and unknown overlap", _field_partitions_and_unknowns),
             Case("unknown footprints and containment without competing loans", _unknown_footprints_without_competitors),

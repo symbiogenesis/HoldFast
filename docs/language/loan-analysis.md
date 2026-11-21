@@ -23,6 +23,22 @@ the same capture and loan facts, without dedicated cases for their type names.
 Owner identities and field partitions are supplied abstract facts, not inferred
 from source spelling or pointer inequality. Unknown overlap remains unresolved.
 
+The [located receiver trials](../../tools/tests/test_vela_loans.py#_located_receiver_timing)
+exercise the [first-release call order](first-release.md#ownership-libraries).
+A whole-buffer `Update(ref this, Nat x)` overlaps the argument in
+`buf.Update(buf.length)`. Saving `let n = buf.length;` first costs one
+immutable binding and the subsequent `buf.Update(n)` has no conflict.
+Restricting the receiver to a named view of `payload` permits a direct read
+of `length` and conflicts with a direct read of `payload`. The nested call
+`buf.Update(buf.Mutate())` conflicts at the second exclusive receiver.
+A live result borrowed from `payload` conflicts at a later whole-buffer update.
+Across those six clients the diagnostic flags four clients and finds two conflict-free
+paths. A single field identifies a named view's footprint. Compound and
+indexed views conservatively cover the whole receiver. The
+[mathematical source control](../../tools/tests/test_vela_loans.py#_checked_receiver_snapshot)
+also elaborates the snapshot form of `buf.Write(buf.LiveCount, 7u8)` and
+locates the direct-form conflict at the index read.
+
 Names must be unambiguous within a path. A child loan must stay within its parent
 footprint; a shared parent cannot produce an exclusive child. Missing references,
 duplicate graph identities, malformed edges, irreducible or non-terminating
