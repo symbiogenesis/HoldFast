@@ -1333,6 +1333,12 @@ class _WhnfMixin:
                 self.tick(True)
                 return _term("bool", value=1 if (tag_t.value == 1 and perm_t.value == 1) else 0)
             return None
+        if name == "Slots_Capacity" and len(arguments) == 3:
+            cap_w = self.whnf(arguments[1])
+            if cap_w.kind == "nat":
+                self.tick(True)
+                return self._slots_cap_usize_term(cap_w)
+            return None
         if name in {
             "Slots_Base",
             "Slots_LiveCount",

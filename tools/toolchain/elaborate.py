@@ -457,6 +457,9 @@ class _Elaborator(
             ),
             2,
         )
+        self.constants["Slots_Capacity"] = _Binding(
+            _constant("Slots_Capacity"), telescope((a, n), self.pi(slots_an, _USIZE)), 2
+        )
         self.constants["Slots_Base"] = _Binding(
             _constant("Slots_Base"), telescope((a, n), self.pi(slots_an, _USIZE)), 2
         )

@@ -2924,7 +2924,7 @@ class _StatementsMixin:
         if head == _constant("Slots") and len(type_args) == 2:
             elem_t, cap_t = type_args[0], type_args[1]
             if member_name == "Capacity":
-                return _Binding(self._slots_cap_usize_term(cap_t), _USIZE)
+                return _Binding(_apps(_constant("Slots_Capacity"), elem_t, cap_t, receiver.term), _USIZE)
             if member_name == "Model":
                 return _Binding(
                     _apps(_constant("Slots_Model"), elem_t, cap_t, receiver.term),

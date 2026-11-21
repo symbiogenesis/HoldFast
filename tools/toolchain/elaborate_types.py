@@ -385,6 +385,7 @@ _GALLINA = {
     "Slots": "vela_Slots",
     "Slots_Mk": "vela_Slots_Mk",
     "Slots_Base": "vela_Slots_Base",
+    "Slots_Capacity": "vela_Slots_Capacity",
     "Slots_LiveCount": "vela_Slots_LiveCount",
     "Slots_Tag": "vela_Slots_Tag",
     "Slots_PermRead": "vela_Slots_PermRead",
@@ -1721,8 +1722,8 @@ Definition vela_Span_Model (A : Type@{vela_u0}) (s : vela_Span A) : vela_Seq (ve
   vela_Seq_Tabulate (vela_int 0) (vela_int_to_nat 4 (vela_Span_Length A s))
     (fun i => vela_Span_Read A s (vela_nat_to_usize i)).
 
-Inductive vela_Slots (A : Type@{vela_u0}) (cap : nat) : Type@{vela_u0} :=
-| vela_Slots_Mk :
+Inductive vela_Slots (A : Type@{vela_u0}) : nat -> Type@{vela_u0} :=
+| vela_Slots_Mk : forall cap : nat,
     vela_int (4 : nat) ->
     vela_int (4 : nat) ->
     bool ->
@@ -1731,6 +1732,15 @@ Inductive vela_Slots (A : Type@{vela_u0}) (cap : nat) : Type@{vela_u0} :=
     vela_Seq A ->
     vela_Seq A ->
     vela_Slots A cap.
+
+Definition vela_Slots_Capacity (A : Type@{vela_u0}) (cap : nat) (s : vela_Slots A cap) : vela_int 4 :=
+  match s with
+  | vela_Slots_Mk _ stored _ _ _ _ _ _ _ => vela_nat_to_usize stored
+  end.
+
+Lemma vela_Slots_Capacity_index : forall (A : Type@{vela_u0}) cap (s : vela_Slots A cap),
+    vela_Slots_Capacity A cap s = vela_nat_to_usize cap.
+Proof. intros A cap s; destruct s; reflexivity. Qed.
 
 Definition vela_Slots_Base (A : Type@{vela_u0}) (cap : nat) (s : vela_Slots A cap) : vela_int (4 : nat) :=
   match s with
