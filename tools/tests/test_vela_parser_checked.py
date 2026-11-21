@@ -329,8 +329,47 @@ def _host_replacement_and_retirement() -> None:
             raise AssertionError("tampered explicit build was accepted")
 
 
+def _runtime_variants() -> None:
+    with tempfile.TemporaryDirectory(prefix="vela-runtime-variants-") as temporary:
+        base = Path(temporary)
+        cache = base / "runtime"
+        cache.mkdir()
+        grammar_a, grammar_b = base / "a", base / "b"
+        for grammar in (grammar_a, grammar_b):
+            grammar.mkdir()
+            for name in ("vela-checked-parser", "vela_checked_parser.ml", "vela_checked_parser.mli", "VelaPureGrammar.v"):
+                (grammar / name).write_bytes(f"{grammar.name}:{name}".encode())
+        with (patch.object(checked, "_runtime_root", return_value=cache),
+              patch.object(checked, "_runtime_inputs", side_effect=lambda path: {"grammar": path.name})):
+            a = checked._install_runtime_build(grammar_a, grammar_a)
+            b = checked._install_runtime_build(grammar_b, grammar_b)
+            ensure(a.executable != b.executable and a.executable.read_bytes() != b.executable.read_bytes(),
+                   "different grammars shared a mutable runtime executable")
+            # An existing grammar may be used while another process owns the staging lock.
+            with vela_parser._file_lock(cache / "runtime.lock", timeout=1):
+                for grammar, origin in ((grammar_a, a), (grammar_b, b), (grammar_a, a)):
+                    current = checked.ensure_checked_build(grammar)
+                    ensure(current.executable == origin.executable and current.receipt == origin.receipt,
+                           "alternating checkouts replaced or rebuilt a verified runtime")
+            (b.directory / "receipt.json").write_text(json.dumps(a.receipt), encoding="utf-8")
+            try:
+                checked.ensure_checked_build(grammar_b)
+            except ValueError as error:
+                ensure("different inputs" in str(error), "receipt substitution lost its source identity diagnostic")
+            else:
+                raise AssertionError("one grammar accepted another grammar's runtime receipt")
+            a.executable.write_bytes(b"changed")
+            try:
+                checked.ensure_checked_build(grammar_a)
+            except ValueError as error:
+                ensure("changed after its build" in str(error), "damaged cache entry lost its integrity diagnostic")
+            else:
+                raise AssertionError("changed executable passed receipt verification")
+
+
 def cases() -> list[Case]:
-    return [Case("immutable-source-and-version-controls", _archive_controls),
+    return [Case("independent-checked-runtime-variants", _runtime_variants),
+            Case("immutable-source-and-version-controls", _archive_controls),
             Case("proof-opening-byte-footprint", _proof_footprint),
             Case("validator-items-map-byte-footprint", _validator_items_map_footprint),
             Case("pure-grammar-view-and-closed-assumptions", _pure_grammar_view_and_assumptions),

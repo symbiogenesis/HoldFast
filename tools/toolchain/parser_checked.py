@@ -1511,68 +1511,105 @@ def _publish_runtime_build(runtime_dir: Path, source_tree: Path, wanted: dict[st
     return vela_parser.Build(runtime_dir, exe_path, receipt)
 
 
+def _runtime_entry(cache: Path, wanted: dict[str, str]) -> Path:
+    digest = _sha256(json.dumps(wanted, sort_keys=True).encode("utf-8"))
+    directory = cache / "builds" / digest
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def _read_runtime(directory: Path, wanted: dict[str, str], *, legacy: bool = False) -> vela_parser.Build | None:
+    receipt_path = directory / "receipt.json"
+    if not receipt_path.is_file():
+        return None
+    try:
+        receipt = cast("dict[str, object]", json.loads(_read_file_bytes(receipt_path).decode("utf-8")))
+    except (UnicodeDecodeError, ValueError) as error:
+        raise ValueError("checked parser runtime receipt is malformed") from error
+    _require(isinstance(receipt, dict), "checked parser runtime receipt is malformed")
+    if receipt.get("inputs") != wanted:
+        _require(legacy, "checked parser cache receipt names different inputs")
+        return None
+    outputs = receipt.get("generated_sha256")
+    exe = directory / "vela-checked-parser"
+    if not isinstance(outputs, dict) or not exe.is_file() or _sha256(_read_file_bytes(exe)) != outputs.get("vela-parser"):
+        raise ValueError("checked parser executable changed after its build")
+    return vela_parser.Build(directory, exe, receipt)
+
+
 def _install_runtime_build(root: Path, source_tree: Path, contents: bytes | None = None) -> vela_parser.Build:
-    runtime_dir = _runtime_root()
-    with vela_parser._file_lock(runtime_dir / "runtime.lock", timeout=TIMEOUT):
-        wanted = _runtime_inputs(root)
+    cache = _runtime_root()
+    wanted = _runtime_inputs(root)
+    directory = _runtime_entry(cache, wanted)
+    with vela_parser._file_lock(directory / "runtime.lock", timeout=TIMEOUT):
         if contents is not None:
-            with atomic_path(runtime_dir / "menhir.tar.gz") as pending_tar:
+            with vela_parser._file_lock(cache / "runtime.lock", timeout=TIMEOUT), atomic_path(cache / "menhir.tar.gz") as pending_tar:
                 pending_tar.write_bytes(contents)
-        return _publish_runtime_build(runtime_dir, source_tree, wanted)
+        return _publish_runtime_build(directory, source_tree, wanted)
 
 
 def ensure_checked_build(root: Path | None = None, *, archive: Path | None = None) -> vela_parser.Build:
-    """Return a verified runtime build of vela-checked-parser, compiling if inputs changed."""
+    """Return the receipt-verified parser published for this checkout's exact runtime inputs."""
     repo = Path(__file__).resolve().parents[2] if root is None else root
-    runtime_dir = _runtime_root()
-    with vela_parser._file_lock(runtime_dir / "runtime.lock", timeout=TIMEOUT):
-        wanted = _runtime_inputs(repo)
-        exe_path = runtime_dir / "vela-checked-parser"
-        receipt_path = runtime_dir / "receipt.json"
-        if receipt_path.is_file():
-            try:
-                receipt = cast("dict[str, object]", json.loads(_read_file_bytes(receipt_path).decode("utf-8")))
-            except (UnicodeDecodeError, ValueError) as error:
-                raise ValueError("checked parser runtime receipt is malformed") from error
-            if receipt.get("inputs") == wanted:
-                outputs = receipt.get("generated_sha256")
-                if (not isinstance(outputs, dict) or not exe_path.is_file()
-                        or _sha256(_read_file_bytes(exe_path)) != outputs.get("vela-parser")):
-                    raise ValueError("checked parser executable changed after its build")
-                return vela_parser.Build(runtime_dir, exe_path, receipt)
-        stage_dir = runtime_dir / "stage"
-        menhirlib_stamp: dict[str, object] = {
-            "archive_sha512": ARCHIVE_SHA512,
-            "candidate_sha256": CANDIDATE_SHA256,
-            "validator_complete_candidate_sha256": VALIDATOR_COMPLETE_CANDIDATE_SHA256,
-            "rocq_lock": wanted["tools/opam/rocq.lock"],
-        }
-        stamp_path = stage_dir / "menhirlib.json"
-        reuse_menhirlib = False
-        if stamp_path.is_file() and all((stage_dir / f"{name}.vo").is_file() for name in MODULES):
-            try:
-                reuse_menhirlib = json.loads(_read_file_bytes(stamp_path).decode("utf-8")) == menhirlib_stamp
-            except (OSError, UnicodeDecodeError, ValueError):
-                reuse_menhirlib = False
-        steps: list[dict[str, object]] = []
-        if not reuse_menhirlib:
-            shutil.rmtree(stage_dir, ignore_errors=True)
-            cached_tar = runtime_dir / "menhir.tar.gz"
-            if (archive is None and cached_tar.is_file()
-                    and hashlib.sha512(_read_file_bytes(cached_tar)).hexdigest() == ARCHIVE_SHA512):
-                contents = _read_file_bytes(cached_tar)
-            else:
-                contents = _archive(archive, runtime_dir)
-            sources = _release_sources(contents)
-            _stage(sources, stage_dir, reference=False)
-            _compile(stage_dir, steps)
-            _write_json(stamp_path, menhirlib_stamp)
-        mly_source = _read_file_bytes(repo / "tools/toolchain/parser/parser.mly").decode("utf-8")
-        pure_mly, token_stub = _pure_grammar_view(mly_source)
-        _compile_grammar_and_extract(stage_dir, pure_mly, steps)
-        _compile_checked_executable(repo, stage_dir, token_stub, steps)
-        _require(_runtime_inputs(repo) == wanted, "checked parser runtime inputs changed during build")
-        return _publish_runtime_build(runtime_dir, stage_dir, wanted)
+    cache = _runtime_root()
+    wanted = _runtime_inputs(repo)
+    directory = _runtime_entry(cache, wanted)
+    with vela_parser._file_lock(directory / "runtime.lock", timeout=TIMEOUT):
+        cached = _read_runtime(directory, wanted)
+        if cached is not None:
+            return cached
+        with vela_parser._file_lock(cache / "runtime.lock", timeout=TIMEOUT):
+            # Promote a verified single-entry cache while serializing with its older writer.
+            legacy = _read_runtime(cache, wanted, legacy=True)
+            if legacy is not None:
+                exe = directory / "vela-checked-parser"
+                copied = _read_file_bytes(legacy.executable)
+                outputs = cast("dict[str, str]", legacy.receipt["generated_sha256"])
+                _require(_sha256(copied) == outputs["vela-parser"], "checked parser executable changed after its build")
+                with atomic_path(exe) as pending:
+                    pending.write_bytes(copied)
+                    pending.chmod(0o755)
+                receipt = {**legacy.receipt, "directory": str(directory)}
+                _write_json(directory / "receipt.json", receipt)
+                return vela_parser.Build(directory, exe, receipt)
+            return _build_runtime(repo, cache, directory, wanted, archive)
+
+
+def _build_runtime(repo: Path, cache: Path, directory: Path,
+                   wanted: dict[str, str], archive: Path | None) -> vela_parser.Build:
+    stage_dir = cache / "stage"
+    menhirlib_stamp: dict[str, object] = {
+        "archive_sha512": ARCHIVE_SHA512,
+        "candidate_sha256": CANDIDATE_SHA256,
+        "validator_complete_candidate_sha256": VALIDATOR_COMPLETE_CANDIDATE_SHA256,
+        "rocq_lock": wanted["tools/opam/rocq.lock"],
+    }
+    stamp_path = stage_dir / "menhirlib.json"
+    reuse_menhirlib = False
+    if stamp_path.is_file() and all((stage_dir / f"{name}.vo").is_file() for name in MODULES):
+        try:
+            reuse_menhirlib = json.loads(_read_file_bytes(stamp_path).decode("utf-8")) == menhirlib_stamp
+        except (OSError, UnicodeDecodeError, ValueError):
+            reuse_menhirlib = False
+    steps: list[dict[str, object]] = []
+    if not reuse_menhirlib:
+        shutil.rmtree(stage_dir, ignore_errors=True)
+        cached_tar = cache / "menhir.tar.gz"
+        if (archive is None and cached_tar.is_file()
+                and hashlib.sha512(_read_file_bytes(cached_tar)).hexdigest() == ARCHIVE_SHA512):
+            contents = _read_file_bytes(cached_tar)
+        else:
+            contents = _archive(archive, cache)
+        sources = _release_sources(contents)
+        _stage(sources, stage_dir, reference=False)
+        _compile(stage_dir, steps)
+        _write_json(stamp_path, menhirlib_stamp)
+    mly_source = _read_file_bytes(repo / "tools/toolchain/parser/parser.mly").decode("utf-8")
+    pure_mly, token_stub = _pure_grammar_view(mly_source)
+    _compile_grammar_and_extract(stage_dir, pure_mly, steps)
+    _compile_checked_executable(repo, stage_dir, token_stub, steps)
+    _require(_runtime_inputs(repo) == wanted, "checked parser runtime inputs changed during build")
+    return _publish_runtime_build(directory, stage_dir, wanted)
 
 
 def print_guest_executable(root: Path) -> None:
