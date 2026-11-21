@@ -2231,6 +2231,8 @@ class _IntrinsicsMixin:
                 ):
                     rinfo = self.records_by_type[rm_head.value]
                     rmethod = rinfo.methods[member_name]
+                    if rmethod.private_to is not None and rmethod.private_to != self.module_name:
+                        raise self.fail("name", f"cannot access private method '{member_name}' of module '{rmethod.private_to}'", node)
                     return self._elaborate_record_method_call(
                         node,
                         rinfo,

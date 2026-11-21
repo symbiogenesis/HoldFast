@@ -151,6 +151,7 @@ class _Elaborator(
         self.var_preconditions: dict[int, list[tuple[tuple[int, ...], _Term]]] = {}
         self.expected_call_type: _Term | None = None
         self.module_name: str = ""
+        self.emission_prefix = "vela"
         self.public_symbols: set[str] = set()
         self.private_symbols: set[str] = set()
         self.available_modules: dict[str, _Elaborator] = {}
@@ -1905,7 +1906,10 @@ def _checked_elaboration(
         elaborator = _Elaborator(protocol)
         module = elaborator.name(root["name"])
         elaborator.module_name = module
-        if available_modules is not None and available_modules:
+        if available_modules is not None:
+            module_key = module.encode("ascii").hex()
+            elaborator.emission_prefix = f"vela_m{module_key}"
+        if available_modules:
             elaborator.available_modules = dict(available_modules)
             elaborator.serial = max(
                 elaborator.serial,
@@ -1913,7 +1917,9 @@ def _checked_elaboration(
             )
         for declaration in elaborator.nodes(root["declarations"]):
             elaborator.declaration(declaration)
-        generated_module = "Vela_" + module.replace(".", "_")
+        generated_module = (
+            "VelaPackage_" + module.encode("ascii").hex() if available_modules is not None else "Vela_" + module.replace(".", "_")
+        )
         source_digest = hashlib.sha256(source).hexdigest()
         # REUSE-IgnoreStart
         gallina = ("(* SPDX-License-Identifier: Apache-2.0 *)\n"

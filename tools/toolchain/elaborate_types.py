@@ -206,6 +206,7 @@ class _RecordProperty:
     self_var: _Term
     type: _Term
     prop_const: str
+    private_to: str | None = None
 
 
 @dataclass(frozen=True)
@@ -225,6 +226,7 @@ class _RecordMethod:
     method_generics: int
     param_labels: tuple[str | None, ...]
     nullary: bool = False
+    private_to: str | None = None
 
 
 @dataclass

@@ -107,10 +107,10 @@ class _Fixture:
         return nodes
 
     def definition(self, name: str, result: Form, parameters: tuple[Parameter, ...], value: Form,
-                   generics: tuple[Generic, ...] = (), contracts: tuple[Form, ...] = ()) -> None:
+                   generics: tuple[Generic, ...] = (), contracts: tuple[Form, ...] = (), *, visibility: str = "public") -> None:
         self.write("\n")
         start = self.offset
-        self.write("public definition ")
+        self.write(f"{visibility} definition ")
         annotation = result(self)
         self.write(" ")
         binding = self.name(name)
@@ -125,7 +125,7 @@ class _Fixture:
         self.write(";")
         self.declarations.append(self.node("definition", start, name=binding, result=annotation,
                                            generics=generic_nodes, parameters=parameter_nodes,
-                                           contracts=obligations, value=body, modifiers=["public"]))
+                                           contracts=obligations, value=body, modifiers=[visibility]))
 
     def theorem(self, name: str, parameters: tuple[Parameter, ...], proposition: Form,
                 proof: Form | None, generics: tuple[Generic, ...] = (),
@@ -237,7 +237,7 @@ class _Fixture:
     def record(self, name: str, parameters: tuple[Parameter, ...],
                properties: tuple[tuple[str, Form, Form], ...] = (),
                generics: tuple[Generic, ...] = (),
-               contracts: tuple[Form, ...] = ()) -> None:
+               contracts: tuple[Form, ...] = (), *, private_properties: tuple[str, ...] = ()) -> None:
         self.write("\n")
         start = self.offset
         self.write("public record ")
@@ -254,7 +254,8 @@ class _Fixture:
             for prop_name, prop_type, prop_value in properties:
                 self.write(" ")
                 prop_start = self.offset
-                self.write("public ")
+                visibility = "private" if prop_name in private_properties else "public"
+                self.write(f"{visibility} ")
                 annotation = prop_type(self)
                 self.write(" ")
                 prop_binding = self.name(prop_name)
@@ -263,7 +264,7 @@ class _Fixture:
                 self.write(";")
                 member_nodes.append(
                     self.node("property", prop_start, name=prop_binding, type=annotation,
-                              contracts=[], value=body, modifiers=["public"])
+                              contracts=[], value=body, modifiers=[visibility])
                 )
             self.write(" }")
         else:
@@ -5883,6 +5884,33 @@ def _callable_member_receiver_and_failures() -> None:
     _check_callable_member("Read")
 
 
+def _module_private_identity() -> None:
+    left, right, consumer = _Fixture("A"), _Fixture("B"), _Fixture("Client")
+    for module, expected in ((left, 1), (right, 2)):
+        module_name = str(module.module["text"])
+        module.definition("Helper", _NAT, (), _natural(expected), visibility="private")
+        module.definition("Get" + module_name, _NAT, (), _call("Helper"))
+        _import_decl(consumer, module_name)
+    for module, expected in ((left, 1), (right, 2)):
+        getter = _call("Get" + str(module.module["text"]))
+        law = _binary("==", getter, _natural(expected))
+        consumer.theorem("Check" + str(module.module["text"]), (), law, _assert(law))
+    composed = elaborate_package([consumer.response(), right.response(), left.response()])["Client"].gallina
+    private_ids = [line.split()[1] for line in composed.splitlines() if line.startswith("Definition ") and "_Helper :" in line]
+    ensure(len(set(private_ids)) == len(private_ids) == 2, "distinct private helpers acquired one emitted identity")
+
+    library, reader = _Fixture("Library"), _Fixture("Reader")
+    library.record("Point", (("X", _NAT),), (("Twice", _NAT, _variable("X")),), private_properties=("Twice",))
+    _import_decl(reader, "Library")
+    reader.definition("Read", _NAT, (("p", _type("Point")),), _member(_variable("p"), "Twice"))
+    try:
+        elaborate_package([reader.response(), library.response()])
+    except VelaError as error:
+        ensure(error.kind == "name" and "private property" in error.message, "wrong visibility diagnosis")
+    else:
+        raise AssertionError("an imported receiver exposed a private record property")
+
+
 def _multi_module_imports_and_visibility() -> None:
     math_mod = _Fixture("MathMod")
     math_mod.definition(
@@ -6543,6 +6571,7 @@ def cases() -> list[Case]:
             Case("interface-dispatch-qualification-and-arity-selection", _interface_dispatch_qualification_and_arities),
             Case("imported-interface-aliases-share-one-dispatch-identity", _imported_interface_aliases),
             Case("callable-member-receiver-once-and-fatal-failures", _callable_member_receiver_and_failures),
+            Case("module-private-identity", _module_private_identity),
             Case("multi-module-imports-and-visibility", _multi_module_imports_and_visibility),
             Case("source-bound-borrows-and-constructive-postconditions", _source_bound_borrows_and_constructive_postconditions),
             Case("consuming-ownership-general-loans-and-closed-effects", _consuming_ownership_general_loans_and_closed_effects)]

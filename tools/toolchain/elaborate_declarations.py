@@ -188,11 +188,14 @@ class _DeclarationsMixin:
             self.union_ctors.pop(name, None)
             self.globals.pop(name, None)
 
-    def _record_visibility(self: _Elaborator, name: str, modifiers: list[object], node: Node) -> bool:
+    def _public_visibility(self: _Elaborator, modifiers: list[object], node: Node) -> bool:
         vis = [m for m in modifiers if m in {"public", "private", "internal"}]
         if len(vis) > 1:
             raise self.fail("unsupported", "conflicting visibility modifiers", node)
-        is_pub = "public" in vis
+        return "public" in vis
+
+    def _record_visibility(self: _Elaborator, name: str, modifiers: list[object], node: Node) -> bool:
+        is_pub = self._public_visibility(modifiers, node)
         if is_pub:
             self.public_symbols.add(name)
         else:
@@ -273,7 +276,7 @@ class _DeclarationsMixin:
         for index in range(first_meta, len(self.metas)):
             self.complete(_term("meta", value=index))
             self.complete(self.metas[index].type)
-        type_emitted = f"vela_d{len(self.output)}_{name}"
+        type_emitted = f"{self.emission_prefix}_d{len(self.output)}_{name}"
         self.output.append(f"Definition {type_emitted} : {self.render(type_sig)} :=\n  {self.render(type_def)}.")
         type_binding = _Binding(_constant(type_emitted), type_sig, len(generics))
         self.globals[name] = type_binding
@@ -308,7 +311,7 @@ class _DeclarationsMixin:
         ctor_def = self.wrap("lam", ctor_vars, ctor_body)
         self.complete(ctor_sig)
         self.complete(ctor_def)
-        ctor_emitted = f"vela_d{len(self.output)}_{name}_ctor"
+        ctor_emitted = f"{self.emission_prefix}_d{len(self.output)}_{name}_ctor"
         self.output.append(f"Definition {ctor_emitted} : {self.render(ctor_sig)} :=\n  {self.render(ctor_def)}.")
         ctor_binding = _Binding(_constant(ctor_emitted), ctor_sig, len(generics))
         self.constants[ctor_emitted] = ctor_binding
@@ -347,7 +350,7 @@ class _DeclarationsMixin:
             proj_def = self.wrap("lam", proj_vars, proj_body)
             self.complete(proj_sig)
             self.complete(proj_def)
-            proj_emitted = f"vela_d{len(self.output)}_{name}_{fname}"
+            proj_emitted = f"{self.emission_prefix}_d{len(self.output)}_{name}_{fname}"
             self.output.append(f"Definition {proj_emitted} : {self.render(proj_sig)} :=\n  {self.render(proj_def)}.")
             proj_binding = _Binding(_constant(proj_emitted), proj_sig, len(generics))
             self.constants[proj_emitted] = proj_binding
@@ -423,12 +426,15 @@ class _DeclarationsMixin:
             for index in range(prop_first_meta, len(self.metas)):
                 self.complete(_term("meta", value=index))
                 self.complete(self.metas[index].type)
-            prop_emitted = f"vela_d{len(self.output)}_{name}_{prop_name}"
+            prop_emitted = f"{self.emission_prefix}_d{len(self.output)}_{name}_{prop_name}"
             self.output.append(f"Definition {prop_emitted} : {self.render(prop_sig)} :=\n  {self.render(prop_def)}.")
             prop_binding = _Binding(_constant(prop_emitted), prop_sig, len(generics))
             self.constants[prop_emitted] = prop_binding
             self.definitions[prop_emitted] = prop_def
-            record_info.properties[prop_name] = _RecordProperty(prop_name, self_var, prop_type, prop_emitted)
+            record_info.properties[prop_name] = _RecordProperty(
+                prop_name, self_var, prop_type, prop_emitted,
+                private_to=None if self._public_visibility(p_modifiers, member_node) else self.module_name,
+            )
 
         invariants_list: list[_RecordInvariant] = []
         seen_inv_names: set[str] = set()
@@ -669,7 +675,7 @@ class _DeclarationsMixin:
         for index in range(m_first_meta, len(self.metas)):
             self.complete(_term("meta", value=index))
             self.complete(self.metas[index].type)
-        m_emitted = f"vela_d{len(self.output)}_{name}_{method_name}"
+        m_emitted = f"{self.emission_prefix}_d{len(self.output)}_{name}_{method_name}"
         self.output.append(f"Definition {m_emitted} : {self.render(m_sig)} :=\n  {self.render(m_def)}.")
         m_binding = _Binding(_constant(m_emitted), m_sig, len(generics) + len(m_generics))
         self.constants[m_emitted] = m_binding
@@ -734,6 +740,7 @@ class _DeclarationsMixin:
             method_generics=len(m_generics),
             param_labels=tuple(m_param_labels),
             nullary=not bool(m_params),
+            private_to=None if self._public_visibility(m_modifiers, member_node) else self.module_name,
         )
 
     def _union_declaration(self: _Elaborator, node: Node, first_meta: int) -> None:
@@ -844,7 +851,7 @@ class _DeclarationsMixin:
         for index in range(first_meta, len(self.metas)):
             self.complete(_term("meta", value=index))
             self.complete(self.metas[index].type)
-        type_emitted = f"vela_d{len(self.output)}_{name}"
+        type_emitted = f"{self.emission_prefix}_d{len(self.output)}_{name}"
         self.output.append(f"Definition {type_emitted} : {self.render(type_sig)} :=\n  {self.render(type_def)}.")
         type_binding = _Binding(_constant(type_emitted), type_sig, len(generics))
         self.globals[name] = type_binding
@@ -896,7 +903,7 @@ class _DeclarationsMixin:
             ctor_def = self.wrap("lam", ctor_vars, ctor_body)
             self.complete(ctor_sig)
             self.complete(ctor_def)
-            ctor_emitted = f"vela_d{len(self.output)}_{name}_{cname}"
+            ctor_emitted = f"{self.emission_prefix}_d{len(self.output)}_{name}_{cname}"
             self.output.append(f"Definition {ctor_emitted} : {self.render(ctor_sig)} :=\n  {self.render(ctor_def)}.")
             ctor_binding = _Binding(_constant(ctor_emitted), ctor_sig, len(generics))
             self.globals[cname] = ctor_binding
@@ -1773,7 +1780,7 @@ class _DeclarationsMixin:
                 for index in range(m_first_meta, len(self.metas)):
                     self.complete(_term("meta", value=index))
                     self.complete(self.metas[index].type)
-                m_emitted = f"vela_d{len(self.output)}_impl_{iface_name}_{mname}"
+                m_emitted = f"{self.emission_prefix}_d{len(self.output)}_impl_{iface_name}_{mname}"
                 self.output.append(
                     f"Definition {m_emitted} : {self.render(m_sig)} :=\n  {self.render(m_def)}."
                 )
@@ -1991,7 +1998,7 @@ class _DeclarationsMixin:
                         self.complete(_term("meta", value=index))
                         self.complete(self.metas[index].type)
                     suffix = "" if ens_idx == 0 else f"_ensures_{ens_idx}"
-                    l_emitted = f"vela_d{len(self.output)}_impl_{iface_name}_{lname}{suffix}"
+                    l_emitted = f"{self.emission_prefix}_d{len(self.output)}_impl_{iface_name}_{lname}{suffix}"
                     self.output.append(
                         f"Definition {l_emitted} : {self.render(law_sig)} :=\n  {self.render(law_def)}."
                     )
@@ -2941,7 +2948,7 @@ class _DeclarationsMixin:
                     self.current_rec_used = False
                     self.smaller_vars = {}
                     self.current_return_type = None
-            emitted = f"vela_d{len(self.output)}_{name}"
+            emitted = f"{self.emission_prefix}_d{len(self.output)}_{name}"
             if kind in {"definition", "function", "theorem", "lemma"}:
                 self.callable_source_names[emitted] = name
                 if effects_clauses:

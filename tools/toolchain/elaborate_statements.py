@@ -2960,6 +2960,8 @@ class _StatementsMixin:
                 return _Binding(fterm, ftype)
         if member_name in record_info.properties:
             prop_info = record_info.properties[member_name]
+            if prop_info.private_to is not None and prop_info.private_to != self.module_name:
+                raise self.fail("name", f"cannot access private property '{member_name}' of module '{prop_info.private_to}'", node)
             ptype = self._instantiate_record_type(record_info, type_args, prop_info.type)
             ptype = self.substitute(ptype, cast("int", prop_info.self_var.value), receiver.term)
             pterm = _apps(_constant(prop_info.prop_const), *type_args, receiver.term)

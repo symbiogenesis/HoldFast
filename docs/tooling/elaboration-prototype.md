@@ -253,7 +253,9 @@ The supported increment includes:
 - Multi-module `import Module.Path;` composition (`elaborate(..., imports=...)`
   and `elaborate_package(modules)`) with topological dependency sorting,
   circular-import refusal, `public` versus `private` visibility enforcement
-  across module boundaries, duplicate/conflicting binding refusal, and qualified
+  across module boundaries for declarations, record properties and methods.
+  Emitted package declarations carry their defining module identity, including
+  private helpers in transitive dependencies. Imports support duplicate/conflicting binding refusal and qualified
   `Module.Path.Name` resolution.
 
 Source callable interfaces preserve explicit arity: `Fn() -> Unit` and
