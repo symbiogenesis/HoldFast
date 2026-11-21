@@ -842,7 +842,7 @@ s_field_update:
 | COMMIT { name $startpos $endpos "commit" }
 s_postfix_with(opening):
   value=s_atom_with(opening) { value }
-| callee=s_postfix_with(opening) s_parameter_open arguments=comma_list(call_argument(s_expression, s_identifier)) RPAREN
+| callee=s_postfix_with(opening) s_parameter_open arguments=comma_list(call_argument(s_argument_value, s_identifier)) RPAREN
     { make "call" $startpos $endpos [("callee", callee.syntax); ("arguments", array arguments)] (callee :: arguments) }
 | value=s_postfix_with(opening) DOT member=s_member_identifier
     { make "member" $startpos $endpos [("value", value.syntax); ("name", member)] [value] }
@@ -852,6 +852,10 @@ s_postfix_with(opening):
     { make "generic_application" $startpos $endpos [("value", value.syntax); ("arguments", array arguments)] (value :: arguments) }
 | value=s_postfix_with(opening) QUESTION
     { make "propagate" $startpos $endpos [("value", value.syntax)] [value] }
+s_argument_value:
+  value=s_expression { value }
+| OUT VAR binder=s_identifier
+    { make "out_variable" $startpos $endpos [("name", binder)] [] }
 %inline s_expression_generic_open:
   GENERIC_OPEN { () } | CALL_GENERIC_OPEN { () }
 s_atom_with(opening):

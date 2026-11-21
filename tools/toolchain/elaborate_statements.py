@@ -828,6 +828,11 @@ class _StatementsMixin:
                 val = val.get("value")
         if not isinstance(val, dict):
             return False
+        if val.get("kind") == "out_variable":
+            vname = self.name(val["name"])
+            self.bind_local(updated, vname, new_binding)
+            self.mutable_locals.add(vname)
+            return True
         if val.get("kind") == "name" and isinstance(val.get("name"), dict):
             vname = cast("str", cast("Node", val["name"]).get("text"))
             if vname in updated:
@@ -909,6 +914,16 @@ class _StatementsMixin:
         if expr_node["kind"] == "call":
             callee = self._unwrap_group(self.node(expr_node["callee"]))
             call_args = self.nodes(expr_node["arguments"])
+            outputs = [target for arg in call_args if (target := self.node(arg["value"]))["kind"] == "out_variable"]
+            if outputs:
+                result = self.expression(expr_node, updated, standalone_call=True)
+                if self.whnf(result.type) != _UNIT:
+                    raise self.fail("type", "a standalone 'out var' call must return Unit", expr_node)
+                self._consume_call_updates(updated, statement)
+                for target in outputs:
+                    if self.name(target["name"]) not in updated:
+                        raise self.fail("type", "'out var' requires an 'out' parameter", target)
+                return updated
             path = self._dotted_member_path(callee)
             if path is None and callee["kind"] == "generic_application":
                 path = self._dotted_member_path(self.node(callee["value"]))

@@ -43,7 +43,7 @@ _FIELDS: dict[str, set[str]] = {
     "member": {"value", "name"}, "index": {"value", "index"},
     "unit": set(), "tuple": {"values"}, "group": {"value"},
     "call": {"callee", "arguments"}, "generic_application": {"value", "arguments"},
-    "argument": {"label", "value"},
+    "argument": {"label", "value"}, "out_variable": {"name"},
     "binary": {"operator", "left", "right"}, "unary": {"operator", "value"},
     "is": {"value", "pattern"},
     "with_expression": {"value", "updates"}, "field_update": {"name", "value"},
@@ -620,6 +620,10 @@ class _Protocol:
                 raise self.error("protocol", "binary operator differs from source", node)
             for field in ("left", "operator", "right"):
                 cursor = self._child(node, span, cursor, node[field])
+        elif kind == "out_variable":
+            cursor = self._token(node, cursor, b"out")
+            cursor = self._token(node, cursor, b"var")
+            cursor = self._child(node, span, cursor, node["name"])
         elif kind == "unary":
             cursor = self._child(node, span, cursor, node["operator"])
             cursor = self._child(node, span, cursor, node["value"])
