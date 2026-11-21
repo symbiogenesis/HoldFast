@@ -1381,12 +1381,12 @@ class _WhnfMixin:
                         l_val = cast("int", inner_live.value)
                         self.tick(True)
                         return _int_term(_INT_SPECS["usize"], max(l_val, i_val + 1))
-                    self.tick(True)
-                    return self.whnf(
-                        _apps(_constant("int_add_usize"), idx_t, _int_term(_INT_SPECS["usize"], 1))
-                    )
+                    if self.convertible(idx_t, inner_live):
+                        self.tick(True)
+                        return self.whnf(_apps(_constant("int_add_usize"), idx_t, _int_term(_INT_SPECS["usize"], 1)))
+                    return None
                 if name in {"Slots_RepModel", "Slots_Model"}:
-                    inner_model = self.whnf(_apps(_constant(name), elem, cap, inner_s))
+                    inner_model = self.whnf(_apps(_constant("Slots_Model"), elem, cap, inner_s))
                     elems = self._extract_seq_elements(inner_model)
                     if idx_t.kind == "int" and inner_live.kind == "int":
                         i_val = cast("int", idx_t.value)
@@ -1400,15 +1400,11 @@ class _WhnfMixin:
                                 updated[i_val] = val_t
                                 self.tick(True)
                                 return self._build_seq_term(elem, updated)
-                    self.tick(True)
-                    return self.whnf(
-                        _apps(
-                            _constant("Seq_Append"),
-                            elem,
-                            inner_model,
-                            _apps(_constant("Seq_Singleton"), elem, val_t),
-                        )
-                    )
+                    if self.convertible(idx_t, inner_live):
+                        self.tick(True)
+                        return self.whnf(_apps(_constant("Seq_Append"), elem, inner_model,
+                                               _apps(_constant("Seq_Singleton"), elem, val_t)))
+                    return None
             if head == _constant("Slots_CopyRepresentation") and len(args) == 6:
                 src_cap, _dst_cap, src_s, dst_s, _cnt = args[1], args[2], args[3], args[4], args[5]
                 if name in {"Slots_Base", "Slots_Tag", "Slots_PermRead", "Slots_PermWrite"}:
@@ -1600,31 +1596,21 @@ class _WhnfMixin:
                 bb_val = cast("int", bb_w.value)
                 ca_val = cast("int", ca_w.value)
                 cb_val = cast("int", cb_w.value)
-                disjoint = (ba_val + ca_val <= bb_val) or (bb_val + cb_val <= ba_val)
+                disjoint = ca_val == 0 or cb_val == 0 or ba_val + ca_val <= bb_val or bb_val + cb_val <= ba_val
                 self.tick(True)
                 return _term("bool", value=1 if disjoint else 0)
             return None
-        if name == "Slots_RepEqual" and len(arguments) == 6:
-            elem, cap_a, cap_b, s_a, s_b, cnt = arguments
+        if name == "Slots_RepEqual" and len(arguments) == 7:
+            elem, cap_a, cap_b, same, s_a, s_b, cnt = arguments
             sa_w = self.whnf(s_a)
             sb_w = self.whnf(s_b)
             cnt_w = self.whnf(cnt)
-            head_a, args_a = self.spine(sa_w)
-            if (
-                head_a == _constant("Slots_CopyRepresentation")
-                and len(args_a) == 6
-                and self.convertible(args_a[1], cap_b)
-                and self.convertible(args_a[3], sb_w)
-                and self.convertible(args_a[5], cnt_w)
-            ):
-                self.tick(True)
-                return _term("bool", value=1)
-            rep_a = self.whnf(_apps(_constant("Slots_RepModel"), elem, cap_a, sa_w))
-            mod_b = self.whnf(_apps(_constant("Slots_Model"), elem, cap_b, sb_w))
-            if self.convertible(rep_a, mod_b):
-                self.tick(True)
-                return _term("bool", value=1)
-            return None
+            k = self.whnf(_app(_constant("int_to_nat_usize"), cnt_w))
+            rep = _apps(_constant("Seq_Take"), elem, _apps(_constant("Slots_RepModel"), elem, cap_a, sa_w), k)
+            model = _apps(_constant("Seq_Take"), elem, _apps(_constant("Slots_Model"), elem, cap_b, sb_w), k)
+            full = _apps(_constant("eq_nat"), _apps(_constant("Seq_Count"), elem, rep), k)
+            self.tick(True)
+            return self.whnf(_apps(_constant("&&"), full, _apps(_constant("Seq_Eq"), elem, same, rep, model)))
         if name == "Slots_TransferType" and len(arguments) == 6:
             elem, src_cap, dst_cap, src_s, dst_s, cnt = arguments
             self.tick(True)

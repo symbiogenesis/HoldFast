@@ -507,6 +507,13 @@ class _IntrinsicsMixin:
             site,
         )
 
+    def _slots_rep_equal(self: _Elaborator, elem: _Term, dst_cap: _Term, src_cap: _Term,
+                         dst: _Term, src: _Term, count: _Term, node: Node) -> _Term:
+        left, right = self.fresh(elem), self.fresh(elem)
+        eq = self._structural_eq_bool(elem, left, right, node)
+        comparator = _term("lam", elem, _term("lam", elem, eq, value=right.value), value=left.value)
+        return _apps(_constant("Slots_RepEqual"), elem, dst_cap, src_cap, comparator, dst, src, count)
+
     def _elaborate_slots_intrinsic(
         self: _Elaborator,
         node: Node,
@@ -631,9 +638,7 @@ class _IntrinsicsMixin:
             sb_b, elem_b, cap_b = self._require_slots_binding(arg_nodes[1], environment)
             self.unify(elem_a, elem_b)
             cnt_t = self._slots_usize_arg(arg_nodes[2], environment)
-            return _Binding(
-                _apps(_constant("Slots_RepEqual"), elem_a, cap_a, cap_b, sa_b.term, sb_b.term, cnt_t), _BOOL
-            )
+            return _Binding(self._slots_rep_equal(elem_a, cap_a, cap_b, sa_b.term, sb_b.term, cnt_t, node), _BOOL)
         if member_name == "Read":
             if receiver is not None:
                 if len(arg_nodes) != 1:
@@ -762,8 +767,12 @@ class _IntrinsicsMixin:
                     "type", "cannot prove TransferType destination has VacantRange(dst, 0, count)", node
                 )
             self._check_slots_disjoint(elem_src, cap_src, src_b.term, cap_dst, dst_b.term, environment, node)
-            rep_eq = _apps(_constant("Slots_RepEqual"), elem_src, cap_dst, cap_src, dst_b.term, src_b.term, cnt_t)
-            if not self._prove_bool_precondition(rep_eq, environment):
+            copy_head, copy_args = self.spine(self.whnf(dst_b.term))
+            has_copy = (copy_head == _constant("Slots_CopyRepresentation") and len(copy_args) == 6
+                        and self.convertible(copy_args[3], src_b.term) and self.convertible(copy_args[5], cnt_t))
+            if not has_copy and not self._prove_bool_precondition(
+                self._slots_rep_equal(elem_src, cap_dst, cap_src, dst_b.term, src_b.term, cnt_t, node), environment
+            ):
                 raise self.fail(
                     "type",
                     "cannot prove TransferType representation equality (Slots.RepEqual); call CopyRepresentation before TransferType",

@@ -514,7 +514,7 @@ class _Elaborator(
         )
         self.constants["Slots_RepEqual"] = _Binding(
             _constant("Slots_RepEqual"),
-            telescope((a, n, m), self.pi(slots_an, self.pi(slots_am, self.pi(_USIZE, _BOOL)))),
+            telescope((a, n, m), self.pi(self.pi(a, self.pi(a, _BOOL)), self.pi(slots_an, self.pi(slots_am, self.pi(_USIZE, _BOOL))))),
             3,
         )
         self.constants["Slots_CopyRepresentation"] = _Binding(

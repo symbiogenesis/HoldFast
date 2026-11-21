@@ -1206,6 +1206,27 @@ public definition Nat GuardedStep() =>
         ("vela_d13_PacketFits Corelib.Init.Datatypes.tt", "true"),
         ("vela_d23_AdvancedRemaining Corelib.Init.Datatypes.tt", "2"),
         ("vela_d24_GuardedStep Corelib.Init.Datatypes.tt", "15")))
+    slots = Fixture("vacant-slot-representation", b"""module Storage;
+definition Slots<u32, 4> Pair() =>
+    let s = Slots.AllocVacant<u32, 4>(0usize) in
+    let first = Slots.Write(s, 0usize, 11u32) in
+    Slots.Write(first, 1usize, 22u32);
+definition bool Contents() => Pair().Model.At(0) == 11u32 && Pair().Model.At(1) == 22u32;
+definition bool Occupancy() => Pair().LivePrefix(2usize) && !Pair().VacantRange(0usize, 2usize);
+definition bool Overlap() => Slots.Disjoint(Pair(), Slots.AllocVacant<u32, 4>(1usize));
+definition bool MatchEmpty() => Slots.RepEqual(Slots.AllocVacant<u32,4>(8usize), Pair(), 2usize);
+definition Nat PrefixLength() => PrefixModel(Pair(), 1usize).Count;
+Slots<u32,4> Replace(Slots<u32,4> input)
+    requires input.CanWrite && input.LivePrefix(2usize)
+{
+    var s = input;
+    s[0usize] = 33u32;
+    return s;
+}
+definition bool Replaced() => Replace(Pair()).Model.At(0) == 33u32 && Replace(Pair()).Model.At(1) == 22u32;
+""", observations=(("vela_d1_Contents tt", "true"), ("vela_d2_Occupancy tt", "true"),
+                   ("vela_d3_Overlap tt", "false"), ("vela_d4_MatchEmpty tt", "false"),
+                   ("vela_d5_PrefixLength tt", "1"), ("vela_d7_Replaced tt", "true")))
     span_model = Fixture("span-sequence-projection", b"""module SpanModel;
 definition Nat Size(Span<byte> s) requires s.CanRead => s.Model.Count;
 definition bool HasMark(Span<byte> s) requires s.CanRead => s.Model.Any(b => b == 42u8);
@@ -1224,7 +1245,7 @@ definition bool EmptyInside() => Apart(2usize, 4usize, 3usize, 0usize);
 definition bool Touch() => Apart(2usize, 4usize, 6usize, 2usize);
 """, observations=(("vela_d1_LastByte tt", "false"), ("vela_d2_EmptyInside tt", "true"),
                    ("vela_d3_Touch tt", "true")))
-    return (Fixture("authored-example", example), pure, division, dependent_playground, intervals, span_model,
+    return (Fixture("authored-example", example), pure, division, dependent_playground, intervals, span_model, slots,
             *(Fixture(name, ("module PureNegativeReplay; " + source).encode(), expected, pure=True)
               for name, source, expected in pure_negatives),
             *(Fixture(name, source.encode()) for name, source in positives),

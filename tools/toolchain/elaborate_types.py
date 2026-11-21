@@ -1778,31 +1778,45 @@ Definition vela_Slots_AllocVacant (A : Type@{vela_u0}) (cap : nat) (base : vela_
 
 Definition vela_Slots_Write (A : Type@{vela_u0}) (cap : nat) (s : vela_Slots A cap) (idx : vela_int (4 : nat)) (val : A)
     : vela_Slots A cap :=
-  vela_Slots_Mk A cap
-    (vela_Slots_Base A cap s)
-    idx
-    (vela_Slots_Tag A cap s)
-    (vela_Slots_PermRead A cap s)
-    (vela_Slots_PermWrite A cap s)
-    (vela_Seq_Singleton A val)
-    (vela_Seq_Singleton A val).
+  let i := vela_int_to_nat 4 idx in
+  let live := vela_Slots_LiveCount A cap s in
+  let model := vela_Slots_Model A cap s in
+  let next := if vela_int_eq 4 idx live
+              then vela_Seq_Append A model (vela_Seq_Singleton A val)
+              else vela_Seq_Update A model i val in
+  vela_Slots_Mk A cap (vela_Slots_Base A cap s)
+    (if vela_int_eq 4 idx live then vela_nat_to_usize (S i) else live)
+    (vela_Slots_Tag A cap s) (vela_Slots_PermRead A cap s) (vela_Slots_PermWrite A cap s)
+    next next.
 
 Definition vela_Slots_Read (A : Type@{vela_u0}) (cap : nat) (d : A) (s : vela_Slots A cap) (idx : vela_int (4 : nat)) : A :=
   vela_Seq_At A d (vela_Slots_Model A cap s) (vela_int_to_nat (4 : nat) idx).
 
 Definition vela_Slots_LivePrefix (A : Type@{vela_u0}) (cap : nat) (s : vela_Slots A cap) (cnt : vela_int (4 : nat)) : bool :=
-  vela_int_eq (4 : nat) (vela_Slots_LiveCount A cap s) cnt.
+  vela_and (vela_Slots_CanRead A cap s)
+    (vela_and (Nat.leb (vela_int_to_nat 4 cnt) cap)
+      (vela_and (vela_int_eq 4 (vela_Slots_LiveCount A cap s) cnt)
+        (Nat.eqb (vela_Seq_Count A (vela_Slots_Model A cap s)) (vela_int_to_nat 4 cnt)))).
 
-Definition vela_Slots_VacantRange (A : Type@{vela_u0}) (cap : nat) (_ : vela_Slots A cap) (start stop : vela_int (4 : nat)) : bool :=
-  vela_int_le (4 : nat) start stop.
+Definition vela_Slots_VacantRange (A : Type@{vela_u0}) (cap : nat) (s : vela_Slots A cap) (start stop : vela_int (4 : nat)) : bool :=
+  vela_and (vela_Slots_CanWrite A cap s)
+    (vela_and (vela_int_le 4 (vela_Slots_LiveCount A cap s) start)
+      (vela_and (vela_int_le 4 start stop) (Nat.leb (vela_int_to_nat 4 stop) cap))).
 
 Definition vela_Slots_Disjoint (A : Type@{vela_u0}) (n m : nat) (a : vela_Slots A n) (b : vela_Slots A m) : bool :=
-  vela_int_ne (4 : nat) (vela_Slots_Base A n a) (vela_Slots_Base A m b).
+  let x := vela_int_to_nat 4 (vela_Slots_Base A n a) in
+  let y := vela_int_to_nat 4 (vela_Slots_Base A m b) in
+  vela_or (vela_or (Nat.eqb n O) (Nat.eqb m O))
+    (vela_or (Nat.leb (Nat.add x n) y) (Nat.leb (Nat.add y m) x)).
 
-Definition vela_Slots_RepEqual (A : Type@{vela_u0}) (n m : nat) (_ : vela_Slots A n) (_ : vela_Slots A m) (_ : vela_int (4 : nat)) : bool :=
-  true.
+Definition vela_Slots_RepEqual (A : Type@{vela_u0}) (n m : nat) (same : A -> A -> bool)
+    (dst : vela_Slots A n) (src : vela_Slots A m) (cnt : vela_int 4) : bool :=
+  let k := vela_int_to_nat 4 cnt in
+  let rep := vela_Seq_Take A (vela_Slots_RepModel A n dst) k in
+  let model := vela_Seq_Take A (vela_Slots_Model A m src) k in
+  vela_and (Nat.eqb (vela_Seq_Count A rep) k) (vela_Seq_Eq A same rep model).
 
-Definition vela_Slots_CopyRepresentation (A : Type@{vela_u0}) (n m : nat) (src : vela_Slots A n) (dst : vela_Slots A m) (_ : vela_int (4 : nat))
+Definition vela_Slots_CopyRepresentation (A : Type@{vela_u0}) (n m : nat) (src : vela_Slots A n) (dst : vela_Slots A m) (cnt : vela_int (4 : nat))
     : vela_Slots A m :=
   vela_Slots_Mk A m
     (vela_Slots_Base A m dst)
@@ -1810,7 +1824,7 @@ Definition vela_Slots_CopyRepresentation (A : Type@{vela_u0}) (n m : nat) (src :
     (vela_Slots_Tag A m dst)
     (vela_Slots_PermRead A m dst)
     (vela_Slots_PermWrite A m dst)
-    (vela_Slots_Model A n src)
+    (vela_Seq_Take A (vela_Slots_Model A n src) (vela_int_to_nat 4 cnt))
     (vela_Seq_Empty A).
 
 Definition vela_Slots_TransferSource (A : Type@{vela_u0}) (cap : nat) (s : vela_Slots A cap) (_ : vela_int (4 : nat))
@@ -1841,8 +1855,8 @@ Definition vela_Slots_TransferType (A : Type@{vela_u0}) (n m : nat) (src : vela_
     (vela_Slots_TransferSource A n src cnt)
     (vela_Slots_TransferDest A m dst cnt).
 
-Definition vela_PrefixModel (A : Type@{vela_u0}) (cap : nat) (s : vela_Slots A cap) (_ : vela_int (4 : nat)) : vela_Seq A :=
-  vela_Slots_Model A cap s.
+Definition vela_PrefixModel (A : Type@{vela_u0}) (cap : nat) (s : vela_Slots A cap) (cnt : vela_int (4 : nat)) : vela_Seq A :=
+  vela_Seq_Take A (vela_Slots_Model A cap s) (vela_int_to_nat 4 cnt).
 
 Definition vela_LoopState (A : Type@{vela_u0}) (x : A) (_ : nat) : A := x.
 
