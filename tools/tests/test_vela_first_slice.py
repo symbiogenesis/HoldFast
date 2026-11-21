@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Behavioral tests for the Span<byte> carrier and vela-first-slice lowering."""
 
+import copy
 import hashlib
+import re
 import tempfile
 from pathlib import Path
 from typing import cast
@@ -495,275 +497,6 @@ def _negative_span_refusals() -> None:
             raise AssertionError(f"{label} was unexpectedly accepted")
 
 
-def _build_executable_slice_ast(*, checksum_seed: str = "0x5A") -> Node:
-    def nm(text: str) -> Node:
-        return {"kind": "name", "name": {"text": text}}
-
-    def ty(name: str, mod: str | None = None) -> Node:
-        base: Node = {"kind": "type", "name": {"text": name}, "arguments": []}
-        if mod is not None:
-            return {"kind": "modified_type", "modifier": {"text": mod}, "value": base}
-        return base
-
-    def param(name: str, type_name: str, mod: str | None = None) -> Node:
-        return {"kind": "parameter", "name": {"text": name}, "type": ty(type_name, mod)}
-
-    def nat(val: str, suffix: str) -> Node:
-        return {"kind": "nat", "value": val, "suffix": suffix}
-
-    def idx(arr: str, i_node: Node) -> Node:
-        return {"kind": "index", "value": nm(arr), "index": i_node}
-
-    def span_call(method: str, *args: Node) -> Node:
-        return {
-            "kind": "call",
-            "callee": {"kind": "member", "value": nm("Span"), "name": {"text": method}},
-            "arguments": [{"kind": "argument", "value": a} for a in args],
-        }
-
-    def unary(op: str, inner: Node) -> Node:
-        return {"kind": "unary", "operator": {"text": op}, "value": inner}
-
-    def binary(op: str, left: Node, right: Node) -> Node:
-        return {"kind": "binary", "operator": {"text": op}, "left": left, "right": right}
-
-    def member(recv: str, field: str) -> Node:
-        return {"kind": "member", "value": nm(recv), "name": {"text": field}}
-
-    def err_ret(err_ctor: str) -> Node:
-        return {
-            "kind": "return",
-            "value": {
-                "kind": "call",
-                "callee": nm("Err"),
-                "arguments": [{"kind": "argument", "value": nm(err_ctor)}],
-            },
-        }
-
-    def ok_ret(copied: Node, view_name: str) -> Node:
-        return {
-            "kind": "return",
-            "value": {
-                "kind": "call",
-                "callee": nm("Ok"),
-                "arguments": [
-                    {
-                        "kind": "argument",
-                        "value": {
-                            "kind": "call",
-                            "callee": nm("ValidatedPacket"),
-                            "arguments": [
-                                {"kind": "argument", "value": copied},
-                                {"kind": "argument", "value": nm(view_name)},
-                            ],
-                        },
-                    }
-                ],
-            },
-        }
-
-    write_pkt_stmts: list[Node] = [
-        {"kind": "assignment", "target": idx("pkt", nat(str(i), "usize")), "value": nm(f"b{i}")}
-        for i in range(8)
-    ]
-
-    copy_pkt_stmts: list[Node] = [
-        {
-            "kind": "foreach",
-            "name": {"text": "i"},
-            "range": {"kind": "range", "start": nat("0", "usize"), "end": nat("4", "usize")},
-            "body": {
-                "kind": "block",
-                "statements": [
-                    {"kind": "assignment", "target": idx("dst", nm("i")), "value": idx("pkt", nm("i"))},
-                ],
-            },
-        },
-        {"kind": "var", "name": {"text": "payloadView"}, "type": None, "value": span_call("Slice", nm("dst"), nat("4", "usize"), nm("payloadLen"))},
-        {"kind": "let", "name": {"text": "pktPayload"}, "type": None, "value": span_call("Slice", nm("pkt"), nat("4", "usize"), nm("payloadLen"))},
-        {"kind": "expression_statement", "value": span_call("CopyPrefix", unary("ref", nm("payloadView")), nm("pktPayload"), nm("payloadLen"))},
-    ]
-
-    checksum_stmts: list[Node] = [
-        {"kind": "var", "name": {"text": "acc"}, "type": ty("u8"), "value": binary("^", nat(checksum_seed, "u8"), nm("rawLen"))},
-        {
-            "kind": "foreach",
-            "name": {"text": "i"},
-            "range": {"kind": "range", "start": nat("0", "usize"), "end": nat("4", "usize")},
-            "body": {
-                "kind": "block",
-                "statements": [
-                    {
-                        "kind": "if",
-                        "condition": binary("<", nm("i"), nm("payloadLen")),
-                        "then": {
-                            "kind": "block",
-                            "statements": [
-                                {
-                                    "kind": "assignment",
-                                    "target": nm("acc"),
-                                    "value": binary("^", nm("acc"), idx("pkt", binary("+", nat("4", "usize"), nm("i")))),
-                                },
-                            ],
-                        },
-                        "else": None,
-                    },
-                ],
-            },
-        },
-        {"kind": "return", "value": nm("acc")},
-    ]
-
-    validate_stmts: list[Node] = [
-        {
-            "kind": "if",
-            "condition": binary(
-                "||",
-                binary("||", binary("<", member("dst", "Length"), nat("8", "usize")), binary("<", member("pkt", "Length"), nat("4", "usize"))),
-                unary("!", span_call("Disjoint", nm("dst"), nm("pkt"))),
-            ),
-            "then": {"kind": "block", "statements": [err_ret("FramingShort")]},
-            "else": None,
-        },
-        {"kind": "expression_statement", "value": span_call("Fill", unary("ref", nm("dst")), nat("0", "usize"), nat("8", "usize"), nat("0x00", "u8"))},
-        {"kind": "let", "name": {"text": "magic"}, "type": None, "value": idx("pkt", nat("0", "usize"))},
-        {"kind": "let", "name": {"text": "rawLen"}, "type": None, "value": idx("pkt", nat("1", "usize"))},
-        {"kind": "let", "name": {"text": "expectedChecksum"}, "type": None, "value": idx("pkt", nat("2", "usize"))},
-        {"kind": "let", "name": {"text": "flags"}, "type": None, "value": idx("pkt", nat("3", "usize"))},
-        {
-            "kind": "let",
-            "name": {"text": "payloadLen"},
-            "type": None,
-            "value": {
-                "kind": "call",
-                "callee": {"kind": "member", "value": nm("usize"), "name": {"text": "From"}},
-                "arguments": [{"kind": "argument", "value": nm("rawLen")}],
-            },
-        },
-        {
-            "kind": "if",
-            "condition": binary("||", binary("!=", nm("magic"), nat("0x56", "u8")), binary("!=", nm("flags"), nat("0x01", "u8"))),
-            "then": {"kind": "block", "statements": [err_ret("BadMagicOrFlags")]},
-            "else": None,
-        },
-        {
-            "kind": "if",
-            "condition": binary(
-                "||",
-                binary("||", binary(">", nm("payloadLen"), nat("4", "usize")), binary(">", binary("+", nat("4", "usize"), nm("payloadLen")), member("pkt", "Length"))),
-                binary(">", binary("+", nat("4", "usize"), nm("payloadLen")), member("dst", "Length")),
-            ),
-            "then": {"kind": "block", "statements": [err_ret("LengthOutOfBounds")]},
-            "else": None,
-        },
-        {
-            "kind": "expression_statement",
-            "value": {
-                "kind": "call",
-                "callee": nm("CopyPacketToDst"),
-                "arguments": [
-                    {"kind": "argument", "value": unary("ref", nm("dst"))},
-                    {"kind": "argument", "value": unary("in", nm("pkt"))},
-                    {"kind": "argument", "value": nm("payloadLen")},
-                ],
-            },
-        },
-        {
-            "kind": "let",
-            "name": {"text": "actualChecksum"},
-            "type": None,
-            "value": {
-                "kind": "call",
-                "callee": nm("ComputePacketChecksum"),
-                "arguments": [
-                    {"kind": "argument", "value": unary("in", nm("pkt"))},
-                    {"kind": "argument", "value": nm("rawLen")},
-                    {"kind": "argument", "value": nm("payloadLen")},
-                ],
-            },
-        },
-        {
-            "kind": "if",
-            "condition": binary("!=", nm("actualChecksum"), nm("expectedChecksum")),
-            "then": {
-                "kind": "block",
-                "statements": [
-                    {"kind": "expression_statement", "value": span_call("Fill", unary("ref", nm("dst")), nat("0", "usize"), nat("8", "usize"), nat("0x00", "u8"))},
-                    err_ret("ChecksumRejected"),
-                ],
-            },
-            "else": None,
-        },
-        {
-            "kind": "let",
-            "name": {"text": "payloadView"},
-            "type": None,
-            "value": span_call("ReadOnly", span_call("Slice", nm("dst"), nat("4", "usize"), nm("payloadLen"))),
-        },
-        ok_ret(nm("payloadLen"), "payloadView"),
-    ]
-
-    inv = vela_first_slice.build_foundation_inventory()
-    theorem_decls: list[Node] = [
-        {"kind": "theorem", "name": {"text": str(law)}}
-        for law in [*cast("list[str]", inv["carrier_laws"]), *cast("list[str]", inv["scenario_theorems"])]
-    ]
-
-    return {
-        "schema": 2,
-        "ast": {
-            "kind": "surface_file",
-            "declarations": [
-                {
-                    "kind": "union",
-                    "name": {"text": "ValidationError"},
-                    "constructors": [
-                        {"kind": "constructor", "name": {"text": cname}}
-                        for cname in ("FramingShort", "BadMagicOrFlags", "LengthOutOfBounds", "ChecksumRejected")
-                    ],
-                },
-                {
-                    "kind": "record",
-                    "name": {"text": "ValidatedPacket"},
-                    "parameters": [
-                        param("CopiedBytes", "usize"),
-                        param("PayloadView", "Span", "in"),
-                    ],
-                },
-                {
-                    "kind": "function",
-                    "name": {"text": "WritePacket8"},
-                    "result": ty("Unit"),
-                    "parameters": [param("pkt", "Span", "ref"), *[param(f"b{i}", "u8") for i in range(8)]],
-                    "body": {"kind": "block", "statements": write_pkt_stmts},
-                },
-                {
-                    "kind": "function",
-                    "name": {"text": "CopyPacketToDst"},
-                    "result": ty("Unit"),
-                    "parameters": [param("dst", "Span", "ref"), param("pkt", "Span", "in"), param("payloadLen", "usize")],
-                    "body": {"kind": "block", "statements": copy_pkt_stmts},
-                },
-                {
-                    "kind": "function",
-                    "name": {"text": "ComputePacketChecksum"},
-                    "result": ty("u8"),
-                    "parameters": [param("pkt", "Span", "in"), param("rawLen", "u8"), param("payloadLen", "usize")],
-                    "body": {"kind": "block", "statements": checksum_stmts},
-                },
-                {
-                    "kind": "function",
-                    "name": {"text": "PrepareAndValidatePacket"},
-                    "result": ty("Result"),
-                    "parameters": [param("dst", "Span", "ref"), param("pkt", "Span", "in")],
-                    "body": {"kind": "block", "statements": validate_stmts},
-                },
-                *theorem_decls,
-            ],
-        },
-    }
-
-
 def _clight_lowering_and_purecap_assembly() -> None:
     source = (TOOLS.parent / "examples/first_slice.vela").read_bytes()
     inv = vela_first_slice.build_foundation_inventory()
@@ -777,36 +510,12 @@ def _clight_lowering_and_purecap_assembly() -> None:
     for key in ("Q35b / Q35o / Q35p", "Q35c / Q35m / Q35k / Q35l", "Q2b", "Q35d / M1.2g / Q35j"):
         ensure(key in blocking, f"missing blocking dependency {key} in foundation inventory")
 
-    executable_ast = _build_executable_slice_ast()
-    c_code, checks = vela_first_slice.lower_to_c(source, executable_ast)
-    ensure(checks == 19, f"expected 19 checks in lowered C, got {checks}")
-    ensure(
-        "PrepareAndValidatePacket(" in c_code
-        and "CopyPacketToDst(" in c_code
-        and "WritePacket8(" in c_code
-        and "struct vela_ValidatedPacket" in c_code
-        and "struct vela_Result_ValidatedPacket_ValidationError" in c_code
-        and "vela_span_restore(dst, dst, &payloadView);" in c_code,
-        "missing lowered C functions or inferred restoration",
-    )
-    ensure("(unsigned int)0x5AU ^ (unsigned int)rawLen" in c_code, "expected AST-lowered 0x5AU checksum seed in C output")
-
-    mutated_ast = _build_executable_slice_ast(checksum_seed="0x5B")
-    mutated_c, _ = vela_first_slice.lower_to_c(source, mutated_ast)
-    ensure(
-        "(unsigned int)0x5BU ^ (unsigned int)rawLen" in mutated_c
-        and "(unsigned int)0x5AU ^ (unsigned int)rawLen" not in mutated_c,
-        "AST mutation did not propagate to lowered C output",
-    )
-
-    perturbed_code, _ = vela_first_slice.lower_to_c(source, executable_ast, perturb_check=7)
-    ensure(c_code != perturbed_code, "perturbed C source did not change check 7")
-
-    incomplete_ast = {"schema": 2, "ast": {"kind": "surface_file", "declarations": []}}
+    incomplete_ast = {"schema": 2, "source_sha256": hashlib.sha256(source).hexdigest(),
+                      "ast": {"kind": "surface_file", "declarations": []}}
     try:
         vela_first_slice.lower_to_c(source, incomplete_ast)
-    except ValueError as err:
-        ensure("ValidationError" in str(err), f"unexpected error on incomplete AST: {err}")
+    except VelaError as err:
+        ensure(err.kind == "protocol", f"unexpected error on incomplete AST: {err}")
     else:
         raise AssertionError("incomplete AST was accepted by lower_to_c")
 
@@ -832,7 +541,8 @@ def _ordered_scalar_calls() -> None:
     declaration: Node = {"name": {"text": "Probe"}, "result": bool_type,
                          "parameters": [{"name": {"text": "vela_eval_0"}, "type": bool_type}],
                          "body": {"kind": "block", "statements": [{"kind": "return", "value": condition}]}}
-    code = vela_first_slice._lower_function_to_c(declaration, {}, {}, lambda _: "usize", results)
+    code = vela_first_slice._lower_function_to_c(declaration, {}, {}, lambda _: "usize", results,
+                                                lambda node: vela_first_slice._node_text(node["callee"]))
     expected = """    vela_eval_3 = vela_eval_0;
     if (vela_eval_3) {
         vela_eval_1 = First();
@@ -878,6 +588,42 @@ def _packet_contextual_literals() -> None:
             generated, checks = vela_first_slice.lower_to_c(variant, parsed, checked=checked)
             outputs.append((checked.gallina.replace(checked.source_sha256, "SOURCE"),
                             generated.replace(checked.source_sha256, "SOURCE"), checks))
+        parsed = parser.parse_source(compiled, source, surface=True)
+        checked = vela_elaborate.elaborate(source, parsed)
+        generated, count = vela_first_slice.lower_to_c(source, parsed)
+        ensure(count == 19 and generated != vela_first_slice.lower_to_c(source, parsed, checked=checked, perturb_check=7)[0],
+               "kernel-subject packet failed to emit the behavioral harness and its seventh perturbation")
+        ensure("vela_span_restore(dst, dst, &payloadView);" in generated and "CopyPacketToDst(" in generated,
+               "checked lowering lost the mutating helper or the inferred restoration")
+
+        stale = copy.deepcopy(parsed)
+        declarations = vela_first_slice._extract_decl_map(stale)
+        body = cast("Node", declarations["ComputePacketChecksum"]["body"])
+        statements = cast("list[Node]", body["statements"])
+        statements.pop(0)
+        try:
+            vela_first_slice.lower_to_c(source, stale, checked=checked)
+        except ValueError as error:
+            ensure("different source or syntax" in str(error), "substituted syntax lost its diagnostic")
+        else:
+            raise AssertionError("checked facts for the original tree admitted a substituted function body")
+
+        explicit_source = bytearray(source)
+        for start, width in sorted(checked.contextual_literal_types.items(), reverse=True):
+            literal = re.match(rb"(?:0[xX][0-9A-Fa-f_]+|0[bB][01_]+|[0-9][0-9_]*)", source[start:])
+            if literal is None:
+                raise AssertionError("checked literal offset did not identify a numeral")
+            end = start + literal.end()
+            explicit_source[end:end] = width.encode()
+        invalid = bytes(explicit_source).replace(b"acc = acc ^ pkt[4usize + i];", b"acc = true;")
+        ensure(invalid != explicit_source, "missing fully suffixed source neighbor")
+        parsed = parser.parse_source(compiled, invalid, surface=True)
+        try:
+            vela_first_slice.lower_to_c(invalid, parsed)
+        except VelaError as error:
+            ensure(error.kind == "type", f"fully suffixed program lost its type error: {error}")
+        else:
+            raise AssertionError("fully suffixed source bypassed semantic checking")
         for replaced, replacement, message in (
             (b"magic != 0x56 ||", b"magic != 256 ||", "out of range for 'u8'"),
             (b"magic = pkt[0];", b"magic = pkt[0u8];", "not definitionally equal"),

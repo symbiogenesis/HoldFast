@@ -1088,6 +1088,7 @@ def _lower_function_to_c(
     record_fields: dict[str, list[tuple[str, str]]],
     literal_type: Callable[[dict[str, object]], str],
     function_results: dict[str, str],
+    resolve_call: Callable[[dict[str, object]], str],
 ) -> str:
     fname = _node_text(decl.get("name"))
     params = cast("list[dict[str, object]]", decl.get("parameters", []))
@@ -1153,8 +1154,8 @@ def _lower_function_to_c(
                 and _node_text(callee.get("name")) == "From"
             ):
                 return False, "unsigned long"
-            if isinstance(callee, dict) and callee.get("kind") == "name" and _node_text(callee) == "ComputePacketChecksum":
-                return False, "unsigned char"
+            if isinstance(callee, dict) and callee.get("kind") == "name":
+                return False, _c_scalar_type(function_results[resolve_call(val)])
         if vkind == "binary" and _node_text(val.get("operator")) == "^":
             return False, "unsigned char"
         raise ValueError(f"cannot infer local C type for statement in {fname}: {stmt!r}")
@@ -1241,7 +1242,7 @@ def _lower_function_to_c(
             if callee.get("kind") == "member":
                 return "int" if _is_span_call(node, "Disjoint") is not None else "unsigned long"
             name = _node_text(callee)
-            return "int" if name in ctor_map else _c_scalar_type(function_results[name])
+            return "int" if name in ctor_map else _c_scalar_type(function_results[resolve_call(node)])
         raise ValueError(f"unsupported scalar argument {node!r} in {fname}")
 
     def ordered(nodes: list[dict[str, object]], prefix: list[str]) -> list[str]:
@@ -1325,8 +1326,7 @@ def _lower_function_to_c(
                 cname = _node_text(callee)
                 if cname in ctor_map:
                     return f"VOS_ERR_{cname}"
-                if cname not in function_results:
-                    raise ValueError(f"unsupported call {cname!r} in {fname}")
+                cname = resolve_call(node)
                 c_args = ordered(args, prefix)
                 return f"{cname}({', '.join(c_args)})"
         raise ValueError(f"unsupported expression in {fname}: {node!r}")
@@ -1500,9 +1500,11 @@ def lower_to_c(
     executable union, record, and function AST nodes into a self-contained C
     translation unit in the `verifiedos-scalar-source-v1` subset.
     """
-    if checked is not None and checked.source_sha256 != _sha256(source):
-        raise ValueError("packet literal types belong to a different source")
-    decl_map = _extract_decl_map(parsed)
+    if checked is None:
+        checked = vela_elaborate.elaborate(source, parsed)
+    elif checked.source_sha256 != _sha256(source) or checked.syntax != CheckedElaboration.encode_syntax(parsed):
+        raise ValueError("packet elaboration belongs to different source or syntax")
+    decl_map = _extract_decl_map(json.loads(checked.syntax))
     required_callables = (
         ("ValidationError", "union"),
         ("ValidatedPacket", "record"),
@@ -1536,11 +1538,8 @@ def lower_to_c(
             raise ValueError(f"first_slice AST missing executable declaration {name} ({expected_kind}), got {actual}")
 
     def literal_type(node: dict[str, object]) -> str:
-        nonlocal checked
         width = node.get("suffix")
         if not width:
-            if checked is None:
-                checked = vela_elaborate.elaborate(source, parsed)
             width = checked.contextual_literal_types.get(cast("list[int]", node["span"])[0])
         if width is None:
             raise ValueError("unconstrained packet integer literal requires an explicit type annotation or suffix")
@@ -1552,8 +1551,16 @@ def lower_to_c(
     record_c, packet_fields = _lower_record_to_c(decl_map["ValidatedPacket"])
     record_fields = {"ValidatedPacket": packet_fields}
     function_results = {name: _type_info(decl_map[name].get("result"))[1] for name, kind in required_callables if kind == "function"}
+    functions_by_site = {cast("list[int]", decl_map[name]["span"])[0]: name for name in function_results}
+
+    def resolve_call(node: dict[str, object]) -> str:
+        site = checked.call_declarations.get(cast("list[int]", node["span"])[0])
+        if site is None or site not in functions_by_site:
+            raise ValueError("packet call requires a resolved declaration in the executable subset")
+        return functions_by_site[site]
+
     fn_c_blocks = [
-        _lower_function_to_c(decl_map[fn_name], ctor_map, record_fields, literal_type, function_results)
+        _lower_function_to_c(decl_map[fn_name], ctor_map, record_fields, literal_type, function_results, resolve_call)
         for fn_name in (
             "WritePacket8",
             "CopyPacketToDst",
