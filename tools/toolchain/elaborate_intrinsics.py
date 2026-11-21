@@ -547,6 +547,13 @@ class _IntrinsicsMixin:
             else:
                 elem_t = self.meta(_SORT, environment)
                 cap_t = self.meta(_NAT, environment)
+                if self.expected_call_type is not None:
+                    self._try_unify(_apps(_constant("Slots"), elem_t, cap_t), self.expected_call_type)
+            index = self.whnf(cap_t)
+            cap_head, _ = self.spine(index)
+            representable = _apps(_constant("<="), index, _term("nat", value=_INT_SPECS["usize"].max_val))
+            if cap_head != _constant("int_to_nat_usize") and not self._prove_bool_precondition(representable, environment):
+                raise self.fail("type", "Slots capacity must be proved representable as usize", node)
             base_t = (
                 self._slots_usize_arg(arg_nodes[0], environment)
                 if arg_nodes

@@ -144,7 +144,7 @@ public Nat Total<T>(T first, T second) where Sized(type T)
 | `Seq<T>`, `Vec<T, n>` | Specification sequence, and a mathematical vector of length `n` | M |
 | `Span<byte>` | Concrete capability-and-memory carrier of the first slice | M |
 | `Span<T, count>` | View of `count` initialized elements with runtime `Length` and erased `Model : Seq<T>` | D ([ownership libraries](first-release.md#ownership-libraries)) |
-| `Slots<T, capacity>` | Vacant-slot storage with live-prefix and vacant-suffix ranges | M |
+| `Slots<T, capacity>` | Vacant-slot storage with live-prefix and vacant-suffix ranges. `.Capacity` always has type `usize`. Its mathematical index is `capacity`, whose representability is required at construction. | M |
 | `TextBuilder<capacity>` | Bounded text buffer for allocation-free formatting | M |
 | Generics `<T>`, `<ghost Nat n>` | Type parameters and erased value indices; declaration generics are rigid | M |
 | `Type`, `Type<n>`, `Prop`, `Fn(A a) -> B` | Universes, propositions and dependent function types | M |

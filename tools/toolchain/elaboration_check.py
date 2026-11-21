@@ -1206,6 +1206,11 @@ public definition Nat GuardedStep() =>
         ("vela_d13_PacketFits Corelib.Init.Datatypes.tt", "true"),
         ("vela_d23_AdvancedRemaining Corelib.Init.Datatypes.tt", "2"),
         ("vela_d24_GuardedStep Corelib.Init.Datatypes.tt", "15")))
+    capacity = Fixture("specialized-slot-capacity", b"""module SlotCapacity;
+definition usize CapacityOf<ghost Nat n>(Slots<byte,n> s) => s.Capacity;
+definition usize Closed(Slots<byte,4> s) => s.Capacity;
+definition bool Agrees() => let s = Slots.AllocVacant<byte,4>() in CapacityOf(s) == Closed(s);
+""", observations=(("vela_d2_Agrees tt", "true"),))
     slots = Fixture("vacant-slot-representation", b"""module Storage;
 definition Slots<u32, 4> Pair() =>
     let s = Slots.AllocVacant<u32, 4>(0usize) in
@@ -1245,7 +1250,7 @@ definition bool EmptyInside() => Apart(2usize, 4usize, 3usize, 0usize);
 definition bool Touch() => Apart(2usize, 4usize, 6usize, 2usize);
 """, observations=(("vela_d1_LastByte tt", "false"), ("vela_d2_EmptyInside tt", "true"),
                    ("vela_d3_Touch tt", "true")))
-    return (Fixture("authored-example", example), pure, division, dependent_playground, intervals, span_model, slots,
+    return (Fixture("authored-example", example), pure, division, dependent_playground, intervals, span_model, slots, capacity,
             *(Fixture(name, ("module PureNegativeReplay; " + source).encode(), expected, pure=True)
               for name, source, expected in pure_negatives),
             *(Fixture(name, source.encode()) for name, source in positives),

@@ -2924,10 +2924,7 @@ class _StatementsMixin:
         if head == _constant("Slots") and len(type_args) == 2:
             elem_t, cap_t = type_args[0], type_args[1]
             if member_name == "Capacity":
-                cap_w = self.whnf(cap_t)
-                if cap_w.kind == "nat":
-                    return _Binding(_int_term(_INT_SPECS["usize"], cast("int", cap_w.value)), _USIZE)
-                return _Binding(cap_t, _NAT)
+                return _Binding(self._slots_cap_usize_term(cap_t), _USIZE)
             if member_name == "Model":
                 return _Binding(
                     _apps(_constant("Slots_Model"), elem_t, cap_t, receiver.term),
