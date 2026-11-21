@@ -832,10 +832,60 @@ def _first_slice_source_proofs() -> None:
         ensure(f"_{name} :" in translated.gallina, f"first-slice proof export {name} disappeared")
 
 
+def _packet_contextual_literals() -> None:
+    root = TOOLS.parent
+    source = (root / "examples/first_slice.vela").read_bytes()
+    explicit = source
+    for inferred, suffixed in (
+        (b"magic = pkt[0];", b"magic = pkt[0usize];"),
+        (b"magic != 0x56 ||", b"magic != 0x56u8 ||"),
+        (b"0..4usize", b"0usize..4usize"),
+        (b"0x5A ^ rawLen", b"0x5Au8 ^ rawLen"),
+        (b"Span.Fill(ref dst, 0, 8, 0x00)", b"Span.Fill(ref dst, 0usize, 8usize, 0x00u8)"),
+    ):
+        ensure(inferred in explicit, f"missing contextual packet example {inferred!r}")
+        explicit = explicit.replace(inferred, suffixed)
+
+    outputs: list[tuple[str, str, int]] = []
+    with parser.cached_build(root) as compiled:
+        for variant in (source, explicit):
+            parsed = parser.parse_source(compiled, variant, surface=True)
+            checked = vela_elaborate.elaborate(variant, parsed)
+            generated, checks = vela_first_slice.lower_to_c(variant, parsed, checked=checked)
+            outputs.append((checked.gallina.replace(checked.source_sha256, "SOURCE"),
+                            generated.replace(checked.source_sha256, "SOURCE"), checks))
+        for replaced, replacement, message in (
+            (b"magic != 0x56 ||", b"magic != 256 ||", "out of range for 'u8'"),
+            (b"magic = pkt[0];", b"magic = pkt[0u8];", "not definitionally equal"),
+        ):
+            bad = source.replace(replaced, replacement)
+            parsed = parser.parse_source(compiled, bad, surface=True)
+            try:
+                vela_first_slice.lower_to_c(bad, parsed)
+            except VelaError as error:
+                ensure(error.kind == "type" and message in error.message, f"unexpected literal error: {error}")
+            else:
+                raise AssertionError(f"packet lowering accepted {replacement!r}")
+        untyped = source.replace(b"let magic = pkt[0];", b"let count = 0; let magic = pkt[0];")
+        parsed = parser.parse_source(compiled, untyped, surface=True)
+        try:
+            vela_first_slice.lower_to_c(untyped, parsed)
+        except ValueError as error:
+            ensure("requires an explicit type annotation or suffix" in str(error), f"unexpected width error: {error}")
+        else:
+            raise AssertionError("packet lowering assigned an implicit runtime width to a Nat local")
+
+    ensure(outputs[0] == outputs[1], "contextual literals changed the packet proof terms, C body or checks")
+    _, generated, _ = outputs[0]
+    ensure("magic = vela_span_read(pkt, 0UL);" in generated and "(magic != 0x56U)" in generated,
+           "packet lowering lost contextual index or byte widths")
+
+
 def cases() -> list[Case]:
     return [
         Case("capacity-invariance-and-restores-ensures-obligations", _capacity_invariance_and_contracts),
         Case("semantic-negative-span-refusals", _negative_span_refusals),
         Case("clight-lowering-and-purecap-cheri-assembly", _clight_lowering_and_purecap_assembly),
         Case("first-slice-constructive-source-proofs-with-fixed-budgets", _first_slice_source_proofs, lane="guest"),
+        Case("packet-contextual-literals-match-explicit-representations", _packet_contextual_literals, lane="guest"),
     ]
