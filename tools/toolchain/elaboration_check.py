@@ -98,6 +98,12 @@ public lemma TruthTable()
         assert GuardOnce() == Some(true);
     }
 """),
+        ("conditional-arithmetic-bounds", """module BoundsReplay;
+bool Guard(Nat a, Nat b, Nat k) requires a + b <= k => true;
+bool WithHeadroom(Nat a, Nat b, Nat k) requires b <= k requires a <= k - b => Guard(a, b, k);
+bool Quotient(i8 x, i8 d) requires d >= 2i8 requires x / d <= x => true;
+bool Safe(i8 x, i8 d) requires x >= 0i8 requires d >= 2i8 => Quotient(x, d);
+"""),
         ("symbolic-accumulator-execution", """module FoldReplay;
 public Nat Twice(Nat n) {
     var total = 0;
@@ -832,6 +838,10 @@ public Nat RoundTripOwned()
 """),
     )
     negatives = (
+        ("truncated-natural-headroom", "bool Guard(Nat a, Nat b, Nat k) requires a + b <= k => true; "
+         "bool Bad(Nat a, Nat b, Nat k) requires a <= k - b => Guard(a, b, k);", "type"),
+        ("negative-signed-quotient-bound", "bool Guard(i8 x, i8 d) requires d >= 2i8 requires x / d <= x => true; "
+         "bool Bad(i8 x, i8 d) requires d >= 2i8 => Guard(x, d);", "type"),
         ("static-parameter-runtime-input", "Nat F(const Nat value) => value; Nat Wrong(Nat runtime) => F(runtime);", "type"),
         ("static-parameter-ignored-runtime-input", "Nat Ignore(Nat value) => 0; Nat F(const Nat value) => value; "
          "Nat Wrong(Nat runtime) => F(Ignore(runtime));", "type"),

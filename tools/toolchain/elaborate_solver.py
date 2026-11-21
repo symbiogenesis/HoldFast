@@ -887,7 +887,9 @@ class _SolverMixin:
             two_t = _int_term(spec, 2) if spec is not None else _term("nat", value=2)
             if op_kind == "lt" and self._prove_comparison("ge", spec, args_l[1], two_t, facts) and self._prove_comparison("gt", spec, args_l[0], zero_t, facts):
                 return True
-            if op_kind == "le" and self._prove_comparison("ge", spec, args_l[1], _int_term(spec, 1) if spec is not None else _term("nat", value=1), facts):
+            one = _int_term(spec, 1) if spec is not None else _term("nat", value=1)
+            if (op_kind == "le" and self._prove_comparison("ge", spec, args_l[1], one, facts)
+                    and (spec is None or not spec.signed or self._prove_comparison("ge", spec, args_l[0], zero_t, facts))):
                 return True
         # Bounded transitive chaining over active comparison facts
         edges: dict[_Term, list[tuple[_Term, bool]]] = {}
@@ -982,7 +984,7 @@ class _SolverMixin:
                     parsed = self._parse_cmp_fact(fact)
                     if parsed is None or parsed[0] not in {"le", "lt", "eq"}:
                         continue
-                    _, _, f_l, f_r = parsed
+                    f_op, _, f_l, f_r = parsed
                     fr_h, fr_a = self.spine(self.whnf(f_r))
                     if (
                         fr_h.kind == "const"
@@ -990,6 +992,8 @@ class _SolverMixin:
                         and (fr_h.value == "-" or fr_h.value.startswith("int_sub_"))
                         and len(fr_a) == 2
                         and self._same_numeric_subject(fr_a[0], bound_side)
+                        and (fr_h.value != "-" or f_op == "lt"
+                             or self._prove_comparison("le", None, fr_a[1], fr_a[0], facts))
                         and (
                             (self._same_numeric_subject(f_l, la[0]) and self._same_numeric_subject(fr_a[1], la[1]))
                             or (self._same_numeric_subject(f_l, la[1]) and self._same_numeric_subject(fr_a[1], la[0]))

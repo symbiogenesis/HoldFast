@@ -884,6 +884,10 @@ class _IntrinsicsMixin:
                         or (self._same_numeric_subject(f_l, right) and self._same_numeric_subject(fr_args[1], left))
                     )
                 ):
+                    if fr_head.value == "-" and f_op != "lt" and not self._prove_comparison(
+                        "le", None, fr_args[1], fr_args[0], facts
+                    ):
+                        continue
                     _, k_hi, _ = self._term_bounds(fr_args[0], f_spec, facts)
                     if k_hi is None:
                         continue
