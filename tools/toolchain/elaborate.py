@@ -125,12 +125,15 @@ class _Elaborator(
         self.callable_source_names: dict[str, str] = {}
         self.callable_has_effects: set[str] = set()
         self.callable_effect_calls: dict[str, set[str]] = {}
+        self.callable_effect_writes: dict[str, set[int]] = {}
+        self.runtime_writes: set[str] = set()
+        self.result_bindings: dict[int, str] = {}
         self.untracked_effect_functions: set[str] = set()
         self.active_effect_calls: set[str] | None = None
         self.callable_ensures: dict[
             str, list[tuple[tuple[int, ...], tuple[tuple[int, int], ...], int | None, _Term]]
         ] = {}
-        self.last_call_updates: list[tuple[Node, _Binding]] = []
+        self.last_call_updates: list[tuple[Node, _Binding, _Term | None]] = []
         self.guard_value = False
         self.static_forbidden: set[int] | None = None
         self.globals: dict[str, _Binding] = {}
@@ -187,6 +190,7 @@ class _Elaborator(
         self._in_lifted_target_assignment: str | None = None
         self.in_loop_depth: int = 0
         self.active_regions: set[str] = set()
+        self.in_executable_function = False
         self.ghost_parameters: set[int] = set()
         self.specification_values: dict[str, str] = {}
         self.phase_uses: list[tuple[Node, str]] = []
@@ -1151,6 +1155,52 @@ class _Elaborator(
             return specialized if reduced == specialized else self.specialize(reduced, depth + 1)
         return specialized
 
+    def _is_result(self, value_type: _Term) -> bool:
+        return self.spine(self.whnf(value_type))[0] == _constant("vela_Result")
+
+    def _owns_fields(self, value_type: _Term) -> bool:
+        self.tick()
+        value_type = self.whnf(value_type)
+        if value_type.kind == "prod":
+            return any(self._owns_fields(t) for t in value_type.args)
+        head, args = self.spine(value_type)
+        if head.kind != "const":
+            return False
+        name = str(head.value)
+        record = self.records_by_type.get(name)
+        union = self.unions_by_type.get(name)
+        if record is not None:
+            params = record.generic_vars
+            fields = record.fields
+        elif union is not None:
+            params = union.generic_vars
+            fields = tuple(field for ctor in union.constructors for field in ctor.fields)
+        elif name in {"Seq", "Vec"} and args:
+            return self._owns_fields(args[0])
+        else:
+            return False
+        return any(cast("int", field.var.value) in self.owned_parameters
+                   or self._owns_fields(self._instantiate_generic_type(params, args, field.type)) for field in fields)
+
+    def _check_value_copy(self, source: Node, value_type: _Term) -> None:
+        if (self.in_executable_function and self._unwrap_group(source)["kind"] in {"name", "member", "index"}
+                and self._owns_fields(value_type)):
+            raise self.fail("type", "copying a value with owned fields requires an explicit whole-value move", source)
+
+    def _check_argument_mode(self, expected: str | None, actual: object, site: Node) -> None:
+        marker = "move" if expected == "owned" else expected
+        if actual == marker:
+            return
+        if expected is not None:
+            article = "an" if expected in {"in", "out", "owned"} else "a"
+            marker_article = "an" if marker in {"in", "out"} else "a"
+            raise self.fail(
+                "type", f"{article} '{expected}' parameter requires {marker_article} '{marker}' call-site argument modifier", site
+            )
+        article = "an" if actual in {"in", "out"} else "a"
+        required = "owned" if actual == "move" else actual
+        raise self.fail("type", f"'{actual}' call-site argument modifier requires {article} '{required}' parameter", site)
+
     def apply(self, binding: _Binding, arguments: list[Node], environment: dict[str, _Binding]) -> _Binding:
         call_site = self.site
         term, value_type = binding.term, binding.type
@@ -1205,6 +1255,8 @@ class _Elaborator(
             future = self.whnf(future.args[1])
         val_args: list[_Term] = []
         loan_targets: dict[int, tuple[Node, _Term]] = {}
+        indices: dict[int, _Term] = {}
+        by_value: list[tuple[Node, _Term]] = []
         seen_loan_names: set[str] = set()
         all_arg_var_names: set[str] = set()
         out_loan_names: set[str] = set()
@@ -1263,25 +1315,21 @@ class _Elaborator(
                 )
                 if arg_val_node["kind"] == "out_variable":
                     arg_mod = "out"
-                if is_out_param and arg_mod != "out":
-                    raise self.fail("type", "an 'out' parameter requires an 'out' call-site argument modifier", node)
-                if not is_out_param and arg_mod == "out":
-                    raise self.fail("type", "'out' call-site argument modifier requires an 'out' parameter", node)
-                if is_owned_param and arg_mod != "move":
-                    raise self.fail("type", "an 'owned' parameter requires a 'move' call-site argument modifier", node)
-                if (is_out_param or is_ref_param or is_in_param) and arg_mod == "move":
-                    raise self.fail("type", "cannot pass consuming 'move' argument to a borrowed parameter", node)
-                if is_ref_param and arg_mod == "in":
-                    raise self.fail("type", "a 'ref' parameter requires a 'ref' call-site argument modifier", node)
-                if is_in_param and arg_mod == "ref":
-                    raise self.fail(
-                        "type",
-                        "an 'in' parameter cannot accept an exclusive 'ref' call-site argument modifier",
-                        node,
-                    )
+                mode = ("out" if is_out_param else "ref" if is_ref_param else "in" if is_in_param
+                        else "owned" if is_owned_param else None)
+                self._check_argument_mode(mode, arg_mod, node)
+                if mode is None and self.in_executable_function:
+                    by_value.append((node, value_type.args[0]))
                 if arg_val_node["kind"] == "out_variable":
                     argument = self.fresh(value_type.args[0])
                     loan_targets[idx] = (arg_val_node, value_type.args[0])
+                    required_static = False
+                elif is_ref_param and self._unwrap_group(self.node(arg_val_node["value"]))["kind"] == "index":
+                    target = self._unwrap_group(self.node(arg_val_node["value"]))
+                    element, indices[idx] = self._indexed_call_loan(target, environment)
+                    self.unify(element.type, value_type.args[0])
+                    loan_targets[idx] = (target, value_type.args[0])
+                    argument = element.term
                     required_static = False
                 elif arg_mod == "out":
                     arg_ident_node = self._unwrap_group(self.node(arg_val_node["value"]))
@@ -1313,6 +1361,9 @@ class _Elaborator(
                         if arg_mod in {"ref", "in", "move"}
                         else arg_val_node
                     )
+                    if is_ref_param and arg_ident_node["kind"] != "name":
+                        self._resolve_local_borrow_target("ref", arg_ident_node, environment, node)
+                        loan_targets[idx] = (arg_ident_node, value_type.args[0])
                     if arg_ident_node["kind"] == "name":
                         arg_vname = self.name(arg_ident_node["name"])
                         lifted_set = self.lifted_invariants.get(arg_vname)
@@ -1354,11 +1405,12 @@ class _Elaborator(
                         if arg_mod in {"ref", "in"} and arg_ident_node is not arg_val_node
                         else self.node(node["value"])
                     )
-                    argument = checker(
-                        check_target,
-                        value_type.args[0],
-                        environment,
-                    )
+                    if arg_mod in {"in", "ref"}:
+                        borrowed = self.expression(check_target, environment)
+                        self.unify(borrowed.type, value_type.args[0])
+                        argument = borrowed.term
+                    else:
+                        argument = checker(check_target, value_type.args[0], environment)
                 val_args.append(argument)
                 specializing = specializing or required_static
                 if required_static:
@@ -1371,6 +1423,10 @@ class _Elaborator(
                     specialized_term = _app(specialized_term, argument)
                 term = _app(term, argument)
                 value_type = self.substitute(value_type.args[1], param_var_id, argument)
+        self._check_indexed_argument_overlap(arguments, indices, environment)
+        for arg_node, arg_type in by_value:
+            if self._owns_fields(arg_type):
+                raise self.fail("type", "passing a value with owned fields requires an owned parameter and explicit move", arg_node)
         if (
             callee_head.kind == "const"
             and isinstance(callee_head.value, str)
@@ -1461,7 +1517,9 @@ class _Elaborator(
                 else:
                     upd_term = self.fresh(t_dom)
                 post_loan_terms[idx] = upd_term
-                self._record_call_update(t_node, _Binding(upd_term, t_dom))
+                signature_writes = self.callable_effect_writes.get(str(callee_head.value))
+                self._record_call_update(t_node, _Binding(upd_term, t_dom),
+                                         writes=signature_writes is None or idx in signature_writes, index=indices.get(idx))
         if (
             callee_head.kind == "const"
             and isinstance(callee_head.value, str)
@@ -1834,6 +1892,7 @@ class _Elaborator(
             self.expected_call_type = prev_expected_call
         self.site = node
         self.unify(value.type, expected)
+        self._check_value_copy(node, value.type)
         return value.term
 
     def lambda_(self, node: Node, environment: dict[str, _Binding], expected: _Term | None = None) -> _Binding:

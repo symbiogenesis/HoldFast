@@ -319,7 +319,13 @@ map names exactly the fields/elements that may be read or disposed; dropping a
 partially built object visits only those entries, accounts for their resources,
 and restores the promised storage state. Failure must return storage and
 unconsumed inputs or discharge them through an explicit proved operation.
-Boundary-mandated whole-buffer initialization and zeroization are unchanged.
+For an ordinary fallible factory, return `Result<T, E>` and bind the completed
+value on `Ok`. Reserve a state-indexed builder for callers that supplied storage
+or own resources during construction. If an error can leave that storage
+partially initialized, its payload carries the builder and its initialized
+prefix. An `out` diagnostic on an early `Err` or `?` points to that return
+and suggests the factory form when the caller supplied no storage. Boundary
+contracts continue to determine whole-buffer initialization and zeroization.
 `TextBuilder<capacity>` and `Format.Write(ref builder, $"...")` (or
 `Format.Write(ref span, $"...")` over `ref Span<byte>`) follow the bounded
 buffer-writing contract in [Bytes and text](#bytes-and-text), evaluating hole
@@ -345,7 +351,15 @@ or duplicating linear ownership, and the erased operation `TransferType<T>`
 consumes that representation-equality fact with the initialized source prefix and
 vacant destination prefix to transition source `[0..count)` to vacant and
 destination `[0..count)` to live initialized `T` in one capacity-independent range
-step. No allocation, emergency capacity or cleanup retry is
+step. A collection exposes the two steps as one checked prefix-relocation method.
+Its element law establishes that moving a live value to a fresh address preserves
+its invariant and all outstanding observations. An interior pointer into the old
+range, a pinned value, or a device retaining the old address needs a separate
+transition that ends or repairs that dependency. Equality of bytes and tags
+alone cannot establish the law. The mathematical prototype admits fixed-width
+integers, `bool`, `char` and `Unit` at both operations. Generic or opaque
+elements require a checked law before the release implementation can admit them.
+No allocation, emergency capacity or cleanup retry is
 implicit. A later explicit bounded-pool library additionally satisfies the
 [pool declaration and exhaustion contracts](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-08-046), with
 reuse/quiescence proof before returned backing is lent again.
@@ -355,7 +369,13 @@ whole-object or named-view footprint. Preserve this simple first-release rule.
 For a whole-buffer receiver, `buffer.Append(buffer.Length)` conflicts when the
 argument reads the borrowed footprint. A diagnostic names both accesses and
 offers a preceding immutable snapshot only when its evaluation and lifetime
-preserve the program's meaning. Named disjoint views can avoid the conflict.
+preserve the program's meaning. For example, `let length = buffer.Length;`
+can precede `buffer.Append(length)` when reading the length there observes the
+same revision. An API whose operation touches one component may instead expose
+a named disjoint view under an abstract footprint contract, so clients can keep
+using it after a private field is renamed. If evaluating a preceding argument
+can change the observed value, the diagnostic identifies the conflict and leaves
+the evaluation order to the author.
 Two-phase receiver borrowing remains a separately priced option, triggered by
 measured client friction rather than made a prerequisite for ordinary ownership.
 No diagnostic may silently reorder effectful arguments or insert hidden loans.

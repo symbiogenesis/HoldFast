@@ -470,6 +470,13 @@ class _IntrinsicsMixin:
             raise self.fail("type", "expected a Slots<T, capacity> operand", arg_node)
         return b, args[0], args[1]
 
+    def _require_relocatable_element(self: _Elaborator, element: _Term, site: Node) -> None:
+        if self._int_spec(element) is None and self.whnf(element) not in {_BOOL, _CHAR, _UNIT}:
+            raise self.fail(
+                "unsupported", "bulk relocation requires evidence that the element type can be relocated; "
+                "the prototype supports fixed-width integers, bool, char and Unit", site,
+            )
+
     def _check_slots_disjoint(
         self: _Elaborator,
         elem_t: _Term,
@@ -710,6 +717,7 @@ class _IntrinsicsMixin:
             src_b, elem_src, cap_src = self._require_slots_binding(arg_nodes[0], environment)
             dst_b, elem_dst, cap_dst = self._require_slots_binding(arg_nodes[1], environment)
             self.unify(elem_src, elem_dst)
+            self._require_relocatable_element(elem_src, node)
             cnt_t = self._slots_usize_arg(arg_nodes[2], environment)
             if self._is_readonly_span(dst_b.term):
                 raise self.fail("type", "cannot copy representation into a read-only 'in Slots' destination", node)
@@ -747,6 +755,7 @@ class _IntrinsicsMixin:
             src_b, elem_src, cap_src = self._require_slots_binding(arg_nodes[0], environment)
             dst_b, elem_dst, cap_dst = self._require_slots_binding(arg_nodes[1], environment)
             self.unify(elem_src, elem_dst)
+            self._require_relocatable_element(elem_src, node)
             if gen_args:
                 if len(gen_args) != 1:
                     raise self.fail("type", "TransferType accepts at most 1 generic type argument <T>", node)
@@ -1368,6 +1377,11 @@ class _IntrinsicsMixin:
         )
 
     def _elaborate_index(self: _Elaborator, node: Node, environment: dict[str, _Binding]) -> _Binding:
+        return self._read_indexed_place(node, environment)[0]
+
+    def _read_indexed_place(
+        self: _Elaborator, node: Node, environment: dict[str, _Binding]
+    ) -> tuple[_Binding, _Binding]:
         self.site = node
         recv_node = self.node(node["value"])
         idx_node = self.node(node["index"])
@@ -1381,7 +1395,7 @@ class _IntrinsicsMixin:
             in_bounds = _apps(_constant("int_lt_usize"), idx_t, len_t)
             if not self._prove_bool_precondition(in_bounds, environment):
                 raise self.fail("type", "cannot prove Span index is within Span.Length bounds", node)
-            return _Binding(_apps(_constant("Span_Read"), _U8, recv_b.term, idx_t), _U8)
+            return _Binding(_apps(_constant("Span_Read"), _U8, recv_b.term, idx_t), _U8), _Binding(idx_t, _USIZE)
         if head == _constant("Slots") and len(targs) == 2:
             elem_t, cap_t = targs
             idx_t = self._slots_usize_arg(idx_node, environment)
@@ -1397,7 +1411,7 @@ class _IntrinsicsMixin:
                     node,
                 )
             d_val = self._default_term_for_type(elem_t)
-            return _Binding(_apps(_constant("Slots_Read"), elem_t, cap_t, d_val, recv_b.term, idx_t), elem_t)
+            return _Binding(_apps(_constant("Slots_Read"), elem_t, cap_t, d_val, recv_b.term, idx_t), elem_t), _Binding(idx_t, _USIZE)
         if head == _constant("Seq") and len(targs) == 1:
             elem_t = targs[0]
             idx_t = self._seq_nat_arg(idx_node, environment)
@@ -1406,7 +1420,7 @@ class _IntrinsicsMixin:
             if not self._prove_bool_precondition(in_bounds, environment):
                 raise self.fail("type", "cannot prove Seq index is within Seq.Count bounds", node)
             d_val = self._default_term_for_type(elem_t)
-            return _Binding(_apps(_constant("Seq_At"), elem_t, d_val, recv_b.term, idx_t), elem_t)
+            return _Binding(_apps(_constant("Seq_At"), elem_t, d_val, recv_b.term, idx_t), elem_t), _Binding(idx_t, _NAT)
         if head == _constant("Vec") and len(targs) == 2:
             elem_t, len_t = targs
             if not self._is_unsuffixed_int_expr(idx_node):
@@ -1415,19 +1429,65 @@ class _IntrinsicsMixin:
                 idx_head, _ = self.spine(self.whnf(idx_b.type))
                 if idx_head == _constant("Fin"):
                     self.unify(idx_b.type, _app(_constant("Fin"), len_t))
-                    return _Binding(_apps(_constant("At"), elem_t, len_t, recv_b.term, idx_b.term), elem_t)
+                    return _Binding(_apps(_constant("At"), elem_t, len_t, recv_b.term, idx_b.term), elem_t), idx_b
                 self.restore_metas(saved_idx_m)
             idx_t = self._seq_nat_arg(idx_node, environment)
             in_bounds = _apps(_constant("<"), idx_t, len_t)
             if not self._prove_bool_precondition(in_bounds, environment):
                 raise self.fail("type", "cannot prove Vec index is within length bounds", node)
             d_val = self._default_term_for_type(elem_t)
-            return _Binding(_apps(_constant("Vec_At_Nat"), elem_t, len_t, d_val, idx_t, recv_b.term), elem_t)
+            return _Binding(_apps(_constant("Vec_At_Nat"), elem_t, len_t, d_val, idx_t, recv_b.term), elem_t), _Binding(idx_t, _NAT)
         raise self.fail(
             "type",
             "indexing requires a Span<byte>, Slots<T, capacity>, Seq<T> or Vec<T, n> operand",
             node,
         )
+
+    def _indexed_call_loan(
+        self: _Elaborator, target: Node, environment: dict[str, _Binding]
+    ) -> tuple[_Binding, _Term]:
+        owner = self._unwrap_group(self.node(target["value"]))
+        if owner["kind"] != "name":
+            raise self.fail("unsupported", "indexed call loans require a named mutable collection", owner)
+        _, _, collection = self._resolve_local_borrow_target("ref", owner, environment, target)
+        element, index = self._read_indexed_place(target, environment)
+        head, targs = self.spine(self.whnf(collection.type))
+        if head == _constant("Span"):
+            self._check_span_can_write(collection.term, environment, target)
+        elif head == _constant("Slots") and not self._prove_bool_precondition(
+            _apps(_constant("Slots_CanWrite"), *targs, collection.term), environment
+        ):
+            raise self.fail("type", "indexed call loan requires Slots.CanWrite", target)
+        if index.type not in {_NAT, _USIZE}:
+            raise self.fail("unsupported", "indexed call writeback requires a Nat or usize index", target)
+        return element, index.term
+
+    def _check_indexed_argument_overlap(
+        self: _Elaborator, args: list[Node], positions: dict[int, _Term], environment: dict[str, _Binding]
+    ) -> None:
+        if not positions:
+            return
+        roots: list[str | None] = []
+        for arg in args:
+            place = self._unwrap_group(self.node(arg["value"]))
+            if place["kind"] == "unary":
+                place = self._unwrap_group(self.node(place["value"]))
+            while place["kind"] in {"index", "member"}:
+                place = self._unwrap_group(self.node(place["value"]))
+            root = self.name(place["name"]) if place["kind"] == "name" else None
+            if root in self.local_borrows:
+                root = self.local_borrows[root][1]
+            roots.append(self.slice_views.get(root, root) if root is not None else None)
+        for i, pos in positions.items():
+            for j, other_root in enumerate(roots):
+                if i == j or roots[i] != other_root:
+                    continue
+                if j in positions:
+                    index_type = self.whnf(self.infer(pos))
+                    ne = _constant("!=") if index_type == _NAT else _constant("int_ne_usize")
+                    if self._prove_bool_precondition(_apps(ne, pos, positions[j]), environment):
+                        continue
+                raise self.fail("type", f"cannot prove indexed loan of '{roots[i]}' is disjoint from argument {j + 1}", args[i])
 
     def _elaborate_interface_method_call(
         self: _Elaborator,
@@ -1465,6 +1525,7 @@ class _IntrinsicsMixin:
             m_gen_args.append(self.meta(dom, environment))
         arg_terms: list[_Term] = []
         loan_targets: dict[int, tuple[Node, _Term]] = {}
+        indices: dict[int, _Term] = {}
         seen_loan_names: set[str] = set()
         all_arg_var_names: set[str] = set()
         out_loan_names: set[str] = set()
@@ -1531,8 +1592,6 @@ class _IntrinsicsMixin:
                 p_mod = mspec.param_modifiers[idx]
                 is_out_param = p_mod == "out"
                 is_ref_param = p_mod == "ref"
-                is_in_param = p_mod == "in"
-                is_owned_param = p_mod == "owned"
                 arg_val_node = self._unwrap_group(self.node(arg_node["value"]))
                 if arg_val_node["kind"] == "out_variable":
                     if not is_out_param:
@@ -1547,37 +1606,7 @@ class _IntrinsicsMixin:
                     )
                     else None
                 )
-                if is_out_param and arg_mod != "out":
-                    raise self.fail(
-                        "type", "an 'out' parameter requires an 'out' call-site argument modifier", arg_node
-                    )
-                if not is_out_param and arg_mod == "out":
-                    raise self.fail(
-                        "type", "'out' call-site argument modifier requires an 'out' parameter", arg_node
-                    )
-                if is_owned_param and arg_mod != "move":
-                    raise self.fail(
-                        "type", "an 'owned' parameter requires a 'move' call-site argument modifier", arg_node
-                    )
-                if (is_ref_param or is_in_param or is_out_param) and arg_mod == "move":
-                    loan_kind = "out" if is_out_param else ("ref" if is_ref_param else "in")
-                    raise self.fail(
-                        "type",
-                        f"cannot pass 'move' argument to borrowed '{loan_kind}' parameter",
-                        arg_node,
-                    )
-                if is_ref_param and arg_mod == "in":
-                    raise self.fail(
-                        "type",
-                        "cannot pass shared 'in' borrow to mutable 'ref' parameter",
-                        arg_node,
-                    )
-                if not is_ref_param and arg_mod == "ref":
-                    raise self.fail(
-                        "type",
-                        "'ref' call-site argument modifier requires a 'ref' parameter",
-                        arg_node,
-                    )
+                self._check_argument_mode(p_mod if p_mod in {"in", "ref", "out", "owned"} else None, arg_mod, arg_node)
                 if arg_mod == "out":
                     arg_ident_node = self._unwrap_group(self.node(arg_val_node["value"]))
                     if arg_ident_node["kind"] != "name":
@@ -1605,6 +1634,15 @@ class _IntrinsicsMixin:
                         if arg_mod in {"ref", "in", "move"}
                         else arg_val_node
                     )
+                    if is_ref_param and arg_ident_node["kind"] == "index":
+                        element, indices[idx] = self._indexed_call_loan(arg_ident_node, environment)
+                        self.unify(element.type, p_dom)
+                        loan_targets[idx] = (arg_ident_node, p_dom)
+                        arg_terms.append(element.term)
+                        continue
+                    if is_ref_param and arg_ident_node["kind"] != "name":
+                        self._resolve_local_borrow_target("ref", arg_ident_node, environment, arg_node)
+                        loan_targets[idx] = (arg_ident_node, p_dom)
                     if arg_ident_node["kind"] == "name":
                         arg_vname = self.name(arg_ident_node["name"])
                         if is_ref_param or arg_mod == "ref":
@@ -1634,7 +1672,7 @@ class _IntrinsicsMixin:
                         if arg_mod in {"ref", "in"}
                         else self.node(arg_node["value"])
                     )
-                    if self.whnf(p_dom).kind == "meta":
+                    if self.whnf(p_dom).kind == "meta" or arg_mod in {"ref", "in"}:
                         arg_b = self.expression(val_node, environment)
                         self.unify(p_dom, arg_b.type)
                         arg_terms.append(arg_b.term)
@@ -1647,6 +1685,8 @@ class _IntrinsicsMixin:
                 for j, pv in enumerate(mspec.param_vars):
                     expected_ret = self.substitute(expected_ret, cast("int", pv.value), arg_terms[j])
                 self._try_unify(expected_ret, self.expected_call_type)
+        offset = int(pre_evaluated_recv is not None)
+        self._check_indexed_argument_overlap(call_args, {i - offset: pos for i, pos in indices.items()}, environment)
         resolved_targs = tuple(self.whnf(t) for t in type_args)
         witness_dict, ensures_dict = self._resolve_single_interface_witness(
             iface.name, resolved_targs, environment, node
@@ -1665,9 +1705,9 @@ class _IntrinsicsMixin:
             res_type = self.substitute(res_type, cast("int", sv.value), cv)
         for vname in out_loan_names:
             self.uninitialized_out_params.discard(vname)
-        for t_node, t_dom in loan_targets.values():
+        for idx, (t_node, t_dom) in loan_targets.items():
             upd_term = self.fresh(t_dom)
-            self._record_call_update(t_node, _Binding(upd_term, t_dom))
+            self._record_call_update(t_node, _Binding(upd_term, t_dom), index=indices.get(idx))
         if mspec.name in ensures_dict:
             rem_m_ids, ens_props = ensures_dict[mspec.name]
             rem_vals = [*m_gen_args, *arg_terms]
@@ -2025,7 +2065,10 @@ class _IntrinsicsMixin:
             value = self.type(self.node(node["type"]), environment)
             return _Binding(value, self.infer(value))
         if kind == "tuple":
-            values = [self.expression(value, environment) for value in self.nodes(node["values"])]
+            elements = self.nodes(node["values"])
+            values = [self.expression(value, environment) for value in elements]
+            for element, binding in zip(elements, values, strict=True):
+                self._check_value_copy(element, binding.type)
             if len(values) < 2:
                 raise self.fail("protocol", "a product requires at least two components")
             result = values[-1]

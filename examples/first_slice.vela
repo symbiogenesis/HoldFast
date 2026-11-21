@@ -276,9 +276,7 @@ private Unit CopyPacketToDst(ref Span<byte> dst, in Span<byte> pkt, usize payloa
     requires 4usize + payloadLen <= dst.Length
 {
     foreach (let i in 0usize..4usize)
-        invariant i <= 4usize
         invariant dst.CanRead && dst.CanWrite && dst.Base == old(dst.Base) && dst.Length == old(dst.Length)
-        decreases 4usize - i
     {
         dst[i] = pkt[i];
     }
@@ -295,8 +293,6 @@ private u8 ComputePacketChecksum(in Span<byte> pkt, u8 rawLen, usize payloadLen)
 {
     var u8 acc = 0x5A ^ rawLen;
     foreach (let i in 0..4usize)
-        invariant i <= 4usize
-        decreases 4usize - i
     {
         if (i < payloadLen)
         {
@@ -396,7 +392,7 @@ public Result<ValidatedPacket<'dst>, ValidationError> PrepareAndValidatePacket<r
         return Err(ChecksumRejected);
     }
     let payloadView = Span.ReadOnly(Span.Slice(dst, 4, payloadLen));
-    return Ok(ValidatedPacket(payloadLen, payloadView));
+    return Ok(ValidatedPacket(payloadLen, in payloadView));
 }
 
 public theorem ValidateEmptyPacketOk(ref Span<byte> dst, in Span<byte> pkt, usize frameIdx)

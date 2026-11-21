@@ -3215,7 +3215,7 @@ def _propagation_evaluation_order() -> None:
             _return_stmt(_call("Some", _variable("value"))),
         ), block=True,
     )
-    _refuses(out, "type", "before 'out' parameter 'dst' is initialized")
+    _refuses(out, "type", "return the completed value in the success case")
 
     lifted = _Fixture("GuardedPropagationWhileInvariantLifted")
     lifted.union("Option", (("None", ()), ("Some", (("Value", _T),))), generics=_POLY)
@@ -4343,6 +4343,36 @@ def _record_invariants_and_selective_lifting() -> None:
     _refuses(task_scope, "unsupported", "'scope' is outside mathematical elaboration")
 
 
+def _mandatory_result_use() -> None:
+    result = _type("Result", _type("Unit"), _type("u32"))
+    outcome = _variable("outcome")
+    success = _call("Ok", _unit(), generics=(_type("Unit"), _type("u32")))
+    handles = _is_expr(outcome, _pat_ctor("Ok", _pat_wild()))
+    for name, statements in (
+        ("Ignored", (_let_stmt("unused", outcome), _return_stmt(_unit()))),
+        ("LostTemporary", (_expr_stmt(success), _return_stmt(_unit()))),
+        ("OnePath", (_if_stmt(_variable("flag"), _block_stmts(_let_stmt("seen", handles))),
+                     _return_stmt(_unit()))),
+        ("Overwrite", (_var_stmt("pending", outcome), _assign_stmt(_variable("pending"), "=", success),
+                       _return_stmt(_unit()))),
+        ("EarlyError", (_let_stmt("other", success), _let_stmt("payload", _propagate(outcome)),
+                        _return_stmt(_variable("other")))),
+    ):
+        fixture = _Fixture(name)
+        fixture.function("Probe", result if name == "EarlyError" else _type("Unit"),
+                         (("outcome", result), ("flag", _BOOL)), _block_stmts(*statements), block=True)
+        _refuses(fixture, "type", "unexamined Result")
+
+    fixture = _Fixture("Handled")
+    fixture.function("Forward", result, (("outcome", result),), outcome)
+    fixture.function("Use", _BOOL, (("outcome", result),),
+                     _block_stmts(_let_stmt("forwarded", _call("Forward", outcome)),
+                                  _return_stmt(_is_expr(_variable("forwarded"), _pat_ctor("Ok", _pat_wild())))),
+                     block=True)
+    source, response = fixture.response()
+    elaborate(source, response)
+
+
 def _vacant_slots_and_two_step_relocation() -> None:
     fixture = _Fixture("SlotsAndRelocation")
     fixture.function(
@@ -4366,8 +4396,8 @@ def _vacant_slots_and_two_step_relocation() -> None:
         "RelocatePrefix",
         _type("Unit"),
         (
-            ("dst", _modified("ref", _type("Slots", _T, _variable("M")))),
-            ("src", _modified("ref", _type("Slots", _T, _variable("N")))),
+            ("dst", _modified("ref", _type("Slots", _type("u32"), _variable("M")))),
+            ("src", _modified("ref", _type("Slots", _type("u32"), _variable("N")))),
             ("count", _type("usize")),
         ),
         _block_stmts(
@@ -4385,13 +4415,13 @@ def _vacant_slots_and_two_step_relocation() -> None:
                     _ref_arg(_variable("src")),
                     _ref_arg(_variable("dst")),
                     _variable("count"),
-                    generics=(_T,),
+                    generics=(_type("u32"),),
                 )
             ),
             _return_stmt(_unit()),
         ),
         block=True,
-        generics=(("type", "T", None), ("ghost", "M", _type("usize")), ("ghost", "N", _type("usize"))),
+        generics=(("ghost", "M", _type("usize")), ("ghost", "N", _type("usize"))),
         contracts=(
             _contract("requires", _call(_member(_variable("Slots"), "Disjoint"), _variable("dst"), _variable("src"))),
             _contract("requires", _binary("<=", _variable("count"), _variable("N"))),
@@ -4459,6 +4489,18 @@ def _vacant_slots_and_two_step_relocation() -> None:
         )
         cs, cr = cap_fix.response()
         elaborate(cs, cr)
+
+    for operation in ("CopyRepresentation", "TransferType"):
+        opaque = _Fixture("OpaqueRelocation")
+        slots_t = _modified("ref", _type("Slots", _T, _natural(4)))
+        opaque.function(
+            "RelocateUnknown", _type("Unit"), (("src", slots_t), ("dst", slots_t)),
+            _block_stmts(_expr_stmt(_call(operation, _ref_arg(_variable("src")),
+                                          _ref_arg(_variable("dst")), _int_lit("1", "usize"))),
+                         _return_stmt(_unit())),
+            block=True, generics=(("type", "T", None),),
+        )
+        _refuses(opaque, "unsupported", "element type can be relocated")
 
     read_vacant = _Fixture("SlotsReadVacant")
     read_vacant.function(
@@ -6227,6 +6269,128 @@ def _effects_clause(*items: Form) -> Form:
     return form
 
 
+def _call_modes_and_field_writeback() -> None:
+    word = _type("u32")
+    for formal, argument, message in (
+        ("in", _variable("x"), "'in' call-site argument modifier"),
+        ("ref", _variable("x"), "'ref' call-site argument modifier"),
+        ("value", _ref_arg(_variable("x")), "requires a 'ref' parameter"),
+        ("value", _in_arg(_variable("x")), "requires an 'in' parameter"),
+        ("ref", _ref_arg(_int_lit("0", "u32")), "requires a variable or record field place"),
+    ):
+        f = _Fixture("CallMode")
+        f.function("Read", word, (("a", word if formal == "value" else _modified(formal, word)),), _variable("a"))
+        f.function("Caller", word, (), _block_stmts(
+            _var_stmt("x", _int_lit("3", "u32")), _return_stmt(_call("Read", argument))
+        ), block=True)
+        _refuses(f, "type", message)
+
+    for expected in ("4", "3"):
+        f = _Fixture("FieldWriteback")
+        f.record("Cell", (("X", word),))
+        f.function("Set", _type("Unit"), (("a", _modified("ref", word)),), _block_stmts(
+            _assign_stmt(_variable("a"), "=", _int_lit("4", "u32")), _return_stmt()
+        ), block=True)
+        f.function("Caller", word, (), _block_stmts(
+            _var_stmt("cell", _call("Cell", _int_lit("3", "u32"))),
+            _expr_stmt(_call("Set", _ref_arg(_member(_variable("cell"), "X")))),
+            _return_stmt(_member(_variable("cell"), "X")),
+        ), block=True, contracts=(_contract("ensures", _binary("==", _variable("result"), _int_lit(expected, "u32"))),))
+        if expected == "4":
+            elaborate(*f.response())
+        else:
+            _refuses(f, "type", "assertion could not be established")
+
+
+def _owned_aggregate_copy() -> None:
+    for moved in (False, True):
+        f = _Fixture("OwnedAggregate")
+        f.record("Asset", (("Id", _modified("owned", _type("u32"))),))
+        f.record("Wrapper", (("Value", _type("Asset")),))
+        argument = _variable("w")
+        f.function("Transfer", _type("Wrapper"), (("w", _modified("owned", _type("Wrapper"))),),
+                   _block_stmts(_let_stmt("alias", _move_arg(argument) if moved else argument),
+                                _return_stmt(_move_arg(_variable("alias")))), block=True)
+        if moved:
+            elaborate(*f.response())
+        else:
+            _refuses(f, "type", "copying a value with owned fields")
+
+
+def _indexed_call_writeback() -> None:
+    word = _type("u32")
+    for expected in ("9", "3"):
+        f = _Fixture("IndexWriteback")
+        f.function("Set", _type("Unit"), (("x", _modified("ref", word)),), _block_stmts(
+            _assign_stmt(_variable("x"), "=", _int_lit("9", "u32")), _return_stmt()
+        ), block=True)
+        f.function("Caller", word, (), _block_stmts(
+            _var_stmt("xs", _call(_member(_variable("Seq"), "Singleton"), _int_lit("3", "u32"))),
+            _expr_stmt(_call("Set", _ref_arg(_index_expr(_variable("xs"), _natural(0))))),
+            _return_stmt(_index_expr(_variable("xs"), _natural(0))),
+        ), block=True, contracts=(_contract("ensures", _binary("==", _variable("result"), _int_lit(expected, "u32"))),))
+        if expected == "9":
+            elaborate(*f.response())
+        else:
+            _refuses(f, "type", "assertion could not be established")
+
+
+    overlap = _Fixture("IndexOverlap")
+    overlap.function("SetTwo", _type("Unit"), (("x", _modified("ref", word)), ("y", _modified("ref", word))),
+                     _block_stmts(_return_stmt()), block=True)
+    element = _ref_arg(_index_expr(_variable("xs"), _natural(0)))
+    overlap.function("Caller", _type("Unit"), (), _block_stmts(
+        _var_stmt("xs", _call(_member(_variable("Seq"), "Singleton"), _int_lit("3", "u32"))),
+        _expr_stmt(_call("SetTwo", element, element)), _return_stmt()
+    ), block=True)
+    _refuses(overlap, "type", "cannot prove indexed loan of 'xs' is disjoint")
+
+
+def _restoration_projection_identity() -> None:
+    span = _type("Span", _type("byte"))
+    for field_name in ("Payload", "Renamed", "RestoredDst"):
+        f = _Fixture("RestoredRecord")
+        f.record("Outputs", ((field_name, span), ("Other", span)))
+        f.function("Restore", _type("Outputs"), (("source", span), ("other", span)),
+                   _call("Outputs", _variable("source"), _variable("other")),
+                   contracts=(_contract("restores", _variable("source")), _contract("restores", _variable("other"))))
+        elaborate(*f.response())
+    f = _Fixture("AmbiguousRestoration")
+    f.record("Outputs", (("One", span), ("Two", span)))
+    f.function("Restore", _type("Outputs"), (("source", span), ("other", span)),
+               _call("Outputs", _variable("source"), _variable("source")),
+               contracts=(_contract("restores", _variable("source")),))
+    _refuses(f, "type", "cannot identify a unique restored descriptor for 'source'")
+
+
+def _transient_write_effects() -> None:
+    word = _type("u32")
+    ref_word = _modified("ref", word)
+    reads = _effects_clause(_call("reads", _variable("x")))
+    writes = _effects_clause(_call("writes", _variable("x")))
+    body = _block_stmts(_let_stmt("saved", _variable("x")), _assign_stmt(_variable("x"), "=", _int_lit("0", "u32")),
+                        _assign_stmt(_variable("x"), "=", _variable("saved")), _return_stmt())
+    direct = _Fixture("TransientWrite")
+    direct.function("Touch", _type("Unit"), (("x", ref_word),), body, block=True, contracts=(reads,))
+    _refuses(direct, "type", "not declared in effects writes(...)")
+    read_only = _Fixture("CalleeRead")
+    read_only.function("Read", word, (("x", ref_word),), _variable("x"), contracts=(reads,))
+    read_only.function("Forward", word, (("x", ref_word),), _block_stmts(
+        _return_stmt(_call("Read", _ref_arg(_variable("x"))))
+    ), block=True, contracts=(reads,))
+    elaborate(*read_only.response())
+    for allowed in (True, False):
+        f = _Fixture("CalleeWrite")
+        f.function("Touch", _type("Unit"), (("x", ref_word),), body, block=True, contracts=(writes,))
+        f.function("Caller", _type("Unit"), (("x", ref_word),), _block_stmts(
+            _expr_stmt(_call("Touch", _ref_arg(_variable("x")))), _return_stmt()
+        ), block=True, contracts=(writes if allowed else reads,))
+        if allowed:
+            elaborate(*f.response())
+        else:
+            _refuses(f, "type", "not declared in effects writes(...)")
+
+
 def _consuming_ownership_general_loans_and_closed_effects() -> None:
     fixture = _Fixture("ConsumingOwnershipLoansAndEffects")
     fixture.record("Token", (("Id", _NAT), ("Quota", _NAT)))
@@ -6546,6 +6710,7 @@ def cases() -> list[Case]:
             Case("pure-sequences-and-model-reasoning", _pure_sequences_and_model_reasoning),
             Case("mutable-locals-assignments-and-bounded-loops", _mutable_locals_assignments_and_bounded_loops),
             Case("record-invariants-and-selective-lifting", _record_invariants_and_selective_lifting),
+            Case("mandatory-result-use", _mandatory_result_use),
             Case("vacant-slots-and-two-step-relocation", _vacant_slots_and_two_step_relocation),
             Case("characters-conversions-patterns-and-formatting", _characters_conversions_patterns_and_formatting),
             Case("structural-equality-and-seq-contains", _structural_equality_and_seq_contains),
@@ -6561,4 +6726,9 @@ def cases() -> list[Case]:
             Case("callable-member-receiver-once-and-fatal-failures", _callable_member_receiver_and_failures),
             Case("multi-module-imports-and-visibility", _multi_module_imports_and_visibility),
             Case("source-bound-borrows-and-constructive-postconditions", _source_bound_borrows_and_constructive_postconditions),
+            Case("explicit-transfer-for-owned-aggregate-bindings", _owned_aggregate_copy),
+            Case("writeback-to-evaluated-indices", _indexed_call_writeback),
+            Case("restoration-through-lender-bound-projections", _restoration_projection_identity),
+            Case("transient-writes-and-transitive-footprints", _transient_write_effects),
+            Case("exact-call-modes-and-projected-writeback", _call_modes_and_field_writeback),
             Case("consuming-ownership-general-loans-and-closed-effects", _consuming_ownership_general_loans_and_closed_effects)]

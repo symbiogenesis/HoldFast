@@ -572,8 +572,13 @@ class _PatternsMixin:
         self.site = node
         if node["kind"] in {"let_pattern", "var_pattern"}:
             binding = self.expression(self.node(node["value"]), environment)
+            self._check_value_copy(self.node(node["value"]), binding.type)
             pat = self._parse_pattern(self.node(node["pattern"]), set())
             self._require_irrefutable(pat)
+            if self.in_executable_function and self._is_result(binding.type):
+                if not pat.names:
+                    raise self.fail("type", "unexamined Result in wildcard binding", node)
+                self.result_bindings[id(node)] = pat.names[0]
             self._typecheck_pattern(pat, binding.type, environment)
             extended = dict(environment)
             self._consume_call_updates(extended, node)
@@ -644,9 +649,12 @@ class _PatternsMixin:
             else:
                 value_type = self.type(self.node(node["type"]), environment)
                 binding = _Binding(self.check(self.node(node["value"]), value_type, environment), value_type)
+        self._check_value_copy(self.node(node["value"]), binding.type)
         extended = dict(environment)
         self._consume_call_updates(extended, node)
         bname = self.name(node["name"])
+        if self.in_executable_function and self._is_result(binding.type):
+            self.result_bindings[id(node)] = bname
         if bname in self.frozen_collections:
             raise self.fail("type", f"cannot rebind collection '{bname}' while iterating over it", node)
         self.local_borrows.pop(bname, None)
@@ -728,6 +736,9 @@ class _PatternsMixin:
             )
             arm_pattern_bindings.append(bindings_for_arm)
             rows.append(_Row((pat,), (), arm, arm_index))
+        if (self.in_executable_function and not synthetic and self._is_result(scrutinee.type)
+                and not any(row.patterns[0].kind == "union" for row in rows)):
+            raise self.fail("type", "unexamined Result: match an explicit Ok or Err case", node)
         scrutinee_type = self.whnf(scrutinee.type)
         scrutinee_head, scrutinee_targs = self.spine(scrutinee_type)
         if (scrutinee_type not in {_UNIT, _BOOL, _NAT, _CHAR}

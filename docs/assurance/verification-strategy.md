@@ -1380,6 +1380,13 @@ public struct BoundedBuffer<T, ghost Nat capacity>
 
 Opening `open (ref this, ref destination) lifts InitializedPrefix, VacantSuffix` records a linear [`CloseDebt`](../extensions/interior-mutability.md#representation-authority-and-open-invariants) for those two conjuncts while keeping `LengthBound` active until `destination.length` or `this.length` is written, where `count <= capacity` immediately discharges `LengthBound` on the new values. While any invariant conjunct is lifted, early exits (`return`, `break`, `continue`, `?`), suspension (`await`), handler capture and whole-receiver method calls that require the closed invariant are refused; at the closing brace only the lifted conjuncts (`InitializedPrefix` and `VacantSuffix`) must be re-established. Within that scope, two-step bulk relocation over `Slots<T, capacity>` separates physical representation copying from logical ownership transfer: `CopyRepresentation` performs a capability-tag-preserving bulk copy of the `[0..count)` prefix into logically vacant destination slots (`Vacant<T>`), leaving the destination prefix vacant/unowned and recording a revision-bound representation-equality fact without arming destructors or duplicating linear ownership, and the erased proof operation `TransferType<T>` consumes that representation-equality fact together with the initialized source prefix and vacant destination prefix to transition `this.slots[0..count)` to vacant and `destination.slots[0..count)` to live initialized `T` in one capacity-independent range step.
 
+The generic method above requires an element relocation law for `T`. Its
+qualification checks preservation of the element invariant at the destination
+and exclusion or discharge of all observations of the old address. An opaque
+element without that law and a pinned element with a live address observer
+must both be refused. The scalar prototype and the intended library interface
+are specified in the [ownership library contract](../language/first-release.md#ownership-libraries).
+
 A protocol exposes a different kind of erased evidence, with an explicit result case for each resource state:
 
 ```text

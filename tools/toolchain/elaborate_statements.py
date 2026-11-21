@@ -159,6 +159,11 @@ class _StatementsMixin:
         self.final_return_facts = []
         return result
 
+    def _fallible_out_hint(self: _Elaborator, result_type: _Term) -> str:
+        if self._is_propagatable_union(result_type):
+            return ". For a fallible constructor, return the completed value in the success case"
+        return ""
+
     def _is_propagatable_union(self: _Elaborator, value_type: _Term) -> bool:
         resolved = self.whnf(value_type)
         head, _ = self.spine(resolved)
@@ -363,7 +368,8 @@ class _StatementsMixin:
             uninit_name = min(self.uninitialized_out_params)
             raise self.fail(
                 "type",
-                f"cannot propagate '?' early exit before 'out' parameter '{uninit_name}' is initialized",
+                f"cannot propagate '?' early exit before 'out' parameter '{uninit_name}' is initialized"
+                + self._fallible_out_hint(target_return_type),
                 prop_node,
             )
         scrutinee = self.expression(self.node(prop_node["value"]), environment)
@@ -569,6 +575,7 @@ class _StatementsMixin:
     def _elaborate_assignment(self: _Elaborator, statement: Node, extended: dict[str, _Binding]) -> dict[str, _Binding]:
         self.site = statement
         target = self._unwrap_group(self.node(statement["target"]))
+        self._note_runtime_write(target)
         raw_op = statement["operator"]
         if (
             not isinstance(raw_op, dict)
@@ -951,11 +958,25 @@ class _StatementsMixin:
             updated[owner_name] = _Binding(new_rec_term, owner_b.type)
         self._refresh_local_borrows(updated, site_node)
 
-    def _record_call_update(self: _Elaborator, target: Node, value: _Binding) -> None:
+    def _note_runtime_write(self: _Elaborator, target: Node) -> None:
+        place = self._unwrap_group(target)
+        while place["kind"] in {"member", "index", "argument", "unary"}:
+            place = self._unwrap_group(self.node(place["value"]))
+        if place["kind"] == "name":
+            name = self.name(place["name"])
+            if name in self.local_borrows:
+                name = self.local_borrows[name][1]
+            self.runtime_writes.add(self.slice_views.get(name, name))
+
+    def _record_call_update(
+        self: _Elaborator, target: Node, value: _Binding, *, writes: bool = True, index: _Term | None = None
+    ) -> None:
+        if writes:
+            self._note_runtime_write(target)
         if self.guard_value:
             raise self.fail("unsupported", "a pattern guard used as a value cannot model a mutable loan update; "
                             "use an if statement", target)
-        self.last_call_updates.append((target, value))
+        self.last_call_updates.append((target, value, index))
 
     def _consume_call_updates(
         self: _Elaborator, updated: dict[str, _Binding], site: Node
@@ -964,8 +985,19 @@ class _StatementsMixin:
             return
         pending = list(self.last_call_updates)
         self.last_call_updates.clear()
-        for arg_node, new_b in pending:
-            self._apply_ref_target_update(arg_node, new_b, updated, site)
+        for arg_node, new_b, position in pending:
+            if position is not None:
+                owner = self._unwrap_group(self.node(arg_node["value"]))
+                collection = updated[self.name(owner["name"])]
+                head, targs = self.spine(self.whnf(collection.type))
+                if head == _constant("Vec"):
+                    term = _apps(_constant("Vec_Update"), *targs, position, new_b.term, collection.term)
+                else:
+                    update = {"Span": "Span_Write", "Slots": "Slots_Write", "Seq": "Seq_Update"}[str(head.value)]
+                    term = _apps(_constant(update), *targs, collection.term, position, new_b.term)
+                self._apply_ref_target_update(owner, _Binding(term, collection.type), updated, site)
+            elif not self._apply_ref_target_update(arg_node, new_b, updated, site):
+                raise self.fail("unsupported", "cannot restore this call's exclusive loan target", arg_node)
 
     def _apply_ref_target_update(
         self: _Elaborator, arg_node: Node, new_binding: _Binding, updated: dict[str, _Binding], site: Node
@@ -1094,28 +1126,36 @@ class _StatementsMixin:
                     dst_b = _Binding(
                         self.whnf(_apps(_constant("Snd"), src_ty, dst_ty, res_b.term)), dst_ty
                     )
+                    self._note_runtime_write(call_args[0])
+                    self._note_runtime_write(call_args[1])
                     self._apply_ref_target_update(call_args[0], src_b, updated, statement)
                     self._apply_ref_target_update(call_args[1], dst_b, updated, statement)
                     return updated
             if path in {"CopyRepresentation", "Slots.CopyRepresentation"} and len(call_args) == 3:
                 res_b = self.expression(expr_node, updated)
+                self._note_runtime_write(call_args[1])
                 if self._apply_ref_target_update(call_args[1], res_b, updated, statement):
                     return updated
             if path == "Slots.Write" and len(call_args) == 3:
+                self._note_runtime_write(call_args[0])
                 res_b = self.expression(expr_node, updated)
                 if self._apply_ref_target_update(call_args[0], res_b, updated, statement):
                     return updated
             if path in {"Span.Write", "Span.Fill", "Span.CopyPrefix", "Span.Restore"} and len(call_args) >= 2:
+                self._note_runtime_write(call_args[0])
                 res_b = self.expression(expr_node, updated)
                 if self._apply_ref_target_update(call_args[0], res_b, updated, statement):
                     return updated
             if path == "Format.Write" and len(call_args) == 2:
+                self._note_runtime_write(call_args[0])
                 b_name, _ = self._extract_ref_or_var_name(call_args[0])
                 res_b = self.expression(expr_node, updated)
                 if b_name is not None and b_name in updated:
                     updated[b_name] = res_b
                     return updated
-        self.expression(expr_node, updated)
+        value = self.expression(expr_node, updated)
+        if self.in_executable_function and self._is_result(value.type):
+            raise self.fail("type", "unexamined Result: match it, propagate it with '?' or return it", expr_node)
         self._consume_call_updates(updated, statement)
         return updated
 
@@ -2618,7 +2658,8 @@ class _StatementsMixin:
                         uninit_list = ", ".join(sorted(self.uninitialized_out_params))
                         raise self.fail(
                             "type",
-                            f"cannot return before 'out' parameter '{uninit_list}' is initialized",
+                            f"cannot return before 'out' parameter '{uninit_list}' is initialized"
+                            + self._fallible_out_hint(result.type),
                             cur_stmt,
                         )
                     self.final_ref_bindings = dict(extended)
@@ -3002,6 +3043,7 @@ class _StatementsMixin:
             base = _Binding(base_term, expected)
         else:
             base = self.expression(base_node, environment)
+        self._check_value_copy(base_node, base.type)
         base_type = self.whnf(base.type)
         head, type_args = self.spine(base_type)
         if head.kind != "const" or not isinstance(head.value, str) or head.value not in self.records_by_type:

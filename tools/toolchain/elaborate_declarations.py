@@ -644,9 +644,13 @@ class _DeclarationsMixin:
         saved_body_facts = list(self.active_facts)
         self.active_facts.extend(entry_body_facts)
         prev_effect_calls = self.active_effect_calls
+        prev_executable = self.in_executable_function
+        self.in_executable_function = m_kind == "function"
         if effects_clauses:
             self.active_effect_calls = set(m_effect_calls)
         try:
+            self.runtime_writes.clear()
+            self.result_bindings.clear()
             body_term = self.check(body_node, result_ty, method_env)
             if effects_clauses:
                 self._verify_closed_effects(
@@ -662,6 +666,7 @@ class _DeclarationsMixin:
             self._check_callable_loans(member_node, enclosing_type=name)
         finally:
             self.active_effect_calls = prev_effect_calls
+            self.in_executable_function = prev_executable
             self.active_facts = saved_body_facts
             self.current_return_type = prev_ret
         all_vars = [*generic_vars, *m_gen_vars, self_var, *param_vars]
@@ -683,6 +688,9 @@ class _DeclarationsMixin:
         if effects_clauses:
             self.callable_has_effects.add(m_emitted)
             self.callable_effect_calls[m_emitted] = set(m_effect_calls)
+            self.callable_effect_writes[m_emitted] = {
+                i for i, p in enumerate(m_params) if p["name"] and self.name(p["name"]) in m_effect_writes
+            }
         elif m_kind == "function":
             self.untracked_effect_functions.add(m_emitted)
         param_ids = tuple(cast("int", v.value) for v in all_vars)
@@ -1004,6 +1012,7 @@ class _DeclarationsMixin:
         self.callable_source_names.update(mod.callable_source_names)
         self.callable_has_effects.update(mod.callable_has_effects)
         self.callable_effect_calls.update(mod.callable_effect_calls)
+        self.callable_effect_writes.update(mod.callable_effect_writes)
         self.untracked_effect_functions.update(mod.untracked_effect_functions)
         self.fix_names.update(mod.fix_names)
         existing_out = set(self.output)
@@ -1741,6 +1750,9 @@ class _DeclarationsMixin:
                 body_node = self.node(raw_body)
                 prev_ret = self.current_return_type
                 self.current_return_type = m_res_type
+                prev_executable = self.in_executable_function
+                self.in_executable_function = mkind == "function"
+                self.result_bindings.clear()
                 saved_body_f = list(self.active_facts)
                 self.active_facts.extend([*inst_req_bools, *self._fact_bool_terms((), m_env)])
                 try:
@@ -1769,6 +1781,7 @@ class _DeclarationsMixin:
                 finally:
                     self.active_facts = saved_body_f
                     self.current_return_type = prev_ret
+                    self.in_executable_function = prev_executable
 
                 full_m_vars = [*impl_generic_vars, *impl_witness_vars, *m_vars]
                 m_sig = self.wrap("pi", full_m_vars, m_res_type)
@@ -2151,8 +2164,22 @@ class _DeclarationsMixin:
             if short_name not in structs:
                 structs[short_name] = sinfo
         fn_name = self.name(fn_node["name"])
-        lowered = loans._FunctionLowerer(fn_name, fn_node, enclosing_type, structs).build()
+        lowerer = loans._FunctionLowerer(fn_name, fn_node, enclosing_type, structs)
+        if self.in_executable_function:
+            lowerer.result_bindings = self.result_bindings
+            for param in self.nodes(fn_node["parameters"]):
+                if param["kind"] == "parameter":
+                    pname = self.name(param["name"])
+                    ptype = self.node(param["type"])
+                    if (ptype.get("modifier") not in {"in", "ref", "out"}
+                            and pname in self.entry_env and self._is_result(self.entry_env[pname].type)):
+                        lowerer.result_parameters.add(pname)
+            lowerer.result_names = set(lowerer.result_bindings.values()) | lowerer.result_parameters
+        lowered = lowerer.build()
         report = loans.analyze(lowered.owners, lowered.graph)
+        if issue := lowerer.unexamined_result(lowered.graph):
+            name, site = issue
+            raise self.fail("type", f"unexamined Result '{name}': match it, propagate it with '?' or return it", site)
         borrow_origins = {
             event.loan.name: (event.loan, lowered.node_sites[cfg_node.name])
             for cfg_node in lowered.graph.nodes
@@ -2491,11 +2518,8 @@ class _DeclarationsMixin:
         self_var: _Term | None = None,
     ) -> None:
         for pname in sorted(ref_param_names):
-            if (
-                pname in self.final_ref_bindings
-                and self.final_ref_bindings[pname].term != self.entry_env[pname].term
-                and pname not in declared_writes
-            ):
+            changed = pname in self.final_ref_bindings and self.final_ref_bindings[pname].term != self.entry_env[pname].term
+            if (pname in self.runtime_writes or changed) and pname not in declared_writes:
                 raise self.fail(
                     "type",
                     f"callable mutates parameter '{pname}' not declared in effects writes(...)",
@@ -2872,6 +2896,9 @@ class _DeclarationsMixin:
                 self.active_facts.extend(entry_body_facts)
                 self.used_domain_solver_in_proof = False
                 self.final_theorem_facts = ()
+                self.in_executable_function = kind == "function"
+                self.runtime_writes.clear()
+                self.result_bindings.clear()
                 prev_effect_calls = self.active_effect_calls
                 if effects_clauses:
                     self.active_effect_calls = set(declared_effect_calls)
@@ -2976,6 +3003,7 @@ class _DeclarationsMixin:
                         self._check_callable_loans(node)
                 finally:
                     self.active_effect_calls = prev_effect_calls
+                    self.in_executable_function = False
                     self.active_facts = saved_body_facts
                     self.current_rec_var = None
                     self.current_rec_name = None
@@ -2995,6 +3023,9 @@ class _DeclarationsMixin:
                 if effects_clauses:
                     self.callable_has_effects.add(emitted)
                     self.callable_effect_calls[emitted] = set(declared_effect_calls)
+                    self.callable_effect_writes[emitted] = {
+                        i for i, p in enumerate(parameters) if p["name"] and self.name(p["name"]) in declared_effect_writes
+                    }
                 elif kind == "function":
                     self.untracked_effect_functions.add(emitted)
             if kind in {"theorem", "lemma"} and is_post_env_theorem:
@@ -3418,45 +3449,30 @@ class _DeclarationsMixin:
         param_b = environment[target_param_name]
         param_ty_w = self.whnf(param_b.type)
         p_head, p_args = self.spine(param_ty_w)
-        if param_ty_w == span_u8:
-            if self._is_readonly_span(param_b.term):
-                raise self.fail(
-                    "type",
-                    f"restores parameter '{target_param_name}' cannot be a read-only 'in Span<byte>' borrow",
-                    rest_name_site,
-                )
-            if (
-                target_param_name in ref_param_names
-                and target_param_name in self.final_ref_bindings
-                and self.final_ref_bindings[target_param_name].term != param_b.term
-                and self.free(self.final_ref_bindings[target_param_name].term) <= post_var_ids
-            ):
-                restored_span_term = self.final_ref_bindings[target_param_name].term
-            elif self.whnf(result) == span_u8:
-                restored_span_term = call_term
+        final = self.final_ref_bindings.get(target_param_name) if target_param_name in ref_param_names else None
+        final_term = final.term if final is not None and self.free(final.term) <= post_var_ids else None
+        restored = final_term
+        if final_term is None or final_term == param_b.term:
+            if self.whnf(result) == param_ty_w:
+                restored = call_term
             else:
-                res_head, _ = self.spine(self.whnf(result))
-                if (
-                    res_head.kind == "const"
-                    and isinstance(res_head.value, str)
-                    and res_head.value in self.records_by_type
-                    and any(rf.name == "RestoredDst" for rf in self.records_by_type[res_head.value].fields)
-                ):
-                    restored_span_term = self._project_member(
-                        post_env["result"], "RestoredDst", rest_site
-                    ).term
-                elif (
-                    target_param_name in ref_param_names
-                    and target_param_name in self.final_ref_bindings
-                    and self.free(self.final_ref_bindings[target_param_name].term) <= post_var_ids
-                ):
-                    restored_span_term = self.final_ref_bindings[target_param_name].term
-                else:
-                    raise self.fail(
-                        "type",
-                        f"restores clause for '{target_param_name}' requires a Span<byte> return type or RestoredDst record field",
-                        rest_site,
-                    )
+                result_head, _ = self.spine(self.whnf(result))
+                record = self.records_by_type.get(str(result_head.value)) if result_head.kind == "const" else None
+                if record is not None:
+                    candidates: list[_Term] = []
+                    for field in record.fields:
+                        projection = self._project_member(post_env["result"], field.name, rest_site)
+                        if (self.whnf(projection.type) == param_ty_w
+                                and self._root_span(self.specialize(projection.term)) == param_b.term):
+                            candidates.append(projection.term)
+                    if candidates:
+                        restored = candidates[0] if len(candidates) == 1 else None
+        if self._is_readonly_span(param_b.term):
+            raise self.fail("type", f"restores parameter '{target_param_name}' cannot be a read-only 'in' borrow", rest_name_site)
+        if restored is None:
+            raise self.fail("type", f"cannot identify a unique restored descriptor for '{target_param_name}'; "
+                            "specify its restoration predicate on the result explicitly", rest_site)
+        if param_ty_w == span_u8:
             for field_tag, eq_ty in (
                 ("Base", _USIZE),
                 ("Length", _USIZE),
@@ -3465,7 +3481,7 @@ class _DeclarationsMixin:
                 ("PermWrite", _BOOL),
             ):
                 self.reset_budget()
-                lhs_f = _apps(_constant(f"Span_{field_tag}"), _U8, restored_span_term)
+                lhs_f = _apps(_constant(f"Span_{field_tag}"), _U8, restored)
                 rhs_f = _apps(_constant(f"Span_{field_tag}"), _U8, param_b.term)
                 rest_prop = _apps(_constant("Eq"), eq_ty, lhs_f, rhs_f)
                 rest_proof = self._prove_proposition(rest_prop, post_env, (), rest_site)
@@ -3482,44 +3498,6 @@ class _DeclarationsMixin:
                 )
         elif p_head == _constant("Slots") and len(p_args) == 2:
             elem_t, cap_t = p_args
-            if self._is_readonly_span(param_b.term):
-                raise self.fail(
-                    "type",
-                    f"restores parameter '{target_param_name}' cannot be a read-only 'in' borrow",
-                    rest_name_site,
-                )
-            if (
-                target_param_name in ref_param_names
-                and target_param_name in self.final_ref_bindings
-                and self.final_ref_bindings[target_param_name].term != param_b.term
-                and self.free(self.final_ref_bindings[target_param_name].term) <= post_var_ids
-            ):
-                restored_slots_term = self.final_ref_bindings[target_param_name].term
-            elif self.whnf(result) == param_ty_w:
-                restored_slots_term = call_term
-            else:
-                res_head, _ = self.spine(self.whnf(result))
-                if (
-                    res_head.kind == "const"
-                    and isinstance(res_head.value, str)
-                    and res_head.value in self.records_by_type
-                    and any(rf.name == "RestoredDst" for rf in self.records_by_type[res_head.value].fields)
-                ):
-                    restored_slots_term = self._project_member(
-                        post_env["result"], "RestoredDst", rest_site
-                    ).term
-                elif (
-                    target_param_name in ref_param_names
-                    and target_param_name in self.final_ref_bindings
-                    and self.free(self.final_ref_bindings[target_param_name].term) <= post_var_ids
-                ):
-                    restored_slots_term = self.final_ref_bindings[target_param_name].term
-                else:
-                    raise self.fail(
-                        "type",
-                        f"restores clause for '{target_param_name}' requires a Slots return type, ref parameter, or RestoredDst record field",
-                        rest_site,
-                    )
             for field_tag, eq_ty in (
                 ("Base", _USIZE),
                 ("Tag", _BOOL),
@@ -3532,7 +3510,7 @@ class _DeclarationsMixin:
                     lhs_f = cap_t
                     rhs_f = cap_t
                 else:
-                    lhs_f = _apps(_constant(f"Slots_{field_tag}"), elem_t, cap_t, restored_slots_term)
+                    lhs_f = _apps(_constant(f"Slots_{field_tag}"), elem_t, cap_t, restored)
                     rhs_f = _apps(_constant(f"Slots_{field_tag}"), elem_t, cap_t, param_b.term)
                 rest_prop = _apps(_constant("Eq"), eq_ty, lhs_f, rhs_f)
                 rest_proof = self._prove_proposition(rest_prop, post_env, (), rest_site)
