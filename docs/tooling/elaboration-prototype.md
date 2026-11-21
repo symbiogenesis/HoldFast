@@ -268,6 +268,8 @@ The supported increment includes:
   and `elaborate_package(modules)`) with topological dependency sorting,
   circular-import refusal, `public` versus `private` visibility enforcement
   across module boundaries for declarations, record properties and methods.
+  Standalone Gallina modules distinguish dotted paths from literal underscores.
+  For example, `A.B` emits `Vela_A_B`, while `A_B` emits `VelaEncoded_415f42`.
   Emitted package declarations carry their defining module identity, including
   private helpers in transitive dependencies. A plain import opens the public
   names and rejects conflicts. An aliased import exposes only qualified names. A selective import binds

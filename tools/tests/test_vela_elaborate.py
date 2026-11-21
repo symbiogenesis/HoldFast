@@ -5894,6 +5894,16 @@ def _callable_member_receiver_and_failures() -> None:
 
 
 def _module_private_identity() -> None:
+    dotted, underscored = _Fixture("A.B"), _Fixture("A_B")
+    for fixture in (dotted, underscored):
+        fixture.definition("Read", _NAT, (), _natural(0))
+    for fixture, module_name in ((dotted, "Vela_A_B"), (underscored, "VelaEncoded_415f42")):
+        result = elaborate(*fixture.response())
+        ensure(f"Module {module_name}." in result.gallina and f"End {module_name}." in result.gallina,
+               "standalone dotted and underscored module paths collided")
+    modules = elaborate_package([dotted.response(), underscored.response()])
+    ensure("Module VelaPackage_412e42." in modules["A.B"].gallina and
+           "Module VelaPackage_415f42." in modules["A_B"].gallina, "package module paths collided")
     left, right, consumer = _Fixture("A"), _Fixture("B"), _Fixture("Client")
     for module, expected in ((left, 1), (right, 2)):
         module_name = str(module.module["text"])

@@ -12,7 +12,7 @@ import re
 from collections.abc import Callable, Sequence
 from typing import cast
 
-from toolchain import StaticEvaluation
+from toolchain import StaticEvaluation, gallina_module_name
 from toolchain.ast import ValueType, VelaError
 from toolchain.elaborate_declarations import _DeclarationsMixin
 from toolchain.elaborate_intrinsics import _IntrinsicsMixin
@@ -1916,7 +1916,7 @@ def _checked_elaboration(
         for declaration in elaborator.nodes(root["declarations"]):
             elaborator.declaration(declaration)
         generated_module = (
-            "VelaPackage_" + module.encode("ascii").hex() if available_modules is not None else "Vela_" + module.replace(".", "_")
+            "VelaPackage_" + module.encode("ascii").hex() if available_modules is not None else gallina_module_name(module)
         )
         source_digest = hashlib.sha256(source).hexdigest()
         # REUSE-IgnoreStart

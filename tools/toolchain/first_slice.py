@@ -46,6 +46,7 @@ from toolchain import (
     VelaError,
     corpus,
     env,
+    gallina_module_name,
     proofenv,
     solver_ledger,
     trace,
@@ -785,10 +786,10 @@ def _retained_proof(root: Path, report: dict[str, object], directory: Path,
     gallina = (directory / "FirstSlice.v").read_text(encoding="utf-8")
     if (directory / "FirstSliceCorrupted.v").read_bytes() != _corrupted_proof(gallina).encode("utf-8"):
         raise ValueError("first-slice receipt corrupted proof differs from its declared subject")
-    modules = re.findall(r"^Module (Vela_[A-Za-z0-9_]+)\.$", gallina, flags=re.MULTILINE)
+    modules = re.findall(r"^Module ((?:Vela_|VelaEncoded_)[A-Za-z0-9_]+)\.$", gallina, flags=re.MULTILINE)
     exports = re.findall(r"^Definition (vela_d[0-9]+_[A-Za-z_][A-Za-z0-9_]*)\s*(?:\(|:)",
                          gallina, flags=re.MULTILINE)
-    if modules != ["Vela_Vela_FirstSlice"] or len(set(exports)) != len(exports):
+    if modules != [gallina_module_name("Vela.FirstSlice")] or len(set(exports)) != len(exports):
         raise ValueError("first-slice receipt Gallina module or exports are malformed")
     for suffix in (*EXPECTED_LAWS, *EXPECTED_CONTRACT_OBLIGATIONS, *EXPECTED_SCENARIO_THEOREMS):
         if not any(name.endswith(f"_{suffix}") for name in exports):
@@ -1989,7 +1990,7 @@ def _qualify_attempt(
         steps,
     )
 
-    module = "Vela_" + translated.module.replace(".", "_")
+    module = gallina_module_name(translated.module)
     audited = [f"{module}.{name}" for name in exports]
     assumptions_path = directory / "FirstSliceAssumptions.v"
     assumptions_path.write_text(

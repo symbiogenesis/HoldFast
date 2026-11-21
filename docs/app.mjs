@@ -2127,13 +2127,16 @@ function runPureTranslate(sourceText, collectFacts = false, { sourceHash = "" } 
       `Definition f_${item.name.text}${binders.join("")} : ${gallinaType(item.result)} :=\n  ${bodyRendered}.`
     );
   }
+  const moduleName = parsed.name.text.includes("_")
+    ? "VelaEncoded_" + Array.from(utf8Bytes(parsed.name.text), (byte) => byte.toString(16).padStart(2, "0")).join("")
+    : "Vela_" + parsed.name.text.replaceAll(".", "_");
   const header =
     "(* SPDX-License-" +
     "Identifier: Apache-2.0 *)\n" +
     `(* Vela pure prototype: unqualified. Source SHA256: ${sourceHash} *)\n` +
     "From Corelib Require Import Init.Datatypes Init.Nat.\n\n" +
-    `Module Vela_${parsed.name.text}.\n\n`;
-  const footer = `\n\nEnd Vela_${parsed.name.text}.\n`;
+    `Module ${moduleName}.\n\n`;
+  const footer = `\n\nEnd ${moduleName}.\n`;
   const gallina = `${header}${definitions.join("\n\n")}${footer}`;
   if (utf8Bytes(gallina).length > MAX_EMITTED_GALLINA_BYTES) {
     throw new VelaError(

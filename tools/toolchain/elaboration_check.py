@@ -1429,7 +1429,7 @@ def _case(compiled: vela_parser.Build, case: Fixture, directory: Path, index: in
     repeated = consume(case.source, parsed)
     if translated != repeated:
         raise ValueError(f"Vela replay {case.name}: elaboration is nondeterministic")
-    module = "Vela_" + translated.module.replace(".", "_")
+    module = vela.gallina_module_name(translated.module)
     checks = "".join(
         f"\nDefinition vela_replay_check_{index} : Corelib.Init.Logic.eq "
         f"({module}.{expression}) ({expected}) := Corelib.Init.Logic.eq_refl ({expected}).\n"
