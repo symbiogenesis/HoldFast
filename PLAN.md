@@ -1,15 +1,66 @@
 # VelaLang Plan and Backlog
 
-This document is the source of truth for Vela language design, parser and elaborator qualification, authoring tooling, first-release delivery, and whole-system authoring proposals, extracted from [VerifiedOS](https://github.com/symbiogenesis/VerifiedOS).
+## Current execution
+
+**The next milestone is acceptance of the packet validator's exact executable.** The local
+kernel replay covers all 69 exports with zero solver-trusted obligations.
+Checked source correspondence, machine laws, compiler refinement, security
+preservation and final-image admission are still open. Start with the blocking
+dependency inventory from `vela-parser first-slice`. Check the machine-logic
+owner's canonical Sail term and Q35 compatibility evidence against the inputs
+required by [Q25am](#q25am). Record any missing input with its owner.
+[First-slice qualification](docs/language/first-release.md#first-slice-qualification)
+identifies the outstanding upstream inputs and the limits of the local replay.
+
+| When the input is ready | Work it unlocks |
+| --- | --- |
+| The canonical machine term and its compatibility evidence are available | Establish the validator's machine interpretation in [Q25am](#q25am), then prove the concrete byte and loan laws it uses in [Q25an](#q25an). |
+| The required machine and resource interfaces are checked | Work on two paths in parallel as their own inputs arrive. On the source side, connect the core laws to checked frontend correspondence ([Q25as](#q25as), [Q25at](#q25at)). On the target side, connect Clight to Sail, prove contextual security and compose exact-image admission ([Q25ao](#q25ao), [Q25ap](#q25ap), [Q25aq](#q25aq)). |
+| Checked frontend derivations or module interfaces are available | Diagnostics can consume the derivations in [Q25au](#q25au). Locked packages can start in [Q25ax](#q25ax) once first-release module and instance semantics are frozen. The composed [repair trial](#q25av) also needs concrete resources, the core laws and its own inhabited fixture. |
+| A producer publishes an independently checked result for this validator | Bind it to the exact source, target, tools and assumptions in [Q25ar](#q25ar). Join the first-client receipts to the existing narrow lowering and check the expected bytes and failure cases in [Q25ba](#q25ba). The second client's receipts are due with its own trial. |
+| The validator's exact artifact is accepted | Publish scalar/text and sequence/ownership representations and laws as each is ready ([Q25aw](#q25aw), [Q25ay](#q25ay)). General lowering consumes them and returns a checked runtime receipt per operation for library acceptance ([Q25az](#q25az)). |
+| Packages, represented libraries and general lowering support the independent client | Freeze the baseline and benefit thresholds, run the second client and obtain its own admission receipt ([Q25bb](#q25bb)). Close shared admission and receipt integration at their declared coverage. Publish the reproducible release with all required evidence, then rehearse one upgrade ([Q25bc](#q25bc), [Q25bd](#q25bd)). |
+
+Choose the smallest change that gives the next consumer a usable, checked
+result. The checklist's **Start** and **Check** specify the inputs and the
+evidence for each item. A consumer can use a checked subset while the producer's
+wider work stays open. If an input is missing, continue on a ready, independent
+path. Existing parser, math and editor work can finish its frozen qualification.
+Defer broader surface and adapter work until the synchronous component works
+and a named consumer meets the option's entry conditions.
+
+### Feedback while implementing a slice
+
+- Exercise the affected entry point with an independently expected result. For
+  a bug, reproduce it before the fix and keep the smallest case that catches it.
+  For a changed contract, check a valid case, the nearest meaningful refusal
+  and the downstream consumer that relies on the distinction. During iteration,
+  `python tools/run.py test --only <module-substring>` selects matching test modules.
+- Match the tool to the failure. The [generated development tests](docs/tooling/tooling-protocols.md#generated-development-tests)
+  shrink failing editor-state sequences. The [Menhir campaigns](docs/tooling/parser.md#generated-syntax-campaigns)
+  exercise syntax against independently expected trees. For changed proof
+  obligations, run the [kernel replay](docs/tooling/elaboration-prototype.md#commands-and-acceptance).
+  A first-slice binding check answers whether retained evidence still matches
+  its inputs. A changed proof or artifact needs fresh evidence from its producer.
+- Reach for a generator, profiler, solver or existing library when it removes
+  repeated work or exposes a class of defects. Try it on the blocked or slow
+  case. Compare feedback time, manual effort or defects caught at the same
+  acceptance boundary. Reuse a qualified tool when it fits. For a new
+  dependency, weigh setup, review and upkeep, then pin and qualify the version
+  if adopted. [Tool reuse criteria](docs/assurance/verification-strategy.md#where-time-might-be-saved)
+  and [dependency policy](tools/README.md#dependency-and-version-policy) cover the tradeoffs.
+- Before merging, run `python tools/run.py validate` on the combined change.
+  It runs the static gate and behavioral suite. Use the owning native or
+  independent-client qualification for changes that affect those guarantees.
+  `validate --full` groups the broader local development checks. Review skips
+  against the claim being made. [Validation profiles](tools/README.md#validation-profiles)
+  and the [local handoff](AGENTS.md#tool-execution-and-validation) give commands and scope.
 
 ## Current Summary
 
-The table estimates completion of the priced development and qualification
-backlog, including the supported release, its shared prerequisites and conditional
-language/toolchain/whole-system options. The [planning basis](#planning-basis-and-scope)
-fixes scope, effort units and reuse assumptions. Completed design decisions and
-bounded investigations retain their own acceptance boundaries: Q25w's blocked
-investigation is complete, while full first-slice artifact acceptance remains open.
+The estimate covers the supported release, shared prerequisites and conditional
+options. Its percentage measures completed effort across that portfolio. Use
+the [release milestones](#current-execution) to judge readiness.
 
 <!-- estimate-summary:start -->
 | Measure | Value |
@@ -25,146 +76,58 @@ investigation is complete, while full first-slice artifact acceptance remains op
 | Unmeasured completed items | 37 |
 <!-- estimate-summary:end -->
 
-The [checklist](#checklist-items-q25-series) owns completion status and the
-[calibration record](#calibration-record-q25-series) owns hours. Following
-[VerifiedOS's approach](https://github.com/symbiogenesis/VerifiedOS/blob/main/PLAN.md#current-summary),
-completed scope sums recorded actual hours, retaining each completed leaf's
-estimate when its actual is unavailable. Total midpoint is completed scope plus
-open leaf estimates; the range adds open lower and upper bounds to completed
-scope. Completion is `100 × completed scope / total midpoint`, rounded to one
-decimal (`n/a` when the total is zero). Parents contribute no duplicate hours.
-An open leaf needs a priced estimate and range before entering this accounting.
-
-Every open Q25 cell contributes once, including conditional options that are
-not release prerequisites. Shared laws and producer semantics belong to their
-named cells; adapters and migrations pay only for their additional work. The
-remaining estimate covers the finite baseline, not unlimited future support or
-unrelated VerifiedOS delivery. This percentage is an effort-weighted planning
-indicator, not a release-readiness claim or elapsed-time forecast. The
-[completion log](docs/assurance/completion-log.md) owns landing evidence.
-
-`python tools/run.py check` checks the generated table for drift;
-`python tools/run.py check --fix` refreshes it from the checklist and calibration
-record. Update this scope description when the priced backlog changes.
-
-## Current execution
-
-The current parallel delivery qualifies existing development producers within
-their frozen scope, their standalone host syntax/diagnostic projections, and
-local receipt integration:
-
-| Slice | Delivered development behavior | Open acceptance boundary |
-| --- | --- | --- |
-| Mathematical elaboration | Guarded `Option`/`Result` propagation preserves Boolean short-circuiting; unsupported effect sequencing is refused under the [elaboration contract](docs/tooling/elaboration-prototype.md#commands-and-acceptance) | General checked source correspondence and machine-connected composition remain with Q25as/at |
-| Pure compiler inspection | `vela inspect` exports schema-6 source-preserving token/trivia partitions, pure syntax trees, lexical scopes and compiler-owned types; an independent serialized reader validates current inputs and bounded queries without invoking a parser under the [pure inspection contract](docs/tooling/tooling-protocols.md#pure-development-snapshot-increment) | Wider syntax, imports, generated, proof and lowering views retain Q25ch/ci's producer prerequisites |
-| Pure semantic editor | Compiler-backed callable/value/literal completion, signatures and token deltas consume current facts; bounded single-expression recovery supplies edits for empty or unfinished sites while retaining original diagnostics; versioned local rename qualifies in Neovim and refuses unsupported pinned Vim edits under the [LSP contract](docs/tooling/lsp-prototype.md) | Q25ci retains a second successful rename client, general incomplete source, wider producers and editor operations |
-| Pure authoring previews | Explicit `VELA103` Boolean-comparison previews bind source/producer identities and recheck both sources against the [authoring contract](docs/tooling/authoring-tools.md#checked-boolean-comparison-previews) | Q25ck retains wider formatting/lints/actions and their qualified producers |
-| Batch diagnostic export | Qualified SARIF 2.1.0 projects the current pure diagnostic producer across bounded standalone inputs, preserves incomplete outcomes, binds source/producer/configuration identities and offers explicit canonical-format fix previews; a pinned independent reader qualifies source locations and edits under the [export contract](docs/tooling/tooling-protocols.md#qualified-pure-batch-sarif) | Wider diagnostic meanings, imported resolution and source/artifact admission remain with their existing producers |
-| Editor syntax assets | Menhir-derived Tree-sitter and TextMate distributions qualify in pinned independent consumers against all 395 canonical cases, explicit recovery dispositions, Unicode scopes and eight incremental edits under the [syntax-assets contract](docs/tooling/highlighting.md) | Syntax coloring and recovered editor trees confer no semantic, proof or artifact acceptance |
-| Kernel replay | Imported checker sources and Python dependency owners enter input identity; malformed assumption reports refuse | Kernel checking of emitted terms supplies no source or artifact correspondence |
-| Local first-slice source proofs | All 69 exports kernel-replay with an empty solver-trust ledger within unchanged elaboration budgets under [first-slice qualification](docs/language/first-release.md#first-slice-qualification) | Q25ba retains source correspondence and exact-artifact producer joins |
-| Local first-slice receipts | Schema-2 binding checks verify exact capacity and negative-control source subjects, the intended proof-corruption refusal, retained proof/control coverage, unambiguous Sail verdicts and well-formed traces, capability images and optional CompCert process chains, effective inputs and image regeneration as well as producer/tool/runtime/parser identities | Q25ar remains open for external checked producer receipts and complete declared coverage |
-| Pure compiler traces | Schema-3 recordings include parser/decode and source-located declaration work; bounded paired comparisons bind current inputs; pinned Perfetto consumers and an independently qualified offline browser timeline recover nested spans/counters under the [trace increment](docs/tooling/pure-prototype.md#bounded-compiler-traces) | Q25cp retains wider phases/workers, overhead qualification and complete runtime closure |
-
-The full first-slice replay reports zero solver-trusted obligations and source
-`accepted: true`; its binding check verifies retained evidence without proof replay.
-[First-slice qualification](docs/language/first-release.md#first-slice-qualification)
-retains unavailable local CompCert replay and the external artifact-acceptance joins.
-
-The [completion log](docs/assurance/completion-log.md) records the scoped landing
-evidence. Q25ch, Q25ci, Q25ck and Q25cp retain separately priced residual children; completed
-children record only their accepted increments within unchanged parent totals.
-Q25am–aq and the supported-release cells retain their stated entry and
-acceptance predicates; these development increments close no whole release cell.
+The [checklist](#checklist-items-q25-series) owns status and the
+[calibration record](#calibration-record-q25-series) owns hours. Count each leaf
+once. Completed scope uses actual hours where available and the retained estimate
+otherwise. Add each open leaf's estimate to get the total midpoint, or its lower
+and upper bounds to get the range. Completion is the completed share of the
+midpoint, rounded to one decimal (`n/a` for a zero total).
+`python tools/run.py check --fix` regenerates the table when these inputs change.
 
 ## Planning basis and scope
 
-The open cells price the remaining work for the supported synchronous release
-and the optional language, toolchain and whole-system portfolio already described
-below. They are prospective attended engineering hours, including design,
-implementation or proof construction, independent review preparation, tests,
-documentation and initial qualification. They are judgment ranges, not measured
-productivity, statistical confidence intervals or calendar promises. The existing
-four core estimates and 27 detailed extension ranges are allocated once into
-checklist cells; their descriptive owner tables add no second budget.
-
-The baseline is one canonical CHERI-RISC-V profile/ABI and one retained compiler
-route. The first release uses the existing packet validator and a second client
-selected independently before the trial. Optional software/proof/machine/hardware
-migration covers the first-party implementation, proof, configuration and authored
-block inventory tracked at
-[VerifiedOS revision 3529ecd](https://github.com/symbiogenesis/VerifiedOS/tree/3529ecd08b8288b004d71766066b0c3367b9cb40),
-with Vela's existing implementation at `0354004` as the reuse baseline. Inventory
-freezing at each option's entry records exact paths, theorem subjects, target
-features and permitted generated/imported artifacts; additions require repricing.
-No estimate assumes a new processor, arbitrary future language features, a public
-package registry, an interactive proof-admission path, or fabrication/laboratory
-delivery. Windows/Linux host tooling is included; resident protocol endpoints
-are a different product scope from resident compiler rebuilding.
-
-The [shared foundation and retained-route cells](#shared-foundation-and-retained-route)
-price the residual work needed by Vela's selected endpoint, retaining VerifiedOS's
-machine-logic, byte-instance, scoped-resource, compiler, security and admission
-owners. Their already booked narrow Q35/M1/TAL slices are dependencies, not
-duplicate charges here. These local allowances neither edit the other project's
-estimates nor report its work completed; do not add both repositories' overlapping
-totals. Original OS algorithms, device design and unrelated whole-system proofs
-remain with their existing owners. Vela migration cells pay for language-specific
-representation, transport, replay and adoption, reusing those supplied results.
-
-**Pricing does not open implementation.** Every cell needs its named concrete
-inputs, reviewed target/client inventory and acceptance predicate before dispatch.
-Missing laws or exhausted investigation budgets stop dependent work. Record a
-bounded investigation's result and reprice unresolved implementation explicitly;
-never mark a requested theorem, feature or release complete because its allowance
-was spent. A proof-producing implementation still needs checked terms and
-independent intended-behavior review. New upstream incorporation includes its
-revision-specific licence and dependency qualification at that cell's entry.
-
-The supported-release path reuses the validator's source proofs and narrow
-lowering, qualifies its exact first-client machine/compiler/security/admission
-receipts, then accepts that artifact. Broader represented libraries, packages and
-general lowering follow, then the independent package trial, release and one
-maintenance rehearsal. Source-to-interpreted-core correspondence belongs to
-`core-frontend`; represented-core-to-Clight belongs to `runtime-lowering`;
-Clight-to-canonical-Sail belongs to `retained-compiler`; artifact admission
-composes those supplied theorems and validates the final image.
-
-Consumers may use an independently checked subset receipt before its producer's
-whole checklist cell closes. The first slice needs first-client receipts; the
-independent client subsequently needs its own receipts, and shared admission and
-receipt-integration cells close only after their complete declared coverage.
-Likewise, library source representations/laws unblock per-operation lowering,
-whose checked runtime receipts join final library acceptance. No partial receipt
-earns whole-cell completion credit. Scoped law/frontend work may run in parallel
-once those exact interfaces exist. Extension,
-adapter, web-output, native/bootstrap and model/hardware migration cells remain
-conditional options; their presence in the total selects no adoption. Independent
-proof, native and hardware work retains the joins in the whole-system contract.
-
-Release maintenance and optional-portfolio maintenance each price one finite
-coordinated upgrade/requalification cycle after their relevant delivery. Record
-actual effort and a new estimate before each later cycle; indefinite operation
-has no finite completion percentage. Keep human attended effort, summed
-agent-session wall time and machine time in separate ledgers. The historical
-actuals do not supply a productivity multiplier for the new research-heavy work,
-and the assurance strategy's person-month/year comparisons are not converted
-into these hours.
+- **Effort.** Estimates and ranges are judgments in attended engineering hours,
+  including design, implementation, proofs, review preparation, tests,
+  documentation and initial qualification. The four core estimates and 27
+  extension ranges are allocated once. Keep human effort, summed agent-session
+  wall time and machine time separate. Research estimates use no multiplier
+  from historical actuals or person-month comparisons.
+- **Release scope.** One canonical CHERI-RISC-V profile/ABI, one retained
+  compiler route, the packet validator and a second independently selected
+  client. Windows and Linux host tools are in scope. Resident protocol
+  endpoints and resident compiler rebuilding have separate scopes.
+- **Shared work.** VerifiedOS retains its machine-logic, byte-instance,
+  scoped-resource, compiler, security and admission owners. The
+  [foundation cells](#shared-foundation-and-retained-route) price only residual
+  Vela needs beyond the booked Q35/M1/TAL slices. Summing both projects'
+  estimates would double count shared work. OS algorithms, device design and
+  other whole-system proofs remain with their owners.
+- **Conditional scope.** Optional migrations use the first-party software,
+  proofs, configuration and authored hardware at
+  [VerifiedOS revision 3529ecd](https://github.com/symbiogenesis/VerifiedOS/tree/3529ecd08b8288b004d71766066b0c3367b9cb40)
+  and the Vela implementation at `0354004` as the reuse baseline. Freeze the
+  selected paths, theorem subjects, target features and permitted generated or
+  imported artifacts at entry. Reprice additions. The estimates exclude a new
+  processor, open-ended language growth, a public package registry, interactive
+  proof admission and fabrication or laboratory work.
+- **Stopping and maintenance.** A missing law or exhausted investigation
+  budget stops the dependent slice. Record the result and reprice any remaining
+  work. Proof acceptance requires checked terms and independent review of the
+  intended behavior. Review an upstream's licence at the milestone that would
+  incorporate it under the [licensing rules](COPYRIGHT.md#terms-this-tree-does-not-carry).
+  Release and optional-portfolio maintenance each price one requalification
+  cycle. Record its actual cost and estimate each later cycle separately.
 
 <a id="q-assessment-actions"></a>
 <a id="checklist-conventions"></a>
 
 ## Checklist items (Q25 series)
 
-Each checklist item pairs with a single [completion-log](docs/assurance/completion-log.md) entry carrying the exact `Q25* · Title` heading when landed, and records its prospective estimate, range, class (`I` implementation or `X` investigation), and actual hours (`n/a` when shared across a batch). The [first-release delivery sequence](#vela-first-release-delivery) governs new Vela work: existing parser, mathematical, and editor increments may finish their frozen qualification, while broader surface and adapter work waits for the concrete synchronous component.
-
-The standalone host syntax-asset and pure-diagnostic-export cells qualify their
-declared existing development producers independently of production release.
-They supply no wider frontend, missing-law or source/artifact admission receipt;
-other conditional adapter and surface work retains its entry predicates.
-The bounded pure inspection, completion, lint-preview and trace-viewer children
-likewise consume the existing checked pure producer; their explicit residuals
-retain wider producers and whole-cell acceptance without duplicate credit.
+Each leaf records an estimate, range, class (`I` implementation or
+`X` investigation) and actual hours when known. Use `n/a` for actuals shared
+across a batch. Landed or struck items have one [completion-log](docs/assurance/completion-log.md)
+entry with the exact `Q25* · Title` heading. A partial result keeps its parent
+open until the parent's acceptance conditions are met.
 
 - [x] **Q25 · Design the full graded dependent language and its control and mutation rules**
   - The graded, control, mutation and assurance-policy designs are reviewed together, with implementation debts and admission decisions recorded by Q25d ([note](docs/assurance/completion-log.md#q25-design-the-full-graded-dependent-language-and-its-control-and-mutation-rules))
@@ -821,112 +784,38 @@ retain wider producers and whole-cell acceptance without duplicate credit.
 
 ## Language core proposals
 
-Source design and missing-law analysis remain in [the core design](docs/language/core-design.md#proof-obligations-and-proposed-work-packages).
+The [core obligation matrix](docs/language/core-design.md#proof-obligations-and-proposed-work-packages) assigns four deliverables to the synchronous fragment.
 
-The [Vela whole-system proposal](#vela-whole-system-authoring-proposal) extends the intended authoring surface to general proofs, the ISA model and hardware. The bounded packages below retain their own scope and estimates; none includes that extension's full establishment or migration work.
-
-The owner keys below identify technical contracts; their linked open checklist cells now own the planning budgets. The four existing estimates are carried forward once, while [shared foundations](#shared-foundation-and-retained-route) and [additional represented runtime work](#supported-release-implementation) have separate allocations. The [planning basis](#planning-basis-and-scope) distinguishes pricing from implementation entry and preserves Q21's historical rejection and all missing-evidence gates.
-
-| Owner | Budget cell | Work and acceptance boundary |
-| --- | --- | --- |
-| `core-soundness` | [Q25as](#q25as) | Define judgments/interpreter and prove substitution, phase separation, preservation, loan/exit restoration and kinded authority/effect composition for this fragment over actual supplied logic laws; discharge the [borrow-analysis promotion joins](docs/language/core-design.md#borrow-analysis-promotion), including current-fact validity across writes. Excludes concrete CHERI primitive discovery, frontend and backend. |
-| `core-frontend` | [Q25at](#q25at) | Restricted parsing/resolution, bounded flow analysis, reconstructed arithmetic, checked elaboration/SourcePackage correspondence and erasure preservation; derive source-bound loan/capture/effect facts and emit the promotion contract's checked derivations, with unknown facts and exhausted budgets explicit. Excludes general dependent inference, effect polymorphism, kernel, backend and editor. |
-| `core-diagnostics` | [Q25au](#q25au) | Adapt the qualified interaction path to frontend derivations, typed holes, status and invalidation; demonstrate the specified source residuals. Excludes Q19a's existing-tool qualification and a new language server. |
-| `core-repair-trial` | [Q25av](#q25av) | Author and qualify the combined fixture/negative neighbors and its concrete `PreparationOpen`/`finish` interpretation using the supplied resource laws, then measure semantic/refactor/representation replay and review. Excludes discovering those laws, a repair service and Q20's held-out staging adaptation. |
+| Deliverable | Acceptance |
+| --- | --- |
+| Core interpretation · [Q25as](#q25as) | Prove substitution, preservation, phase separation, authority/effect composition and loan restoration over the supplied machine-resource laws. Check which facts survive a write under the [borrow-analysis rules](docs/language/core-design.md#borrow-analysis-promotion). |
+| Checked frontend · [Q25at](#q25at) | Relate the exact SourcePackage to its interpreted core and erasure. Emit checked arithmetic, loan, capture and effect derivations. Report unknown facts and exhausted analysis budgets explicitly. |
+| Diagnostics · [Q25au](#q25au) | Project those derivations through the existing interaction path. Show a typed hole's exact outstanding proposition and withdraw its status when an input changes. |
+| Repair trial · [Q25av](#q25av) | Interpret `PreparationOpen` and total `finish` on an inhabited carrier. Measure replay and review after semantic, refactor and representation changes using the [composed fixture and its invalid neighbors](docs/language/core-design.md#composed-qualification-fixture). |
 
 ### Vela first-release delivery
 
-[The first-release contract](docs/language/first-release.md#release-boundary)
-owns the supported synchronous surface; its [qualification](docs/language/first-release.md#qualification)
-and [workflow decision criteria](docs/assurance/workflow-contract.md#first-release-qualification-and-adoption)
-own acceptance. R-05-020a and the dossiers settle interpretation policy without
-supplying concrete machine laws or commissioning the production frontend.
-Q25af/ag/ak/al supply current source-level kernel proofs and the authored
-synchronous validator, owned loans and closed effects. The open
-[release cells](#supported-release-implementation) price their general
-correspondence, represented runtime and exact-artifact follow-through; the
-[shared prerequisite cells](#shared-foundation-and-retained-route) separately
-price missing machine logic, retained compilation, contextual security, TAL and
-final-byte admission. The existing source proof and C/Sail execution evidence are
-reused. Entry and acceptance remain distinct: a price supplies no missing law or
-producer receipt.
+Use [current execution](#current-execution) to select the next deliverable. Apply the [release boundary](docs/language/first-release.md#release-boundary) and [qualification criteria](docs/language/first-release.md#qualification) at each client's declared endpoint.
 
-| Stage and owner | Start and delivered result | Acceptance and stop condition |
-| --- | --- | --- |
-| Concrete foundation - Q25w and [shared follow-through](#shared-foundation-and-retained-route) | Q25w's finite investigation is closed; Q25af/ag/ak/al supply the current source carrier proofs, while shared cells own remaining canonical-machine/resource and retained-route laws | Reuse inhabited source cases; independently checked machine interpretation, compiler, security and admission evidence is still required before full artifact acceptance |
-| Synchronous component - [Q25ba](#q25ba), `vela-first-slice` | Reuse the authored validator, failure exits, returned view and source proofs in [first_slice.vela](examples/first_slice.vela); consume independently checked first-client concrete-law, correspondence, compiler and admission receipts under [first-slice qualification](docs/language/first-release.md#first-slice-qualification) | Exact source connects to executable output and its checked contract; independently expected bytes/status, bounds, aliasing, restoration, wrong-operation and stale-input controls pass at the declared endpoint. Unsupported syntax is not a semantic rejection. Missing backend evidence stops artifact acceptance rather than relabeling a source theorem |
-| Independent package trial - `vela-package-trial` | Working first slice and separately priced primitive/module/library support; a second client selected independently of the first API design | Separate modules, locked dependencies, explicit instances, real library calls and contract/representation/refactor changes; receiver snapshots, partial initialization, error propagation and exhaustion work without hidden rewrites. Measure annotations, review/repair effort, diagnostic and batch latency, stack/code/storage and target costs separately; freeze baseline and material-benefit threshold before the trial |
-| Supported release - `vela-release` | Accepted slice and independent trial, versioned language/library scope and the required producer/admission closure | Publish the supported primitive/module semantics and conformance cases, truthful unsupported-feature diagnostics and reproducible build/proof artifacts. Every exported contract meets every policy; tests do not substitute for source/artifact/security proofs. The retained route and exact production-byte duties remain required |
-| Bounded service extension - `vela-service` | Released synchronous core, a named asynchronous service and separately priced runtime classification/lifecycle, storage and control laws | Direct sequential helper await, one explicit child, declared task outcomes, capacity failure, ready/pending paths, both sides of commit, cleanup failure, simultaneous results and safe backing reuse. R-08-046 inventory/prose and manifests land before runtime implementation; no multi-shot search or shared counter is required unless that service needs it |
-| Graded extension - Q25's existing soundness/frontend owners | Qualified synchronous resources, an independently selected client and a separately priced [selection trial](docs/extensions/graded-foundation.md#extension-selection-and-qualification) | Compare fixed modes and checked trace libraries with a bounded exact/bounded grading increment; justify general domains and type-use tracking independently. Preserve the same behavior/assurance endpoint and applicable GF proofs; freeze benefit thresholds and stop at the smaller qualified account when benefit or prerequisite evidence is absent. Optional [derivation and synthesis](docs/extensions/graded-foundation.md#conditional-usability-producers) need separate client/budget predicates and checked output; no first-release dependency or implementation commission follows |
-| Other extensions - existing proposal owners | A concrete consumer and comparison showing material benefit over the smaller supported language | Multi-shot/shallow handlers, broad reflection, concurrent cells, extra tooling adapters, new native compiler/bootstrap, ISA migration and hardware authorship each retain separate scope, proofs, budget and adoption decision. None is a first-release dependency |
+- **Packet validator** ([Q25ba](#q25ba)). Reuse the [authored validator](examples/first_slice.vela), source proofs and narrow lowering. Admit its exact bytes once its checked first-client receipts agree with independently expected outputs, restoration and rejection cases. The [first-slice contract](docs/language/first-release.md#first-slice-qualification) identifies the remaining machine and artifact joins.
+- **Independent package trial** ([Q25bb](#q25bb)). Select the second client independently of the first API design. Freeze its behavior, baseline, target envelope and benefit threshold before observing results. Exercise real imports, instances, partial initialization, exhaustion and resource-returning exits. Measure annotations, diagnosis, review, repair, latency and target costs at the same endpoint. Test receiver snapshots on the real client and use explicit Rocq relations for representation changes. Measured friction can justify a [borrow-checker comparison](docs/language/loan-analysis.md#conditional-borrowing-comparison) or [proof-transfer experiment](docs/assurance/workflow-contract.md#representation-transfer-comparison).
+- **Supported release** ([Q25bc](#q25bc)). Reproduce the versioned closure and meet every published contract. Assess feasibility, recurring developer value and adoption separately, charging setup and maintenance and reporting per-case target tradeoffs within hard limits. The [adoption protocol](docs/assurance/workflow-contract.md#first-release-qualification-and-adoption) defines those decisions.
 
-Existing parser, mathematical and basic editor qualification may finish within
-its frozen scope. Q25x and conditional Q25y qualify generated tests for those
-existing implementations under finite adoption decisions; neither adds a release
-prerequisite, language feature or adapter. Q25w records the concrete foundation
-investigation and blocking machine-refinement owners; subsequent delivery stages
-now carry conditional budgets and retain those prerequisite gates. Q25z records the selected [familiar authoring surface](docs/language/surface-grammar.md#familiar-authoring-migration)
-with bounded syntax and existing-consumer preparation permitted independently;
-the validator's narrow runtime subset qualifies with its first artifact;
-broader represented-library, ownership and production qualification follows that
-accepted slice. Its [ergonomic refinement](docs/language/surface-grammar.md#ergonomic-authoring-and-bounded-collection-iteration)
-adds no concrete-law prerequisite or semantic acceptance claim. Qualified
-standalone host syntax assets and pure diagnostic exports consume existing
-development producers; other syntax and adapter breadth remain consumer-gated
-until the first slice works. Prioritize immutable batch inputs, diagnostics, navigation,
-explicit formatting and inspectable proof obligations. The first release may
-consume retained Rocq definitions and proofs; complete Vela proof authorship is
-an independent option. Preserve the existing mandatory compiler, hardware and
-OS work rather than putting this language experiment on their release path.
-
-The independent package trial qualifies the [borrow-analysis promotion joins](docs/language/core-design.md#borrow-analysis-promotion)
-on its real clients, with source-level positive and invalid-neighbor cases.
-Any selected comparison with another borrow checker follows the diagnostic's
-[comparison boundary](docs/language/loan-analysis.md#conditional-borrowing-comparison),
-including pinned versions/modes, equivalent behavior and evidence endpoints,
-unsupported cases and analysis-budget refusals. Receiver friction is measured
-under the selected snapshot rule before a separate two-phase borrowing decision;
-Ante-style aliases and general loop-carried borrowing retain their gated scope.
-
-The independent package trial uses the [representation-transfer comparison](docs/assurance/workflow-contract.md#representation-transfer-comparison) to
-test whether explicit native Rocq relations suffice before a separately priced
-CoqEAL/Trocq experiment. It reuses Q25w and the machine-logic owners' concrete
-laws; a new proof-transfer package supplies none of those prerequisites. Format
-and protocol generation consume their existing descriptions, and compiler-service
-adapters project shared facts. The [compiler evidence contract](docs/extensions/unified-source-contract.md#optimization-stages-and-evidence)
-owns pass-theorem reuse and any proposed replacement of mandatory validation.
-These are reuse boundaries within existing owners, not extra foundation or
-compiler workstreams.
-
-Technical feasibility, recurring developer value and economic adoption are
-separate decisions. Full setup and maintenance costs stay visible; the first two
-small clients need not amortize them. Freeze concrete target envelopes and
-workloads before performance comparison, permitting declared size/speed/storage
-tradeoffs inside mandatory limits. A safety, confidentiality or admission failure
-cannot be averaged into an improvement. Q20's canceled comparison keeps its own
-historical thresholds and gains no implicit recommissioning.
+After release, the [bounded async service](docs/extensions/handlers-async.md#first-async-service-qualification) requires its R-08-046 inventory, prose and manifests before runtime implementation. Teach common modes first. The [grading trial](docs/extensions/graded-foundation.md#extension-selection-and-qualification) compares fixed modes and checked trace libraries with a bounded grading increment on its selected client. Other language, tooling and [whole-system options](#vela-whole-system-authoring-proposal) retain their own selection decisions. The release can consume retained Rocq proofs.
 
 #### Remaining Vela ergonomics
 
-These are the remaining delivery allocations for the
-[implemented syntax and selected ergonomics](docs/language/surface-grammar.md#ergonomic-authoring-and-bounded-collection-iteration).
-The open [release](#supported-release-implementation) and
-[tooling cells](#tooling-and-metaprogramming) own their incremental budgets;
-landed Q25 cells retain their completed scope. Q25z's syntax estimate does not
-fund represented runtime producers, general correspondence or admission work.
-Charge each shared law, frontend fact and projection once at its owner; the
-following table allocates that work rather than creating extra estimate cells.
+Use these contracts to qualify the [selected authoring surface](docs/language/surface-grammar.md#ergonomic-authoring-and-bounded-collection-iteration) on actual clients.
 
-| Remaining slice and owner | Entry and delivery | Acceptance and stop condition | Pricing |
-| --- | --- | --- | --- |
-| Hosted syntax/consumer qualification — Q25g, Q25i, Q25k and Q25z | The settled parser, examples, exact-source consumers and retained independent fixtures | User-managed hosted Host CI and the applicable Guest CI parser/regeneration, migration and mathematical kernel replay pass for the selected revision. Missing, skipped or canceled verdicts remain pending. Q25h's Rocq-extracted checked parser and Python-parser retirement are qualified; user-managed hosted CI remains separate from local guest qualification. | Existing qualification cells; no duplicate estimate |
-| Numeric aliases, raw strings, static formatting and library resolution — `core-frontend` | Accepted synchronous slice, actual represented scalar/text types, target/ABI and locked module producers; deliver the standard-library alias definitions, raw-string UTF-8 lowering and `Format<T>` / `TextBuilder<capacity>` buffer-writing formatting under the [numeric alias](docs/language/first-release.md#primitive-semantics) and [text/ownership contracts](docs/language/first-release.md#bytes-and-text) | Explicit import and qualification preserve alias/target type identity, layout, arithmetic, instance selection and source identity; raw strings strip closing-line indentation and normalize interior line breaks to LF (`\n`); `Format.Write(ref builder, $"...")` resolves coherent static `Format<T>` instances per hole without heap allocation, reflection or ambient locale and returns `Result<usize, CapacityError>` with declared prefix/rollback behavior. Boundary values, name/import collisions, standalone heap `$"..."` bindings, missing `Format<T>` instances, receiver-loan conflicts in holes and implicit conversion/default-type attempts reach the intended checks. Parser recognition supplies no library verdict. | [Q25aw](#q25aw), [Q25ax](#q25ax); shared prerequisites counted once |
-| Represented contextual inference — `core-frontend`, joining `core-soundness` | Qualified represented types and the [contextual-inference contract](docs/language/first-release.md#contextual-inference); implement inference for the chosen runtime client | Explicit and inferred clients have the same checked interpretation and artifact endpoint. Cover unsuffixed range bounds, generics, lambdas and stable dependent indices; refuse conflicting widths, out-of-range literals, ambiguous types/instances and unstable indices. Preserve reviewed public signatures and explicit resource modes; never repair a typed operand with a coercion. | [Q25as](#q25as), [Q25at](#q25at); shared prerequisites counted once |
-| Bounded iterator and `.Model` sequence laws, checking and lowering — `core-soundness`, `core-frontend` and `vela-software` | A real bounded iterator representation (`ISequenceModel<T>` / `IBoundedIterable<T>`), pre-proved `Seq<T>` `.Model` predicates/slices (`.All`, `.Any`, `.Contains`, `.Take`, `.Skip`, `.Slice`, `.Count`), named `invariant Clause: ...` conjuncts with selective `open (...) lifts Clause, ...` invariant lifting, two-step `CopyRepresentation`/`TransferType<T>` bulk relocation over vacant-slot storage (`Slots<T, capacity>`), and supplied concrete resource laws under the [ownership library contract](docs/language/first-release.md#ownership-libraries) and [refinement/domain tier](docs/language/core-design.md#refinement-effects-and-staging); checked derivations connect to the retained compiler route | Evaluate the collection once; establish value-copy permission or the selected `in`/`ref` element loan, bounds, initialization and termination/WCET, connect step `k` to `Model.At(k)`, `Model.Take(k)` and `Model.Skip(k)`, and discharge bounded finite-sequence `.Model` predicates and sparse prefix/suffix slot ranges through standard-library domain lemmas rather than open quantifier instantiation, stateful `IEnumerable<T>` enumerators or runtime `IQueryable<T>` reflection. Verify restoration on exhaustion, continue, break, return and propagation; verify that `open (...) lifts ...` keeps unlifted conjuncts active across disjoint/non-invalidating writes while refusing early exits, suspension or whole-receiver calls until lifted clauses are re-proved at block exit; verify that `CopyRepresentation` copies tag-preserving representation into vacant slots without arming destructors or duplicating linear ownership before erased `TransferType<T>` transfers prefix ownership in one range step; and pass the capacity-invariance gate ($N = 4$ versus $N = 10^9$ producing identical obligation counts, proof/certificate complexity and replay cost). Reject owned-element copying, reads of vacant slots, escaping/overlapping loans and invalidating mutation. Independent concrete outputs and source-to-artifact evidence qualify lowering; syntax alone does not. | [Q25ay](#q25ay), [Q25az](#q25az); shared prerequisites counted once |
-| Borrow-aware diagnostics and editor assistance — `core-frontend`/`core-diagnostics` producers, `vela-compiler-services` facts and `vela-lsp` projections | Actual loan/effect/resource-exit analysis, resolved constructors, current versioned snapshots and a separately scoped editor consumer under the [LSP contract](docs/tooling/tooling-protocols.md#language-server-protocol) | Show exact receiver modes/views and both conflicting accesses. Snapshot edits preserve once-only evaluation, order, effects and lifetimes. Exhaustive Option/Result templates and propagation retain mandatory outcomes, cleanup, restoration and out-initialization. Refuse stale/unsupported suggestions; advertise each provider only after its producer and independent client controls qualify. | [Q25au](#q25au), [Q25ch](#q25ch), [Q25ci](#q25ci); shared prerequisites counted once |
-| Wider formatting, binding lints and checked edit previews — `vela-authoring`, with `vela-lsp` only for a separately qualified editor action | Qualified wider syntax and compiler facts under the [authoring contract](docs/tooling/authoring-tools.md#lint-policy); extend beyond the implemented pure Nat/bool subset | Cover the canonical declarations, matches, generic calls and collection modes with token/comment/documentation preservation, idempotence and equivalent reparsed meaning. Generate assist-don't-coerce edit previews only from checked compiler facts; preserve source bytes by default, exact candidate interpretation and allow/deny policy, and reject changed or stale inputs without publication. | [Q25ck](#q25ck), [Q25ci](#q25ci); shared prerequisites counted once |
-| Independent ergonomics and adoption evidence — `vela-package-trial` | Accepted synchronous slice plus an independently authored library client under the [first-release adoption protocol](docs/assurance/workflow-contract.md#first-release-qualification-and-adoption) | Exercise bounded input, buffer transformation, ordinary errors, resource-returning exits and a representation/refactor change. Freeze the baseline and material-benefit threshold; measure annotations, authoring/diagnosis effort and target/resource costs separately at the same assurance endpoint. Teach common modes before advanced grading; no safety or admission failure is averaged into a usability gain. | [Q25bb](#q25bb); shared prerequisites counted once |
+| Behavior to qualify | Owners and checks |
+| --- | --- |
+| Numeric aliases, UTF-8 and bounded formatting | Locked package work can start when checked frontend inputs and frozen module semantics are available ([Q25ax](#q25ax)). After the first slice, qualify [alias identity](docs/language/first-release.md#primitive-semantics) and [raw-string decoding and formatting](docs/language/first-release.md#bytes-and-text) on represented types. Cover exact fit, exhaustion, instance selection and receiver-loan conflicts ([Q25aw](#q25aw)). |
+| Contextual inference | Compare explicit and inferred clients at the same artifact endpoint. Exercise literal boundaries, ambiguous instances and unstable indices under the [inference contract](docs/language/first-release.md#contextual-inference) ([Q25as](#q25as), [Q25at](#q25at)). |
+| Iteration, invariants and bulk relocation | Prove the [represented ownership laws](docs/language/first-release.md#ownership-libraries) for bounded iteration, restoration on every exit, selective invariant lifting and tag-preserving copying into vacant slots followed by ownership transfer. Require identical obligation counts, proof complexity and replay cost at capacities 4 and 10⁹. Qualify lowering against independent outputs ([Q25ay](#q25ay), [Q25az](#q25az)). |
+| Borrow-aware editor assistance | Show both conflicting accesses. Check that versioned suggestions preserve evaluation, effects, lifetimes and exit obligations in the [LSP clients](docs/tooling/tooling-protocols.md#language-server-protocol) ([Q25au](#q25au), [Q25ch](#q25ch), [Q25ci](#q25ci)). |
+| Formatting, lints and edit previews | Check idempotence, token/comment preservation, reparse equivalence and refusal of stale edits against the [authoring contract](docs/tooling/authoring-tools.md#qualification) ([Q25ck](#q25ck), [Q25ci](#q25ci)). |
+
+Hosted syntax and consumer qualification uses user-supplied Host CI and applicable Guest CI verdicts for the selected revision. Missing, skipped or canceled runs remain pending.
 
 ### Deferred numerical workload selection
 
@@ -947,130 +836,33 @@ their existing order and scope.
 
 ### Vela whole-system authoring proposal
 
-The [pure translation prototype](docs/tooling/pure-prototype.md) is Q25e's
-separately commissioned first executable tool; Q25f aligns it with the proposed
-source surface. Its Nat/bool fragment denotes
-generated CIC terms and exercises parsing, explicit checking and Gallina emission.
-The selected development parser goal is
-[Menhir generation](docs/assurance/verification-strategy.md#development-parser-and-grammar),
-with a reviewed grammar of the proposed surface, located syntax trees and separate
-elaboration. The `vela-parser` row below owns qualification and migration from the
-handwritten prototype. Pinned-kernel replay of emitted definitions and independently
-expected evaluations, followed by checked source correspondence, remain additional
-work at the broader language boundary. The documented parser and mathematical
-subsets already have kernel replay; general checked source correspondence remains
-open. Each increment uses its reviewed cell and entry predicate before dispatch.
-The full-language frontend retains Q25d's admission prerequisites.
+Whole-system authorship is a conditional extension of the supported release.
+For the selected inventory, Vela sources define the operational software,
+reviewed contracts, proofs, ISA and authored hardware. Generated Clight,
+Rocq terms, binaries, simulators and RTL remain valid outputs. Production
+software and its proofs must refer to the same implementation.
+[Whole-system authoring contract](docs/extensions/unified-source-contract.md#authoring-end-state).
 
-The separately commissioned long-term option is one authored Vela codebase for operational software, independently reviewed contracts, mathematical proofs, the architectural machine model and hardware descriptions. The [unified-source contract](docs/extensions/unified-source-contract.md) owns the technical acceptance boundary. Generated Clight, Rocq proof terms, executable simulators, binaries and RTL remain permitted; the software golden artifact is the proof-connected production implementation. A separately maintained optimized rewrite is outside this goal.
+Reuse the qualified `vela-parser` baseline. Q25g and Q25i cover the Menhir
+development grammar, and Q25h retired the handwritten pure parser in favor
+of the Rocq-extracted parser. Broader source correspondence belongs to
+`core-frontend`. Vela-authored parsing belongs to the native compiler and
+retirement of its seed dependencies belongs to bootstrap.
+[Parser qualification](docs/tooling/parser.md) and [frontend correspondence](#q25at).
 
-A separate future option is a [native, verified, self-hosting compiler](docs/extensions/unified-source-contract.md#native-verified-compiler-and-self-hosting), authored in Vela and using its own intermediate representations to reach exact target bytes without a mandatory Clight/CompCert or LLVM stage. Reusable transformation proofs compose during compilation; independent kernel checking, verified bootstrap and final-artifact correspondence remain required. Competitive target optimization and commercial use, redistribution and resident rebuilding of the complete dependency closure need their own qualification. Interim compiler bridges remain valid while that endpoint is unbuilt.
+<a id="owner-to-budget-allocation"></a>
 
-The intended toolchain includes [compiler inspection, editor/debug protocols and
-interchange exports](docs/tooling/tooling-protocols.md): versioned compiler
-views, LSP semantic services, Tree-sitter/TextMate assets, SARIF, SCIP, build
-integration, optimization remarks and compilation traces, with backend-dependent
-RSP/GDB-MI and generated-source maps alongside DAP/DWARF. The separate stages
-below own their interface and consumer qualification. They reuse
-parser/frontend, contextual-diagnostic and backend work at its existing owners;
-the `core-diagnostics` estimate excludes a new server. Semantic editor features
-retain the concrete-law and source-correspondence prerequisites, while syntax-only development support can be scoped
-earlier. Native debugging waits for its executable backend and exact-image debug
-maps. Q25n, Q25o and Q25u supply bounded LSP lifecycle, pure-prototype diagnostics,
-navigation, formatting and semantic tokens qualified across two independent editor
-clients; the wider language-service interfaces remain open.
-
-Prioritize immutable batch inputs, useful diagnostics, basic navigation, explicit
-formatting and inspectable proof obligations for the supported subset. Freeze
-additional syntax and adapter breadth until the synchronous component works.
-Shared inspection, SARIF/SCIP, editor grammar distribution, build integration,
-remarks/traces, remote-debug protocols and generated-output maps require actual
-producers, named consumers and separately commissioned slices. Their existence
-in this option portfolio makes none a first-release dependency.
-The open [tooling/metaprogramming](#tooling-and-metaprogramming) and
-[whole-system cells](#whole-system-delivery) now price these incremental stages.
-The owner table below supplies technical joins; it adds no second estimate or
-implementation acceptance to the current prototypes.
-
-The [metaprogramming contract](docs/extensions/metaprogramming.md) adds ordinary
-static computation, opt-in structural descriptions and contextual checked
-generation to the intended surface. `vela-meta` first qualifies a scoped static
-evaluation slice, then descriptor/derivation and cross-feature composition slices;
-runtime-cost acceptance additionally needs the selected backend. Public semantic
-snapshots belong to `vela-compiler-services`, shared with generation and LSP
-clients. Q25m specifies these boundaries only. Q25k's mathematical prototype,
-Q25i's existing syntax increment and the proposal estimates fund no additional
-implementation. Each selected slice needs its own priced entry and acceptance
-predicate; source and final-artifact qualification remain distinct.
-
-Q25g/Q25h/Q25i already qualify the development/checked parser increments. The open cells now price the other owners' establishment and initial qualification, with finite release/tool maintenance rehearsals. Native compiler work is split into interpreted IRs, Vela implementation, representation/erasure, optimization, target construction, preservation and independent qualification; bootstrap, model adoption and hardware migration keep separate cells. Before implementation, freeze each selected inventory, satisfy its entry predicate, charge shared foundations once and take the required register/prose acts. The existing compiler, machine-logic and hardware work retains its accepted subjects until a successor passes the migration gate. AI may propose programs, proofs and optimizations; acceptance still requires checked evidence and independent review of intended behavior.
-
-| Proposed owner and order | Start | Owns | Check | Join |
-| --- | --- | --- | --- | --- |
-| `vela-parser` · Menhir during development | Q25f's pure source baseline and the [bounded qualification and migration contract](docs/tooling/parser.md); Q25g commissions the pure syntax increment, Q25i the full development surface, and Q25h checked parsing and Python retirement | Q25g and Q25h own their separately priced qualification; broader parser construction stays in `core-frontend`'s existing scope and is charged once | The [development parser contract](docs/assurance/verification-strategy.md#development-parser-and-grammar), refined by Q25g/Q25h/Q25i's acceptance predicates; current compatibility and licensing records are inputs, not acceptance | The generated parser replaces Python parsing only after Q25h's migration predicates pass; full frontend admission retains Q25d's prerequisites, and Vela-authored parsing and retirement of seed/development dependencies remain `vela-native`/`vela-bootstrap` duties |
-| `vela-meta` · staged evaluation and generation | A separately scoped interpretation and required-static interface, reviewed descriptor/construction protocol and the existing frontend-release predicates | Static evaluation, type/declaration descriptions, contextual hygienic derivation and evidence generation; separately qualify the selected dependent/graded/resource/effect interactions | [Metaprogramming qualification](docs/extensions/metaprogramming.md#qualification): independent codec intent and refusals, static/runtime separation, privacy/coherence, target semantics, stale dependency rejection and runtime-artifact cost evidence | Reuse `core-soundness`, frontend, diagnostics and compiler duties at the [composition joins](docs/extensions/full-language-review.md#metaprogramming-and-compiler-service-extension); no new kernel conversion or admission path, and no implicit budget extension |
-| `vela-compiler-services` · shared source and inspection services | A separately priced supported subset and [inspection contract](docs/tooling/tooling-protocols.md#compiler-inspection-api); semantic operations retain their frontend prerequisites and lowering views their backend | Versioned concrete/resolved/typed/elaborated, analysis/proof and lowering views; machine-checkable schemas, bounded queries/bulk snapshots, generated origins and separately checked generation requests | [Inspection acceptance](docs/tooling/tooling-protocols.md#compiler-inspection-api): independent facts/client, source reconstruction, scoped handles, schema versions, partial statuses and stale dependency/configuration/target refusal | Compiler owners implement semantics once; `core-diagnostics` supplies judgments and adapters consume the same identities; no independent proof acceptance or mandatory LLVM representation |
-| `vela-lsp` · editor services | Q25n's bounded lifecycle/diagnostic increment, with later compiler-service subsets gated by the first-release delivery and separately priced consumers under the [LSP contract](docs/tooling/tooling-protocols.md#language-server-protocol) | Overlays, navigation, diagnostics, source edits, semantic tokens and selected folding/selection/inlay/hierarchy capabilities; optional versioned proof-state presentation | [Protocol qualification](docs/tooling/tooling-protocols.md#qualification-and-delivery), including two clients, Unicode positions, dependency invalidation, semantic-token legend/deltas, stale replies and refusal of interactive proof acceptance | Shared compiler facts and batch-only evidence; semantic/proof features retain their producer prerequisites and Q25n buys no wider feature slice |
-| `vela-highlight` · syntax grammar distribution | A separately priced consumer profile, canonical Menhir grammar/corpus and [highlighting contract](docs/tooling/tooling-protocols.md#syntax-grammars-and-highlighting) | Tree-sitter grammar/queries and TextMate lexical grammar for selected editor consumers | Intended consumers recover expected tokens/structure; fresh and incremental syntax agree after edits; malformed, Unicode and cross-feature cases retain declared recovery limits | Syntax-only assets follow the compiler grammar and grant no semantic acceptance; LSP semantic tokens remain `vela-lsp` work |
-| `vela-authoring` · wider formatting and lints | Q25t's pure prototype, the [common authoring contract](docs/tooling/authoring-tools.md), qualified canonical syntax and separately priced frontend fact producers | Extend the shared StyleCop-inspired formatter and stable lints to the selected wider-language features and editor formatting requests | Token/comment and documentation-attachment preservation, idempotence, equivalent reparsed syntax, truthful supported scope, source-bound findings and immutable default checks and explicit source edits | Reuse compiler syntax/facts and default command policy; semantic/resource findings require their qualified checker, and no second grammar or admission route is introduced |
-| `vela-sarif` · batch diagnostic export | A separately priced supported finding set, existing diagnostic producers and [SARIF contract](docs/tooling/tooling-protocols.md#diagnostic-and-semantic-index-exports) | SARIF 2.1.0 rules, findings, locations, related evidence, supported fixes/flows and input-bound completion status | Pinned schema and independent importer agree with expected cross-file/Unicode locations and fixes; malformed references, stale inputs and incomplete analysis cannot masquerade as a clean completed run | Reuse `core-diagnostics` judgments and shared snapshot identities; reports grant no proof/admission authority |
-| `vela-scip` · offline semantic index | A separately priced resolved-symbol subset, source/configuration closure and [SCIP contract](docs/tooling/tooling-protocols.md#diagnostic-and-semantic-index-exports) | Pinned SCIP schema, symbol rules and offline projection; hash-bound provenance/scope manifest and Vela validation wrapper | Independent consumer queries expected definitions/references/implementations without LSP across shadowing/import/generation/rename cases; wrapper refuses stale bindings and reports incomplete scope without claiming reference absence | Consume compiler-resolved identities once; no substitute typed AST or proof-state schema |
-| `vela-build` · build context and operations | A separately priced actual build/package graph, supported client and [build contract](docs/tooling/tooling-protocols.md#build-integration) | BSP targets/options/dependencies and bounded operations; compile_commands.json export for actual C/C++ bridge invocations | Independent clients recover target/configuration/generated-source facts and exact bridge arguments; cancellation, failed builds and stale graphs preserve batch verdicts | Build owners supply graph/tools once; no assumed C stage, duplicate module graph or interactive admission |
-| `vela-remarks` · optimization explanations | A separately priced actual optimization producer and [remarks contract](docs/tooling/tooling-protocols.md#compiler-decisions-and-performance-traces) | LLVM-remarks-compatible export with pass/site decisions and documented Vela-specific reason records | Independent reader and chosen applied/missed/refused cases agree on decisions, source/IR origins and unsupported extensions | Existing compiler owns transformations and proofs; compatibility adds no mandatory LLVM pipeline or measured speedup claim |
-| `vela-traces` · compiler performance visibility | A separately priced phase instrumentation profile and [trace contract](docs/tooling/tooling-protocols.md#compiler-decisions-and-performance-traces) | Chrome Trace Event JSON or native Perfetto export with clocks/units, nesting, workers, counters, identities and bounded recording | Independent viewer recovers deterministic fixture ordering/durations; recorder and Vela wrapper validate bound completeness metadata so dropped events, truncation, malformed time and cancellation cannot claim a complete measurement | Compiler phases own work once; overhead is measured separately and traces supply no emitted-program WCET evidence |
-| `vela-dwarf` · native debug information | An executable producer with a fixed ABI, compiler source maps and the [DWARF contract](docs/tooling/tooling-protocols.md#dwarf-native-debug-information) | Emit and preserve source/type/scope/location/unwind data through final composition; exact-image sidecars, CHERI encodings and consumer compatibility | [Protocol qualification](docs/tooling/tooling-protocols.md#qualification-and-delivery), including independent reading, optimized locations, capability values, malformed sections and source/image mismatch | Native lowering and final-layout owners supply mappings once; metadata remains outside execution SRAM and the install path |
-| `vela-dap` · source debugger | A separately qualified execution backend, matching source/debug artifacts and the [DAP contract](docs/tooling/tooling-protocols.md#debug-adapter-protocol); physical targets additionally require authorized development/RMA access | DAP lifecycle, source stops/stepping, stacks/scopes/values and bounded read-only evaluation; simulator first, explicit backend capabilities | [Protocol qualification](docs/tooling/tooling-protocols.md#qualification-and-delivery), including independently expected stops/values, stale handles, unauthorized inspection and production-target refusal | Consume `vela-dwarf` for native images; preserve hardware trigger exclusion and immutable code, without charging backend construction to the adapter |
-| `vela-debug-backend` · conditional debugger integration | A named debugger-engine/simulator or authorized target connection, separately priced protocol subset and [backend contract](docs/tooling/tooling-protocols.md#debugger-backend-protocols) | GDB RSP for the selected engine/target link; GDB/MI only when driving GDB; exact registers and CHERI metadata | Independent engine observes expected stops/values and capability metadata; stale/reconnected targets, malformed packets and unauthorized operations are refused | Consume existing DAP/DWARF/backend work; no hardware triggers, code patching or production debug access; direct adapters need no RSP/MI layer |
-| `vela-source-maps` · conditional generated-output maps | A selected compatible JavaScript/WebAssembly output consumer, separately priced exporter and [source-map contract](docs/tooling/tooling-protocols.md#generated-source-maps) | Pinned ECMA-426 export and hash-bound map/output/source manifest, with compiler-owned expansion origins and a Vela validation wrapper | Independent consumer resolves composed/Unicode/unmapped sites; separately the wrapper refuses changed map/output/source identities before consumer handoff; draft-only extensions stay explicit | Reuse compiler source maps once; native locations/types/unwinding remain DWARF duties and native-only stages need no ECMA-426 export |
-| `vela-software` · operational software migration | Accepted first release, frozen software inventory and supplied component contracts/laws | Vela authorship, representation and source/artifact qualification beyond the two already priced release clients; reuse the retained compiler route | [Software acceptance](docs/extensions/unified-source-contract.md#software-and-proof-boundary), including every selected error/resource path, source edit and exact installed bytes | Current compiler/admission and canonical Sail consumers; no handwritten optimized implementation or second budget for the first-release bridge |
-| `vela-proofs` · complete proof authorship | The interpreted frontend and reviewed theorem subjects for a selected library or metatheory package | General mathematical definitions and proofs in Vela, interoperating with retained checked libraries | [Proof-surface acceptance](docs/extensions/unified-source-contract.md#software-and-proof-boundary); no mandatory handwritten Rocq fallback for the accepted package | Rocq/CIC rechecks generated terms and exact assumptions; replacing its checker is a separate decision |
-| `vela-native` · native verified compiler | Admitted source/IR interpretations, concrete CHERI laws, selected target and reviewed replacement-duty scope; independent of machine-authoring migration | Vela-authored native pipeline, representation and optimization proofs, selection/allocation, ABI, assembly/link/image construction and complete licence closure | [Native-compiler acceptance](docs/extensions/unified-source-contract.md#native-verified-compiler-and-self-hosting), including held-out systems/compute clients, checked search proposals, relational security, resources and final bytes | Current producers and validation remain required until equivalent evidence and explicit amendments admit the replacement; no assumed LLVM parity or performance saving |
-| `vela-bootstrap` · verified self-hosting | Qualified native compiler definition, sufficient Vela implementation/proof surface and a reviewed seed/evaluation trust boundary | Connection from proved compiler definition to running binary, exact bootstrap stages and checked self-compilation of its declared source closure | [Bootstrap acceptance](docs/extensions/unified-source-contract.md#native-verified-compiler-and-self-hosting); source/binary correspondence and assumptions check, with reproducibility additional to the theorem | Resident-toolchain runtime/admission and distribution duties; independent evidence checking remains required |
-| `vela-machine` · qualify the ISA replacement | An admitted interpretation, independently reviewed machine contract and the pinned Sail model | Vela-authored machine definition, parameterized configuration closure, executable semantics and migration agreement | [Machine-model acceptance](docs/extensions/unified-source-contract.md#machine-model) and its [negative cases](docs/extensions/unified-source-contract.md#qualification-cases) | Qualification replays binary logic, TAL, constant-time, timing and hardware evidence over one candidate term; accepted-generation consumers switch at adoption |
-| `vela-hardware` · hardware authoring and generation | The hardware subset's reviewed cycle/register interpretation and selected block contract; machine adoption need not wait for every hardware port | Vela hardware descriptions and checked generation/refinement for each selected block | [Hardware acceptance](docs/extensions/unified-source-contract.md#hardware), preserving the block's required evidence or theorem tier | Retained RTL and imported-core paths through explicit interfaces; the final whole-system authoring claim needs every in-scope authored block |
-| `vela-retirement` · canonical-model adoption and retirement | Accepted machine agreement, reviewed amendment dossier and completed affected-consumer inventory | Atomic adoption of the shared replacement model and retirement of active Sail authoring/tool dependencies | [Migration and retirement](docs/extensions/unified-source-contract.md#migration-and-retirement); no private semantics, circular oracle or missing consumer evidence | Updated register/prose and all affected compiler, admission, proof, emulator, timing and hardware artifacts in the same admitted generation |
-
-The proof surface, native compiler and hardware subset may be qualified independently once their own inputs exist; verified self-hosting consumes the qualified native compiler. Machine adoption is a separate decision from hardware-source migration: both sides of the retained hardware theorem must name the newly admitted canonical model before Sail retires, even when the hardware description is still authored through the current route. Historical Sail evidence remains retained. Complete single-language authorship additionally requires replacing every in-scope handwritten implementation and proof surface and, for the declared toolchain closure, qualifying the native compiler and bootstrap; a successful compiler frontend alone closes none of those claims.
-
-### Owner-to-budget allocation
-
-These links allocate the stage tables to checklist cells; they add no hours.
-
-| Owner or delivery slice | Budget cells |
+| Select an option when | Implementation order and evidence |
 | --- | --- |
-| `Shared prerequisite owners` | [Q25am](#q25am), [Q25an](#q25an), [Q25ao](#q25ao), [Q25ap](#q25ap), [Q25aq](#q25aq), [Q25ar](#q25ar) |
-| `Core interpretation/frontend/diagnostics/fixture` | [Q25as](#q25as), [Q25at](#q25at), [Q25au](#q25au), [Q25av](#q25av) |
-| `Represented runtime libraries/packages/lowering` | [Q25aw](#q25aw), [Q25ax](#q25ax), [Q25ay](#q25ay), [Q25az](#q25az) |
-| `vela-first-slice / vela-package-trial / vela-release` | [Q25ba](#q25ba), [Q25bb](#q25bb), [Q25bc](#q25bc) |
-| `vela-service / bounded pools` | [Q25bw](#q25bw), [Q25bx](#q25bx) |
-| `Graded/control/mutation and assurance-policy extensions` | [Q25be](#q25be), [Q25bf](#q25bf), [Q25bg](#q25bg), [Q25bh](#q25bh), [Q25bi](#q25bi), [Q25bj](#q25bj), [Q25bk](#q25bk), [Q25bl](#q25bl), [Q25bm](#q25bm), [Q25bn](#q25bn), [Q25bo](#q25bo), [Q25bp](#q25bp), [Q25bq](#q25bq), [Q25br](#q25br), [Q25bs](#q25bs), [Q25bt](#q25bt), [Q25bu](#q25bu), [Q25bv](#q25bv) |
-| `Conditional usability, borrowing and proof-transfer trials` | [Q25by](#q25by), [Q25bz](#q25bz), [Q25ca](#q25ca), [Q25cb](#q25cb), [Q25cc](#q25cc), [Q25cd](#q25cd), [Q25ce](#q25ce), [Q25cf](#q25cf), [Q25cg](#q25cg) |
-| `vela-meta` | [Q25cw](#q25cw), [Q25cx](#q25cx), [Q25cy](#q25cy), [Q25cz](#q25cz) |
-| `vela-native` | [Q25dd](#q25dd), [Q25de](#q25de), [Q25df](#q25df), [Q25dg](#q25dg), [Q25dh](#q25dh), [Q25di](#q25di), [Q25dj](#q25dj) |
-| `Maintenance` | [Q25bd](#q25bd), [Q25da](#q25da) |
-| `vela-compiler-services` | [Q25ch](#q25ch) |
-| `vela-lsp` | [Q25ci](#q25ci) |
-| `vela-highlight` | [Q25cj](#q25cj) |
-| `vela-authoring` | [Q25ck](#q25ck) |
-| `vela-sarif` | [Q25cl](#q25cl) |
-| `vela-scip` | [Q25cm](#q25cm) |
-| `vela-build` | [Q25cn](#q25cn) |
-| `vela-remarks` | [Q25co](#q25co) |
-| `vela-traces` | [Q25cp](#q25cp) |
-| `vela-dwarf` | [Q25cq](#q25cq) |
-| `debug-runtime` | [Q25cr](#q25cr) |
-| `vela-dap` | [Q25cs](#q25cs) |
-| `vela-debug-backend` | [Q25ct](#q25ct) |
-| `web-output` | [Q25cu](#q25cu) |
-| `vela-source-maps` | [Q25cv](#q25cv) |
-| `vela-proofs` | [Q25db](#q25db) |
-| `vela-software` | [Q25dc](#q25dc) |
-| `vela-bootstrap` | [Q25dk](#q25dk) |
-| `vela-machine` | [Q25dl](#q25dl) |
-| `vela-hardware` | [Q25dm](#q25dm) |
-| `vela-retirement` | [Q25dn](#q25dn) |
+| A named tooling consumer needs more than the qualified host features | Reuse the compiler's source identities and judgments. Indexing needs package resolution, BSP needs a locked build graph, and optimization remarks need actual pass decisions. Native DAP consumes exact-image DWARF and a qualified simulator. Add RSP or GDB/MI only for an engine that needs it. Generated-source maps require a compatible output producer. Each adapter qualifies with its own consumer. [Tooling cells](#tooling-and-metaprogramming) and [protocol contracts](docs/tooling/tooling-protocols.md). |
+| A client needs static evaluation or generated code | Qualify target-aware evaluation, then publish the reviewed descriptor protocol so hygienic construction can start. The codec can finish once it consumes the checked construction interface. Cross-feature clients also need their selected laws and backend. [Metaprogramming cells](#q25cw) and [qualification](docs/extensions/metaprogramming.md#qualification). |
+| A proof package or software component is selected for migration | Proof authorship can start with a checked frontend and reviewed theorem subjects. Software migration needs the accepted release, retained compiler route and component contracts. Qualify each additional component through its final bytes. [Proof authorship](#q25db) and [software migration](#q25dc). |
+| A selected target needs a Vela-authored native compiler | Admit its IR interpretations, then qualify implementation, representation and erasure, optimizations, target construction and composed preservation through exact bytes. Independent held-out consumers and distribution rights qualify the closure. Self-hosting subsequently connects the proved compiler and reviewed seed to its own binaries. [Native compiler](#q25dd) and [bootstrap](#q25dk). |
+| A replacement ISA model or hardware block is selected | Model agreement consumes the pinned Sail term. Block migration can proceed independently with reviewed cycle semantics and a canonical machine interface. Adopt the replacement model atomically across all consumers, including both sides of hardware refinement, and retain historical evidence. [Machine model](#q25dl), [hardware](#q25dm) and [migration gate](docs/extensions/unified-source-contract.md#migration-and-retirement). |
 
-The existing `vela-parser` stage reuses completed Q25g/h/i; later Vela-authored
-parsing is in the native implementation and bootstrap cells. Source maps have
-an explicit web-output producer; DAP has an explicit simulator execution producer.
-Host protocol projections do not silently acquire resident transports or admission.
+The proof, native compiler and hardware options can progress in parallel once
+their own inputs exist. The current toolchain and model serve each consumer
+until its replacement has the required evidence and amendments. A claim of
+complete single-language authorship covers every in-scope implementation and
+proof. Including the toolchain also requires qualified native compilation and
+bootstrap.
