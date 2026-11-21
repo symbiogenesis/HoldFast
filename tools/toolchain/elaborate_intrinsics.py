@@ -1878,6 +1878,26 @@ class _IntrinsicsMixin:
     def expression(
         self: _Elaborator, node: Node, environment: dict[str, _Binding], *, standalone_call: bool = False
     ) -> _Binding:
+        binding = self._expression(node, environment, standalone_call=standalone_call)
+        if binding.type.kind != "pi":
+            return binding
+        head, supplied = self.spine(self.resolve(binding.term))
+        if head.kind == "const":
+            requirements = self.callable_preconditions.get(str(head.value), [])
+            record = self.records_by_ctor.get(str(head.value))
+            if record is not None and record.invariants:
+                raise self.fail("type", "a constructor with invariants requires a direct call or a checked wrapper", node)
+        elif head.kind == "var":
+            requirements = self.var_preconditions.get(cast("int", head.value), [])
+        else:
+            return binding
+        if any(len(supplied) < len(parameters) for parameters, _ in requirements):
+            raise self.fail("type", "a callable with pending preconditions requires a direct call or a checked wrapper", node)
+        return binding
+
+    def _expression(
+        self: _Elaborator, node: Node, environment: dict[str, _Binding], *, standalone_call: bool = False
+    ) -> _Binding:
         self.tick()
         self.site = node
         kind = node["kind"]
@@ -2048,7 +2068,7 @@ class _IntrinsicsMixin:
                     and full_callee_path.split(".", 1)[0] not in environment
                     and (full_callee_path in self.globals or full_callee_path in self.inaccessible_private_symbols)
                 ):
-                    return self.apply(self.expression(callee, environment), call_args, environment)
+                    return self.apply(self._expression(self._unwrap_group(callee), environment), call_args, environment)
                 receiver = self.node(base_callee["value"])
                 member_name = self.name(base_callee["name"])
                 recv_for_method: _Binding | None = None
@@ -2359,7 +2379,7 @@ class _IntrinsicsMixin:
                     )
                 if not gen_args and cname in _INT_INTRINSICS and cname not in environment and cname not in self.globals:
                     return self._elaborate_int_intrinsic(cname, call_args, environment, node)
-            return self.apply(self.expression(callee, environment), call_args, environment)
+            return self.apply(self._expression(self._unwrap_group(callee), environment), call_args, environment)
         if kind in {"lambda", "typed_lambda"}:
             return self.lambda_(node, environment)
         if kind == "let_expression":

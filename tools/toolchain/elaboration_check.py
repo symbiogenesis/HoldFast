@@ -821,6 +821,12 @@ public Nat RoundTripOwned()
          "definition Nat Wrong(F function, Nat runtime) => function(runtime);", "type"),
         ("static-callable-requirement-erasure", "alias F = Fn(const Nat index) -> Nat; "
          "definition Fn(Nat index) -> Nat Wrong(F function) => function;", "type"),
+        ("quantified-call-precondition", "Nat Guard(Nat x) requires (exists (Nat k) => k + 1 == 0) => x; "
+         "Nat Wrong() => Guard(7);", "type"),
+        ("callback-precondition-erasure", "u8 Inc(u8 x) requires x < 255u8 => x + 1u8; "
+         "u8 Apply(Fn(u8 x) -> u8 f, u8 x) => f(x); u8 Wrong() => Apply(Inc, 255u8);", "type"),
+        ("recursive-call-precondition", "definition u8 Go(Nat n, u8 x) requires x < 255u8 decreases n => "
+         "match (n) { 0 => x + 1u8, Succ(k) => Go(k, 255u8) };", "type"),
         ("wrong-call-domain", "definition Nat Identity(Nat x) => x; "
          "definition Nat Wrong() => Identity(true);", "type"),
         ("unequal-vector-index", "definition Vec<Nat,0> Wrong() => VCons(1, VNil<Nat>());", "type"),

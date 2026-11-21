@@ -52,7 +52,10 @@ The supported increment includes:
   named `Fn` parameters; unnamed callable parameters accept no labels. No
   argument reordering, omission or defaults are inferred. Dependent later
   parameters are instantiated in declaration order before their arguments are
-  checked, preserving complete telescope substitution.
+  checked, preserving complete telescope substitution. Recursive and direct calls
+  check every declared precondition, including quantified propositions. A
+  callable with outstanding preconditions can be passed as an ordinary function
+  through a wrapper that establishes those preconditions for its own domain.
 - Mathematical `Nat`, `bool`, `char`, `Unit`, products, decidable structural
   Boolean equality (`==`, `!=`) over `Nat`, `bool`, `char`, `Unit`, fixed-width
   integers, tuples, `Vec<T, n>`, `Seq<T>` and non-dependent nominal `record` and

@@ -595,6 +595,7 @@ class _DeclarationsMixin:
         self.entry_env = dict(method_env)
         self.final_ref_bindings = dict(method_env)
         req_bool_terms: list[_Term] = []
+        call_requirements: list[_Term] = []
         req_vars: list[_Term] = []
         for req_idx, req_contract in enumerate(requires_clauses):
             req_val_node = self.node(req_contract["value"])
@@ -608,6 +609,7 @@ class _DeclarationsMixin:
                     req_val = None
             if req_val is not None and self.whnf(req_val.type) == _BOOL:
                 req_bool_terms.append(req_val.term)
+                call_requirements.append(req_val.term)
                 eq_prop = _apps(_constant("Eq"), _BOOL, req_val.term, _term("bool", value=1))
                 req_var = self.fresh(eq_prop)
                 req_vars.append(req_var)
@@ -615,6 +617,7 @@ class _DeclarationsMixin:
             else:
                 self.restore_metas(saved_req_metas)
                 req_prop = self.proposition(req_val_node, method_env)
+                call_requirements.append(req_prop)
                 req_var = self.fresh(req_prop)
                 req_vars.append(req_var)
                 method_env[f"__vela_req_{req_idx}"] = _Binding(req_var, req_prop)
@@ -681,7 +684,7 @@ class _DeclarationsMixin:
         elif m_kind == "function":
             self.untracked_effect_functions.add(m_emitted)
         param_ids = tuple(cast("int", v.value) for v in all_vars)
-        preconditions = tuple((param_ids, req_t) for req_t in req_bool_terms)
+        preconditions = tuple((param_ids, req_t) for req_t in call_requirements)
         if preconditions:
             self.callable_preconditions[m_emitted] = list(preconditions)
         if ensures_clauses:
@@ -2651,6 +2654,7 @@ class _DeclarationsMixin:
             self_var: _Term | None = None
             candidates: list[tuple[int, int]] = []
             req_bool_terms: list[_Term] = []
+            call_requirements: list[_Term] = []
             req_vars: list[_Term] = []
             req_props: list[_Term] = []
             generic_vars = variables[:len(generics)]
@@ -2722,6 +2726,7 @@ class _DeclarationsMixin:
                                 req_val = None
                         if req_val is not None and self.whnf(req_val.type) == _BOOL:
                             req_bool_terms.append(req_val.term)
+                            call_requirements.append(req_val.term)
                             eq_prop = _apps(_constant("Eq"), _BOOL, req_val.term, _term("bool", value=1))
                             req_var = self.fresh(eq_prop)
                             req_vars.append(req_var)
@@ -2729,6 +2734,7 @@ class _DeclarationsMixin:
                         else:
                             self.restore_metas(saved_req_metas)
                             req_prop = self.proposition(req_val_node, environment)
+                            call_requirements.append(req_prop)
                             req_var = self.fresh(req_prop)
                             req_vars.append(req_var)
                             environment[f"__vela_req_{req_idx}"] = _Binding(req_var, req_prop)
@@ -2809,6 +2815,9 @@ class _DeclarationsMixin:
                 signature = self.wrap("pi", variables, result)
                 self_var = self.fresh(signature)
                 self_binding = _Binding(self_var, signature, len(generics))
+                param_ids = tuple(cast("int", v.value) for v in [*generic_vars, *param_vars])
+                if call_requirements:
+                    self.var_preconditions[cast("int", self_var.value)] = [(param_ids, req) for req in call_requirements]
                 body_env = dict(environment)
                 if name not in body_env:
                     body_env[name] = self_binding
@@ -3149,9 +3158,8 @@ class _DeclarationsMixin:
                     )
                     self.constants[extra_emitted] = _Binding(_constant(extra_emitted), extra_sig, len(generics))
                     self.definitions[extra_emitted] = extra_def
-            if req_bool_terms and kind in {"definition", "function"}:
-                base_param_ids = tuple(cast("int", v.value) for v in [*generic_vars, *param_vars])
-                self.callable_preconditions[emitted] = [(base_param_ids, req_t) for req_t in req_bool_terms]
+            if call_requirements and self_var is not None:
+                self.callable_preconditions[emitted] = self.var_preconditions[cast("int", self_var.value)]
             span_u8 = _app(_constant("Span"), _U8)
             auto_restores_params: list[tuple[str, Node]] = []
             if kind in {"definition", "function"}:
