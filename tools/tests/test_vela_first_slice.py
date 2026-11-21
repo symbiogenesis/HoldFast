@@ -4,6 +4,7 @@
 import copy
 import hashlib
 import re
+import subprocess
 import tempfile
 from pathlib import Path
 from typing import cast
@@ -592,6 +593,26 @@ def _first_slice_source_proofs() -> None:
                    for item in solver_ledger.ledger(wrong.gallina)), "public contract accepted an absent payload copy")
 
 
+def _execute_generated_packet_c() -> None:
+    root = TOOLS.parent
+    source = (root / vela_first_slice.EXAMPLE).read_bytes()
+    with parser.cached_build(root) as compiled:
+        parsed = parser.parse_source(compiled, source, surface=True)
+    checked = vela_elaborate.elaborate(source, parsed)
+    with tempfile.TemporaryDirectory() as temporary:
+        c_file = Path(temporary) / "packet.c"
+        executable = Path(temporary) / "packet"
+        for expected in (0, *(number for number, _ in vela_first_slice.PERTURBED_CASES)):
+            generated, checks = vela_first_slice.lower_to_c(source, parsed, checked=checked, perturb_check=expected)
+            ensure(checks == 19, "emitted packet scenario check count changed")
+            c_file.write_text(generated, encoding="utf-8")
+            for optimization in ("-O0", "-O2"):
+                subprocess.run(["cc", "-std=c11", optimization, str(c_file), "-o", str(executable)],
+                               check=True, timeout=30)
+                observed = subprocess.run([str(executable)], check=False, timeout=5).returncode
+                ensure(observed == expected, f"packet C {optimization} returned {observed}, expected {expected}")
+
+
 def _packet_contextual_literals() -> None:
     root = TOOLS.parent
     source = (root / "examples/first_slice.vela").read_bytes()
@@ -684,5 +705,6 @@ def cases() -> list[Case]:
         Case("ordered-scalar-calls-under-short-circuit", _ordered_scalar_calls),
         Case("clight-lowering-and-purecap-cheri-assembly", _clight_lowering_and_purecap_assembly),
         Case("first-slice-constructive-source-proofs-with-fixed-budgets", _first_slice_source_proofs, lane="guest"),
+        Case("execute-generated-packet-c-and-perturbed-scenarios", _execute_generated_packet_c, lane="guest"),
         Case("packet-contextual-literals-match-explicit-representations", _packet_contextual_literals, lane="guest"),
     ]

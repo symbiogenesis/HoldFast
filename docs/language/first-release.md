@@ -573,6 +573,9 @@ to the symbolic source model. Exact executable admission also requires the
      `compcert_sail.available: false`. Rebuilding this dependency requires the
      private source revision and driver described in the
      [VerifiedOS compiler build contract](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/implementation/contracts/contained-compiler-reuse.md).
+     Independently, the guest behavioral suite compiles the generated packet C
+     with the system C11 compiler at `-O0` and `-O2` and checks all five exit
+     codes. This exercises the C generator on a fresh development machine.
 - **Retained development receipts:** schema 2 binds the producer Git revision,
   current local toolchain Python sources, parser sources and generated outputs,
   dependency locks, instruction-encoding data, locked prover binaries and runtime
