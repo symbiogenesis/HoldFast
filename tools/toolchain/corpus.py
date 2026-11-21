@@ -177,7 +177,7 @@ class Corpus:
         return self.by_name.get(name)
 
 
-def _git_environment(root: Path) -> dict[str, str] | None:
+def git_environment(root: Path) -> dict[str, str] | None:
     """Return an environment dict with [proofenv.py](proofenv.py)'s Git worktree overlay, or `None` if unneeded.
 
     A linked worktree created by Windows Git stores a Windows path in its `.git`
@@ -193,7 +193,7 @@ def _git(root: Path, *args: str) -> list[str]:
     try:
         proc = subprocess.run(
             ["git", *args], cwd=root, capture_output=True, check=False,
-            env=_git_environment(root), stdin=subprocess.DEVNULL, timeout=GIT_TIMEOUT,
+            env=git_environment(root), stdin=subprocess.DEVNULL, timeout=GIT_TIMEOUT,
         )
     except subprocess.TimeoutExpired as error:
         raise RuntimeError(f"git {' '.join(args)} exceeded {GIT_TIMEOUT} seconds") from error
