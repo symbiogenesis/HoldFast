@@ -522,19 +522,11 @@ Abbreviation vela_xd x := (vela_1 (vela_1 (vela_0 (vela_1 x)))) (only parsing).
 Abbreviation vela_xe x := (vela_1 (vela_1 (vela_1 (vela_0 x)))) (only parsing).
 Abbreviation vela_xf x := (vela_1 (vela_1 (vela_1 (vela_1 x)))) (only parsing).
 
-Inductive vela_int (tag : nat) : Type@{vela_u0} :=
-| vela_mk_int : vela_bits -> vela_int tag.
-
 Fixpoint vela_bits_eqb (a b : vela_bits) : bool :=
   match a, b with
   | vela_bnil, vela_bnil => true
   | vela_bcons x xs, vela_bcons y ys => vela_and (vela_eq_bool x y) (vela_bits_eqb xs ys)
   | _, _ => false
-  end.
-
-Definition vela_int_bits (tag : nat) (x : vela_int tag) : vela_bits :=
-  match x with
-  | vela_mk_int _ bs => bs
   end.
 
 Definition vela_xorb (a b : bool) : bool := if a then vela_not b else b.
@@ -624,6 +616,37 @@ Definition vela_tag_bits (tag : nat) : nat :=
   | S (S (S (S (S (S (S O)))))) => 32
   | _ => 64
   end.
+
+Inductive vela_word : nat -> Type@{vela_u0} :=
+| vela_wnil : vela_word O
+| vela_wcons : forall n, bool -> vela_word n -> vela_word (S n).
+
+Fixpoint vela_word_bits {n : nat} (w : vela_word n) : vela_bits :=
+  match w with
+  | vela_wnil => vela_bnil
+  | vela_wcons _ b tail => vela_bcons b (vela_word_bits tail)
+  end.
+
+Fixpoint vela_bits_word (n : nat) (bs : vela_bits) : vela_word n :=
+  match n with
+  | O => vela_wnil
+  | S k => match bs with
+           | vela_bnil => vela_wcons k false (vela_bits_word k vela_bnil)
+           | vela_bcons b tail => vela_wcons k b (vela_bits_word k tail)
+           end
+  end.
+
+Inductive vela_int (tag : nat) : Type@{vela_u0} :=
+| vela_word_int : vela_word (vela_tag_bits tag) -> vela_int tag.
+
+Definition vela_mk_int (tag : nat) (bs : vela_bits) : vela_int tag :=
+  vela_word_int tag (vela_bits_word (vela_tag_bits tag) bs).
+Definition vela_int_bits (tag : nat) (x : vela_int tag) : vela_bits :=
+  match x with vela_word_int _ w => vela_word_bits w end.
+
+Lemma vela_word_roundtrip : forall n (w : vela_word n),
+  vela_bits_word n (vela_word_bits w) = w.
+Proof. intros n w; induction w; simpl; congruence. Qed.
 
 Definition vela_tag_signed (tag : nat) : bool :=
   Corelib.Init.Nat.leb 5 tag.
@@ -1024,13 +1047,32 @@ Definition vela_int_try_from_Nat (dst : nat) (n : nat)
   then vela_Result_Ok (vela_int dst) vela_ConversionError (vela_mk_int dst (vela_nat_to_bits w n))
   else vela_Result_Err (vela_int dst) vela_ConversionError (vela_ConversionError_OutOfRange tt).
 
+Definition vela_char_scalar_bits (bs : vela_bits) : bool :=
+  vela_and
+    (vela_bits_ule bs (vela_x0 (vela_x0 (vela_x1 (vela_x0 (vela_xf (vela_xf (vela_xf (vela_xf vela_bnil)))))))))
+    (vela_or
+      (vela_bits_ult bs (vela_x0 (vela_x0 (vela_x0 (vela_x0 (vela_xd (vela_x8 (vela_x0 (vela_x0 vela_bnil)))))))))
+      (vela_bits_ult (vela_x0 (vela_x0 (vela_x0 (vela_x0 (vela_xd (vela_xf (vela_xf (vela_xf vela_bnil)))))))) bs)).
+
+Definition vela_valid_scalar (n : nat) : bool :=
+  vela_and (vela_nat_fits 32 n) (vela_char_scalar_bits (vela_nat_to_bits 32 n)).
+
 Inductive vela_char : Type@{vela_u0} :=
-| vela_mk_char : nat -> vela_char.
+| vela_scalar : forall n, vela_valid_scalar n = true -> vela_char.
+
+Definition vela_mk_char (n : nat) : vela_char :=
+  match vela_valid_scalar n as b return (vela_valid_scalar n = b -> vela_char) with
+  | true => fun valid => vela_scalar n valid
+  | false => fun _ => vela_scalar O eq_refl
+  end eq_refl.
 
 Definition vela_char_code (c : vela_char) : nat :=
   match c with
-  | vela_mk_char n => n
+  | vela_scalar n _ => n
   end.
+
+Lemma vela_char_wellformed : forall c, vela_valid_scalar (vela_char_code c) = true.
+Proof. intros [n valid]; exact valid. Qed.
 
 Definition vela_char_eq (a b : vela_char) : bool :=
   Corelib.Init.Nat.eqb (vela_char_code a) (vela_char_code b).
@@ -1050,12 +1092,6 @@ Definition vela_char_to_u32 (c : vela_char) : vela_int (2 : nat) :=
   vela_mk_int (2 : nat) (vela_nat_to_bits 32 (vela_char_code c)).
 Definition vela_char_from_u8 (b : vela_int (0 : nat)) : vela_char :=
   vela_mk_char (vela_bits_to_nat_acc (vela_int_bits (0 : nat) b) O).
-Definition vela_char_scalar_bits (bs : vela_bits) : bool :=
-  vela_and
-    (vela_bits_ule bs (vela_x0 (vela_x0 (vela_x1 (vela_x0 (vela_xf (vela_xf (vela_xf (vela_xf vela_bnil)))))))))
-    (vela_or
-      (vela_bits_ult bs (vela_x0 (vela_x0 (vela_x0 (vela_x0 (vela_xd (vela_x8 (vela_x0 (vela_x0 vela_bnil)))))))))
-      (vela_bits_ult (vela_x0 (vela_x0 (vela_x0 (vela_x0 (vela_xd (vela_xf (vela_xf (vela_xf vela_bnil)))))))) bs)).
 Definition vela_char_try_from_u32 (v : vela_int (2 : nat))
     : vela_Result vela_char vela_ConversionError :=
   let bs := vela_int_bits (2 : nat) v in
@@ -1064,7 +1100,7 @@ Definition vela_char_try_from_u32 (v : vela_int (2 : nat))
   else vela_Result_Err vela_char vela_ConversionError (vela_ConversionError_OutOfRange tt).
 Definition vela_char_try_from_Nat (n : nat)
     : vela_Result vela_char vela_ConversionError :=
-  if vela_and (vela_nat_fits 32 n) (vela_char_scalar_bits (vela_nat_to_bits 32 n))
+  if vela_valid_scalar n
   then vela_Result_Ok vela_char vela_ConversionError (vela_mk_char n)
   else vela_Result_Err vela_char vela_ConversionError (vela_ConversionError_OutOfRange tt).
 
@@ -1175,14 +1211,14 @@ Definition vela_int_eq_of_eq (tag : nat) (x y : vela_int tag)
   | @Corelib.Init.Logic.eq_refl _ _ => vela_int_eq_refl tag x
   end.
 
-Definition vela_int_eq_true (tag : nat) (x y : vela_int tag)
-    (h : @Corelib.Init.Logic.eq bool (vela_int_eq tag x y) true)
-    : @Corelib.Init.Logic.eq (vela_int tag) x y :=
-  match x as x0, y as y0 return (@Corelib.Init.Logic.eq bool (vela_int_eq tag x0 y0) true -> @Corelib.Init.Logic.eq (vela_int tag) x0 y0) with
-  | vela_mk_int _ bx, vela_mk_int _ by0 => fun h0 =>
-      @Corelib.Init.Logic.f_equal vela_bits (vela_int tag) (vela_mk_int tag) bx by0
-        (vela_bits_eqb_true bx by0 h0)
-  end h.
+Lemma vela_int_eq_true (tag : nat) (x y : vela_int tag)
+    (h : vela_int_eq tag x y = true) : x = y.
+Proof.
+  destruct x as [a], y as [b].
+  apply (vela_bits_eqb_true (vela_word_bits a) (vela_word_bits b)) in h.
+  apply (f_equal (vela_bits_word (vela_tag_bits tag))) in h.
+  rewrite !vela_word_roundtrip in h. now subst.
+Qed.
 
 Definition vela_int_ne_false (tag : nat) (x y : vela_int tag)
     (h : @Corelib.Init.Logic.eq bool (vela_int_ne tag x y) true)
@@ -1269,7 +1305,8 @@ Definition vela_extent_end (base len : vela_int (4 : nat)) : vela_int (4 : nat) 
 
 Lemma vela_usize_le_refl (x : vela_int (4 : nat)) : vela_int_le (4 : nat) x x = true.
 Proof.
-  destruct x as [xs]. change (vela_bits_ule xs xs = true).
+  destruct x as [w]. change (vela_bits_ule (vela_word_bits w) (vela_word_bits w) = true).
+  generalize (vela_word_bits w); intro xs.
   induction xs as [|b xs IH]. reflexivity. destruct b; exact IH.
 Qed.
 
@@ -1887,11 +1924,54 @@ Proof.
   simpl; f_equal; eapply IH; reflexivity.
 Qed.
 
+Lemma vela_word_bits_length : forall n (w : vela_word n), vela_bits_len (vela_word_bits w) = n.
+Proof. intros n w; induction w; simpl; congruence. Qed.
+
+Lemma vela_int_width : forall tag (x : vela_int tag), vela_bits_len (vela_int_bits tag x) = vela_tag_bits tag.
+Proof. intros tag [w]; apply vela_word_bits_length. Qed.
+
+Lemma vela_bits_roundtrip : forall bs, vela_word_bits (vela_bits_word (vela_bits_len bs) bs) = bs.
+Proof. induction bs; simpl; congruence. Qed.
+
+Lemma vela_bits_rev_acc_length : forall a acc,
+  vela_bits_len (vela_bits_rev_acc a acc) = Corelib.Init.Nat.add (vela_bits_len a) (vela_bits_len acc).
+Proof.
+  induction a as [|x xs IH]; intro acc; simpl; [reflexivity | rewrite IH; simpl].
+  generalize (vela_bits_len xs) (vela_bits_len acc). intros n m; induction n; simpl; congruence.
+Qed.
+
+Lemma vela_bits_rev_length : forall a, vela_bits_len (vela_bits_rev a) = vela_bits_len a.
+Proof.
+  intro a; unfold vela_bits_rev; rewrite vela_bits_rev_acc_length; simpl.
+  generalize (vela_bits_len a); intro n; induction n; simpl; congruence.
+Qed.
+
+Lemma vela_bits_add_lsb_length : forall a b c, vela_bits_len a = vela_bits_len b ->
+  vela_bits_len (vela_bits_add_lsb a b c) = vela_bits_len a.
+Proof.
+  induction a as [|x xs IH]; intros [|y ys] c H; simpl in *; try discriminate; try reflexivity.
+  f_equal; apply IH; now injection H.
+Qed.
+
+Lemma vela_bits_word_exact : forall n bs, vela_bits_len bs = n ->
+  vela_word_bits (vela_bits_word n bs) = bs.
+Proof. intros n bs H; subst n; apply vela_bits_roundtrip. Qed.
+
+Lemma vela_int_add_bits : forall tag a b, vela_int_bits tag (vela_int_add tag a b) =
+  vela_bits_add (vela_int_bits tag a) (vela_int_bits tag b).
+Proof.
+  intros tag [a] [b]; change (vela_word_bits (vela_bits_word (vela_tag_bits tag)
+    (vela_bits_add (vela_word_bits a) (vela_word_bits b))) = vela_bits_add (vela_word_bits a) (vela_word_bits b)).
+  apply vela_bits_word_exact. unfold vela_bits_add.
+  rewrite vela_bits_rev_length, vela_bits_add_lsb_length;
+    rewrite !vela_bits_rev_length, !vela_word_bits_length; reflexivity.
+Qed.
+
 Lemma vela_int_add_assoc : forall (tag : nat) (a b c : vela_int tag),
   vela_int_add tag (vela_int_add tag a b) c = vela_int_add tag a (vela_int_add tag b c).
 Proof.
-  intros tag [ba] [bb] [bc]. unfold vela_int_add, vela_bits_add; simpl.
-  f_equal. rewrite !vela_bits_rev_rev. f_equal.
+  intros tag a b c. unfold vela_int_add at 1 3. rewrite !vela_int_add_bits. f_equal.
+  unfold vela_bits_add. rewrite !vela_bits_rev_rev. f_equal.
   eapply vela_bits_add_lsb_assoc_gen. reflexivity.
 Qed.
 """

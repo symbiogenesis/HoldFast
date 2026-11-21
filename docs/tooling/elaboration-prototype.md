@@ -154,7 +154,10 @@ The supported increment includes:
   `CheckedShiftRight` returning `Result<T, ArithmeticError>`) operations and
   explicit conversions (`Nat(x)` for unsigned types, `T.From(x)` for lossless
   widening and `T.TryFrom(x)` returning `Result<T, ConversionError>`) reduce on
-  closed values.
+  closed values. The emitted integer carrier contains a word indexed by the
+  width of its tag. Every inhabitant of the emitted character carrier carries
+  a proof that its code satisfies the Unicode scalar test. These restrictions
+  also apply to open parameters and quantified variables.
 - Typed `const` values of `Nat`, `bool`, `Unit` or fixed-width integers, at module or local scope,
   under the [required-static contract](../language/surface-grammar.md#required-static-constants).
   Initializers use earlier constants and admitted total pure calls with static
