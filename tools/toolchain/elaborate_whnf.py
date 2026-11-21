@@ -1148,20 +1148,6 @@ class _WhnfMixin:
                     return _term("nat", value=max(0, cast("int", len_w.value)))
                 self.tick(True)
                 return self.whnf(_app(_constant("int_to_nat_usize"), len_w))
-            if s_head == _constant("Slots_Model") and len(s_args) == 3:
-                live_w = self.whnf(_apps(_constant("Slots_LiveCount"), s_args[0], s_args[1], s_args[2]))
-                if live_w.kind == "int":
-                    self.tick(True)
-                    return _term("nat", value=max(0, cast("int", live_w.value)))
-                self.tick(True)
-                return self.whnf(_app(_constant("int_to_nat_usize"), live_w))
-            if s_head == _constant("PrefixModel") and len(s_args) == 4:
-                cnt_w = self.whnf(s_args[3])
-                if cnt_w.kind == "int":
-                    self.tick(True)
-                    return _term("nat", value=max(0, cast("int", cnt_w.value)))
-                self.tick(True)
-                return self.whnf(_app(_constant("int_to_nat_usize"), cnt_w))
             return None
         if name == "Seq_At" and len(arguments) == 4:
             elem, default_val, seq_term, idx_term = arguments
@@ -1398,7 +1384,7 @@ class _WhnfMixin:
                         i_val = cast("int", idx_t.value)
                         l_val = cast("int", inner_live.value)
                         self.tick(True)
-                        return _int_term(_INT_SPECS["usize"], max(l_val, i_val + 1))
+                        return _int_term(_INT_SPECS["usize"], i_val + 1 if i_val == l_val else l_val)
                     if self.convertible(idx_t, inner_live):
                         self.tick(True)
                         return self.whnf(_apps(_constant("int_add_usize"), idx_t, _int_term(_INT_SPECS["usize"], 1)))
@@ -1462,66 +1448,26 @@ class _WhnfMixin:
             return None
         if name == "PrefixModel" and len(arguments) == 4:
             elem, cap, s, cnt = arguments
-            s_w = self.whnf(s)
-            cnt_w = self.whnf(cnt)
-            s_head, s_args = self.spine(s_w)
-            if s_head == _constant("Slots_TransferDest") and len(s_args) == 4 and self.convertible(s_args[3], cnt_w):
-                self.tick(True)
-                return self.whnf(_apps(_constant("Slots_Model"), elem, cap, s_w))
-            live_w = self.whnf(_apps(_constant("Slots_LiveCount"), elem, cap, s_w))
-            model_w = self.whnf(_apps(_constant("Slots_Model"), elem, cap, s_w))
-            elems = self._extract_seq_elements(model_w)
-            if self.convertible(live_w, cnt_w) and elems is not None:
-                self.tick(True)
-                return model_w
-            if elems is not None and cnt_w.kind == "int":
-                k = max(0, cast("int", cnt_w.value))
-                self.tick(True)
-                return self._build_seq_term(elem, elems[:k])
-            return None
+            model = _apps(_constant("Slots_Model"), elem, cap, s)
+            count = _app(_constant("int_to_nat_usize"), cnt)
+            self.tick(True)
+            return self.whnf(_apps(_constant("Seq_Take"), elem, model, count))
         if name == "Slots_Read" and len(arguments) == 5:
             elem, cap, default_val, s, idx = arguments
             s_w = self.whnf(s)
             idx_w = self.whnf(idx)
-            head, args = self.spine(s_w)
-            if head == _constant("Slots_Write") and len(args) == 5:
-                w_idx = self.whnf(args[3])
-                if self.convertible(w_idx, idx_w):
-                    self.tick(True)
-                    return self.whnf(args[4])
-                if w_idx.kind == "int" and idx_w.kind == "int" and w_idx.value != idx_w.value:
-                    self.tick(True)
-                    return self.whnf(_apps(_constant("Slots_Read"), elem, cap, default_val, args[2], idx_w))
-            if head == _constant("Slots_TransferDest") and len(args) == 4:
-                inner_w = self.whnf(args[2])
-                i_head, i_args = self.spine(inner_w)
-                if i_head == _constant("Slots_CopyRepresentation") and len(i_args) == 6:
-                    self.tick(True)
-                    return self.whnf(_apps(_constant("Slots_Read"), elem, i_args[1], default_val, i_args[3], idx_w))
             model_w = self.whnf(_apps(_constant("Slots_Model"), elem, cap, s_w))
             elems = self._extract_seq_elements(model_w)
             if elems is not None and idx_w.kind == "int":
                 i_val = cast("int", idx_w.value)
-                if 0 <= i_val < len(elems):
-                    self.tick(True)
-                    return self.whnf(elems[i_val])
+                self.tick(True)
+                return self.whnf(elems[i_val] if 0 <= i_val < len(elems) else default_val)
             return None
         if name == "Slots_LivePrefix" and len(arguments) == 4:
             elem, cap, s, cnt = arguments
             s_w = self.whnf(s)
             cnt_w = self.whnf(cnt)
             cap_w = self.whnf(cap)
-            s_head, s_args = self.spine(s_w)
-            if s_head == _constant("Slots_TransferDest") and len(s_args) == 4 and self.convertible(s_args[3], cnt_w):
-                self.tick(True)
-                return _term("bool", value=1)
-            if (
-                s_head in {_constant("Slots_TransferSource"), _constant("Slots_AllocVacant")}
-                and cnt_w.kind == "int"
-                and cast("int", cnt_w.value) == 0
-            ):
-                self.tick(True)
-                return _term("bool", value=1)
             live_w = self.whnf(_apps(_constant("Slots_LiveCount"), elem, cap_w, s_w))
             can_read = self.whnf(_apps(_constant("Slots_CanRead"), elem, cap_w, s_w))
             if can_read.kind == "bool" and can_read.value == 0:
@@ -1532,8 +1478,10 @@ class _WhnfMixin:
                     c_val = cast("int", cnt_w.value)
                     cap_val = cast("int", cap_w.value)
                     if can_read.kind == "bool" and can_read.value == 1:
-                        self.tick(True)
-                        return _term("bool", value=1 if 0 <= c_val <= cap_val else 0)
+                        elements = self._extract_seq_elements(self.whnf(_apps(_constant("Slots_Model"), elem, cap_w, s_w)))
+                        if elements is not None:
+                            self.tick(True)
+                            return _term("bool", value=int(c_val <= cap_val and c_val == len(elements)))
             elif live_w.kind == "int" and cnt_w.kind == "int" and live_w.value != cnt_w.value:
                 self.tick(True)
                 return _term("bool", value=0)
@@ -1544,38 +1492,6 @@ class _WhnfMixin:
             start_w = self.whnf(start)
             end_w = self.whnf(end)
             cap_w = self.whnf(cap)
-            cap_u_w = self.whnf(self._slots_cap_usize_term(cap_w))
-            s_head, s_args = self.spine(s_w)
-            if (
-                s_head == _constant("Slots_AllocVacant")
-                and len(s_args) == 3
-                and start_w.kind == "int"
-                and cast("int", start_w.value) == 0
-                and (self.convertible(end_w, cap_u_w) or (end_w.kind == "int" and cast("int", end_w.value) == 0))
-            ):
-                self.tick(True)
-                return _term("bool", value=1)
-            if (
-                s_head == _constant("Slots_TransferSource")
-                and len(s_args) == 4
-                and start_w.kind == "int"
-                and cast("int", start_w.value) == 0
-                and (
-                    self.convertible(end_w, s_args[3])
-                    or self.convertible(end_w, cap_u_w)
-                    or (end_w.kind == "int" and cast("int", end_w.value) == 0)
-                )
-            ):
-                self.tick(True)
-                return _term("bool", value=1)
-            if (
-                s_head == _constant("Slots_TransferDest")
-                and len(s_args) == 4
-                and self.convertible(start_w, s_args[3])
-                and (self.convertible(end_w, cap_u_w) or self.convertible(end_w, s_args[3]))
-            ):
-                self.tick(True)
-                return _term("bool", value=1)
             live_w = self.whnf(_apps(_constant("Slots_LiveCount"), elem, cap_w, s_w))
             can_write = self.whnf(_apps(_constant("Slots_CanWrite"), elem, cap_w, s_w))
             if can_write.kind == "bool" and can_write.value == 0:

@@ -621,6 +621,32 @@ class _ProofsMixin:
                 return _apps(_constant("vela_extent_bound_cases"), base, count, limit, hi, fact.term, refl)
         return None
 
+    def _copied_live_prefix_proof(self: _Elaborator, lhs: _Term, facts: tuple[_Binding, ...]) -> _Term | None:
+        head, args = self.spine(lhs)
+        if head != _constant("Slots_LivePrefix") or len(args) != 4:
+            return None
+        elem, cap, slots, count = args
+        transfer, moved = self.spine(self.whnf(slots))
+        if transfer != _constant("Slots_TransferDest") or len(moved) != 4 or not self.convertible(moved[3], count):
+            return None
+        copy, params = self.spine(self.whnf(moved[2]))
+        if copy != _constant("Slots_CopyRepresentation") or len(params) != 6 or not self.convertible(params[5], count):
+            return None
+        _, source_cap, _, source, dest, _ = params
+        premises = (
+            _apps(_constant("Slots_LivePrefix"), elem, source_cap, source, count),
+            _apps(_constant("Slots_VacantRange"), elem, cap, dest, _int_term(_INT_SPECS["usize"], 0), count),
+            _apps(_constant("Slots_CanRead"), elem, cap, dest),
+        )
+        proofs: list[_Term] = []
+        for premise in premises:
+            expected = _apps(_constant("Eq"), _BOOL, premise, _term("bool", value=1))
+            fact = next((fact for fact in facts if self._try_unify(fact.type, expected)), None)
+            if fact is None:
+                return None
+            proofs.append(fact.term)
+        return _apps(_constant("vela_Slots_live_after_copy"), elem, source_cap, cap, source, dest, count, *proofs)
+
     def _prove_span_read_equality(
         self: _Elaborator, lhs: _Term, rhs: _Term, all_facts: tuple[_Binding, ...]
     ) -> _Term | None:
@@ -881,6 +907,9 @@ class _ProofsMixin:
             goal_type_w = self.whnf(goal_type)
             if goal_type_w == _BOOL and self.whnf(rhs) == _term("bool", value=1):
                 lhs_r = self.resolve(lhs)
+                copied = self._copied_live_prefix_proof(lhs_r, all_facts)
+                if copied is not None:
+                    return copied
                 lhs_head, lhs_args = self.spine(lhs_r)
                 if lhs_head != _constant("&&") or len(lhs_args) != 2:
                     lhs_w = self.whnf(lhs_r)

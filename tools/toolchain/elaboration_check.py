@@ -637,6 +637,7 @@ public BoundedRange UpdateRange()
     return r;
 }
 public Slots<u32, 4> RelocateFirstSlot(Slots<u32, 4> src, Slots<u32, 4> dst)
+    requires src.CanWrite && dst.CanRead
     requires src.LivePrefix(1usize) && dst.VacantRange(0usize, 1usize)
     requires Slots.Disjoint(src, dst)
     restores dst

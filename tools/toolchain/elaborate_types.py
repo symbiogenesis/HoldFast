@@ -419,6 +419,7 @@ _GALLINA = {
     "vela_false_elim": "vela_false_elim",
     "vela_false_true_elim": "vela_false_true_elim",
     "vela_and_intro": "vela_and_intro",
+    "vela_Slots_live_after_copy": "vela_Slots_live_after_copy",
     "vela_and_left": "vela_and_left",
     "vela_and_right": "vela_and_right",
     "vela_or_false_l": "vela_or_false_l",
@@ -1980,6 +1981,30 @@ Definition vela_Slots_TransferDest (A : Type@{vela_u0}) (cap : nat) (s : vela_Sl
     (vela_Slots_PermWrite A cap s)
     (vela_Slots_RepModel A cap s)
     (vela_Slots_RepModel A cap s).
+
+Lemma vela_Seq_Count_take_exact : forall (A : Type@{vela_u0}) k (xs : vela_Seq A),
+  Nat.eqb (vela_Seq_Count A xs) k = true ->
+  Nat.eqb (vela_Seq_Count A (vela_Seq_Take A xs k)) k = true.
+Proof.
+  intros A k. induction k as [|k IH]; intros [|x xs] H; simpl in *;
+    try reflexivity; try discriminate. exact (IH xs H).
+Qed.
+
+Lemma vela_Slots_live_after_copy : forall (A : Type@{vela_u0}) n m
+    (src : vela_Slots A n) (dst : vela_Slots A m) k,
+  vela_Slots_LivePrefix A n src k = true ->
+  vela_Slots_VacantRange A m dst vela_usize_zero k = true ->
+  vela_Slots_CanRead A m dst = true ->
+  vela_Slots_LivePrefix A m
+    (vela_Slots_TransferDest A m (vela_Slots_CopyRepresentation A n m src dst k) k) k = true.
+Proof.
+  intros A n m src dst k Hlive Hvac Hread.
+  unfold vela_Slots_LivePrefix in Hlive |- *. unfold vela_Slots_VacantRange in Hvac.
+  apply vela_and_intro; [exact Hread |].
+  apply vela_and_intro; [exact (vela_and_right _ _ (vela_and_right _ _ (vela_and_right _ _ Hvac))) |].
+  apply vela_and_intro; [exact (vela_int_eq_refl 4 k) |].
+  apply vela_Seq_Count_take_exact. exact (vela_and_right _ _ (vela_and_right _ _ (vela_and_right _ _ Hlive))).
+Qed.
 
 Definition vela_Slots_TransferType (A : Type@{vela_u0}) (n m : nat) (src : vela_Slots A n) (dst : vela_Slots A m) (cnt : vela_int (4 : nat))
     : @prod (vela_Slots A n) (vela_Slots A m) :=
