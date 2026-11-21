@@ -299,6 +299,15 @@ class _WhnfMixin:
                     self.tick(True)
                     projected = rec_args[len(record_info.generic_vars) + field_index]
                     return self.whnf(_apps(projected, *arguments[proj_arity:]))
+        if name == "NatFold" and len(arguments) == 4:
+            _, step, initial, fuel = arguments
+            bound = self.whnf(fuel)
+            if bound.kind == "nat" and cast("int", bound.value) <= 64:
+                state = initial
+                for index in range(cast("int", bound.value)):
+                    self.tick(True)
+                    state = self.whnf(_apps(step, _term("nat", value=index), state))
+                return state
         if name in {"Fst", "Snd"} and len(arguments) >= 3:
             pair = self.whnf(arguments[2])
             if pair.kind == "pair":
@@ -761,7 +770,6 @@ class _WhnfMixin:
                     "Span_Fill",
                     "Span_CopyPrefix",
                     "Span_Restore",
-                    "LoopState",
                 }
                 and len(s_args) >= 2
             ):
@@ -905,9 +913,6 @@ class _WhnfMixin:
                 self.tick(True)
                 return self.whnf(_apps(_constant(name), elem, s_args[1]))
             if sname == "Span_Restore" and len(s_args) == 3:
-                self.tick(True)
-                return self.whnf(_apps(_constant(name), elem, s_args[1]))
-            if sname == "LoopState" and len(s_args) == 3:
                 self.tick(True)
                 return self.whnf(_apps(_constant(name), elem, s_args[1]))
             if s != arguments[1]:

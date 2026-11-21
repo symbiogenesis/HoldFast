@@ -545,9 +545,9 @@ class _Elaborator(
             telescope((a, n), self.pi(slots_an, self.pi(_USIZE, seq_a))),
             2,
         )
-        self.constants["LoopState"] = _Binding(
-            _constant("LoopState"),
-            telescope((a,), self.pi(a, self.pi(_NAT, a))),
+        self.constants["NatFold"] = _Binding(
+            _constant("NatFold"),
+            telescope((a,), self.pi(self.pi(_NAT, self.pi(a, a)), self.pi(a, self.pi(_NAT, a)))),
             1,
         )
         self._register_builtin_unions()

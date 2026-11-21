@@ -195,7 +195,10 @@ The supported increment includes:
   threading, and bounded range (`foreach (let i in start..end)`), collection
   (`foreach (let | in | ref x in coll)`) and `while (cond)` loops with `invariant`
   verification, `decreases` termination measures, `break`, `continue` and
-  collection-freeze checks.
+  collection-freeze checks. Symbolic ranges accumulate state with a Gallina
+  fold or an exact counter or contiguous fill. Symbolic while loops can use
+  a single nonnegative decreasing bound as fuel. Unsupported symbolic early
+  exits and mutable element writeback require explicit control flow.
 - Named and unnamed `record` invariants (`invariant [Clause:] expr`), verified
   on construction, `with` updates and field mutations, together with selective
   invariant lifting (`open (ref target, ...) lifts Clause, ... { ... }`) that

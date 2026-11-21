@@ -405,7 +405,7 @@ _GALLINA = {
     "Slots_TransferDest": "vela_Slots_TransferDest",
     "Slots_TransferType": "vela_Slots_TransferType",
     "PrefixModel": "vela_PrefixModel",
-    "LoopState": "vela_LoopState",
+    "NatFold": "vela_NatFold",
     "+": "Corelib.Init.Nat.add", "*": "Corelib.Init.Nat.mul", "-": "Corelib.Init.Nat.sub",
     "/": "Corelib.Init.Nat.div", "%": "Corelib.Init.Nat.modulo",
     "<=": "Corelib.Init.Nat.leb", "<": "Corelib.Init.Nat.ltb", ">=": "vela_ge", ">": "vela_gt",
@@ -438,6 +438,7 @@ _GALLINA = {
     "vela_Span_Read_write_same": "vela_Span_Read_write_same",
     "vela_Span_Read_write_other_ne": "vela_Span_Read_write_other_ne",
     "vela_store_lookup_write_ge": "vela_store_lookup_write_ge",
+    "vela_usize_le_refl": "vela_usize_le_refl",
     "vela_store_lookup_fill_ge": "vela_store_lookup_fill_ge",
     "vela_store_lookup_copy_ge": "vela_store_lookup_copy_ge",
     "vela_nat_add_assoc": "vela_nat_add_assoc",
@@ -1263,10 +1264,19 @@ Definition vela_int_le_of_gt_false (tag : nat) (x y : vela_int tag)
     : @Corelib.Init.Logic.eq bool (vela_int_le tag x y) true :=
   vela_bits_ule_of_ult_false (vela_int_key tag x) (vela_int_key tag y) h.
 
+Definition vela_extent_end (base len : vela_int (4 : nat)) : vela_int (4 : nat) :=
+  if vela_int_eq (4 : nat) base vela_usize_zero then len else vela_int_add (4 : nat) base len.
+
+Lemma vela_usize_le_refl (x : vela_int (4 : nat)) : vela_int_le (4 : nat) x x = true.
+Proof.
+  destruct x as [xs]. change (vela_bits_ule xs xs = true).
+  induction xs as [|b xs IH]. reflexivity. destruct b; exact IH.
+Qed.
+
 Definition vela_in_extent (addr base len : vela_int (4 : nat)) : bool :=
   vela_and
     (vela_int_le (4 : nat) base addr)
-    (vela_int_lt (4 : nat) addr (vela_int_add (4 : nat) base len)).
+    (vela_int_lt (4 : nat) addr (vela_extent_end base len)).
 
 Inductive vela_ByteStore : Type@{vela_u0} :=
 | vela_bs_empty : vela_ByteStore
@@ -1486,23 +1496,23 @@ Definition vela_store_lookup_write_ge (widx hi idx : vela_int (4 : nat)) (val : 
   end (@Corelib.Init.Logic.eq_refl bool (vela_int_eq (4 : nat) idx widx)).
 
 Definition vela_in_extent_ge_elim (P : Type@{vela_u0}) (base len hi idx : vela_int (4 : nat))
-    (hbound : @Corelib.Init.Logic.eq bool (vela_int_le (4 : nat) (vela_int_add (4 : nat) base len) hi) true)
+    (hbound : @Corelib.Init.Logic.eq bool (vela_int_le (4 : nat) (vela_extent_end base len) hi) true)
     (hge : @Corelib.Init.Logic.eq bool (vela_int_ge (4 : nat) idx hi) true)
     (hext : @Corelib.Init.Logic.eq bool (vela_in_extent idx base len) true) : P :=
   vela_bits_ult_ule_false P (vela_int_bits (4 : nat) idx) (vela_int_bits (4 : nat) hi)
     (vela_bits_ult_ule_trans
       (vela_int_bits (4 : nat) idx)
-      (vela_int_bits (4 : nat) (vela_int_add (4 : nat) base len))
+      (vela_int_bits (4 : nat) (vela_extent_end base len))
       (vela_int_bits (4 : nat) hi)
       (vela_and_right
         (vela_int_le (4 : nat) base idx)
-        (vela_int_lt (4 : nat) idx (vela_int_add (4 : nat) base len))
+        (vela_int_lt (4 : nat) idx (vela_extent_end base len))
         hext)
       hbound)
     hge.
 
 Definition vela_store_lookup_fill_ge (base len hi idx : vela_int (4 : nat)) (val : vela_int (0 : nat)) (rest : vela_ByteStore)
-    (hbound : @Corelib.Init.Logic.eq bool (vela_int_le (4 : nat) (vela_int_add (4 : nat) base len) hi) true)
+    (hbound : @Corelib.Init.Logic.eq bool (vela_int_le (4 : nat) (vela_extent_end base len) hi) true)
     (hge : @Corelib.Init.Logic.eq bool (vela_int_ge (4 : nat) idx hi) true)
     : @Corelib.Init.Logic.eq (vela_int (0 : nat))
         (vela_store_lookup (vela_bs_fill base len val rest) idx)
@@ -1520,7 +1530,7 @@ Definition vela_store_lookup_fill_ge (base len hi idx : vela_int (4 : nat)) (val
   end (@Corelib.Init.Logic.eq_refl bool (vela_in_extent idx base len)).
 
 Definition vela_store_lookup_copy_ge (dbase sbase count hi idx : vela_int (4 : nat)) (src_st rest : vela_ByteStore)
-    (hbound : @Corelib.Init.Logic.eq bool (vela_int_le (4 : nat) (vela_int_add (4 : nat) dbase count) hi) true)
+    (hbound : @Corelib.Init.Logic.eq bool (vela_int_le (4 : nat) (vela_extent_end dbase count) hi) true)
     (hge : @Corelib.Init.Logic.eq bool (vela_int_ge (4 : nat) idx hi) true)
     : @Corelib.Init.Logic.eq (vela_int (0 : nat))
         (vela_store_lookup (vela_bs_copy dbase sbase count src_st rest) idx)
@@ -1825,7 +1835,11 @@ Definition vela_Slots_TransferType (A : Type@{vela_u0}) (n m : nat) (src : vela_
 Definition vela_PrefixModel (A : Type@{vela_u0}) (cap : nat) (s : vela_Slots A cap) (_ : vela_int (4 : nat)) : vela_Seq A :=
   vela_Slots_Model A cap s.
 
-Definition vela_LoopState (A : Type@{vela_u0}) (x : A) (_ : nat) : A := x.
+Fixpoint vela_NatFold (A : Type@{vela_u0}) (step : nat -> A -> A) (initial : A) (n : nat) {struct n} : A :=
+  match n with
+  | O => initial
+  | S k => step k (vela_NatFold A step initial k)
+  end.
 
 Fixpoint vela_nat_add_assoc (a b c : nat) {struct a}
     : @Corelib.Init.Logic.eq nat

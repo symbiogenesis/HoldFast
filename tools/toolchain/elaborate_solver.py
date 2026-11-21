@@ -495,7 +495,6 @@ class _SolverMixin:
                     "Span_Fill",
                     "Span_CopyPrefix",
                     "Span_Restore",
-                    "LoopState",
                 }
                 and len(s_args) >= 2
             ):

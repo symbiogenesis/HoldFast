@@ -98,6 +98,24 @@ public lemma TruthTable()
         assert GuardOnce() == Some(true);
     }
 """),
+        ("symbolic-accumulator-execution", """module FoldReplay;
+public Nat Twice(Nat n) {
+    var total = 0;
+    foreach (let i in 0..n) { total += 2; }
+    return total;
+}
+lemma TwiceValue() ensures Twice(3) == 6 proof { assert Twice(3) == 6; }
+public Nat WhileSum(Nat n) {
+    var i = 0;
+    var sum = 0;
+    while (i < n) invariant i <= n decreases n - i {
+        sum += i;
+        i += 1;
+    }
+    return sum;
+}
+lemma WhileValue() ensures WhileSum(4) == 6 proof { assert WhileSum(4) == 6; }
+"""),
         ("fresh-polymorphic-calls", """module GenericReplay;
 definition T Identity<T>(T value) => value;
 definition Nat Number() => Identity(3);
