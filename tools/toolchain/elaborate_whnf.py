@@ -937,7 +937,7 @@ class _WhnfMixin:
             la_v = cast("int", la.value)
             bb_v = cast("int", bb.value)
             lb_v = cast("int", lb.value)
-            return _term("bool", value=int(ba_v + la_v <= bb_v or bb_v + lb_v <= ba_v))
+            return _term("bool", value=int(la_v == 0 or lb_v == 0 or ba_v + la_v <= bb_v or bb_v + lb_v <= ba_v))
         if name == "Span_Read" and len(arguments) == 3:
             elem, s, idx = arguments
             s_w = self.whnf(s)

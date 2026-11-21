@@ -1601,13 +1601,13 @@ static void vela_span_invalidate(struct vela_span_byte *out, struct vela_span_by
 
 static int vela_span_disjoint(struct vela_span_byte *a, struct vela_span_byte *b)
 {{
-    if (a->base + a->length <= b->base) {{
+    if (a->length == 0UL || b->length == 0UL) {{
         return 1;
     }}
-    if (b->base + b->length <= a->base) {{
-        return 1;
+    if (a->base <= b->base) {{
+        return a->length <= b->base - a->base;
     }}
-    return 0;
+    return b->length <= a->base - b->base;
 }}
 
 static void vela_span_copy_prefix(

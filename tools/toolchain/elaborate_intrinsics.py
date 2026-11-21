@@ -148,16 +148,6 @@ class _IntrinsicsMixin:
                 root_ba, environment
             ):
                 return
-        ba = _apps(_constant("Span_Base"), _U8, dst_term)
-        la = _apps(_constant("Span_Length"), _U8, dst_term)
-        bb = _apps(_constant("Span_Base"), _U8, src_term)
-        lb = _apps(_constant("Span_Length"), _U8, src_term)
-        cond_ab = _apps(_constant("int_le_usize"), _apps(_constant("int_add_usize"), ba, la), bb)
-        cond_ba = _apps(_constant("int_le_usize"), _apps(_constant("int_add_usize"), bb, lb), ba)
-        if self._prove_bool_precondition(cond_ab, environment) or self._prove_bool_precondition(
-            cond_ba, environment
-        ):
-            return
         raise self.fail(
             "type",
             "cannot prove Span.CopyPrefix source and destination extents are disjoint",

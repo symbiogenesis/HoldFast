@@ -1379,14 +1379,15 @@ Definition vela_Span_Invalidate (A : Type@{vela_u0}) (s : vela_Span A) : vela_Sp
     false
     (vela_Span_Store A s).
 
+Definition vela_extents_disjoint (a alen b blen : vela_int (4 : nat)) : bool :=
+  if vela_int_eq 4 alen vela_usize_zero then true else
+  if vela_int_eq 4 blen vela_usize_zero then true else
+  if vela_int_le 4 a b then vela_int_le 4 alen (vela_int_sub 4 b a)
+  else vela_int_le 4 blen (vela_int_sub 4 a b).
+
 Definition vela_Span_Disjoint (A : Type@{vela_u0}) (a b : vela_Span A) : bool :=
-  vela_or
-    (vela_int_le (4 : nat)
-      (vela_int_add (4 : nat) (vela_Span_Base A a) (vela_Span_Length A a))
-      (vela_Span_Base A b))
-    (vela_int_le (4 : nat)
-      (vela_int_add (4 : nat) (vela_Span_Base A b) (vela_Span_Length A b))
-      (vela_Span_Base A a)).
+  vela_extents_disjoint (vela_Span_Base A a) (vela_Span_Length A a)
+    (vela_Span_Base A b) (vela_Span_Length A b).
 
 Definition vela_Span_Read (A : Type@{vela_u0}) (s : vela_Span A) (idx : vela_int (4 : nat)) : vela_int (0 : nat) :=
   vela_store_lookup (vela_Span_Store A s) idx.

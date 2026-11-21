@@ -1027,12 +1027,11 @@ class _SolverMixin:
                 la = _apps(_constant("Span_Length"), _U8, sa)
                 bb = _apps(_constant("Span_Base"), _U8, sb)
                 lb = _apps(_constant("Span_Length"), _U8, sb)
-                if self._prove_comparison(
-                    "le", _INT_SPECS["usize"], _apps(_constant("int_add_usize"), ba, la), bb, facts
-                ) or self._prove_comparison(
-                    "le", _INT_SPECS["usize"], _apps(_constant("int_add_usize"), bb, lb), ba, facts
-                ):
-                    return True
+                for base, length, other in ((ba, la, bb), (bb, lb, ba)):
+                    if self._prove_comparison("le", _INT_SPECS["usize"], base, other, facts):
+                        distance = _apps(_constant("int_sub_usize"), other, base)
+                        if self._prove_comparison("le", _INT_SPECS["usize"], length, distance, facts):
+                            return True
         if head == _constant("Slots_Disjoint") and len(args) == 5:
             elem, cap_a, cap_b, a_t, b_t = args
             if _apps(_constant("Slots_Disjoint"), elem, cap_b, cap_a, b_t, a_t) in facts:
