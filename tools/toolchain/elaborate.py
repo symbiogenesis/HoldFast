@@ -1180,6 +1180,13 @@ class _Elaborator(
     def _check_argument_mode(self, expected: str | None, actual: object, site: Node) -> None:
         marker = "move" if expected == "owned" else expected
         if actual == marker:
+            if expected == "in" and self.in_executable_function:
+                marked = self._unwrap_group(self.node(site["value"]))
+                place = self._unwrap_group(self.node(marked["value"]))
+                while place["kind"] in {"member", "index"}:
+                    place = self._unwrap_group(self.node(place["value"]))
+                if place["kind"] != "name":
+                    raise self.fail("type", "an 'in' loan requires a place; bind the value to a local first", marked)
             return
         if expected is not None:
             article = "an" if expected in {"in", "out", "owned"} else "a"
