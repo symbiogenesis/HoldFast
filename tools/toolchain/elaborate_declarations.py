@@ -643,6 +643,7 @@ class _DeclarationsMixin:
         if effects_clauses:
             self.active_effect_calls = set(m_effect_calls)
         try:
+            self.runtime_writes.clear()
             body_term = self.check(body_node, result_ty, method_env)
             if effects_clauses:
                 self._verify_closed_effects(
@@ -678,6 +679,9 @@ class _DeclarationsMixin:
         if effects_clauses:
             self.callable_has_effects.add(m_emitted)
             self.callable_effect_calls[m_emitted] = set(m_effect_calls)
+            self.callable_effect_writes[m_emitted] = {
+                i for i, p in enumerate(m_params) if p["name"] and self.name(p["name"]) in m_effect_writes
+            }
         elif m_kind == "function":
             self.untracked_effect_functions.add(m_emitted)
         param_ids = tuple(cast("int", v.value) for v in all_vars)
@@ -998,6 +1002,7 @@ class _DeclarationsMixin:
         self.callable_source_names.update(mod.callable_source_names)
         self.callable_has_effects.update(mod.callable_has_effects)
         self.callable_effect_calls.update(mod.callable_effect_calls)
+        self.callable_effect_writes.update(mod.callable_effect_writes)
         self.untracked_effect_functions.update(mod.untracked_effect_functions)
         self.fix_names.update(mod.fix_names)
         existing_out = set(self.output)
@@ -2450,11 +2455,8 @@ class _DeclarationsMixin:
         self_var: _Term | None = None,
     ) -> None:
         for pname in sorted(ref_param_names):
-            if (
-                pname in self.final_ref_bindings
-                and self.final_ref_bindings[pname].term != self.entry_env[pname].term
-                and pname not in declared_writes
-            ):
+            changed = pname in self.final_ref_bindings and self.final_ref_bindings[pname].term != self.entry_env[pname].term
+            if (pname in self.runtime_writes or changed) and pname not in declared_writes:
                 raise self.fail(
                     "type",
                     f"callable mutates parameter '{pname}' not declared in effects writes(...)",
@@ -2826,6 +2828,7 @@ class _DeclarationsMixin:
                 self.used_domain_solver_in_proof = False
                 self.final_theorem_facts = ()
                 self.in_executable_function = kind == "function"
+                self.runtime_writes.clear()
                 prev_effect_calls = self.active_effect_calls
                 if effects_clauses:
                     self.active_effect_calls = set(declared_effect_calls)
@@ -2947,6 +2950,9 @@ class _DeclarationsMixin:
                 if effects_clauses:
                     self.callable_has_effects.add(emitted)
                     self.callable_effect_calls[emitted] = set(declared_effect_calls)
+                    self.callable_effect_writes[emitted] = {
+                        i for i, p in enumerate(parameters) if p["name"] and self.name(p["name"]) in declared_effect_writes
+                    }
                 elif kind == "function":
                     self.untracked_effect_functions.add(emitted)
             if kind in {"theorem", "lemma"} and is_post_env_theorem:

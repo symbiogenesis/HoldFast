@@ -6260,6 +6260,34 @@ def _call_modes_and_field_writeback() -> None:
             _refuses(f, "type", "assertion could not be established")
 
 
+def _transient_write_effects() -> None:
+    word = _type("u32")
+    ref_word = _modified("ref", word)
+    reads = _effects_clause(_call("reads", _variable("x")))
+    writes = _effects_clause(_call("writes", _variable("x")))
+    body = _block_stmts(_let_stmt("saved", _variable("x")), _assign_stmt(_variable("x"), "=", _int_lit("0", "u32")),
+                        _assign_stmt(_variable("x"), "=", _variable("saved")), _return_stmt())
+    direct = _Fixture("TransientWrite")
+    direct.function("Touch", _type("Unit"), (("x", ref_word),), body, block=True, contracts=(reads,))
+    _refuses(direct, "type", "not declared in effects writes(...)")
+    read_only = _Fixture("CalleeRead")
+    read_only.function("Read", word, (("x", ref_word),), _variable("x"), contracts=(reads,))
+    read_only.function("Forward", word, (("x", ref_word),), _block_stmts(
+        _return_stmt(_call("Read", _ref_arg(_variable("x"))))
+    ), block=True, contracts=(reads,))
+    elaborate(*read_only.response())
+    for allowed in (True, False):
+        f = _Fixture("CalleeWrite")
+        f.function("Touch", _type("Unit"), (("x", ref_word),), body, block=True, contracts=(writes,))
+        f.function("Caller", _type("Unit"), (("x", ref_word),), _block_stmts(
+            _expr_stmt(_call("Touch", _ref_arg(_variable("x")))), _return_stmt()
+        ), block=True, contracts=(writes if allowed else reads,))
+        if allowed:
+            elaborate(*f.response())
+        else:
+            _refuses(f, "type", "not declared in effects writes(...)")
+
+
 def _consuming_ownership_general_loans_and_closed_effects() -> None:
     fixture = _Fixture("ConsumingOwnershipLoansAndEffects")
     fixture.record("Token", (("Id", _NAT), ("Quota", _NAT)))
@@ -6578,5 +6606,6 @@ def cases() -> list[Case]:
             Case("callable-member-receiver-once-and-fatal-failures", _callable_member_receiver_and_failures),
             Case("multi-module-imports-and-visibility", _multi_module_imports_and_visibility),
             Case("source-bound-borrows-and-constructive-postconditions", _source_bound_borrows_and_constructive_postconditions),
+            Case("transient-writes-and-transitive-footprints", _transient_write_effects),
             Case("exact-call-modes-and-projected-writeback", _call_modes_and_field_writeback),
             Case("consuming-ownership-general-loans-and-closed-effects", _consuming_ownership_general_loans_and_closed_effects)]

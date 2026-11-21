@@ -124,6 +124,8 @@ class _Elaborator(
         self.callable_source_names: dict[str, str] = {}
         self.callable_has_effects: set[str] = set()
         self.callable_effect_calls: dict[str, set[str]] = {}
+        self.callable_effect_writes: dict[str, set[int]] = {}
+        self.runtime_writes: set[str] = set()
         self.untracked_effect_functions: set[str] = set()
         self.active_effect_calls: set[str] | None = None
         self.callable_ensures: dict[
@@ -1454,7 +1456,9 @@ class _Elaborator(
                 else:
                     upd_term = self.fresh(t_dom)
                 post_loan_terms[idx] = upd_term
-                self._record_call_update(t_node, _Binding(upd_term, t_dom))
+                signature_writes = self.callable_effect_writes.get(str(callee_head.value))
+                self._record_call_update(t_node, _Binding(upd_term, t_dom),
+                                         writes=signature_writes is None or idx in signature_writes)
         if (
             callee_head.kind == "const"
             and isinstance(callee_head.value, str)
