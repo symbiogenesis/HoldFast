@@ -738,6 +738,7 @@ class _DeclarationsMixin:
         record_info.methods[method_name] = _RecordMethod(
             name=method_name,
             method_const=m_emitted,
+            returns_receiver_loan=loans._returns_borrow_from(member_node["result"], "this"),
             binding=m_binding,
             method_generics=len(m_generics),
             param_labels=tuple(m_param_labels),
@@ -1366,6 +1367,9 @@ class _DeclarationsMixin:
                         param_vars=tuple(m_param_vars),
                         param_labels=tuple(m_param_labels),
                         param_modifiers=tuple(m_param_mods),
+                        returns_receiver_loan=loans._returns_borrow_from(
+                            mnode["result"], m_param_labels[0] if m_param_labels else None
+                        ),
                         return_type=m_res_type,
                         signature=m_sig,
                         self_var=m_self_var,
@@ -2174,7 +2178,12 @@ class _DeclarationsMixin:
             if short_name not in structs:
                 structs[short_name] = sinfo
         fn_name = self.name(fn_node["name"])
-        lowered = loans._FunctionLowerer(fn_name, fn_node, enclosing_type, structs).build()
+        lowerer = loans._FunctionLowerer(fn_name, fn_node, enclosing_type, structs)
+        lowerer.checked_receivers = self.checked_receivers
+        try:
+            lowered = lowerer.build()
+        except loans.AnalysisRefusalError as error:
+            raise self.fail("unsupported", str(error), lowerer.current_site) from error
         report = loans.analyze(lowered.owners, lowered.graph)
         borrow_origins = {
             event.loan.name: (event.loan, lowered.node_sites[cfg_node.name])

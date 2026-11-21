@@ -1203,11 +1203,20 @@ def analyze(owners: tuple[Owner, ...], graph: Graph, limits: Limits | None = Non
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class _Receiver:
+    mode: Mode
+    view: str | None
+    retained: bool
+
+
 @dataclass
 class _StructInfo:
     fields: tuple[tuple[str, ...], ...]
     views: dict[str, tuple[str, ...]]
     invariants: tuple[str, ...]
+    methods: dict[str, _Receiver | None] = field(default_factory=dict)
+    field_types: dict[str, str | None] = field(default_factory=dict)
 
 
 def _ast_node(value: object, role: str = "AST node") -> dict[str, object]:
@@ -1271,13 +1280,13 @@ def _type_base_name(type_node: object) -> str | None:
     if kind == "type":
         name_node = type_node.get("name")
         if isinstance(name_node, dict) and isinstance(name_node.get("text"), str):
-            return str(name_node["text"]).split(".")[-1]
+            return str(name_node["text"])
     if kind in {"name", "identifier"} and "name" in type_node:
-        return _id_text(type_node["name"]).split("_")[-1]
+        return _id_text(type_node["name"])
     if kind == "member":
         member_val = type_node.get("name") or type_node.get("member")
         if member_val is not None:
-            return _id_text(member_val).split("_")[-1]
+            return _id_text(member_val)
     if kind in {"type_application", "generic_application"}:
         return _type_base_name(type_node.get("callee") or type_node.get("value"))
     if kind == "modified_type":
@@ -1356,7 +1365,7 @@ def _extract_return_lifetime_place(type_node: object) -> Place | None:
             if not isinstance(ltext, str) and isinstance(lifetime.get("name"), dict):
                 ltext = cast("dict[str, object]", lifetime["name"]).get("text")
             if isinstance(ltext, str):
-                parts = [part for part in ltext.split(".") if part]
+                parts = [part for part in ltext.removeprefix("'").split(".") if part]
                 if parts and _NAME.fullmatch(parts[0]):
                     return Place(parts[0], tuple(parts[1:]))
         return _extract_return_lifetime_place(type_node.get("type"))
@@ -1373,12 +1382,65 @@ def _extract_return_lifetime_place(type_node: object) -> Place | None:
     return None
 
 
+def _returns_borrow_from(type_node: object, owner: str | None) -> bool:
+    if owner is None or not isinstance(type_node, dict):
+        return False
+    lifetime = type_node.get("lifetime")
+    if isinstance(lifetime, dict):
+        text = _op_text(lifetime.get("name")) or _op_text(lifetime)
+        if text.removeprefix("'").split(".", 1)[0] == owner:
+            return True
+    for value in type_node.values():
+        if isinstance(value, list):
+            if any(_returns_borrow_from(item, owner) for item in value):
+                return True
+        elif isinstance(value, dict) and _returns_borrow_from(value, owner):
+            return True
+    return False
+
+
+def _receiver_parameter(param: dict[str, object]) -> tuple[Mode, str | None] | None:
+    if param.get("kind") == "receiver_view_parameter":
+        return ("shared" if param.get("mode") == "in" else "exclusive", _id_text(param["view"]))
+    if param.get("name") is not None:
+        return None
+    annotation = param.get("type")
+    if not isinstance(annotation, dict):
+        return None
+    raw = annotation.get("type") if annotation.get("kind") == "modified_type" else annotation
+    if not isinstance(raw, dict) or raw.get("kind") != "type":
+        return None
+    name = _op_text(raw.get("name"))
+    if name != "this" and not name.startswith("this."):
+        return None
+    modifier = annotation.get("modifier", "in")
+    if modifier not in {"in", "ref", "out"}:
+        raise AnalysisRefusalError("unsupported receiver mode")
+    return ("shared" if modifier == "in" else "exclusive", name[5:] if "." in name else None)
+
+
+def _view_field(value: object) -> tuple[str, ...] | None:
+    if not isinstance(value, dict):
+        return None
+    if _is_ident(value):
+        name = _id_text(value["name"])
+        return () if name == "this" else (name,)
+    if value.get("kind") == "member":
+        path = _view_field(value.get("value") or value.get("receiver"))
+        if path is not None:
+            return (*path, _id_text(value.get("name") or value.get("member")))
+    return None
+
+
 def _collect_structs(declarations: list[dict[str, object]]) -> dict[str, _StructInfo]:
     structs: dict[str, _StructInfo] = {}
     for decl in declarations:
         kind = decl.get("kind")
         if kind == "namespace":
-            structs.update(_collect_structs(_ast_nodes(decl.get("declarations", []))))
+            nested = _collect_structs(_ast_nodes(decl.get("declarations", [])))
+            if duplicate := structs.keys() & nested.keys():
+                raise AnalysisRefusalError(f"ambiguous receiver type {min(duplicate)!r}")
+            structs.update(nested)
             continue
         if kind not in {"struct", "record"}:
             continue
@@ -1386,14 +1448,18 @@ def _collect_structs(declarations: list[dict[str, object]]) -> dict[str, _Struct
         field_paths: list[tuple[str, ...]] = []
         views: dict[str, tuple[str, ...]] = {}
         invariants: list[str] = []
+        methods: dict[str, _Receiver | None] = {}
+        field_types: dict[str, str | None] = {}
         for param_decl in _ast_nodes(decl.get("parameters", [])):
             if param_decl.get("kind") in {"parameter", "field"} and "name" in param_decl:
                 fname = _id_text(param_decl["name"])
+                field_types[fname] = _type_base_name(param_decl.get("type"))
                 if (fname,) not in field_paths:
                     field_paths.append((fname,))
         for field_decl in _ast_nodes(decl.get("fields", [])):
             if field_decl.get("kind") == "field":
                 fname = _id_text(field_decl["name"])
+                field_types[fname] = _type_base_name(field_decl.get("type"))
                 if (fname,) not in field_paths:
                     field_paths.append((fname,))
         member_items = [
@@ -1402,12 +1468,19 @@ def _collect_structs(declarations: list[dict[str, object]]) -> dict[str, _Struct
         ]
         for member in member_items:
             mkind = member.get("kind")
-            if mkind in {"field", "property"}:
+            if mkind == "field":
                 fname = _id_text(member["name"])
+                field_types[fname] = _type_base_name(member.get("type"))
                 if (fname,) not in field_paths:
                     field_paths.append((fname,))
             elif mkind == "view":
                 vname = _id_text(member["name"])
+                if "parts" in member:
+                    parts = _ast_nodes(member["parts"])
+                    # A compound or indexed view needs range evidence. Cover its whole receiver.
+                    path = _view_field(parts[0].get("value")) if len(parts) == 1 else None
+                    views[vname] = path or ()
+                    continue
                 clauses = _ast_nodes(member.get("clauses", []))
                 primary_field: str | None = None
                 for clause in clauses:
@@ -1423,6 +1496,17 @@ def _collect_structs(declarations: list[dict[str, object]]) -> dict[str, _Struct
                 views[vname] = vpath
                 if vpath not in field_paths:
                     field_paths.append(vpath)
+            elif mkind in {"method", "function", "definition"}:
+                method_name = _id_text(member["name"])
+                parameters = _ast_nodes(member.get("parameters", []))
+                receiver = _receiver_parameter(parameters[0]) if parameters else None
+                if receiver is None and kind == "record":
+                    receiver = ("shared", None)
+                retained = _returns_borrow_from(member.get("result") or member.get("return_type"), "this")
+                methods[method_name] = (
+                    _Receiver(*receiver, retained)
+                    if receiver is not None and method_name not in methods else None
+                )
         for contract in _ast_nodes(decl.get("contracts", [])):
             ckind = contract.get("kind")
             if ckind == "invariant" or (ckind == "contract" and contract.get("role") == "invariant"):
@@ -1433,7 +1517,14 @@ def _collect_structs(declarations: list[dict[str, object]]) -> dict[str, _Struct
                     cname = name
                 if cname not in invariants:
                     invariants.append(cname)
-        structs[name] = _StructInfo(tuple(field_paths), views, tuple(invariants))
+        for member in member_items:
+            if member.get("kind") == "view" and "parts" in member:
+                view = _id_text(member["name"])
+                path = views[view]
+                views[view] = path[:1] if path and path[0] in field_types else ()
+        if name in structs:
+            raise AnalysisRefusalError(f"ambiguous receiver type {name!r}")
+        structs[name] = _StructInfo(tuple(field_paths), views, tuple(invariants), methods, field_types)
     return structs
 
 
@@ -1495,6 +1586,7 @@ class _FunctionLowerer:
         self.fn_node = fn_node
         self.enclosing_type = enclosing_type
         self.structs = structs
+        self.checked_receivers: dict[tuple[int, ...], _Receiver | None] = {}
         self.owners: dict[str, Owner] = {}
         self.owner_types: dict[str, str] = {}
         self.owner_fields: dict[str, set[tuple[str, ...]]] = {}
@@ -1618,12 +1710,9 @@ class _FunctionLowerer:
             self._register_owner("this", borrowed=True, type_name=self.enclosing_type)
         for param in _ast_nodes(self.fn_node.get("parameters", [])):
             pkind = param.get("kind")
-            if pkind == "receiver_view_parameter":
-                self._register_owner("this", borrowed=True, type_name=self.enclosing_type)
-                vname = _id_text(param["view"])
-                vpath = self.owner_views.get("this", {}).get(vname, (vname,))
-                self._add_owner_field("this", vpath)
-            elif pkind == "parameter":
+            if _receiver_parameter(param) is not None:
+                continue
+            if pkind == "parameter" and param.get("name") is not None:
                 pname = _id_text(param["name"])
                 pmode = param.get("mode", "value")
                 ptype_node = param.get("parameter_type") or param.get("type")
@@ -1670,6 +1759,13 @@ class _FunctionLowerer:
         if not self.owners:
             self._register_owner("_unit", borrowed=False)
 
+    def _place_struct(self, place: Place) -> _StructInfo | None:
+        type_name = self.owner_types.get(place.owner)
+        for component in place.fields:
+            info = self.structs.get(type_name) if type_name is not None else None
+            type_name = info.field_types.get(component) if info is not None else None
+        return self.structs.get(type_name) if type_name is not None else None
+
     def _try_place(self, expr: dict[str, object]) -> Place | None:
         kind = expr.get("kind")
         if _is_ident(expr):
@@ -1695,6 +1791,9 @@ class _FunctionLowerer:
                     view_path = self.owner_views.get(base.owner, {}).get(member_name)
                     if view_path is not None and not base.fields:
                         return Place(base.owner, view_path)
+                    info = self._place_struct(base)
+                    if info is not None and (member_name,) not in info.fields:
+                        return base
                     return Place(base.owner, (*base.fields, member_name))
         if kind in {"index", "range_index"}:
             recv = expr.get("receiver") or expr.get("value")
@@ -2133,28 +2232,58 @@ class _FunctionLowerer:
         arg_loans: list[tuple[str, Mode, Place, bool]] = []
         captured_handles: list[str] = []
 
-        # Receiver member call: e.g. `workspace.TryFirst()`.
+        while callee.get("kind") in {"generic_application", "group"}:
+            callee = _ast_node(callee["value"])
+        receiver_loan: Loan | None = None
+        receiver_site = callee
         if callee.get("kind") == "member":
             recv = _ast_node(callee.get("receiver") or callee["value"])
-            rplace = self._try_place(recv)
-            if (
-                rplace is not None
-                and rplace.owner in self.owners
-                and self.return_lifetime_place is not None
-                and self.return_lifetime_place.owner == rplace.owner
-            ):
-                target_place = self.return_lifetime_place
-                if target_place.fields:
-                    self._add_owner_field(target_place.owner, target_place.fields)
-                loan_name = self._fresh_loan("recv")
-                current = self._emit(
-                    current,
-                    Borrow(Loan(loan_name, target_place.owner, target_place, mode="shared")),
-                    "call_recv",
-                )
-                self.handle_places[loan_name] = target_place
-                self.handle_modes[loan_name] = "shared"
-                captured_handles.append(loan_name)
+            place = self._try_place(recv)
+            projection: tuple[str, ...] = ()
+            signature: _Receiver | None = None
+            span = tuple(cast("list[int]", expr.get("span", [])))
+            if span in self.checked_receivers:
+                signature = self.checked_receivers[span]
+                if signature is None:
+                    current, _ = self._lower_expr(current, recv)
+            elif place is not None:
+                method = _id_text(callee.get("name") or callee.get("member"))
+                info = self._place_struct(place)
+                signature = info.methods.get(method) if info is not None else None
+                if info is None or signature is None:
+                    raise AnalysisRefusalError(f"cannot resolve receiver mode for {place.owner}.{method}")
+                if signature.view is not None:
+                    if signature.view not in info.views:
+                        raise AnalysisRefusalError(f"unknown receiver view {signature.view!r} for {method}")
+                    projection = info.views[signature.view]
+            elif not _is_ident(recv) and _view_field(recv) is None:
+                raise AnalysisRefusalError("cannot resolve receiver of computed method call")
+            if signature is not None:
+                if place is not None:
+                    current, parent, _ = self._resolve_borrow_target(current, recv)
+                    base = place
+                else:
+                    current, captures = self._lower_expr(current, recv)
+                    if not captures:
+                        parent = self._fresh_loan("receiver_value")
+                        self._register_owner(parent, borrowed=False)
+                        base = Place(parent)
+                    elif len(captures) == 1 and captures[0] in self.handle_places:
+                        parent = captures[0]
+                        base = self.handle_places[parent]
+                    else:
+                        raise AnalysisRefusalError("cannot resolve the origin of a computed receiver")
+                footprint = Place(base.owner, (*base.fields, *projection))
+                self._add_owner_field(footprint.owner, footprint.fields)
+                receiver_loan = Loan(self._fresh_loan("recv"), parent, footprint, mode=signature.mode,
+                                     scoped=not signature.retained)
+                self.current_site = receiver_site
+                current = self._emit(current, Borrow(receiver_loan), "call_recv")
+                self.current_site = expr
+                if signature.retained:
+                    self.handle_places[receiver_loan.name] = footprint
+                    self.handle_modes[receiver_loan.name] = signature.mode
+                    captured_handles.append(receiver_loan.name)
 
         # Evaluate arguments left-to-right; create scoped borrows for `in`/`ref`/`out` args first
         # as each argument is reached, keeping them live until the call step completes.
@@ -2205,11 +2334,6 @@ class _FunctionLowerer:
                     current, _, place = self._resolve_borrow_target(current, aval)
                     current = self._emit(current, Access(place, "move"), "arg_move")
                 else:
-                    if _is_ident(aval):
-                        aname = _id_text(aval["name"])
-                        if aname in self.handles:
-                            captured_handles.append(self.handles[aname])
-                            continue
                     current, caps = self._lower_expr(current, aval)
                     for cap in caps:
                         if cap not in captured_handles:
@@ -2226,6 +2350,12 @@ class _FunctionLowerer:
             if is_temp:
                 current = self._emit(current, Drop(loan_name), "call_drop")
 
+        if receiver_loan is not None:
+            self.current_site = receiver_site
+            current = self._emit(current, Use(receiver_loan.name), "call_receiver_use")
+            if receiver_loan.scoped:
+                current = self._emit(current, Drop(receiver_loan.name), "call_receiver_drop")
+            self.current_site = expr
         return current, tuple(captured_handles)
 
     def _lower_binding(

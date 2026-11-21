@@ -220,6 +220,7 @@ class _RecordInvariant:
 
 @dataclass(frozen=True)
 class _RecordMethod:
+    returns_receiver_loan: bool
     name: str
     method_const: str
     binding: _Binding
@@ -267,6 +268,7 @@ class _UnionInfo:
 
 @dataclass(frozen=True)
 class _InterfaceMethodSpec:
+    returns_receiver_loan: bool
     name: str
     method_generics: int
     generic_vars: tuple[_Term, ...]

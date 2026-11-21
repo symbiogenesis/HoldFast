@@ -3,6 +3,7 @@
 
 from typing import TYPE_CHECKING, cast
 
+from toolchain import loans
 from toolchain.elaborate_types import (
     _BOOL,
     _CHAR,
@@ -1482,6 +1483,24 @@ class _IntrinsicsMixin:
                 for j in range(idx):
                     p_dom = self.substitute(p_dom, cast("int", mspec.param_vars[j].value), arg_terms[j])
                 if idx == 0 and pre_evaluated_recv is not None:
+                    receiver_mode = mspec.param_modifiers[0]
+                    if receiver_mode == "owned":
+                        raise self.fail("type", "an 'owned' interface parameter requires a qualified call with an explicit 'move' argument", node)
+                    if receiver_mode in {"ref", "out", "in"}:
+                        self.checked_receivers[tuple(cast("list[int]", node["span"]))] = loans._Receiver(
+                            "shared" if receiver_mode == "in" else "exclusive", None, mspec.returns_receiver_loan
+                        )
+                    if receiver_mode in {"ref", "out"}:
+                        callee = self.node(node["callee"])
+                        if callee["kind"] == "generic_application":
+                            callee = self.node(callee["value"])
+                        target = self._unwrap_group(self.node(callee["value"]))
+                        if target["kind"] != "name" or self.name(target["name"]) not in self.mutable_locals:
+                            raise self.fail("type", f"a '{receiver_mode}' interface receiver requires a mutable local", target)
+                        target_name = self.name(target["name"])
+                        loan_targets[idx] = (target, p_dom)
+                        if receiver_mode == "out":
+                            out_loan_names.add(target_name)
                     self.unify(pre_evaluated_recv.type, p_dom)
                     arg_terms.append(pre_evaluated_recv.term)
                     continue
@@ -1672,6 +1691,7 @@ class _IntrinsicsMixin:
     ) -> _Binding:
         self.site = node
         if recv_node is not None:
+            self.checked_receivers[tuple(cast("list[int]", node["span"]))] = loans._Receiver("shared", None, rmethod.returns_receiver_loan)
             unwrapped_recv = self._unwrap_group(recv_node)
             if unwrapped_recv["kind"] == "name":
                 r_vname = self.name(unwrapped_recv["name"])
@@ -2021,6 +2041,7 @@ class _IntrinsicsMixin:
                 base_callee = callee
                 gen_args = []
             if base_callee["kind"] == "member":
+                self.checked_receivers[tuple(cast("list[int]", node["span"]))] = None
                 full_callee_path = self._dotted_member_path(base_callee)
                 if (
                     full_callee_path is not None
@@ -2177,6 +2198,9 @@ class _IntrinsicsMixin:
                             and len(recv_targs) == 2
                             and member_name in {"LivePrefix", "VacantRange", "VacantSuffix", "PrefixModel", "Read", "Write"}
                         ):
+                            self.checked_receivers[tuple(cast("list[int]", node["span"]))] = loans._Receiver(
+                                "exclusive" if member_name == "Write" else "shared", None, False
+                            )
                             return self._elaborate_slots_intrinsic(
                                 node, member_name, gen_args, call_args, environment, receiver=recv_b
                             )

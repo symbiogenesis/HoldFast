@@ -12,7 +12,7 @@ import re
 from collections.abc import Callable, Sequence
 from typing import cast
 
-from toolchain import StaticEvaluation, gallina_module_name
+from toolchain import StaticEvaluation, gallina_module_name, loans
 from toolchain.ast import ValueType, VelaError
 from toolchain.elaborate_declarations import _DeclarationsMixin
 from toolchain.elaborate_intrinsics import _IntrinsicsMixin
@@ -102,6 +102,7 @@ class _Elaborator(
 ):
     def __init__(self, protocol: _Protocol) -> None:
         self.protocol = protocol
+        self.checked_receivers: dict[tuple[int, ...], loans._Receiver | None] = {}
         self.contextual_literal_types: dict[int, str] = {}
         self.serial = 0
         self.work = MAX_WORK
