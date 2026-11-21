@@ -958,7 +958,7 @@ class _StatementsMixin:
             updated[owner_name] = _Binding(new_rec_term, owner_b.type)
         self._refresh_local_borrows(updated, site_node)
 
-    def _note_runtime_write(self: _Elaborator, target: Node) -> None:
+    def _note_runtime_access(self: _Elaborator, target: Node, footprint: set[str]) -> None:
         place = self._unwrap_group(target)
         while place["kind"] in {"member", "index", "argument", "unary"}:
             place = self._unwrap_group(self.node(place["value"]))
@@ -966,7 +966,10 @@ class _StatementsMixin:
             name = self.name(place["name"])
             if name in self.local_borrows:
                 name = self.local_borrows[name][1]
-            self.runtime_writes.add(self.slice_views.get(name, name))
+            footprint.add(self.slice_views.get(name, name))
+
+    def _note_runtime_write(self: _Elaborator, target: Node) -> None:
+        self._note_runtime_access(target, self.runtime_writes)
 
     def _record_call_update(
         self: _Elaborator, target: Node, value: _Binding, *, writes: bool = True, index: _Term | None = None

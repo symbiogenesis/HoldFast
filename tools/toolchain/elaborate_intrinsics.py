@@ -1492,6 +1492,8 @@ class _IntrinsicsMixin:
         call_args: list[Node],
         environment: dict[str, _Binding],
     ) -> _Binding:
+        if self.inferring_private_calls is not None:
+            raise self.fail("unsupported", "private effect inference requires direct top-level callees; declare method effects explicitly", node)
         self.site = node
         if iface_gen_args and len(iface_gen_args) != len(iface.generic_vars):
             raise self.fail(
@@ -1723,6 +1725,8 @@ class _IntrinsicsMixin:
         environment: dict[str, _Binding],
         recv_node: Node | None = None,
     ) -> _Binding:
+        if self.inferring_private_calls is not None:
+            raise self.fail("unsupported", "private effect inference requires direct top-level callees; declare method effects explicitly", node)
         self.site = node
         if recv_node is not None:
             unwrapped_recv = self._unwrap_group(recv_node)

@@ -372,8 +372,12 @@ preserved by the call as an implied property of the mode; contracts state
 content facts only. Exported `requires` and `ensures` clauses are obligations
 under every preset; an unproved exported promise blocks acceptance. Public
 `effects` lists are closed and propagate to callers, with no effect
-polymorphism in the first release
-([refinement, effects and staging](core-design.md#refinement-effects-and-staging)).
+polymorphism in the first release. A file-private, nonrecursive function may omit
+the list when its direct callees have closed bounds. The checker unions the reads,
+writes and named calls, maps a callee's parameter effects onto the actual places
+and charges the resulting bound at every call. A write followed by restoration is
+still a write. An unknown indirect call needs an explicit bound.
+See [refinement, effects and staging](core-design.md#refinement-effects-and-staging).
 
 **Design example** (a returned exclusive loan with `restores` and `final`):
 

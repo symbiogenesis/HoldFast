@@ -132,6 +132,12 @@ The supported increment includes:
   as a Boolean value or in a conditional expression requires read-only calls.
   Propagating such a Boolean value with `?` in a function with borrowed outputs
   requires explicit control flow.
+- A file-private, nonrecursive top-level function can omit its `effects` clause
+  when every direct user-function call has a closed footprint. Inference
+  includes transient writes and uses the same conservative accounting for
+  borrowed reads as an explicit bound. Higher-order calls, record or interface
+  dispatch and callees whose summary depends on a callback require an explicit
+  clause on the helper. Exported APIs keep their published bounds.
 - In executable bodies, a bare expression statement cannot discard the built-in
   `Result<T, E>`. The source control-flow check follows named by-value parameters
   and inferred or annotated locals through aliases, overwrites, branches, early

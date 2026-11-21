@@ -130,6 +130,10 @@ class _Elaborator(
         self.callable_has_effects: set[str] = set()
         self.callable_effect_calls: dict[str, set[str]] = {}
         self.callable_effect_writes: dict[str, set[int]] = {}
+        self.callable_effect_reads: dict[str, set[int]] = {}
+        self.callable_callback_effects: set[str] = set()
+        self.inferring_private_calls: set[str] | None = None
+        self.runtime_reads: set[str] = set()
         self.runtime_writes: set[str] = set()
         self.result_bindings: dict[int, str] = {}
         self.untracked_effect_functions: set[str] = set()
@@ -1225,6 +1229,18 @@ class _Elaborator(
             self.current_rec_var is not None
             and callee_head == self.current_rec_var
         )
+        if self.inferring_private_calls is not None:
+            callee = str(callee_head.value)
+            if is_rec_call or callee_head.kind != "const":
+                raise self.fail("unsupported", "private helper with a recursive or indirect call needs explicit effects", call_site)
+            if (callee in self.callable_callback_effects
+                    or (callee in self.callable_source_names and callee not in self.callable_has_effects)):
+                raise self.fail("unsupported", "private effect inference requires a direct callee with closed effects", call_site)
+            self.inferring_private_calls.update(self.callable_effect_calls.get(callee, set()))
+        if self.in_executable_function and callee_head.kind == "const":
+            for idx in self.callable_effect_reads.get(str(callee_head.value), set()):
+                if idx < len(arguments):
+                    self._note_runtime_access(arguments[idx], self.runtime_reads)
         if self.active_effect_calls is not None and not is_rec_call:
             if callee_head.kind == "var" and cast("int", callee_head.value) in self.parameter_names:
                 cb_name = self.parameter_names[cast("int", callee_head.value)]

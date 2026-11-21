@@ -658,6 +658,7 @@ class _DeclarationsMixin:
             self.active_effect_calls = set(m_effect_calls)
         try:
             self.runtime_writes.clear()
+            self.runtime_reads.clear()
             self.result_bindings.clear()
             body_term = self.check(body_node, result_ty, method_env)
             if effects_clauses:
@@ -1054,6 +1055,8 @@ class _DeclarationsMixin:
         self.callable_has_effects.update(mod.callable_has_effects)
         self.callable_effect_calls.update(mod.callable_effect_calls)
         self.callable_effect_writes.update(mod.callable_effect_writes)
+        self.callable_effect_reads.update(mod.callable_effect_reads)
+        self.callable_callback_effects.update(mod.callable_callback_effects)
         self.untracked_effect_functions.update(mod.untracked_effect_functions)
         self.fix_names.update(mod.fix_names)
         existing_out = set(self.output)
@@ -2535,26 +2538,21 @@ class _DeclarationsMixin:
                         )
         return found
 
-    def _verify_closed_effects(
+    def _memory_footprint(
         self: _Elaborator,
-        eff_clause: Node,
         parameters: list[Node],
         ref_param_names: set[str],
-        declared_reads: set[str],
-        declared_writes: set[str],
         body_node: Node,
         body_term: _Term,
         *,
         self_var: _Term | None = None,
-    ) -> None:
-        for pname in sorted(ref_param_names):
+    ) -> tuple[set[str], set[str]]:
+        reads: set[str] = set()
+        writes: set[str] = set()
+        for pname in ref_param_names:
             changed = pname in self.final_ref_bindings and self.final_ref_bindings[pname].term != self.entry_env[pname].term
-            if (pname in self.runtime_writes or changed) and pname not in declared_writes:
-                raise self.fail(
-                    "type",
-                    f"callable mutates parameter '{pname}' not declared in effects writes(...)",
-                    eff_clause,
-                )
+            if pname in self.runtime_writes or changed:
+                writes.add(pname)
         used_var_ids = set(self.free(body_term))
         for rname in ref_param_names:
             if (
@@ -2562,17 +2560,8 @@ class _DeclarationsMixin:
                 and self.final_ref_bindings[rname].term != self.entry_env[rname].term
             ):
                 used_var_ids |= self.free(self.final_ref_bindings[rname].term)
-        if (
-            self_var is not None
-            and cast("int", self_var.value) in used_var_ids
-            and "this" not in declared_reads
-            and "this" not in declared_writes
-        ):
-            raise self.fail(
-                "type",
-                "callable reads parameter 'this' not declared in effects reads(...) or writes(...)",
-                eff_clause,
-            )
+        if self_var is not None and cast("int", self_var.value) in used_var_ids:
+            reads.add("this")
         borrowed_read_candidates: list[tuple[str, int]] = []
         for p_node in parameters:
             if p_node["name"] is None:
@@ -2596,16 +2585,20 @@ class _DeclarationsMixin:
             body_node, {pname for pname, _ in borrowed_read_candidates}
         )
         for pname, p_var_id in borrowed_read_candidates:
-            if (
-                (p_var_id in used_var_ids or pname in ast_read_names)
-                and pname not in declared_reads
-                and pname not in declared_writes
-            ):
-                raise self.fail(
-                    "type",
-                    f"callable reads parameter '{pname}' not declared in effects reads(...) or writes(...)",
-                    eff_clause,
-                )
+            if p_var_id in used_var_ids or pname in ast_read_names or pname in self.runtime_reads:
+                reads.add(pname)
+        return reads, writes
+
+    def _verify_closed_effects(
+        self: _Elaborator, eff_clause: Node, parameters: list[Node], ref_param_names: set[str],
+        declared_reads: set[str], declared_writes: set[str], body_node: Node, body_term: _Term,
+        *, self_var: _Term | None = None,
+    ) -> None:
+        reads, writes = self._memory_footprint(parameters, ref_param_names, body_node, body_term, self_var=self_var)
+        if missing := writes - declared_writes:
+            raise self.fail("type", f"callable mutates parameter '{min(missing)}' not declared in effects writes(...)", eff_clause)
+        if missing := reads - declared_reads - declared_writes:
+            raise self.fail("type", f"callable reads parameter '{min(missing)}' not declared in effects reads(...) or writes(...)", eff_clause)
 
     def declaration(self: _Elaborator, node: Node) -> None:
         self.site = node
@@ -2702,7 +2695,8 @@ class _DeclarationsMixin:
                 or name in self.union_ctors or name in self.interfaces
                 or name in {"Type", "_", "this"} or "." in name):
             raise self.fail("name", f"duplicate or reserved declaration '{name}'")
-        self._record_visibility(name, modifiers, node)
+        public = self._record_visibility(name, modifiers, node)
+        infer_effects = kind == "function" and not public and "internal" not in modifiers and not effects_clauses
         raw_generics = [] if kind in {"constant", "property"} else self.nodes(node["generics"])
         generics, decl_regions = self._extract_regions(raw_generics)
         self.active_regions = set(decl_regions)
@@ -2928,10 +2922,12 @@ class _DeclarationsMixin:
                 self.final_theorem_facts = ()
                 self.in_executable_function = kind == "function"
                 self.runtime_writes.clear()
+                self.runtime_reads.clear()
                 self.result_bindings.clear()
                 prev_effect_calls = self.active_effect_calls
                 if effects_clauses:
                     self.active_effect_calls = set(declared_effect_calls)
+                self.inferring_private_calls = declared_effect_calls if infer_effects else None
                 try:
                     if is_post_env_theorem:
                         self.in_post_env_theorem = True
@@ -3007,7 +3003,11 @@ class _DeclarationsMixin:
                                 f"out parameter '{uninit_name}' is not initialized on all exit paths",
                                 body_node,
                             )
-                        if effects_clauses:
+                        if infer_effects:
+                            declared_effect_reads, declared_effect_writes = self._memory_footprint(
+                                parameters, ref_param_names, body_node, body,
+                            )
+                        elif effects_clauses:
                             self._verify_closed_effects(
                                 effects_clauses[0],
                                 parameters,
@@ -3033,6 +3033,7 @@ class _DeclarationsMixin:
                         self._check_callable_loans(node)
                 finally:
                     self.active_effect_calls = prev_effect_calls
+                    self.inferring_private_calls = None
                     self.in_executable_function = False
                     self.active_facts = saved_body_facts
                     self.current_rec_var = None
@@ -3051,8 +3052,13 @@ class _DeclarationsMixin:
             if kind in {"definition", "function", "theorem", "lemma"}:
                 self.callable_source_names[emitted] = name
                 self.declaration_sites[emitted] = cast("list[int]", node["span"])[0]
-                if effects_clauses:
+                if effects_clauses or infer_effects:
                     self.callable_has_effects.add(emitted)
+                    self.callable_effect_reads[emitted] = {
+                        i for i, p in enumerate(parameters) if p["name"] and self.name(p["name"]) in declared_effect_reads
+                    }
+                    if any(p["name"] and self.name(p["name"]) in declared_effect_calls for p in parameters):
+                        self.callable_callback_effects.add(emitted)
                     self.callable_effect_calls[emitted] = set(declared_effect_calls)
                     self.callable_effect_writes[emitted] = {
                         i for i, p in enumerate(parameters) if p["name"] and self.name(p["name"]) in declared_effect_writes
