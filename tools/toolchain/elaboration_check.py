@@ -375,6 +375,18 @@ public Nat AboveLimit(Option<Nat> item, Nat limit) {
 }
 public definition Nat AboveBoth(Option<Nat> a, Option<Nat> b) =>
     if (a is Some(x) && (b is Some(y) && x > y)) x + y else 0;
+public bool Touch(ref Nat count) { count = 1; return true; }
+public Unit UpdateIfPresent(Option<Nat> item, ref Nat count) {
+    if (item is Some(n) && Touch(ref count)) { return; } else { return; }
+}
+public Nat ObserveGuard(Option<Nat> item) {
+    var count = 0;
+    UpdateIfPresent(item, ref count);
+    return count;
+}
+public lemma ConditionalLoan()
+    ensures (ObserveGuard(None) == 0 && ObserveGuard(Some(3)) == 1) == true
+    proof { assert (ObserveGuard(None) == 0 && ObserveGuard(Some(3)) == 1) == true; }
 public lemma CompoundGuards()
     ensures (AboveLimit(Some(4), 3) == 4 && AboveLimit(Some(3), 3) == 0
         && AboveLimit(None, 0) == 0 && AboveBoth(Some(5), Some(2)) == 7

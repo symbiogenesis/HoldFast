@@ -107,6 +107,11 @@ The supported increment includes:
   a call, ownership transfer or block evaluation; write the earlier computation
   as an explicit local first. The dedicated `&&`/`||` guard evaluates its left
   operand once before deciding whether to propagate from its right operand.
+  A statement such as `if (value is Some(n) && Update(ref count, n))` threads
+  the mutable loan through the successful path. A compound pattern guard used
+  as a Boolean value or in a conditional expression requires read-only calls.
+  Propagating such a Boolean value with `?` in a function with borrowed outputs
+  requires explicit control flow.
 - Nominal `record Name(T1 Field1, ...)` and `union Name { Case1(...); ... }`
   declarations with primary-constructor fields and tagged sum variants (lowering
   non-dependent field telescopes to `@Corelib.Init.Datatypes.prod` and dependent

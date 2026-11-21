@@ -2271,6 +2271,36 @@ def _pattern_conjunctions() -> None:
     _refuses(missing, "type", "initialized")
 
 
+def _pattern_guard_mutation() -> None:
+    def fixture_with_touch() -> _Fixture:
+        fixture = _Fixture("BorrowedPatternState")
+        fixture.function("Touch", _BOOL, (("dst", _modified("ref", _NAT)),), _block_stmts(
+            _assign_stmt(_variable("dst"), "=", _natural(1)), _return_stmt(_boolean(True)),
+        ), block=True)
+        return fixture
+
+    pattern = _is_expr(_variable("value"), _pat_ctor("Succ", _pat_bind("n")))
+    guard = _binary("&&", pattern, _call("Touch", _ref_arg(_variable("dst"))))
+    fixture = fixture_with_touch()
+    fixture.function("Set", _type("Unit"), (("value", _NAT), ("dst", _modified("ref", _NAT))), _block_stmts(
+        _if_stmt(guard, _block_stmts(_return_stmt()), _block_stmts(_return_stmt())),
+    ), block=True)
+    fixture.function("Observe", _NAT, (("value", _NAT),), _block_stmts(
+        _var_stmt("dst", _natural(0)), _expr_stmt(_call("Set", _variable("value"), _ref_arg(_variable("dst")))),
+        _return_stmt(_variable("dst")),
+    ), block=True)
+    for value, expected in ((0, 0), (2, 1)):
+        claim = _binary("==", _call("Observe", _natural(value)), _natural(expected))
+        fixture.theorem(f"ObserveAt{value}", (), claim, _assert(claim))
+    elaborate(*fixture.response())
+    for value_expression in (guard, _if_expr(guard, _variable("n"), _natural(0))):
+        invalid = fixture_with_touch()
+        invalid.function("Wrong", _NAT, (("value", _NAT),), _block_stmts(
+            _var_stmt("dst", _natural(0)), _let_stmt("ignored", value_expression), _return_stmt(_variable("dst")),
+        ), block=True)
+        _refuses(invalid, "unsupported", "mutable loan update")
+
+
 def _let_else_block(pattern: Form, value: Form, otherwise: Form, body: Form) -> Form:
     def form(fixture: _Fixture) -> Node:
         start = fixture.offset
@@ -6494,6 +6524,7 @@ def cases() -> list[Case]:
             Case("early-return-propagation-for-option-and-result", _early_return_propagation),
             Case("short-circuit-option-and-result-propagation", _short_circuit_propagation),
             Case("pattern-bindings-across-positive-conjunctions", _pattern_conjunctions),
+            Case("pattern-guard-conditional-loan-updates", _pattern_guard_mutation),
             Case("propagation-preserves-explicit-evaluation-order", _propagation_evaluation_order),
             Case("represented-integers-preconditions-and-conversions", _represented_integers_and_conversions),
             Case("pure-sequences-and-model-reasoning", _pure_sequences_and_model_reasoning),
