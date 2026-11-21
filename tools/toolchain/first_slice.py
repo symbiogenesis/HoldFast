@@ -35,6 +35,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -59,7 +60,12 @@ from toolchain import (
     parser as vela_parser,
 )
 from toolchain.atomic import atomic_path
-from toolchain.elaborate_types import CheckedElaboration, _parse_numeric_magnitude
+from toolchain.elaborate_types import (
+    _INT_SPECS,
+    CheckedElaboration,
+    _int_term,
+    _parse_numeric_magnitude,
+)
 from toolchain.jsonutil import unique_object
 
 TIMEOUT: Final = 120
@@ -826,6 +832,7 @@ def _opam(arguments: list[str]) -> list[str]:
 
 def _run(command: list[str], cwd: Path, log_path: Path,
          steps: list[dict[str, object]]) -> str:
+    started = time.monotonic_ns()
     completed = subprocess.run(
         command,
         cwd=cwd,
@@ -835,12 +842,15 @@ def _run(command: list[str], cwd: Path, log_path: Path,
         timeout=TIMEOUT,
         check=False,
     )
+    elapsed_ns = time.monotonic_ns() - started
     combined = completed.stdout + completed.stderr
     log_path.write_text(combined, encoding="utf-8", newline="")
     steps.append({
         "command": command,
         "cwd": str(cwd),
         "returncode": completed.returncode,
+        "elapsed_ns": elapsed_ns,
+        "timeout_seconds": TIMEOUT,
         "log": str(log_path),
         "log_sha256": _sha256(log_path.read_bytes()),
         **_stream_identity(completed.stdout, completed.stderr),
@@ -1971,6 +1981,16 @@ def _run_negative_controls(compiled: vela_parser.Build, directory: Path) -> list
     return results
 
 
+def _check_capacity_structure(small_state: vela_elaborate._Elaborator,
+                              large_state: vela_elaborate._Elaborator) -> None:
+    small_literal = small_state.render(_int_term(_INT_SPECS["usize"], 8))
+    large_literal = large_state.render(_int_term(_INT_SPECS["usize"], 1_000_000_000))
+    if not any(large_literal in decl for decl in large_state.output):
+        raise ValueError("capacity-invariance gate did not exercise the large capacity numeral")
+    if small_state.output != [decl.replace(large_literal, small_literal) for decl in large_state.output]:
+        raise ValueError("capacity-invariance gate changed proof structure beyond the encoded capacity numeral")
+
+
 def _run_capacity_invariance_gate(
     compiled: vela_parser.Build,
     directory: Path,
@@ -1999,6 +2019,8 @@ def _run_capacity_invariance_gate(
             f"capacity-invariance gate failed: work/reduction profile differs "
             f"(small={small_work}/{small_red}, large={large_work}/{large_red})"
         )
+    _check_capacity_structure(small_state, large_state)
+    # The concrete usize encoder uses the same number of nibbles at both capacities.
     if len(small_elab.gallina) != len(large_elab.gallina):
         raise ValueError(
             f"capacity-invariance gate failed: emitted Gallina byte length differs "
