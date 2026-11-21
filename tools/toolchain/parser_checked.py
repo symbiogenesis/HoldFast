@@ -35,6 +35,7 @@ from toolchain import (
 from toolchain import (
     parser as vela_parser,
 )
+from toolchain.ast import source_text
 from toolchain.atomic import atomic_path
 
 RELEASE = "20260209"
@@ -879,6 +880,8 @@ let read_source () =
   Bytes.sub_string bytes 0 count
 
 let validate_utf8 source =
+  if String.starts_with ~prefix:"\\xEF\\xBB\\xBF" source then
+    raise (Ast.Refusal ("encoding", 0, "remove the initial UTF-8 byte-order mark"));
   let length = String.length source in
   let byte index = Char.code source.[index] in
   let continuation index = index < length && byte index >= 0x80 && byte index <= 0xbf in
@@ -1684,8 +1687,7 @@ def _ensure_worker_command(repo: Path) -> list[str]:
 def parse_checked(source: bytes, *, root: Path | None = None,
                   compiled: vela_parser.Build | None = None) -> dict[str, vela_parser.Json]:
     """Parse pure Vela source through the Rocq-extracted vela-checked-parser."""
-    if len(source) > vela_parser.MAX_SOURCE_BYTES:
-        raise vela_parser.VelaError("limit", 1, 1, f"source exceeds {vela_parser.MAX_SOURCE_BYTES} bytes")
+    source_text(source)
     if compiled is not None:
         outputs = cast("dict[str, str]", compiled.receipt["generated_sha256"])
         if (not compiled.executable.is_file()

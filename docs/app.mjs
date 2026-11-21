@@ -512,6 +512,15 @@ function checkSourceText(sourceText) {
   if (bytes.length > MAX_SOURCE_BYTES) {
     throw new VelaError("limit", 1, 1, `source exceeds ${MAX_SOURCE_BYTES} bytes`);
   }
+  if (sourceText.startsWith("\uFEFF")) {
+    throw new VelaError("encoding", 1, 1, "remove the initial UTF-8 byte-order mark");
+  }
+  const unpaired = /[\uD800-\uDFFF]/u.exec(sourceText);
+  if (unpaired) {
+    const lines = normalizeNewlines(sourceText.slice(0, unpaired.index)).split("\n");
+    throw new VelaError("encoding", lines.length, Array.from(lines.at(-1)).length + 1,
+                        "unpaired UTF-16 surrogate cannot be encoded as UTF-8");
+  }
   return { text: sourceText, bytes };
 }
 

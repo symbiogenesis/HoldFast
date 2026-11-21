@@ -426,6 +426,8 @@ def independent_tokenize(source: bytes) -> tuple[RenderedToken, ...]:
     """Tokenize pure Vela bytes independently of `lexer.mll` and `vela.ast`."""
     if len(source) > MAX_SOURCE_BYTES:
         raise VelaError("limit", 1, 1, f"source exceeds {MAX_SOURCE_BYTES} bytes")
+    if source.startswith(b"\xef\xbb\xbf"):
+        raise VelaError("encoding", 1, 1, "remove the initial UTF-8 byte-order mark")
     try:
         text = source.decode("utf-8")
     except UnicodeDecodeError as error:

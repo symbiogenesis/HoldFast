@@ -521,6 +521,13 @@ if (!read.ok || read.value !== "42") {
   throw new Error(`Dependent builtins failed in an ordinary function: ${JSON.stringify(read)}`);
 }
 const ordinarySource = "module Ordinary; public Nat Value() => 42;";
+for (const [source, detail] of [["\uFEFF" + ordinarySource, "byte-order mark"],
+                                [ordinarySource + "\n//\uD800", "surrogate"]]) {
+  const refusal = await mod.browserApi("/api/evaluate", { source, expression: "Value()", valueType: "Nat" });
+  if (refusal.ok || refusal.error?.kind !== "encoding" || !refusal.error.message.includes(detail)) {
+    throw new Error("Browser source encoding diagnostic diverged: " + JSON.stringify(refusal));
+  }
+}
 for (const source of [ordinarySource, mod.EXAMPLES.vectors.source]) {
   for (const [expression, valueType] of [["false && 1", "bool"], ["-1", "Nat"]]) {
     const refusal = await mod.browserApi("/api/evaluate", { source, expression, valueType });
