@@ -3215,7 +3215,7 @@ def _propagation_evaluation_order() -> None:
             _return_stmt(_call("Some", _variable("value"))),
         ), block=True,
     )
-    _refuses(out, "type", "before 'out' parameter 'dst' is initialized")
+    _refuses(out, "type", "return the completed value in the success case")
 
     lifted = _Fixture("GuardedPropagationWhileInvariantLifted")
     lifted.union("Option", (("None", ()), ("Some", (("Value", _T),))), generics=_POLY)

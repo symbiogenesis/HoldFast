@@ -132,6 +132,15 @@ Analysis infers last use within finite control-flow regions and explicit call co
 | Cleanup | A total non-failing operation consumes the exact token and preserves the frame. Fallible cleanup is unsupported pending its extra exit rule. |
 | Abort, panic or target fault | No source abort/unwind primitive. Operations owe absence of unexpected traps under entry premises; environmental faults retain the target contract's classification. |
 
+A builder library can share a checked, bounded rollback operation across failure
+arms. Its input identifies the live initialized prefix and the cleanup tokens
+owned at that point. Its result proves each token was consumed once, in the
+specified order, and returns the restored storage and unrelated frame. A caller
+may use `?` only after the corresponding error arm establishes its promised
+state. An operation whose cleanup can fail uses explicit control flow and returns
+the residual builder and error in a distinct case. A total cleanup interface
+cannot advertise successful restoration on that path.
+
 The only escaping local loan is a shared view into one statically named borrowed parameter or field. Local-stack loans, dynamically untracked owners, self-referential owners and cyclic captures are outside the fragment. The caller ends the view before resuming exclusive access; inference may insert that proof step at last use without source-level manual restoration.
 
 The [ownership library contract](first-release.md#ownership-libraries) supplies

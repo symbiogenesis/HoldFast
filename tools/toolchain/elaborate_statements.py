@@ -159,6 +159,11 @@ class _StatementsMixin:
         self.final_return_facts = []
         return result
 
+    def _fallible_out_hint(self: _Elaborator, result_type: _Term) -> str:
+        if self._is_propagatable_union(result_type):
+            return ". For a fallible constructor, return the completed value in the success case"
+        return ""
+
     def _is_propagatable_union(self: _Elaborator, value_type: _Term) -> bool:
         resolved = self.whnf(value_type)
         head, _ = self.spine(resolved)
@@ -363,7 +368,8 @@ class _StatementsMixin:
             uninit_name = min(self.uninitialized_out_params)
             raise self.fail(
                 "type",
-                f"cannot propagate '?' early exit before 'out' parameter '{uninit_name}' is initialized",
+                f"cannot propagate '?' early exit before 'out' parameter '{uninit_name}' is initialized"
+                + self._fallible_out_hint(target_return_type),
                 prop_node,
             )
         scrutinee = self.expression(self.node(prop_node["value"]), environment)
@@ -2627,7 +2633,8 @@ class _StatementsMixin:
                         uninit_list = ", ".join(sorted(self.uninitialized_out_params))
                         raise self.fail(
                             "type",
-                            f"cannot return before 'out' parameter '{uninit_list}' is initialized",
+                            f"cannot return before 'out' parameter '{uninit_list}' is initialized"
+                            + self._fallible_out_hint(result.type),
                             cur_stmt,
                         )
                     self.final_ref_bindings = dict(extended)
