@@ -7,9 +7,12 @@ playground using the [mathematical elaborator](elaboration-prototype.md).
 `python tools/run.py vela-playground` runs in the native guest lane and builds
 the locked Menhir parser once before serving. Every local buffer uses the
 schema-2 surface parser and mathematical elaborator. The static playground
-loads its browser parser and elaborator with the page.
+loads its browser parser and bounded evaluator with the page. The hosted page
+returns a pure Gallina translation for the pure profile. Wider inputs return
+an evaluation preview with located unchecked claims. Downloadable Gallina for
+these inputs comes from the local mathematical elaborator.
 
-Compile elaborates the entire source and displays its actual Gallina. The console
+Local compilation elaborates the entire source and displays its actual Gallina. The console
 checks the complete source plus exactly one closed expression, reduces it with the
 existing bounded mathematical reducer, and returns only `Nat` or `bool`. Generic
 inference, dependent functions, length-indexed `Vec`, finite `Fin` indices and

@@ -349,6 +349,7 @@ public lemma SameValue()
       { expression: "HeaderBytes", valueType: "Nat" },
       { expression: "Fits(FormatPacket(42, true))", valueType: "bool" },
       { expression: "Fits(OverflowPacket(42))", valueType: "bool" },
+      { expression: "Fits(FormatPacket(4_294_967_296, true))", valueType: "bool" },
     ],
     source: `module CheckedFormatting;
 
@@ -383,11 +384,11 @@ public lemma DedentedHeaderLength()
         assert HeaderBytes == 10;
     }
 
-public theorem PacketFitsForEveryId()
-    ensures forall (Nat id) => Fits(FormatPacket(id, true)) == true
+public lemma LargeIdExceedsCapacity()
+    ensures Fits(FormatPacket(4_294_967_296, true)) == false
     proof
     {
-        assert Fits(FormatPacket(id, true));
+        assert Fits(FormatPacket(4_294_967_296, true)) == false;
     }
 
 public lemma PacketWrites32Bytes()
@@ -5310,10 +5311,8 @@ function checkScalarValue(type, value, site, binding) {
 }
 
 class MathElaborator {
-  constructor(parsedModule, sourceText, sourceHash = "") {
+  constructor(parsedModule) {
     this.module = parsedModule;
-    this.sourceText = sourceText;
-    this.sourceHash = sourceHash;
     this.records = new Map();
     this.unionCtors = new Map();
     this.constants = new Map();
@@ -5725,11 +5724,7 @@ class MathElaborator {
       };
     }
     if (expr.kind === "quantifier") {
-      const qEnv = new Map(env);
-      for (const p of expr.params) {
-        qEnv.set(p.name, 0n);
-      }
-      return Boolean(this.evalExpr(expr.body, qEnv));
+      throw new VelaError("unsupported", expr.site.line, expr.site.column, "quantified propositions require proof checking");
     }
     if (expr.kind === "if_expr") {
       const thenEnv = new Map(env);
@@ -6244,13 +6239,19 @@ class MathElaborator {
           }
           callEnv.set(param.name, argVal);
         }
+        for (const req of decl.contracts.requires) {
+          if (this.evalExpr(req.expr, callEnv) !== true) {
+            throw new VelaError("type", req.site.line, req.site.column, `precondition of '${decl.name}' failed`);
+          }
+        }
         if (!decl.body) {
-          return { __kind: "unit" };
+          throw new VelaError("unsupported", expr.site.line, expr.site.column, `'${decl.name}' has no body to evaluate`);
         }
         const res = this.evalBlock(decl.body, callEnv);
         const returnVal = res.value;
         this.checkReturnValueType(decl, returnVal, callEnv);
         for (const ens of decl.contracts.ensures) {
+          if (containsQuantifier(ens.expr)) continue;
           const ensEnv = new Map(callEnv);
           ensEnv.set("result", returnVal);
           const ok = this.evalExpr(ens.expr, ensEnv);
@@ -6393,125 +6394,47 @@ class MathElaborator {
   }
 
   elaborate() {
-    const gallinaBlocks = [];
+    const uncheckedClaims = [];
     for (const decl of this.module.declarations) {
       if (decl.kind === "record") {
         this.records.set(decl.name, decl);
-        const fieldLines = decl.fields
-          .map((f) => `  ${decl.name}_${f.name} : ${renderMathTypeGallina(f.type)};`)
-          .join("\n");
-        gallinaBlocks.push(
-          `Record ${decl.name} : Type := mk_${decl.name} {\n${fieldLines}\n}.`
-        );
-        for (const prop of decl.properties) {
-          gallinaBlocks.push(
-            `Definition ${decl.name}_${prop.name} (this : ${decl.name}) : ${renderMathTypeGallina(prop.type)} :=\n  (* property ${prop.name} *) ${renderMathExprGallina(prop.expr)}.`
-          );
-        }
-        continue;
-      }
-      if (decl.kind === "union") {
-        const ctorLines = [];
-        for (const c of decl.cases) {
-          this.unionCtors.set(c.name, c);
-          const paramTypes = c.fields.map((f) => `${renderMathTypeGallina(f.type)} -> `).join("");
-          ctorLines.push(`| ${c.name} : ${paramTypes}${decl.name}`);
-        }
-        gallinaBlocks.push(`Inductive ${decl.name} : Type :=\n${ctorLines.join("\n")}.`);
-        continue;
-      }
-      if (decl.kind === "constant") {
+      } else if (decl.kind === "union") {
+        for (const variant of decl.cases) this.unionCtors.set(variant.name, variant);
+      } else if (decl.kind === "constant") {
         const val = this.evalExpr(decl.value, new Map());
         checkScalarValue(decl.valueType, val, decl.site, decl.name);
         this.constants.set(decl.name, val);
-        gallinaBlocks.push(
-          `Definition ${decl.name} : ${renderMathTypeGallina(decl.valueType)} := ${renderMathValueGallina(val)}.`
-        );
-        continue;
-      }
-      if (decl.kind === "definition" || decl.kind === "function") {
-        this.callables.set(decl.name, decl);
-        const sampleEnv = new Map();
-        for (const g of decl.generics) {
-          if (g.mode !== "type") {
-            sampleEnv.set(g.name, 2n);
+      } else if (["definition", "function", "lemma"].includes(decl.kind)) {
+        const closed = !decl.parameters.length && !decl.generics.length &&
+          !decl.contracts.requires.length;
+        if (decl.kind === "lemma" || decl.proof || decl.contracts.ensures.length) {
+          uncheckedClaims.push({ name: decl.name, ...decl.site });
+        }
+        const env = new Map();
+        if (decl.kind !== "lemma") {
+          this.callables.set(decl.name, decl);
+          for (const generic of decl.generics) {
+            if (generic.mode !== "type") env.set(generic.name, 2n);
+          }
+          for (const param of decl.parameters) {
+            env.set(param.name, this.sampleValueForType(param.type, env));
+          }
+          if (decl.body && !decl.contracts.requires.length) {
+            const res = this.evalBlock(decl.body, env);
+            this.checkReturnValueType(decl, res.value, env);
+            env.set("result", res.value);
           }
         }
-        for (const p of decl.parameters) {
-          sampleEnv.set(p.name, this.sampleValueForType(p.type, sampleEnv));
-        }
-        if (decl.body) {
-          const res = this.evalBlock(decl.body, sampleEnv);
-          this.checkReturnValueType(decl, res.value, sampleEnv);
+        if (closed && !containsQuantifier(decl.contracts) && !containsQuantifier(decl.proof)) {
+          this.checkProofBlock(decl.proof, env);
           for (const ens of decl.contracts.ensures) {
-            const ensEnv = new Map(sampleEnv);
-            ensEnv.set("result", res.value);
-            const ok = this.evalExpr(ens.expr, ensEnv);
-            if (ok !== true) {
-              throw new VelaError(
-                "type",
-                ens.site.line,
-                ens.site.column,
-                `postcondition 'ensures' of '${decl.name}' failed`
-              );
+            if (this.evalExpr(ens.expr, env) !== true) {
+              throw new VelaError("type", ens.site.line, ens.site.column, `closed assertion in '${decl.name}' is false`);
             }
           }
         }
-        if (decl.proof) {
-          this.checkProofBlock(decl.proof, sampleEnv);
-        }
-        const gBinders = decl.generics
-          .map((g) => (g.mode === "type" ? `(${g.name} : Type)` : `(${g.name} : nat)`))
-          .join(" ");
-        const pBinders = decl.parameters
-          .map((p) => `(${p.name} : ${renderMathTypeGallina(p.type)})`)
-          .join(" ");
-        const allBinders = [gBinders, pBinders].filter(Boolean).join(" ");
-        const bodyText = decl.body ? renderMathBodyGallina(decl.body) : "tt";
-        gallinaBlocks.push(
-          `Definition ${decl.name}${allBinders ? " " + allBinders : ""} : ${renderMathTypeGallina(decl.returnType)} :=\n  ${bodyText}.`
-        );
-        continue;
-      }
-      if (decl.kind === "lemma") {
-        const sampleEnv = new Map();
-        for (const p of decl.parameters) {
-          sampleEnv.set(p.name, this.sampleValueForType(p.type, sampleEnv));
-        }
-        for (const ens of decl.contracts.ensures) {
-          if (ens.expr && ens.expr.kind === "quantifier") {
-            for (const qp of ens.expr.params) {
-              sampleEnv.set(qp.name, this.sampleValueForType(qp.type, sampleEnv));
-            }
-          }
-        }
-        if (decl.proof) {
-          this.checkProofBlock(decl.proof, sampleEnv);
-        }
-        for (const ens of decl.contracts.ensures) {
-          const ok = this.evalExpr(ens.expr, sampleEnv);
-          if (ok !== true) {
-            throw new VelaError(
-              "type",
-              ens.site.line,
-              ens.site.column,
-              `lemma '${decl.name}' ensures clause failed`
-            );
-          }
-        }
-        const pBinders = decl.parameters
-          .map((p) => `(${p.name} : ${renderMathTypeGallina(p.type)})`)
-          .join(" ");
-        const propText =
-          decl.contracts.ensures.length > 0
-            ? renderMathExprGallina(decl.contracts.ensures[0].expr)
-            : "True";
-        gallinaBlocks.push(
-          `Theorem ${decl.name}${pBinders ? " " + pBinders : ""} : ${propText} :=\n  eq_refl.`
-        );
       }
     }
-
     const findings = [];
     for (const binder of this.module.genericTypeBinders) {
       if (!isPascalCase(binder.text)) {
@@ -6525,103 +6448,13 @@ class MathElaborator {
     }
     findings.sort((a, b) => a.line - b.line || a.column - b.column);
 
-    const modIdent = `Vela_${this.module.name.replace(/\./g, "_")}`;
-    const gallina = [
-      "(* SPDX-License-" + "Identifier: Apache-2.0 *)",
-      `(* Vela mathematical elaboration: unqualified kernel proposal. Source SHA256: ${this.sourceHash} *)`,
-      `Module ${modIdent}.`,
-      "",
-      "From Stdlib Require Import Bool Arith PeanoNat String.",
-      "",
-      ...gallinaBlocks,
-      "",
-      `End ${modIdent}.`,
-      "",
-    ].join("\n");
-
-    return {
-      module: this.module.name,
-      gallina,
-      findings,
-    };
+    return { module: this.module.name, findings, uncheckedClaims };
   }
 }
 
-function renderMathTypeGallina(typeNode) {
-  if (!typeNode) return "unit";
-  if (typeNode.kind === "mode_type") return renderMathTypeGallina(typeNode.inner);
-  if (typeNode.kind === "fn_type") {
-    const dom = typeNode.params.map((p) => renderMathTypeGallina(p.type)).join(" -> ");
-    return `(${dom || "unit"} -> ${renderMathTypeGallina(typeNode.result)})`;
-  }
-  if (typeNode.kind === "nat_index") return `${typeNode.value.toString()}%nat`;
-  if (typeNode.kind === "expr_index") return renderMathExprGallina(typeNode.expr);
-  if (typeNode.kind === "named_type") {
-    if (typeNode.name === "Nat") return "nat";
-    if (typeNode.name === "bool") return "bool";
-    if (typeNode.name === "Unit" || typeNode.name === "void") return "unit";
-    if (typeNode.name === "String") return "string";
-    if (typeNode.args && typeNode.args.length > 0) {
-      const renderedArgs = typeNode.args.map((a) => renderMathTypeGallina(a)).join(" ");
-      return `(${typeNode.name} ${renderedArgs})`;
-    }
-    return typeNode.name;
-  }
-  return "Type";
-}
-
-function renderMathValueGallina(val) {
-  if (typeof val === "bigint") return `${val.toString()}%nat`;
-  if (typeof val === "boolean") return val ? "true" : "false";
-  if (typeof val === "string") return `"${val.replace(/"/g, '""')}"%string`;
-  return "tt";
-}
-
-function renderMathExprGallina(expr) {
-  if (!expr) return "tt";
-  if (expr.kind === "nat") return `${expr.value.toString()}%nat`;
-  if (expr.kind === "bool") return expr.value ? "true" : "false";
-  if (expr.kind === "string") return `"${expr.value.replace(/"/g, '""')}"%string`;
-  if (expr.kind === "name") return expr.name;
-  if (expr.kind === "member") return `(${renderMathExprGallina(expr.object)}.${expr.member})`;
-  if (expr.kind === "unary") return `(${expr.op}${renderMathExprGallina(expr.operand)})`;
-  if (expr.kind === "binary") {
-    return `(${renderMathExprGallina(expr.left)} ${expr.op} ${renderMathExprGallina(expr.right)})`;
-  }
-  if (expr.kind === "if_expr") {
-    return `(if ${renderMathExprGallina(expr.condition)} then ${renderMathExprGallina(expr.thenExpr)} else ${renderMathExprGallina(expr.elseExpr)})`;
-  }
-  if (expr.kind === "call") {
-    const callee = renderMathExprGallina(expr.callee);
-    const args = expr.args.map((a) => renderMathExprGallina(a.value)).join(" ");
-    return args ? `(${callee} ${args})` : callee;
-  }
-  if (expr.kind === "with_update") {
-    const upd = expr.updates.map((u) => `${u.field} := ${renderMathExprGallina(u.value)}`).join("; ");
-    return `(${renderMathExprGallina(expr.base)} with { ${upd} })`;
-  }
-  if (expr.kind === "match_expr") {
-    const arms = expr.arms
-      .map((a) => `| _ => ${renderMathExprGallina(a.expr)}`)
-      .join(" ");
-    return `(match ${renderMathExprGallina(expr.scrutinee)} with ${arms} end)`;
-  }
-  return "tt";
-}
-
-function renderMathBodyGallina(body) {
-  if (body.kind === "expr_body") {
-    return renderMathExprGallina(body.expr);
-  }
-  const parts = [];
-  for (const stmt of body.statements) {
-    if (stmt.kind === "local" && stmt.name !== "_") {
-      parts.push(`let ${stmt.name} := ${renderMathExprGallina(stmt.value)} in`);
-    } else if (stmt.kind === "return") {
-      parts.push(renderMathExprGallina(stmt.value));
-    }
-  }
-  return parts.length > 0 ? parts.join("\n  ") : "tt";
+function containsQuantifier(value) {
+  return value !== null && typeof value === "object" &&
+    (value.kind === "quantifier" || Object.values(value).some(containsQuantifier));
 }
 
 let lastBrowserCompilation = null;
@@ -6633,7 +6466,7 @@ function compileBrowserModule(sourceText, sourceHash) {
   let error;
   try {
     const parser = new MathParser(mathTokenize(sourceText));
-    elaborator = new MathElaborator(parser.parseModule(), sourceText, sourceHash);
+    elaborator = new MathElaborator(parser.parseModule());
     translation = elaborator.elaborate();
   } catch (err) {
     error = err;
@@ -6654,7 +6487,7 @@ function compileBrowserModule(sourceText, sourceHash) {
   }
   const result = error
     ? formatErrorPayload(sourceHash, error)
-    : { ok: true, sourceHash, ...translation, gallina: scalar?.gallina ?? translation.gallina };
+    : { ok: true, sourceHash, ...translation, sourceStatus: scalar ? "pure-translation" : "evaluation-preview", gallina: scalar?.gallina ?? null };
   lastBrowserCompilation = { sourceText, result, editorServices, elaborator };
   return lastBrowserCompilation;
 }
@@ -6978,7 +6811,7 @@ function initPlaygroundUi() {
     }
   }
 
-  function publishDiagnostics(diagnostics) {
+  function publishDiagnostics(diagnostics, result = null) {
     $("problem-count").textContent = String(diagnostics.length);
     $("problem-count").classList.toggle("has-problems", diagnostics.length > 0);
     if (state.model && window.monaco) {
@@ -7001,17 +6834,21 @@ function initPlaygroundUi() {
       const clean = element(
         "div",
         "diagnostic-clean",
-        "No error reported for the current source."
+        result?.sourceStatus === "evaluation-preview" ? "Browser evaluation preview." : "No error reported for the current source."
       );
       clean.append(
         element(
           "small",
           "",
-          "This is a development check, with no kernel or production acceptance verdict."
+          result?.sourceStatus === "evaluation-preview"
+            ? (result.uncheckedClaims.length
+              ? `Unchecked proof obligations for ${result.uncheckedClaims.map((claim) => claim.name).join(", ")}.`
+              : "Only the selected example inputs were evaluated.")
+            : "This is a development check, with no kernel or production acceptance verdict."
         )
       );
       $("diagnostics").replaceChildren(clean);
-      activity("Current buffer checked");
+      activity(result?.sourceStatus === "evaluation-preview" ? "Browser evaluation preview ready" : "Current buffer checked");
       return;
     }
     $("diagnostics").replaceChildren(
@@ -7074,7 +6911,8 @@ function initPlaygroundUi() {
               code: finding.code,
               source: "Vela lint",
             };
-          })
+          }),
+      result
     );
   }
 
@@ -8053,6 +7891,16 @@ function initPlaygroundUi() {
         $("compile-summary").textContent = "Compilation refused; no generated output.";
         $("gallina-output").textContent = errorText(result.error);
         activity("Compiler refused the source");
+        return;
+      }
+      if (result.sourceStatus === "evaluation-preview") {
+        $("compile-summary").textContent = `${result.module} \u00b7 browser evaluation preview \u00b7 SHA-256 ${hash.slice(0, 12)}`;
+        const claims = result.uncheckedClaims.map((claim) => claim.name).join(", ");
+        $("gallina-output").textContent = [
+          claims && `Unchecked proof obligations for ${claims}.`,
+          "Run the local mathematical elaborator to obtain Gallina for this module.",
+        ].filter(Boolean).join("\n");
+        activity("Browser evaluation preview ready");
         return;
       }
       state.gallina = result.gallina;

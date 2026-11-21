@@ -556,10 +556,22 @@ const afterFormat = await mod.browserApi("/api/evaluate", { source: candidate, e
 if (!afterFormat.ok || afterFormat.value !== "9") throw new Error("Browser formatter changed evaluation");
 await mod.browserApi("/api/close", { session: fmtSession });
 
+const unchecked = await mod.browserApi("/api/compile", {
+  source: "module Claims; public lemma EveryNatIsZero(Nat n) ensures n == 0 proof { assert n == 0; }",
+});
+if (!unchecked.ok || unchecked.sourceStatus !== "evaluation-preview" || unchecked.gallina !== null ||
+    unchecked.uncheckedClaims?.[0]?.name !== "EveryNatIsZero") {
+  throw new Error("A browser sample was presented as a proof");
+}
+const quantified = await mod.browserApi("/api/evaluate", {
+  source: ordinarySource, expression: "forall (Nat n) => n == 0", valueType: "bool",
+});
+if (quantified.ok || quantified.error?.kind !== "unsupported") throw new Error("Browser evaluated an open quantifier");
+
 const parity = { examples: {} };
 for (const [key, example] of Object.entries(mod.EXAMPLES)) {
   const compiled = await mod.browserApi("/api/compile", { source: example.source });
-  if (!compiled.ok || !compiled.gallina) {
+  if (!compiled.ok || (compiled.editorServices ? !compiled.gallina : compiled.gallina !== null)) {
     throw new Error(`Example ${key} failed browserApi compile: ${JSON.stringify(compiled)}`);
   }
   const evaluated = await mod.browserApi("/api/evaluate", {
