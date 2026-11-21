@@ -3403,23 +3403,25 @@ class MathParser {
     const nameTok = this.expect("word", null, "pattern");
     const isCtor = /^[A-Z]/.test(nameTok.text);
     if (this.match("symbol", "(")) {
+      if (!isCtor) throw new VelaError("syntax", nameTok.site.line, nameTok.site.column, "constructor pattern requires an uppercase initial");
       const args = [];
-      if (!this.match("symbol", ")")) {
-        while (true) {
-          let label = null;
-          let labelSite = null;
-          if (this.current.kind === "word" && this.peek().text === ":") {
-            const lTok = this.advance();
-            label = lTok.text;
-            labelSite = lTok.site;
-            this.expect("symbol", ":");
-          }
-          const pat = this.parsePattern();
-          args.push({ label, labelSite, pattern: pat });
-          if (this.match("symbol", ")")) break;
-          this.expect("symbol", ",");
-          if (this.match("symbol", ")")) break;
+      if (this.current.text === ")") {
+        throw new VelaError("syntax", nameTok.site.line, nameTok.site.column, "a nullary constructor pattern is written without parentheses");
+      }
+      while (true) {
+        let label = null;
+        let labelSite = null;
+        if (this.current.kind === "word" && this.peek().text === ":") {
+          const lTok = this.advance();
+          label = lTok.text;
+          labelSite = lTok.site;
+          this.expect("symbol", ":");
         }
+        const pat = this.parsePattern();
+        args.push({ label, labelSite, pattern: pat });
+        if (this.match("symbol", ")")) break;
+        this.expect("symbol", ",");
+        if (this.match("symbol", ")")) break;
       }
       return { kind: "ctor_pat", name: nameTok.text, args, site: nameTok.site };
     }
@@ -3427,6 +3429,28 @@ class MathParser {
       return { kind: "ctor_pat", name: nameTok.text, args: [], site: nameTok.site };
     }
     return { kind: "var_pat", name: nameTok.text, site: nameTok.site };
+  }
+
+  parseArmPattern(arms) {
+    const pattern = this.parsePattern();
+    const covers = (left, right) => {
+      if (left.kind === "var_pat" || left.kind === "wildcard") return true;
+      if (left.kind !== right.kind) return false;
+      if (left.kind === "ctor_pat") {
+        return left.name === right.name && left.args.length === right.args.length &&
+          left.args.every((arg, index) => covers(arg.pattern, right.args[index].pattern));
+      }
+      if (left.kind === "tuple_pat") {
+        return left.items.length === right.items.length && left.items.every((item, index) => covers(item, right.items[index]));
+      }
+      return left.value === right.value;
+    };
+    const earlier = arms.find(({ pattern: prior }) => covers(prior, pattern))?.pattern;
+    if (earlier) {
+      const why = earlier.kind === "var_pat" ? `pattern '${earlier.name}' binds every value` : "pattern covers this case";
+      throw new VelaError("type", pattern.site.line, pattern.site.column, `unreachable match arm: earlier ${why}`);
+    }
+    return pattern;
   }
 
   parseProofBlock() {
@@ -3623,6 +3647,9 @@ class MathParser {
         const cases = [];
         while (this.current.kind !== "eof" && !this.match("symbol", "}")) {
           const caseName = this.expect("word", null, "union case");
+          if (!/^[A-Z]/.test(caseName.text)) {
+            throw new VelaError("syntax", caseName.site.line, caseName.site.column, "constructor declaration requires an uppercase initial");
+          }
           const caseFields = this.parseParameters();
           this.expect("symbol", ";");
           cases.push({ name: caseName.text, fields: caseFields, site: caseName.site });
@@ -3761,7 +3788,7 @@ class MathParser {
       this.expect("symbol", "{");
       const arms = [];
       while (this.current.kind !== "eof" && !this.match("symbol", "}")) {
-        const pattern = this.parsePattern();
+        const pattern = this.parseArmPattern(arms);
         this.expect("symbol", "=>");
         const armBody = this.current.text === "{" ? this.parseBlock() : { kind: "expr_body", expr: this.parseExpression(), site: this.current.site };
         this.match("symbol", ",");
@@ -4239,7 +4266,7 @@ class MathParser {
       this.expect("symbol", "{");
       const arms = [];
       while (this.current.kind !== "eof" && !this.match("symbol", "}")) {
-        const pattern = this.parsePattern();
+        const pattern = this.parseArmPattern(arms);
         this.expect("symbol", "=>");
         const expr = this.parseExpression();
         this.match("symbol", ",");

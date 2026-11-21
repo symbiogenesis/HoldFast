@@ -115,6 +115,22 @@ class _PatternsMixin:
             )
         raise self.fail("protocol", f"unexpected pattern node '{kind}'", node)
 
+    def _pattern_covers(self: _Elaborator, earlier: _Pat, later: _Pat) -> bool:
+        self.tick()
+        if earlier.kind == "wild":
+            return True
+        if earlier.kind != later.kind or len(earlier.args) != len(later.args):
+            return False
+        if earlier.kind == "union":
+            if self.union_ctors[cast("str", earlier.value)][1].ctor_const != self.union_ctors[cast("str", later.value)][1].ctor_const:
+                return False
+        elif earlier.kind == "record":
+            if self.records[cast("str", earlier.value)].type_const != self.records[cast("str", later.value)].type_const:
+                return False
+        elif earlier.kind not in {"succ", "zero"} and earlier.value != later.value:
+            return False
+        return all(self._pattern_covers(left, right) for left, right in zip(earlier.args, later.args, strict=True))
+
     def _parse_ctor_subpatterns(
         self: _Elaborator,
         cname: str,
@@ -1572,6 +1588,18 @@ class _PatternsMixin:
                     self.uninitialized_out_params = set(initial_uninit_out)
                     self.block(block_node, arm_env, result_type, facts=facts)
                     arm_uninit_sets.append(set(self.uninitialized_out_params))
+                pattern = rows[arm_index].patterns[0]
+                for previous in rows[:arm_index]:
+                    covering = previous.patterns[0]
+                    if self._pattern_covers(covering, pattern):
+                        reason = f"earlier arm {previous.arm_index + 1} covers this pattern"
+                        if covering.kind == "wild" and covering.names:
+                            binder = covering.names[0]
+                            reason = f"earlier pattern '{binder}' binds every value"
+                            candidate = binder[:1].upper() + binder[1:]
+                            if candidate in self.union_ctors or candidate in self.records:
+                                reason += f"; did you mean '{candidate}'?"
+                        raise self.fail("type", f"unreachable match arm: {reason}", pattern.node)
         if arm_uninit_sets:
             merged_uninit: set[str] = set()
             for s in arm_uninit_sets:

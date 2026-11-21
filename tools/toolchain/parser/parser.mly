@@ -414,6 +414,9 @@ s_constructor:
   constructor_name=s_identifier LPAREN parameters=comma_list(s_parameter) RPAREN
   tail=s_constructor_tail SEMICOLON
     { let result, contracts = tail in
+      if not (is_constructor_spelling (name_text constructor_name)) then
+        raise (Refusal ("syntax", $startpos(constructor_name).Lexing.pos_cnum,
+                        "constructor declaration requires an uppercase initial"));
       make "constructor" $startpos $endpos [("name", constructor_name); ("parameters", array parameters);
         ("result", optional result); ("contracts", array contracts)] (parameters @ children result @ contracts) }
 s_constructor_tail:

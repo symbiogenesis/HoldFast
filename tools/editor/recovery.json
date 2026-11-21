@@ -12,7 +12,7 @@
     },
     {
       "reason": "Compiler pattern actions enforce constructor capitalization, qualification, nullary spelling and complete binding shape; highlighting retains the enclosing expression or pattern structure.",
-      "cases": ["nullary-constructor-pattern-parentheses", "qualified-nullary-constructor-pattern-parentheses", "lowercase-constructor-pattern", "qualified-lowercase-pattern", "expression-binding-incomplete-pattern", "local-constructor-incomplete-argument", "local-nullary-constructor-pattern-parentheses", "local-qualified-nullary-constructor-pattern-parentheses", "local-lowercase-constructor-pattern", "incomplete-product-binding"]
+      "cases": ["nullary-constructor-pattern-parentheses", "qualified-nullary-constructor-pattern-parentheses", "lowercase-constructor-declaration", "lowercase-constructor-pattern", "qualified-lowercase-pattern", "expression-binding-incomplete-pattern", "local-constructor-incomplete-argument", "local-nullary-constructor-pattern-parentheses", "local-qualified-nullary-constructor-pattern-parentheses", "local-lowercase-constructor-pattern", "incomplete-product-binding"]
     },
     {
       "reason": "The compiler's lexical admission rules refuse null and null-conditional spellings; the editor can recover them as identifiers, propagation and member punctuation.",

@@ -1472,6 +1472,7 @@ NEGATIVE: tuple[tuple[str, bytes, str], ...] = (
     ("typed-singleton-not-product", b"module M; alias X = (Nat,);", "syntax"),
     ("nullary-constructor-pattern-parentheses", b"module M; void F() { match (x) { None() => return; } }", "syntax"),
     ("qualified-nullary-constructor-pattern-parentheses", b"module M; void F() { match (x) { Result.None() => return; } }", "syntax"),
+    ("lowercase-constructor-declaration", b"module M; public union Flag { ready(); }", "syntax"),
     ("lowercase-constructor-pattern", b"module M; void F() { match (x) { some(y) => return; } }", "syntax"),
     ("qualified-lowercase-pattern", b"module M; void F() { match (x) { Result.none => return; } }", "syntax"),
     ("redundant-pattern-let", b"module M; void F() { let (let left, let right) = pair; }", "syntax"),

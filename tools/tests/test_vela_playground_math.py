@@ -668,6 +668,14 @@ if (
   throw new Error(`Expected mathematical bare local to be refused under Q25ah: ${JSON.stringify(bareLocalMath)}`);
 }
 
+for (const [declaration, why] of [
+  ["public union State { ready(); }", "uppercase initial"],
+  ["public union State { Ready(); Busy(); } public definition Nat Read(State s) => match (s) { ready => 1, Busy => 0 };", "binds every value"],
+]) {
+  const result = await mod.browserApi("/api/compile", { source: "module ConstructorCases; " + declaration });
+  if (result.ok || !result.error.message.includes(why)) throw new Error(JSON.stringify(result));
+}
+
 const vela105Source = [
   "module NamingCheck;",
   "public definition item Identity<item>(item value) => value;",

@@ -498,6 +498,7 @@ least two components. Grouping works in local elimination, match arms and patter
 tests. Local pattern bindings retain `let_pattern`/`var_pattern` with `pattern`
 and `value` fields. A bare lowercase local name retains the existing inferred binding form;
 a local nullary constructor pattern uses a qualified uppercase path, as in `let Result.Empty = outcome;`.
+Union and inductive constructor declarations start with an uppercase letter.
 Lowercase or `_` pattern names bind, and uppercase names are constructors; nullary
 constructors are written bare without `()`, such as `None`, while empty-argument
 constructor patterns `None()` are refused. Component grades remain in their data types. Refutability, constructor arity,

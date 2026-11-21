@@ -89,7 +89,9 @@ The supported increment includes:
   optional declaration-order `label: pattern` arguments), optional dependent
   `as name : Type` motives, and irrefutable `let (a, b) = ...` or
   `let RecordName(...) = ...` destructuring in blocks and `let ... in ...`
-  expressions. Constructors and binders in patterns are distinguished by token
+  expressions. A later arm wholly covered by a single earlier pattern is refused;
+  a lowercase catch-all resembling a visible constructor identifies the likely spelling.
+  Constructors and binders in patterns are distinguished by token
   shape (uppercase initial letter for constructors and lowercase letter or `_`
   for binders), and nullary constructors are written bare without `()`.
 - Conditional `if (cond) a else b` expressions (`if_expression`), Boolean

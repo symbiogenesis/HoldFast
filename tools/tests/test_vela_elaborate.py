@@ -5915,6 +5915,19 @@ def _module_private_identity() -> None:
         raise AssertionError("an imported receiver exposed a private record property")
 
 
+def _constructor_spelling_and_shadowed_patterns() -> None:
+    bad = _Fixture("MisspelledConstructor")
+    bad.union("State", (("ready", ()),))
+    _refuses(bad, "name", "uppercase")
+    for first, message in ((_pat_bind("ready"), "did you mean 'Ready'"), (_pat_ctor("Ready"), "covers this pattern")):
+        fixture = _Fixture("ShadowedPattern")
+        fixture.union("State", (("Ready", ()), ("Busy", ())))
+        fixture.definition("Read", _NAT, (("s", _type("State")),), _match_expr(_variable("s"), (
+            (first, _natural(1)), (_pat_ctor("Ready"), _natural(0)), (_pat_ctor("Busy"), _natural(0)),
+        )))
+        _refuses(fixture, "type", message)
+
+
 def _qualified_imports() -> None:
     left, right, consumer = _Fixture("Left"), _Fixture("Right"), _Fixture("Client")
     for module, alias in ((left, "A"), (right, "B")):
@@ -6551,7 +6564,8 @@ def _speculative_normalization_rollback() -> None:
 
 
 def cases() -> list[Case]:
-    return [Case("fresh-polymorphism-and-higher-order-inference", _polymorphism_and_higher_order),
+    return [Case("constructor-case-and-redundant-patterns", _constructor_spelling_and_shadowed_patterns),
+            Case("fresh-polymorphism-and-higher-order-inference", _polymorphism_and_higher_order),
             Case("familiar-generic-markers-and-mathematical-body-source-binding", _familiar_generic_spellings),
             Case("canonical-named-dependent-call-term-agreement", _canonical_named_call_terms),
             Case("required-static-values-and-dependent-indices", _required_static_constants),

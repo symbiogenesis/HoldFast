@@ -779,6 +779,8 @@ class _DeclarationsMixin:
                     ctor_node,
                 )
             cname = self.name(ctor_node["name"])
+            if not cname or not "A" <= cname[0] <= "Z":
+                raise self.fail("name", "constructor declaration requires an uppercase initial", ctor_node)
             self._evict_builtin_if_shadowed(cname)
             if (cname in self.globals or cname in self.records or cname in self.unions
                     or cname in self.union_ctors or cname in self.interfaces
