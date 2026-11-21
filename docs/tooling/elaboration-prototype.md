@@ -36,6 +36,9 @@ The supported increment includes:
 - Generic type and stable ghost-value telescopes, ordinary generic calls and explicit `::<...>` application
   and fresh inferred instantiation at each use. Generic variables in a
   declaration are rigid; inference cannot specialize its promised signature.
+  Executable function bodies reject dependencies on erased values and on
+  specification-only operations through helpers, properties and imports.
+  A mathematical definition may compute with its ghost index in proofs.
 - Numeric predicative universes `Type` and `Type<n>` for levels zero through
   eight, dependent `Fn` telescopes, type-valued parameters and
   computed types. Substitution preserves dependency and avoids capture. Reject
@@ -52,7 +55,10 @@ The supported increment includes:
   named `Fn` parameters; unnamed callable parameters accept no labels. No
   argument reordering, omission or defaults are inferred. Dependent later
   parameters are instantiated in declaration order before their arguments are
-  checked, preserving complete telescope substitution.
+  checked, preserving complete telescope substitution. Recursive and direct calls
+  check every declared precondition, including quantified propositions. A
+  callable with outstanding preconditions can be passed as an ordinary function
+  through a wrapper that establishes those preconditions for its own domain.
 - Mathematical `Nat`, `bool`, `char`, `Unit`, products, decidable structural
   Boolean equality (`==`, `!=`) over `Nat`, `bool`, `char`, `Unit`, fixed-width
   integers, tuples, `Vec<T, n>`, `Seq<T>` and non-dependent nominal `record` and
@@ -148,7 +154,10 @@ The supported increment includes:
   `CheckedShiftRight` returning `Result<T, ArithmeticError>`) operations and
   explicit conversions (`Nat(x)` for unsigned types, `T.From(x)` for lossless
   widening and `T.TryFrom(x)` returning `Result<T, ConversionError>`) reduce on
-  closed values.
+  closed values. The emitted integer carrier contains a word indexed by the
+  width of its tag. Every inhabitant of the emitted character carrier carries
+  a proof that its code satisfies the Unicode scalar test. These restrictions
+  also apply to open parameters and quantified variables.
 - Typed `const` values of `Nat`, `bool`, `Unit` or fixed-width integers, at module or local scope,
   under the [required-static contract](../language/surface-grammar.md#required-static-constants).
   Initializers use earlier constants and admitted total pure calls with static
@@ -192,7 +201,10 @@ The supported increment includes:
   threading, and bounded range (`foreach (let i in start..end)`), collection
   (`foreach (let | in | ref x in coll)`) and `while (cond)` loops with `invariant`
   verification, `decreases` termination measures, `break`, `continue` and
-  collection-freeze checks.
+  collection-freeze checks. Symbolic ranges accumulate state with a Gallina
+  fold or an exact counter or contiguous fill. Symbolic while loops can use
+  a single nonnegative decreasing bound as fuel. Unsupported symbolic early
+  exits and mutable element writeback require explicit control flow.
 - Named and unnamed `record` invariants (`invariant [Clause:] expr`), verified
   on construction, `with` updates and field mutations, together with selective
   invariant lifting (`open (ref target, ...) lifts Clause, ... { ... }`) that

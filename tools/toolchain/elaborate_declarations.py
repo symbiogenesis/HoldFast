@@ -424,6 +424,7 @@ class _DeclarationsMixin:
                 self.complete(_term("meta", value=index))
                 self.complete(self.metas[index].type)
             prop_emitted = f"vela_d{len(self.output)}_{name}_{prop_name}"
+            self._classify_phase(prop_emitted, self.node(member_node["value"]), executable=False)
             self.output.append(f"Definition {prop_emitted} : {self.render(prop_sig)} :=\n  {self.render(prop_def)}.")
             prop_binding = _Binding(_constant(prop_emitted), prop_sig, len(generics))
             self.constants[prop_emitted] = prop_binding
@@ -595,6 +596,7 @@ class _DeclarationsMixin:
         self.entry_env = dict(method_env)
         self.final_ref_bindings = dict(method_env)
         req_bool_terms: list[_Term] = []
+        call_requirements: list[_Term] = []
         req_vars: list[_Term] = []
         for req_idx, req_contract in enumerate(requires_clauses):
             req_val_node = self.node(req_contract["value"])
@@ -608,6 +610,7 @@ class _DeclarationsMixin:
                     req_val = None
             if req_val is not None and self.whnf(req_val.type) == _BOOL:
                 req_bool_terms.append(req_val.term)
+                call_requirements.append(req_val.term)
                 eq_prop = _apps(_constant("Eq"), _BOOL, req_val.term, _term("bool", value=1))
                 req_var = self.fresh(eq_prop)
                 req_vars.append(req_var)
@@ -615,6 +618,7 @@ class _DeclarationsMixin:
             else:
                 self.restore_metas(saved_req_metas)
                 req_prop = self.proposition(req_val_node, method_env)
+                call_requirements.append(req_prop)
                 req_var = self.fresh(req_prop)
                 req_vars.append(req_var)
                 method_env[f"__vela_req_{req_idx}"] = _Binding(req_var, req_prop)
@@ -670,6 +674,7 @@ class _DeclarationsMixin:
             self.complete(_term("meta", value=index))
             self.complete(self.metas[index].type)
         m_emitted = f"vela_d{len(self.output)}_{name}_{method_name}"
+        self._classify_phase(m_emitted, body_node, executable=m_kind == "function")
         self.output.append(f"Definition {m_emitted} : {self.render(m_sig)} :=\n  {self.render(m_def)}.")
         m_binding = _Binding(_constant(m_emitted), m_sig, len(generics) + len(m_generics))
         self.constants[m_emitted] = m_binding
@@ -681,7 +686,7 @@ class _DeclarationsMixin:
         elif m_kind == "function":
             self.untracked_effect_functions.add(m_emitted)
         param_ids = tuple(cast("int", v.value) for v in all_vars)
-        preconditions = tuple((param_ids, req_t) for req_t in req_bool_terms)
+        preconditions = tuple((param_ids, req_t) for req_t in call_requirements)
         if preconditions:
             self.callable_preconditions[m_emitted] = list(preconditions)
         if ensures_clauses:
@@ -986,6 +991,7 @@ class _DeclarationsMixin:
         self.owned_parameters.update(mod.owned_parameters)
         self.constants.update(mod.constants)
         self.definitions.update(mod.definitions)
+        self.specification_values.update(mod.specification_values)
         self.records_by_type.update(mod.records_by_type)
         self.records_by_ctor.update(mod.records_by_ctor)
         self.record_projections.update(mod.record_projections)
@@ -1774,6 +1780,7 @@ class _DeclarationsMixin:
                     self.complete(_term("meta", value=index))
                     self.complete(self.metas[index].type)
                 m_emitted = f"vela_d{len(self.output)}_impl_{iface_name}_{mname}"
+                self._classify_phase(m_emitted, body_node, executable=True)
                 self.output.append(
                     f"Definition {m_emitted} : {self.render(m_sig)} :=\n  {self.render(m_def)}."
                 )
@@ -2352,6 +2359,40 @@ class _DeclarationsMixin:
                     declared_calls.add(t_ident)
         return declared_reads, declared_writes, declared_calls
 
+    def _classify_phase(self: _Elaborator, emitted: str, body: Node, *, executable: bool) -> None:
+        """Carry resolved specification dependencies across definitions, calls and package imports."""
+        if not self.phase_uses:
+            return
+        start, end = cast("list[int]", body["span"])
+        uses = [(use, reason) for use, reason in self.phase_uses
+                if start <= cast("list[int]", use["span"])[0] and cast("list[int]", use["span"])[1] <= end]
+        if not uses:
+            return
+        erased: list[tuple[int, int]] = []
+        pending = [body]
+        while pending:
+            node = pending.pop()
+            for key, value in node.items():
+                children = value if isinstance(value, list) else [value]
+                for child in children:
+                    if not isinstance(child, dict) or "kind" not in child:
+                        continue
+                    if (child["kind"] in {"proof", "assert", "contract", "calc", "invariant"}
+                        or key in {"type", "signature", "generics"}
+                        or (node["kind"] == "generic_application" and key == "arguments")):
+                        lo, hi = child["span"]
+                        erased.append((lo, hi))
+                    else:
+                        pending.append(child)
+        for use, reason in uses:
+            lo, hi = cast("list[int]", use["span"])
+            if any(a <= lo and hi <= b for a, b in erased):
+                continue
+            if executable:
+                raise self.fail("type", reason, use)
+            self.specification_values[emitted] = reason
+            return
+
     def _collect_runtime_read_names(
         self: _Elaborator,
         node: Node,
@@ -2530,7 +2571,7 @@ class _DeclarationsMixin:
         self.active_lift_scopes = 0
         self.in_loop_depth = 0
         self.active_regions.clear()
-        self.in_executable_function = False
+        self.phase_uses.clear()
         self.slice_views.clear()
         self.restored_view_terms.clear()
         kind = node["kind"]
@@ -2651,6 +2692,7 @@ class _DeclarationsMixin:
             self_var: _Term | None = None
             candidates: list[tuple[int, int]] = []
             req_bool_terms: list[_Term] = []
+            call_requirements: list[_Term] = []
             req_vars: list[_Term] = []
             req_props: list[_Term] = []
             generic_vars = variables[:len(generics)]
@@ -2722,6 +2764,7 @@ class _DeclarationsMixin:
                                 req_val = None
                         if req_val is not None and self.whnf(req_val.type) == _BOOL:
                             req_bool_terms.append(req_val.term)
+                            call_requirements.append(req_val.term)
                             eq_prop = _apps(_constant("Eq"), _BOOL, req_val.term, _term("bool", value=1))
                             req_var = self.fresh(eq_prop)
                             req_vars.append(req_var)
@@ -2729,6 +2772,7 @@ class _DeclarationsMixin:
                         else:
                             self.restore_metas(saved_req_metas)
                             req_prop = self.proposition(req_val_node, environment)
+                            call_requirements.append(req_prop)
                             req_var = self.fresh(req_prop)
                             req_vars.append(req_var)
                             environment[f"__vela_req_{req_idx}"] = _Binding(req_var, req_prop)
@@ -2809,6 +2853,9 @@ class _DeclarationsMixin:
                 signature = self.wrap("pi", variables, result)
                 self_var = self.fresh(signature)
                 self_binding = _Binding(self_var, signature, len(generics))
+                param_ids = tuple(cast("int", v.value) for v in [*generic_vars, *param_vars])
+                if call_requirements:
+                    self.var_preconditions[cast("int", self_var.value)] = [(param_ids, req) for req in call_requirements]
                 body_env = dict(environment)
                 if name not in body_env:
                     body_env[name] = self_binding
@@ -2825,7 +2872,6 @@ class _DeclarationsMixin:
                 self.active_facts.extend(entry_body_facts)
                 self.used_domain_solver_in_proof = False
                 self.final_theorem_facts = ()
-                self.in_executable_function = kind == "function"
                 prev_effect_calls = self.active_effect_calls
                 if effects_clauses:
                     self.active_effect_calls = set(declared_effect_calls)
@@ -2930,7 +2976,6 @@ class _DeclarationsMixin:
                         self._check_callable_loans(node)
                 finally:
                     self.active_effect_calls = prev_effect_calls
-                    self.in_executable_function = False
                     self.active_facts = saved_body_facts
                     self.current_rec_var = None
                     self.current_rec_name = None
@@ -2942,6 +2987,9 @@ class _DeclarationsMixin:
                     self.smaller_vars = {}
                     self.current_return_type = None
             emitted = f"vela_d{len(self.output)}_{name}"
+            if kind in {"function", "definition", "property"}:
+                phase_body = self.node(node["value"]) if kind == "property" else body_node
+                self._classify_phase(emitted, phase_body, executable=kind == "function")
             if kind in {"definition", "function", "theorem", "lemma"}:
                 self.callable_source_names[emitted] = name
                 if effects_clauses:
@@ -3149,9 +3197,8 @@ class _DeclarationsMixin:
                     )
                     self.constants[extra_emitted] = _Binding(_constant(extra_emitted), extra_sig, len(generics))
                     self.definitions[extra_emitted] = extra_def
-            if req_bool_terms and kind in {"definition", "function"}:
-                base_param_ids = tuple(cast("int", v.value) for v in [*generic_vars, *param_vars])
-                self.callable_preconditions[emitted] = [(base_param_ids, req_t) for req_t in req_bool_terms]
+            if call_requirements and self_var is not None:
+                self.callable_preconditions[emitted] = self.var_preconditions[cast("int", self_var.value)]
             span_u8 = _app(_constant("Span"), _U8)
             auto_restores_params: list[tuple[str, Node]] = []
             if kind in {"definition", "function"}:

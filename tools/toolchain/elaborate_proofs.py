@@ -60,7 +60,7 @@ class _ProofsMixin:
             if normalized.kind != kind:
                 raise self.fail("inference", "constant initializer did not evaluate to an admitted static value", node)
             if kind == "nat" and not 0 <= cast("int", normalized.value) <= self.natural_limit():
-                raise self.fail("limit", "constant natural exceeds representation bound", node)
+                raise self.fail("limit", "constant natural exceeds elaborator evaluation limit", node)
             return _Binding(normalized, value_type, constant=True)
         finally:
             self.static_forbidden = previous
@@ -555,8 +555,6 @@ class _ProofsMixin:
         head, args = self.spine(span_r)
         if head in {_constant("Span_ReadOnly"), _constant("Span_Invalidate")} and len(args) == 2:
             return self._coq_store_term(args[1], depth + 1)
-        if head == _constant("LoopState") and len(args) == 3:
-            return self._coq_store_term(args[1], depth + 1)
         if head == _constant("Span_AllocZeroed") and len(args) == 3:
             return _constant("vela_bs_empty")
         if head == _constant("Span_Slice") and len(args) == 4:
@@ -654,14 +652,6 @@ class _ProofsMixin:
         if r_head != _constant("Span_Read") or len(r_args) != 3 or not self._same_cond_term(idx_l, r_args[2]):
             return None
         span_r = self.resolve(r_args[1])
-        if sl_head == _constant("LoopState") and len(sl_args) == 3 and self._same_cond_term(sl_args[1], span_r):
-            target_eq1 = _apps(_constant("int_eq_u8"), lhs_r, rhs_r)
-            target_eq2 = _apps(_constant("int_eq_u8"), rhs_r, lhs_r)
-            if any(
-                self._same_cond_term(bf, target_eq1) or self._same_cond_term(bf, target_eq2)
-                for bf in (*self.active_facts, *self.final_return_facts)
-            ):
-                return _apps(_constant("Refl"), _U8, rhs_r)
         cur_st_init = self._coq_store_term(span_l_r)
         target_st = self._coq_store_term(span_r)
         if cur_st_init == target_st:
@@ -693,10 +683,14 @@ class _ProofsMixin:
                     cur_st = rest
                 elif st_head == _constant("vela_bs_fill") and len(st_args) == 4:
                     base, length, val, rest = st_args
-                    end_off = self.whnf(_apps(_constant("int_add_usize"), base, length))
-                    if self.whnf(_apps(_constant("int_le_usize"), end_off, hi)) != _term("bool", value=1):
-                        break
-                    hbound = _apps(_constant("Refl"), _BOOL, _term("bool", value=1))
+                    start = self.whnf(base)
+                    if start.kind == "int" and start.value == 0 and self._same_cond_term(length, hi):
+                        hbound = _app(_constant("vela_usize_le_refl"), hi)
+                    else:
+                        end_off = self.whnf(_apps(_constant("int_add_usize"), base, length))
+                        if self.whnf(_apps(_constant("int_le_usize"), end_off, hi)) != _term("bool", value=1):
+                            break
+                        hbound = _apps(_constant("Refl"), _BOOL, _term("bool", value=1))
                     step_p = _apps(
                         _constant("vela_store_lookup_fill_ge"), base, length, hi, idx_l, val, rest, hbound, hge_term
                     )

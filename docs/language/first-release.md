@@ -510,7 +510,10 @@ to the symbolic source model. Exact executable admission also requires the
   5. When a CompCert executable is supplied, lowers the executable union, record and function AST declarations
      (`ValidationError`, `ValidatedPacket`, `WritePacket8`, `CopyPacketToDst`,
      `ComputePacketChecksum`, `PrepareAndValidatePacket`) and their seven scenario
-     drivers to CompCert Clight/C (`-fverifiedos-typed -dclight`), executes the C
+     drivers to CompCert Clight/C (`-fverifiedos-typed -dclight`). The emitter
+     sequences scalar operand evaluation with typed temporaries, keeps guarded
+     arguments under their short-circuit condition, and evaluates both range
+     endpoints once before the first iteration. The harness executes the C
      harness under both `ccomp -interp` and purecap `sail_riscv_sim`, and verifies
      four perturbed C negative controls (`wrong-expected-byte`,
      `stale-trailing-leak`, `checksum-scrub-omitted`,

@@ -83,7 +83,6 @@ class _IntrinsicsMixin:
                 "Span_Slice",
                 "Span_CopyPrefix",
                 "Span_Restore",
-                "LoopState",
             } and len(args) >= 2:
                 curr = self.whnf(args[1])
             elif sname in {"Slots_Write", "Slots_TransferSource", "Slots_TransferDest"} and len(args) >= 3:
@@ -183,12 +182,7 @@ class _IntrinsicsMixin:
                 base_t = _int_term(_INT_SPECS["usize"], 0)
                 cap_t = self.check(arg_nodes[0], _USIZE, environment)
             elif len(arg_nodes) == 2:
-                if self.in_executable_function:
-                    raise self.fail(
-                        "type",
-                        "Span.AllocZeroed(base, length) is a specification constructor and cannot fabricate a capability from an integer address in an executable function",
-                        node,
-                    )
+                self.phase_uses.append((node, "Span.AllocZeroed(base, length) is a specification constructor and cannot fabricate a capability from an integer address in an executable function"))
                 base_t = self.check(arg_nodes[0], _USIZE, environment)
                 cap_t = self.check(arg_nodes[1], _USIZE, environment)
             else:
@@ -881,6 +875,8 @@ class _IntrinsicsMixin:
                     )
                 ):
                     _, k_hi, _ = self._term_bounds(f_r, f_spec, facts)
+                    if k_hi is None:
+                        continue
                     if f_op == "le":
                         hi = min(hi, k_hi)
                     elif f_op == "lt":
@@ -894,7 +890,13 @@ class _IntrinsicsMixin:
                         or (self._same_numeric_subject(f_l, right) and self._same_numeric_subject(fr_args[1], left))
                     )
                 ):
+                    if fr_head.value == "-" and f_op != "lt" and not self._prove_comparison(
+                        "le", None, fr_args[1], fr_args[0], facts
+                    ):
+                        continue
                     _, k_hi, _ = self._term_bounds(fr_args[0], f_spec, facts)
+                    if k_hi is None:
+                        continue
                     if f_op == "le":
                         hi = min(hi, k_hi)
                     elif f_op == "lt":
@@ -947,6 +949,8 @@ class _IntrinsicsMixin:
                     )
                 ):
                     _, k_hi, _ = self._term_bounds(f_r, f_spec, facts)
+                    if k_hi is None:
+                        continue
                     if f_op == "le":
                         hi = min(hi, k_hi)
                     elif f_op == "lt":
@@ -1884,6 +1888,30 @@ class _IntrinsicsMixin:
     def expression(
         self: _Elaborator, node: Node, environment: dict[str, _Binding], *, standalone_call: bool = False
     ) -> _Binding:
+        binding = self._expression(node, environment, standalone_call=standalone_call)
+        if self.specification_values:
+            resolved, _ = self.spine(self.resolve(binding.term))
+            if resolved.kind == "const" and str(resolved.value) in self.specification_values:
+                self.phase_uses.append((node, self.specification_values[str(resolved.value)]))
+        if binding.type.kind != "pi":
+            return binding
+        head, supplied = self.spine(self.resolve(binding.term))
+        if head.kind == "const":
+            requirements = self.callable_preconditions.get(str(head.value), [])
+            record = self.records_by_ctor.get(str(head.value))
+            if record is not None and record.invariants:
+                raise self.fail("type", "a constructor with invariants requires a direct call or a checked wrapper", node)
+        elif head.kind == "var":
+            requirements = self.var_preconditions.get(cast("int", head.value), [])
+        else:
+            return binding
+        if any(len(supplied) < len(parameters) for parameters, _ in requirements):
+            raise self.fail("type", "a callable with pending preconditions requires a direct call or a checked wrapper", node)
+        return binding
+
+    def _expression(
+        self: _Elaborator, node: Node, environment: dict[str, _Binding], *, standalone_call: bool = False
+    ) -> _Binding:
         self.tick()
         self.site = node
         kind = node["kind"]
@@ -1984,6 +2012,8 @@ class _IntrinsicsMixin:
             if kind == "name" and name not in environment and name in self.union_ctors and not self.union_ctors[name][1].fields:
                 return self.apply(self.lookup(name, environment), [], environment)
             found = self.lookup(name, environment)
+            if found.term.kind == "var" and cast("int", found.term.value) in self.ghost_parameters:
+                self.phase_uses.append((node, f"erased parameter '{name}' cannot determine an executable value"))
             if kind == "name" and name in environment and name in self.local_borrows:
                 _mode, owner_name, field_path = self.local_borrows[name]
                 if owner_name in environment:
@@ -2054,7 +2084,7 @@ class _IntrinsicsMixin:
                     and full_callee_path.split(".", 1)[0] not in environment
                     and (full_callee_path in self.globals or full_callee_path in self.inaccessible_private_symbols)
                 ):
-                    return self.apply(self.expression(callee, environment), call_args, environment)
+                    return self.apply(self._expression(self._unwrap_group(callee), environment), call_args, environment)
                 receiver = self.node(base_callee["value"])
                 member_name = self.name(base_callee["name"])
                 recv_for_method: _Binding | None = None
@@ -2365,7 +2395,7 @@ class _IntrinsicsMixin:
                     )
                 if not gen_args and cname in _INT_INTRINSICS and cname not in environment and cname not in self.globals:
                     return self._elaborate_int_intrinsic(cname, call_args, environment, node)
-            return self.apply(self.expression(callee, environment), call_args, environment)
+            return self.apply(self._expression(self._unwrap_group(callee), environment), call_args, environment)
         if kind in {"lambda", "typed_lambda"}:
             return self.lambda_(node, environment)
         if kind == "let_expression":

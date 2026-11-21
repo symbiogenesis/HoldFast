@@ -1411,19 +1411,7 @@ class _StatementsMixin:
                                 statement,
                             )
                         return else_env, ctrl
-                    saved_uninit = set(self.uninitialized_out_params)
-                    else_env, ctrl = self._elaborate_non_returning_block(
-                        else_block, dict(extended), (*facts, *statement_facts)
-                    )
-                    self.uninitialized_out_params = saved_uninit
-                    if ctrl not in {"break", "continue"}:
-                        raise self.fail(
-                            "type",
-                            f"{kind.replace('_', '-')} else block must exit with return, break or continue",
-                            statement,
-                        )
-                    self._bind_symbolic_pattern(pat, scrut, extended, is_var=(kind == "var_else"))
-                    continue
+                    raise self.fail("unsupported", "a symbolic guard with a loop exit needs an explicit control-flow result", statement)
                 if kind == "assignment":
                     extended = self._elaborate_assignment(statement, extended)
                     continue
@@ -1547,16 +1535,8 @@ class _StatementsMixin:
                     else:
                         else_env, else_ctrl = dict(extended), None
                         else_uninit = set(saved_uninit)
-                    if then_ctrl is not None and else_ctrl is None:
-                        self.active_facts.append(_app(_constant("!"), condition))
-                        self.uninitialized_out_params = else_uninit
-                        extended = else_env
-                        continue
-                    if else_ctrl is not None and then_ctrl is None:
-                        self.active_facts.append(condition)
-                        self.uninitialized_out_params = then_uninit
-                        extended = then_env
-                        continue
+                    if then_ctrl != else_ctrl:
+                        raise self.fail("unsupported", "a conditional loop exit needs an explicit control-flow result", statement)
                     self.uninitialized_out_params = then_uninit | else_uninit
                     for k, orig_b in list(extended.items()):
                         tb = then_env.get(k, orig_b)
@@ -1800,28 +1780,42 @@ class _StatementsMixin:
             finally:
                 self.uninitialized_out_params = saved_uninit
                 del self.active_facts[saved_facts_len:]
+            if self._contains_break_statement(body_node):
+                raise self.fail("unsupported", "symbolic range break needs a represented early-exit state", statement)
+            if elem_spec is not None and elem_spec.signed:
+                raise self.fail("unsupported", "symbolic signed ranges need a signed distance representation", statement)
+            changed = [name for name in extended if name in self.mutable_locals and name != var_name
+                       and sym_env[name].term != step_env[name].term]
             post_env = dict(extended)
-            has_break = self._contains_break_statement(body_node)
-            zero_elem = _int_term(elem_spec, 0) if elem_spec is not None else _term("nat", value=0)
-            for mname in list(self.mutable_locals):
-                if mname in post_env and mname != var_name and sym_env[mname].term != after_sym.get(mname, sym_env[mname]).term:
-                    m_ty = post_env[mname].type
-                    if (
-                        not has_break
-                        and self.whnf( m_ty ) == self.whnf(elem_type)
-                        and self.whnf(start_term) == zero_elem
-                        and self.whnf(post_env[mname].term) == zero_elem
-                        and self.whnf(after_sym[mname].term)
-                        == self.whnf(_apps(_constant(add_op), sym_env[mname].term, one_term))
-                    ):
-                        post_env[mname] = _Binding(end_term, m_ty)
-                    else:
-                        loop_tag = self.serial
-                        self.serial += 1
-                        post_env[mname] = _Binding(
-                            _apps(_constant("LoopState"), m_ty, post_env[mname].term, _term("nat", value=loop_tag)),
-                            m_ty,
-                        )
+            zero = _int_term(elem_spec, 0) if elem_spec else _term("nat", value=0)
+            if len(changed) == 1 and self.whnf(start_term) == zero:
+                name = changed[0]
+                before = sym_env[name].term
+                step = self.whnf(step_env[name].term)
+                head, args = self.spine(step)
+                if self.whnf(post_env[name].term) == zero and step == self.whnf(_apps(_constant(add_op), before, one_term)):
+                    post_env[name] = _Binding(end_term, elem_type)
+                    changed.clear()
+                elif (elem_type == _USIZE and head == _constant("Span_Write") and len(args) == 4
+                      and args[1] == before and args[2] == i_var
+                      and not self.free(args[3]).intersection(self.free(i_var) | self.free(before))):
+                    value = self._at_loop_entry(args[3], sym_env, extended)
+                    filled = _apps(_constant("Span_Fill"), _U8, extended[name].term, zero, end_term, value)
+                    post_env[name] = _Binding(filled, extended[name].type)
+                    changed.clear()
+            if changed:
+                ordinal = self.fresh(_NAT)
+                start_nat = self._loop_nat(start_term, elem_spec)
+                count = _apps(_constant("-"), self._loop_nat(end_term, elem_spec), start_nat)
+                index = _apps(_constant("+"), start_nat, ordinal)
+                if elem_spec is not None:
+                    index = _app(_constant("nat_to_usize"), index)
+                    if elem_type != _USIZE:
+                        index = _app(_constant(f"int_from_usize_{elem_spec.name}"), index)
+                for name in changed:
+                    step_env[name] = _Binding(self.substitute(step_env[name].term, cast("int", i_var.value), index),
+                                              step_env[name].type)
+                post_env = self._fold_loop(extended, sym_env, step_env, changed, count, ordinal)
             post_env_with_idx = dict(post_env)
             post_env_with_idx[var_name] = _Binding(end_term, elem_type)
             post_assumed = self._assume_loop_invariants(contracts, post_env_with_idx)
@@ -1830,6 +1824,38 @@ class _StatementsMixin:
         finally:
             self.in_loop_depth -= 1
             self.mutable_locals = saved_mutable
+
+    @staticmethod
+    def _loop_nat(value: _Term, spec: _IntSpec | None) -> _Term:
+        return value if spec is None else _app(_constant(f"int_to_nat_{spec.name}"), value)
+
+    def _at_loop_entry(
+        self: _Elaborator, term: _Term, symbolic: dict[str, _Binding], entry: dict[str, _Binding],
+    ) -> _Term:
+        for name, original in entry.items():
+            variable = symbolic[name].term
+            if variable.kind == "var" and variable != original.term:
+                term = self.substitute(term, cast("int", variable.value), original.term)
+        return term
+
+    def _fold_loop(
+        self: _Elaborator, entry: dict[str, _Binding], symbolic: dict[str, _Binding],
+        after: dict[str, _Binding], changed: list[str], count: _Term, ordinal: _Term,
+        condition: _Term | None = None,
+    ) -> dict[str, _Binding]:
+        names = tuple(changed)
+        unit = _Binding(_term("unit"), _UNIT)
+        initial = self._pack_guard_state(names, entry, unit)
+        state = self.fresh(initial.type)
+        current, _ = self._unpack_guard_state(names, entry, _Binding(state, initial.type))
+        step = self._pack_guard_state(names, after, unit).term
+        if condition is not None:
+            step = _term("if", initial.type, condition, step, state)
+        step = self._at_loop_entry(step, symbolic, current)
+        function = self.wrap("lam", [ordinal, state], step)
+        folded = _apps(_constant("NatFold"), initial.type, function, initial.term, count)
+        result, _ = self._unpack_guard_state(names, entry, _Binding(folded, initial.type))
+        return result
 
     def _elaborate_foreach_collection_statement(
         self: _Elaborator,
@@ -2035,15 +2061,21 @@ class _StatementsMixin:
             finally:
                 self.uninitialized_out_params = saved_uninit
                 del self.active_facts[saved_facts_len:]
-            for mname in list(self.mutable_locals):
-                if mname in cur_env and mname != var_name and sym_env.get(mname, cur_env[mname]).term != after_sym.get(mname, sym_env.get(mname, cur_env[mname])).term:
-                    m_ty = cur_env[mname].type
-                    loop_tag = self.serial
-                    self.serial += 1
-                    cur_env[mname] = _Binding(
-                        _apps(_constant("LoopState"), m_ty, cur_env[mname].term, _term("nat", value=loop_tag)),
-                        m_ty,
-                    )
+            if self._contains_break_statement(body_node):
+                raise self.fail("unsupported", "symbolic collection break needs a represented early-exit state", statement)
+            if mode == "ref" and after_sym[var_name].term != elem_var:
+                raise self.fail("unsupported", "symbolic mutable element iteration needs represented writeback", statement)
+            changed = [name for name in extended if name in self.mutable_locals and name != var_name
+                       and sym_env[name].term != step_env[name].term]
+            if changed:
+                ordinal = self.fresh(_NAT)
+                default = self._default_term_for_type(elem_type)
+                element = _apps(_constant("Seq_At"), elem_type, default, coll_model, ordinal)
+                for name in changed:
+                    step_env[name] = _Binding(self.substitute(step_env[name].term, cast("int", elem_var.value), element),
+                                              step_env[name].type)
+                count = _apps(_constant("Seq_Count"), elem_type, coll_model)
+                cur_env = self._fold_loop(extended, sym_env, step_env, changed, count, ordinal)
             post_assumed = self._assume_loop_invariants(contracts, cur_env)
             self.active_facts.extend(post_assumed)
             return cur_env
@@ -2139,45 +2171,36 @@ class _StatementsMixin:
                 del self.active_facts[saved_facts_len:]
             if unrolled_concretely:
                 return cur_env
+            if self._contains_break_statement(body_node):
+                raise self.fail("unsupported", "symbolic while break needs a represented early-exit state", statement)
+            changed = [name for name in extended if name in self.mutable_locals and sym_env[name].term != step_env[name].term]
             post_env = dict(extended)
-            has_break = self._contains_break_statement(body_node)
-            cond_head, cond_args = self.spine(self.resolve(sym_cond))
-            for mname in list(self.mutable_locals):
-                if mname in post_env and sym_env[mname].term != after_sym.get(mname, sym_env[mname]).term:
-                    m_ty = post_env[mname].type
-                    m_ty_w = self.whnf(m_ty)
-                    m_spec = self._int_spec(m_ty_w)
-                    lt_const = _constant(f"int_lt_{m_spec.name}") if m_spec is not None else (_constant("<") if m_ty_w == _NAT else None)
-                    add_const = _constant(f"int_add_{m_spec.name}") if m_spec is not None else (_constant("+") if m_ty_w == _NAT else None)
-                    zero_t = _int_term(m_spec, 0) if m_spec is not None else (_term("nat", value=0) if m_ty_w == _NAT else None)
-                    one_t = _int_term(m_spec, 1) if m_spec is not None else (_term("nat", value=1) if m_ty_w == _NAT else None)
-                    if (
-                        not has_break
-                        and lt_const is not None
-                        and add_const is not None
-                        and zero_t is not None
-                        and one_t is not None
-                        and cond_head == lt_const
-                        and len(cond_args) == 2
-                        and cond_args[0] == sym_env[mname].term
-                        and cast("int", sym_env[mname].term.value) not in self.free(cond_args[1])
-                        and self.whnf(post_env[mname].term) == zero_t
-                        and self.whnf(after_sym[mname].term)
-                        == self.whnf(_apps(add_const, sym_env[mname].term, one_t))
-                    ):
-                        post_env[mname] = _Binding(cond_args[1], m_ty)
-                    else:
-                        loop_tag = self.serial
-                        self.serial += 1
-                        post_env[mname] = _Binding(
-                            _apps(_constant("LoopState"), m_ty, post_env[mname].term, _term("nat", value=loop_tag)),
-                            m_ty,
-                        )
+            if len(changed) == 1:
+                name = changed[0]
+                initial = extended[name]
+                spec = self._int_spec(initial.type)
+                before = sym_env[name].term
+                lt = _constant(f"int_lt_{spec.name}" if spec else "<")
+                add = _constant(f"int_add_{spec.name}" if spec else "+")
+                zero = _int_term(spec, 0) if spec else _term("nat", value=0)
+                one = _int_term(spec, 1) if spec else _term("nat", value=1)
+                head, args = self.spine(self.resolve(sym_cond))
+                if (head == lt and len(args) == 2 and args[0] == before and (spec is None or not spec.signed)
+                    and cast("int", before.value) not in self.free(args[1]) and self.whnf(initial.term) == zero
+                    and self.whnf(step_env[name].term) == self.whnf(_apps(add, before, one))):
+                    post_env[name] = _Binding(self._at_loop_entry(args[1], sym_env, extended), initial.type)
+                    changed.clear()
+            if changed:
+                measures = self._eval_loop_decreases(contracts, extended)
+                if len(measures) != 1:
+                    raise self.fail("unsupported", "symbolic while execution needs a single natural-valued bound", statement)
+                _, measure, spec = measures[0]
+                post_env = self._fold_loop(extended, sym_env, step_env, changed, self._loop_nat(measure, spec),
+                                           self.fresh(_NAT), sym_cond)
             post_assumed = self._assume_loop_invariants(contracts, post_env)
             self.active_facts.extend(post_assumed)
-            if not has_break:
-                post_cond = self.check(cond_node, _BOOL, post_env)
-                self.active_facts.append(self._negate_bool_term(post_cond))
+            post_cond = self.check(cond_node, _BOOL, post_env)
+            self.active_facts.append(self._negate_bool_term(post_cond))
             return post_env
         finally:
             self.in_loop_depth -= 1

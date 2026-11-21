@@ -98,6 +98,30 @@ public lemma TruthTable()
         assert GuardOnce() == Some(true);
     }
 """),
+        ("conditional-arithmetic-bounds", """module BoundsReplay;
+bool Guard(Nat a, Nat b, Nat k) requires a + b <= k => true;
+bool WithHeadroom(Nat a, Nat b, Nat k) requires b <= k requires a <= k - b => Guard(a, b, k);
+bool Quotient(i8 x, i8 d) requires d >= 2i8 requires x / d <= x => true;
+bool Safe(i8 x, i8 d) requires x >= 0i8 requires d >= 2i8 => Quotient(x, d);
+"""),
+        ("symbolic-accumulator-execution", """module FoldReplay;
+public Nat Twice(Nat n) {
+    var total = 0;
+    foreach (let i in 0..n) { total += 2; }
+    return total;
+}
+lemma TwiceValue() ensures Twice(3) == 6 proof { assert Twice(3) == 6; }
+public Nat WhileSum(Nat n) {
+    var i = 0;
+    var sum = 0;
+    while (i < n) invariant i <= n decreases n - i {
+        sum += i;
+        i += 1;
+    }
+    return sum;
+}
+lemma WhileValue() ensures WhileSum(4) == 6 proof { assert WhileSum(4) == 6; }
+"""),
         ("fresh-polymorphic-calls", """module GenericReplay;
 definition T Identity<T>(T value) => value;
 definition Nat Number() => Identity(3);
@@ -814,6 +838,10 @@ public Nat RoundTripOwned()
 """),
     )
     negatives = (
+        ("truncated-natural-headroom", "bool Guard(Nat a, Nat b, Nat k) requires a + b <= k => true; "
+         "bool Bad(Nat a, Nat b, Nat k) requires a <= k - b => Guard(a, b, k);", "type"),
+        ("negative-signed-quotient-bound", "bool Guard(i8 x, i8 d) requires d >= 2i8 requires x / d <= x => true; "
+         "bool Bad(i8 x, i8 d) requires d >= 2i8 => Guard(x, d);", "type"),
         ("static-parameter-runtime-input", "Nat F(const Nat value) => value; Nat Wrong(Nat runtime) => F(runtime);", "type"),
         ("static-parameter-ignored-runtime-input", "Nat Ignore(Nat value) => 0; Nat F(const Nat value) => value; "
          "Nat Wrong(Nat runtime) => F(Ignore(runtime));", "type"),
@@ -821,6 +849,17 @@ public Nat RoundTripOwned()
          "definition Nat Wrong(F function, Nat runtime) => function(runtime);", "type"),
         ("static-callable-requirement-erasure", "alias F = Fn(const Nat index) -> Nat; "
          "definition Fn(Nat index) -> Nat Wrong(F function) => function;", "type"),
+        ("runtime-ghost-result", "bool Wrong<ghost bool hidden>() => hidden;", "type"),
+        ("runtime-ghost-through-definition", "definition bool Reveal<ghost bool hidden>() => hidden; "
+         "bool Wrong<ghost bool x>() => Reveal<x>();", "type"),
+        ("spec-constructor-through-definition", "definition Span<byte> Model(usize addr) => "
+         "Span.AllocZeroed(addr, 1usize); Span<byte> Wrong(usize addr) => Model(addr);", "type"),
+        ("quantified-call-precondition", "Nat Guard(Nat x) requires (exists (Nat k) => k + 1 == 0) => x; "
+         "Nat Wrong() => Guard(7);", "type"),
+        ("callback-precondition-erasure", "u8 Inc(u8 x) requires x < 255u8 => x + 1u8; "
+         "u8 Apply(Fn(u8 x) -> u8 f, u8 x) => f(x); u8 Wrong() => Apply(Inc, 255u8);", "type"),
+        ("recursive-call-precondition", "definition u8 Go(Nat n, u8 x) requires x < 255u8 decreases n => "
+         "match (n) { 0 => x + 1u8, Succ(k) => Go(k, 255u8) };", "type"),
         ("wrong-call-domain", "definition Nat Identity(Nat x) => x; "
          "definition Nat Wrong() => Identity(true);", "type"),
         ("unequal-vector-index", "definition Vec<Nat,0> Wrong() => VCons(1, VNil<Nat>());", "type"),

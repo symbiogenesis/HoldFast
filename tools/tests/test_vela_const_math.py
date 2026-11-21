@@ -228,7 +228,7 @@ def _symbolic_limits() -> None:
         else:
             raise AssertionError("specialization ignored its reduction budget")
     with patch.object(language, "MAX_CONSTANT_NAT", 15):
-        _refuses(fixture, "limit", "representation bound")
+        _refuses(fixture, "limit", "elaborator evaluation limit")
 
 
 def cases() -> list[Case]:

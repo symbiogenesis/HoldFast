@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Bounded arithmetic, comparison, and Boolean precondition solver for Vela elaboration."""
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, cast, overload
 
 from toolchain.elaborate_types import (
     _BOOL,
@@ -9,7 +9,6 @@ from toolchain.elaborate_types import (
     _INT_SPECS,
     _NAT,
     _U8,
-    MAX_NAT_BITS,
     Node,
     _app,
     _apps,
@@ -23,6 +22,12 @@ from toolchain.elaborate_types import (
 
 if TYPE_CHECKING:
     from toolchain.elaborate import _Elaborator
+
+
+def _tighter_upper(a: int | None, b: int | None) -> int | None:
+    if a is None:
+        return b
+    return a if b is None else min(a, b)
 
 
 class _SolverMixin:
@@ -225,6 +230,17 @@ class _SolverMixin:
                 return op, spec, args[0], args[1]
         return None
 
+    @overload
+    def _term_bounds(
+        self: _Elaborator,
+        term: _Term,
+        spec: _IntSpec,
+        facts: list[_Term],
+        depth: int = 0,
+        visited: frozenset[_Term] = frozenset(),
+    ) -> tuple[int, int, set[int]]: ...
+
+    @overload
     def _term_bounds(
         self: _Elaborator,
         term: _Term,
@@ -232,9 +248,18 @@ class _SolverMixin:
         facts: list[_Term],
         depth: int = 0,
         visited: frozenset[_Term] = frozenset(),
-    ) -> tuple[int, int, set[int]]:
+    ) -> tuple[int, int | None, set[int]]: ...
+
+    def _term_bounds(
+        self: _Elaborator,
+        term: _Term,
+        spec: _IntSpec | None,
+        facts: list[_Term],
+        depth: int = 0,
+        visited: frozenset[_Term] = frozenset(),
+    ) -> tuple[int, int | None, set[int]]:
         lo = spec.min_val if spec is not None else 0
-        hi = spec.max_val if spec is not None else (1 << MAX_NAT_BITS) - 1
+        hi: int | None = spec.max_val if spec is not None else None
         ne_set: set[int] = set()
         w = self.whnf(term)
         if w.kind in {"int", "nat", "char"}:
@@ -242,7 +267,7 @@ class _SolverMixin:
             return val, val, set()
         if w.kind == "var" and cast("int", w.value) in self.types and self.whnf(self.types[cast("int", w.value)]) == _CHAR:
             lo = max(lo, 0)
-            hi = min(hi, 0x10FFFF)
+            hi = _tighter_upper(hi, 0x10FFFF)
         if depth > 2 or w in visited:
             return lo, hi, ne_set
         next_visited = visited | {w}
@@ -254,7 +279,8 @@ class _SolverMixin:
                 w.args[3], spec, [*facts, self._negate_bool_term(w.args[1])], depth + 1, next_visited
             )
             lo = max(lo, min(t_lo, e_lo))
-            hi = min(hi, max(t_hi, e_hi))
+            if t_hi is not None and e_hi is not None:
+                hi = _tighter_upper(hi, max(t_hi, e_hi))
             ne_set.update(t_ne & e_ne)
         head, args = self.spine(w)
         if head.kind == "const" and isinstance(head.value, str):
@@ -262,33 +288,34 @@ class _SolverMixin:
             if cname == "Succ" and len(args) == 1:
                 s_lo, s_hi, _ = self._term_bounds(args[0], None, facts, depth + 1, next_visited)
                 lo = max(lo, s_lo + 1)
-                hi = min(hi, s_hi + 1)
+                if s_hi is not None:
+                    hi = _tighter_upper(hi, s_hi + 1)
             elif cname in {"char_to_nat", "char_to_u32"} and len(args) == 1:
                 s_lo, s_hi, s_ne = self._term_bounds(args[0], None, facts, depth + 1, next_visited)
                 lo = max(lo, s_lo, 0)
-                hi = min(hi, s_hi, 0x10FFFF)
+                hi = _tighter_upper(_tighter_upper(hi, s_hi), 0x10FFFF)
                 ne_set.update(s_ne)
             elif cname == "char_from_u8" and len(args) == 1:
                 s_lo, s_hi, s_ne = self._term_bounds(args[0], _INT_SPECS["u8"], facts, depth + 1, next_visited)
                 lo = max(lo, s_lo, 0)
-                hi = min(hi, s_hi, 255)
+                hi = _tighter_upper(hi, min(s_hi, 255))
                 ne_set.update(s_ne)
             elif cname.startswith("int_from_") and len(args) == 1:
                 src_spec = _INT_SPECS[cname.split("_")[2]]
                 s_lo, s_hi, s_ne = self._term_bounds(args[0], src_spec, facts, depth + 1, next_visited)
                 lo = max(lo, s_lo)
-                hi = min(hi, s_hi)
+                hi = _tighter_upper(hi, s_hi)
                 ne_set.update(s_ne)
             elif cname.startswith("int_to_nat_") and len(args) == 1:
                 src_spec = _INT_SPECS[cname.split("_")[3]]
                 s_lo, s_hi, s_ne = self._term_bounds(args[0], src_spec, facts, depth + 1, next_visited)
                 lo = max(lo, s_lo)
-                hi = min(hi, s_hi)
+                hi = _tighter_upper(hi, s_hi)
                 ne_set.update(s_ne)
             elif cname == "nat_to_usize" and len(args) == 1:
                 s_lo, s_hi, s_ne = self._term_bounds(args[0], None, facts, depth + 1, next_visited)
                 lo = max(lo, s_lo)
-                hi = min(hi, s_hi)
+                hi = _tighter_upper(hi, s_hi)
                 ne_set.update(s_ne)
             elif cname == "Seq_Count" and len(args) == 2:
                 lo = max(lo, 0)
@@ -298,59 +325,65 @@ class _SolverMixin:
                     r_lo, r_hi, _ = self._term_bounds(args[1], spec, facts, depth + 1, next_visited)
                     if r_lo == r_hi and r_lo >= 0:
                         lo = max(lo, 0)
-                        hi = min(hi, r_lo)
+                        hi = _tighter_upper(hi, r_lo)
                     if l_lo == l_hi and l_lo >= 0:
                         lo = max(lo, 0)
-                        hi = min(hi, l_lo)
+                        hi = _tighter_upper(hi, l_lo)
                 elif cname == f"int_rem_{spec.name}" and not spec.signed:
                     _, r_hi, _ = self._term_bounds(args[1], spec, facts, depth + 1, next_visited)
                     if r_hi > 0:
                         lo = max(lo, 0)
-                        hi = min(hi, r_hi - 1)
+                        hi = _tighter_upper(hi, r_hi - 1)
                 elif cname == f"int_shr_{spec.name}":
                     l_lo, l_hi, _ = self._term_bounds(args[0], spec, facts, depth + 1, next_visited)
                     r_lo, r_hi, _ = self._term_bounds(args[1], _INT_SPECS["usize"], facts, depth + 1, next_visited)
                     if 0 <= r_lo <= r_hi < spec.bits and (not spec.signed or l_lo >= 0):
                         lo = max(lo, max(0, l_lo) >> r_hi)
-                        hi = min(hi, l_hi >> r_lo)
+                        hi = _tighter_upper(hi, l_hi >> r_lo)
                 elif cname == f"int_shl_{spec.name}":
                     l_lo, l_hi, _ = self._term_bounds(args[0], spec, facts, depth + 1, next_visited)
                     r_lo, r_hi, _ = self._term_bounds(args[1], _INT_SPECS["usize"], facts, depth + 1, next_visited)
                     if 0 <= r_lo <= r_hi < spec.bits and l_lo >= 0:
                         lo = max(lo, l_lo << r_lo)
-                        hi = min(hi, l_hi << r_hi)
+                        hi = _tighter_upper(hi, l_hi << r_hi)
                 elif cname == f"int_add_{spec.name}":
                     l_lo, l_hi, _ = self._term_bounds(args[0], spec, facts, depth + 1, next_visited)
                     r_lo, r_hi, _ = self._term_bounds(args[1], spec, facts, depth + 1, next_visited)
                     lo = max(lo, l_lo + r_lo)
-                    hi = min(hi, l_hi + r_hi)
+                    hi = _tighter_upper(hi, l_hi + r_hi)
                 elif cname == f"int_sub_{spec.name}":
                     l_lo, l_hi, _ = self._term_bounds(args[0], spec, facts, depth + 1, next_visited)
                     r_lo, r_hi, _ = self._term_bounds(args[1], spec, facts, depth + 1, next_visited)
                     lo = max(lo, l_lo - r_hi)
-                    hi = min(hi, l_hi - r_lo)
+                    hi = _tighter_upper(hi, l_hi - r_lo)
                 elif cname == f"int_mul_{spec.name}":
                     l_lo, l_hi, _ = self._term_bounds(args[0], spec, facts, depth + 1, next_visited)
                     r_lo, r_hi, _ = self._term_bounds(args[1], spec, facts, depth + 1, next_visited)
                     prods = (l_lo * r_lo, l_lo * r_hi, l_hi * r_lo, l_hi * r_hi)
                     lo = max(lo, min(prods))
-                    hi = min(hi, max(prods))
+                    hi = _tighter_upper(hi, max(prods))
             elif spec is None and len(args) == 2:
                 if cname == "+":
                     l_lo, l_hi, _ = self._term_bounds(args[0], None, facts, depth + 1, next_visited)
                     r_lo, r_hi, _ = self._term_bounds(args[1], None, facts, depth + 1, next_visited)
                     lo = max(lo, l_lo + r_lo)
-                    hi = min(hi, l_hi + r_hi)
+                    if l_hi is not None and r_hi is not None:
+                        hi = _tighter_upper(hi, l_hi + r_hi)
                 elif cname == "-":
                     l_lo, l_hi, _ = self._term_bounds(args[0], None, facts, depth + 1, next_visited)
                     r_lo, r_hi, _ = self._term_bounds(args[1], None, facts, depth + 1, next_visited)
-                    lo = max(0, l_lo - r_hi)
-                    hi = min(hi, max(0, l_hi - r_lo))
+                    if r_hi is not None:
+                        lo = max(0, l_lo - r_hi)
+                    if l_hi is not None:
+                        hi = _tighter_upper(hi, max(0, l_hi - r_lo))
                 elif cname == "*":
                     l_lo, l_hi, _ = self._term_bounds(args[0], None, facts, depth + 1, next_visited)
                     r_lo, r_hi, _ = self._term_bounds(args[1], None, facts, depth + 1, next_visited)
                     lo = max(lo, l_lo * r_lo)
-                    hi = min(hi, l_hi * r_hi)
+                    if l_hi == 0 or r_hi == 0:
+                        hi = 0
+                    elif l_hi is not None and r_hi is not None:
+                        hi = _tighter_upper(hi, l_hi * r_hi)
         uw = self._unwrap_numeric_subject(w)
         for fact in facts:
             parsed = self._parse_cmp_fact(fact)
@@ -361,17 +394,17 @@ class _SolverMixin:
             ufr = self._unwrap_numeric_subject(f_r)
             if ufl == uw:
                 r_lo, r_hi, _ = self._term_bounds(f_r, f_spec, facts, depth + 1, next_visited)
-                if f_op == "lt":
-                    hi = min(hi, r_hi - 1)
+                if f_op == "lt" and r_hi is not None:
+                    hi = _tighter_upper(hi, r_hi - 1)
                 elif f_op == "le":
-                    hi = min(hi, r_hi)
+                    hi = _tighter_upper(hi, r_hi)
                 elif f_op == "gt":
                     lo = max(lo, r_lo + 1)
                 elif f_op == "ge":
                     lo = max(lo, r_lo)
                 elif f_op == "eq":
                     lo = max(lo, r_lo)
-                    hi = min(hi, r_hi)
+                    hi = _tighter_upper(hi, r_hi)
                 elif f_op == "ne" and r_lo == r_hi:
                     ne_set.add(r_lo)
             elif ufr == uw:
@@ -380,18 +413,18 @@ class _SolverMixin:
                     lo = max(lo, l_lo + 1)
                 elif f_op == "le":
                     lo = max(lo, l_lo)
-                elif f_op == "gt":
-                    hi = min(hi, l_hi - 1)
+                elif f_op == "gt" and l_hi is not None:
+                    hi = _tighter_upper(hi, l_hi - 1)
                 elif f_op == "ge":
-                    hi = min(hi, l_hi)
+                    hi = _tighter_upper(hi, l_hi)
                 elif f_op == "eq":
                     lo = max(lo, l_lo)
-                    hi = min(hi, l_hi)
+                    hi = _tighter_upper(hi, l_hi)
                 elif f_op == "ne" and l_lo == l_hi:
                     ne_set.add(l_lo)
-        while lo in ne_set and lo <= hi:
+        while lo in ne_set and (hi is None or lo <= hi):
             lo += 1
-        while hi in ne_set and hi >= lo:
+        while hi is not None and hi in ne_set and hi >= lo:
             hi -= 1
         return lo, hi, ne_set
 
@@ -495,7 +528,6 @@ class _SolverMixin:
                     "Span_Fill",
                     "Span_CopyPrefix",
                     "Span_Restore",
-                    "LoopState",
                 }
                 and len(s_args) >= 2
             ):
@@ -784,21 +816,21 @@ class _SolverMixin:
                     return True
         l_lo, l_hi, l_ne = self._term_bounds(wl, spec, facts)
         r_lo, r_hi, r_ne = self._term_bounds(wr, spec, facts)
-        if l_lo > l_hi or r_lo > r_hi:
+        if (l_hi is not None and l_lo > l_hi) or (r_hi is not None and r_lo > r_hi):
             # Contradictory active facts (unreachable branch)
             return True
-        if op_kind == "lt" and l_hi < r_lo:
+        if op_kind == "lt" and l_hi is not None and l_hi < r_lo:
             return True
-        if op_kind == "le" and l_hi <= r_lo:
+        if op_kind == "le" and l_hi is not None and l_hi <= r_lo:
             return True
-        if op_kind == "gt" and l_lo > r_hi:
+        if op_kind == "gt" and r_hi is not None and l_lo > r_hi:
             return True
-        if op_kind == "ge" and l_lo >= r_hi:
+        if op_kind == "ge" and r_hi is not None and l_lo >= r_hi:
             return True
         if op_kind == "eq" and l_lo == l_hi == r_lo == r_hi:
             return True
         if op_kind == "ne":
-            if l_hi < r_lo or r_hi < l_lo:
+            if (l_hi is not None and l_hi < r_lo) or (r_hi is not None and r_hi < l_lo):
                 return True
             if r_lo == r_hi and r_lo in l_ne:
                 return True
@@ -855,7 +887,9 @@ class _SolverMixin:
             two_t = _int_term(spec, 2) if spec is not None else _term("nat", value=2)
             if op_kind == "lt" and self._prove_comparison("ge", spec, args_l[1], two_t, facts) and self._prove_comparison("gt", spec, args_l[0], zero_t, facts):
                 return True
-            if op_kind == "le" and self._prove_comparison("ge", spec, args_l[1], _int_term(spec, 1) if spec is not None else _term("nat", value=1), facts):
+            one = _int_term(spec, 1) if spec is not None else _term("nat", value=1)
+            if (op_kind == "le" and self._prove_comparison("ge", spec, args_l[1], one, facts)
+                    and (spec is None or not spec.signed or self._prove_comparison("ge", spec, args_l[0], zero_t, facts))):
                 return True
         # Bounded transitive chaining over active comparison facts
         edges: dict[_Term, list[tuple[_Term, bool]]] = {}
@@ -950,7 +984,7 @@ class _SolverMixin:
                     parsed = self._parse_cmp_fact(fact)
                     if parsed is None or parsed[0] not in {"le", "lt", "eq"}:
                         continue
-                    _, _, f_l, f_r = parsed
+                    f_op, _, f_l, f_r = parsed
                     fr_h, fr_a = self.spine(self.whnf(f_r))
                     if (
                         fr_h.kind == "const"
@@ -958,6 +992,8 @@ class _SolverMixin:
                         and (fr_h.value == "-" or fr_h.value.startswith("int_sub_"))
                         and len(fr_a) == 2
                         and self._same_numeric_subject(fr_a[0], bound_side)
+                        and (fr_h.value != "-" or f_op == "lt"
+                             or self._prove_comparison("le", None, fr_a[1], fr_a[0], facts))
                         and (
                             (self._same_numeric_subject(f_l, la[0]) and self._same_numeric_subject(fr_a[1], la[1]))
                             or (self._same_numeric_subject(f_l, la[1]) and self._same_numeric_subject(fr_a[1], la[0]))

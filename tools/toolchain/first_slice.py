@@ -1085,6 +1085,7 @@ def _lower_function_to_c(
     ctor_map: dict[str, int],
     record_fields: dict[str, list[tuple[str, str]]],
     literal_type: Callable[[dict[str, object]], str],
+    function_results: dict[str, str],
 ) -> str:
     fname = _node_text(decl.get("name"))
     params = cast("list[dict[str, object]]", decl.get("parameters", []))
@@ -1200,7 +1201,64 @@ def _lower_function_to_c(
                 return f"&{vname}"
         raise ValueError(f"expected Span variable in {fname}, got {expr!r}")
 
-    def lower_expr(expr: object) -> str:
+    scalar_types = {**{_node_text(p.get("name")): _c_scalar_type(_type_info(p.get("type"))[1]) for p in params},
+                    **{name: c_ty for c_ty, name in local_scalars}}
+    used_names = {*scalar_types, *local_spans, *ptr_spans, *function_results, "out", "backing"}
+    temp_index = 0
+
+    def temp(c_ty: str) -> str:
+        nonlocal temp_index
+        while True:
+            name = f"vela_eval_{temp_index}"
+            temp_index += 1
+            if name not in used_names:
+                used_names.add(name)
+                add_local_scalar(c_ty, name)
+                return name
+
+    def scalar_type(node: dict[str, object]) -> str:
+        kind = node["kind"]
+        if kind == "name":
+            return "int" if _node_text(node) in ctor_map else scalar_types[_node_text(node)]
+        if kind == "nat":
+            return _c_scalar_type(literal_type(node))
+        if kind == "bool":
+            return "int"
+        if kind == "index":
+            return "unsigned char"
+        if kind == "member":
+            return "int" if _node_text(node["name"]) == "Tag" else "unsigned long"
+        if kind == "unary":
+            return "int" if _node_text(node["operator"]) == "!" else scalar_type(_unwrap_arg(node["value"]))
+        if kind == "binary":
+            if _node_text(node["operator"]) in ("==", "!=", "<", "<=", ">", ">=", "&&", "||"):
+                return "int"
+            return scalar_type(_unwrap_arg(node["left"]))
+        if kind == "call":
+            callee = _unwrap_arg(node["callee"])
+            if callee.get("kind") == "member":
+                return "int" if _is_span_call(node, "Disjoint") is not None else "unsigned long"
+            name = _node_text(callee)
+            return "int" if name in ctor_map else _c_scalar_type(function_results[name])
+        raise ValueError(f"unsupported scalar argument {node!r} in {fname}")
+
+    def ordered(nodes: list[dict[str, object]], prefix: list[str]) -> list[str]:
+        # Span arguments denote stable addresses. Scalar arguments can read or change the referenced storage.
+        values = []
+        for node in nodes:
+            if ((node["kind"] == "unary" and _node_text(node["operator"]) in ("in", "ref"))
+                or (node["kind"] == "name" and (_node_text(node) in ptr_spans or _node_text(node) in local_spans))):
+                values.append(span_ptr_expr(node))
+                continue
+            value = lower_expr(node, prefix)
+            if len(nodes) > 1 and node["kind"] not in ("bool", "nat", "name"):
+                saved = temp(scalar_type(node))
+                prefix.append(f"{saved} = {value};")
+                value = saved
+            values.append(value)
+        return values
+
+    def lower_expr(expr: object, prefix: list[str]) -> str:
         node = _unwrap_arg(expr)
         ekind = str(node.get("kind", ""))
         if ekind == "nat":
@@ -1220,7 +1278,7 @@ def _lower_function_to_c(
             op = _node_text(node.get("operator"))
             if op in ("ref", "in"):
                 return span_ptr_expr(node)
-            return f"{op}{lower_expr(node.get('value'))}"
+            return f"{op}{lower_expr(node.get('value'), prefix)}"
         if ekind == "member":
             mname = _node_text(node.get("name"))
             rname = _node_text(node.get("value"))
@@ -1230,16 +1288,26 @@ def _lower_function_to_c(
             return f"{rname}->{c_field}" if rname in ptr_spans else f"{rname}.{c_field}"
         if ekind == "index":
             s_ptr = span_ptr_expr(cast("dict[str, object]", node.get("value")))
-            idx_c = lower_expr(node.get("index"))
+            idx_c = lower_expr(node.get("index"), prefix)
             return f"vela_span_read({s_ptr}, {idx_c})"
         if ekind == "binary":
             op = _node_text(node.get("operator"))
-            lhs = lower_expr(node.get("left"))
-            rhs = lower_expr(node.get("right"))
+            if op in ("&&", "||"):
+                left = lower_expr(node["left"], prefix)
+                guarded: list[str] = []
+                right = lower_expr(node["right"], guarded)
+                if not guarded:
+                    return f"({left} {op} {right})"
+                result = temp("int")
+                prefix.append(f"{result} = {left};")
+                guard = result if op == "&&" else f"!{result}"
+                prefix.append(f"if ({guard}) {{")
+                prefix.extend(f"    {line}" for line in guarded)
+                prefix.extend((f"    {result} = {right};", "}"))
+                return result
+            lhs, rhs = ordered([_unwrap_arg(node["left"]), _unwrap_arg(node["right"])], prefix)
             if op == "^":
                 return f"(unsigned char)((unsigned int){lhs} ^ (unsigned int){rhs})"
-            if op in ("&&", "||"):
-                return f"{lhs} {op} {rhs}"
             return f"({lhs} {op} {rhs})"
         if ekind == "call":
             callee = cast("dict[str, object]", node.get("callee", {}))
@@ -1250,71 +1318,67 @@ def _lower_function_to_c(
                 if rname == "Span" and mname == "Disjoint":
                     return f"vela_span_disjoint({span_ptr_expr(args[0])}, {span_ptr_expr(args[1])})"
                 if rname == "usize" and mname == "From":
-                    return f"(unsigned long){lower_expr(args[0])}"
+                    return f"(unsigned long){lower_expr(args[0], prefix)}"
             if callee.get("kind") == "name":
                 cname = _node_text(callee)
                 if cname in ctor_map:
                     return f"VOS_ERR_{cname}"
-                c_args: list[str] = []
-                for arg in args:
-                    if (
-                        arg.get("kind") == "unary" and _node_text(arg.get("operator")) in ("ref", "in")
-                    ) or (arg.get("kind") == "name" and (_node_text(arg) in ptr_spans or _node_text(arg) in local_spans)):
-                        c_args.append(span_ptr_expr(arg))
-                    else:
-                        c_args.append(lower_expr(arg))
+                if cname not in function_results:
+                    raise ValueError(f"unsupported call {cname!r} in {fname}")
+                c_args = ordered(args, prefix)
                 return f"{cname}({', '.join(c_args)})"
         raise ValueError(f"unsupported expression in {fname}: {node!r}")
 
-    def lower_span_init(dst_ptr: str, expr: dict[str, object]) -> list[str]:
+    def lower_span_init(dst_ptr: str, expr: dict[str, object], prefix: list[str]) -> list[str]:
         mname = _is_span_call(expr)
         args = [_unwrap_arg(a) for a in cast("list[object]", expr.get("arguments", []))]
         if mname == "AllocZeroed":
-            return [f"vela_span_alloc_zeroed({dst_ptr}, backing, {lower_expr(args[0])}, {lower_expr(args[1])});"]
+            return [f"vela_span_alloc_zeroed({dst_ptr}, backing, {', '.join(ordered(args, prefix))});"]
         if mname == "Slice":
-            return [f"vela_span_slice({dst_ptr}, {span_ptr_expr(args[0])}, {lower_expr(args[1])}, {lower_expr(args[2])});"]
+            return [f"vela_span_slice({dst_ptr}, {', '.join(ordered(args, prefix))});"]
         if mname in ("Invalidate", "ReadOnly"):
             c_fn = "vela_span_invalidate" if mname == "Invalidate" else "vela_span_readonly"
             inner = args[0]
             if _is_span_call(inner) is not None:
-                return [*lower_span_init(dst_ptr, inner), f"{c_fn}({dst_ptr}, {dst_ptr});"]
+                return [*lower_span_init(dst_ptr, inner, prefix), f"{c_fn}({dst_ptr}, {dst_ptr});"]
             return [f"{c_fn}({dst_ptr}, {span_ptr_expr(inner)});"]
         raise ValueError(f"unsupported Span initializer {mname!r} in {fname}")
 
     def lower_stmts(stmts: list[dict[str, object]], indent: str) -> list[str]:
         out_lines: list[str] = []
         for st in stmts:
+            prefix: list[str] = []
+            first_line = len(out_lines)
             skind = str(st.get("kind", ""))
             if skind in ("var", "let"):
                 vname = _node_text(st.get("name"))
                 val = cast("dict[str, object]", st.get("value", {}))
                 if vname in local_spans:
-                    out_lines.extend(f"{indent}{line}" for line in lower_span_init(f"&{vname}", val))
+                    out_lines.extend(f"{indent}{line}" for line in lower_span_init(f"&{vname}", val, prefix))
                 else:
-                    out_lines.append(f"{indent}{vname} = {lower_expr(val)};")
+                    out_lines.append(f"{indent}{vname} = {lower_expr(val, prefix)};")
             elif skind == "assignment":
                 target = cast("dict[str, object]", st.get("target", {}))
                 val = cast("dict[str, object]", st.get("value", {}))
                 if target.get("kind") == "index":
                     s_ptr = span_ptr_expr(cast("dict[str, object]", target.get("value")))
-                    idx_c = lower_expr(target.get("index"))
-                    out_lines.append(f"{indent}vela_span_write({s_ptr}, {s_ptr}, {idx_c}, {lower_expr(val)});")
+                    idx_c, rhs = ordered([_unwrap_arg(target["index"]), val], prefix)
+                    out_lines.append(f"{indent}vela_span_write({s_ptr}, {s_ptr}, {idx_c}, {rhs});")
                 else:
                     tname = _node_text(target)
-                    out_lines.append(f"{indent}{tname} = {lower_expr(val)};")
+                    out_lines.append(f"{indent}{tname} = {lower_expr(val, prefix)};")
             elif skind == "expression_statement":
                 val = cast("dict[str, object]", st.get("value", {}))
                 mname = _is_span_call(val)
                 args = [_unwrap_arg(a) for a in cast("list[object]", val.get("arguments", []))]
                 if mname == "Fill":
                     s_ptr = span_ptr_expr(args[0])
-                    out_lines.append(
-                        f"{indent}vela_span_fill({s_ptr}, {s_ptr}, {lower_expr(args[1])}, {lower_expr(args[2])}, {lower_expr(args[3])});"
-                    )
+                    scalars = ", ".join(ordered(args[1:], prefix))
+                    out_lines.append(f"{indent}vela_span_fill({s_ptr}, {s_ptr}, {scalars});")
                 elif mname == "CopyPrefix":
                     d_ptr = span_ptr_expr(args[0])
                     s_ptr = span_ptr_expr(args[1])
-                    out_lines.append(f"{indent}vela_span_copy_prefix({d_ptr}, {d_ptr}, {s_ptr}, {lower_expr(args[2])});")
+                    out_lines.append(f"{indent}vela_span_copy_prefix({d_ptr}, {d_ptr}, {s_ptr}, {lower_expr(args[2], prefix)});")
                     target_node = _unwrap_arg(args[0])
                     if target_node.get("kind") == "unary" and _node_text(target_node.get("operator")) in ("ref", "in"):
                         target_node = _unwrap_arg(target_node.get("value"))
@@ -1329,18 +1393,27 @@ def _lower_function_to_c(
                     v_ptr = span_ptr_expr(args[1])
                     out_lines.append(f"{indent}vela_span_restore({p_ptr}, {p_ptr}, {v_ptr});")
                 else:
-                    out_lines.append(f"{indent}{lower_expr(val)};")
+                    out_lines.append(f"{indent}{lower_expr(val, prefix)};")
             elif skind == "foreach":
                 iname = _node_text(st.get("name"))
                 rng = cast("dict[str, object]", st.get("range", {}))
-                start_c = lower_expr(rng.get("start"))
-                end_c = lower_expr(rng.get("end"))
+                first, last = _unwrap_arg(rng["start"]), _unwrap_arg(rng["end"])
+                start_c = lower_expr(first, prefix)
+                if first["kind"] != "nat":
+                    saved = temp("unsigned long")
+                    prefix.append(f"{saved} = {start_c};")
+                    start_c = saved
+                end_c = lower_expr(last, prefix)
+                if last["kind"] != "nat":
+                    saved = temp("unsigned long")
+                    prefix.append(f"{saved} = {end_c};")
+                    end_c = saved
                 fbody = cast("dict[str, object]", st.get("body", {}))
                 out_lines.append(f"{indent}for ({iname} = {start_c}; {iname} < {end_c}; {iname}++) {{")
                 out_lines.extend(lower_stmts(cast("list[dict[str, object]]", fbody.get("statements", [])), indent + "    "))
                 out_lines.append(f"{indent}}}")
             elif skind == "if":
-                cond_c = lower_expr(st.get("condition"))
+                cond_c = lower_expr(st.get("condition"), prefix)
                 then_b = cast("dict[str, object]", st.get("then", {}))
                 out_lines.append(f"{indent}if ({cond_c}) {{")
                 out_lines.extend(lower_stmts(cast("list[dict[str, object]]", then_b.get("statements", [])), indent + "    "))
@@ -1364,7 +1437,7 @@ def _lower_function_to_c(
                     r_args = [_unwrap_arg(a) for a in cast("list[object]", val.get("arguments", []))]
                     if cname == "Err" and len(r_args) == 1:
                         out_lines.append(f"{indent}out->is_ok = 0;")
-                        out_lines.append(f"{indent}out->err = {lower_expr(r_args[0])};")
+                        out_lines.append(f"{indent}out->err = {lower_expr(r_args[0], prefix)};")
                         out_lines.append(f"{indent}out->ok.CopiedBytes = 0UL;")
                         out_lines.append(f"{indent}vela_span_invalidate(&out->ok.PayloadView, dst);")
                         out_lines.append(f"{indent}return;")
@@ -1380,7 +1453,7 @@ def _lower_function_to_c(
                             if f_type == "Span":
                                 out_lines.append(f"{indent}vela_span_copy_meta(&out->ok.{f_name}, {span_ptr_expr(arg_val)});")
                             else:
-                                out_lines.append(f"{indent}out->ok.{f_name} = {lower_expr(arg_val)};")
+                                out_lines.append(f"{indent}out->ok.{f_name} = {lower_expr(arg_val, prefix)};")
                         out_lines.append(f"{indent}return;")
                     else:
                         raise ValueError(f"unsupported Result return in {fname}: {val!r}")
@@ -1393,21 +1466,22 @@ def _lower_function_to_c(
                         if f_type == "Span":
                             out_lines.append(f"{indent}vela_span_copy_meta(&out->{f_name}, {span_ptr_expr(arg_val)});")
                         else:
-                            out_lines.append(f"{indent}out->{f_name} = {lower_expr(arg_val)};")
+                            out_lines.append(f"{indent}out->{f_name} = {lower_expr(arg_val, prefix)};")
                     out_lines.append(f"{indent}return;")
                 else:
-                    out_lines.append(f"{indent}return {lower_expr(val)};")
+                    out_lines.append(f"{indent}return {lower_expr(val, prefix)};")
             else:
                 raise ValueError(f"unsupported statement kind {skind!r} in {fname}")
+            out_lines[first_line:first_line] = [f"{indent}{line}" for line in prefix]
         return out_lines
 
     param_sig = ",\n    ".join(c_params) if c_params else "void"
     header = f"static {c_ret} {fname}(\n    {param_sig})\n{{"
+    stmt_lines = lower_stmts(body_stmts, "    ")
     decl_lines = [
         *(f"    struct vela_span_byte {s_name};" for s_name in local_spans),
         *(f"    {c_ty} {v_name};" for c_ty, v_name in local_scalars),
     ]
-    stmt_lines = lower_stmts(body_stmts, "    ")
     all_body = [*decl_lines, *([""] if decl_lines and stmt_lines else []), *stmt_lines]
     return "\n".join([header, *all_body, "}"])
 
@@ -1475,8 +1549,9 @@ def lower_to_c(
     union_c, ctor_map = _lower_union_to_c(decl_map["ValidationError"])
     record_c, packet_fields = _lower_record_to_c(decl_map["ValidatedPacket"])
     record_fields = {"ValidatedPacket": packet_fields}
+    function_results = {name: _type_info(decl_map[name].get("result"))[1] for name, kind in required_callables if kind == "function"}
     fn_c_blocks = [
-        _lower_function_to_c(decl_map[fn_name], ctor_map, record_fields, literal_type)
+        _lower_function_to_c(decl_map[fn_name], ctor_map, record_fields, literal_type, function_results)
         for fn_name in (
             "WritePacket8",
             "CopyPacketToDst",
