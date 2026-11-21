@@ -650,6 +650,12 @@ implicit conversion, ownership transfer, effect, disposal or proof authority.
   Located `argument` nodes contain an optional `label` and a `value`; label
   names and values retain their original byte spans. Both pure syntax routes
   and mathematical elaboration validate labels against the resolved callable.
+- A call argument may declare an output with `out var name`, including after
+  an argument label. Its located `out_variable` node spans both keywords and
+  the binder. The mathematical elaborator accepts this in standalone calls
+  returning `Unit` when it can derive the callee's output value. Each name
+  must be fresh in the enclosing local environment and among the call's
+  declarations. The mutable locals enter scope together after the call.
 - Local bindings use `let name = value` or `let T name = value` for immutable
   bindings, and `var name = value` or `var T name = value` for mutable bindings.
   The optional annotation chooses type inference independently of mutability.

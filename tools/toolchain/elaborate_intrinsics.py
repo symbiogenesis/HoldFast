@@ -1514,6 +1514,10 @@ class _IntrinsicsMixin:
                 is_in_param = p_mod == "in"
                 is_owned_param = p_mod == "owned"
                 arg_val_node = self._unwrap_group(self.node(arg_node["value"]))
+                if arg_val_node["kind"] == "out_variable":
+                    if not is_out_param:
+                        raise self.fail("type", "'out var' requires an 'out' parameter", arg_val_node)
+                    raise self.fail("unsupported", "'out var' requires a checked callee output value", arg_val_node)
                 arg_mod = (
                     cast("Node", arg_val_node["operator"]).get("text")
                     if (
@@ -1861,7 +1865,9 @@ class _IntrinsicsMixin:
             _apps(_constant(f"int_{binary_ops[name]}_{spec.name}"), lhs_b.term, rhs_b.term), ret_type
         )
 
-    def expression(self: _Elaborator, node: Node, environment: dict[str, _Binding]) -> _Binding:
+    def expression(
+        self: _Elaborator, node: Node, environment: dict[str, _Binding], *, standalone_call: bool = False
+    ) -> _Binding:
         self.tick()
         self.site = node
         kind = node["kind"]
@@ -1985,6 +1991,18 @@ class _IntrinsicsMixin:
         if kind == "call":
             callee = self.node(node["callee"])
             call_args = self.nodes(node["arguments"])
+            declared: set[str] = set()
+            for arg in call_args:
+                target = self.node(arg["value"])
+                if target["kind"] == "out_variable":
+                    if not standalone_call:
+                        raise self.fail("type", "'out var' requires a standalone call statement", target)
+                    name = self.name(target["name"])
+                    if name == "_":
+                        raise self.fail("name", "'out var' requires a named output local", target)
+                    if name in environment or name in declared:
+                        raise self.fail("name", f"'out var' requires a fresh local name; '{name}' is already bound", target)
+                    declared.add(name)
             if callee["kind"] == "generic_application":
                 base_callee = self.node(callee["value"])
                 gen_args = self.nodes(callee["arguments"])

@@ -318,6 +318,7 @@ public Nat CountTo(Nat limit)
 | `in T x` / `in place` | Shared-read loan | M |
 | `ref T x` / `ref place` | Initialized exclusive loan | M |
 | `out T x` / `out place` | Initialization loan: no read before initialization, initialized on every normal return | M |
+| `out var x` | Declares a fresh mutable output local in a standalone `Unit` call. Its type comes from the `out` parameter and its scope begins after the call | M (checked callee output) |
 | Receiver `this`, `ref this.Tail` | The receiver and a receiver loan limited to a named view | M (`this`), S (views) |
 | Named view `view Tail = slots[length], length grows;` | A part of a struct a signature can lend separately | S |
 | Place-named loan `'input`, `'this.text`; `region 'r` | A loan tied to one parameter or field; a region parameter only where no place can be named | S |

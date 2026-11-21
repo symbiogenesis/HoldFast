@@ -5087,6 +5087,15 @@ def _out_arg(value: Form) -> Form:
     return form
 
 
+def _out_var(name: str) -> Form:
+    def form(fixture: _Fixture) -> Node:
+        start = fixture.offset
+        fixture.write("out var ")
+        return fixture.node("out_variable", start, name=fixture.name(name))
+
+    return form
+
+
 def _import_decl(fixture: _Fixture, module_path: str) -> None:
     fixture.write("\n")
     start = fixture.offset
@@ -5325,8 +5334,45 @@ def _out_loan_parameters_and_initialization_tracking() -> None:
         block=True,
         contracts=(_contract("ensures", _binary("==", _variable("result"), _natural(23))),),
     )
+    fixture.function(
+        "UseInlineOut",
+        _NAT,
+        (),
+        _block_stmts(
+            _expr_stmt(_call("DelegateOut", _natural(10), _out_var("a"), _out_var("b"), labels=(None, "a", "b"))),
+            _assign_stmt(_variable("a"), "+=", _natural(1)),
+            _return_stmt(_binary("+", _variable("a"), _variable("b"))),
+        ),
+        block=True,
+        contracts=(_contract("ensures", _binary("==", _variable("result"), _natural(24))),),
+    )
     source, response = fixture.response()
     elaborate(source, response)
+
+    for statements, category, diagnostic in (
+        ((_expr_stmt(_call("Init", _out_var("x"), _out_var("x"))),), "name", "already bound"),
+        ((_var_stmt("x", _natural(0)), _expr_stmt(_call("Init", _out_var("x"), _out_var("y")))), "name", "already bound"),
+        ((_expr_stmt(_call("Input", _out_var("x"), _variable("x"))),), "name", "unknown or forward name 'x'"),
+        ((_expr_stmt(_call("Input", _out_var("x"), _out_var("y"))),), "type", "requires an 'out' parameter"),
+        ((_expr_stmt(_call("Produce", _out_var("x"))),), "type", "must return Unit"),
+        ((_return_stmt(_call("Init", _out_var("x"), _out_var("y"))),), "type", "standalone call statement"),
+    ):
+        refused = _Fixture("RefusedInlineOut")
+        refused.function(
+            "Init", _type("Unit"), (("a", _modified("out", _NAT)), ("b", _modified("out", _NAT))),
+            _block_stmts(_assign_stmt(_variable("a"), "=", _natural(1)), _assign_stmt(_variable("b"), "=", _natural(2))),
+            block=True,
+        )
+        refused.function(
+            "Input", _type("Unit"), (("output", _modified("out", _NAT)), ("value", _NAT)),
+            _block_stmts(_assign_stmt(_variable("output"), "=", _variable("value"))), block=True,
+        )
+        refused.function(
+            "Produce", _NAT, (("output", _modified("out", _NAT)),),
+            _block_stmts(_assign_stmt(_variable("output"), "=", _natural(1)), _return_stmt(_natural(2))), block=True,
+        )
+        refused.function("Caller", _type("Unit"), (), _block_stmts(*statements), block=True)
+        _refuses(refused, category, diagnostic)
 
     uninit_return = _Fixture("UninitOutReturn")
     uninit_return.function(

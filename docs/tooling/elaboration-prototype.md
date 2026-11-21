@@ -198,6 +198,11 @@ The supported increment includes:
   `VacantRange`, `VacantSuffix` and `PrefixModel`) and two-step bulk relocation
   (`CopyRepresentation` followed by `TransferType<T>`) with capacity-independent
   region verification.
+- Inline `out var name` declarations in standalone `Unit` calls introduce
+  fresh mutable locals after the call returns. Each local takes its type from
+  its output parameter and its value from the checked callee update. Calls
+  through an abstract interface output require a concrete update before they
+  can introduce a local this way.
 - Write-only initialization loan parameters (`out T`) and `out target` call-site
   arguments, with path-sensitive initialization tracking across `if`/`else`,
   `match`, `let_else`/`var_else` and loops, refusal of reading, partially

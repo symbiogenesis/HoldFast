@@ -1247,6 +1247,8 @@ class _Elaborator(
                     )
                     else None
                 )
+                if arg_val_node["kind"] == "out_variable":
+                    arg_mod = "out"
                 if is_out_param and arg_mod != "out":
                     raise self.fail("type", "an 'out' parameter requires an 'out' call-site argument modifier", node)
                 if not is_out_param and arg_mod == "out":
@@ -1263,7 +1265,11 @@ class _Elaborator(
                         "an 'in' parameter cannot accept an exclusive 'ref' call-site argument modifier",
                         node,
                     )
-                if arg_mod == "out":
+                if arg_val_node["kind"] == "out_variable":
+                    argument = self.fresh(value_type.args[0])
+                    loan_targets[idx] = (arg_val_node, value_type.args[0])
+                    required_static = False
+                elif arg_mod == "out":
                     arg_ident_node = self._unwrap_group(self.node(arg_val_node["value"]))
                     if arg_ident_node["kind"] != "name":
                         raise self.fail("type", "'out' argument target must be a mutable local or loan variable", node)
@@ -1436,6 +1442,8 @@ class _Elaborator(
                         upd_term = self.substitute(upd_term, pid, aval)
                     if self.in_post_env_theorem:
                         upd_term = self._simplify_term_with_facts(upd_term, environment)
+                elif t_node["kind"] == "out_variable":
+                    raise self.fail("unsupported", "'out var' requires a checked callee output value", t_node)
                 else:
                     upd_term = self.fresh(t_dom)
                 post_loan_terms[idx] = upd_term
