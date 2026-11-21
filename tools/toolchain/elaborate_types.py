@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Core terms, fixed-width integer specifications, bindings, and Gallina prelude for Vela elaboration."""
 
+import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from toolchain.ast import MAX_LITERAL_DIGITS
@@ -25,7 +27,13 @@ class Elaboration:
 @dataclass(frozen=True)
 class CheckedElaboration(Elaboration):
     source_sha256: str
-    contextual_literal_types: dict[int, str]
+    syntax: bytes
+    contextual_literal_types: Mapping[int, str]
+    call_declarations: Mapping[int, int]
+
+    @staticmethod
+    def encode_syntax(parsed: object) -> bytes:
+        return json.dumps(parsed, ensure_ascii=True, allow_nan=False, sort_keys=True, separators=(",", ":")).encode("ascii")
 
 
 type Node = dict[str, object]

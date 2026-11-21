@@ -2400,7 +2400,12 @@ class _IntrinsicsMixin:
                     )
                 if not gen_args and cname in _INT_INTRINSICS and cname not in environment and cname not in self.globals:
                     return self._elaborate_int_intrinsic(cname, call_args, environment, node)
-            return self.apply(self._expression(self._unwrap_group(callee), environment), call_args, environment)
+            target = self._expression(self._unwrap_group(callee), environment)
+            application = self.apply(target, call_args, environment)
+            target_head, _ = self.spine(self.resolve(target.term))
+            if target_head.kind == "const" and str(target_head.value) in self.declaration_sites:
+                self.call_declarations[cast("list[int]", node["span"])[0]] = self.declaration_sites[str(target_head.value)]
+            return application
         if kind in {"lambda", "typed_lambda"}:
             return self.lambda_(node, environment)
         if kind == "let_expression":

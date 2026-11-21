@@ -7,10 +7,12 @@ parsing nor an independent source semantics. Vec is a recursive product family,
 Fin an indexed inductive, and lookup recurses structurally on the finite index.
 """
 
+import copy
 import hashlib
 import re
 from collections import Counter
 from collections.abc import Callable, Sequence
+from types import MappingProxyType
 from typing import cast
 
 from toolchain import StaticEvaluation
@@ -123,6 +125,8 @@ class _Elaborator(
         self.uninitialized_out_params: set[str] = set()
         self.callable_ref_updates: dict[str, tuple[tuple[int, ...], dict[int, _Term]]] = {}
         self.callable_source_names: dict[str, str] = {}
+        self.declaration_sites: dict[str, int] = {}
+        self.call_declarations: dict[int, int] = {}
         self.callable_has_effects: set[str] = set()
         self.callable_effect_calls: dict[str, set[str]] = {}
         self.callable_effect_writes: dict[str, set[int]] = {}
@@ -1996,7 +2000,8 @@ def _checked_elaboration(
 ) -> tuple[CheckedElaboration, _Elaborator]:
     protocol = _Protocol(source)
     try:
-        root = protocol.decode(parsed)
+        snapshot = copy.deepcopy(parsed)
+        root = protocol.decode(snapshot)
         elaborator = _Elaborator(protocol)
         module = elaborator.name(root["name"])
         elaborator.module_name = module
@@ -2020,7 +2025,9 @@ def _checked_elaboration(
                    + _proof_module_body(elaborator.output) + f"\n\nEnd {generated_module}.\n")
         if len(gallina.encode("utf-8")) > MAX_OUTPUT_BYTES:
             raise protocol.error("limit", "generated Gallina exceeds the output bound")
-        return CheckedElaboration(module, gallina, source_digest, elaborator.contextual_literal_types), elaborator
+        return CheckedElaboration(module, gallina, source_digest, CheckedElaboration.encode_syntax(snapshot),
+                                  MappingProxyType(elaborator.contextual_literal_types.copy()),
+                                  MappingProxyType(elaborator.call_declarations.copy())), elaborator
     except RecursionError as error:
         raise protocol.error("limit", "elaboration nesting exceeds the host stack bound") from error
 

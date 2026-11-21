@@ -148,8 +148,11 @@ an annotation, including an otherwise unconstrained `let count = 0;`.
 
 In the [packet validator](../../examples/first_slice.vela),
 `let magic = pkt[0];` selects `usize` for the index and `magic != 0x56`
-selects `byte` for the compared literal. The packet C lowerer uses the
-elaborator's checked widths. The explicit and inferred spellings produce the
+selects `byte` for the compared literal. The packet C lowerer reads the
+immutable syntax snapshot and literal widths from the checked elaboration.
+Ordinary calls in the executable subset use the declaration sites resolved by
+the checker. Supplying a checked result for different source bytes or a different
+syntax tree fails before emission. Explicit and contextual spellings yield the
 same Gallina terms and packet C code apart from the source digest.
 
 Inferred indices retain stability and representation checks. Inference never

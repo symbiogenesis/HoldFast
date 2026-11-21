@@ -3050,6 +3050,7 @@ class _DeclarationsMixin:
                 self._classify_phase(emitted, phase_body, executable=kind == "function")
             if kind in {"definition", "function", "theorem", "lemma"}:
                 self.callable_source_names[emitted] = name
+                self.declaration_sites[emitted] = cast("list[int]", node["span"])[0]
                 if effects_clauses:
                     self.callable_has_effects.add(emitted)
                     self.callable_effect_calls[emitted] = set(declared_effect_calls)
