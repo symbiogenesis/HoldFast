@@ -1058,6 +1058,7 @@ class _DeclarationsMixin:
         self.callable_effect_writes.update(mod.callable_effect_writes)
         self.callable_effect_reads.update(mod.callable_effect_reads)
         self.callable_callback_effects.update(mod.callable_callback_effects)
+        self.callable_effect_arities.update(mod.callable_effect_arities)
         self.untracked_effect_functions.update(mod.untracked_effect_functions)
         self.fix_names.update(mod.fix_names)
         existing_out = set(self.output)
@@ -2705,6 +2706,7 @@ class _DeclarationsMixin:
             raise self.fail("name", f"duplicate or reserved declaration '{name}'")
         public = self._record_visibility(name, modifiers, node)
         infer_effects = kind == "function" and not public and "internal" not in modifiers and not effects_clauses
+        summarize_definition = kind == "definition" and not effects_clauses
         raw_generics = [] if kind in {"constant", "property"} else self.nodes(node["generics"])
         generics, decl_regions = self._extract_regions(raw_generics)
         self.active_regions = set(decl_regions)
@@ -2935,7 +2937,14 @@ class _DeclarationsMixin:
                 prev_effect_calls = self.active_effect_calls
                 if effects_clauses:
                     self.active_effect_calls = set(declared_effect_calls)
-                self.inferring_private_calls = declared_effect_calls if infer_effects else None
+                self.inferred_effect_calls = declared_effect_calls if infer_effects or summarize_definition else None
+                if summarize_definition:
+                    self.definition_effect_parameters = {
+                        cast("int", p.value): index for index, p in enumerate(param_vars)
+                        if cast("int", p.value) in self.parameter_names
+                    }
+                    self.definition_callback_uses.clear()
+                    self.definition_effects_closed = True
                 try:
                     if is_post_env_theorem:
                         self.in_post_env_theorem = True
@@ -3011,7 +3020,9 @@ class _DeclarationsMixin:
                                 f"out parameter '{uninit_name}' is not initialized on all exit paths",
                                 body_node,
                             )
-                        if infer_effects:
+                        if summarize_definition:
+                            summarize_definition = self.definition_effects_closed
+                        if infer_effects or summarize_definition:
                             declared_effect_reads, declared_effect_writes = self._memory_footprint(
                                 parameters, ref_param_names, body_node, body,
                             )
@@ -3041,7 +3052,8 @@ class _DeclarationsMixin:
                         self._check_callable_loans(node)
                 finally:
                     self.active_effect_calls = prev_effect_calls
-                    self.inferring_private_calls = None
+                    self.inferred_effect_calls = None
+                    self.definition_effect_parameters = None
                     self.in_executable_function = False
                     self.active_facts = saved_body_facts
                     self.current_rec_var = None
@@ -3059,19 +3071,26 @@ class _DeclarationsMixin:
                 self._classify_phase(emitted, phase_body, executable=kind == "function")
             if kind in {"definition", "function", "theorem", "lemma"}:
                 self.callable_source_names[emitted] = name
+                self.callable_effect_arities[emitted] = max(1, len(parameters))
                 self.declaration_sites[emitted] = cast("list[int]", node["span"])[0]
-                if effects_clauses or infer_effects:
+                if effects_clauses or infer_effects or summarize_definition:
                     self.callable_has_effects.add(emitted)
                     self.callable_effect_reads[emitted] = {
                         i for i, p in enumerate(parameters) if p["name"] and self.name(p["name"]) in declared_effect_reads
                     }
-                    if any(p["name"] and self.name(p["name"]) in declared_effect_calls for p in parameters):
-                        self.callable_callback_effects.add(emitted)
-                    self.callable_effect_calls[emitted] = set(declared_effect_calls)
+                    callback_positions = set(self.definition_callback_uses) if summarize_definition else set()
+                    named_calls = set(declared_effect_calls)
+                    if effects_clauses:
+                        for i, parameter in enumerate(parameters):
+                            if parameter["name"] and (formal := self.name(parameter["name"])) in named_calls:
+                                callback_positions.add(i)
+                                named_calls.remove(formal)
+                    self.callable_callback_effects[emitted] = callback_positions
+                    self.callable_effect_calls[emitted] = named_calls
                     self.callable_effect_writes[emitted] = {
                         i for i, p in enumerate(parameters) if p["name"] and self.name(p["name"]) in declared_effect_writes
                     }
-                elif kind == "function":
+                elif kind in {"definition", "function"}:
                     self.untracked_effect_functions.add(emitted)
             if kind in {"theorem", "lemma"} and is_post_env_theorem:
                 if not post_env_obligations:

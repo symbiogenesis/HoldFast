@@ -132,8 +132,12 @@ class _Elaborator(
         self.callable_effect_calls: dict[str, set[str]] = {}
         self.callable_effect_writes: dict[str, set[int]] = {}
         self.callable_effect_reads: dict[str, set[int]] = {}
-        self.callable_callback_effects: set[str] = set()
-        self.inferring_private_calls: set[str] | None = None
+        self.callable_callback_effects: dict[str, set[int]] = {}
+        self.callable_effect_arities: dict[str, int] = {}
+        self.definition_effect_parameters: dict[int, int] | None = None
+        self.definition_callback_uses: set[int] = set()
+        self.definition_effects_closed = False
+        self.inferred_effect_calls: set[str] | None = None
         self.runtime_reads: set[str] = set()
         self.runtime_writes: set[str] = set()
         self.result_bindings: dict[int, str] = {}
@@ -1220,6 +1224,103 @@ class _Elaborator(
         required = "owned" if actual == "move" else actual
         raise self.fail("type", f"'{actual}' call-site argument modifier requires {article} '{required}' parameter", site)
 
+    def _unresolved_effect_call(self, message: str, site: Node | None) -> None:
+        if self.definition_effect_parameters is not None:
+            self.definition_effects_closed = False
+        else:
+            raise self.fail("unsupported", message, site)
+
+    def _pure_callback(self, argument: Node, term: _Term) -> bool:
+        value = self.resolve(term)
+        if value.kind == "const":
+            callee = str(value.value)
+            arity = self.callable_effect_arities.get(callee)
+            if arity is None:
+                return False
+            result = self.constants[callee].type
+            for _ in range(arity):
+                result = self.whnf(result).args[1]
+            return (self.whnf(result).kind != "pi" and callee in self.callable_has_effects
+                    and not self.callable_callback_effects.get(callee, set())
+                    and self.callable_effect_calls.get(callee) == set()
+                    and self.callable_effect_reads.get(callee) == self.callable_effect_writes.get(callee) == set())
+        source = self._unwrap_group(self.node(argument["value"]))
+        if source["kind"] not in {"lambda", "typed_lambda"} or value.kind != "lam":
+            return False
+        params = self.node(source["signature"]) if source["kind"] == "typed_lambda" else source
+        names = {self.name(param["name"]) for param in self.nodes(params["parameters"])}
+        body = value
+        for _ in range(max(1, len(names))):
+            if body.kind != "lam":
+                return False
+            body = body.args[1]
+        if self.whnf(self.infer(body)).kind == "pi":
+            return False
+        pending = [self.node(source["body"])]
+        while pending:
+            node = self._unwrap_group(pending.pop())
+            if node["kind"] == "binary":
+                pending.extend((self.node(node["left"]), self.node(node["right"])))
+            elif node["kind"] == "unary" and self.operator(node["operator"]) in {"!", "-", "~"}:
+                pending.append(self.node(node["value"]))
+            elif node["kind"] == "name" and self.name(node["name"]) in names:
+                continue
+            elif node["kind"] not in {"bool", "character", "nat", "string", "unit"}:
+                return False
+        return True
+
+    def _check_call_effects(self, head: _Term, supplied: int, arguments: list[Node],
+                            terms: list[_Term], site: Node | None) -> None:
+        collecting, bound = self.inferred_effect_calls, self.active_effect_calls
+        if collecting is None and bound is None:
+            return
+        if head.kind != "const":
+            ident = cast("int", head.value)
+            if collecting is not None:
+                formals = self.definition_effect_parameters
+                if head.kind == "var" and supplied == 0 and formals is not None and ident in formals:
+                    self.definition_callback_uses.add(formals[ident])
+                else:
+                    self._unresolved_effect_call("private helper with a recursive or indirect call needs explicit effects", site)
+            elif head != self.current_rec_var and head.kind == "var" and ident in self.parameter_names:
+                name = self.parameter_names[ident]
+                if bound is not None and name not in bound:
+                    raise self.fail("type", f"callable invokes parameter '{name}' not declared in effects calls(...)", site)
+            return
+        callee = str(head.value)
+        name = self.callable_source_names.get(callee, callee)
+        arity = self.callable_effect_arities.get(callee)
+        if arity is not None and (supplied != self.constants[callee].generics or len(terms) != arity):
+            self._unresolved_effect_call("partial application or invocation of a returned callable needs a closed callable signature", site)
+            return
+        if collecting is not None and callee in self.callable_source_names and callee not in self.callable_has_effects:
+            self._unresolved_effect_call("private effect inference requires a direct callee with closed effects", site)
+            return
+        named_in_bound = bound is not None and (name in bound or name.split(".")[-1] in bound)
+        if bound is not None and callee in self.untracked_effect_functions and not named_in_bound:
+            raise self.fail("type", f"callable invokes function '{name}' not declared in effects calls(...)", site)
+        required = set(self.callable_effect_calls.get(callee, ()))
+        for index in self.callable_callback_effects.get(callee, set()):
+            if self._pure_callback(arguments[index], terms[index]):
+                continue
+            actual = self.resolve(terms[index])
+            ident = cast("int", actual.value)
+            if actual.kind == "var" and self.definition_effect_parameters is not None and ident in self.definition_effect_parameters:
+                self.definition_callback_uses.add(self.definition_effect_parameters[ident])
+            elif collecting is not None:
+                self._unresolved_effect_call("private effect inference requires a callback with closed, empty effects", site)
+                return
+            elif actual.kind == "var" and ident in self.parameter_names:
+                required.add(self.parameter_names[ident])
+            elif actual.kind == "const" and str(actual.value) in self.callable_source_names:
+                required.add(self.callable_source_names[str(actual.value)])
+            else:
+                raise self.fail("unsupported", "callback effects require a known callable or a checked pure lambda", site)
+        if collecting is not None:
+            collecting.update(required)
+        if bound is not None and not named_in_bound and (missing := sorted(required - bound)):
+            raise self.fail("type", f"callable transitively invokes '{missing[0]}' via '{name}' not declared in effects calls(...)", site)
+
     def apply(self, binding: _Binding, arguments: list[Node], environment: dict[str, _Binding]) -> _Binding:
         call_site = self.site
         term, value_type = binding.term, binding.type
@@ -1230,52 +1331,10 @@ class _Elaborator(
             self.current_rec_var is not None
             and callee_head == self.current_rec_var
         )
-        if self.inferring_private_calls is not None:
-            callee = str(callee_head.value)
-            if is_rec_call or callee_head.kind != "const":
-                raise self.fail("unsupported", "private helper with a recursive or indirect call needs explicit effects", call_site)
-            if (callee in self.callable_callback_effects
-                    or (callee in self.callable_source_names and callee not in self.callable_has_effects)):
-                raise self.fail("unsupported", "private effect inference requires a direct callee with closed effects", call_site)
-            self.inferring_private_calls.update(self.callable_effect_calls.get(callee, set()))
-        if self.in_executable_function and callee_head.kind == "const":
+        if (self.in_executable_function or self.inferred_effect_calls is not None) and callee_head.kind == "const":
             for idx in self.callable_effect_reads.get(str(callee_head.value), set()):
                 if idx < len(arguments):
                     self._note_runtime_access(arguments[idx], self.runtime_reads)
-        if self.active_effect_calls is not None and not is_rec_call:
-            if callee_head.kind == "var" and cast("int", callee_head.value) in self.parameter_names:
-                cb_name = self.parameter_names[cast("int", callee_head.value)]
-                if cb_name not in self.active_effect_calls:
-                    raise self.fail(
-                        "type",
-                        f"callable invokes parameter '{cb_name}' not declared in effects calls(...)",
-                        call_site,
-                    )
-            elif callee_head.kind == "const" and isinstance(callee_head.value, str):
-                c_const = callee_head.value
-                g_name = self.callable_source_names.get(c_const, c_const)
-                short_g = g_name.split(".")[-1]
-                if c_const in self.untracked_effect_functions:
-                    if g_name not in self.active_effect_calls and short_g not in self.active_effect_calls:
-                        raise self.fail(
-                            "type",
-                            f"callable invokes function '{g_name}' not declared in effects calls(...)",
-                            call_site,
-                        )
-                elif c_const in self.callable_effect_calls:
-                    g_calls = self.callable_effect_calls[c_const]
-                    if (
-                        g_calls
-                        and g_name not in self.active_effect_calls
-                        and short_g not in self.active_effect_calls
-                    ):
-                        for req_call in sorted(g_calls):
-                            if req_call not in self.active_effect_calls:
-                                raise self.fail(
-                                    "type",
-                                    f"callable transitively invokes '{req_call}' via '{g_name}' not declared in effects calls(...)",
-                                    call_site,
-                                )
         specializing = False
         specialized_term = term
         runtime_arguments: list[tuple[_Term, _Term]] = []
@@ -1571,6 +1630,7 @@ class _Elaborator(
                         inst_ens = self.substitute(inst_ens, post_vid, replacement)
                     if self.whnf(inst_ens) != _term("bool", value=1):
                         self.active_facts.append(inst_ens)
+        self._check_call_effects(callee_head, len(callee_gen_args), arguments, val_args, call_site)
         if is_rec_call:
             self.current_rec_used = True
             if len(callee_gen_args) != len(self.current_rec_generics):

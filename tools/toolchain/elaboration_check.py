@@ -186,6 +186,15 @@ definition U Apply<T,U>(Fn(T value) -> U f, T x) => f(x);
 definition Nat Increment() => Apply(x => x + 1, 2,);
 Nat Arrow(Nat value,) => Apply((x) => x + 1, value,);
 """),
+        ("closed-callback-instantiation", """module ClosedCallback;
+definition Nat Apply(Fn(Nat n) -> Nat f, Nat x) => f(x);
+definition Nat Forward(Fn(Nat n) -> Nat g, Nat x) => Apply(g, x);
+Nat Successor(Nat x) => x + 1;
+Nat Named(Nat x) => Forward(Successor, x);
+public Nat Inline(Nat x) effects none => Forward(n => n + 2, x);
+public Nat Allowed(Fn(Nat n) -> Nat cb, Nat x) effects calls(cb) => Forward(cb, x);
+lemma Value() ensures Named(2) == 3 proof { assert Named(2) == 3; }
+"""),
         ("dependent-type-family", """module FamilyReplay;
 definition type[family(n)] Keep(Fn(Nat index) -> Type family, Nat n,
     type[family(n)] value) => value;
@@ -245,7 +254,7 @@ definition Vec<Nat,Count> One() => VCons(7, VNil<Nat>());
 lemma Correct() ensures Answer == 42 proof { assert Answer == 42; }
 """),
         ("compositional-static-and-runtime-calls", """module StaticCallsReplay;
-public const Nat Square(Nat value) => value * value;
+public const Nat Square(Nat value) effects none => value * value;
 const Nat Limit = Square(4);
 Nat Scale(const Nat factor, Nat value) {
     const Nat multiplier = Square(factor);
@@ -915,8 +924,18 @@ public Nat RoundTripOwned()
          "Span.AllocZeroed(addr, 1usize); Span<byte> Wrong(usize addr) => Model(addr);", "type"),
         ("quantified-call-precondition", "Nat Guard(Nat x) requires (exists (Nat k) => k + 1 == 0) => x; "
          "Nat Wrong() => Guard(7);", "type"),
+        ("untracked-private-callback-forwarding", "definition Nat Apply(Fn(Nat n) -> Nat f, Nat x) => f(x); "
+         "Nat Caller(Fn(Nat n) -> Nat cb, Nat x) => Apply(cb, x);", "unsupported"),
+        ("untracked-public-callback-forwarding", "definition Nat Apply(Fn(Nat n) -> Nat f, Nat x) => f(x); "
+         "public Nat Caller(Fn(Nat n) -> Nat renamed, Nat x) effects none => Apply(renamed, x);", "type"),
+        ("untracked-named-callback", "definition Nat Apply(Fn(Nat n) -> Nat f, Nat x) => f(x); "
+         "public Nat Open(Nat x) => x; Nat Caller() => Apply(Open, 0);", "unsupported"),
+        ("returned-callback-invocation", "definition Fn(Nat n) -> Nat Identity(Fn(Nat n) -> Nat f) => f; "
+         "Nat Caller(Fn(Nat n) -> Nat cb) => Identity(cb)(3);", "unsupported"),
+        ("untracked-public-const-function", "public const Nat Square(Nat x) => x * x; "
+         "Nat Caller(Nat x) => Square(x);", "unsupported"),
         ("callback-precondition-erasure", "u8 Inc(u8 x) requires x < 255u8 => x + 1u8; "
-         "u8 Apply(Fn(u8 x) -> u8 f, u8 x) => f(x); u8 Wrong() => Apply(Inc, 255u8);", "type"),
+         "u8 Apply(Fn(u8 x) -> u8 f, u8 x) effects calls(f) => f(x); u8 Wrong() => Apply(Inc, 255u8);", "type"),
         ("recursive-call-precondition", "definition u8 Go(Nat n, u8 x) requires x < 255u8 decreases n => "
          "match (n) { 0 => x + 1u8, Succ(k) => Go(k, 255u8) };", "type"),
         ("wrong-call-domain", "definition Nat Identity(Nat x) => x; "

@@ -1493,8 +1493,8 @@ class _IntrinsicsMixin:
         call_args: list[Node],
         environment: dict[str, _Binding],
     ) -> _Binding:
-        if self.inferring_private_calls is not None:
-            raise self.fail("unsupported", "private effect inference requires direct top-level callees; declare method effects explicitly", node)
+        if self.inferred_effect_calls is not None:
+            self._unresolved_effect_call("private effect inference requires direct top-level callees; declare method effects explicitly", node)
         self.site = node
         if iface_gen_args and len(iface_gen_args) != len(iface.generic_vars):
             raise self.fail(
@@ -1744,8 +1744,8 @@ class _IntrinsicsMixin:
         environment: dict[str, _Binding],
         recv_node: Node | None = None,
     ) -> _Binding:
-        if self.inferring_private_calls is not None:
-            raise self.fail("unsupported", "private effect inference requires direct top-level callees; declare method effects explicitly", node)
+        if self.inferred_effect_calls is not None:
+            self._unresolved_effect_call("private effect inference requires direct top-level callees; declare method effects explicitly", node)
         self.site = node
         if recv_node is not None:
             self.checked_receivers[tuple(cast("list[int]", node["span"]))] = loans._Receiver("shared", None, rmethod.returns_receiver_loan)
