@@ -4,6 +4,7 @@
 import copy
 import hashlib
 import json
+import re
 import subprocess
 import tempfile
 from contextlib import ExitStack, redirect_stderr, redirect_stdout
@@ -652,7 +653,9 @@ def _corruption_control_subjects() -> None:
                 elif mutation == "unrelated-file":
                     diagnostic = diagnostic.replace(b"FirstSliceCorrupted.v", b"MissingLibrary.v")
                 elif mutation == "unrelated-line":
-                    diagnostic = diagnostic.replace(b", line 30,", b", line 1,")
+                    wrong_line = re.sub(rb", line [0-9]+,", b", line 1,", diagnostic, count=1)
+                    ensure(wrong_line != diagnostic, "control did not change the reported proof line")
+                    diagnostic = wrong_line
                 elif mutation == "syntax-error":
                     diagnostic = diagnostic.split(b"Error:")[0] + b"Error: Syntax error.\n"
                 elif mutation == "extra-unrelated-error":
