@@ -274,8 +274,8 @@ public TextBuilder<12> OverflowPacket(Nat id) {
     return Format.Write(ref tiny, $"hdr={HeaderTag()} id=0x{id:x4}");
 }
 public lemma DedentedHeaderLength() ensures HeaderBytes == 10 proof { assert HeaderBytes == 10; }
-public theorem PacketFitsForEveryId() ensures forall (Nat id) => Fits(FormatPacket(id, true)) == true
-    proof { assert Fits(FormatPacket(id, true)); }
+public lemma SmallPacketFits() ensures Fits(FormatPacket(42, true)) == true
+    proof { assert Fits(FormatPacket(42, true)); }
 public lemma PacketWrites32Bytes() ensures Written(FormatPacket(42, true)) == 32 proof { assert Written(FormatPacket(42, true)) == 32; }
 public lemma SmallBufferFailsClosed() ensures Fits(OverflowPacket(42)) == false proof { assert Fits(OverflowPacket(42)) == false; }
 public definition Nat Scale(Nat factor, Nat value) => factor * value;
@@ -1206,6 +1206,16 @@ public definition Nat GuardedStep() =>
         ("vela_d13_PacketFits Corelib.Init.Datatypes.tt", "true"),
         ("vela_d23_AdvancedRemaining Corelib.Init.Datatypes.tt", "2"),
         ("vela_d24_GuardedStep Corelib.Init.Datatypes.tt", "15")))
+    widths = Fixture("symbolic-format-width", b'''module FormatWidth;
+definition TextBuilder<2> Hex(Nat value) =>
+    Format.Write(ref EmptyBuilder<2>(), $"{value:x2}");
+definition TextBuilder<2> Word(u32 value) =>
+    Format.Write(ref EmptyBuilder<2>(), $"{value:x2}");
+definition bool Fits255() => Fits(Hex(255));
+definition bool Fits256() => Fits(Hex(256));
+definition Nat WordLength() => Written(Word(0xffffffffu32));
+''', observations=(("vela_d2_Fits255 tt", "true"), ("vela_d3_Fits256 tt", "false"),
+                   ("vela_d4_WordLength tt", "8")))
     capacity = Fixture("specialized-slot-capacity", b"""module SlotCapacity;
 definition usize CapacityOf<ghost Nat n>(Slots<byte,n> s) => s.Capacity;
 definition usize Closed(Slots<byte,4> s) => s.Capacity;
@@ -1250,7 +1260,7 @@ definition bool EmptyInside() => Apart(2usize, 4usize, 3usize, 0usize);
 definition bool Touch() => Apart(2usize, 4usize, 6usize, 2usize);
 """, observations=(("vela_d1_LastByte tt", "false"), ("vela_d2_EmptyInside tt", "true"),
                    ("vela_d3_Touch tt", "true")))
-    return (Fixture("authored-example", example), pure, division, dependent_playground, intervals, span_model, slots, capacity,
+    return (Fixture("authored-example", example), pure, division, dependent_playground, intervals, span_model, slots, capacity, widths,
             *(Fixture(name, ("module PureNegativeReplay; " + source).encode(), expected, pure=True)
               for name, source, expected in pure_negatives),
             *(Fixture(name, source.encode()) for name, source in positives),

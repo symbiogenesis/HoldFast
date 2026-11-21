@@ -366,6 +366,7 @@ _GALLINA = {
     "Span_CopyPrefix": "vela_Span_CopyPrefix",
     "Span_Restore": "vela_Span_Restore",
     "nat_to_usize": "vela_nat_to_usize",
+    "nat_hex_width": "vela_nat_hex_width",
     "Seq": "vela_Seq",
     "Seq_Empty": "vela_Seq_Empty",
     "Seq_Cons": "vela_Seq_Cons",
@@ -455,7 +456,7 @@ _GALLINA = {
             "sat_add", "sat_sub", "sat_mul", "sat_neg",
             "chk_add", "chk_sub", "chk_mul", "chk_div",
             "chk_rem", "chk_neg", "chk_shl", "chk_shr",
-            "to_nat", "try_from_Nat",
+            "to_nat", "try_from_Nat", "hex_width",
         )
     },
     **{
@@ -1006,6 +1007,19 @@ Definition vela_int_chk_shr (tag : nat) (a : vela_int tag) (count : vela_int (4 
 Definition vela_int_to_nat (tag : nat) (a : vela_int tag) : nat :=
   let bs := vela_int_bits tag a in
   if vela_int_negative tag bs then O else vela_bits_to_nat_acc bs O.
+Definition vela_nat_hex_width (minimum value : nat) : nat :=
+  Nat.max minimum (S (Nat.div (Nat.log2 value) 4)).
+
+Fixpoint vela_significant_bits (bs : vela_bits) : nat :=
+  match bs with
+  | vela_bnil => O
+  | vela_bcons true tail => S (vela_bits_len tail)
+  | vela_bcons false tail => vela_significant_bits tail
+  end.
+
+Definition vela_int_hex_width (tag minimum : nat) (value : vela_int tag) : nat :=
+  Nat.max minimum (S (Nat.div (Nat.pred (vela_significant_bits (vela_int_bits tag value))) 4)).
+
 Definition vela_int_from (src dst : nat) (x : vela_int src) : vela_int dst :=
   let bs := vela_int_bits src x in
   vela_mk_int dst (vela_bits_resize (vela_tag_bits dst) (vela_int_negative src bs) bs).

@@ -358,6 +358,13 @@ class _WhnfMixin:
                     self.tick(True)
                     new_tail = self.whnf(_apps(_constant("Vec_Update"), elem_t, tail_len, idx_pred, val_t, tail_vec))
                     return _apps(_constant("VCons"), elem_t, tail_len, head_elem, new_tail)
+        if isinstance(name, str) and (name == "nat_hex_width" or name.startswith("int_hex_width_")) and len(arguments) == 2:
+            minimum, value = (self.whnf(arg) for arg in arguments)
+            if minimum.kind == "nat" and value.kind in {"int", "nat"}:
+                self.tick(True)
+                digits = max(1, (cast("int", value.value).bit_length() + 3) // 4)
+                return _term("nat", value=max(cast("int", minimum.value), digits))
+            return term
         if name == "ByteLength" and len(arguments) == 2:
             self.tick(True)
             return self.whnf(arguments[0])

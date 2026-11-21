@@ -297,6 +297,7 @@ class _Elaborator(
         self.constants["TextBuilderVal"] = _Binding(
             _constant("TextBuilderVal"), telescope((n,), self.pi(_BOOL, self.pi(_NAT, tb))), 1
         )
+        self.constants["nat_hex_width"] = _Binding(_constant("nat_hex_width"), self.pi(_NAT, self.pi(_NAT, _NAT)))
         self.constants["FormatStep"] = _Binding(
             _constant("FormatStep"), telescope((n,), self.pi(tb, self.pi(_NAT, tb))), 1
         )
@@ -696,6 +697,8 @@ class _Elaborator(
             for op in ("chk_shl", "chk_shr"):
                 cname = f"int_{op}_{spec.name}"
                 self.constants[cname] = _Binding(_constant(cname), self.pi(t, self.pi(_USIZE, res_arith)))
+            hex_width = f"int_hex_width_{spec.name}"
+            self.constants[hex_width] = _Binding(_constant(hex_width), self.pi(_NAT, self.pi(t, _NAT)))
             cname_nat = f"int_to_nat_{spec.name}"
             self.constants[cname_nat] = _Binding(_constant(cname_nat), self.pi(t, _NAT))
             cname_tf_nat = f"int_try_from_Nat_{spec.name}"

@@ -241,7 +241,7 @@ discharges no release obligation.
 | Match expression | `match (e) { Pattern => value, ... }`, exhaustive, optional final comma | M |
 | Pattern test `e is P` | A successful pattern binds its variables in later operands of the same `&&` chain and in the `then` branch of an `if` guard | M |
 | Record update `move base with { F = v }` | Declaration-order update; linear or affine records require `move` | M |
-| Formatting `Format.Write(ref builder, $"n={n}")` | Writes into a bounded buffer, returning `Result<usize, CapacityError>`; no heap string | M |
+| Formatting `Format.Write(ref builder, $"n={n}")` | The mathematical builder model returns an updated `TextBuilder` observed through `Fits` and `Written`. The represented buffer API returns `Result<usize, CapacityError>`. | M (builder model), D (represented result) |
 
 **Parsed example** (operators, a conditional expression and a match):
 

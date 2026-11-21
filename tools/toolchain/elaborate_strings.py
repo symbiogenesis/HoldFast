@@ -882,10 +882,13 @@ class _StringsMixin:
                             concrete_bytes += max(8, len(format(n_val, "x")))
                         else:
                             concrete_bytes += len(format(n_val, "b"))
-                    elif spec in {"x2", "X2", "x4", "X4", "x8", "X8"} and (
-                        hole_int_spec is None or not hole_int_spec.signed
-                    ):
-                        concrete_bytes += int(spec[1:])
+                    elif spec.lower() in {"x", "x2", "x4", "x8"} and (hole_int_spec is None or not hole_int_spec.signed):
+                        minimum = int(spec[1:] or "1")
+                        if hole_int_spec is not None and hole_int_spec.bits <= 4 * minimum:
+                            concrete_bytes += minimum
+                        else:
+                            op = "nat_hex_width" if hole_int_spec is None else f"int_hex_width_{hole_int_spec.name}"
+                            chunk_terms.append(_apps(_constant(op), _term("nat", value=minimum), hole_binding.term))
                     else:
                         raise self.fail(
                             "type",
