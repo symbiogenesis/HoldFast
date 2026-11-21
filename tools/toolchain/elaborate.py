@@ -9,11 +9,12 @@ Fin an indexed inductive, and lookup recurses structurally on the finite index.
 
 import hashlib
 import re
+from collections import Counter
 from collections.abc import Callable, Sequence
 from typing import cast
 
 from toolchain import StaticEvaluation
-from toolchain.ast import ValueType, VelaError
+from toolchain.ast import MAX_SOURCE_BYTES, ValueType, VelaError
 from toolchain.elaborate_declarations import _DeclarationsMixin
 from toolchain.elaborate_intrinsics import _IntrinsicsMixin
 from toolchain.elaborate_patterns import _PatternsMixin
@@ -1899,6 +1900,26 @@ class _Elaborator(
 
 
 
+# A rendered word contains one closing parenthesis per nibble and one for its constructor.
+_WORD_LITERAL = re.compile("|".join(
+    rf"\(@vela_mk_int \([0-9]+ : Corelib\.Init\.Datatypes\.nat\) (?:\(vela_x[0-9a-f] ){{{n}}}vela_bnil\){{{n + 1}}}"
+    for n in sorted({spec.bits // 4 for spec in _INT_SPECS.values()})
+))
+
+
+def _proof_module_body(output: list[str]) -> str:
+    body = "\n\n".join(output)
+    if len(body) < MAX_SOURCE_BYTES:
+        return body
+    counts = Counter(match.group() for match in _WORD_LITERAL.finditer(body))
+    shared = {term: f"vela_word_literal_{index}" for index, (term, count) in enumerate(counts.items())
+              if count > 2}
+    if not shared:
+        return body
+    definitions = "\n".join(f"Local Definition {name} := {term}." for term, name in shared.items())
+    return definitions + "\n\n" + _WORD_LITERAL.sub(lambda match: shared.get(match.group(), match.group()), body)
+
+
 def _checked_elaboration(
     source: bytes,
     parsed: object,
@@ -1927,7 +1948,7 @@ def _checked_elaboration(
                    "(* Vela mathematical elaboration: unqualified kernel proposal. "
                    f"Source SHA256: {source_digest} *)\n"
                    f"Module {generated_module}.\n\n" + _PRELUDE + "\n"
-                   + "\n\n".join(elaborator.output) + f"\n\nEnd {generated_module}.\n")
+                   + _proof_module_body(elaborator.output) + f"\n\nEnd {generated_module}.\n")
         if len(gallina.encode("utf-8")) > MAX_OUTPUT_BYTES:
             raise protocol.error("limit", "generated Gallina exceeds the output bound")
         return CheckedElaboration(module, gallina, source_digest, elaborator.contextual_literal_types), elaborator
