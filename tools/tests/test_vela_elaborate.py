@@ -6260,6 +6260,23 @@ def _call_modes_and_field_writeback() -> None:
             _refuses(f, "type", "assertion could not be established")
 
 
+def _restoration_projection_identity() -> None:
+    span = _type("Span", _type("byte"))
+    for field_name in ("Payload", "Renamed", "RestoredDst"):
+        f = _Fixture("RestoredRecord")
+        f.record("Outputs", ((field_name, span), ("Other", span)))
+        f.function("Restore", _type("Outputs"), (("source", span), ("other", span)),
+                   _call("Outputs", _variable("source"), _variable("other")),
+                   contracts=(_contract("restores", _variable("source")), _contract("restores", _variable("other"))))
+        elaborate(*f.response())
+    f = _Fixture("AmbiguousRestoration")
+    f.record("Outputs", (("One", span), ("Two", span)))
+    f.function("Restore", _type("Outputs"), (("source", span), ("other", span)),
+               _call("Outputs", _variable("source"), _variable("source")),
+               contracts=(_contract("restores", _variable("source")),))
+    _refuses(f, "type", "cannot identify a unique restored descriptor for 'source'")
+
+
 def _transient_write_effects() -> None:
     word = _type("u32")
     ref_word = _modified("ref", word)
@@ -6606,6 +6623,7 @@ def cases() -> list[Case]:
             Case("callable-member-receiver-once-and-fatal-failures", _callable_member_receiver_and_failures),
             Case("multi-module-imports-and-visibility", _multi_module_imports_and_visibility),
             Case("source-bound-borrows-and-constructive-postconditions", _source_bound_borrows_and_constructive_postconditions),
+            Case("restoration-through-lender-bound-projections", _restoration_projection_identity),
             Case("transient-writes-and-transitive-footprints", _transient_write_effects),
             Case("exact-call-modes-and-projected-writeback", _call_modes_and_field_writeback),
             Case("consuming-ownership-general-loans-and-closed-effects", _consuming_ownership_general_loans_and_closed_effects)]
