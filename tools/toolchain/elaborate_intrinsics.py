@@ -1653,7 +1653,7 @@ class _IntrinsicsMixin:
                         if arg_mod in {"ref", "in"}
                         else self.node(arg_node["value"])
                     )
-                    if self.whnf(p_dom).kind == "meta":
+                    if self.whnf(p_dom).kind == "meta" or arg_mod in {"ref", "in"}:
                         arg_b = self.expression(val_node, environment)
                         self.unify(p_dom, arg_b.type)
                         arg_terms.append(arg_b.term)
@@ -2020,7 +2020,10 @@ class _IntrinsicsMixin:
             value = self.type(self.node(node["type"]), environment)
             return _Binding(value, self.infer(value))
         if kind == "tuple":
-            values = [self.expression(value, environment) for value in self.nodes(node["values"])]
+            elements = self.nodes(node["values"])
+            values = [self.expression(value, environment) for value in elements]
+            for element, binding in zip(elements, values, strict=True):
+                self._check_value_copy(element, binding.type)
             if len(values) < 2:
                 raise self.fail("protocol", "a product requires at least two components")
             result = values[-1]

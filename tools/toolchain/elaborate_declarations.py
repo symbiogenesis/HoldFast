@@ -640,6 +640,8 @@ class _DeclarationsMixin:
         saved_body_facts = list(self.active_facts)
         self.active_facts.extend(entry_body_facts)
         prev_effect_calls = self.active_effect_calls
+        prev_executable = self.in_executable_function
+        self.in_executable_function = m_kind == "function"
         if effects_clauses:
             self.active_effect_calls = set(m_effect_calls)
         try:
@@ -659,6 +661,7 @@ class _DeclarationsMixin:
             self._check_callable_loans(member_node, enclosing_type=name)
         finally:
             self.active_effect_calls = prev_effect_calls
+            self.in_executable_function = prev_executable
             self.active_facts = saved_body_facts
             self.current_return_type = prev_ret
         all_vars = [*generic_vars, *m_gen_vars, self_var, *param_vars]

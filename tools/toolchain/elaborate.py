@@ -1144,6 +1144,35 @@ class _Elaborator(
             return specialized if reduced == specialized else self.specialize(reduced, depth + 1)
         return specialized
 
+    def _owns_fields(self, value_type: _Term) -> bool:
+        self.tick()
+        value_type = self.whnf(value_type)
+        if value_type.kind == "prod":
+            return any(self._owns_fields(t) for t in value_type.args)
+        head, args = self.spine(value_type)
+        if head.kind != "const":
+            return False
+        name = str(head.value)
+        record = self.records_by_type.get(name)
+        union = self.unions_by_type.get(name)
+        if record is not None:
+            params = record.generic_vars
+            fields = record.fields
+        elif union is not None:
+            params = union.generic_vars
+            fields = tuple(field for ctor in union.constructors for field in ctor.fields)
+        elif name in {"Seq", "Vec"} and args:
+            return self._owns_fields(args[0])
+        else:
+            return False
+        return any(cast("int", field.var.value) in self.owned_parameters
+                   or self._owns_fields(self._instantiate_generic_type(params, args, field.type)) for field in fields)
+
+    def _check_value_copy(self, source: Node, value_type: _Term) -> None:
+        if (self.in_executable_function and self._unwrap_group(source)["kind"] in {"name", "member", "index"}
+                and self._owns_fields(value_type)):
+            raise self.fail("type", "copying a value with owned fields requires an explicit whole-value move", source)
+
     def _check_argument_mode(self, expected: str | None, actual: object, site: Node) -> None:
         marker = "move" if expected == "owned" else expected
         if actual == marker:
@@ -1211,6 +1240,7 @@ class _Elaborator(
         val_args: list[_Term] = []
         loan_targets: dict[int, tuple[Node, _Term]] = {}
         indices: dict[int, _Term] = {}
+        by_value: list[tuple[Node, _Term]] = []
         seen_loan_names: set[str] = set()
         all_arg_var_names: set[str] = set()
         out_loan_names: set[str] = set()
@@ -1272,6 +1302,8 @@ class _Elaborator(
                 mode = ("out" if is_out_param else "ref" if is_ref_param else "in" if is_in_param
                         else "owned" if is_owned_param else None)
                 self._check_argument_mode(mode, arg_mod, node)
+                if mode is None and self.in_executable_function:
+                    by_value.append((node, value_type.args[0]))
                 if arg_val_node["kind"] == "out_variable":
                     argument = self.fresh(value_type.args[0])
                     loan_targets[idx] = (arg_val_node, value_type.args[0])
@@ -1357,11 +1389,12 @@ class _Elaborator(
                         if arg_mod in {"ref", "in"} and arg_ident_node is not arg_val_node
                         else self.node(node["value"])
                     )
-                    argument = checker(
-                        check_target,
-                        value_type.args[0],
-                        environment,
-                    )
+                    if arg_mod in {"in", "ref"}:
+                        borrowed = self.expression(check_target, environment)
+                        self.unify(borrowed.type, value_type.args[0])
+                        argument = borrowed.term
+                    else:
+                        argument = checker(check_target, value_type.args[0], environment)
                 val_args.append(argument)
                 specializing = specializing or required_static
                 if required_static:
@@ -1375,6 +1408,9 @@ class _Elaborator(
                 term = _app(term, argument)
                 value_type = self.substitute(value_type.args[1], param_var_id, argument)
         self._check_indexed_argument_overlap(arguments, indices, environment)
+        for arg_node, arg_type in by_value:
+            if self._owns_fields(arg_type):
+                raise self.fail("type", "passing a value with owned fields requires an owned parameter and explicit move", arg_node)
         if (
             callee_head.kind == "const"
             and isinstance(callee_head.value, str)
@@ -1838,6 +1874,7 @@ class _Elaborator(
             self.expected_call_type = prev_expected_call
         self.site = node
         self.unify(value.type, expected)
+        self._check_value_copy(node, value.type)
         return value.term
 
     def lambda_(self, node: Node, environment: dict[str, _Binding], expected: _Term | None = None) -> _Binding:

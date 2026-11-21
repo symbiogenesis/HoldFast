@@ -3014,6 +3014,7 @@ class _StatementsMixin:
             base = _Binding(base_term, expected)
         else:
             base = self.expression(base_node, environment)
+        self._check_value_copy(base_node, base.type)
         base_type = self.whnf(base.type)
         head, type_args = self.spine(base_type)
         if head.kind != "const" or not isinstance(head.value, str) or head.value not in self.records_by_type:

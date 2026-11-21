@@ -6260,6 +6260,21 @@ def _call_modes_and_field_writeback() -> None:
             _refuses(f, "type", "assertion could not be established")
 
 
+def _owned_aggregate_copy() -> None:
+    for moved in (False, True):
+        f = _Fixture("OwnedAggregate")
+        f.record("Asset", (("Id", _modified("owned", _type("u32"))),))
+        f.record("Wrapper", (("Value", _type("Asset")),))
+        argument = _variable("w")
+        f.function("Transfer", _type("Wrapper"), (("w", _modified("owned", _type("Wrapper"))),),
+                   _block_stmts(_let_stmt("alias", _move_arg(argument) if moved else argument),
+                                _return_stmt(_move_arg(_variable("alias")))), block=True)
+        if moved:
+            elaborate(*f.response())
+        else:
+            _refuses(f, "type", "copying a value with owned fields")
+
+
 def _indexed_call_writeback() -> None:
     word = _type("u32")
     for expected in ("9", "3"):
@@ -6652,6 +6667,7 @@ def cases() -> list[Case]:
             Case("callable-member-receiver-once-and-fatal-failures", _callable_member_receiver_and_failures),
             Case("multi-module-imports-and-visibility", _multi_module_imports_and_visibility),
             Case("source-bound-borrows-and-constructive-postconditions", _source_bound_borrows_and_constructive_postconditions),
+            Case("explicit-transfer-for-owned-aggregate-bindings", _owned_aggregate_copy),
             Case("writeback-to-evaluated-indices", _indexed_call_writeback),
             Case("restoration-through-lender-bound-projections", _restoration_projection_identity),
             Case("transient-writes-and-transitive-footprints", _transient_write_effects),

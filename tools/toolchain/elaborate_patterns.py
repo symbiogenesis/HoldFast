@@ -572,6 +572,7 @@ class _PatternsMixin:
         self.site = node
         if node["kind"] in {"let_pattern", "var_pattern"}:
             binding = self.expression(self.node(node["value"]), environment)
+            self._check_value_copy(self.node(node["value"]), binding.type)
             pat = self._parse_pattern(self.node(node["pattern"]), set())
             self._require_irrefutable(pat)
             self._typecheck_pattern(pat, binding.type, environment)
@@ -644,6 +645,7 @@ class _PatternsMixin:
             else:
                 value_type = self.type(self.node(node["type"]), environment)
                 binding = _Binding(self.check(self.node(node["value"]), value_type, environment), value_type)
+        self._check_value_copy(self.node(node["value"]), binding.type)
         extended = dict(environment)
         self._consume_call_updates(extended, node)
         bname = self.name(node["name"])
