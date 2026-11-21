@@ -492,9 +492,10 @@ export async function sha256Hex(input) {
 }
 
 class VelaError extends Error {
-  constructor(kind, line, column, message) {
+  constructor(kind, line, column, message, unresolvedName = null) {
     super(message);
     this.kind = kind;
+    this.unresolvedName = unresolvedName;
     this.line = line;
     this.column = column;
     this.message = message;
@@ -1308,6 +1309,13 @@ class PureFacts {
   }
 }
 
+function boundedNatural(value, site) {
+  if (value > MAX_NAT_VALUE) {
+    throw new VelaError("limit", site.line, site.column, `compile-time Nat value exceeds ${MAX_LITERAL_DIGITS} digits`);
+  }
+  return value;
+}
+
 class PureStaticEvaluator {
   constructor(constants, functions, constFunctions, facts = null) {
     this.constants = new Map(constants);
@@ -1407,15 +1415,7 @@ class PureStaticEvaluator {
     this.step(item.site);
     if (item.kind === "nat") {
       const value = BigInt(String(item.value).replace(/_/g, ""));
-      if (value > MAX_NAT_VALUE) {
-        throw new VelaError(
-          "limit",
-          item.site.line,
-          item.site.column,
-          `compile-time Nat value exceeds ${MAX_LITERAL_DIGITS} digits`
-        );
-      }
-      return value;
+      return boundedNatural(value, item.site);
     }
     if (item.kind === "bool") {
       return Boolean(item.value);
@@ -1445,7 +1445,7 @@ class PureStaticEvaluator {
         if (rec && constant[2] >= 0) rec.reference(constant[2], item.site);
         return constant[1];
       }
-      throw new VelaError("name", item.site.line, item.site.column, `unknown variable '${name}'`);
+      throw new VelaError("name", item.site.line, item.site.column, `unknown variable '${name}'`, name);
     }
     if (item.kind === "unary") {
       const operand = this.evalExpr(item.children[0], env, runtimeNames, facts);
@@ -1468,7 +1468,8 @@ class PureStaticEvaluator {
           "name",
           item.site.line,
           item.site.column,
-          `unknown function '${callee}'`
+          `unknown function '${callee}'`,
+          callee
         );
       }
       const rec = this.record(facts);
@@ -1581,15 +1582,7 @@ class PureStaticEvaluator {
     else if (op === "*") value = left * right;
     else if (op === "/") value = right === 0n ? 0n : left / right;
     else value = right === 0n ? left : left % right;
-    if (value > MAX_NAT_VALUE) {
-      throw new VelaError(
-        "limit",
-        item.site.line,
-        item.site.column,
-        `compile-time Nat value exceeds ${MAX_LITERAL_DIGITS} digits`
-      );
-    }
-    return value;
+    return boundedNatural(value, item.site);
   }
 }
 
@@ -1623,13 +1616,13 @@ function inferPureExpression(item, env, constants, functions, evaluator, runtime
       if (facts && constant[2] >= 0) facts.reference(constant[2], item.site);
       return [constant[0], `c_${name}`];
     }
-    throw new VelaError("name", item.site.line, item.site.column, `unknown variable '${name}'`);
+    throw new VelaError("name", item.site.line, item.site.column, `unknown variable '${name}'`, name);
   }
   if (item.kind === "call") {
     const callee = String(item.value);
     const sig = functions.get(callee);
     if (!sig) {
-      throw new VelaError("name", item.site.line, item.site.column, `unknown function '${callee}'`);
+      throw new VelaError("name", item.site.line, item.site.column, `unknown function '${callee}'`, callee);
     }
     if (facts && sig.symbol >= 0) facts.reference(sig.symbol, item.site);
     if (item.children.length !== sig.parameters.length) {
@@ -2155,7 +2148,7 @@ function runPureTranslate(sourceText, collectFacts = false, { sourceHash = "" } 
   };
 }
 
-function validateConsoleExpression(expressionText, valueType, byteUnit = "bytes") {
+function validateConsoleExpression(expressionText, valueType) {
   if (valueType !== "Nat" && valueType !== "bool") {
     throw new VelaError("type", 1, 1, "expression: expected Nat or bool result type");
   }
@@ -2167,53 +2160,8 @@ function validateConsoleExpression(expressionText, valueType, byteUnit = "bytes"
       "limit",
       1,
       1,
-      `expression: exceeds ${MAX_CONSOLE_EXPRESSION_BYTES} ${byteUnit}`
+      `expression: exceeds ${MAX_CONSOLE_EXPRESSION_BYTES} UTF-8 bytes`
     );
-  }
-}
-
-function pureEvaluate(sourceText, expressionText, valueType, evaluator = null) {
-  const activeEvaluator = evaluator || runPureTranslate(sourceText, false).evaluator;
-  validateConsoleExpression(expressionText, valueType);
-  try {
-    const tokens = pureTokenize(expressionText, { allowSemicolon: false });
-    if (tokens.length === 1) {
-      throw new VelaError("syntax", 1, 1, "expected an expression");
-    }
-    const parser = new PureParser(tokens);
-    const expr = parser.parseExpression();
-    if (parser.current.kind !== "eof") {
-      throw new VelaError(
-        "syntax",
-        parser.current.site.line,
-        parser.current.site.column,
-        `unexpected '${parser.current.text}' after expression`
-      );
-    }
-    const probe = new PureStaticEvaluator(
-      activeEvaluator.constants,
-      activeEvaluator.functions,
-      activeEvaluator.constFunctions
-    );
-    const value = probe.evalExpr(expr, new Map(), new Set(), false);
-    const actual = typeof value === "boolean" ? "bool" : "Nat";
-    if (actual !== valueType) {
-      throw new VelaError(
-        "type",
-        expr.site.line,
-        expr.site.column,
-        `expression has type ${actual}, expected ${valueType}`
-      );
-    }
-    return {
-      valueType,
-      value: typeof value === "boolean" ? (value ? "true" : "false") : value.toString(),
-    };
-  } catch (err) {
-    if (err instanceof VelaError) {
-      throw new VelaError(err.kind, err.line, err.column, `expression: ${err.message}`);
-    }
-    throw err;
   }
 }
 
@@ -4392,6 +4340,25 @@ class MathParser {
   }
 }
 
+const MATH_BUILTINS = new Set([
+  "VNil",
+  "VCons",
+  "Prepend",
+  "At",
+  "FZero",
+  "FSucc",
+  "Zero",
+  "Succ",
+  "Some",
+  "None",
+  "Ok",
+  "Err",
+  "ByteLength",
+  "EmptyBuilder",
+  "Written",
+  "Fits",
+]);
+
 export function projectGrammarSemanticTokens(sourceText) {
   if (typeof sourceText !== "string" || !sourceText.trim()) {
     return { tokens: [], data: [] };
@@ -4418,23 +4385,7 @@ export function projectGrammarSemanticTokens(sourceText) {
     VELA_GRAMMAR.semanticTokenTypes.map((name, idx) => [name, idx])
   );
   const moduleTypes = new Set(VELA_GRAMMAR.typeKeywords);
-  const moduleCallables = new Set([
-    "VNil",
-    "VCons",
-    "At",
-    "FZero",
-    "FSucc",
-    "Zero",
-    "Succ",
-    "Some",
-    "None",
-    "Ok",
-    "Err",
-    "ByteLength",
-    "EmptyBuilder",
-    "Written",
-    "Fits",
-  ]);
+  const moduleCallables = new Set(MATH_BUILTINS);
   const moduleConstants = new Set();
   const moduleProperties = new Set();
 
@@ -5365,6 +5316,14 @@ function parseFormatSegments(template, site) {
   return segments;
 }
 
+function checkScalarValue(type, value, site, binding) {
+  if (type?.kind !== "named_type") return;
+  if ((type.name === "Nat" && (typeof value !== "bigint" || value < 0n)) ||
+      (type.name === "bool" && typeof value !== "boolean")) {
+    throw new VelaError("type", site.line, site.column, `expected ${type.name} for ${binding}`);
+  }
+}
+
 class MathElaborator {
   constructor(parsedModule, sourceText, sourceHash = "") {
     this.module = parsedModule;
@@ -5495,6 +5454,7 @@ class MathElaborator {
       }
       if (stmt.kind === "local") {
         const val = this.evalExpr(stmt.value, localEnv);
+        checkScalarValue(stmt.annotation, val, stmt.site, stmt.name);
         if (
           val &&
           val.__kind === "builder" &&
@@ -5638,9 +5598,76 @@ class MathElaborator {
     return { returned: false, value: { __kind: "unit" } };
   }
 
+  // Check the type of skipped Boolean operands without reducing their calls.
+  scalarType(expr, env) {
+    this.step(expr.site);
+    if (expr.kind === "nat") return "Nat";
+    if (expr.kind === "bool") return "bool";
+    if (expr.kind === "name") {
+      // Bindings can hold samples for symbolic generic parameters.
+      if (env.has(expr.name)) return null;
+      if (this.constants.has(expr.name)) {
+        const value = this.constants.get(expr.name);
+        return typeof value === "bigint" ? "Nat" : typeof value === "boolean" ? "bool" : null;
+      }
+      if (expr.name === "Zero") return "Nat";
+      if (this.callables.has(expr.name) || this.unionCtors.has(expr.name) || MATH_BUILTINS.has(expr.name)) {
+        return null;
+      }
+      throw new VelaError("name", expr.site.line, expr.site.column, `unknown identifier '${expr.name}'`);
+    }
+    if (expr.kind === "binary") {
+      const left = this.scalarType(expr.left, env);
+      const right = this.scalarType(expr.right, env);
+      if (expr.op === "==" || expr.op === "!=") {
+        if (left && right && left !== right) {
+          throw new VelaError("type", expr.site.line, expr.site.column, `operator '${expr.op}' requires operands of matching types`);
+        }
+        return "bool";
+      }
+      const logical = ["&&", "||", "==>", "<==>"].includes(expr.op);
+      const expected = logical ? "bool" : "Nat";
+      if ((left && left !== expected) || (right && right !== expected)) {
+        throw new VelaError("type", expr.site.line, expr.site.column, `operator '${expr.op}' requires ${expected} operands`);
+      }
+      return logical || PURE_COMPARISON_OPERATORS.has(expr.op) ? "bool" : "Nat";
+    }
+    if (expr.kind === "unary") {
+      const expected = expr.op === "!" ? "bool" : "Nat";
+      const actual = this.scalarType(expr.operand, env);
+      if (actual && actual !== expected) {
+        throw new VelaError("type", expr.site.line, expr.site.column, `operator '${expr.op}' requires ${expected}`);
+      }
+      return expected;
+    }
+    if (expr.kind === "call" && expr.callee.kind === "name") {
+      const name = expr.callee.name;
+      const decl = this.callables.get(name);
+      if (decl) {
+        if (expr.args.length !== decl.parameters.length) {
+          throw new VelaError("type", expr.site.line, expr.site.column, `'${name}' expects ${decl.parameters.length} argument(s)`);
+        }
+        for (const [index, arg] of expr.args.entries()) {
+          const expected = decl.parameters[index].type.name;
+          const actual = this.scalarType(arg.value, env);
+          if (actual && ["Nat", "bool"].includes(expected) && expected !== actual) {
+            throw new VelaError("type", arg.site.line, arg.site.column, `expected ${expected} for ${decl.parameters[index].name}`);
+          }
+        }
+        return ["Nat", "bool"].includes(decl.returnType?.name) ? decl.returnType.name : null;
+      }
+      if (["Succ", "Zero", "ByteLength", "Written"].includes(name)) return "Nat";
+      if (name === "Fits") return "bool";
+      if (!env.has(name) && !MATH_BUILTINS.has(name) && !this.records.has(name) && !this.unionCtors.has(name)) {
+        throw new VelaError("name", expr.site.line, expr.site.column, `unknown function '${name}'`);
+      }
+    }
+    return null;
+  }
+
   evalExpr(expr, env) {
     this.step(expr.site);
-    if (expr.kind === "nat") return expr.value;
+    if (expr.kind === "nat") return boundedNatural(expr.value, expr.site);
     if (expr.kind === "bool") return expr.value;
     if (expr.kind === "string") return expr.value;
     if (expr.kind === "unit") return { __kind: "unit" };
@@ -5821,9 +5848,13 @@ class MathElaborator {
         if (typeof left !== "boolean") {
           throw new VelaError("type", expr.site.line, expr.site.column, `operator '${op}' requires bool`);
         }
-        if (op === "&&" && !left) return false;
-        if (op === "||" && left) return true;
-        if (op === "==>" && !left) return true;
+        if ((op === "&&" && !left) || (op === "||" && left) || (op === "==>" && !left)) {
+          const rightType = this.scalarType(expr.right, env);
+          if (rightType && rightType !== "bool") {
+            throw new VelaError("type", expr.site.line, expr.site.column, `operator '${op}' requires bool`);
+          }
+          return op !== "&&";
+        }
         const right = this.evalExpr(expr.right, env);
         if (typeof right !== "boolean") {
           throw new VelaError("type", expr.site.line, expr.site.column, `operator '${op}' requires bool`);
@@ -5857,9 +5888,9 @@ class MathElaborator {
       if (op === "<=") return left <= right;
       if (op === ">") return left > right;
       if (op === ">=") return left >= right;
-      if (op === "+") return left + right;
+      if (op === "+") return boundedNatural(left + right, expr.site);
       if (op === "-") return left > right ? left - right : 0n;
-      if (op === "*") return left * right;
+      if (op === "*") return boundedNatural(left * right, expr.site);
       if (op === "/") return right === 0n ? 0n : left / right;
       if (op === "%") return right === 0n ? left : left % right;
     }
@@ -5996,7 +6027,7 @@ class MathElaborator {
         if (typeof inner !== "bigint") {
           throw new VelaError("type", expr.site.line, expr.site.column, "Succ requires a Nat argument");
         }
-        return inner + 1n;
+        return boundedNatural(inner + 1n, expr.site);
       }
       if (name === "VNil") {
         if (expr.args.length !== 0) {
@@ -6197,6 +6228,7 @@ class MathElaborator {
             );
           }
           const argVal = this.evalExpr(arg.value, env);
+          checkScalarValue(param.type, argVal, arg.site, param.name);
           if (
             param.type &&
             param.type.kind === "named_type" &&
@@ -6263,12 +6295,7 @@ class MathElaborator {
   checkReturnValueType(decl, returnVal, env) {
     const rt = decl.returnType;
     if (!rt || rt.kind !== "named_type") return;
-    if (rt.name === "Nat" && typeof returnVal !== "bigint") {
-      throw new VelaError("type", decl.site.line, decl.site.column, `expected Nat return value in '${decl.name}'`);
-    }
-    if (rt.name === "bool" && typeof returnVal !== "boolean") {
-      throw new VelaError("type", decl.site.line, decl.site.column, `expected bool return value in '${decl.name}'`);
-    }
+    checkScalarValue(rt, returnVal, decl.site, `return value of '${decl.name}'`);
     if (rt.name === "Vec" && rt.args.length === 2) {
       if (typeof returnVal === "string") {
         const strLen = BigInt(utf8Bytes(returnVal).length);
@@ -6327,7 +6354,10 @@ class MathElaborator {
         const len = this.evalTypeIndex(typeNode.args[1], env) ?? 2n;
         const elem = this.sampleValueForType(typeNode.args[0], env);
         const items = [];
-        for (let i = 0n; i < len; i += 1n) items.push(elem);
+        for (let i = 0n; i < len; i += 1n) {
+          this.step(typeNode.site);
+          items.push(elem);
+        }
         return { __kind: "vec", items, length: len };
       }
       if (typeNode.name === "Fin" && typeNode.args.length === 1) {
@@ -6403,6 +6433,7 @@ class MathElaborator {
       }
       if (decl.kind === "constant") {
         const val = this.evalExpr(decl.value, new Map());
+        checkScalarValue(decl.valueType, val, decl.site, decl.name);
         this.constants.set(decl.name, val);
         gallinaBlocks.push(
           `Definition ${decl.name} : ${renderMathTypeGallina(decl.valueType)} := ${renderMathValueGallina(val)}.`
@@ -6606,33 +6637,42 @@ function renderMathBodyGallina(body) {
 
 let lastBrowserCompilation = null;
 
-function compileMathematical(sourceText, sourceHash = "") {
-  if (
-    lastBrowserCompilation &&
-    lastBrowserCompilation.kind === "math" &&
-    lastBrowserCompilation.sourceText === sourceText &&
-    (!sourceHash || lastBrowserCompilation.sourceHash === sourceHash)
-  ) {
-    return lastBrowserCompilation.mathRes;
+function compileBrowserModule(sourceText, sourceHash) {
+  if (lastBrowserCompilation?.sourceText === sourceText) return lastBrowserCompilation;
+  let elaborator;
+  let translation;
+  let error;
+  try {
+    const parser = new MathParser(mathTokenize(sourceText));
+    elaborator = new MathElaborator(parser.parseModule(), sourceText, sourceHash);
+    translation = elaborator.elaborate();
+  } catch (err) {
+    error = err;
   }
-  const tokens = mathTokenize(sourceText);
-  const parser = new MathParser(tokens);
-  const parsedModule = parser.parseModule();
-  const elaborator = new MathElaborator(parsedModule, sourceText, sourceHash);
-  const mathRes = {
-    ...elaborator.elaborate(),
-    elaborator,
-  };
-  if (sourceHash) {
-    lastBrowserCompilation = { kind: "math", sourceText, sourceHash, mathRes };
+
+  let scalar;
+  let editorServices = false;
+  try {
+    scalar = runPureTranslate(sourceText, false, { sourceHash });
+    editorServices = !error;
+  } catch (err) {
+    const outsideEditorScope = err instanceof VelaError &&
+      (err.kind === "syntax" || err.kind === "unsupported" || MATH_BUILTINS.has(err.unresolvedName));
+    if (!outsideEditorScope) {
+      error ??= err;
+      editorServices = err instanceof VelaError && ["name", "type"].includes(err.kind) && err.kind === error.kind;
+    }
   }
-  return mathRes;
+  const result = error
+    ? formatErrorPayload(sourceHash, error)
+    : { ok: true, sourceHash, ...translation, gallina: scalar?.gallina ?? translation.gallina };
+  lastBrowserCompilation = { sourceText, result, editorServices, elaborator };
+  return lastBrowserCompilation;
 }
 
-function evaluateMathematical(sourceText, expressionText, valueType, elaborator = null) {
-  const activeElaborator = elaborator || compileMathematical(sourceText).elaborator;
-  activeElaborator.steps = 0;
-  validateConsoleExpression(expressionText, valueType, "UTF-8 bytes");
+function evaluateMathematical({ elaborator }, expressionText, valueType) {
+  elaborator.steps = 0;
+  validateConsoleExpression(expressionText, valueType);
   try {
     const tokens = mathTokenize(expressionText, { allowSemicolon: false });
     if (tokens.length === 1) {
@@ -6648,8 +6688,8 @@ function evaluateMathematical(sourceText, expressionText, valueType, elaborator 
         `unexpected '${parser.current.text}' after expression`
       );
     }
-    const val = activeElaborator.evalExpr(expr, new Map());
-    const actual = typeof val === "boolean" ? "bool" : typeof val === "bigint" ? "Nat" : "other";
+    const val = elaborator.evalExpr(expr, new Map());
+    const actual = typeof val === "boolean" ? "bool" : typeof val === "bigint" && val >= 0n ? "Nat" : "other";
     if (actual !== valueType) {
       throw new VelaError(
         "type",
@@ -6673,7 +6713,7 @@ function evaluateMathematical(sourceText, expressionText, valueType, elaborator 
 const browserSessions = new Map();
 let browserSessionCounter = 0;
 
-function formatErrorPayload(sourceHash, error, extra = {}) {
+function formatErrorPayload(sourceHash, error) {
   const kind = error instanceof VelaError ? error.kind : "internal";
   const line = error instanceof VelaError ? error.line : 1;
   const column = error instanceof VelaError ? error.column : 1;
@@ -6681,15 +6721,11 @@ function formatErrorPayload(sourceHash, error, extra = {}) {
   return {
     ok: false,
     sourceHash,
-    ...extra,
     error: { kind, message, line, column },
   };
 }
 
 export async function browserApi(path, body) {
-  if (path === "/api/capabilities") {
-    return { mathematical: true };
-  }
   if (path === "/api/session") {
     browserSessionCounter += 1;
     const sessionId = `browser-session-${browserSessionCounter}`;
@@ -6712,75 +6748,17 @@ export async function browserApi(path, body) {
   const sourceText = typeof body.source === "string" ? body.source : "";
   const sourceHash = await sha256Hex(sourceText);
 
-  if (path === "/api/compile") {
-    try {
-      const pureRes = runPureTranslate(sourceText, false, { sourceHash });
-      lastBrowserCompilation = { kind: "pure", sourceText, sourceHash, pureRes };
-      return {
-        ok: true,
-        sourceHash,
-        module: pureRes.module,
-        gallina: pureRes.gallina,
-        editorServices: true,
-        findings: [],
-      };
-    } catch (pureErr) {
-      if (pureErr instanceof VelaError && (pureErr.kind === "syntax" || pureErr.kind === "unsupported")) {
-        try {
-          const mathRes = compileMathematical(sourceText, sourceHash);
-          return {
-            ok: true,
-            sourceHash,
-            module: mathRes.module,
-            gallina: mathRes.gallina,
-            editorServices: false,
-            findings: mathRes.findings,
-          };
-        } catch (mathErr) {
-          return formatErrorPayload(sourceHash, mathErr, { editorServices: false });
-        }
-      }
-      return formatErrorPayload(sourceHash, pureErr, { editorServices: true });
+  if (path === "/api/compile" || path === "/api/evaluate") {
+    const compiled = compileBrowserModule(sourceText, sourceHash);
+    if (path === "/api/compile") {
+      return { ...compiled.result, editorServices: compiled.editorServices };
     }
-  }
-
-  if (path === "/api/evaluate") {
-    let pureEvaluator = null;
-    let mathElaborator = null;
-    if (lastBrowserCompilation && lastBrowserCompilation.sourceText === sourceText) {
-      if (lastBrowserCompilation.kind === "pure") {
-        pureEvaluator = lastBrowserCompilation.pureRes.evaluator;
-      } else {
-        mathElaborator = lastBrowserCompilation.mathRes.elaborator;
-      }
-    } else {
-      try {
-        const pureRes = runPureTranslate(sourceText, false, { sourceHash });
-        lastBrowserCompilation = { kind: "pure", sourceText, sourceHash, pureRes };
-        pureEvaluator = pureRes.evaluator;
-      } catch (pureErr) {
-        if (
-          !(
-            pureErr instanceof VelaError &&
-            (pureErr.kind === "syntax" || pureErr.kind === "unsupported")
-          )
-        ) {
-          return formatErrorPayload(sourceHash, pureErr);
-        }
-      }
-    }
+    if (!compiled.result.ok) return { ...compiled.result };
     try {
-      const res = pureEvaluator
-        ? pureEvaluate(sourceText, body.expression, body.valueType, pureEvaluator)
-        : evaluateMathematical(sourceText, body.expression, body.valueType, mathElaborator);
-      return {
-        ok: true,
-        sourceHash,
-        valueType: res.valueType,
-        value: res.value,
-      };
-    } catch (evalErr) {
-      return formatErrorPayload(sourceHash, evalErr);
+      const res = evaluateMathematical(compiled, body.expression, body.valueType);
+      return { ok: true, sourceHash, ...res };
+    } catch (err) {
+      return formatErrorPayload(sourceHash, err);
     }
   }
 
@@ -6887,7 +6865,7 @@ function initPlaygroundUi() {
   function updateServiceUI() {
     const available = state.connected && state.editorServices === true;
     const checking = state.editorServices === null;
-    $("diagnostic-source").textContent = checking ? "CHECKING" : available ? "LSP" : "COMPILER";
+    $("diagnostic-source").textContent = checking ? "CHECKING" : "COMPILER";
     $("service-notice").hidden = checking || available;
     $("feature-notes").hidden = !available;
     $("format-button").disabled = !available;
@@ -7011,16 +6989,7 @@ function initPlaygroundUi() {
     }
   }
 
-  function publishDiagnostics(params, generation, fromCompiler = false) {
-    if (
-      (!fromCompiler && state.editorServices !== true) ||
-      generation !== state.generation ||
-      params.uri !== DOCUMENT_URI ||
-      params.version !== state.version
-    ) {
-      return;
-    }
-    const diagnostics = params.diagnostics || [];
+  function publishDiagnostics(diagnostics) {
     $("problem-count").textContent = String(diagnostics.length);
     $("problem-count").classList.toggle("has-problems", diagnostics.length > 0);
     if (state.model && window.monaco) {
@@ -7098,43 +7067,32 @@ function initPlaygroundUi() {
       throw new Error("The compiler returned incomplete naming findings.");
     }
     publishDiagnostics(
-      {
-        uri: DOCUMENT_URI,
-        version: captured.version,
-        diagnostics: error
-          ? [
-              {
-                range: { start: position, end: position },
-                severity: 1,
-                message: errorText(error),
-                source: "Vela compiler",
-              },
-            ]
-          : findings.map((finding) => {
-              const start = compilerPosition(finding.line, finding.column);
-              return {
-                range: { start, end: start },
-                severity: 2,
-                message: finding.message,
-                code: finding.code,
-                source: "Vela naming lint",
-              };
-            }),
-      },
-      captured.generation,
-      true
+      error
+        ? [
+            {
+              range: { start: position, end: position },
+              severity: 1,
+              message: errorText(error),
+              source: "Vela compiler",
+            },
+          ]
+        : findings.map((finding) => {
+            const start = compilerPosition(finding.line, finding.column);
+            return {
+              range: { start, end: start },
+              severity: 2,
+              message: finding.message,
+              code: finding.code,
+              source: "Vela naming lint",
+            };
+          })
     );
   }
 
-  async function wire(session, message, generation) {
+  async function wire(session, message) {
     const response = await api("/api/lsp", { session, message });
     if (!Array.isArray(response.messages)) {
       throw new Error("The language server returned an invalid response.");
-    }
-    for (const item of response.messages) {
-      if (item.method === "textDocument/publishDiagnostics") {
-        publishDiagnostics(item.params, generation);
-      }
     }
     if (!("id" in message)) return undefined;
     const reply = response.messages.find((item) => item.id === message.id && "jsonrpc" in item);
@@ -7192,13 +7150,6 @@ function initPlaygroundUi() {
     status(token ? "Connecting to the local language server\u2026" : "Starting in-browser engine\u2026");
     if (oldSession) closeSession(oldSession);
     const pending = (async () => {
-      const available = await api("/api/capabilities", {});
-      if (generation !== state.generation) return;
-      if (available.mathematical !== true) {
-        throw new Error(
-          "The playground service is missing dependent mathematics. Restart vela-playground and reopen its launch URL."
-        );
-      }
       const response = await api("/api/session", {});
       const session = response.session;
       let adopted = false;
@@ -7215,11 +7166,10 @@ function initPlaygroundUi() {
               rootUri: null,
               capabilities: { general: { positionEncodings: ["utf-16"] } },
             },
-          },
-          generation
+          }
         );
         if (generation !== state.generation) return;
-        await wire(session, { jsonrpc: "2.0", method: "initialized", params: {} }, generation);
+        await wire(session, { jsonrpc: "2.0", method: "initialized", params: {} });
         if (generation !== state.generation) return;
         state.session = session;
         adopted = true;
@@ -7263,7 +7213,7 @@ function initPlaygroundUi() {
             },
           },
         };
-    await wire(state.session, message, captured.generation);
+    await wire(state.session, message);
     if (captured.generation !== state.generation) return false;
     state.opened = true;
     state.syncedVersion = captured.version;
@@ -7291,8 +7241,7 @@ function initPlaygroundUi() {
             id: ++state.requestId,
             method,
             params: { textDocument: { uri: DOCUMENT_URI }, ...params },
-          },
-          captured.generation
+          }
         );
         return current(captured) && !cancellation?.isCancellationRequested ? result : undefined;
       });

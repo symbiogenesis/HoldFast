@@ -16,7 +16,7 @@ from unittest.mock import patch
 
 import toolchain as vela
 from tests.harness import Case, ensure
-from toolchain import playground
+from toolchain import parser, playground
 from toolchain.facts import MAX_SYMBOLS
 from toolchain.playground_worker import compile_request
 
@@ -103,13 +103,16 @@ def _static_refusals() -> None:
 
 
 @contextmanager
-def _running() -> Generator[playground.PlaygroundServer]:
+def _running(prepared: Path | None = None) -> Generator[playground.PlaygroundServer]:
     with tempfile.TemporaryDirectory(prefix="vela-http-") as temporary:
         assets = Path(temporary)
         (assets / "index.html").write_text("<!doctype html><title>Vela fixture</title>", encoding="utf-8")
         (assets / "app.mjs").write_text("export const fixture = true;", encoding="utf-8")
         (assets / "style.css").write_text("body { color: black; }", encoding="utf-8")
-        with playground.PlaygroundServer(0, assets=assets) as server:
+        if prepared is None:
+            prepared = assets / "vela-parser"
+            prepared.write_bytes(b"test parser identity")
+        with playground.PlaygroundServer(0, assets=assets, mathematical_parser=prepared) as server:
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
             try:
@@ -118,6 +121,12 @@ def _running() -> Generator[playground.PlaygroundServer]:
                 server.shutdown()
                 thread.join(timeout=3)
                 ensure(not thread.is_alive(), "HTTP service failed to stop")
+
+
+@contextmanager
+def _native_running() -> Generator[playground.PlaygroundServer]:
+    with parser.cached_build(Path(__file__).resolve().parents[2]) as built, _running(built.executable) as server:
+        yield server
 
 
 def _http(server: playground.PlaygroundServer, path: str, payload: object = None, *,
@@ -153,7 +162,7 @@ def _rpc(server: playground.PlaygroundServer, session: str, method: str,
 
 
 def _http_compiler() -> None:
-    with _running() as server:
+    with _native_running() as server:
         digest = hashlib.sha256(_SOURCE.encode()).hexdigest()
         compiled = _post(server, "/api/compile", {"source": _SOURCE})
         ensure(compiled["ok"] is True and compiled["sourceHash"] == digest and compiled["module"] == "Demo",
@@ -162,6 +171,10 @@ def _http_compiler() -> None:
                "HTTP compile did not expose actual compiler emission")
         ensure(compiled["editorServices"] is True and compiled["findings"] == [],
                "pure source lost editor services or acquired mathematical findings")
+        dependent = _post(server, "/api/evaluate", {
+            "source": _SOURCE, "expression": "At(VCons(Square(7), VNil<Nat>()), FZero<0>())", "valueType": "Nat"})
+        ensure(dependent == {"ok": True, "sourceHash": digest, "valueType": "Nat", "value": "49"},
+               "dependent console expression was unavailable in a module of ordinary functions")
         evaluated = _post(server, "/api/evaluate",
                           {"source": _SOURCE, "expression": "Square(7)", "valueType": "Nat"})
         ensure(evaluated == {"ok": True, "sourceHash": digest, "valueType": "Nat", "value": "49"},
@@ -180,6 +193,12 @@ def _http_compiler() -> None:
         ensure(refused["ok"] is False and refused["editorServices"] is True
                and refused["sourceHash"] == hashlib.sha256(broken.encode()).hexdigest(),
                "failed compiler request lost its exact source binding")
+        bare = _SOURCE.replace("let result =", "Nat result =")
+        preview = _post(server, "/api/authoring", {"source": bare})
+        original = _post(server, "/api/compile", {"source": bare})
+        ensure(preview["ok"] is True and preview["bindingPreview"] != bare and original["ok"] is False
+               and original["sourceHash"] == preview["sourceHash"] == hashlib.sha256(bare.encode()).hexdigest(),
+               "authoring preview changed the source consumed by compilation")
         with patch.object(playground.subprocess, "run", side_effect=playground.subprocess.TimeoutExpired("worker", 5)):
             timeout = _post(server, "/api/compile", {"source": _SOURCE})
         ensure(timeout["ok"] is False and timeout["editorServices"] is False
@@ -239,8 +258,6 @@ def _http_authoring() -> None:
         ensure(refused["ok"] is False and cast("dict[str, object]", refused["error"])["kind"] == "limit"
                and "findings" not in refused and "bindingPreview" not in refused,
                "explicit-binding insertion published a candidate exceeding the compiler source budget")
-        ensure(_post(server, "/api/compile", {"source": source})["sourceHash"] == response["sourceHash"],
-               "authoring check mutated the source consumed by compilation")
         for payload in ({}, {"source": source, "path": "arbitrary"}, {"source": 12},
                         {"source": "x" * (vela.MAX_SOURCE_BYTES + 1)}):
             ensure(_http(server, "/api/authoring", payload)[0] == 400,
@@ -253,7 +270,7 @@ def _authoring_worker_refusals() -> None:
     for kind in ("inspection-limit", "lint-preview", "format"):
         with patch("toolchain.playground_worker.preview_bindings",
                    side_effect=vela.VelaError(kind, 3, 19, "independent producer refusal")):
-            refused = compile_request(request)
+            refused = compile_request(request, mathematical_parser=Path("/prepared/native/vela-parser"))
         ensure(refused["ok"] is False and cast("dict[str, object]", refused["error"])["kind"] == kind
                and "findings" not in refused and "bindingPreview" not in refused,
                "failed preview producer published partial authoring success")
@@ -413,7 +430,7 @@ def _http_extended_expressions() -> None:
               "public bool Allowed(Nat value,bool paused)=>!paused&&(value>=3&&value<10||value==20);\n"
               "public bool Changed(bool before,bool after)=>before!=after;\n")
     digest = hashlib.sha256(source.encode()).hexdigest()
-    with _running() as server:
+    with _native_running() as server:
         compiled = _post(server, "/api/compile", {"source": source})
         ensure(compiled["ok"] is True and compiled["sourceHash"] == digest,
                "extended compilation lost source identity")
@@ -470,7 +487,7 @@ def _http_division_and_remainder() -> None:
               "public const Nat ZeroGroups = 17/0;\r\n"
               "public const Nat Unchanged = 17%0;\r\n")
     digest = hashlib.sha256(source.encode()).hexdigest()
-    with _running() as server:
+    with _native_running() as server:
         compiled = _post(server, "/api/compile", {"source": source})
         ensure(compiled["ok"] is True and compiled["sourceHash"] == digest,
                "division compilation lost original Unicode/CRLF source identity")
@@ -558,9 +575,9 @@ def _http_division_and_remainder() -> None:
 def cases() -> list[Case]:
     return [Case("compiler-owned-static-natural-and-boolean-results", _static_values),
             Case("compiler-refusals-injection-and-existing-budgets", _static_refusals),
-            Case("real-isolated-http-compilation-and-evaluation", _http_compiler),
-            Case("real-http-extended-expressions-authoring-and-editor-services", _http_extended_expressions),
-            Case("real-http-division-remainder-values-terms-and-overlay-recovery", _http_division_and_remainder),
+            Case("real-isolated-http-compilation-and-evaluation", _http_compiler, lane="toolchain"),
+            Case("real-http-extended-expressions-authoring-and-editor-services", _http_extended_expressions, lane="toolchain"),
+            Case("real-http-division-remainder-values-terms-and-overlay-recovery", _http_division_and_remainder, lane="toolchain"),
             Case("real-http-authoring-findings-preview-source-and-refusals", _http_authoring),
             Case("authoring-worker-incomplete-invalid-coordinate-and-budget-controls", _authoring_worker_refusals),
             Case("http-auth-authority-strict-json-path-and-session-bounds", _http_authority_and_bounds),

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Independent automatic selection, native-parser identity and transport controls."""
+"""Full-language compiler, native-parser identity and transport controls."""
 
 import hashlib
 import json
@@ -7,17 +7,14 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
-import threading
-from collections.abc import Generator
-from contextlib import contextmanager
+from functools import cache
 from pathlib import Path
 from typing import cast
 from unittest.mock import patch
 
 from tests.harness import Case, ensure
 from tests.test_vela_playground import _http, _post, _running
-from toolchain import StaticEvaluation, VelaError, authoring, playground
+from toolchain import StaticEvaluation, VelaError, authoring, parser, playground, translate
 from toolchain import ast as syntax
 from toolchain.authoring import Finding
 from toolchain.cli import vela_playground as playground_cli
@@ -32,22 +29,6 @@ _SOURCE = ("module Indexed;\n// supplementary comment: \U0001f680\n"
 _DIGEST = hashlib.sha256(_SOURCE.encode()).hexdigest()
 
 
-@contextmanager
-def _mathematical_server() -> Generator[tuple[playground.PlaygroundServer, Path]]:
-    with tempfile.TemporaryDirectory(prefix="vela-math-http-") as temporary:
-        parser = Path(temporary) / "vela-parser"
-        parser.write_bytes(b"independently prepared native-parser fixture")
-        with playground.PlaygroundServer(0, mathematical_parser=parser) as server:
-            thread = threading.Thread(target=server.serve_forever, daemon=True)
-            thread.start()
-            try:
-                yield server, parser
-            finally:
-                server.shutdown()
-                thread.join(timeout=3)
-                ensure(not thread.is_alive(), "mathematical HTTP service failed to stop")
-
-
 def _result(value: str = "8", value_type: str = "Nat") -> dict[str, object]:
     return {"ok": True, "sourceHash": _DIGEST, "valueType": value_type, "value": value}
 
@@ -56,40 +37,24 @@ def _process(response: dict[str, object]) -> playground.subprocess.CompletedProc
     return playground.subprocess.CompletedProcess([], 0, json.dumps(response).encode(), b"")
 
 
-def _capabilities_and_automatic_selection() -> None:
+def _http_whole_language_request_shape() -> None:
     with _running() as server:
-        ensure(_post(server, "/api/capabilities", {}) == {"mathematical": False},
-               "host service advertised a native mathematical parser")
-        status, _, _ = _http(server, "/api/capabilities", {},
-                             headers={"Authorization": "Bearer invalid"})
-        ensure(status == 401, "capability discovery bypassed playground authentication")
-        status, _, _ = _http(server, "/api/capabilities", {"source": _SOURCE})
-        ensure(status == 400, "capabilities accepted a request body outside its contract")
-        evaluated = _post(server, "/api/evaluate", {
-            "source": _PURE, "expression": "Value()", "valueType": "Nat"})
-        ensure(evaluated["ok"] is True and evaluated["value"] == "42",
-               "source selection changed the pure compiler's existing result")
-        compiled = _post(server, "/api/compile", {"source": _PURE})
-        ensure(compiled["editorServices"] is True and compiled["findings"] == [],
-               "pure compilation did not restore existing editor services")
         for mode in ("pure", "mathematical", "borrow", "", 1, None):
             status, _, body = _http(server, "/api/compile", {"source": _SOURCE, "mode": mode})
             ensure(status == 400 and "error" in json.loads(body),
                    f"client-selected compiler mode {mode!r} reached compilation")
-    with _mathematical_server() as (server, _parser):
-        ensure(_post(server, "/api/capabilities", {}) == {"mathematical": True},
-               "prepared native service omitted its mathematical capability")
 
 
 def _http_dispatch_and_strict_fields() -> None:
-    with _mathematical_server() as (server, parser):
+    with _running() as server:
+        parser = server.mathematical_parser
         request = {"source": _SOURCE, "expression": "Last()", "valueType": "Nat"}
         with patch.object(playground.subprocess, "run", return_value=_process(_result())) as worker:
             ensure(_post(server, "/api/evaluate", request) == _result(),
                    "mathematical HTTP response changed its exact source or typed value")
         forwarded = json.loads(cast("bytes", worker.call_args.kwargs["input"]))
         ensure(forwarded == {**request, "action": "evaluate"},
-               "HTTP automatic dispatch changed authored input")
+               "HTTP dispatch changed authored input")
         invocation = cast("list[str]", worker.call_args.args[0])
         ensure(_SOURCE not in " ".join(invocation) and "Last()" not in " ".join(invocation),
                "authored mathematical source or expression became an executable argument")
@@ -117,7 +82,7 @@ def _http_dispatch_and_strict_fields() -> None:
 
 
 def _worker_reply_binding() -> None:
-    with _mathematical_server() as (server, _parser):
+    with _running() as server:
         request = {"source": _SOURCE, "expression": "Last()", "valueType": "Nat"}
         malformed: tuple[dict[str, object], ...] = (
             {**_result(), "sourceHash": hashlib.sha256(b"different source").hexdigest()},
@@ -157,7 +122,9 @@ def _worker_reply_binding() -> None:
 
 
 def _changed_parser_refuses() -> None:
-    with _mathematical_server() as (server, parser):
+    with _running() as server:
+        parser = server.mathematical_parser
+
         def replace_during_worker(*_args: object, **_kwargs: object) -> playground.subprocess.CompletedProcess[bytes]:
             parser.write_bytes(b"replaced parser with different executable bytes")
             return _process({"ok": True, "sourceHash": _DIGEST, "module": "Indexed", "gallina": "stale terms",
@@ -177,7 +144,7 @@ def _changed_parser_refuses() -> None:
         with patch.object(playground.subprocess, "run") as worker:
             pure = _post(server, "/api/compile", {"source": _PURE})
         ensure(pure["ok"] is False and pure["editorServices"] is False and not worker.called,
-               "changed parser retained authority through automatic pure selection")
+               "changed parser retained authority for ordinary functions")
         authoring = _post(server, "/api/authoring", {"source": _PURE})
         ensure(authoring["ok"] is True,
                "independent authoring unnecessarily depended on mathematical parser identity")
@@ -205,7 +172,7 @@ def _worker_mathematical_routing() -> None:
         response = compile_request(evaluate_input, mathematical_parser=parser)
     ensure(response == _result(), "worker fabricated a mathematical console value")
     ensure(evaluate_math.call_args.args == (_SOURCE.encode(), "Last()", "Nat", parser),
-           "worker changed the selected expression, result type or parser identity")
+           "worker changed the expression, result type or parser identity")
     with patch("toolchain.mathematical.evaluate_source", return_value=StaticEvaluation("bool", False)):
         response = compile_request({**evaluate_input, "valueType": "bool"}, mathematical_parser=parser)
     ensure(response == _result("false", "bool"), "false mathematical result was confused with no result")
@@ -216,41 +183,26 @@ def _worker_mathematical_routing() -> None:
            "worker lost original mathematical diagnostic positions or source identity")
 
 
-def _automatic_selection_preserves_refusals() -> None:
-    parser = Path("/prepared/native/vela-parser")
-    with patch("toolchain.mathematical.compile_source") as mathematical:
-        pure = compile_request({"source": _PURE, "action": "compile"}, mathematical_parser=parser)
-        ensure(pure["ok"] is True and pure["editorServices"] is True and pure["findings"] == []
-               and not mathematical.called,
-               "automatic source selection bypassed the accepted pure compiler")
-        for source, kind in (("module Bad; public Nat Wrong() => true;", "type"),
-                             ("module Bad; public Nat Wrong() => Missing;", "name")):
-            refused = compile_request({"source": source, "action": "compile"}, mathematical_parser=parser)
-            ensure(refused["ok"] is False and refused["editorServices"] is True
-                   and cast("dict[str, object]", refused["error"])["kind"] == kind
-                   and not mathematical.called,
-                   "a pure semantic refusal was retried through mathematical elaboration")
-        for kind in ("name", "type", "encoding", "limit"):
-            with patch("toolchain.playground_worker.translate", side_effect=VelaError(kind, 2, 3, "original refusal")):
-                refused = compile_request({"source": _PURE, "action": "compile"}, mathematical_parser=parser)
-            ensure(refused == {"ok": False, "sourceHash": hashlib.sha256(_PURE.encode()).hexdigest(),
-                               "editorServices": True,
-                               "error": {"kind": kind, "message": "original refusal", "line": 2, "column": 3}}
-                   and not mathematical.called,
-                   "automatic selection replaced a retained source judgment")
-    with patch("toolchain.mathematical.evaluate_source") as mathematical:
-        for expression, kind in (("true", "type"), ("Missing()", "name"),
-                                 ("1; public const Nat Injected = 7", "syntax"),
-                                 ("9" * 4097, "limit")):
-            refused = compile_request({"source": _PURE, "action": "evaluate", "expression": expression,
-                                       "valueType": "Nat"}, mathematical_parser=parser)
-            ensure(refused["ok"] is False and cast("dict[str, object]", refused["error"])["kind"] == kind
-                   and not mathematical.called,
-                   "a refused console expression changed the selected source compiler")
-        accepted = compile_request({"source": _PURE, "action": "evaluate", "expression": "Value()",
-                                    "valueType": "Nat"}, mathematical_parser=parser)
-        ensure(accepted["ok"] is True and accepted["value"] == "42" and not mathematical.called,
-               "pure worker did not recover after console refusal")
+def _full_language_in_ordinary_modules() -> None:
+    prepared = Path("/prepared/native/vela-parser")
+    digest = hashlib.sha256(_PURE.encode()).hexdigest()
+    with patch("toolchain.mathematical.compile_source", return_value=Compilation("Simple", "actual terms", ())) as full:
+        pure = compile_request({"source": _PURE, "action": "compile"}, mathematical_parser=prepared)
+        ensure(pure == {"ok": True, "sourceHash": digest, "module": "Simple", "gallina": translate(_PURE.encode()).gallina,
+                        "editorServices": True, "findings": []} and full.call_args.args == (_PURE.encode(), prepared),
+               "ordinary functions bypassed the full elaborator or lost editor services")
+    with patch("toolchain.mathematical.compile_source", side_effect=VelaError("type", 1, 20, "full source judgment")):
+        refused = compile_request({"source": _PURE, "action": "compile"}, mathematical_parser=prepared)
+    ensure(refused["ok"] is False and refused["sourceHash"] == digest and "gallina" not in refused
+           and refused["error"] == {"kind": "type", "message": "full source judgment", "line": 1, "column": 20},
+           "editor-service acceptance replaced the full language's refusal")
+    expression = "At(VCons(Value(), VNil<Nat>()), FZero<0>())"
+    request: dict[str, object] = {"source": _PURE, "action": "evaluate", "expression": expression, "valueType": "Nat"}
+    with patch("toolchain.mathematical.evaluate_source", return_value=StaticEvaluation("Nat", 42)) as evaluate_full:
+        evaluated = compile_request(request, mathematical_parser=prepared)
+        ensure(evaluated == {"ok": True, "sourceHash": digest, "valueType": "Nat", "value": "42"}
+               and evaluate_full.call_args.args == (_PURE.encode(), expression, "Nat", prepared),
+               "the surrounding module restricted the language available in the console")
 
 
 def _mathematical_naming_reply_validation() -> None:
@@ -283,7 +235,7 @@ def _mathematical_naming_reply_validation() -> None:
         {**valid, "findings": [finding, finding]},
         {**valid, "sourceHash": hashlib.sha256(b"old source").hexdigest()},
     )
-    with _mathematical_server() as (server, _parser):
+    with _running() as server:
         with patch.object(playground.subprocess, "run", return_value=_process(valid)):
             ensure(_post(server, "/api/compile", request) == valid,
                    "valid naming warnings prevented mathematical compilation")
@@ -563,6 +515,30 @@ if (tracker.isCurrent("compile", t1, { ok: true })) {
   throw new Error("createTicketTracker failed invalidate check");
 }
 
+const mixedSource = "module Mixed; public Nat Read() => At(VCons(42, VNil<Nat>()), FZero<0>());";
+const read = await mod.browserApi("/api/evaluate", { source: mixedSource, expression: "Read()", valueType: "Nat" });
+if (!read.ok || read.value !== "42") {
+  throw new Error(`Dependent builtins failed in an ordinary function: ${JSON.stringify(read)}`);
+}
+const ordinarySource = "module Ordinary; public Nat Value() => 42;";
+for (const source of [ordinarySource, mod.EXAMPLES.vectors.source]) {
+  for (const [expression, valueType] of [["false && 1", "bool"], ["-1", "Nat"]]) {
+    const refusal = await mod.browserApi("/api/evaluate", { source, expression, valueType });
+    if (refusal.ok || refusal.error?.kind !== "type" || "value" in refusal) {
+      throw new Error(`Expected ${expression} to refuse in ${source.split(";")[0]}: ${JSON.stringify(refusal)}`);
+    }
+  }
+}
+for (const [expression, kind] of [
+  ["At(VCons(Value(), VNil<Nat>()), FZero<1>())", "type"],
+  ["1; public const Nat Injected = 7", "syntax"],
+]) {
+  const refusal = await mod.browserApi("/api/evaluate", { source: ordinarySource, expression, valueType: "Nat" });
+  if (refusal.ok || refusal.error?.kind !== kind || "value" in refusal) {
+    throw new Error(`Invalid console expression ${expression} produced ${JSON.stringify(refusal)}`);
+  }
+}
+
 const parity = { examples: {} };
 for (const [key, example] of Object.entries(mod.EXAMPLES)) {
   const compiled = await mod.browserApi("/api/compile", { source: example.source });
@@ -798,12 +774,14 @@ globalThis.document = {
 const mockModel = {
   _val: mod.EXAMPLES.squares.source,
   getValue() { return this._val; },
-  setValue(v) { this._val = String(v); },
-  onDidChangeContent() {},
+  setValue(v) { this._val = String(v); this._onChange?.(); },
+  onDidChangeContent(handler) { this._onChange = handler; },
   dispose() {},
 };
+let markers = [];
 const mockEditor = {
   updateOptions() {},
+  setPosition() {},
   onDidChangeCursorPosition() {},
   onDidChangeCursorSelection() {},
   addCommand() {},
@@ -850,7 +828,7 @@ globalThis.window = {
         return mockModel;
       },
       create() { return mockEditor; },
-      setModelMarkers() {},
+      setModelMarkers(_model, _owner, next) { markers = next; },
     },
   },
   addEventListener() {},
@@ -875,17 +853,40 @@ for (let i = 0; i < compactCodes.length; i += 1) {
   }
 }
 
+async function expectConsoleValue(expression, expected) {
+  elementsById.get("expression").value = expression;
+  elementsById.get("value-type").value = "Nat";
+  await elementsById.get("evaluate-form").dispatchEvent("submit");
+  const card = elementsById.get("console-result").children[0];
+  const texts = card.children.map((child) => child.textContent);
+  if (!texts.includes(expected)) {
+    throw new Error(`UI evaluate failed for ${expression}: ${JSON.stringify(texts)}`);
+  }
+}
+
+const indexedSquare = "At(VCons(Square(7), VNil<Nat>()), FZero<0>())";
+await expectConsoleValue(indexedSquare, "49");
 await elementsById.get("compile-button").dispatchEvent("click");
 if (!elementsById.get("gallina-output").textContent.includes("Module Vela_Playground.")) {
   throw new Error(`UI compile failed: ${elementsById.get("gallina-output").textContent}`);
 }
+await expectConsoleValue(indexedSquare, "49");
 
-await elementsById.get("evaluate-form").dispatchEvent("submit");
-const resultCard = elementsById.get("console-result").children[0];
-const cardTexts = resultCard ? resultCard.children.map((c) => c.textContent) : [];
-if (!cardTexts.includes("49")) {
-  throw new Error(`UI evaluate failed: ${JSON.stringify(cardTexts)}`);
+const invalid = "module Invalid; public Nat Wrong() => true;";
+const refusal = await mod.browserApi("/api/compile", { source: invalid });
+mockModel.setValue(invalid);
+await elementsById.get("compile-button").dispatchEvent("click");
+if (refusal.ok || markers.length !== 1 || !markers[0].message.includes(refusal.error.message)) {
+  throw new Error(`Expected the full compiler diagnostic after editor synchronization: ${JSON.stringify(markers)}`);
 }
+
+elementsById.get("examples").value = "vectors";
+await elementsById.get("examples").dispatchEvent("change");
+await expectConsoleValue("Second()", "20");
+
+elementsById.get("examples").value = "squares";
+await elementsById.get("examples").dispatchEvent("change");
+await expectConsoleValue(indexedSquare, "49");
 console.log(JSON.stringify(parity));
 """
 
@@ -903,7 +904,8 @@ def _node_command(root: Path) -> tuple[list[str], str] | None:
     return None
 
 
-def _playground_browser_runtime_and_ui_startup() -> None:
+@cache
+def _browser_results() -> str:
     root = Path(__file__).resolve().parents[2]
     cmd_info = _node_command(root)
     if cmd_info is None:
@@ -922,35 +924,23 @@ def _playground_browser_runtime_and_ui_startup() -> None:
         done.returncode == 0,
         f"playground app.mjs runtime or UI startup check failed (exit {done.returncode}):\n{done.stderr or done.stdout}",
     )
-    parity = json.loads(done.stdout.strip())
+    return done.stdout
+
+
+def _playground_browser_runtime_and_ui_startup() -> None:
+    parity = json.loads(_browser_results())
+    prepared = Path("/prepared/native/vela-parser")
     for key, entry in parity["examples"].items():
-        if not entry["compiled"]["editorServices"]:
-            continue
-        worker_compiled = compile_request({"action": "compile", "source": entry["source"]})
-        worker_evaluated = compile_request({
-            "action": "evaluate",
-            "source": entry["source"],
-            "expression": entry["expression"],
-            "valueType": entry["valueType"],
-        })
-        worker_authoring = compile_request({"action": "authoring", "source": entry["source"]})
-        ensure(entry["compiled"] == worker_compiled,
-               f"pure example {key} drifted on emitted Corelib Gallina or metadata between browserApi and playground_worker")
-        ensure(entry["evaluated"] == worker_evaluated,
-               f"pure example {key} drifted on expression evaluation between browserApi and playground_worker")
-        ensure(entry["authoring"] == worker_authoring,
-               f"pure example {key} drifted on authoring preview/lints between browserApi and playground_worker")
-        for sug in entry["suggestions"]:
-            worker_sug = compile_request({
-                "action": "evaluate",
-                "source": entry["source"],
-                "expression": sug["expression"],
-                "valueType": sug["valueType"],
-            })
-            ensure(sug["result"] == worker_sug,
-                   f"pure example {key} suggestion {sug['expression']} drifted between browserApi and playground_worker")
-    bare_pure = parity["bareLocalPure"]
-    ensure(bare_pure["authoring"] == compile_request({"action": "authoring", "source": bare_pure["source"]}),
+        if entry["compiled"]["editorServices"]:
+            source = entry["source"]
+            ensure(entry["compiled"]["gallina"] == translate(source.encode()).gallina,
+                   f"example {key} lost canonical Gallina for ordinary functions")
+            ensure(entry["authoring"] == compile_request({"action": "authoring", "source": source},
+                                                        mathematical_parser=prepared),
+                   f"example {key} drifted on authoring previews or lint findings")
+    bare = parity["bareLocalPure"]
+    ensure(bare["authoring"] == compile_request({"action": "authoring", "source": bare["source"]},
+                                               mathematical_parser=prepared),
            "bare local pure authoring preview drifted between browserApi and playground_worker")
     canonical_vela105 = authoring.generic_type_findings((syntax.Name("item", syntax.Site(2, 33)),))[0]
     ensure(parity["vela105"] == {
@@ -961,15 +951,34 @@ def _playground_browser_runtime_and_ui_startup() -> None:
     }, "browserApi mathematical VELA105 finding drifted from canonical authoring.generic_type_findings")
 
 
+def _catalog_native_parity() -> None:
+    parity = json.loads(_browser_results())
+    with parser.cached_build(Path(__file__).resolve().parents[2]) as built:
+        for key, entry in parity["examples"].items():
+            source = entry["source"]
+            compiled = compile_request({"action": "compile", "source": source}, mathematical_parser=built.executable)
+            expected = entry["compiled"]
+            for field in ("ok", "sourceHash", "module", "findings", "editorServices"):
+                ensure(compiled.get(field) == expected[field], f"example {key} differs on {field}: {compiled.get('error')}")
+            if expected["editorServices"]:
+                ensure(compiled["gallina"] == expected["gallina"], f"example {key} differs on canonical Gallina")
+            for observation in [entry, *entry["suggestions"]]:
+                evaluated = compile_request({"action": "evaluate", "source": source, "expression": observation["expression"],
+                                            "valueType": observation["valueType"]}, mathematical_parser=built.executable)
+                ensure(evaluated == observation.get("evaluated", observation.get("result")),
+                       f"example {key} differs on {observation['expression']}: {evaluated}")
+
+
 def cases() -> list[Case]:
-    return [Case("unified-capabilities-authentication-and-source-selection", _capabilities_and_automatic_selection),
+    return [Case("whole-language-http-request-shape", _http_whole_language_request_shape),
             Case("unified-http-source-routing-and-request-field-refusals", _http_dispatch_and_strict_fields),
             Case("mathematical-worker-source-type-and-schema-refusals-with-recovery", _worker_reply_binding),
             Case("mathematical-changed-parser-identity-refuses-before-worker", _changed_parser_refuses),
             Case("mathematical-worker-reuses-elaborator-and-preserves-refusals", _worker_mathematical_routing),
-            Case("automatic-selection-preserves-source-and-expression-refusals", _automatic_selection_preserves_refusals),
+            Case("full-language-compilation-and-evaluation-in-ordinary-modules", _full_language_in_ordinary_modules),
             Case("mathematical-naming-findings-source-shape-budget-and-recovery", _mathematical_naming_reply_validation),
             Case("pure-authoring-refuses-mathematical-only-naming-finding", _pure_authoring_rejects_mathematical_lint),
             Case("mathematical-cli-prepares-native-parser-once-and-refuses-missing-tools", _native_cli_startup),
             Case("playground-formatting-example-assets", _playground_formatting_example_assets),
-            Case("playground-browser-runtime-and-ui-startup", _playground_browser_runtime_and_ui_startup)]
+            Case("playground-browser-runtime-and-ui-startup", _playground_browser_runtime_and_ui_startup),
+            Case("playground-browser-and-native-catalog-parity", _catalog_native_parity, lane="toolchain")]

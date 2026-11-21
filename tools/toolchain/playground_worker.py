@@ -7,9 +7,9 @@ from pathlib import Path
 from typing import cast
 
 from toolchain import (
+    Translation,
     ValueType,
     VelaError,
-    evaluate,
     translate,
 )
 from toolchain import (
@@ -19,31 +19,21 @@ from toolchain.authoring import lint_source, preview_bindings
 from toolchain.protocol_json import MAX_BODY_BYTES, decode_message, encode_body
 
 
-def _mathematical_request(request: dict[str, object], source: bytes, digest: str,
-                         parser: Path | None) -> dict[str, object]:
-    if parser is None or request["action"] not in {"compile", "evaluate"}:
-        raise VelaError("unsupported", 1, 1, "Mathematical compiler unavailable")
-    if request["action"] == "compile":
-        compiled = vela_mathematical.compile_source(source, parser)
-        return {"ok": True, "sourceHash": digest,
-                "module": compiled.module, "gallina": compiled.gallina,
-                "editorServices": False,
-                "findings": [{"code": finding.code, "message": finding.message,
-                              "line": finding.line, "column": finding.column}
-                             for finding in compiled.findings]}
-    result = vela_mathematical.evaluate_source(
-        source, cast("str", request["expression"]), cast("ValueType", request["valueType"]), parser)
-    value = (("true" if result.value else "false") if result.value_type == "bool" else str(result.value))
-    return {"ok": True, "sourceHash": digest, "valueType": result.value_type, "value": value}
+def _editor_translation(source: bytes) -> Translation | VelaError | None:
+    """Check compatibility with the pure editor services and their canonical emitter."""
+    try:
+        return translate(source)
+    except VelaError as error:
+        return error
+    except (OSError, RuntimeError, ValueError):
+        return None
 
 
-def compile_request(request: dict[str, object], *,
-                    mathematical_parser: Path | None = None) -> dict[str, object]:
+def compile_request(request: dict[str, object], *, mathematical_parser: Path) -> dict[str, object]:
     source = cast("str", request["source"]).encode("utf-8")
     digest = hashlib.sha256(source).hexdigest()
     if "mode" in request:
-        raise ValueError("Compiler selection is determined by the source")
-    editor_services = True
+        raise ValueError("The playground does not accept a language mode")
     try:
         if request["action"] == "authoring":
             preview = preview_bindings(source)
@@ -53,19 +43,20 @@ def compile_request(request: dict[str, object], *,
                                   "line": finding.line, "column": finding.column}
                                  for finding in findings],
                     "bindingPreview": preview.decode("utf-8")}
-        try:
-            compiled = translate(source)
-        except VelaError as error:
-            if error.kind not in {"syntax", "unsupported"}:
-                raise
-            editor_services = False
-            return _mathematical_request(request, source, digest, mathematical_parser)
         if request["action"] == "compile":
+            compiled = vela_mathematical.compile_source(source, mathematical_parser)
+            editor = _editor_translation(source)
             return {"ok": True, "sourceHash": digest,
-                    "module": compiled.module, "gallina": compiled.gallina,
-                    "editorServices": True, "findings": []}
-        result = evaluate(source, cast("str", request["expression"]),
-                          cast("ValueType", request["valueType"]))
+                    "module": compiled.module,
+                    "gallina": editor.gallina if isinstance(editor, Translation) else compiled.gallina,
+                    "editorServices": isinstance(editor, Translation),
+                    "findings": [{"code": finding.code, "message": finding.message,
+                                  "line": finding.line, "column": finding.column}
+                                 for finding in compiled.findings]}
+        if request["action"] != "evaluate":
+            raise ValueError("Unknown compiler request")
+        result = vela_mathematical.evaluate_source(
+            source, cast("str", request["expression"]), cast("ValueType", request["valueType"]), mathematical_parser)
         value = ("true" if result.value else "false") if result.value_type == "bool" else str(result.value)
     except VelaError as error:
         response: dict[str, object] = {
@@ -73,20 +64,23 @@ def compile_request(request: dict[str, object], *,
             "error": {"kind": error.kind, "message": error.message,
                       "line": error.line, "column": error.column}}
         if request["action"] == "compile":
-            response["editorServices"] = editor_services
+            editor = _editor_translation(source)
+            response["editorServices"] = (isinstance(editor, VelaError)
+                                          and editor.kind == error.kind and error.kind in {"name", "type"})
         return response
     return {"ok": True, "sourceHash": digest, "valueType": result.value_type, "value": value}
 
 
-def _verify_parser(parser: Path | None, digest: str | None) -> None:
-    if parser is not None and hashlib.sha256(parser.read_bytes()).hexdigest() != digest:
-        raise ValueError("prepared mathematical parser changed")
+def require_parser(parser: Path, digest: str) -> None:
+    if hashlib.sha256(parser.read_bytes()).hexdigest() != digest:
+        raise ValueError("prepared mathematical parser is unavailable or changed")
 
 
-def main(*, mathematical_parser: Path | None = None, parser_sha256: str | None = None) -> int:
+def main(*, mathematical_parser: Path, parser_sha256: str) -> int:
     try:
-        _verify_parser(mathematical_parser, parser_sha256)
         request = decode_message(sys.stdin.buffer.read(MAX_BODY_BYTES + 1))
+        if request["action"] != "authoring":
+            require_parser(mathematical_parser, parser_sha256)
         response = compile_request(request, mathematical_parser=mathematical_parser)
         raw = encode_body(response)
     except (KeyError, TypeError, ValueError, UnicodeError, OSError, RuntimeError):

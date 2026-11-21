@@ -18,6 +18,7 @@ from typing import cast, override
 from toolchain.ast import IDENTIFIER, MAX_SOURCE_BYTES
 from toolchain.authoring import LINT_CODES, is_pascal_case
 from toolchain.lsp import Server
+from toolchain.playground_worker import require_parser
 from toolchain.protocol_json import MAX_BODY_BYTES, decode_message, encode_body
 from toolchain.source import SourceSnapshot
 
@@ -48,11 +49,9 @@ def _validate_result(response: dict[str, object], request: dict[str, object], di
                 or not all(isinstance(response[key], str) for key in fields - {"ok", "findings", "editorServices"})):
             raise ValueError("compiler worker returned an invalid result")
         if compilation:
-            if response["editorServices"]:
-                if response["findings"] != []:
-                    raise ValueError("pure compilation returned mathematical findings")
-            else:
-                _validate_findings(response["findings"], cast("str", request["source"]), mathematical=True)
+            if response["editorServices"] and response["findings"] != []:
+                raise ValueError("pure editor tools do not support generic declarations")
+            _validate_findings(response["findings"], cast("str", request["source"]), mathematical=True)
         if request["action"] == "evaluate":
             value = cast("str", response["value"])
             if (response["valueType"] != request["valueType"]
@@ -113,13 +112,11 @@ def _validate_findings(findings: object, source: str, *, mathematical: bool = Fa
 
 
 def _compiler_response(request: dict[str, object], digest: str, *,
-                       mathematical_parser: Path | None = None,
-                       parser_sha256: str | None = None) -> dict[str, object]:
+                       mathematical_parser: Path, parser_sha256: str) -> dict[str, object]:
     directory = str(Path(__file__).resolve().parents[1])
-    parser_argument = f"Path({str(mathematical_parser)!r})" if mathematical_parser is not None else "None"
     script = (f"import sys; sys.path.insert(0, {directory!r}); from pathlib import Path; "
               "from toolchain.playground_worker import main; "
-              f"raise SystemExit(main(mathematical_parser={parser_argument}, "
+              f"raise SystemExit(main(mathematical_parser=Path({str(mathematical_parser)!r}), "
               f"parser_sha256={parser_sha256!r}))")
     done = subprocess.run([sys.executable, "-I", "-c", script], input=encode_body(request),
                           capture_output=True, timeout=WORKER_SECONDS, check=False)
@@ -131,25 +128,19 @@ def _compiler_response(request: dict[str, object], digest: str, *,
     return response
 
 
-def _require_parser(parser: Path | None, digest: str | None) -> None:
-    if parser is None or digest is None or hashlib.sha256(parser.read_bytes()).hexdigest() != digest:
-        raise ValueError("prepared mathematical parser is unavailable or changed")
-
-
-def run_compiler(request: dict[str, object], *, mathematical_parser: Path | None = None,
-                 parser_sha256: str | None = None) -> dict[str, object]:
+def run_compiler(request: dict[str, object], *, mathematical_parser: Path,
+                 parser_sha256: str) -> dict[str, object]:
     """Source is worker stdin data, never an executable argument or a disk path."""
     source = cast("str", request["source"]).encode("utf-8")
     digest = hashlib.sha256(source).hexdigest()
     response: dict[str, object]
     try:
-        if mathematical_parser is not None and request["action"] != "authoring":
-            _require_parser(mathematical_parser, parser_sha256)
-            response = _compiler_response(request, digest, mathematical_parser=mathematical_parser,
-                                          parser_sha256=parser_sha256)
-            _require_parser(mathematical_parser, parser_sha256)
-        else:
-            response = _compiler_response(request, digest)
+        if request["action"] != "authoring":
+            require_parser(mathematical_parser, parser_sha256)
+        response = _compiler_response(request, digest, mathematical_parser=mathematical_parser,
+                                      parser_sha256=parser_sha256)
+        if request["action"] != "authoring":
+            require_parser(mathematical_parser, parser_sha256)
     except subprocess.TimeoutExpired:
         response = {"ok": False, "sourceHash": digest,
                     "error": {"kind": "timeout", "line": 1, "column": 1,
@@ -176,12 +167,10 @@ class PlaygroundServer(HTTPServer):
 
     request_queue_size = 8
 
-    def __init__(self, port: int = 8765, *, assets: Path | None = None,
-                 mathematical_parser: Path | None = None) -> None:
+    def __init__(self, port: int = 8765, *, mathematical_parser: Path, assets: Path | None = None) -> None:
         self.token = secrets.token_urlsafe(32)
         self.mathematical_parser = mathematical_parser
-        self.parser_sha256 = (hashlib.sha256(mathematical_parser.read_bytes()).hexdigest()
-                              if mathematical_parser is not None else None)
+        self.parser_sha256 = hashlib.sha256(mathematical_parser.read_bytes()).hexdigest()
         self.sessions: dict[str, Session] = {}
         self.assets = (Path(__file__).resolve().parents[2] / "docs"
                        if assets is None else assets)
@@ -311,7 +300,7 @@ class PlaygroundHandler(BaseHTTPRequestHandler):
             self._error(401, "Missing or invalid playground token; reopen the printed launch URL")
             return
         if self.path not in {"/api/session", "/api/close", "/api/lsp", "/api/compile", "/api/evaluate",
-                             "/api/authoring", "/api/capabilities"}:
+                             "/api/authoring"}:
             self._error(404, "Unknown playground operation")
             return
         lengths = self.headers.get_all("Content-Length", [])
@@ -343,10 +332,6 @@ class PlaygroundHandler(BaseHTTPRequestHandler):
 
     def _dispatch(self, request: dict[str, object]) -> dict[str, object]:
         self.playground.expire_sessions()
-        if self.path == "/api/capabilities":
-            if request:
-                raise ValueError("Capability query requires an empty object")
-            return {"mathematical": self.playground.mathematical_parser is not None}
         if self.path == "/api/close":
             if set(request) != {"session"} or not isinstance(request["session"], str):
                 raise ValueError("Expected a session identifier")

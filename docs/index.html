@@ -98,7 +98,7 @@
         </section>
 
         <p id="service-notice" class="service-notice" role="status" hidden>
-            Dependent mathematical mode active: compilation, <code>VELA105</code> naming checks, and expression reduction are enabled. Pure-only LSP formatting, hover, symbol outline, and binding previews pause until returning to pure <code>Nat</code>/<code>bool</code> source.
+            The formatter, symbol inspector, and style preview support functions and constants over <code>Nat</code> and <code>bool</code>.
         </p>
 
         <section id="playground" class="workspace" aria-label="Vela development workspace">
@@ -112,7 +112,7 @@
                     <div class="source-actions">
                         <label class="sr-only" for="examples">Load an example</label>
                         <select id="examples" aria-label="Load an example">
-                            <optgroup label="Pure Core &amp; Authoring">
+                            <optgroup label="Functions &amp; arithmetic">
                                 <option value="squares">Functions &amp; values</option>
                                 <option value="branches">Branches &amp; booleans</option>
                                 <option value="logic">Boolean logic &amp; comparisons</option>
@@ -122,7 +122,7 @@
                                 <option value="bindings">Explicit bindings &amp; style</option>
                                 <option value="named">Named arguments &amp; numbers</option>
                             </optgroup>
-                            <optgroup label="Dependent Math &amp; Surface">
+                            <optgroup label="Types, data &amp; proofs">
                                 <option value="generic">Generics &amp; higher-order functions</option>
                                 <option value="vectors">Indexed vectors &amp; safe lookup</option>
                                 <option value="dependent">Dependent functions &amp; length proofs</option>
@@ -153,7 +153,7 @@
                             </summary>
                             <div class="advanced-menu-panel" role="group" aria-label="Advanced editor and buffer controls">
                                 <div class="menu-section">
-                                    <span class="menu-heading">EDITOR OVERLAYS (PURE LSP)</span>
+                                    <span class="menu-heading">EDITOR OVERLAYS</span>
                                     <label class="menu-check" title="Display compiler-inferred local types in Monaco">
                                         <input id="show-hints" type="checkbox" checked disabled>
                                         <span>Inferred type hints</span>
@@ -277,7 +277,7 @@
                         <span class="eyebrow">SYMBOL INSPECTOR</span>
                         <button id="refresh-outline" class="text-button" type="button">Refresh outline</button>
                     </div>
-                    <p class="panel-description">Browse declarations, <code>///</code> documentation, and resolved references in the current pure buffer.</p>
+                    <p class="panel-description">Browse declarations, <code>///</code> documentation, and resolved references in the current buffer.</p>
                     <div id="outline" class="symbol-outline" aria-label="Document symbols">
                         <p class="muted-message">Open Inspect to load the current outline.</p>
                     </div>
@@ -567,7 +567,7 @@ public definition Counter Advance(Counter counter, Nat step) =&gt;
                 <a class="pipeline-step" href="https://github.com/symbiogenesis/VelaLang/blob/main/docs/tooling/elaboration-prototype.md" target="_blank" rel="noopener noreferrer">
                     <span class="pipeline-num">03 · ELABORATE</span>
                     <strong>Pure &amp; Dependent CIC</strong>
-                    <span>Automatic routing between pure <code>Nat</code>/<code>bool</code> and dependent math.</span>
+                    <span>Check functions, indexed types, and proofs together in one module.</span>
                 </a>
                 <a class="pipeline-step" href="https://github.com/symbiogenesis/VelaLang/blob/main/docs/assurance/verification-strategy.md" target="_blank" rel="noopener noreferrer">
                     <span class="pipeline-num">04 · VERIFY</span>
