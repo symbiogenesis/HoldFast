@@ -98,6 +98,18 @@ public lemma TruthTable()
         assert GuardOnce() == Some(true);
     }
 """),
+        ("symbolic-span-suffix", """module SuffixReplay;
+Unit FillPrefix(ref Span<byte> dst, usize count)
+    effects writes(dst)
+    requires dst.CanRead && dst.CanWrite && dst.Length >= 6usize
+    ensures (forall (usize i) => (i >= 6usize && i < dst.Length && i < old(dst.Length))
+             ==> dst[i] == old(dst)[i])
+{
+    if (count > 4usize) { return; }
+    Span.Fill(ref dst, 2usize, count, 9u8);
+    return;
+}
+"""),
         ("conditional-arithmetic-bounds", """module BoundsReplay;
 bool Guard(Nat a, Nat b, Nat k) requires a + b <= k => true;
 bool WithHeadroom(Nat a, Nat b, Nat k) requires b <= k requires a <= k - b => Guard(a, b, k);
@@ -838,6 +850,11 @@ public Nat RoundTripOwned()
 """),
     )
     negatives = (
+        ("overlapping-symbolic-suffix",
+         "Unit FillPrefix(ref Span<byte> dst, usize count) effects writes(dst) "
+         "requires dst.CanRead && dst.CanWrite && dst.Length >= 6usize requires count <= 4usize "
+         "ensures (forall (usize i) => (i >= 5usize && i < dst.Length && i < old(dst.Length)) "
+         "==> dst[i] == old(dst)[i]) { Span.Fill(ref dst, 2usize, count, 9u8); }", "type"),
         ("truncated-natural-headroom", "bool Guard(Nat a, Nat b, Nat k) requires a + b <= k => true; "
          "bool Bad(Nat a, Nat b, Nat k) requires a <= k - b => Guard(a, b, k);", "type"),
         ("negative-signed-quotient-bound", "bool Guard(i8 x, i8 d) requires d >= 2i8 requires x / d <= x => true; "
