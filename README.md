@@ -1,6 +1,6 @@
 # VelaLang
 
-**Vela** is a programming language for writing low-level systems code and mathematical proofs in the same file. Designed alongside [VerifiedOS](https://github.com/symbiogenesis/VerifiedOS), it combines a familiar, readable syntax (inspired by C# and Rust) with explicit memory control and direct translation to the [Rocq Prover](https://rocq-prover.org/) and CompCert C.
+**Vela** is a programming language for writing low-level systems code and mathematical proofs in the same file. Its prototypes translate supported programs into Gallina for the [Rocq Prover](https://rocq-prover.org/). The first executable systems example also emits C for the [VerifiedOS](https://github.com/symbiogenesis/VerifiedOS) compiler route.
 
 > **Try Vela in your browser:** Open the **[Vela Interactive Playground & Language Tour](https://symbiogenesis.github.io/VelaLang/)** to run examples, evaluate expressions, and inspect generated Rocq/Gallina code with zero setup.
 
@@ -10,11 +10,11 @@ Usually, building verified systems software means writing your fast, low-level c
 
 Vela brings the code and the proof together on one explicit surface:
 
-- **Nothing happens behind your back.** Every borrow or ownership transfer is spelled out at both the function declaration and the call site: `in` for read-only borrows, `ref` for read-write borrows, `out` for initializing an output variable, and `move` for transferring ownership. There are no hidden copies or surprise heap allocations.
+- **Calls show who can read, write and move.** Write `in`, `ref`, `out` or `move` on ordinary arguments to borrow for reading, borrow for writing, initialize an output or transfer ownership. In `buffer.Method(x)`, the method declaration determines the loan of `buffer`. That loan begins before Vela evaluates `x`.
 - **Code and proofs live side by side.** Functions can state what they expect (`requires`) and what they guarantee (`ensures`). Right next to them, you can write `definition` helpers and `lemma` or `theorem` blocks that the toolchain translates into Gallina for independent checking by the Rocq kernel (`rocq c` and `rocqchk`).
 - **Invariants you can temporarily open and restore.** Data types can declare named rules—such as `invariant Ordered: Low <= High`. When a method needs to update several fields at once, `open (ref this) lifts Ordered { ... }` pauses just that rule for the block and checks that it holds again at the end, leaving every other rule intact.
 - **Predictable control flow and memory.** Vela has no exceptions, no stack unwinding, and no garbage collector. Errors are returned as ordinary `Option<T>` or `Result<T, E>` values (with `?` for clean early returns), loops carry explicit bounds or `decreases` measures, and text formatting writes into fixed-capacity `TextBuilder<cap>` buffers.
-- **Fast, unambiguous syntax.** Vela can be parsed from tokens alone without consulting a symbol table or import order, so editors, formatters, and verification tools always read your source the same way.
+- **Parsing is independent of imports.** The Menhir grammar recognizes the surface syntax before name resolution. The pure tools and browser support smaller subsets, and the playground identifies which checks ran for each example.
 
 ## A quick look at Vela
 
