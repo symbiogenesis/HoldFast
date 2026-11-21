@@ -1142,6 +1142,23 @@ def _output_bounds() -> None:
                     raise AssertionError("oversized output inventory was hashed")
 
 
+def _explicit_compiler_path() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        directory = Path(temporary)
+        missing = directory / "ccomp"
+        with patch.object(slice_harness, "DEFAULT_CCOMP_CANDIDATES", (str(missing),)):
+            ensure(slice_harness._resolve_ccomp(None) is None, "optional compiler discovery changed")
+            for invalid in (missing, directory):
+                try:
+                    slice_harness._execution_inputs(invalid)
+                except ValueError as error:
+                    ensure(str(invalid) in str(error) and "--ccomp" in str(error), "compiler path diagnostic lost")
+                else:
+                    raise AssertionError("explicit compiler replay silently skipped")
+            missing.touch()
+            ensure(slice_harness._resolve_ccomp(missing) == missing.resolve(), "explicit compiler path changed")
+
+
 def _cli_dispatch() -> None:
     expected = {"status": "matched", "proof_replayed": False, "artifact_accepted": False}
     with patch.object(cli.vela_first_slice, "verify_bindings", return_value=expected) as verify, \
@@ -1166,6 +1183,7 @@ def cases() -> list[Case]:
             Case("proof corruption binds the intended source and type refusal", _corruption_control_subjects),
             Case("retained capacity and semantic refusal coverage", _control_coverage),
             Case("retained capability execution transcripts and images", _execution_coverage),
+            Case("explicit compiler replay requires the requested file", _explicit_compiler_path),
             Case("retained optional compiler availability and controls", _compiler_coverage),
             Case("retained compiler process subjects and rehashed contradictions", _compiler_process_coverage),
             Case("simulator transcripts refuse ambiguous verdicts and malformed traces", _simulator_transcript_integrity),

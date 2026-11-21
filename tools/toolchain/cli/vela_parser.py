@@ -96,7 +96,7 @@ def main(argv: list[str] | None = None) -> int:
         "first-slice",
         help="qualify the Q25w Span<byte> carrier and vela-first-slice validator across Rocq and Sail",
     )
-    first_slice.add_argument("--ccomp", type=Path, help="optional path to out-of-tree CompCert ccomp executable")
+    first_slice.add_argument("--ccomp", type=Path, help="require compiler replay with this VerifiedOS typed ccomp")
     bindings = commands.add_parser(
         "first-slice-bindings", help="check retained first-slice identities without proof replay or admission",
     )

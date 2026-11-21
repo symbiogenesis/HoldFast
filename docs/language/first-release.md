@@ -566,10 +566,13 @@ to the symbolic source model. Exact executable admission also requires the
      arguments under their short-circuit condition, and evaluates both range
      endpoints once before the first iteration. The harness executes the C
      harness under both `ccomp -interp` and purecap `sail_riscv_sim`, and verifies
-     four perturbed C negative controls (`wrong-expected-byte`,
-     `stale-trailing-leak`, `checksum-scrub-omitted`,
-     `restores-length-corrupted`). The current local endpoint has no CompCert
-     executable and records `compcert_sail.available: false`.
+     four perturbed C controls for an incorrect payload byte, a stale trailing
+     byte, a changed checksum error code and an unscrubbed destination.
+     `first-slice --ccomp /absolute/path/to/ccomp` requires that compiler replay.
+     With automatic discovery, a machine without the compiler records
+     `compcert_sail.available: false`. Rebuilding this dependency requires the
+     private source revision and driver described in the
+     [VerifiedOS compiler build contract](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/implementation/contracts/contained-compiler-reuse.md).
 - **Retained development receipts:** schema 2 binds the producer Git revision,
   current local toolchain Python sources, parser sources and generated outputs,
   dependency locks, instruction-encoding data, locked prover binaries and runtime

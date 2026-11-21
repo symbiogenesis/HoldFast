@@ -378,8 +378,8 @@ def _revision(root: Path) -> str:
 
 
 def _execution_inputs(ccomp_path: Path | None) -> dict[str, object]:
-    loaded = env.load(toolchain=False)
     compiler = _resolve_ccomp(ccomp_path)
+    loaded = env.load(toolchain=False)
     files = {"simulator": loaded.simulator, "profile": loaded.profile,
              "python": Path(sys.executable)}
     if compiler is not None:
@@ -1951,7 +1951,9 @@ __slice_ret:
 
 def _resolve_ccomp(ccomp_path: Path | None) -> Path | None:
     if ccomp_path is not None:
-        return ccomp_path.resolve() if ccomp_path.is_file() else None
+        if not ccomp_path.is_file():
+            raise ValueError(f"--ccomp requires the VerifiedOS typed compiler executable at {ccomp_path}")
+        return ccomp_path.resolve()
     for candidate in DEFAULT_CCOMP_CANDIDATES:
         path = Path(candidate)
         if path.is_file():
@@ -2308,11 +2310,11 @@ def qualify(root: Path, *, ccomp_path: Path | None = None) -> dict[str, object]:
         }
         _write(directory / "attempt.json", attempt)
         try:
+            execution = _execution_inputs(ccomp_path)
             inputs = _inputs(root)
             revision = _revision(root)
             tools = replay._toolchain(root, directory, steps)
             runtime = replay._runtime(directory, steps)
-            execution = _execution_inputs(ccomp_path)
             compiled = vela_parser.build(root)
             parser_receipt = copy.deepcopy(compiled.receipt)
             outputs = replay._parser_outputs(compiled)
