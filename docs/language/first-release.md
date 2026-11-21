@@ -351,6 +351,10 @@ partially initialized, its payload carries the builder and its initialized
 prefix. An `out` diagnostic on an early `Err` or `?` points to that return
 and suggests the factory form when the caller supplied no storage. Boundary
 contracts continue to determine whole-buffer initialization and zeroization.
+The [elaboration replay](../../tools/toolchain/elaboration_check.py) exercises a
+fallible byte update with arbitrary initial contents. It checks the written byte
+on success, restoration of its original value on failure, and preservation of
+every other byte on both paths. Omitting the error-path restoration fails the contract.
 `TextBuilder<capacity>` and `Format.Write(ref builder, $"...")` (or
 `Format.Write(ref span, $"...")` over `ref Span<byte>`) follow the bounded
 buffer-writing contract in [Bytes and text](#bytes-and-text), evaluating hole

@@ -601,6 +601,24 @@ public lemma CharIntAndSeqProofs()
         assert PairSeq().Contains(10u32) == true;
     }
 """),
+        ("fallible-byte-builder-restores-on-error", """module FallibleBuilder;
+union BuildFailure { Rejected(); }
+public Result<byte, BuildFailure> TryStore(ref Span<byte> dst, byte value, bool reject)
+    effects writes(dst)
+    requires dst.CanRead && dst.CanWrite && dst.Length >= 1usize
+    ensures (result is Err(_)) ==> dst[0] == old(dst[0])
+    ensures (result is Ok(_)) ==> dst[0] == value
+    ensures (forall (usize i) => (i >= 1 && i < dst.Length && i < old(dst.Length)) ==> dst[i] == old(dst)[i])
+{
+    let before = dst[0];
+    dst[0] = value;
+    if (reject) {
+        dst[0] = before;
+        return Err(Rejected);
+    }
+    return Ok(value);
+}
+"""),
         ("mutable-locals-loops-invariants-slots-and-calc", """module LoopsInvariantsSlotsReplay;
 public usize SumPrefix(usize limit)
     requires limit <= 6usize
@@ -851,6 +869,9 @@ public Nat RoundTripOwned()
 """),
     )
     negatives = (
+        ("unrestored-fallible-write", "Result<byte, Unit> Bad(ref Span<byte> dst, byte value) "
+         "effects writes(dst) requires dst.CanRead && dst.CanWrite && dst.Length >= 1usize "
+         "ensures (result is Err(_)) ==> dst[0] == old(dst[0]) { dst[0] = value; return Err(()); }", "type"),
         ("overlapping-symbolic-suffix",
          "Unit FillPrefix(ref Span<byte> dst, usize count) effects writes(dst) "
          "requires dst.CanRead && dst.CanWrite && dst.Length >= 6usize requires count <= 4usize "
