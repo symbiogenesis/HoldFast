@@ -297,8 +297,11 @@ recursive `rocqchk` across all 14 `MenhirLib.*` modules.
 `vela-checked-parser`
 (`2bf312bd2e1e38f62878c8cb4f2fdbc8d8288dbab5488a7a127393ae7a735529`).
 [`ensure_checked_build`](../../tools/toolchain/parser_checked.py) maintains the
-receipt-verified runtime binary at `/root/build/vela-parser-checked-runtime/vela-checked-parser`
-and [`parse_checked`](../../tools/toolchain/parser_checked.py) drives its `--batch`
+receipt-verified runtime binary under `/root/build/vela-parser-checked-runtime/builds/`
+in a directory named by the digest of all checked runtime inputs. Worktrees with
+the same inputs reuse the executable. A cached parser for one grammar can start
+while a different grammar compiles in the locked shared staging directory.
+[`parse_checked`](../../tools/toolchain/parser_checked.py) drives its `--batch`
 framed protocol on both Ubuntu (`linux`) and Windows (`win32` via `wsl.exe`). The
 extracted executable passes all `70` pure qualification fixtures, matches `vela-parser`
 byte-for-byte on [`examples/pure.vela`](../../examples/pure.vela),
