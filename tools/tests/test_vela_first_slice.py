@@ -827,9 +827,24 @@ def _first_slice_source_proofs() -> None:
     translated = vela_elaborate.elaborate(source, parsed)
     ensure(not solver_ledger.ledger(translated.gallina),
            "first-slice contracts or scenario theorems exhausted the fixed proof-search budget")
-    for name in ("PrepareAndValidatePacket_ensures_0", "PrepareAndValidatePacket_ensures_2",
-                 "ValidateEmptyPacketOk"):
+    for name in (*vela_first_slice.EXPECTED_CONTRACT_OBLIGATIONS, "ValidateEmptyPacketOk"):
         ensure(f"_{name} :" in translated.gallina, f"first-slice proof export {name} disappeared")
+
+    # Check the public contract before any of the separate scenario theorems enter scope.
+    validator = source.split(b"public theorem ValidateEmptyPacketOk(", 1)[0]
+    copy = b"Span.CopyPrefix(ref payloadView, pktPayload, payloadLen);"
+    ensure(validator.count(copy) == 1, "payload-copy mutation no longer targets the validator")
+    mutant = validator.replace(copy, b"Span.CopyPrefix(ref payloadView, pktPayload, 0usize);")
+    with parser.cached_build(root) as compiled:
+        parsed_mutant = parser.parse_source(compiled, mutant, surface=True)
+    try:
+        wrong = vela_elaborate.elaborate(mutant, parsed_mutant)
+    except VelaError as error:
+        ensure(error.line >= validator[:validator.index(b"    ensures (result is Err(FramingShort))")].count(b"\n") + 1,
+               f"missing-copy control failed before its public contract: {error}")
+    else:
+        ensure(any("PrepareAndValidatePacket_ensures_" in item.export
+                   for item in solver_ledger.ledger(wrong.gallina)), "public contract accepted an absent payload copy")
 
 
 def _packet_contextual_literals() -> None:

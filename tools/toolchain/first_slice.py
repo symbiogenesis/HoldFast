@@ -98,9 +98,7 @@ EXPECTED_CONTRACT_OBLIGATIONS: Final[tuple[str, ...]] = (
     "PrepareAndValidatePacket_restores_0_Tag",
     "PrepareAndValidatePacket_restores_0_PermRead",
     "PrepareAndValidatePacket_restores_0_PermWrite",
-    "PrepareAndValidatePacket_ensures_0",
-    "PrepareAndValidatePacket_ensures_1",
-    "PrepareAndValidatePacket_ensures_2",
+    *(f"PrepareAndValidatePacket_ensures_{index}" for index in range(11)),
 )
 
 EXPECTED_SCENARIO_THEOREMS: Final[tuple[str, ...]] = (

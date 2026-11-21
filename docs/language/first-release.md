@@ -439,14 +439,14 @@ Obligations the elaborator cannot kernel-prove reach Rocq with their real
 statements as named solver-trust axioms recorded in `solver_trust`, so
 `Print Assumptions` and the harness report kernel-proved definitions and
 solver-trusted obligations separately; a non-empty solver-trust ledger leaves
-the slice unaccepted as a closed kernel proof. The current local replay audits
-69 exports with `solver_trusted_count == 0`, `accepted: true` and
-`kernel_checked: true`. Inference rollback retains normalization caches only
-when metavariable state is unchanged; this closes
-`PrepareAndValidatePacket_ensures_0`, `PrepareAndValidatePacket_ensures_2` and
-`ValidateEmptyPacketOk` within the existing work/reduction budgets. All exported
-definitions report `Closed under the global context`. These source proofs do
-not establish checked source correspondence or machine/artifact acceptance.
+the slice unaccepted as a closed kernel proof. The local source replay checks
+the exports with `rocqchk` and an empty assumption ledger. On valid input the
+public contract identifies the returned read-only destination slice, the copied
+payload bytes and zero padding for every supported wire length from zero through
+four. Framing rejection preserves the complete entry destination. Later
+protocol rejection clears its eight-byte working area. These guarantees apply
+to the symbolic source model. Exact executable admission also requires the
+[compiler and machine evidence](#first-slice-qualification).
 
 - **Concrete `Span<byte>` carrier and contract obligations:** `Span<byte>` lowers
   in the mathematical consumer to `vela_Span` (`vela_ByteStore` paired with
@@ -489,7 +489,7 @@ not establish checked source correspondence or machine/artifact acceptance.
 - **End-to-end qualification (`python tools/run.py vela-parser first-slice`):**
   1. Parses `first_slice.vela` through the native Menhir `--surface` parser,
      elaborates all declarations into `FirstSlice.v`, compiles with `rocq c`,
-     audits all 69 exported definitions via `Print Assumptions` against the
+     audits every exported definition via `Print Assumptions` against the
      explicit `solver_trust` ledger, requiring an empty ledger for acceptance,
      and runs `rocqchk`, plus a fail-closed proof-corruption negative control.
   2. Runs the capacity-invariance gate at $N = 8$ (`8usize`) and $N = 10^9$

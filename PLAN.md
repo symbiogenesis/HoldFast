@@ -3,7 +3,7 @@
 ## Current execution
 
 **The next milestone is acceptance of the packet validator's exact executable.** The local
-kernel replay covers all 69 exports with zero solver-trusted obligations.
+kernel replay covers the validator's public byte and view guarantees with zero solver-trusted obligations.
 Checked source correspondence, machine laws, compiler refinement, security
 preservation and final-image admission are still open. Start with the blocking
 dependency inventory from `vela-parser first-slice`. Check the machine-logic
