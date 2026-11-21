@@ -107,10 +107,10 @@ class _Fixture:
         return nodes
 
     def definition(self, name: str, result: Form, parameters: tuple[Parameter, ...], value: Form,
-                   generics: tuple[Generic, ...] = (), contracts: tuple[Form, ...] = ()) -> None:
+                   generics: tuple[Generic, ...] = (), contracts: tuple[Form, ...] = (), *, visibility: str = "public") -> None:
         self.write("\n")
         start = self.offset
-        self.write("public definition ")
+        self.write(f"{visibility} definition ")
         annotation = result(self)
         self.write(" ")
         binding = self.name(name)
@@ -125,7 +125,7 @@ class _Fixture:
         self.write(";")
         self.declarations.append(self.node("definition", start, name=binding, result=annotation,
                                            generics=generic_nodes, parameters=parameter_nodes,
-                                           contracts=obligations, value=body, modifiers=["public"]))
+                                           contracts=obligations, value=body, modifiers=[visibility]))
 
     def theorem(self, name: str, parameters: tuple[Parameter, ...], proposition: Form,
                 proof: Form | None, generics: tuple[Generic, ...] = (),
@@ -237,7 +237,7 @@ class _Fixture:
     def record(self, name: str, parameters: tuple[Parameter, ...],
                properties: tuple[tuple[str, Form, Form], ...] = (),
                generics: tuple[Generic, ...] = (),
-               contracts: tuple[Form, ...] = ()) -> None:
+               contracts: tuple[Form, ...] = (), *, private_properties: tuple[str, ...] = ()) -> None:
         self.write("\n")
         start = self.offset
         self.write("public record ")
@@ -254,7 +254,8 @@ class _Fixture:
             for prop_name, prop_type, prop_value in properties:
                 self.write(" ")
                 prop_start = self.offset
-                self.write("public ")
+                visibility = "private" if prop_name in private_properties else "public"
+                self.write(f"{visibility} ")
                 annotation = prop_type(self)
                 self.write(" ")
                 prop_binding = self.name(prop_name)
@@ -263,7 +264,7 @@ class _Fixture:
                 self.write(";")
                 member_nodes.append(
                     self.node("property", prop_start, name=prop_binding, type=annotation,
-                              contracts=[], value=body, modifiers=["public"])
+                              contracts=[], value=body, modifiers=[visibility])
                 )
             self.write(" }")
         else:
@@ -3254,17 +3255,6 @@ def _unary_op(operator: str, inner: Form) -> Form:
     return form
 
 
-def _import_decl(fixture: _Fixture, module_name: str) -> None:
-    fixture.write("\n")
-    start = fixture.offset
-    fixture.write("import ")
-    name_node = fixture.name(module_name)
-    fixture.write(";")
-    fixture.declarations.append(
-        fixture.node("import", start, name=name_node)
-    )
-
-
 def _represented_integers_and_conversions() -> None:
     fixture = _Fixture("Numerics")
     _import_decl(fixture, "Vela.Numerics")
@@ -5259,13 +5249,33 @@ def _out_var(name: str) -> Form:
     return form
 
 
-def _import_decl(fixture: _Fixture, module_path: str) -> None:
+def _import_decl(fixture: _Fixture, module_path: str, *, alias: str | None = None,
+                 items: tuple[tuple[str, str | None], ...] = ()) -> None:
     fixture.write("\n")
     start = fixture.offset
     fixture.write("import ")
     name_node = fixture.name(module_path)
+    fields: Node = {"name": name_node}
+    if items:
+        fixture.write(" {")
+        nodes = []
+        for index, (exported, local) in enumerate(items):
+            if index:
+                fixture.write(", ")
+            item_start = fixture.offset
+            spelling = fixture.name(exported)
+            renamed = None
+            if local is not None:
+                fixture.write(" as ")
+                renamed = fixture.name(local)
+            nodes.append(fixture.node("import_item", item_start, name=spelling, alias=renamed))
+        fixture.write("}")
+        fields["items"] = nodes
+    if alias is not None:
+        fixture.write(" as ")
+        fields["alias"] = fixture.name(alias)
     fixture.write(";")
-    fixture.declarations.append(fixture.node("import", start, name=name_node))
+    fixture.declarations.append(fixture.node("import", start, **fields))
 
 
 def _interface_fn_sig(
@@ -5923,6 +5933,124 @@ def _check_callable_member(member_name: str) -> None:
 def _callable_member_receiver_and_failures() -> None:
     _check_callable_member("Invoke")
     _check_callable_member("Read")
+
+
+def _module_private_identity() -> None:
+    left, right, consumer = _Fixture("A"), _Fixture("B"), _Fixture("Client")
+    for module, expected in ((left, 1), (right, 2)):
+        module_name = str(module.module["text"])
+        module.definition("Helper", _NAT, (), _natural(expected), visibility="private")
+        module.definition("Get" + module_name, _NAT, (), _call("Helper"))
+        _import_decl(consumer, module_name)
+    for module, expected in ((left, 1), (right, 2)):
+        getter = _call("Get" + str(module.module["text"]))
+        law = _binary("==", getter, _natural(expected))
+        consumer.theorem("Check" + str(module.module["text"]), (), law, _assert(law))
+    composed = elaborate_package([consumer.response(), right.response(), left.response()])["Client"].gallina
+    private_ids = [line.split()[1] for line in composed.splitlines() if line.startswith("Definition ") and "_Helper :" in line]
+    ensure(len(set(private_ids)) == len(private_ids) == 2, "distinct private helpers acquired one emitted identity")
+
+    library, reader = _Fixture("Library"), _Fixture("Reader")
+    library.record("Point", (("X", _NAT),), (("Twice", _NAT, _variable("X")),), private_properties=("Twice",))
+    _import_decl(reader, "Library")
+    reader.definition("Read", _NAT, (("p", _type("Point")),), _member(_variable("p"), "Twice"))
+    try:
+        elaborate_package([reader.response(), library.response()])
+    except VelaError as error:
+        ensure(error.kind == "name" and "private property" in error.message, "wrong visibility diagnosis")
+    else:
+        raise AssertionError("an imported receiver exposed a private record property")
+
+
+def _constructor_spelling_and_shadowed_patterns() -> None:
+    bad = _Fixture("MisspelledConstructor")
+    bad.union("State", (("ready", ()),))
+    _refuses(bad, "name", "uppercase")
+    for first, message in ((_pat_bind("ready"), "did you mean 'Ready'"), (_pat_ctor("Ready"), "covers this pattern")):
+        fixture = _Fixture("ShadowedPattern")
+        fixture.union("State", (("Ready", ()), ("Busy", ())))
+        fixture.definition("Read", _NAT, (("s", _type("State")),), _match_expr(_variable("s"), (
+            (first, _natural(1)), (_pat_ctor("Ready"), _natural(0)), (_pat_ctor("Busy"), _natural(0)),
+        )))
+        _refuses(fixture, "type", message)
+
+
+def _qualified_imports() -> None:
+    left, right, consumer = _Fixture("Left"), _Fixture("Right"), _Fixture("Client")
+    for module, alias in ((left, "A"), (right, "B")):
+        module.union("State", (("Busy", ()), ("Idle", ())))
+        _import_decl(consumer, str(module.module["text"]), alias=alias)
+    for alias in ("A", "B"):
+        consumer.definition("Read" + alias, _NAT, (("s", _type(alias + ".State")),),
+                            _match_expr(_variable("s"), (
+                                (_pat_ctor(alias + ".Busy"), _natural(1)),
+                                (_pat_ctor(alias + ".Idle"), _natural(0)),
+                            )))
+        law = _binary("==", _call("Read" + alias, _member(_variable(alias), "Busy")), _natural(1))
+        consumer.theorem("Check" + alias, (), law, _assert(law))
+    elaborate_package([left.response(), consumer.response(), right.response()])
+    producer = _dispatch_fixture(("First",))
+    client = _Fixture("QualifiedClient")
+    _import_decl(client, "InterfaceDispatch", alias="D")
+    step = _member(_member(_variable("D"), "First"), "Step")
+    law = _binary("==", _call(step, _natural(3)), _natural(4))
+    client.theorem("CheckStep", (), law, _assert(law))
+    elaborate_package([client.response(), producer.response()])
+    client.definition("AmbiguousStep", _NAT, (("x", _NAT),), _call("Step", _variable("x")))
+    try:
+        elaborate_package([client.response(), producer.response()])
+    except VelaError as error:
+        ensure(error.kind == "name", "wrong qualified-only dispatch diagnosis")
+    else:
+        raise AssertionError("qualified import introduced a bare interface method")
+
+
+def _upgrade_client_replay() -> None:
+    old, compatible, expanded = (_Fixture("States") for _ in range(3))
+    for module in (old, compatible):
+        module.union("State", (("Ready", ()), ("Busy", ())))
+    compatible.definition("NewOperation", _NAT, (), _natural(0))
+    expanded.union("State", (("Ready", ()), ("Busy", ()), ("Pending", ())))
+    client = _Fixture("Client")
+    _import_decl(client, "States", alias="S")
+    client.definition("Code", _NAT, (("s", _type("S.State")),), _match_expr(_variable("s"), (
+        (_pat_ctor("S.Ready"), _natural(1)), (_pat_ctor("S.Busy"), _natural(0)),
+    )))
+    report = language.check_client_upgrade(old.response(), compatible.response(), [client.response()])
+    ensure(report["status"] == "clients-elaborated" and report["clients"] == ["Client"], "upgrade replay lost its client")
+    for baseline, candidate, observer, diagnosis in (
+        (old, expanded, client, "candidate replay: module 'Client': non-exhaustive"),
+        (expanded, old, client, "baseline replay: module 'Client': non-exhaustive"),
+        (old, compatible, _Fixture("Unrelated"), "does not import"),
+    ):
+        try:
+            language.check_client_upgrade(baseline.response(), candidate.response(), [observer.response()])
+        except VelaError as error:
+            ensure(diagnosis in error.message, f"upgrade refusal lost its source context: {error.message}")
+        else:
+            raise AssertionError("an incomplete or incompatible upgrade replay was accepted")
+
+
+def _selective_imports() -> None:
+    lib, client = _Fixture("Flags"), _Fixture("Client")
+    lib.union("State", (("Busy", ()), ("Idle", ())))
+    lib.definition("Status", _NAT, (), _natural(7))
+    _import_decl(client, "Flags", items=(("State", None), ("Busy", "Occupied"), ("Idle", None)))
+    _import_decl(client, "Vela.Numerics", items=(("int", "Word"),))
+    client.definition("Code", _NAT, (("s", _type("State")),), _match_expr(_variable("s"), (
+        (_pat_ctor("Occupied"), _natural(1)), (_pat_ctor("Idle"), _natural(0)),
+    )))
+    law = _binary("==", _call("Code", _variable("Occupied")), _natural(1))
+    client.theorem("SelectedConstructor", (), law, _assert(law))
+    client.definition("RoundTrip", _type("Word"), (("x", _type("Word")),), _variable("x"))
+    elaborate_package([client.response(), lib.response()])
+    client.definition("ImplicitOpen", _NAT, (), _call("Status"))
+    try:
+        elaborate_package([client.response(), lib.response()])
+    except VelaError as error:
+        ensure(error.kind == "name" and "Status" in error.message, "wrong unselected export diagnosis")
+    else:
+        raise AssertionError("selective import exposed an unselected export")
 
 
 def _multi_module_imports_and_visibility() -> None:
@@ -6668,7 +6796,10 @@ def _speculative_normalization_rollback() -> None:
 
 
 def cases() -> list[Case]:
-    return [Case("fresh-polymorphism-and-higher-order-inference", _polymorphism_and_higher_order),
+    return [Case("upgrade-replay-against-unchanged-dependent-clients", _upgrade_client_replay),
+            Case("selective-imports-and-renamed-constructors", _selective_imports),
+            Case("constructor-case-and-redundant-patterns", _constructor_spelling_and_shadowed_patterns),
+            Case("fresh-polymorphism-and-higher-order-inference", _polymorphism_and_higher_order),
             Case("familiar-generic-markers-and-mathematical-body-source-binding", _familiar_generic_spellings),
             Case("canonical-named-dependent-call-term-agreement", _canonical_named_call_terms),
             Case("required-static-values-and-dependent-indices", _required_static_constants),
@@ -6724,6 +6855,8 @@ def cases() -> list[Case]:
             Case("interface-dispatch-qualification-and-arity-selection", _interface_dispatch_qualification_and_arities),
             Case("imported-interface-aliases-share-one-dispatch-identity", _imported_interface_aliases),
             Case("callable-member-receiver-once-and-fatal-failures", _callable_member_receiver_and_failures),
+            Case("qualified-imports", _qualified_imports),
+            Case("module-private-identity", _module_private_identity),
             Case("multi-module-imports-and-visibility", _multi_module_imports_and_visibility),
             Case("source-bound-borrows-and-constructive-postconditions", _source_bound_borrows_and_constructive_postconditions),
             Case("explicit-transfer-for-owned-aggregate-bindings", _owned_aggregate_copy),

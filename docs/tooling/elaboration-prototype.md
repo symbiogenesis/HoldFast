@@ -22,6 +22,18 @@ and the compositional constant interface support the bounded mathematical fragme
 General descriptor reflection, generated declaration APIs and composition with
 the refused resource/effect features remain outside it.
 
+## Client upgrade replay
+
+`python tools/run.py vela-parser check-upgrade old.vela new.vela --client client.vela`
+compares two revisions of the same named module. Supply additional
+`--client` and `--dependency` files as needed. Each client must transitively
+import the module under review. A successful replay records the SHA-256 of
+both revisions and every fixed source. An elaboration failure identifies the
+baseline or candidate, the affected module, and the source position.
+The result covers the supplied clients in this mathematical fragment. The
+[release contract](../language/first-release.md#public-api-evolution) also
+accounts for separately compiled consumers, ABI, and replayed kernel evidence.
+
 ## Supported mathematical increment
 
 The increment uses the [surface grammar](../language/surface-grammar.md), with mathematical
@@ -95,7 +107,9 @@ The supported increment includes:
   optional declaration-order `label: pattern` arguments), optional dependent
   `as name : Type` motives, and irrefutable `let (a, b) = ...` or
   `let RecordName(...) = ...` destructuring in blocks and `let ... in ...`
-  expressions. Constructors and binders in patterns are distinguished by token
+  expressions. A later arm wholly covered by a single earlier pattern is refused;
+  a lowercase catch-all resembling a visible constructor identifies the likely spelling.
+  Constructors and binders in patterns are distinguished by token
   shape (uppercase initial letter for constructors and lowercase letter or `_`
   for binders), and nullary constructors are written bare without `()`.
 - Conditional `if (cond) a else b` expressions (`if_expression`), Boolean
@@ -273,8 +287,11 @@ The supported increment includes:
 - Multi-module `import Module.Path;` composition (`elaborate(..., imports=...)`
   and `elaborate_package(modules)`) with topological dependency sorting,
   circular-import refusal, `public` versus `private` visibility enforcement
-  across module boundaries, duplicate/conflicting binding refusal, and qualified
-  `Module.Path.Name` resolution.
+  across module boundaries for declarations, record properties and methods.
+  Emitted package declarations carry their defining module identity, including
+  private helpers in transitive dependencies. A plain import opens the public
+  names and rejects conflicts. An aliased import exposes only qualified names. A selective import binds
+  only its listed public names, including individually renamed constructors and interfaces.
 
 Source callable interfaces preserve explicit arity: `Fn() -> Unit` and
 `Fn(Unit value) -> Unit` require different calls and lambda parameter lists even

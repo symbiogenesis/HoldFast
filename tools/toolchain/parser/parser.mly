@@ -234,10 +234,25 @@ surface_file:
 s_identifier:
   value=s_value_identifier { value }
 | value=ANNOTATION_NAME { name $startpos $endpos value }
-s_value_identifier:
+s_type_identifier:
+  value=s_plain_value_identifier { value }
+| value=ANNOTATION_NAME { name $startpos $endpos value }
+s_plain_value_identifier:
   value=IDENT { name $startpos $endpos value }
 | NAT { name $startpos $endpos "Nat" }
 | BOOL { name $startpos $endpos "bool" }
+s_value_identifier:
+  value=s_plain_value_identifier { value }
+| STATE { name $startpos $endpos "state" }
+| REGISTER { name $startpos $endpos "register" }
+| TRANSITION { name $startpos $endpos "transition" }
+| RULE { name $startpos $endpos "rule" }
+| WHEN { name $startpos $endpos "when" }
+| NEXT { name $startpos $endpos "next" }
+| SCHEDULE { name $startpos $endpos "schedule" }
+| CYCLE { name $startpos $endpos "cycle" }
+| MACHINE { name $startpos $endpos "machine" }
+| HARDWARE { name $startpos $endpos "hardware" }
 
 s_path:
   value=s_qualified_name(s_identifier) { value }
@@ -265,6 +280,10 @@ s_declaration:
 s_decl:
   IMPORT path=s_path SEMICOLON
     { make "import" $startpos $endpos [("name", path)] [] }
+| IMPORT path=s_path AS visible=s_identifier SEMICOLON
+    { make "import" $startpos $endpos [("name", path); ("alias", visible)] [] }
+| IMPORT path=s_path LBRACE items=comma_nonempty_list(s_import_item) RBRACE SEMICOLON
+    { make "import" $startpos $endpos [("name", path); ("items", array items)] items }
 | ALIAS alias=s_identifier generics=s_generics contracts=list(s_contract) EQUAL value=s_type SEMICOLON
     { make "alias" $startpos $endpos [("name", alias); ("generics", array generics);
         ("contracts", array contracts); ("type", value.syntax)] (value :: generics @ contracts) }
@@ -356,6 +375,12 @@ s_decl:
 %inline s_parameter_open:
   LPAREN { () } | LAMBDA_OPEN { () }
 
+s_import_item:
+  exported=s_identifier
+    { make "import_item" $startpos $endpos [("name", exported); ("alias", Null)] [] }
+| exported=s_identifier AS visible=s_identifier
+    { make "import_item" $startpos $endpos [("name", exported); ("alias", visible)] [] }
+
 s_container_kind:
   STRUCT { "struct" } | INTERFACE { "interface" }
 | MACHINE { "machine" } | HARDWARE { "hardware" }
@@ -397,6 +422,9 @@ s_constructor:
   constructor_name=s_identifier LPAREN parameters=comma_list(s_parameter) RPAREN
   tail=s_constructor_tail SEMICOLON
     { let result, contracts = tail in
+      if not (is_constructor_spelling (name_text constructor_name)) then
+        raise (Refusal ("syntax", $startpos(constructor_name).Lexing.pos_cnum,
+                        "constructor declaration requires an uppercase initial"));
       make "constructor" $startpos $endpos [("name", constructor_name); ("parameters", array parameters);
         ("result", optional result); ("contracts", array contracts)] (parameters @ children result @ contracts) }
 s_constructor_tail:
@@ -468,7 +496,7 @@ s_loan_lifetime:
   s_generic_open value=LIFETIME GT
     { make "lifetime" $startpos $endpos [("name", name $startpos(value) $endpos(value) value)] [] }
 s_type_atom:
-  value=s_named_type(s_path) { value }
+  value=s_named_type(s_qualified_name(s_type_identifier)) { value }
 | value=s_computed_type { value }
 | value=s_parenthesized_type(s_open_paren) { value }
 %inline s_named_type(path):
@@ -515,7 +543,7 @@ s_type_argument:
 s_generic_type:
   value=s_modified_type(s_generic_type_atom) { value }
 s_generic_type_atom:
-  value=s_named_type(s_path) { value }
+  value=s_named_type(s_qualified_name(s_type_identifier)) { value }
 | value=s_computed_type { value }
 | value=s_function_type { value }
 s_parameter:
@@ -618,7 +646,7 @@ s_nonempty_simple_statement:
 | MATCH LPAREN value=s_expression RPAREN motive=option(s_match_motive) LBRACE cases=nonempty_list(s_match_case) RBRACE
     { make "match" $startpos $endpos [("value", value.syntax); ("motive", optional motive);
         ("cases", array cases)] (value :: children motive @ cases) }
-| NEXT target=s_postfix EQUAL value=s_expression SEMICOLON
+| NEXT target=s_next_place EQUAL value=s_expression SEMICOLON
     { make "next" $startpos $endpos [("target", target.syntax); ("value", value.syntax)] [target; value] }
 | target=s_statement_expression operator=s_assignment value=s_expression SEMICOLON
     { make "assignment" $startpos $endpos [("target", target.syntax); ("operator", operator); ("value", value.syntax)] [target; value] }
@@ -770,8 +798,6 @@ s_implication:
   value=s_implication_with(LPAREN) { value }
 s_contract_expression:
   value=s_implication_with(s_parameter_open) { value }
-s_postfix:
-  value=s_postfix_with(LPAREN) { value }
 s_implication_with(opening):
   value=right_binary(s_disjunction_with(opening), s_implication_operator) { value }
 s_implication_operator:
@@ -829,6 +855,12 @@ s_prefix_with(opening):
     { make "dispose" $startpos $endpos [("value", value.syntax)] [value] }
 | RESUME continuation=s_identifier s_parameter_open value=s_expression RPAREN
     { make "resume" $startpos $endpos [("continuation", continuation); ("value", value.syntax)] [value] }
+s_next_place:
+  value=s_value_identifier { make "name" $startpos $endpos [("name", value)] [] }
+| value=s_next_place DOT member=s_member_identifier
+    { make "member" $startpos $endpos [("value", value.syntax); ("name", member)] [value] }
+| value=s_next_place LBRACKET index=s_expression RBRACKET
+    { make "index" $startpos $endpos [("value", value.syntax); ("index", index.syntax)] [value; index] }
 s_field_update:
   field_name=s_identifier EQUAL value=s_expression
     { make "field_update" $startpos $endpos [("name", field_name); ("value", value.syntax)] [value] }

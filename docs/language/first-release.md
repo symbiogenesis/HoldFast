@@ -231,6 +231,10 @@ value when its use is specialized, or the build reports a located obligation or
 refusal with no runtime fallback. [`const` declarations](surface-grammar.md#required-static-constants)
 spell the interface, and [the core's staging rules](core-design.md#refinement-effects-and-staging)
 bound conversion and erasure.
+A plain `import Module.Path;` opens its public names. `import Module.Path as M;`
+imports them solely under `M`, so two libraries can export the same name.
+`import Module.Path { State, Busy as Occupied };` brings just those declarations
+into scope. Constructors retain their nominal identity under an uppercase alias.
 Qualified names resolve independently of import order. Duplicate local/imported
 bindings are errors unless an explicit alias distinguishes them. A public nominal
 identity comprises the resolved package instance, module path and declaration
@@ -269,6 +273,24 @@ proof bodies actually consumed, accepted assumptions, target and tools. An equal
 interface fingerprint alone cannot reuse stale compilation or proof evidence.
 Until finer dependency tracking is qualified, a semantic dependency change
 invalidates the reachable component closure conservatively.
+
+### Public API evolution
+
+Adding a case to a public closed union can break downstream exhaustive matches;
+adding a public export can make an existing open import ambiguous. Adding a
+required interface method or law changes the obligations of existing instances.
+Parameter labels, required-static status, grades, capture and effect bounds, and
+public representation participate in compatibility alongside parameter/result
+types. An upgrade that strengthens a precondition or weakens a postcondition can
+invalidate callers and their proofs. A release must identify these changes,
+version breaking changes accordingly, and supply a migration or retain an
+adapter where the prior interface can still be implemented. An API intended
+to admit new internal cases can expose an abstract type with stable eliminators.
+
+The local [client replay command](../tooling/elaboration-prototype.md#client-upgrade-replay)
+keeps client and dependency sources fixed and elaborates both revisions, including
+exhaustiveness and proof obligations exercised by those clients. Release
+qualification also requires its kernel, ABI and target-specific evidence.
 
 ## Ownership libraries
 

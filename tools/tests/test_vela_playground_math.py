@@ -539,10 +539,52 @@ for (const [expression, kind] of [
   }
 }
 
+const commentFormatSource = [
+  "module Grouping;", "// Preserve the sum before multiplying.",
+  "/// Computes the intended value.", "public Nat F()=>((1+2))*3; // result",
+].join("\r\n");
+const fmtSession = (await mod.browserApi("/api/session", {})).session;
+const doc = { uri: "untitled:playground.vela", version: 1, text: commentFormatSource };
+await mod.browserApi("/api/lsp", {session: fmtSession, message: { jsonrpc: "2.0", method: "textDocument/didOpen", params: { textDocument: doc } }});
+const fmtReply = await mod.browserApi("/api/lsp", {session: fmtSession, message: { jsonrpc: "2.0", id: 1, method: "textDocument/formatting", params: { textDocument: { uri: doc.uri } } }});
+const candidate = fmtReply.messages[0].result?.[0]?.newText;
+if (!candidate || !candidate.includes("((1 + 2)) * 3; // result") ||
+    !candidate.includes("// Preserve the sum before multiplying.\n/// Computes the intended value.")) {
+  throw new Error("Browser formatter lost source grouping, comments, or documentation");
+}
+const afterFormat = await mod.browserApi("/api/evaluate", { source: candidate, expression: "F()", valueType: "Nat" });
+if (!afterFormat.ok || afterFormat.value !== "9") throw new Error("Browser formatter changed evaluation");
+await mod.browserApi("/api/close", { session: fmtSession });
+
+for (const [template, expected] of [
+  [String.raw`{{{ByteLength("}"):d}}}\n`, "4"],
+  ["{match (true) { true => 42, false => 8, }:x4}", "4"],
+  ["{true:x2}", null],
+  ["{15:b8}", null],
+]) {
+  const source = 'module Formatting; public TextBuilder<12> F(){ let TextBuilder<12> b = EmptyBuilder(); return Format.Write(ref b, $"' + template + '"); }';
+  const outcome = await mod.browserApi("/api/evaluate", { source, expression: "Written(F())", valueType: "Nat" });
+  if (expected === null ? outcome.ok || outcome.error?.kind !== "type" : !outcome.ok || outcome.value !== expected) {
+    throw new Error("Browser interpolation disagrees on " + template);
+  }
+}
+
+const unchecked = await mod.browserApi("/api/compile", {
+  source: "module Claims; public lemma EveryNatIsZero(Nat n) ensures n == 0 proof { assert n == 0; }",
+});
+if (!unchecked.ok || unchecked.sourceStatus !== "evaluation-preview" || unchecked.gallina !== null ||
+    unchecked.uncheckedClaims?.[0]?.name !== "EveryNatIsZero") {
+  throw new Error("A browser sample was presented as a proof");
+}
+const quantified = await mod.browserApi("/api/evaluate", {
+  source: ordinarySource, expression: "forall (Nat n) => n == 0", valueType: "bool",
+});
+if (quantified.ok || quantified.error?.kind !== "unsupported") throw new Error("Browser evaluated an open quantifier");
+
 const parity = { examples: {} };
 for (const [key, example] of Object.entries(mod.EXAMPLES)) {
   const compiled = await mod.browserApi("/api/compile", { source: example.source });
-  if (!compiled.ok || !compiled.gallina) {
+  if (!compiled.ok || (compiled.editorServices ? !compiled.gallina : compiled.gallina !== null)) {
     throw new Error(`Example ${key} failed browserApi compile: ${JSON.stringify(compiled)}`);
   }
   const evaluated = await mod.browserApi("/api/evaluate", {
@@ -624,6 +666,15 @@ if (
     "local declaration requires 'let' or 'var' before its type (write 'let T x = e;' or 'var T x = e;')"
 ) {
   throw new Error(`Expected mathematical bare local to be refused under Q25ah: ${JSON.stringify(bareLocalMath)}`);
+}
+
+for (const [declaration, why] of [
+  ["import Flags { State };", "requires native module resolution"],
+  ["public union State { ready(); }", "uppercase initial"],
+  ["public union State { Ready(); Busy(); } public definition Nat Read(State s) => match (s) { ready => 1, Busy => 0 };", "binds every value"],
+]) {
+  const result = await mod.browserApi("/api/compile", { source: "module ConstructorCases; " + declaration });
+  if (result.ok || !result.error.message.includes(why)) throw new Error(JSON.stringify(result));
 }
 
 const vela105Source = [

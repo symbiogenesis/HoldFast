@@ -349,6 +349,7 @@ public lemma SameValue()
       { expression: "HeaderBytes", valueType: "Nat" },
       { expression: "Fits(FormatPacket(42, true))", valueType: "bool" },
       { expression: "Fits(OverflowPacket(42))", valueType: "bool" },
+      { expression: "Fits(FormatPacket(4_294_967_296, true))", valueType: "bool" },
     ],
     source: `module CheckedFormatting;
 
@@ -383,11 +384,11 @@ public lemma DedentedHeaderLength()
         assert HeaderBytes == 10;
     }
 
-public theorem PacketFitsForEveryId()
-    ensures forall (Nat id) => Fits(FormatPacket(id, true)) == true
+public lemma LargeIdExceedsCapacity()
+    ensures Fits(FormatPacket(4_294_967_296, true)) == false
     proof
     {
-        assert Fits(FormatPacket(id, true));
+        assert Fits(FormatPacket(4_294_967_296, true)) == false;
     }
 
 public lemma PacketWrites32Bytes()
@@ -656,7 +657,7 @@ function makeExpr(kind, value, site, children = [], labels = []) {
   return { kind, value, site, children, depth, nesting, labels };
 }
 
-function pureTokenize(sourceText, { allowSemicolon = true } = {}) {
+function pureTokenize(sourceText, { allowSemicolon = true, keepComments = false } = {}) {
   checkSourceText(sourceText);
   const tokens = [];
   let index = 0;
@@ -687,11 +688,14 @@ function pureTokenize(sourceText, { allowSemicolon = true } = {}) {
       continue;
     }
     if (sourceText.startsWith("//", index)) {
+      const start = index;
+      const site = { line, column };
       while (index < sourceText.length && sourceText[index] !== "\r" && sourceText[index] !== "\n") {
         const cp = sourceText.codePointAt(index);
         index += cp > 0xffff ? 2 : 1;
         column += 1;
       }
+      if (keepComments) tokens.push({ kind: "comment", text: sourceText.slice(start, index), site, offset: start });
       continue;
     }
     if (sourceText.startsWith("/*", index)) {
@@ -2173,144 +2177,94 @@ function isCamelCase(text) {
   return /^[a-z][A-Za-z0-9]*$/.test(text);
 }
 
-function formatDecimalLiteral(text) {
-  if (text.includes("_") || text.length < 5) {
-    return text;
-  }
-  const groups = [];
-  let end = text.length;
-  while (end > 0) {
-    const start = Math.max(0, end - 3);
-    groups.push(text.slice(start, end));
-    end = start;
-  }
-  groups.reverse();
-  return groups.join("_");
+function pureFormatParts(sourceText) {
+  const source = normalizeNewlines(sourceText);
+  const tokens = pureTokenize(source, { keepComments: true }).filter((t) => t.kind !== "eof");
+  return tokens.map((token, index) => {
+    const previous = tokens[index - 1];
+    const blankBefore = !!previous && token.site.line > previous.site.line + 1;
+    const inline = token.kind === "comment" && !!previous && token.site.line === previous.site.line;
+    return { ...token, blankBefore, inline };
+  });
 }
 
-function purePrecedence(item) {
-  if (item.kind === "binary") {
-    const op = String(item.value);
-    if (op === "||") return 1;
-    if (op === "&&") return 2;
-    if (PURE_COMPARISON_OPERATORS.has(op)) return 3;
-    if (op === "+" || op === "-") return 4;
-    return 5;
-  }
-  if (item.kind === "unary") return 6;
-  return 7;
-}
+function renderPureParts(parts) {
+  const lines = [];
+  let current = "";
+  let indent = 0;
+  let complete = false;
+  let previous;
 
-function formatPureExpr(item) {
-  if (item.kind === "group") {
-    return formatPureExpr(item.children[0]);
+  function flush() {
+    if (current) lines.push("    ".repeat(indent) + current);
+    current = "";
   }
-  if (item.kind === "nat") {
-    return formatDecimalLiteral(String(item.value));
+  function blank() {
+    flush();
+    if (lines.length && lines.at(-1) !== "") lines.push("");
   }
-  if (item.kind === "bool") {
-    return item.value ? "true" : "false";
-  }
-  if (item.kind === "name") {
-    return String(item.value);
-  }
-  if (item.kind === "call") {
-    const renderedArgs = item.children.map((child, idx) => {
-      const label = item.labels[idx];
-      const val = formatPureExpr(child);
-      return label ? `${label.text}: ${val}` : val;
-    });
-    return `${item.value}(${renderedArgs.join(", ")})`;
-  }
-  if (item.kind === "unary") {
-    const child = item.children[0].kind === "group" ? item.children[0].children[0] : item.children[0];
-    const text = formatPureExpr(child);
-    return purePrecedence(child) < purePrecedence(item) ? `!(${text})` : `!${text}`;
-  }
-  const left = item.children[0].kind === "group" ? item.children[0].children[0] : item.children[0];
-  const right = item.children[1].kind === "group" ? item.children[1].children[0] : item.children[1];
-  const prec = purePrecedence(item);
-  let leftText = formatPureExpr(left);
-  let rightText = formatPureExpr(right);
-  if (purePrecedence(left) < prec) {
-    leftText = `(${leftText})`;
-  }
-  if (
-    purePrecedence(right) < prec ||
-    (purePrecedence(right) === prec && right.kind === "binary")
-  ) {
-    rightText = `(${rightText})`;
-  }
-  return `${leftText} ${item.value} ${rightText}`;
-}
-
-function formatPureBlock(block, indent) {
-  const pad = " ".repeat(indent);
-  const inner = " ".repeat(indent + 4);
-  const lines = [`${pad}{`];
-  for (const stmt of block.bindings) {
-    if (stmt.kind === "constant") {
-      lines.push(
-        `${inner}const ${stmt.valueType} ${stmt.name.text} = ${formatPureExpr(stmt.value)};`
-      );
-    } else if (stmt.kind === "reassignment") {
-      lines.push(`${inner}${stmt.name.text} = ${formatPureExpr(stmt.value)};`);
+  for (const part of parts) {
+    const spelling = part.text;
+    if (previous?.kind === "comment" && part.blankBefore) blank();
+    if (part.kind === "comment") {
+      if (part.inline && current) {
+        current = current.trimEnd() + " " + spelling;
+        flush();
+      } else if (part.inline && lines.length) {
+        while (lines.at(-1) === "") lines.pop();
+        lines[lines.length - 1] += " " + spelling;
+      } else {
+        flush();
+        if (!indent && complete) blank();
+        complete = false;
+        lines.push("    ".repeat(indent) + spelling);
+      }
     } else {
-      const ann = stmt.annotation ? `${stmt.annotation} ` : "";
-      lines.push(`${inner}let ${ann}${stmt.name.text} = ${formatPureExpr(stmt.value)};`);
+      if (!indent && complete) blank();
+      complete = false;
+      if (spelling === "{" || spelling === "}") {
+        flush();
+        if (spelling === "}") indent -= 1;
+        lines.push("    ".repeat(indent) + spelling);
+        if (spelling === "{") indent += 1;
+        complete = indent === 0;
+      } else if (spelling === ";") {
+        current = current.trimEnd() + ";";
+        flush();
+        complete = indent === 0;
+      } else if ([",", ":", ")"].includes(spelling)) {
+        current = current.trimEnd() + spelling + (spelling === ")" ? "" : " ");
+      } else if (spelling === "(") {
+        if (["if", "return"].includes(previous?.text)) current += " ";
+        current += "(";
+      } else if (["=", "=>", "+", "-", "*", "/", "%", "==", "!=", "<", "<=", ">", ">=", "&&", "||"].includes(spelling)) {
+        current = current.trimEnd() + " " + spelling + " ";
+      } else {
+        if (current && !/[ (!]$/.test(current)) current += " ";
+        current += spelling;
+      }
     }
+    previous = part;
   }
-  if (block.terminal.kind === "return") {
-    lines.push(`${inner}return ${formatPureExpr(block.terminal.value)};`);
-  } else {
-    lines.push(
-      `${inner}if (${formatPureExpr(block.terminal.condition)})`,
-      ...formatPureBlock(block.terminal.yes, indent + 4),
-      `${inner}else`,
-      ...formatPureBlock(block.terminal.no, indent + 4)
-    );
-  }
-  lines.push(`${pad}}`);
-  return lines;
+  flush();
+  return lines.join("\n") + "\n";
 }
 
 function pureFormatSource(sourceText) {
-  const { parsed, declarationSites } = parsePureModule(sourceText);
   runPureTranslate(sourceText, false);
-  const lines = [`module ${parsed.name.text};`];
-  for (const decl of parsed.declarations) {
-    lines.push("");
-    const siteKey = `${decl.name.site.line}:${decl.name.site.column}`;
-    const pubSite = declarationSites.get(siteKey);
-    const doc = pubSite ? extractPureDocumentation(sourceText, pubSite) : null;
-    if (doc !== null) {
-      for (const docLine of doc.split("\n")) {
-        lines.push(docLine ? `/// ${docLine}` : "///");
-      }
-    }
-    if (decl.kind === "constant") {
-      lines.push(`public const ${decl.valueType} ${decl.name.text} = ${formatPureExpr(decl.value)};`);
-      continue;
-    }
-    const params = decl.parameters
-      .map(
-        ([pName, pType]) =>
-          `${decl.constParameters.has(pName.text) ? "const " : ""}${pType} ${pName.text}`
-      )
-      .join(", ");
-    const qualifier = decl.isConst ? "const " : "";
-    const sig = `public ${qualifier}${decl.result} ${decl.name.text}(${params})`;
-    if (
-      decl.bodyKind === "expression" &&
-      decl.body.bindings.length === 0 &&
-      decl.body.terminal.kind === "return"
-    ) {
-      lines.push(`${sig} => ${formatPureExpr(decl.body.terminal.value)};`);
-    } else {
-      lines.push(sig, ...formatPureBlock(decl.body, 0));
-    }
+  const parts = pureFormatParts(sourceText);
+  const result = renderPureParts(parts);
+  runPureTranslate(result, false);
+  const rendered = pureFormatParts(result);
+  const unchanged = parts.length === rendered.length && parts.every((part, i) => {
+    const copy = rendered[i];
+    return part.kind === copy.kind && part.text === copy.text && part.inline === copy.inline &&
+      (!part.text.startsWith("///") || part.inline || parts[i + 1]?.blankBefore === rendered[i + 1]?.blankBefore);
+  });
+  if (!unchanged || renderPureParts(rendered) !== result) {
+    throw new VelaError("format", 1, 1, "formatting changed tokens, comments or documentation attachment");
   }
-  return `${lines.join("\n")}\n`;
+  return result;
 }
 
 function unwrapPureGroup(expr) {
@@ -3015,15 +2969,23 @@ function parseRawStringLiteral(sourceText, startIndex, startLine, startCol) {
   throw new VelaError("syntax", startLine, startCol, "unterminated raw string literal");
 }
 
-function mathTokenize(sourceText, { allowSemicolon = true } = {}) {
-  checkSourceText(sourceText);
+function mathTokenize(sourceText, { allowSemicolon = true, hole = null } = {}) {
+  if (!hole) checkSourceText(sourceText);
   const tokens = [];
-  let index = 0;
-  let line = 1;
-  let column = 1;
+  let index = hole?.index ?? 0;
+  let line = hole?.line ?? 1;
+  let column = hole?.column ?? 1;
+  let nested = 0;
 
   while (index < sourceText.length) {
     const ch = sourceText[index];
+    if (hole) {
+      if (ch === "\r" || ch === "\n" || line !== hole.line) throw new VelaError("syntax", line, column, "newline in interpolation hole");
+      if (!nested && (ch === "}" || (ch === ":" && !sourceText.startsWith("::", index)))) break;
+      if ("([{".includes(ch)) nested += 1;
+      if (")]}".includes(ch)) nested -= 1;
+      if (nested < 0) throw new VelaError("syntax", line, column, "mismatched interpolation delimiter");
+    }
     if (ch === " " || ch === "\t") {
       index += 1;
       column += 1;
@@ -3085,31 +3047,10 @@ function mathTokenize(sourceText, { allowSemicolon = true } = {}) {
     }
     if (sourceText.startsWith('$"', index)) {
       const startSite = { line, column };
-      index += 2;
-      column += 2;
-      let rawTemplate = "";
-      while (index < sourceText.length && sourceText[index] !== '"') {
-        if (sourceText[index] === "\r" || sourceText[index] === "\n") {
-          throw new VelaError("syntax", startSite.line, startSite.column, "unterminated format string");
-        }
-        if (sourceText[index] === "\\") {
-          rawTemplate += sourceText.slice(index, index + 2);
-          index += 2;
-          column += 2;
-          continue;
-        }
-        const cp = sourceText.codePointAt(index);
-        const step = cp > 0xffff ? 2 : 1;
-        rawTemplate += sourceText.slice(index, index + step);
-        index += step;
-        column += 1;
-      }
-      if (sourceText[index] !== '"') {
-        throw new VelaError("syntax", startSite.line, startSite.column, "unterminated format string");
-      }
-      index += 1;
-      column += 1;
-      tokens.push({ kind: "format", text: rawTemplate, site: startSite });
+      const format = readFormatTemplate(sourceText, index, line, column, (hole?.depth ?? 0) + 1);
+      tokens.push({ kind: "format", text: sourceText.slice(index, format.end), segments: format.segments, site: startSite });
+      index = format.end;
+      column = format.column;
       continue;
     }
     if (sourceText.startsWith('"""', index)) {
@@ -3131,14 +3072,10 @@ function mathTokenize(sourceText, { allowSemicolon = true } = {}) {
           throw new VelaError("syntax", startSite.line, startSite.column, "unterminated string literal");
         }
         if (sourceText[index] === "\\") {
-          const esc = sourceText[index + 1];
-          const map = { n: "\n", r: "\r", t: "\t", '"': '"', "\\": "\\", "0": "\0" };
-          if (map[esc] === undefined) {
-            throw new VelaError("syntax", line, column, `invalid string escape '\\${esc || ""}'`);
-          }
-          val += map[esc];
-          index += 2;
-          column += 2;
+          const escape = mathEscape(sourceText, index, line, column);
+          val += escape.value;
+          column += escape.end - index;
+          index = escape.end;
           continue;
         }
         const cp = sourceText.codePointAt(index);
@@ -3224,7 +3161,7 @@ function mathTokenize(sourceText, { allowSemicolon = true } = {}) {
     }
     throw new VelaError("syntax", line, column, `unexpected character '${ch}'`);
   }
-  tokens.push({ kind: "eof", text: "<eof>", site: { line, column } });
+  tokens.push({ kind: "eof", text: "<eof>", site: { line, column }, offset: index });
   return tokens;
 }
 
@@ -3466,23 +3403,25 @@ class MathParser {
     const nameTok = this.expect("word", null, "pattern");
     const isCtor = /^[A-Z]/.test(nameTok.text);
     if (this.match("symbol", "(")) {
+      if (!isCtor) throw new VelaError("syntax", nameTok.site.line, nameTok.site.column, "constructor pattern requires an uppercase initial");
       const args = [];
-      if (!this.match("symbol", ")")) {
-        while (true) {
-          let label = null;
-          let labelSite = null;
-          if (this.current.kind === "word" && this.peek().text === ":") {
-            const lTok = this.advance();
-            label = lTok.text;
-            labelSite = lTok.site;
-            this.expect("symbol", ":");
-          }
-          const pat = this.parsePattern();
-          args.push({ label, labelSite, pattern: pat });
-          if (this.match("symbol", ")")) break;
-          this.expect("symbol", ",");
-          if (this.match("symbol", ")")) break;
+      if (this.current.text === ")") {
+        throw new VelaError("syntax", nameTok.site.line, nameTok.site.column, "a nullary constructor pattern is written without parentheses");
+      }
+      while (true) {
+        let label = null;
+        let labelSite = null;
+        if (this.current.kind === "word" && this.peek().text === ":") {
+          const lTok = this.advance();
+          label = lTok.text;
+          labelSite = lTok.site;
+          this.expect("symbol", ":");
         }
+        const pat = this.parsePattern();
+        args.push({ label, labelSite, pattern: pat });
+        if (this.match("symbol", ")")) break;
+        this.expect("symbol", ",");
+        if (this.match("symbol", ")")) break;
       }
       return { kind: "ctor_pat", name: nameTok.text, args, site: nameTok.site };
     }
@@ -3490,6 +3429,28 @@ class MathParser {
       return { kind: "ctor_pat", name: nameTok.text, args: [], site: nameTok.site };
     }
     return { kind: "var_pat", name: nameTok.text, site: nameTok.site };
+  }
+
+  parseArmPattern(arms) {
+    const pattern = this.parsePattern();
+    const covers = (left, right) => {
+      if (left.kind === "var_pat" || left.kind === "wildcard") return true;
+      if (left.kind !== right.kind) return false;
+      if (left.kind === "ctor_pat") {
+        return left.name === right.name && left.args.length === right.args.length &&
+          left.args.every((arg, index) => covers(arg.pattern, right.args[index].pattern));
+      }
+      if (left.kind === "tuple_pat") {
+        return left.items.length === right.items.length && left.items.every((item, index) => covers(item, right.items[index]));
+      }
+      return left.value === right.value;
+    };
+    const earlier = arms.find(({ pattern: prior }) => covers(prior, pattern))?.pattern;
+    if (earlier) {
+      const why = earlier.kind === "var_pat" ? `pattern '${earlier.name}' binds every value` : "pattern covers this case";
+      throw new VelaError("type", pattern.site.line, pattern.site.column, `unreachable match arm: earlier ${why}`);
+    }
+    return pattern;
   }
 
   parseProofBlock() {
@@ -3598,9 +3559,8 @@ class MathParser {
     while (this.current.kind !== "eof") {
       if (this.match("word", "import")) {
         const impName = this.parseDottedName("imported module");
-        this.expect("symbol", ";");
-        declarations.push({ kind: "import", name: impName.text, site: impName.site });
-        continue;
+        throw new VelaError("unsupported", impName.site.line, impName.site.column,
+          `import '${impName.text}' requires native module resolution`);
       }
       let visibility = "public";
       if (
@@ -3686,6 +3646,9 @@ class MathParser {
         const cases = [];
         while (this.current.kind !== "eof" && !this.match("symbol", "}")) {
           const caseName = this.expect("word", null, "union case");
+          if (!/^[A-Z]/.test(caseName.text)) {
+            throw new VelaError("syntax", caseName.site.line, caseName.site.column, "constructor declaration requires an uppercase initial");
+          }
           const caseFields = this.parseParameters();
           this.expect("symbol", ";");
           cases.push({ name: caseName.text, fields: caseFields, site: caseName.site });
@@ -3824,7 +3787,7 @@ class MathParser {
       this.expect("symbol", "{");
       const arms = [];
       while (this.current.kind !== "eof" && !this.match("symbol", "}")) {
-        const pattern = this.parsePattern();
+        const pattern = this.parseArmPattern(arms);
         this.expect("symbol", "=>");
         const armBody = this.current.text === "{" ? this.parseBlock() : { kind: "expr_body", expr: this.parseExpression(), site: this.current.site };
         this.match("symbol", ",");
@@ -4289,7 +4252,7 @@ class MathParser {
     }
     if (tok.kind === "format") {
       this.advance();
-      return { kind: "format_string", template: tok.text, site: tok.site };
+      return { kind: "format_string", segments: tok.segments, site: tok.site };
     }
     if (tok.kind === "word" && (tok.text === "true" || tok.text === "false")) {
       this.advance();
@@ -4302,7 +4265,7 @@ class MathParser {
       this.expect("symbol", "{");
       const arms = [];
       while (this.current.kind !== "eof" && !this.match("symbol", "}")) {
-        const pattern = this.parsePattern();
+        const pattern = this.parseArmPattern(arms);
         this.expect("symbol", "=>");
         const expr = this.parseExpression();
         this.match("symbol", ",");
@@ -5267,63 +5230,74 @@ function valuesEqual(a, b) {
   return false;
 }
 
-function parseFormatSegments(template, site) {
+function mathEscape(source, offset, line, column) {
+  const code = source[offset + 1];
+  const escapes = { n: "\n", r: "\r", t: "\t", '"': '"', "'": "'", "\\": "\\", "0": "\0" };
+  if (Object.hasOwn(escapes, code)) return { value: escapes[code], end: offset + 2 };
+  const scalar = /^\\u\{([0-9a-fA-F]{1,6})\}/.exec(source.slice(offset, offset + 10));
+  if (scalar) {
+    const cp = parseInt(scalar[1], 16);
+    if (cp <= 0x10ffff && !(cp >= 0xd800 && cp <= 0xdfff)) {
+      return { value: String.fromCodePoint(cp), end: offset + scalar[0].length };
+    }
+  }
+  throw new VelaError("syntax", line, column, "invalid string escape");
+}
+
+function readFormatTemplate(source, start, line, column, depth) {
+  if (depth > MAX_EXPRESSION_DEPTH) throw new VelaError("limit", line, column, "format nesting exceeds limit");
   const segments = [];
-  let idx = 0;
   let literal = "";
-  while (idx < template.length) {
-    if (template.startsWith("{{", idx)) {
-      literal += "{";
-      idx += 2;
-      continue;
+  let index = start + 2;
+  column += 2;
+  while (index < source.length && !/[\r\n]/.test(source[index])) {
+    const ch = source[index];
+    if (ch === '"') {
+      if (literal) segments.push({ kind: "text", value: literal });
+      return { segments, end: index + 1, column: column + 1 };
     }
-    if (template.startsWith("}}", idx)) {
-      literal += "}";
-      idx += 2;
-      continue;
+    if (ch === "\\") {
+      const escape = mathEscape(source, index, line, column);
+      literal += escape.value;
+      column += escape.end - index;
+      index = escape.end;
+    } else if (source.startsWith("{{", index) || source.startsWith("}}", index)) {
+      literal += ch;
+      index += 2;
+      column += 2;
+    } else if (ch === "{") {
+      if (literal) segments.push({ kind: "text", value: literal });
+      literal = "";
+      const tokens = mathTokenize(source, { hole: { index: index + 1, line, column: column + 1, depth } });
+      const parser = new MathParser(tokens);
+      const expr = parser.parseExpression();
+      if (parser.current.kind !== "eof") {
+        throw new VelaError("syntax", line, parser.current.site.column, "unexpected token in interpolation hole");
+      }
+      index = parser.current.offset;
+      column = parser.current.site.column;
+      let spec = "";
+      if (source[index] === ":") {
+        const match = /^:([^\s"'{}()[\]:]+)\}/u.exec(source.slice(index));
+        if (!match) throw new VelaError("syntax", line, column, "invalid interpolation format specifier");
+        spec = match[1];
+        index += spec.length + 1;
+        column += Array.from(spec).length + 1;
+      }
+      if (source[index] !== "}") throw new VelaError("syntax", line, column, "unclosed interpolation hole");
+      segments.push({ kind: "hole", expr, spec });
+      index += 1;
+      column += 1;
+    } else if (ch === "}") {
+      throw new VelaError("syntax", line, column, "unescaped closing brace in format string");
+    } else {
+      const codepoint = String.fromCodePoint(source.codePointAt(index));
+      literal += codepoint;
+      index += codepoint.length;
+      column += 1;
     }
-    if (template[idx] === "{") {
-      if (literal.length > 0) {
-        segments.push({ kind: "text", value: literal });
-        literal = "";
-      }
-      const closeIdx = template.indexOf("}", idx + 1);
-      if (closeIdx < 0) {
-        throw new VelaError("syntax", site.line, site.column, "unclosed '{' in format string");
-      }
-      const rawHole = template.slice(idx + 1, closeIdx).trim();
-      if (!rawHole) {
-        throw new VelaError("syntax", site.line, site.column, "empty hole in format string");
-      }
-      let holeText = rawHole;
-      let spec = null;
-      const specMatch = /^([\s\S]+):([xXbB][0-9]*)$/.exec(rawHole);
-      if (specMatch) {
-        holeText = specMatch[1].trim();
-        spec = specMatch[2];
-      }
-      const holeTokens = mathTokenize(holeText, { allowSemicolon: false });
-      const holeParser = new MathParser(holeTokens);
-      const holeExpr = holeParser.parseExpression();
-      if (holeParser.current.kind !== "eof") {
-        throw new VelaError(
-          "syntax",
-          site.line,
-          site.column,
-          "invalid expression in format string hole"
-        );
-      }
-      segments.push({ kind: "hole", expr: holeExpr, spec });
-      idx = closeIdx + 1;
-      continue;
-    }
-    literal += template[idx];
-    idx += 1;
   }
-  if (literal.length > 0) {
-    segments.push({ kind: "text", value: literal });
-  }
-  return segments;
+  throw new VelaError("syntax", line, column, "unterminated format string");
 }
 
 // The right side of a short-circuited guard is checked in the scope it
@@ -5357,10 +5331,8 @@ function checkScalarValue(type, value, site, binding) {
 }
 
 class MathElaborator {
-  constructor(parsedModule, sourceText, sourceHash = "") {
+  constructor(parsedModule) {
     this.module = parsedModule;
-    this.sourceText = sourceText;
-    this.sourceHash = sourceHash;
     this.records = new Map();
     this.unionCtors = new Map();
     this.constants = new Map();
@@ -5772,11 +5744,7 @@ class MathElaborator {
       };
     }
     if (expr.kind === "quantifier") {
-      const qEnv = new Map(env);
-      for (const p of expr.params) {
-        qEnv.set(p.name, 0n);
-      }
-      return Boolean(this.evalExpr(expr.body, qEnv));
+      throw new VelaError("unsupported", expr.site.line, expr.site.column, "quantified propositions require proof checking");
     }
     if (expr.kind === "if_expr") {
       const thenEnv = new Map(env);
@@ -5996,38 +5964,29 @@ class MathElaborator {
           "Format.Write second argument must be a format template literal"
         );
       }
-      const segments = parseFormatSegments(fmtArg.value.template, fmtArg.site);
       let addedBytes = 0n;
-      for (const seg of segments) {
+      for (const seg of fmtArg.value.segments) {
         if (seg.kind === "text") {
           addedBytes += BigInt(utf8Bytes(seg.value).length);
         } else {
           const holeVal = this.evalExpr(seg.expr, env);
-          let rendered;
+          let byteCount;
           if (typeof holeVal === "bigint") {
-            if (seg.spec && /^[xX][0-9]*$/.test(seg.spec)) {
-              const width = seg.spec.length > 1 ? Number.parseInt(seg.spec.slice(1), 10) : 0;
-              const hex = holeVal.toString(16).padStart(width, "0");
-              rendered = seg.spec[0] === "X" ? hex.toUpperCase() : hex;
-            } else if (seg.spec && /^[bB][0-9]*$/.test(seg.spec)) {
-              const width = seg.spec.length > 1 ? Number.parseInt(seg.spec.slice(1), 10) : 0;
-              rendered = holeVal.toString(2).padStart(width, "0");
-            } else {
-              rendered = holeVal.toString();
+            if (!["", "d", "x", "X", "x2", "X2", "x4", "X4", "x8", "X8", "b"].includes(seg.spec)) {
+              throw new VelaError("type", seg.expr.site.line, seg.expr.site.column, `unsupported integer format specifier '${seg.spec}'`);
             }
-          } else if (typeof holeVal === "boolean") rendered = holeVal ? "true" : "false";
-          else if (typeof holeVal === "string") rendered = holeVal;
-          else if (holeVal && holeVal.__kind === "vec") {
-            rendered = "x".repeat(Number(holeVal.length));
-          } else {
-            throw new VelaError(
-              "type",
-              fmtArg.site.line,
-              fmtArg.site.column,
-              "format hole must have type Nat, bool, or String"
-            );
-          }
-          addedBytes += BigInt(utf8Bytes(rendered).length);
+            const radix = /^[xX]/.test(seg.spec) ? 16 : seg.spec === "b" ? 2 : 10;
+            if (radix !== 10 && holeVal < 0n) {
+              throw new VelaError("type", seg.expr.site.line, seg.expr.site.column, "nondecimal formatting requires a non-negative integer");
+            }
+            byteCount = BigInt(Math.max(Number(seg.spec[1] || 0), holeVal.toString(radix).length));
+          } else if (seg.spec) {
+            throw new VelaError("type", seg.expr.site.line, seg.expr.site.column, `unsupported format specifier '${seg.spec}'`);
+          } else if (typeof holeVal === "boolean") byteCount = holeVal ? 4n : 5n;
+          else if (typeof holeVal === "string") byteCount = BigInt(utf8Bytes(holeVal).length);
+          else if (holeVal?.__kind === "vec") byteCount = holeVal.length;
+          else throw new VelaError("type", seg.expr.site.line, seg.expr.site.column, "unsupported format hole type");
+          addedBytes += byteCount;
         }
       }
       const cap = builder.capacity ?? 36n;
@@ -6291,13 +6250,19 @@ class MathElaborator {
           }
           callEnv.set(param.name, argVal);
         }
+        for (const req of decl.contracts.requires) {
+          if (this.evalExpr(req.expr, callEnv) !== true) {
+            throw new VelaError("type", req.site.line, req.site.column, `precondition of '${decl.name}' failed`);
+          }
+        }
         if (!decl.body) {
-          return { __kind: "unit" };
+          throw new VelaError("unsupported", expr.site.line, expr.site.column, `'${decl.name}' has no body to evaluate`);
         }
         const res = this.evalBlock(decl.body, callEnv);
         const returnVal = res.value;
         this.checkReturnValueType(decl, returnVal, callEnv);
         for (const ens of decl.contracts.ensures) {
+          if (containsQuantifier(ens.expr)) continue;
           const ensEnv = new Map(callEnv);
           ensEnv.set("result", returnVal);
           const ok = this.evalExpr(ens.expr, ensEnv);
@@ -6440,125 +6405,47 @@ class MathElaborator {
   }
 
   elaborate() {
-    const gallinaBlocks = [];
+    const uncheckedClaims = [];
     for (const decl of this.module.declarations) {
       if (decl.kind === "record") {
         this.records.set(decl.name, decl);
-        const fieldLines = decl.fields
-          .map((f) => `  ${decl.name}_${f.name} : ${renderMathTypeGallina(f.type)};`)
-          .join("\n");
-        gallinaBlocks.push(
-          `Record ${decl.name} : Type := mk_${decl.name} {\n${fieldLines}\n}.`
-        );
-        for (const prop of decl.properties) {
-          gallinaBlocks.push(
-            `Definition ${decl.name}_${prop.name} (this : ${decl.name}) : ${renderMathTypeGallina(prop.type)} :=\n  (* property ${prop.name} *) ${renderMathExprGallina(prop.expr)}.`
-          );
-        }
-        continue;
-      }
-      if (decl.kind === "union") {
-        const ctorLines = [];
-        for (const c of decl.cases) {
-          this.unionCtors.set(c.name, c);
-          const paramTypes = c.fields.map((f) => `${renderMathTypeGallina(f.type)} -> `).join("");
-          ctorLines.push(`| ${c.name} : ${paramTypes}${decl.name}`);
-        }
-        gallinaBlocks.push(`Inductive ${decl.name} : Type :=\n${ctorLines.join("\n")}.`);
-        continue;
-      }
-      if (decl.kind === "constant") {
+      } else if (decl.kind === "union") {
+        for (const variant of decl.cases) this.unionCtors.set(variant.name, variant);
+      } else if (decl.kind === "constant") {
         const val = this.evalExpr(decl.value, new Map());
         checkScalarValue(decl.valueType, val, decl.site, decl.name);
         this.constants.set(decl.name, val);
-        gallinaBlocks.push(
-          `Definition ${decl.name} : ${renderMathTypeGallina(decl.valueType)} := ${renderMathValueGallina(val)}.`
-        );
-        continue;
-      }
-      if (decl.kind === "definition" || decl.kind === "function") {
-        this.callables.set(decl.name, decl);
-        const sampleEnv = new Map();
-        for (const g of decl.generics) {
-          if (g.mode !== "type") {
-            sampleEnv.set(g.name, 2n);
+      } else if (["definition", "function", "lemma"].includes(decl.kind)) {
+        const closed = !decl.parameters.length && !decl.generics.length &&
+          !decl.contracts.requires.length;
+        if (decl.kind === "lemma" || decl.proof || decl.contracts.ensures.length) {
+          uncheckedClaims.push({ name: decl.name, ...decl.site });
+        }
+        const env = new Map();
+        if (decl.kind !== "lemma") {
+          this.callables.set(decl.name, decl);
+          for (const generic of decl.generics) {
+            if (generic.mode !== "type") env.set(generic.name, 2n);
+          }
+          for (const param of decl.parameters) {
+            env.set(param.name, this.sampleValueForType(param.type, env));
+          }
+          if (decl.body && !decl.contracts.requires.length) {
+            const res = this.evalBlock(decl.body, env);
+            this.checkReturnValueType(decl, res.value, env);
+            env.set("result", res.value);
           }
         }
-        for (const p of decl.parameters) {
-          sampleEnv.set(p.name, this.sampleValueForType(p.type, sampleEnv));
-        }
-        if (decl.body) {
-          const res = this.evalBlock(decl.body, sampleEnv);
-          this.checkReturnValueType(decl, res.value, sampleEnv);
+        if (closed && !containsQuantifier(decl.contracts) && !containsQuantifier(decl.proof)) {
+          this.checkProofBlock(decl.proof, env);
           for (const ens of decl.contracts.ensures) {
-            const ensEnv = new Map(sampleEnv);
-            ensEnv.set("result", res.value);
-            const ok = this.evalExpr(ens.expr, ensEnv);
-            if (ok !== true) {
-              throw new VelaError(
-                "type",
-                ens.site.line,
-                ens.site.column,
-                `postcondition 'ensures' of '${decl.name}' failed`
-              );
+            if (this.evalExpr(ens.expr, env) !== true) {
+              throw new VelaError("type", ens.site.line, ens.site.column, `closed assertion in '${decl.name}' is false`);
             }
           }
         }
-        if (decl.proof) {
-          this.checkProofBlock(decl.proof, sampleEnv);
-        }
-        const gBinders = decl.generics
-          .map((g) => (g.mode === "type" ? `(${g.name} : Type)` : `(${g.name} : nat)`))
-          .join(" ");
-        const pBinders = decl.parameters
-          .map((p) => `(${p.name} : ${renderMathTypeGallina(p.type)})`)
-          .join(" ");
-        const allBinders = [gBinders, pBinders].filter(Boolean).join(" ");
-        const bodyText = decl.body ? renderMathBodyGallina(decl.body) : "tt";
-        gallinaBlocks.push(
-          `Definition ${decl.name}${allBinders ? " " + allBinders : ""} : ${renderMathTypeGallina(decl.returnType)} :=\n  ${bodyText}.`
-        );
-        continue;
-      }
-      if (decl.kind === "lemma") {
-        const sampleEnv = new Map();
-        for (const p of decl.parameters) {
-          sampleEnv.set(p.name, this.sampleValueForType(p.type, sampleEnv));
-        }
-        for (const ens of decl.contracts.ensures) {
-          if (ens.expr && ens.expr.kind === "quantifier") {
-            for (const qp of ens.expr.params) {
-              sampleEnv.set(qp.name, this.sampleValueForType(qp.type, sampleEnv));
-            }
-          }
-        }
-        if (decl.proof) {
-          this.checkProofBlock(decl.proof, sampleEnv);
-        }
-        for (const ens of decl.contracts.ensures) {
-          const ok = this.evalExpr(ens.expr, sampleEnv);
-          if (ok !== true) {
-            throw new VelaError(
-              "type",
-              ens.site.line,
-              ens.site.column,
-              `lemma '${decl.name}' ensures clause failed`
-            );
-          }
-        }
-        const pBinders = decl.parameters
-          .map((p) => `(${p.name} : ${renderMathTypeGallina(p.type)})`)
-          .join(" ");
-        const propText =
-          decl.contracts.ensures.length > 0
-            ? renderMathExprGallina(decl.contracts.ensures[0].expr)
-            : "True";
-        gallinaBlocks.push(
-          `Theorem ${decl.name}${pBinders ? " " + pBinders : ""} : ${propText} :=\n  eq_refl.`
-        );
       }
     }
-
     const findings = [];
     for (const binder of this.module.genericTypeBinders) {
       if (!isPascalCase(binder.text)) {
@@ -6572,103 +6459,13 @@ class MathElaborator {
     }
     findings.sort((a, b) => a.line - b.line || a.column - b.column);
 
-    const modIdent = `Vela_${this.module.name.replace(/\./g, "_")}`;
-    const gallina = [
-      "(* SPDX-License-" + "Identifier: Apache-2.0 *)",
-      `(* Vela mathematical elaboration: unqualified kernel proposal. Source SHA256: ${this.sourceHash} *)`,
-      `Module ${modIdent}.`,
-      "",
-      "From Stdlib Require Import Bool Arith PeanoNat String.",
-      "",
-      ...gallinaBlocks,
-      "",
-      `End ${modIdent}.`,
-      "",
-    ].join("\n");
-
-    return {
-      module: this.module.name,
-      gallina,
-      findings,
-    };
+    return { module: this.module.name, findings, uncheckedClaims };
   }
 }
 
-function renderMathTypeGallina(typeNode) {
-  if (!typeNode) return "unit";
-  if (typeNode.kind === "mode_type") return renderMathTypeGallina(typeNode.inner);
-  if (typeNode.kind === "fn_type") {
-    const dom = typeNode.params.map((p) => renderMathTypeGallina(p.type)).join(" -> ");
-    return `(${dom || "unit"} -> ${renderMathTypeGallina(typeNode.result)})`;
-  }
-  if (typeNode.kind === "nat_index") return `${typeNode.value.toString()}%nat`;
-  if (typeNode.kind === "expr_index") return renderMathExprGallina(typeNode.expr);
-  if (typeNode.kind === "named_type") {
-    if (typeNode.name === "Nat") return "nat";
-    if (typeNode.name === "bool") return "bool";
-    if (typeNode.name === "Unit" || typeNode.name === "void") return "unit";
-    if (typeNode.name === "String") return "string";
-    if (typeNode.args && typeNode.args.length > 0) {
-      const renderedArgs = typeNode.args.map((a) => renderMathTypeGallina(a)).join(" ");
-      return `(${typeNode.name} ${renderedArgs})`;
-    }
-    return typeNode.name;
-  }
-  return "Type";
-}
-
-function renderMathValueGallina(val) {
-  if (typeof val === "bigint") return `${val.toString()}%nat`;
-  if (typeof val === "boolean") return val ? "true" : "false";
-  if (typeof val === "string") return `"${val.replace(/"/g, '""')}"%string`;
-  return "tt";
-}
-
-function renderMathExprGallina(expr) {
-  if (!expr) return "tt";
-  if (expr.kind === "nat") return `${expr.value.toString()}%nat`;
-  if (expr.kind === "bool") return expr.value ? "true" : "false";
-  if (expr.kind === "string") return `"${expr.value.replace(/"/g, '""')}"%string`;
-  if (expr.kind === "name") return expr.name;
-  if (expr.kind === "member") return `(${renderMathExprGallina(expr.object)}.${expr.member})`;
-  if (expr.kind === "unary") return `(${expr.op}${renderMathExprGallina(expr.operand)})`;
-  if (expr.kind === "binary") {
-    return `(${renderMathExprGallina(expr.left)} ${expr.op} ${renderMathExprGallina(expr.right)})`;
-  }
-  if (expr.kind === "if_expr") {
-    return `(if ${renderMathExprGallina(expr.condition)} then ${renderMathExprGallina(expr.thenExpr)} else ${renderMathExprGallina(expr.elseExpr)})`;
-  }
-  if (expr.kind === "call") {
-    const callee = renderMathExprGallina(expr.callee);
-    const args = expr.args.map((a) => renderMathExprGallina(a.value)).join(" ");
-    return args ? `(${callee} ${args})` : callee;
-  }
-  if (expr.kind === "with_update") {
-    const upd = expr.updates.map((u) => `${u.field} := ${renderMathExprGallina(u.value)}`).join("; ");
-    return `(${renderMathExprGallina(expr.base)} with { ${upd} })`;
-  }
-  if (expr.kind === "match_expr") {
-    const arms = expr.arms
-      .map((a) => `| _ => ${renderMathExprGallina(a.expr)}`)
-      .join(" ");
-    return `(match ${renderMathExprGallina(expr.scrutinee)} with ${arms} end)`;
-  }
-  return "tt";
-}
-
-function renderMathBodyGallina(body) {
-  if (body.kind === "expr_body") {
-    return renderMathExprGallina(body.expr);
-  }
-  const parts = [];
-  for (const stmt of body.statements) {
-    if (stmt.kind === "local" && stmt.name !== "_") {
-      parts.push(`let ${stmt.name} := ${renderMathExprGallina(stmt.value)} in`);
-    } else if (stmt.kind === "return") {
-      parts.push(renderMathExprGallina(stmt.value));
-    }
-  }
-  return parts.length > 0 ? parts.join("\n  ") : "tt";
+function containsQuantifier(value) {
+  return value !== null && typeof value === "object" &&
+    (value.kind === "quantifier" || Object.values(value).some(containsQuantifier));
 }
 
 let lastBrowserCompilation = null;
@@ -6680,7 +6477,7 @@ function compileBrowserModule(sourceText, sourceHash) {
   let error;
   try {
     const parser = new MathParser(mathTokenize(sourceText));
-    elaborator = new MathElaborator(parser.parseModule(), sourceText, sourceHash);
+    elaborator = new MathElaborator(parser.parseModule());
     translation = elaborator.elaborate();
   } catch (err) {
     error = err;
@@ -6701,7 +6498,7 @@ function compileBrowserModule(sourceText, sourceHash) {
   }
   const result = error
     ? formatErrorPayload(sourceHash, error)
-    : { ok: true, sourceHash, ...translation, gallina: scalar?.gallina ?? translation.gallina };
+    : { ok: true, sourceHash, ...translation, sourceStatus: scalar ? "pure-translation" : "evaluation-preview", gallina: scalar?.gallina ?? null };
   lastBrowserCompilation = { sourceText, result, editorServices, elaborator };
   return lastBrowserCompilation;
 }
@@ -7025,7 +6822,7 @@ function initPlaygroundUi() {
     }
   }
 
-  function publishDiagnostics(diagnostics) {
+  function publishDiagnostics(diagnostics, result = null) {
     $("problem-count").textContent = String(diagnostics.length);
     $("problem-count").classList.toggle("has-problems", diagnostics.length > 0);
     if (state.model && window.monaco) {
@@ -7048,17 +6845,21 @@ function initPlaygroundUi() {
       const clean = element(
         "div",
         "diagnostic-clean",
-        "No error reported for the current source."
+        result?.sourceStatus === "evaluation-preview" ? "Browser evaluation preview." : "No error reported for the current source."
       );
       clean.append(
         element(
           "small",
           "",
-          "This is a development check, with no kernel or production acceptance verdict."
+          result?.sourceStatus === "evaluation-preview"
+            ? (result.uncheckedClaims.length
+              ? `Unchecked proof obligations for ${result.uncheckedClaims.map((claim) => claim.name).join(", ")}.`
+              : "Only the selected example inputs were evaluated.")
+            : "This is a development check, with no kernel or production acceptance verdict."
         )
       );
       $("diagnostics").replaceChildren(clean);
-      activity("Current buffer checked");
+      activity(result?.sourceStatus === "evaluation-preview" ? "Browser evaluation preview ready" : "Current buffer checked");
       return;
     }
     $("diagnostics").replaceChildren(
@@ -7121,7 +6922,8 @@ function initPlaygroundUi() {
               code: finding.code,
               source: "Vela lint",
             };
-          })
+          }),
+      result
     );
   }
 
@@ -8100,6 +7902,16 @@ function initPlaygroundUi() {
         $("compile-summary").textContent = "Compilation refused; no generated output.";
         $("gallina-output").textContent = errorText(result.error);
         activity("Compiler refused the source");
+        return;
+      }
+      if (result.sourceStatus === "evaluation-preview") {
+        $("compile-summary").textContent = `${result.module} \u00b7 browser evaluation preview \u00b7 SHA-256 ${hash.slice(0, 12)}`;
+        const claims = result.uncheckedClaims.map((claim) => claim.name).join(", ");
+        $("gallina-output").textContent = [
+          claims && `Unchecked proof obligations for ${claims}.`,
+          "Run the local mathematical elaborator to obtain Gallina for this module.",
+        ].filter(Boolean).join("\n");
+        activity("Browser evaluation preview ready");
         return;
       }
       state.gallina = result.gallina;

@@ -44,6 +44,18 @@ without an initial byte-order mark. Both entries identify the mark at line 1, co
 
 ## Required syntax
 
+The machine and hardware words `machine`, `hardware`, `state`, `register`,
+`transition`, `rule`, `when`, `next`, `schedule`, and `cycle` are contextual
+in value positions. Ordinary code can use them as parameter names, local
+bindings, expression names, and members. In a hardware update, `next` precedes
+a named storage place with optional field and index projections.
+
+An import takes a module path and an optional namespace alias, as in
+`import Storage.Blocks as Blocks;`. A selective form lists public names between braces and permits a
+per-name alias, as in `import Storage.Blocks { Block, Empty as Free };`. The
+list is nonempty and permits a trailing comma. Each alias is a located identifier. The
+[module contract](first-release.md#modules-and-packages) defines its scope.
+
 The surface entry must express the following features. Grammar actions only
 construct syntax, including syntactically valid programs with semantic errors.
 
@@ -489,6 +501,7 @@ least two components. Grouping works in local elimination, match arms and patter
 tests. Local pattern bindings retain `let_pattern`/`var_pattern` with `pattern`
 and `value` fields. A bare lowercase local name retains the existing inferred binding form;
 a local nullary constructor pattern uses a qualified uppercase path, as in `let Result.Empty = outcome;`.
+Union and inductive constructor declarations start with an uppercase letter.
 Lowercase or `_` pattern names bind, and uppercase names are constructors; nullary
 constructors are written bare without `()`, such as `None`, while empty-argument
 constructor patterns `None()` are refused. Component grades remain in their data types. Refutability, constructor arity,

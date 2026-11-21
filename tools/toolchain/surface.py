@@ -1142,6 +1142,13 @@ public async void Invalid(ref BorrowCell<Buffer> cell, tracked Permit permit) {
 """, ("tuple", "wildcard_pattern", "let", "lambda", "unary")),
     Fixture("modules-and-abstraction", """module Library.Storage;
 import Core.Buffers;
+import Storage.Devices as Devices;
+import Storage.Flags { State, Busy as Occupied, Idle, };
+public Nat Advance(Nat state, Nat register, Nat transition, Nat rule, Nat when,
+                   Nat next, Nat schedule, Nat cycle, Nat machine, Nat hardware) {
+    let result = state + register + transition + rule + when + next + schedule + cycle + machine + hardware;
+    return result;
+}
 alias Word = u64;
 namespace Internal {
     public interface Storage<T> {
@@ -1466,6 +1473,7 @@ NEGATIVE: tuple[tuple[str, bytes, str], ...] = (
     ("typed-singleton-not-product", b"module M; alias X = (Nat,);", "syntax"),
     ("nullary-constructor-pattern-parentheses", b"module M; void F() { match (x) { None() => return; } }", "syntax"),
     ("qualified-nullary-constructor-pattern-parentheses", b"module M; void F() { match (x) { Result.None() => return; } }", "syntax"),
+    ("lowercase-constructor-declaration", b"module M; public union Flag { ready(); }", "syntax"),
     ("lowercase-constructor-pattern", b"module M; void F() { match (x) { some(y) => return; } }", "syntax"),
     ("qualified-lowercase-pattern", b"module M; void F() { match (x) { Result.none => return; } }", "syntax"),
     ("redundant-pattern-let", b"module M; void F() { let (let left, let right) = pair; }", "syntax"),

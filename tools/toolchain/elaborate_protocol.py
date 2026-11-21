@@ -17,7 +17,7 @@ from toolchain.elaborate_types import MAX_DEPTH, Node
 
 _FIELDS: dict[str, set[str]] = {
     "surface_file": {"name", "declarations"},
-    "import": {"name"},
+    "import": {"name"}, "import_item": {"name", "alias"},
     "alias": {"name", "generics", "contracts", "type", "modifiers"},
     "constant": {"name", "type", "value", "modifiers"},
     "constant_local": {"name", "type", "value"},
@@ -761,7 +761,22 @@ class _Protocol:
                 raise self.error("protocol", "import declarations cannot carry modifiers", node)
             cursor = self._token(node, cursor, b"import")
             cursor = self._child(node, span, cursor, node["name"])
+            if "items" in node:
+                items = node["items"]
+                if "alias" in node or not isinstance(items, list) or not items or any(
+                    not isinstance(item, dict) or item.get("kind") != "import_item" for item in items
+                ):
+                    raise self.error("protocol", "selective imports require a nonempty list of import items", node)
+                cursor = self._list(node, span, cursor, items, b"{", b"}")
+            elif "alias" in node:
+                cursor = self._token(node, cursor, b"as")
+                cursor = self._child(node, span, cursor, node["alias"])
             cursor = self._token(node, cursor, b";")
+        elif kind == "import_item":
+            cursor = self._child(node, span, cursor, node["name"])
+            if node["alias"] is not None:
+                cursor = self._token(node, cursor, b"as")
+                cursor = self._child(node, span, cursor, node["alias"])
         elif kind == "propagate":
             cursor = self._child(node, span, cursor, node["value"])
             cursor = self._token(node, cursor, b"?")
@@ -922,7 +937,7 @@ class _Protocol:
             else (
                 {"name"}
                 if kind == "contract"
-                else ({"modifiers"} if kind == "import" else set())
+                else ({"modifiers", "alias", "items"} if kind == "import" else set())
             )
         )
         if (set(node) - optional != {"kind", "span", *fields}

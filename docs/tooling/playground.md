@@ -1,5 +1,7 @@
 # Vela browser playground
 
+The static evaluation preview accepts self-contained modules. Imports require the native resolver.
+
 ## Dependent mathematics increment
 
 Q25ae in [the plan](../../PLAN.md#q-assessment-actions) commissions one unified
@@ -7,9 +9,12 @@ playground using the [mathematical elaborator](elaboration-prototype.md).
 `python tools/run.py vela-playground` runs in the native guest lane and builds
 the locked Menhir parser once before serving. Every local buffer uses the
 schema-2 surface parser and mathematical elaborator. The static playground
-loads its browser parser and elaborator with the page.
+loads its browser parser and bounded evaluator with the page. The hosted page
+returns a pure Gallina translation for the pure profile. Wider inputs return
+an evaluation preview with located unchecked claims. Downloadable Gallina for
+these inputs comes from the local mathematical elaborator.
 
-Compile elaborates the entire source and displays its actual Gallina. The console
+Local compilation elaborates the entire source and displays its actual Gallina. The console
 checks the complete source plus exactly one closed expression, reduces it with the
 existing bounded mathematical reducer, and returns only `Nat` or `bool`. Generic
 inference, dependent functions, length-indexed `Vec`, finite `Fin` indices and
@@ -34,7 +39,9 @@ length preservation, multi-quote raw string literals with allocation-free checke
 read-only expression properties, `with { ... }` updates, declaration-order labeled
 constructor patterns, `if (...) ... else ...` expressions, `let ... else` /
 `if (x is ...)` guards, and explicit proofs, with independently expected console
-answers.
+answers. The browser parses interpolated expressions with its ordinary expression
+grammar, records source positions in the original template, and validates format
+specifiers against each evaluated value.
 All examples share one selector and one source buffer. Debounced source checks
 automatically update diagnostics and editor-service availability. Compilation
 reports diagnostics for the current buffer, including the
@@ -205,6 +212,8 @@ same bounded isolated worker used by compilation. Return advisory VELA100 throug
 VELA103 findings at original one-based compiler positions. Validate the complete response, known
 codes, original-source positions and at most 8,192 findings. Refuse malformed, incomplete, oversized or
 failed producer results; an unavailable inspection is never a clean lint result.
+The static formatter lays out the original pure tokens and line comments. It rechecks the candidate and compares token spellings, inline comments, documentation attachment and idempotence before offering an edit.
+
 The static page runs its authoring check in the browser. A check changes no
 source. Invalidate findings on edits and reconnection.
 

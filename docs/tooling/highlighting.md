@@ -61,7 +61,7 @@ parser's own build receipt.
 
 The [qualifier](../../tools/toolchain/highlight_qualification.py) exercises all six
 authored examples and the complete versioned
-[surface corpus](../../tools/toolchain/surface.py): 76 positives and 319 negatives.
+[surface corpus](../../tools/toolchain/surface.py): 76 positives and 320 negatives.
 It independently rechecks the canonical parser's expected results, then checks
 each projected Tree-sitter result against the frozen
 [recovery dispositions](../../tools/editor/recovery.json). The stock query engine
@@ -82,8 +82,8 @@ qualification; they cannot yield a successful syntax-assets report.
 ## Recovery and acceptance boundaries
 
 The editor parser approximates lexical lookahead and omits compiler semantic
-actions. One canonical positive, structural local/lambda annotations, currently
-uses recovery. Thirty-five canonical syntax negatives retain an editor tree:
+actions. Every canonical positive, including structural local and lambda
+annotations, parses without recovery. Thirty-six canonical syntax negatives retain an editor tree:
 reserved words in contextual identifier positions; declaration modifiers and
 constant/proof-signature restrictions; constructor-pattern spellings and complete
 binding shape; retired null spellings; bare type-shaped locals; raw-string layout;
