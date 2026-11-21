@@ -4363,6 +4363,37 @@ def _mandatory_result_use() -> None:
     elaborate(source, response)
 
 
+def _slot_predicates_preserve_authority() -> None:
+    slot_type = _type("Slots", _type("u32"), _natural(4))
+    zero, one = _int_lit("0", "usize"), _int_lit("1", "usize")
+    src, dst = _variable("src"), _variable("dst")
+    live = _call("LivePrefix", src, one)
+    vacancy = _call("VacantRange", src, zero, one)
+    for assumption in (vacancy, _member(src, "CanWrite")):
+        fixture = _Fixture("WriteOnly")
+        fixture.function("Bad", _type("u32"), (("src", _modified("ref", slot_type)),),
+                         _call(_member(_variable("Slots"), "Read"), src, zero),
+                         contracts=(_contract("requires", assumption),))
+        _refuses(fixture, "type", "Slots.CanRead")
+    readonly = _Fixture("LiveReadOnly")
+    readonly.function("Bad", _type("Unit"), (("src", _modified("ref", slot_type)), ("dst", _modified("ref", slot_type))),
+                      _block_stmts(_expr_stmt(_call("TransferType", _ref_arg(src), _ref_arg(dst), one)), _return_stmt(_unit())),
+                      block=True, contracts=(_contract("requires", live),))
+    _refuses(readonly, "type", "source has write permission")
+
+    metadata = (_member(src, "CanRead"), _binary("==", _member(src, "LiveCount"), one))
+    model_length = _binary("==", _member(_member(src, "Model"), "Count"), _natural(1))
+    for assumptions, expected in ((metadata, False), ((*metadata, model_length), True)):
+        fixture = _Fixture("ModelLength")
+        fixture.function("NeedLive", _type("Unit"), (("src", slot_type),), _unit(), contracts=(_contract("requires", live),))
+        fixture.function("Use", _type("Unit"), (("src", slot_type),), _call("NeedLive", src),
+                         contracts=tuple(_contract("requires", condition) for condition in assumptions))
+        if expected:
+            elaborate(*fixture.response())
+        else:
+            _refuses(fixture, "type", "precondition")
+
+
 def _vacant_slots_and_two_step_relocation() -> None:
     fixture = _Fixture("SlotsAndRelocation")
     fixture.function(
@@ -4416,6 +4447,8 @@ def _vacant_slots_and_two_step_relocation() -> None:
             _contract("requires", _call(_member(_variable("Slots"), "Disjoint"), _variable("dst"), _variable("src"))),
             _contract("requires", _binary("<=", _variable("count"), _variable("N"))),
             _contract("requires", _binary("<=", _variable("count"), _variable("M"))),
+            _contract("requires", _member(_variable("src"), "CanWrite")),
+            _contract("requires", _member(_variable("dst"), "CanRead")),
             _contract("requires", _call("LivePrefix", _variable("src"), _variable("count"))),
             _contract("requires", _call("VacantSuffix", _variable("src"), _variable("count"))),
             _contract("requires", _call("VacantRange", _variable("dst"), _int_lit("0", "usize"), _variable("M"))),
@@ -4472,6 +4505,8 @@ def _vacant_slots_and_two_step_relocation() -> None:
             contracts=(
                 _contract("requires", _call(_member(_variable("Slots"), "Disjoint"), _variable("dst"), _variable("src"))),
                 _contract("requires", _binary("<=", _variable("count"), _int_lit(cap_lit, "usize"))),
+                _contract("requires", _member(_variable("src"), "CanWrite")),
+                _contract("requires", _member(_variable("dst"), "CanRead")),
                 _contract("requires", _call("LivePrefix", _variable("src"), _variable("count"))),
                 _contract("requires", _call("VacantRange", _variable("dst"), _int_lit("0", "usize"), _int_lit(cap_lit, "usize"))),
                 _contract("ensures", _call("LivePrefix", _variable("dst"), _variable("count"))),
@@ -4570,6 +4605,7 @@ def _vacant_slots_and_two_step_relocation() -> None:
         block=True,
         contracts=(
             _contract("requires", _call(_member(_variable("Slots"), "Disjoint"), _variable("dst"), _variable("src"))),
+            _contract("requires", _member(_variable("src"), "CanWrite")),
             _contract("requires", _call("LivePrefix", _variable("src"), _int_lit("2", "usize"))),
             _contract("requires", _call("VacantRange", _variable("dst"), _int_lit("0", "usize"), _int_lit("4", "usize"))),
         ),
@@ -6842,6 +6878,7 @@ def cases() -> list[Case]:
             Case("mutable-locals-assignments-and-bounded-loops", _mutable_locals_assignments_and_bounded_loops),
             Case("record-invariants-and-selective-lifting", _record_invariants_and_selective_lifting),
             Case("mandatory-result-use", _mandatory_result_use),
+            Case("slots-keep-read-and-write-authority-and-live-model-evidence-separate", _slot_predicates_preserve_authority),
             Case("vacant-slots-and-two-step-relocation", _vacant_slots_and_two_step_relocation),
             Case("characters-conversions-patterns-and-formatting", _characters_conversions_patterns_and_formatting),
             Case("structural-equality-and-seq-contains", _structural_equality_and_seq_contains),

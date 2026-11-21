@@ -126,6 +126,29 @@ class _SolverMixin:
                         return _apps(_constant(f"int_{flip_int[op]}_{spec_name}"), args[0], args[1])
         return _app(_constant("!"), w)
 
+    def _slots_predicate_components(
+        self: _Elaborator, head: _Term, args: list[_Term],
+    ) -> tuple[_Term, ...]:
+        if head == _constant("Slots_LivePrefix") and len(args) == 4:
+            elem, cap, slots, count = args
+            count_nat = _app(_constant("int_to_nat_usize"), count)
+            model = _apps(_constant("Slots_Model"), elem, cap, slots)
+            return (
+                _apps(_constant("Slots_CanRead"), elem, cap, slots),
+                _apps(_constant("<="), count_nat, cap),
+                _apps(_constant("int_eq_usize"), _apps(_constant("Slots_LiveCount"), elem, cap, slots), count),
+                _apps(_constant("eq_nat"), _apps(_constant("Seq_Count"), elem, model), count_nat),
+            )
+        if head == _constant("Slots_VacantRange") and len(args) == 5:
+            elem, cap, slots, start, stop = args
+            return (
+                _apps(_constant("Slots_CanWrite"), elem, cap, slots),
+                _apps(_constant("int_le_usize"), _apps(_constant("Slots_LiveCount"), elem, cap, slots), start),
+                _apps(_constant("int_le_usize"), start, stop),
+                _apps(_constant("<="), _app(_constant("int_to_nat_usize"), stop), cap),
+            )
+        return ()
+
     def _expand_bool_facts(self: _Elaborator, raw_facts: list[_Term]) -> list[_Term]:
         expanded: list[_Term] = []
         queue = list(raw_facts)
@@ -171,22 +194,7 @@ class _SolverMixin:
                     continue
             if item not in expanded:
                 expanded.append(item)
-                if head == _constant("Slots_LivePrefix") and len(args) == 4:
-                    elem, cap, s, cnt = args
-                    queue.append(_apps(_constant("Slots_CanRead"), elem, cap, s))
-                    if not self._is_readonly_span(s):
-                        queue.append(_apps(_constant("Slots_CanWrite"), elem, cap, s))
-                    queue.append(_apps(_constant("int_eq_usize"), _apps(_constant("Slots_LiveCount"), elem, cap, s), cnt))
-                    queue.append(_apps(_constant("int_le_usize"), cnt, self._slots_cap_usize_term(cap)))
-                elif head == _constant("Slots_VacantRange") and len(args) == 5:
-                    elem, cap, s, start, end = args
-                    queue.append(_apps(_constant("Slots_CanWrite"), elem, cap, s))
-                    queue.append(_apps(_constant("Slots_CanRead"), elem, cap, s))
-                    queue.append(_apps(_constant("int_le_usize"), _apps(_constant("Slots_LiveCount"), elem, cap, s), start))
-                    queue.append(_apps(_constant("int_le_usize"), start, end))
-                    queue.append(_apps(_constant("int_le_usize"), end, self._slots_cap_usize_term(cap)))
-                elif head == _constant("Slots_CanWrite") and len(args) == 3:
-                    queue.append(_apps(_constant("Slots_CanRead"), args[0], args[1], args[2]))
+                queue.extend(self._slots_predicate_components(head, args))
         changed = True
         while changed:
             changed = False
@@ -1080,33 +1088,9 @@ class _SolverMixin:
                         fra, frb = self._root_span(fa[3]), self._root_span(fa[4])
                         if (fra == ra and frb == rb) or (fra == rb and frb == ra):
                             return True
-        if head == _constant("Slots_LivePrefix") and len(args) == 4:
-            elem, cap, s, cnt = args
-            return (
-                self._prove_bool_precondition(_apps(_constant("Slots_CanRead"), elem, cap, s), environment)
-                and self._prove_bool_precondition(
-                    _apps(_constant("int_eq_usize"), _apps(_constant("Slots_LiveCount"), elem, cap, s), cnt),
-                    environment,
-                )
-                and self._prove_bool_precondition(
-                    _apps(_constant("int_le_usize"), cnt, self._slots_cap_usize_term(cap)),
-                    environment,
-                )
-            )
-        if head == _constant("Slots_VacantRange") and len(args) == 5:
-            elem, cap, s, start, end = args
-            return (
-                self._prove_bool_precondition(_apps(_constant("Slots_CanWrite"), elem, cap, s), environment)
-                and self._prove_bool_precondition(
-                    _apps(_constant("int_le_usize"), _apps(_constant("Slots_LiveCount"), elem, cap, s), start),
-                    environment,
-                )
-                and self._prove_bool_precondition(_apps(_constant("int_le_usize"), start, end), environment)
-                and self._prove_bool_precondition(
-                    _apps(_constant("int_le_usize"), end, self._slots_cap_usize_term(cap)),
-                    environment,
-                )
-            )
+        components = self._slots_predicate_components(head, args)
+        if components:
+            return all(self._prove_bool_precondition(component, environment, depth) for component in components)
         if head == _constant("Seq_All") and len(args) == 3:
             elem, seq_t, pred_t = args
             s_head, s_args = self.spine(self.whnf(seq_t))
