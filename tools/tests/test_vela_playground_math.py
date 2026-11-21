@@ -677,6 +677,11 @@ for (const [declaration, why] of [
   if (result.ok || !result.error.message.includes(why)) throw new Error(JSON.stringify(result));
 }
 
+const underscored = await mod.browserApi("/api/compile", { source: "module A_B; public Nat Read() => 0;" });
+if (!underscored.gallina.includes("Module VelaEncoded_415f42.") || !underscored.gallina.includes("End VelaEncoded_415f42.")) {
+  throw new Error("pure browser module name collided with a dotted module");
+}
+
 const vela105Source = [
   "module NamingCheck;",
   "public definition item Identity<item>(item value) => value;",

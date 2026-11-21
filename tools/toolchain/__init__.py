@@ -581,17 +581,25 @@ class _Elaborator:
             self.specialization_depth -= 1
 
 
+def gallina_module_name(name: str) -> str:
+    """Encode an ASCII Vela module path injectively as a standalone Gallina identifier."""
+    if "_" in name:
+        return "VelaEncoded_" + name.encode("ascii").hex()
+    return "Vela_" + name.replace(".", "_")
+
+
 def _translate(source: bytes, module: syntax.Module, facts: Facts | None = None, *,
                elaborator: _Elaborator | None = None, trace: Recorder | None = None) -> Translation:
     elaborator = _Elaborator(facts) if elaborator is None else elaborator
     name = module.name.text
+    emitted_module = gallina_module_name(name)
     # REUSE-IgnoreStart
     header = ("(* SPDX-License-Identifier: Apache-2.0 *)\n"
               # REUSE-IgnoreEnd
               f"(* Vela pure prototype: unqualified. Source SHA256: {hashlib.sha256(source).hexdigest()} *)\n"
               "From Corelib Require Import Init.Datatypes Init.Nat.\n\n"
-              f"Module Vela_{name}.\n\n")
-    footer = f"\n\nEnd Vela_{name}.\n"
+              f"Module {emitted_module}.\n\n")
+    footer = f"\n\nEnd {emitted_module}.\n"
     output_bytes = len(header) + len(footer)
     if output_bytes > MAX_OUTPUT_BYTES:
         raise _error("limit", "pure translation exceeds its output byte budget", module.name.site)

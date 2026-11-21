@@ -218,7 +218,7 @@ def _native_output_placement() -> None:
 
 
 def _pure_routing_and_observations() -> None:
-    source = b"module M; public Nat F(Nat value) => value; public const Nat C = 2;"
+    source = b"module A_B; public Nat F(Nat value) => value; public const Nat C = 2;"
     translated = replay.vela.translate(source)
     fixture = replay.Fixture("pure-routing", source, pure=True,
                              observations=(("f_F 2", "2"), ("c_C", "2")))
@@ -247,12 +247,12 @@ def _pure_routing_and_observations() -> None:
                "pure exports were omitted from the assumption audit")
         generated = (directory / "Case000.v").read_text(encoding="utf-8")
         ensure(generated.startswith(translated.gallina)
-               and "Corelib.Init.Logic.eq (Vela_M.f_F 2) (2) := Corelib.Init.Logic.eq_refl (2)." in generated
-               and "Corelib.Init.Logic.eq (Vela_M.c_C) (2)" in generated,
+               and "Corelib.Init.Logic.eq (VelaEncoded_415f42.f_F 2) (2) := Corelib.Init.Logic.eq_refl (2)." in generated
+               and "Corelib.Init.Logic.eq (VelaEncoded_415f42.c_C) (2)" in generated,
                "independent observations were not compiled in the kernel-checked library")
         audit = (directory / "Case000Assumptions.v").read_text(encoding="utf-8")
-        ensure("Print Assumptions Case000.Vela_M.f_F." in audit
-               and "Print Assumptions Case000.Vela_M.c_C." in audit
+        ensure("Print Assumptions Case000.VelaEncoded_415f42.f_F." in audit
+               and "Print Assumptions Case000.VelaEncoded_415f42.c_C." in audit
                and "Print Assumptions Case000.vela_replay_check_0." in audit
                and "Print Assumptions Case000.vela_replay_check_1." in audit,
                "generated exports or observation proofs escaped the assumption audit")
