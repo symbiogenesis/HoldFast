@@ -233,6 +233,8 @@ spell the interface, and [the core's staging rules](core-design.md#refinement-ef
 bound conversion and erasure.
 A plain `import Module.Path;` opens its public names. `import Module.Path as M;`
 imports them solely under `M`, so two libraries can export the same name.
+`import Module.Path { State, Busy as Occupied };` brings just those declarations
+into scope. Constructors retain their nominal identity under an uppercase alias.
 Qualified names resolve independently of import order. Duplicate local/imported
 bindings are errors unless an explicit alias distinguishes them. A public nominal
 identity comprises the resolved package instance, module path and declaration

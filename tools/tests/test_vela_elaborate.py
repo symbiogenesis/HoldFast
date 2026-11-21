@@ -5218,12 +5218,28 @@ def _out_var(name: str) -> Form:
     return form
 
 
-def _import_decl(fixture: _Fixture, module_path: str, *, alias: str | None = None) -> None:
+def _import_decl(fixture: _Fixture, module_path: str, *, alias: str | None = None,
+                 items: tuple[tuple[str, str | None], ...] = ()) -> None:
     fixture.write("\n")
     start = fixture.offset
     fixture.write("import ")
     name_node = fixture.name(module_path)
     fields: Node = {"name": name_node}
+    if items:
+        fixture.write(" {")
+        nodes = []
+        for index, (exported, local) in enumerate(items):
+            if index:
+                fixture.write(", ")
+            item_start = fixture.offset
+            spelling = fixture.name(exported)
+            renamed = None
+            if local is not None:
+                fixture.write(" as ")
+                renamed = fixture.name(local)
+            nodes.append(fixture.node("import_item", item_start, name=spelling, alias=renamed))
+        fixture.write("}")
+        fields["items"] = nodes
     if alias is not None:
         fixture.write(" as ")
         fields["alias"] = fixture.name(alias)
@@ -5958,6 +5974,28 @@ def _qualified_imports() -> None:
         raise AssertionError("qualified import introduced a bare interface method")
 
 
+def _selective_imports() -> None:
+    lib, client = _Fixture("Flags"), _Fixture("Client")
+    lib.union("State", (("Busy", ()), ("Idle", ())))
+    lib.definition("Status", _NAT, (), _natural(7))
+    _import_decl(client, "Flags", items=(("State", None), ("Busy", "Occupied"), ("Idle", None)))
+    _import_decl(client, "Vela.Numerics", items=(("int", "Word"),))
+    client.definition("Code", _NAT, (("s", _type("State")),), _match_expr(_variable("s"), (
+        (_pat_ctor("Occupied"), _natural(1)), (_pat_ctor("Idle"), _natural(0)),
+    )))
+    law = _binary("==", _call("Code", _variable("Occupied")), _natural(1))
+    client.theorem("SelectedConstructor", (), law, _assert(law))
+    client.definition("RoundTrip", _type("Word"), (("x", _type("Word")),), _variable("x"))
+    elaborate_package([client.response(), lib.response()])
+    client.definition("ImplicitOpen", _NAT, (), _call("Status"))
+    try:
+        elaborate_package([client.response(), lib.response()])
+    except VelaError as error:
+        ensure(error.kind == "name" and "Status" in error.message, "wrong unselected export diagnosis")
+    else:
+        raise AssertionError("selective import exposed an unselected export")
+
+
 def _multi_module_imports_and_visibility() -> None:
     math_mod = _Fixture("MathMod")
     math_mod.definition(
@@ -6564,7 +6602,8 @@ def _speculative_normalization_rollback() -> None:
 
 
 def cases() -> list[Case]:
-    return [Case("constructor-case-and-redundant-patterns", _constructor_spelling_and_shadowed_patterns),
+    return [Case("selective-imports-and-renamed-constructors", _selective_imports),
+            Case("constructor-case-and-redundant-patterns", _constructor_spelling_and_shadowed_patterns),
             Case("fresh-polymorphism-and-higher-order-inference", _polymorphism_and_higher_order),
             Case("familiar-generic-markers-and-mathematical-body-source-binding", _familiar_generic_spellings),
             Case("canonical-named-dependent-call-term-agreement", _canonical_named_call_terms),

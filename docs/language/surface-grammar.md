@@ -50,7 +50,9 @@ bindings, expression names, and members. In a hardware update, `next` precedes
 a named storage place with optional field and index projections.
 
 An import takes a module path and an optional namespace alias, as in
-`import Storage.Blocks as Blocks;`. The alias is a located identifier. The
+`import Storage.Blocks as Blocks;`. A selective form lists public names between braces and permits a
+per-name alias, as in `import Storage.Blocks { Block, Empty as Free };`. The
+list is nonempty and permits a trailing comma. Each alias is a located identifier. The
 [module contract](first-release.md#modules-and-packages) defines its scope.
 
 The surface entry must express the following features. Grammar actions only

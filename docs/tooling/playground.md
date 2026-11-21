@@ -1,5 +1,7 @@
 # Vela browser playground
 
+The static evaluation preview accepts self-contained modules. Imports require the native resolver.
+
 ## Dependent mathematics increment
 
 Q25ae in [the plan](../../PLAN.md#q-assessment-actions) commissions one unified

@@ -3559,9 +3559,8 @@ class MathParser {
     while (this.current.kind !== "eof") {
       if (this.match("word", "import")) {
         const impName = this.parseDottedName("imported module");
-        this.expect("symbol", ";");
-        declarations.push({ kind: "import", name: impName.text, site: impName.site });
-        continue;
+        throw new VelaError("unsupported", impName.site.line, impName.site.column,
+          `import '${impName.text}' requires native module resolution`);
       }
       let visibility = "public";
       if (

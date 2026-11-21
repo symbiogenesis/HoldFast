@@ -282,6 +282,8 @@ s_decl:
     { make "import" $startpos $endpos [("name", path)] [] }
 | IMPORT path=s_path AS visible=s_identifier SEMICOLON
     { make "import" $startpos $endpos [("name", path); ("alias", visible)] [] }
+| IMPORT path=s_path LBRACE items=comma_nonempty_list(s_import_item) RBRACE SEMICOLON
+    { make "import" $startpos $endpos [("name", path); ("items", array items)] items }
 | ALIAS alias=s_identifier generics=s_generics contracts=list(s_contract) EQUAL value=s_type SEMICOLON
     { make "alias" $startpos $endpos [("name", alias); ("generics", array generics);
         ("contracts", array contracts); ("type", value.syntax)] (value :: generics @ contracts) }
@@ -372,6 +374,12 @@ s_decl:
     { result, callable_name, generics, parameters }
 %inline s_parameter_open:
   LPAREN { () } | LAMBDA_OPEN { () }
+
+s_import_item:
+  exported=s_identifier
+    { make "import_item" $startpos $endpos [("name", exported); ("alias", Null)] [] }
+| exported=s_identifier AS visible=s_identifier
+    { make "import_item" $startpos $endpos [("name", exported); ("alias", visible)] [] }
 
 s_container_kind:
   STRUCT { "struct" } | INTERFACE { "interface" }

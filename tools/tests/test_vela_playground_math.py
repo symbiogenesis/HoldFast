@@ -669,6 +669,7 @@ if (
 }
 
 for (const [declaration, why] of [
+  ["import Flags { State };", "requires native module resolution"],
   ["public union State { ready(); }", "uppercase initial"],
   ["public union State { Ready(); Busy(); } public definition Nat Read(State s) => match (s) { ready => 1, Busy => 0 };", "binds every value"],
 ]) {

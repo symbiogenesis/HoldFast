@@ -962,6 +962,27 @@ class _DeclarationsMixin:
             )
         return any(self._has_unapplied_rec_var(child, rec_var_id) for child in term.args)
 
+    def _import_bindings(
+        self: _Elaborator, node: Node, namespace: str, public: set[str]
+    ) -> dict[str, tuple[str, ...]]:
+        if "items" not in node:
+            return {
+                name: (f"{namespace}.{name}",) if "alias" in node else (name, f"{namespace}.{name}")
+                for name in sorted(public)
+            }
+        bindings: dict[str, tuple[str, ...]] = {}
+        local_names: set[str] = set()
+        for item in self.nodes(node["items"]):
+            name = self.name(item["name"])
+            local = self.name(item["alias"]) if item["alias"] is not None else name
+            if name not in public:
+                raise self.fail("name", f"module '{namespace}' has no public declaration '{name}'", item)
+            if name in bindings or local in local_names:
+                raise self.fail("name", f"duplicate selection or local name '{local}' in import", item)
+            bindings[name] = (local,)
+            local_names.add(local)
+        return bindings
+
     def _import_declaration(self: _Elaborator, node: Node) -> None:
         modifiers = node.get("modifiers", [])
         if modifiers:
@@ -976,16 +997,15 @@ class _DeclarationsMixin:
         if qualified_only:
             self.module_aliases.add(namespace)
         if imp_name == "Vela.Numerics":
-            for short_name, target_name in _NUMERICS_ALIASES.items():
-                alias_name = f"{namespace}.{short_name}" if qualified_only else short_name
-                if (alias_name in self.globals and self.globals[alias_name] != self.globals[target_name]) or (
-                    alias_name in self.records
-                    or alias_name in self.unions
-                    or alias_name in self.union_ctors
-                    or alias_name in self.interfaces
-                ):
-                    raise self.fail("name", f"import alias '{alias_name}' conflicts with an existing declaration", node)
-                self.globals[alias_name] = self.globals[target_name]
+            for short_name, bindings in self._import_bindings(node, namespace, set(_NUMERICS_ALIASES)).items():
+                target = self.globals[_NUMERICS_ALIASES[short_name]]
+                for alias_name in bindings:
+                    if (alias_name in self.globals and self.globals[alias_name] != target) or (
+                        alias_name in self.records or alias_name in self.unions or alias_name in self.union_ctors
+                        or alias_name in self.interfaces or alias_name in self.module_aliases
+                    ):
+                        raise self.fail("name", f"import alias '{alias_name}' conflicts with an existing declaration", node)
+                    self.globals[alias_name] = target
             return
         if imp_name == self.module_name:
             raise self.fail("name", f"module '{imp_name}' cannot import itself", node)
@@ -1028,11 +1048,12 @@ class _DeclarationsMixin:
                 existing_out.add(line)
         for priv_sym in mod.private_symbols:
             self.inaccessible_private_symbols[f"{namespace}.{priv_sym}"] = imp_name
-            if not qualified_only and priv_sym not in self.globals:
+            if not qualified_only and "items" not in node and priv_sym not in self.globals:
                 self.inaccessible_private_symbols[priv_sym] = imp_name
-        for pub_sym in sorted(mod.public_symbols):
-            qual_name = f"{namespace}.{pub_sym}"
-            for visible_name in ([qual_name] if qualified_only else [pub_sym, qual_name]):
+        for pub_sym, bindings in self._import_bindings(node, namespace, mod.public_symbols).items():
+            for visible_name in bindings:
+                if pub_sym in mod.union_ctors and not visible_name.rsplit(".", 1)[-1][:1].isupper():
+                    raise self.fail("name", f"constructor import '{visible_name}' requires an uppercase initial", node)
                 if (visible_name in self.globals or visible_name in self.records or visible_name in self.unions
                         or visible_name in self.union_ctors or visible_name in self.interfaces
                         or visible_name in self.module_aliases):

@@ -258,7 +258,8 @@ The supported increment includes:
   across module boundaries for declarations, record properties and methods.
   Emitted package declarations carry their defining module identity, including
   private helpers in transitive dependencies. A plain import opens the public
-  names and rejects conflicts. An aliased import exposes only qualified names.
+  names and rejects conflicts. An aliased import exposes only qualified names. A selective import binds
+  only its listed public names, including individually renamed constructors and interfaces.
 
 Source callable interfaces preserve explicit arity: `Fn() -> Unit` and
 `Fn(Unit value) -> Unit` require different calls and lambda parameter lists even
