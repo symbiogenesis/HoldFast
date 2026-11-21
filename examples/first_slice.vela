@@ -264,7 +264,6 @@ public definition bool SpecPacketValid(in Span<byte> dst, in Span<byte> pkt)
         SpecPacketChecksum(in pkt, pkt[1usize], usize.From(pkt[1usize])) == pkt[2usize];
 
 private Unit CopyPacketToDst(ref Span<byte> dst, in Span<byte> pkt, usize payloadLen)
-    effects writes(dst), reads(pkt)
     requires dst.CanRead
     requires dst.CanWrite
     requires pkt.CanRead
@@ -286,7 +285,6 @@ private Unit CopyPacketToDst(ref Span<byte> dst, in Span<byte> pkt, usize payloa
 }
 
 private u8 ComputePacketChecksum(in Span<byte> pkt, u8 rawLen, usize payloadLen)
-    effects reads(pkt)
     requires pkt.CanRead
     requires payloadLen <= 4usize
     requires 4usize + payloadLen <= pkt.Length
