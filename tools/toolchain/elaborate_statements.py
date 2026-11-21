@@ -37,6 +37,96 @@ class _StatementsMixin:
             node = cast("Node", node["value"])
         return node
 
+    def _pattern_conjuncts(self: _Elaborator, condition: Node) -> list[Node]:
+        """Find the positive pattern tests on a short-circuit conjunction's spine."""
+        pending = [condition]
+        operands: list[Node] = []
+        while pending:
+            operand = self._unwrap_group(pending.pop())
+            if operand["kind"] == "binary" and self.operator(operand["operator"]) == "&&":
+                pending.extend((self.node(operand["right"]), self.node(operand["left"])))
+            else:
+                operands.append(operand)
+        return operands if len(operands) > 1 and any(op["kind"] == "is" for op in operands) else []
+
+    @staticmethod
+    def _guard_environment(scope: Node, environment: dict[str, _Binding]) -> dict[str, _Binding]:
+        return {name: environment[name] for name in cast("tuple[str, ...]", scope["locals"])}
+
+    def _guard_conditional(
+        self: _Elaborator, kind: str, site: Node, operands: list[Node], yes: Node, no: Node,
+        environment: dict[str, _Binding],
+    ) -> Node:
+        # A failed later test leaves every binder introduced by earlier tests.
+        scope: Node = {"kind": "guard_scope", "span": no["span"], "locals": tuple(environment)}
+        if kind == "if":
+            statements = self.nodes(no["statements"]) if no["kind"] == "block" else [no]
+            fallback: Node = {"kind": "block", "span": no["span"], "statements": [scope, *statements]}
+        else:
+            fallback = {**scope, "value": no}
+        result = yes
+        for operand in reversed(operands):
+            result = {"kind": kind, "span": site["span"], "condition": operand, "then": result, "else": fallback}
+        return result
+
+    def _guard_block_state(
+        self: _Elaborator, node: Node, environment: dict[str, _Binding],
+    ) -> _Binding:
+        mutable = set(self.mutable_locals)
+        try:
+            after, control = self._elaborate_non_returning_block(
+                self.node(node["body"]), environment, cast("tuple[_Binding, ...]", node["facts"]),
+            )
+        finally:
+            self.mutable_locals = mutable
+        cast("set[str]", node["remaining"]).update(self.uninitialized_out_params)
+        cast("set[str | None]", node["exits"]).add(control)
+        control_code = {None: 0, "break": 1, "continue": 2}[control]
+        result = _Binding(_term("nat", value=control_code), _NAT)
+        for name in reversed(cast("tuple[str, ...]", node["mutable"])):
+            value = after[name]
+            result = _Binding(
+                _term("pair", value.type, result.type, value.term, result.term),
+                _term("prod", value.type, result.type),
+            )
+        return result
+
+    def _guard_non_returning(
+        self: _Elaborator, statement: Node, operands: list[Node], environment: dict[str, _Binding],
+        facts: tuple[_Binding, ...],
+    ) -> tuple[dict[str, _Binding], str | None]:
+        names = tuple(name for name in environment if name in self.mutable_locals)
+        remaining: set[str] = set()
+        exits: set[str | None] = set()
+
+        def state(raw: object) -> Node:
+            body = [] if raw is None else [self.node(raw)]
+            return {
+                "kind": "guard_block_state", "span": statement["span"], "mutable": names, "facts": facts,
+                "body": {"kind": "block", "span": statement["span"], "statements": body},
+                "remaining": remaining, "exits": exits,
+            }
+
+        expr = self._guard_conditional(
+            "if_expression", statement, operands, state(statement["then"]), state(statement["else"]), environment,
+        )
+        result = self.if_expression(expr, environment)
+        self.uninitialized_out_params = remaining
+        after = dict(environment)
+        for name in names:
+            value_type, tail_type = result.type.args
+            after[name] = _Binding(self.whnf(_apps(_constant("Fst"), value_type, tail_type, result.term)), value_type)
+            result = _Binding(self.whnf(_apps(_constant("Snd"), value_type, tail_type, result.term)), tail_type)
+        if len(exits) == 1:
+            return after, next(iter(exits))
+        control = self.whnf(result.term)
+        if control.kind == "nat":
+            return after, {0: None, 1: "break", 2: "continue"}[cast("int", control.value)]
+        for code, outcome in ((0, None), (1, "break"), (2, "continue")):
+            if self._prove_bool_precondition(_apps(_constant("eq_nat"), control, _term("nat", value=code)), after):
+                return after, outcome
+        raise self.fail("unsupported", "symbolic pattern-dependent loop control requires the full frontend", statement)
+
     def _is_propagatable_union(self: _Elaborator, value_type: _Term) -> bool:
         resolved = self.whnf(value_type)
         head, _ = self.spine(resolved)
@@ -182,6 +272,9 @@ class _StatementsMixin:
                     return prop, self._make_nested_list_rebuilder(node, "updates", upds, i, u, "value", inner_rebuild)
             return None
         if kind == "if_expression":
+            if self._pattern_conjuncts(self.node(node["condition"])):
+                # Each operand's propagation is handled inside its successful guards.
+                return None
             res_cond = self._split_first_propagate(self.node(node["condition"]))
             if res_cond is not None:
                 prop, inner_rebuild = res_cond
@@ -327,6 +420,21 @@ class _StatementsMixin:
         target_return_type: _Term,
         continuation: Callable[[str, _Binding, dict[str, _Binding]], _Term],
     ) -> _Term:
+        if operands := self._pattern_conjuncts(node):
+            def resume_guard(truth: bool, branch: dict[str, _Binding]) -> _Term:
+                value = _Binding(_term("bool", value=int(truth)), _BOOL)
+                name = f"__vela_bool_{self.fresh(_BOOL).value}"
+                outer = {key: branch[key] for key in environment}
+                return continuation(name, value, {**outer, name: value})
+
+            resume_node: Node = {
+                "kind": "guard_resume", "span": node["span"], "resume": resume_guard, "type": target_return_type,
+            }
+            guarded = self._guard_conditional(
+                "if_expression", node, operands, {**resume_node, "truth": True}, {**resume_node, "truth": False},
+                environment,
+            )
+            return self.check(guarded, target_return_type, environment)
         condition = self.check(self.node(node["left"]), _BOOL, environment)
         branch_env = dict(environment)
         self._consume_call_updates(branch_env, node)
@@ -1301,7 +1409,15 @@ class _StatementsMixin:
                     return extended, cast("str", kind)
                 if kind == "if":
                     cond_raw = self.node(statement["condition"])
+                    if operands := self._pattern_conjuncts(cond_raw):
+                        extended, ctrl = self._guard_non_returning(
+                            statement, operands, extended, (*facts, *statement_facts),
+                        )
+                        if ctrl is not None:
+                            return extended, ctrl
+                        continue
                     condition = self.check(cond_raw, _BOOL, extended)
+                    self._consume_call_updates(extended, cond_raw)
                     cond_w = self.whnf(condition)
                     then_node = self.node(statement["then"])
                     then_block = (
@@ -2135,6 +2251,9 @@ class _StatementsMixin:
             for index, statement in enumerate(statements):
                 self.site = statement
                 kind = cast("str", statement["kind"])
+                if kind == "guard_scope":
+                    extended = self._guard_environment(statement, extended)
+                    continue
                 if kind in {"let", "typed_local", "let_pattern", "constant_local", "var", "var_pattern"}:
                     if kind != "constant_local":
                         lifted = lift_stmt_propagate(statement, "value", index)
@@ -2277,9 +2396,11 @@ class _StatementsMixin:
                         self.mutable_locals = saved_mut
                     return finish(result)
                 if kind == "if" and index < len(statements) - 1:
-                    lifted = lift_stmt_propagate(statement, "condition", index)
-                    if lifted is not None:
-                        return lifted
+                    operands = self._pattern_conjuncts(self.node(statement["condition"]))
+                    if not operands:
+                        lifted = lift_stmt_propagate(statement, "condition", index)
+                        if lifted is not None:
+                            return lifted
                     then_node = self.node(statement["then"])
                     then_stmts = (
                         self.nodes(then_node["statements"])
@@ -2325,12 +2446,15 @@ class _StatementsMixin:
                             },
                         }
                     elif not then_returns and else_returns:
+                        leave_scope: list[Node] = [
+                            {"kind": "guard_scope", "span": statement["span"], "locals": tuple(extended)}
+                        ] if operands else []
                         cur_stmt = {
                             **statement,
                             "then": {
                                 "kind": "block",
                                 "span": node["span"],
-                                "statements": [*then_stmts, *rest_statements],
+                                "statements": [*then_stmts, *leave_scope, *rest_statements],
                             },
                         }
                     else:
@@ -2402,13 +2526,21 @@ class _StatementsMixin:
                     self.final_return_facts = list(self.active_facts[saved_active_len:])
                     return finish(result)
                 if kind == "if":
+                    cond_raw = self.node(cur_stmt["condition"])
+                    combined_facts = (*active_facts, *statement_facts)
+                    if operands := self._pattern_conjuncts(cond_raw):
+                        if cur_stmt["else"] is None and expected is not None and self.whnf(expected) == _UNIT:
+                            cur_stmt = {**cur_stmt, "else": {"kind": "return", "span": cur_stmt["span"], "value": None}}
+                        if cur_stmt["else"] is not None:
+                            guarded = self._guard_conditional(
+                                "if", cur_stmt, operands, self.node(cur_stmt["then"]), self.node(cur_stmt["else"]), extended,
+                            )
+                            return finish(self.branch(guarded, extended, expected, facts=combined_facts))
                     if cur_stmt["else"] is None:
                         raise self.fail("type", "every conditional branch must return")
                     lifted = lift_stmt_propagate(cur_stmt, "condition", index)
                     if lifted is not None:
                         return lifted
-                    combined_facts = (*active_facts, *statement_facts)
-                    cond_raw = self.node(cur_stmt["condition"])
                     cond_unwrapped = self._unwrap_group(cond_raw)
                     if cond_unwrapped["kind"] == "is":
                         return finish(
@@ -2424,6 +2556,7 @@ class _StatementsMixin:
                             )
                         )
                     condition = self.check(cond_raw, _BOOL, extended)
+                    self._consume_call_updates(extended, cond_raw)
                     saved_uninit = set(self.uninitialized_out_params)
                     self.active_facts.append(condition)
                     try:
@@ -2594,6 +2727,11 @@ class _StatementsMixin:
         cond_unwrapped = self._unwrap_group(cond_raw)
         then_node = self.node(node["then"])
         else_node = self.node(node["else"])
+        if operands := self._pattern_conjuncts(cond_raw):
+            guarded = self._guard_conditional("if_expression", node, operands, then_node, else_node, environment)
+            if expected is not None:
+                return _Binding(self.check(guarded, expected, environment), expected)
+            return self.expression(guarded, environment)
         if cond_unwrapped["kind"] == "is":
             return self._if_is(
                 cond_unwrapped,

@@ -2180,6 +2180,68 @@ def _pat_labeled(label: str, pattern: Form) -> Form:
     return form
 
 
+def _pattern_conjunctions() -> None:
+    match = _is_expr(_variable("value"), _pat_ctor("Succ", _pat_bind("n")))
+    guard = _binary("&&", match, _binary(">", _variable("n"), _natural(1)))
+    params = (("value", _NAT),)
+    fixture = _Fixture("PatternConjunction")
+    fixture.function(
+        "Pick", _NAT, params, _block_stmts(
+            _var_stmt("answer", _natural(0)),
+            _if_stmt(guard, _block_stmts(_assign_stmt(_variable("answer"), "=", _variable("n")))),
+            _return_stmt(_variable("answer")),
+        ), block=True,
+    )
+    fixture.definition("Guard", _BOOL, params, guard)
+    fixture.definition("PickExpression", _NAT, params, _if_expr(guard, _variable("n"), _natural(0)))
+    fixture.function(
+        "PickLoop", _NAT, params, _block_stmts(
+            _var_stmt("answer", _natural(0)),
+            _foreach_range("i", _natural(0), _natural(1), (
+                _if_stmt(guard, _block_stmts(_assign_stmt(_variable("answer"), "=", _variable("n")))),
+            )),
+            _return_stmt(_variable("answer")),
+        ), block=True,
+    )
+    fixture.union("Option", (("None", ()), ("Some", (("Value", _T),))), generics=_POLY)
+    opt = _type("Option", _BOOL)
+    propagated = _binary("&&", match, _binary("==", _propagate(_variable("other")),
+                                               _binary(">", _variable("n"), _natural(0))))
+    fixture.function(
+        "GuardOptional", opt, (*params, ("other", opt)), _block_stmts(
+            _let_stmt("passed", propagated), _return_stmt(_call("Some", _variable("passed"))),
+        ), block=True,
+    )
+    for index, (value, flag, expected) in enumerate((
+        (0, _variable("None", _BOOL), _call("Some", _boolean(False))),
+        (2, _variable("None", _BOOL), _variable("None", _BOOL)),
+        (3, _call("Some", _boolean(True)), _call("Some", _boolean(True))),
+    )):
+        equality = _binary("==", _call("GuardOptional", _natural(value), flag), expected)
+        fixture.theorem(f"Propagate{index}", (), equality, _assert(equality))
+    for value, result in ((4, 3), (2, 0), (0, 0)):
+        for name in ("Pick", "PickExpression", "PickLoop", "Guard"):
+            expected = _boolean(result != 0) if name == "Guard" else _natural(result)
+            equality = _binary("==", _call(name, _natural(value)), expected)
+            fixture.theorem(f"{name}At{value}", (), equality, _assert(equality))
+    elaborate(*fixture.response())
+    for name, body in (
+        ("ElseEscape", _if_expr(guard, _natural(0), _variable("n"))),
+        ("LeftEscape", _if_expr(_binary("&&", _binary(">", _variable("n"), _natural(0)), match),
+                                _natural(1), _natural(0))),
+        ("OrEscape", _if_expr(_binary("||", match, _binary(">", _variable("n"), _natural(0))),
+                              _natural(1), _natural(0))),
+    ):
+        invalid = _Fixture(name)
+        invalid.definition("Wrong", _NAT, params, body)
+        _refuses(invalid, "name", "n")
+    missing = _Fixture("MissingGuardedOutput")
+    missing.function("Wrong", _type("Unit"), (*params, ("dst", _modified("out", _NAT))), _block_stmts(
+        _if_stmt(guard, _block_stmts(_assign_stmt(_variable("dst"), "=", _variable("n")))), _return_stmt(),
+    ), block=True)
+    _refuses(missing, "type", "initialized")
+
+
 def _let_else_block(pattern: Form, value: Form, otherwise: Form, body: Form) -> Form:
     def form(fixture: _Fixture) -> Node:
         start = fixture.offset
@@ -6355,6 +6417,7 @@ def cases() -> list[Case]:
             Case("dependent-records-and-existential-propositions", _dependent_records_and_existential_propositions),
             Case("early-return-propagation-for-option-and-result", _early_return_propagation),
             Case("short-circuit-option-and-result-propagation", _short_circuit_propagation),
+            Case("pattern-bindings-across-positive-conjunctions", _pattern_conjunctions),
             Case("propagation-preserves-explicit-evaluation-order", _propagation_evaluation_order),
             Case("represented-integers-preconditions-and-conversions", _represented_integers_and_conversions),
             Case("pure-sequences-and-model-reasoning", _pure_sequences_and_model_reasoning),

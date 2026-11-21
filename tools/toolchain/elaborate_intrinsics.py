@@ -34,6 +34,8 @@ from toolchain.elaborate_types import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from toolchain.elaborate import _Elaborator
 
 
@@ -1127,6 +1129,12 @@ class _IntrinsicsMixin:
         operator = self.operator(node["operator"])
         left_node = self.node(node["left"])
         right_node = self.node(node["right"])
+        if operator == "&&" and (operands := self._pattern_conjuncts(node)):
+            literal: Node = {"kind": "bool", "span": node["span"], "value": True}
+            guarded = self._guard_conditional(
+                "if_expression", node, operands, literal, {**literal, "value": False}, environment,
+            )
+            return _Binding(self.check(guarded, _BOOL, environment), _BOOL)
         if operator in {"&&", "||", "==>", "<==>"}:
             left_b = _Binding(self.check(left_node, _BOOL, environment), _BOOL)
             if operator in {"&&", "==>"}:
@@ -1865,6 +1873,13 @@ class _IntrinsicsMixin:
         self.tick()
         self.site = node
         kind = node["kind"]
+        if kind == "guard_scope":
+            return self.expression(self.node(node["value"]), self._guard_environment(node, environment))
+        if kind == "guard_block_state":
+            return self._guard_block_state(node, environment)
+        if kind == "guard_resume":
+            resume = cast("Callable[[bool, dict[str, _Binding]], _Term]", node["resume"])
+            return _Binding(resume(cast("bool", node["truth"]), environment), cast("_Term", node["type"]))
         if kind == "nat":
             mag = _parse_numeric_magnitude(cast("str", node["value"]))
             suffix = cast("str", node["suffix"])

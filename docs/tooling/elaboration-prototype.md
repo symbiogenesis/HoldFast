@@ -94,7 +94,7 @@ The supported increment includes:
   for binders), and nullary constructors are written bare without `()`.
 - Conditional `if (cond) a else b` expressions (`if_expression`), Boolean
   `expr is Pattern` tests, flow-refined `if (expr is Pattern)` statements and
-  expressions (binding `Pattern`'s variables in the `then` branch), scoped
+  expressions (binding `Pattern`'s variables in later `&&` operands and the `then` branch), scoped
   early-exit `let Pattern = expr else { return ...; }` (`let_else`) guards in
   blocks and `assert ... by { ... }` proof blocks, and postfix `expr?`
   early-return propagation over 2-variant `Option<T>` (`None`, `Some(v)`) and

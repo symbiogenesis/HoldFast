@@ -1725,6 +1725,8 @@ class _Elaborator(
 
     def check(self, node: Node, expected: _Term, environment: dict[str, _Binding]) -> _Term:
         self.site = node
+        if node["kind"] == "guard_scope":
+            return self.check(self.node(node["value"]), expected, self._guard_environment(node, environment))
         if node["kind"] == "expression_body":
             return self.check(self.node(node["value"]), expected, environment)
         if node["kind"] == "group":
