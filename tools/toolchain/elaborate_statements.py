@@ -54,19 +54,14 @@ class _StatementsMixin:
         return {name: environment[name] for name in cast("tuple[str, ...]", scope["locals"])}
 
     def _guard_conditional(
-        self: _Elaborator, kind: str, site: Node, operands: list[Node], yes: Node, no: Node,
+        self: _Elaborator, site: Node, operands: list[Node], yes: Node, no: Node,
         environment: dict[str, _Binding],
     ) -> Node:
         # A failed later test leaves every binder introduced by earlier tests.
-        scope: Node = {"kind": "guard_scope", "span": no["span"], "locals": tuple(environment)}
-        if kind == "if":
-            statements = self.nodes(no["statements"]) if no["kind"] == "block" else [no]
-            fallback: Node = {"kind": "block", "span": no["span"], "statements": [scope, *statements]}
-        else:
-            fallback = {**scope, "value": no}
+        fallback: Node = {"kind": "guard_scope", "span": no["span"], "locals": tuple(environment), "value": no}
         result = yes
         for operand in reversed(operands):
-            result = {"kind": kind, "span": site["span"], "condition": operand, "then": result, "else": fallback}
+            result = {"kind": "if_expression", "span": site["span"], "condition": operand, "then": result, "else": fallback}
         return result
 
     def _guard_block_state(
@@ -83,13 +78,27 @@ class _StatementsMixin:
         cast("set[str | None]", node["exits"]).add(control)
         control_code = {None: 0, "break": 1, "continue": 2}[control]
         result = _Binding(_term("nat", value=control_code), _NAT)
-        for name in reversed(cast("tuple[str, ...]", node["mutable"])):
+        return self._pack_guard_state(cast("tuple[str, ...]", node["mutable"]), after, result)
+
+    @staticmethod
+    def _pack_guard_state(names: tuple[str, ...], after: dict[str, _Binding], result: _Binding) -> _Binding:
+        for name in reversed(names):
             value = after[name]
             result = _Binding(
                 _term("pair", value.type, result.type, value.term, result.term),
                 _term("prod", value.type, result.type),
             )
         return result
+
+    def _unpack_guard_state(
+        self: _Elaborator, names: tuple[str, ...], environment: dict[str, _Binding], result: _Binding,
+    ) -> tuple[dict[str, _Binding], _Binding]:
+        after = dict(environment)
+        for name in names:
+            value_type, tail_type = result.type.args
+            after[name] = _Binding(self.whnf(_apps(_constant("Fst"), value_type, tail_type, result.term)), value_type)
+            result = _Binding(self.whnf(_apps(_constant("Snd"), value_type, tail_type, result.term)), tail_type)
+        return after, result
 
     def _guard_non_returning(
         self: _Elaborator, statement: Node, operands: list[Node], environment: dict[str, _Binding],
@@ -108,15 +117,11 @@ class _StatementsMixin:
             }
 
         expr = self._guard_conditional(
-            "if_expression", statement, operands, state(statement["then"]), state(statement["else"]), environment,
+            statement, operands, state(statement["then"]), state(statement["else"]), environment,
         )
         result = self.if_expression(expr, environment)
         self.uninitialized_out_params = remaining
-        after = dict(environment)
-        for name in names:
-            value_type, tail_type = result.type.args
-            after[name] = _Binding(self.whnf(_apps(_constant("Fst"), value_type, tail_type, result.term)), value_type)
-            result = _Binding(self.whnf(_apps(_constant("Snd"), value_type, tail_type, result.term)), tail_type)
+        after, result = self._unpack_guard_state(names, environment, result)
         if len(exits) == 1:
             return after, next(iter(exits))
         control = self.whnf(result.term)
@@ -126,6 +131,24 @@ class _StatementsMixin:
             if self._prove_bool_precondition(_apps(_constant("eq_nat"), control, _term("nat", value=code)), after):
                 return after, outcome
         raise self.fail("unsupported", "symbolic pattern-dependent loop control requires the full frontend", statement)
+
+    def _guard_return(
+        self: _Elaborator, statement: Node, operands: list[Node], environment: dict[str, _Binding],
+        expected: _Term | None, facts: tuple[_Binding, ...],
+    ) -> _Binding:
+        names = tuple(name for name in self.entry_env if name in self.mutable_locals and name in environment)
+
+        def branch(raw: object) -> Node:
+            return {"kind": "guard_return", "span": statement["span"], "body": self.node(raw),
+                    "mutable": names, "expected": expected, "facts": facts}
+
+        guarded = self._guard_conditional(
+            statement, operands, branch(statement["then"]), branch(statement["else"]), environment,
+        )
+        packed = self.if_expression(guarded, environment)
+        self.final_ref_bindings, result = self._unpack_guard_state(names, environment, packed)
+        self.final_return_facts = []
+        return result
 
     def _is_propagatable_union(self: _Elaborator, value_type: _Term) -> bool:
         resolved = self.whnf(value_type)
@@ -421,20 +444,30 @@ class _StatementsMixin:
         continuation: Callable[[str, _Binding, dict[str, _Binding]], _Term],
     ) -> _Term:
         if operands := self._pattern_conjuncts(node):
+            if self.mutable_locals.intersection(self.entry_env):
+                raise self.fail("unsupported", "propagating a pattern guard with borrowed outputs requires "
+                                "an explicit control-flow branch", node)
+            enclosing_guard = self.guard_value
+
             def resume_guard(truth: bool, branch: dict[str, _Binding]) -> _Term:
                 value = _Binding(_term("bool", value=int(truth)), _BOOL)
                 name = f"__vela_bool_{self.fresh(_BOOL).value}"
                 outer = {key: branch[key] for key in environment}
-                return continuation(name, value, {**outer, name: value})
+                saved = self.guard_value
+                self.guard_value = enclosing_guard
+                try:
+                    return continuation(name, value, {**outer, name: value})
+                finally:
+                    self.guard_value = saved
 
             resume_node: Node = {
                 "kind": "guard_resume", "span": node["span"], "resume": resume_guard, "type": target_return_type,
             }
             guarded = self._guard_conditional(
-                "if_expression", node, operands, {**resume_node, "truth": True}, {**resume_node, "truth": False},
+                node, operands, {**resume_node, "truth": True}, {**resume_node, "truth": False},
                 environment,
             )
-            return self.check(guarded, target_return_type, environment)
+            return self._check_guard_value(guarded, environment, target_return_type).term
         condition = self.check(self.node(node["left"]), _BOOL, environment)
         branch_env = dict(environment)
         self._consume_call_updates(branch_env, node)
@@ -908,6 +941,12 @@ class _StatementsMixin:
             )
             updated[owner_name] = _Binding(new_rec_term, owner_b.type)
         self._refresh_local_borrows(updated, site_node)
+
+    def _record_call_update(self: _Elaborator, target: Node, value: _Binding) -> None:
+        if self.guard_value:
+            raise self.fail("unsupported", "a pattern guard used as a value cannot model a mutable loan update; "
+                            "use an if statement", target)
+        self.last_call_updates.append((target, value))
 
     def _consume_call_updates(
         self: _Elaborator, updated: dict[str, _Binding], site: Node
@@ -2532,10 +2571,7 @@ class _StatementsMixin:
                         if cur_stmt["else"] is None and expected is not None and self.whnf(expected) == _UNIT:
                             cur_stmt = {**cur_stmt, "else": {"kind": "return", "span": cur_stmt["span"], "value": None}}
                         if cur_stmt["else"] is not None:
-                            guarded = self._guard_conditional(
-                                "if", cur_stmt, operands, self.node(cur_stmt["then"]), self.node(cur_stmt["else"]), extended,
-                            )
-                            return finish(self.branch(guarded, extended, expected, facts=combined_facts))
+                            return finish(self._guard_return(cur_stmt, operands, extended, expected, combined_facts))
                     if cur_stmt["else"] is None:
                         raise self.fail("type", "every conditional branch must return")
                     lifted = lift_stmt_propagate(cur_stmt, "condition", index)
@@ -2728,10 +2764,8 @@ class _StatementsMixin:
         then_node = self.node(node["then"])
         else_node = self.node(node["else"])
         if operands := self._pattern_conjuncts(cond_raw):
-            guarded = self._guard_conditional("if_expression", node, operands, then_node, else_node, environment)
-            if expected is not None:
-                return _Binding(self.check(guarded, expected, environment), expected)
-            return self.expression(guarded, environment)
+            guarded = self._guard_conditional(node, operands, then_node, else_node, environment)
+            return self._check_guard_value(guarded, environment, expected)
         if cond_unwrapped["kind"] == "is":
             return self._if_is(
                 cond_unwrapped,
@@ -2771,6 +2805,20 @@ class _StatementsMixin:
             expected_scrutinee_type=_BOOL,
             synthetic=True,
         )
+
+    def _check_guard_value(
+        self: _Elaborator, guarded: Node, environment: dict[str, _Binding], expected: _Term | None,
+    ) -> _Binding:
+        if self.last_call_updates:
+            raise self.fail("unsupported", "evaluate the earlier mutable loan call in a separate statement", guarded)
+        saved = self.guard_value
+        self.guard_value = True
+        try:
+            if expected is not None:
+                return _Binding(self.check(guarded, expected, environment), expected)
+            return self.expression(guarded, environment)
+        finally:
+            self.guard_value = saved
 
     def _is_expression(self: _Elaborator, node: Node, environment: dict[str, _Binding]) -> _Binding:
         self.site = node

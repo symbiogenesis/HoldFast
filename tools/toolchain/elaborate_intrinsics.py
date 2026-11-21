@@ -1132,9 +1132,9 @@ class _IntrinsicsMixin:
         if operator == "&&" and (operands := self._pattern_conjuncts(node)):
             literal: Node = {"kind": "bool", "span": node["span"], "value": True}
             guarded = self._guard_conditional(
-                "if_expression", node, operands, literal, {**literal, "value": False}, environment,
+                node, operands, literal, {**literal, "value": False}, environment,
             )
-            return _Binding(self.check(guarded, _BOOL, environment), _BOOL)
+            return self._check_guard_value(guarded, environment, _BOOL)
         if operator in {"&&", "||", "==>", "<==>"}:
             left_b = _Binding(self.check(left_node, _BOOL, environment), _BOOL)
             if operator in {"&&", "==>"}:
@@ -1651,7 +1651,7 @@ class _IntrinsicsMixin:
             self.uninitialized_out_params.discard(vname)
         for t_node, t_dom in loan_targets.values():
             upd_term = self.fresh(t_dom)
-            self.last_call_updates.append((t_node, _Binding(upd_term, t_dom)))
+            self._record_call_update(t_node, _Binding(upd_term, t_dom))
         if mspec.name in ensures_dict:
             rem_m_ids, ens_props = ensures_dict[mspec.name]
             rem_vals = [*m_gen_args, *arg_terms]
@@ -1877,6 +1877,10 @@ class _IntrinsicsMixin:
             return self.expression(self.node(node["value"]), self._guard_environment(node, environment))
         if kind == "guard_block_state":
             return self._guard_block_state(node, environment)
+        if kind == "guard_return":
+            result = self.branch(self.node(node["body"]), environment, cast("_Term | None", node["expected"]),
+                                 facts=cast("tuple[_Binding, ...]", node["facts"]))
+            return self._pack_guard_state(cast("tuple[str, ...]", node["mutable"]), self.final_ref_bindings, result)
         if kind == "guard_resume":
             resume = cast("Callable[[bool, dict[str, _Binding]], _Term]", node["resume"])
             return _Binding(resume(cast("bool", node["truth"]), environment), cast("_Term", node["type"]))

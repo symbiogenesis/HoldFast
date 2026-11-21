@@ -128,6 +128,7 @@ class _Elaborator(
             str, list[tuple[tuple[int, ...], tuple[tuple[int, int], ...], int | None, _Term]]
         ] = {}
         self.last_call_updates: list[tuple[Node, _Binding]] = []
+        self.guard_value = False
         self.static_forbidden: set[int] | None = None
         self.globals: dict[str, _Binding] = {}
         self.constants: dict[str, _Binding] = {}
@@ -1439,7 +1440,7 @@ class _Elaborator(
                 else:
                     upd_term = self.fresh(t_dom)
                 post_loan_terms[idx] = upd_term
-                self.last_call_updates.append((t_node, _Binding(upd_term, t_dom)))
+                self._record_call_update(t_node, _Binding(upd_term, t_dom))
         if (
             callee_head.kind == "const"
             and isinstance(callee_head.value, str)
