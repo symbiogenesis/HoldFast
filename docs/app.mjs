@@ -7097,7 +7097,7 @@ function initPlaygroundUi() {
     const position = error ? compilerPosition(error.line, error.column) : null;
     const findings = result.ok ? result.findings : [];
     if (!Array.isArray(findings)) {
-      throw new Error("The compiler returned incomplete naming findings.");
+      throw new Error("The compiler returned incomplete lint findings.");
     }
     publishDiagnostics(
       {
@@ -7119,7 +7119,7 @@ function initPlaygroundUi() {
                 severity: 2,
                 message: finding.message,
                 code: finding.code,
-                source: "Vela naming lint",
+                source: "Vela lint",
               };
             }),
       },
