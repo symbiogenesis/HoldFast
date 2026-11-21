@@ -2146,22 +2146,23 @@ class _DeclarationsMixin:
         fn_name = self.name(fn_node["name"])
         lowered = loans._FunctionLowerer(fn_name, fn_node, enclosing_type, structs).build()
         report = loans.analyze(lowered.owners, lowered.graph)
+        borrow_origins = {
+            event.loan.name: (event.loan, lowered.node_sites[cfg_node.name])
+            for cfg_node in lowered.graph.nodes
+            if isinstance(event := cfg_node.event, loans.Borrow)
+        }
         for path in report.paths:
             for issue in path.issues:
                 site = lowered.node_sites.get(issue.node, fn_node)
                 res = issue.resources
-                if issue.kind == "suspended-parent":
-                    loan_id = res[0] if res else ""
+                if issue.kind in {"suspended-parent", "conflicting-access"} and res[0] in borrow_origins:
+                    loan, origin = borrow_origins[res[0]]
+                    start = self.fail("type", "", origin)
+                    footprint = ".".join((loan.place.owner, *loan.place.fields))
                     raise self.fail(
                         "type",
-                        f"cannot access or mutate owner while loan '{loan_id}' is still live (suspended-parent)",
-                        site,
-                    )
-                if issue.kind == "conflicting-access":
-                    loan_id = res[0] if res else ""
-                    raise self.fail(
-                        "type",
-                        f"access conflicts with active loan '{loan_id}' (conflicting-access)",
+                        f"access conflicts with a live {loan.mode} loan of '{footprint}' "
+                        f"created at line {start.line}, column {start.column} ({issue.kind})",
                         site,
                     )
                 if issue.kind == "competing-loans":

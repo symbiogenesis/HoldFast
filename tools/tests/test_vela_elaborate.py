@@ -2114,6 +2114,35 @@ def _raw_strings_and_checked_formatting() -> None:
     )
     _refuses(alias_read, "type", "alias")
 
+    snapshot = _Fixture("FormatSnapshot")
+    count = _call(_variable("Written"), _variable("b"))
+    snapshot.function(
+        "WriteLength",
+        _type("TextBuilder", _natural(16)),
+        (("b", _type("TextBuilder", _natural(16))),),
+        _block_stmts(
+            _let_stmt("writtenBeforeFormat", count),
+            _return_stmt(_call(
+                _member(_variable("Format"), "Write"),
+                _ref_arg(_variable("b")),
+                _interpolated_literal('$"n={writtenBeforeFormat:x4}"'),
+            )),
+        ),
+        block=True,
+    )
+    ensure("vela_Written" in elaborate(*snapshot.response()).gallina,
+           "a previously evaluated count still conflicts with the formatting loan")
+
+    count_conflict = _Fixture("FormatSnapshotHint")
+    count_conflict.definition(
+        "WriteLength",
+        _type("TextBuilder", _natural(16)),
+        (("b", _type("TextBuilder", _natural(16))),),
+        _call(_member(_variable("Format"), "Write"), _ref_arg(_variable("b")), _interpolated_literal('$"n={Written(b):x4}"')),
+    )
+    _refuses(count_conflict, "type", "exclusive 'ref' target loan starts at line")
+    _refuses(count_conflict, "type", 'let writtenBeforeFormat = Written(b) in Format.Write(ref b, $"n={writtenBeforeFormat:x4}")')
+
     bad_hole_syntax = _Fixture("BadHoleSyntax")
     bad_hole_syntax.definition(
         "Wrong",
@@ -5914,6 +5943,7 @@ def _source_bound_borrows_and_constructive_postconditions() -> None:
         block=True,
     )
     _refuses(read_while_exclusive, "type", "suspended-parent")
+    _refuses(read_while_exclusive, "type", "exclusive loan of 'x' created at line")
 
     same_field_conflict = _Fixture("BorrowSameFieldConflict")
     same_field_conflict.record("Pair", (("Left", _type("u32")), ("Right", _type("u32"))))

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, cast
 
 from toolchain.ast import (
     DECIMAL,
+    VelaError,
     trivia_end,
 )
 from toolchain.authoring import assist_loan_argument
@@ -722,6 +723,8 @@ class _StringsMixin:
             )
         target_inner = self.node(target_arg["value"])
         target_name = self.name(target_inner["name"]) if target_inner["kind"] == "name" else None
+        origin = self.fail("type", "", target_arg)
+        origin_message = f"exclusive 'ref' target loan starts at line {origin.line}, column {origin.column}"
         builder = self.expression(target_inner, environment)
         capacity = self.meta(_NAT, environment)
         self.unify(builder.type, _app(_constant("TextBuilder"), capacity))
@@ -815,12 +818,39 @@ class _StringsMixin:
                 expr_byte_end = body_start_byte + len(body[:raw_end].encode("utf-8"))
                 hole_ast = self._parse_hole_ast(expr_byte_start, expr_byte_end, template_arg)
                 if target_name is not None:
-                    self._check_hole_target_alias(hole_ast, target_name)
+                    try:
+                        self._check_hole_target_alias(hole_ast, target_name)
+                    except VelaError as error:
+                        repair = ""
+                        offset, end_offset = cast("list[int]", node["span"])
+                        raw = self.protocol.source
+                        snapshot = f"Written({target_name})"
+                        written = self.globals.get("Written")
+                        if (not chunk_terms and spec in {"x2", "x4", "x8", "X2", "X4", "X8"}
+                                and raw[expr_byte_start:expr_byte_end] == snapshot.encode()
+                                and written is not None and written.term == _constant("Written")
+                                and "Written" not in environment and b"writtenBeforeFormat" not in raw
+                                and end_offset - offset <= 100 and b"\n" not in raw[offset:end_offset]
+                                and b"\r" not in raw[offset:end_offset]):
+                            revised = (
+                                raw[offset:expr_byte_start] + b"writtenBeforeFormat" + raw[expr_byte_end:end_offset]
+                            ).decode("utf-8")
+                            repair = f". Snapshot the count before borrowing: (let writtenBeforeFormat = {snapshot} in {revised})"
+                        raise VelaError(
+                            error.kind, error.line, error.column, f"{error.message}. {origin_message}{repair}"
+                        ) from error
                 hole_binding = self.expression(hole_ast, environment)
-                if builder.term.kind == "var" and cast("int", builder.term.value) in self.free(hole_binding.term):
+                saved_count = (
+                    hole_ast["kind"] == "name"
+                    and self.name(hole_ast["name"]) in environment
+                    and self.name(hole_ast["name"]) not in self.local_borrows
+                    and self.whnf(hole_binding.type) == _NAT
+                )
+                if (not saved_count and builder.term.kind == "var"
+                        and cast("int", builder.term.value) in self.free(hole_binding.term)):
                     raise self.fail(
                         "type",
-                        f"Format.Write hole cannot alias or read target buffer '{target_name or 'target'}'",
+                        f"Format.Write hole cannot alias or read target buffer '{target_name or 'target'}'. {origin_message}",
                         hole_ast,
                     )
                 hole_type = self.whnf(hole_binding.type)

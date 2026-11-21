@@ -209,6 +209,13 @@ Every source-rewriting helper validates its one-based compiler coordinates and t
 boundaries against the original UTF-8 snapshot without mutating files in place or
 silently coercing types during checking.
 
+The mathematical compiler reports both the conflicting read and where the
+exclusive loan starts. For a first formatting hole that reads the built-in
+`Written(builder)` count directly with a fixed-width hexadecimal format,
+it can show an expression-local snapshot.
+For example, write `(let count = Written(builder) in Format.Write(ref builder, $"{count:x4}"))`
+to evaluate the count before `Format.Write` borrows the builder.
+
 Repeatable `--allow ID` suppresses optional findings; `--deny ID` makes them
 errors. The same ID cannot be both allowed and denied. Unknown IDs are command
 errors. Defaults and rule identities are compiler-versioned; disabling an optional
