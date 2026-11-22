@@ -22,6 +22,7 @@ from toolchain import (
     env,
     mathematical_preview,
     packages,
+    scip,
     simulator_debug,
     simulator_debug_check,
     solver_ledger,
@@ -240,6 +241,15 @@ def main(argv: list[str] | None = None) -> int:
     lock.add_argument("name")
     lock.add_argument("revision")
     lock.add_argument("--output", required=True, type=Path, help="destination lockfile")
+    index = commands.add_parser("scip", help="index a locked mathematical package for offline navigation")
+    index.add_argument("workspace", type=Path)
+    index.add_argument("lock", type=Path)
+    index.add_argument("--output", required=True, type=Path, help="new bundle directory")
+    verify = commands.add_parser("scip-check", help="verify a SCIP bundle against the current package")
+    verify.add_argument("workspace", type=Path)
+    verify.add_argument("lock", type=Path)
+    verify.add_argument("directory", type=Path)
+    verify.add_argument("--require-complete", action="store_true", help="require coverage for authored reference absence")
     build = commands.add_parser("build-package", help="check a locked module graph and optionally publish its Gallina bundle")
     build.add_argument("workspace", type=Path)
     build.add_argument("lock", type=Path)
@@ -357,6 +367,10 @@ def main(argv: list[str] | None = None) -> int:
             output = bsp_client.qualify(root)
         elif args.command == "lock-package":
             output = packages.lock_package(root, args.workspace, args.name, args.revision, args.output)
+        elif args.command == "scip":
+            output = scip.export(root, args.workspace, args.lock, args.output)
+        elif args.command == "scip-check":
+            output = scip.check(root, args.workspace, args.lock, args.directory, require_complete=args.require_complete)
         elif args.command == "build-package":
             output = packages.build_package(root, args.workspace, args.lock, args.output)
         elif args.command == "elaborate-qualify":
