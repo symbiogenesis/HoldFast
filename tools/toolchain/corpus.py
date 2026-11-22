@@ -88,7 +88,7 @@ class Document:
 
 def _read(path: Path, name: str) -> Document:
     try:
-        raw = path.read_bytes().decode("utf-8")
+        raw = path.read_text(encoding="utf-8", newline="")
     except UnicodeDecodeError as exc:
         # Include the document path when UTF-8 decoding fails.
         raise RuntimeError(f"{name} is not valid UTF-8: {exc}") from exc
@@ -99,14 +99,9 @@ def _read(path: Path, name: str) -> Document:
 def from_text(raw: str, name: str) -> Document:
     """Build a `Document` from decoded text, computing line offsets, code masks, and headings."""
     parts = raw.split("\n")
-    starts: list[int] = []
-    offset = 0
-    for part in parts:
-        starts.append(offset)
-        offset += len(part) + 1
-
-    body = parts[:-1] if parts and parts[-1] == "" else parts
-    lines = [p.removesuffix("\r") for p in body]
+    starts = [0, *(match.end() for match in re.finditer("\n", raw))]
+    body = parts[:-1] if parts[-1] == "" else parts
+    lines = [part.removesuffix("\r") for part in body]
 
     try:
         fenced, headings = _syntax(lines)
