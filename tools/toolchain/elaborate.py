@@ -2349,27 +2349,21 @@ def elaborate_package(modules: Sequence[tuple[bytes, object]], *, require_word_p
         decoded[mod_name] = (src, parsed, protocol, root, deps)
         order_names.append(mod_name)
 
-    visited: dict[str, int] = {}
+    active: list[str] = []
+    visited: set[str] = set()
     topo: list[str] = []
 
-    def visit(mod_name: str, call_edge: tuple[_Protocol, Node] | None = None) -> None:
-        state = visited.get(mod_name, 0)
-        if state == 1:
-            if call_edge is not None:
-                err_proto, err_node = call_edge
-                raise err_proto.error("name", f"circular module import involving '{mod_name}'", err_node)
-            _, _, err_proto, err_root, _ = decoded[mod_name]
-            raise err_proto.error("name", f"circular module import involving '{mod_name}'", err_root)
-        if state == 2:
-            return
-        visited[mod_name] = 1
+    def visit(mod_name: str) -> None:
+        active.append(mod_name)
         _, _, proto, _, deps = decoded[mod_name]
         for dep_name, imp_node in deps:
-            if dep_name == mod_name:
-                raise proto.error("name", f"circular module import involving '{mod_name}'", imp_node)
-            if dep_name in decoded:
-                visit(dep_name, (proto, imp_node))
-        visited[mod_name] = 2
+            if dep_name in active:
+                cycle = " -> ".join([*active[active.index(dep_name):], dep_name])
+                raise proto.error("name", f"circular module import: {cycle}", imp_node)
+            if dep_name in decoded and dep_name not in visited:
+                visit(dep_name)
+        active.pop()
+        visited.add(mod_name)
         topo.append(mod_name)
 
     if scopes is not None and scopes.keys() != decoded.keys():
@@ -2379,7 +2373,7 @@ def elaborate_package(modules: Sequence[tuple[bytes, object]], *, require_word_p
             for dependency, site in decoded[mname][4]:
                 if dependency != "Vela.Numerics" and dependency not in scopes[mname].modules:
                     raise decoded[mname][2].error("name", f"module '{mname}' has no declared dependency on '{dependency}'", site)
-        if visited.get(mname, 0) == 0:
+        if mname not in visited:
             visit(mname)
 
     available: dict[str, _Elaborator] = {}

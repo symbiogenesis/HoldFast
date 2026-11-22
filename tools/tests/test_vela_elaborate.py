@@ -6363,9 +6363,19 @@ def _multi_module_imports_and_visibility() -> None:
     try:
         elaborate_package([cyc_a.response(), cyc_b.response()])
     except VelaError as error:
-        ensure(error.kind == "name" and "circular module import" in error.message, f"unexpected error: {error}")
+        ensure(error.kind == "name" and "circular module import: CycA -> CycB -> CycA" in error.message,
+               f"unexpected error: {error}")
     else:
         raise AssertionError("accepted circular module imports")
+
+    recursive = _Fixture("Self")
+    _import_decl(recursive, "Self")
+    try:
+        elaborate_package([recursive.response()])
+    except VelaError as error:
+        ensure(error.message == "circular module import: Self -> Self", "self-import lost the closing edge")
+    else:
+        raise AssertionError("accepted self import")
 
 
 def _in_arg(value: Form) -> Form:
