@@ -85,6 +85,13 @@ def _producer(root: Path, compiled: parser.Build) -> Object:
             "parser_toolchain": compiled.receipt["toolchain"], "parser_sha256": _sha(compiled.executable.read_bytes())}
 
 
+def _recheck_parser(root: Path, compiled: parser.Build) -> None:
+    outputs = _object(compiled.receipt["generated_sha256"], "parser outputs")
+    if (parser._inputs(root) != compiled.receipt["inputs"] or parser._toolchain(root) != compiled.receipt["toolchain"]
+            or _sha(compiled.executable.read_bytes()) != outputs["vela-parser"]):
+        raise ValueError("stale package inputs: parser sources, tools or generated executable changed")
+
+
 @dataclass
 class Closure:
     lock: Object
@@ -197,6 +204,7 @@ def _publish(destination: Path, value: Object, protected: set[Path]) -> None:
 def lock_package(root: Path, workspace: Path, name: str, revision: str, destination: Path) -> Object:
     with parser.cached_build(root) as compiled:
         closure = resolve(workspace, name, revision, _producer(root, compiled))
+        _recheck_parser(root, compiled)
         resolve(workspace, name, revision, _producer(root, compiled), locked=closure.lock)
     _publish(destination, closure.lock, closure.files)
     return {"status": "locked", "lock_sha256": _sha(_encode(closure.lock) + b"\n"),
@@ -221,6 +229,7 @@ def build_package(root: Path, workspace: Path, lock_path: Path, destination: Pat
             modules.append((source, parsed))
         outputs = elaborate_package(modules, scopes=closure.scopes, require_word_proofs=True,
                                     output_limit=MAX_GENERATED_BYTES)
+        _recheck_parser(root, compiled)
         resolve(workspace, name, revision, _producer(root, compiled), locked=lock)
         if raw != _read(lock_path, MAX_INPUT_BYTES):
             raise ValueError("package lock changed during the build")
