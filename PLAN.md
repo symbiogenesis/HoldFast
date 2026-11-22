@@ -76,13 +76,10 @@ the [release milestones](#current-execution) to judge readiness.
 | Unmeasured completed items | 37 |
 <!-- estimate-summary:end -->
 
-The [checklist](#checklist-items-q25-series) owns status and the
-[calibration record](#calibration-record-q25-series) owns hours. Count each leaf
-once. Completed scope uses actual hours where available and the retained estimate
-otherwise. Add each open leaf's estimate to get the total midpoint, or its lower
-and upper bounds to get the range. Completion is the completed share of the
-midpoint, rounded to one decimal (`n/a` for a zero total).
-`python tools/run.py check --fix` regenerates the table when these inputs change.
+The table counts each checklist leaf once. Completed work contributes actual
+hours where known and its retained estimate otherwise. Open estimates and their
+bounds determine the remaining hours and total range. After a status or estimate
+changes, refresh the table with `python tools/run.py check --fix`.
 
 ## Planning basis and scope
 
@@ -118,126 +115,50 @@ midpoint, rounded to one decimal (`n/a` for a zero total).
   Release and optional-portfolio maintenance each price one requalification
   cycle. Record its actual cost and estimate each later cycle separately.
 
-<a id="q-assessment-actions"></a>
 <a id="checklist-conventions"></a>
 
 ## Checklist items (Q25 series)
 
-Each leaf records an estimate, range, class (`I` implementation or
-`X` investigation) and actual hours when known. Use `n/a` for actuals shared
-across a batch. Landed or struck items have one [completion-log](docs/assurance/completion-log.md)
+Record status here and keep each leaf's estimate, range, class (`I` for
+implementation, `X` for investigation) and actual hours in its single row in
+the [calibration record](#calibration-record-q25-series). The completed batches
+used parallel agent sessions. Enter `n/a` when a batch's actual hours cannot be
+attributed to a leaf.
+
+Link each landed or struck item to one [completion-log](docs/assurance/completion-log.md)
 entry with the exact `Q25* · Title` heading. A partial result keeps its parent
 open until the parent's acceptance conditions are met.
-
-- [x] **Q25 · Design the full graded dependent language and its control and mutation rules**
-  - The graded, control, mutation and assurance-policy designs are reviewed together, with implementation debts and admission decisions recorded by Q25d ([note](docs/assurance/completion-log.md#q25-design-the-full-graded-dependent-language-and-its-control-and-mutation-rules))
-  - [x] **Q25a · Specify the graded dependent foundation** · 0.2 h actual · agent-parallel
-    - Specifies graded dependent rules, schematic derivations and the shared resource interface, with missing laws assigned to the combined review. ([note](docs/assurance/completion-log.md#q25a-specify-the-graded-dependent-foundation))
-  - [x] **Q25b · Specify handlers and structured async lifecycles** · 0.2 h actual · agent-parallel
-    - Specifies handler capture and resumption, bounded async reactions, cancellation races and terminal-resource accounting. ([note](docs/assurance/completion-log.md#q25b-specify-handlers-and-structured-async-lifecycles))
-  - [x] **Q25c · Specify interior mutability and interference guardrails** · 0.2 h actual · agent-parallel
-    - Specifies cell and borrow interfaces, snapshot and interference rules, and the scalar counter's commit and reuse protocol. ([note](docs/assurance/completion-log.md#q25c-specify-interior-mutability-and-interference-guardrails))
-- [x] **Q25d · Review the combined calculus and price its implementation** · 0.9 h actual · agent-parallel
-  - The combined calculus is reviewed against R-05-009's frontend admission and the arm propagated, with the implementation and admission decisions it still owes named at their owners. ([note](docs/assurance/completion-log.md#q25d-review-the-combined-calculus-and-price-its-implementation))
-- [x] **Q25e · Build a pure Vela-to-Gallina prototype** · 0.3 h actual · agent-parallel
-  - Implements bounded pure-source checking, hygienic Gallina emission and atomic publication with independent translation and rejection cases; kernel replay and stronger language qualification remain open. ([note](docs/assurance/completion-log.md#q25e-build-a-pure-vela-to-gallina-prototype))
-- [x] **Q25f · Align the executable Vela subset with its proposed surface** · 0.1 h actual · agent-parallel
-  - Aligns public declarations, parameters, bool, local statements, returns and conditional blocks with the proposed Vela surface, retaining explicit limits and the pure translation boundary. ([note](docs/assurance/completion-log.md#q25f-align-the-executable-vela-subset-with-its-proposed-surface))
-- [x] **Q25g · Build the Menhir development parser for pure Vela** · 6 h retained estimate, actual n/a · agent-parallel
-  - Builds and qualifies the strict locked Menhir (`20260209`) and OCaml (`5.4.1`) pure syntax parser (`vela-parser qualify`) with deterministic regeneration and 70 independent AST/span/refusal fixtures. ([note](docs/assurance/completion-log.md#q25g-build-the-menhir-development-parser-for-pure-vela))
-- [x] **Q25h · Qualify checked Vela parsing and retire the Python parser** · 16 h retained estimate, actual n/a · agent-parallel
-  - Qualifies the `MenhirLib` support library, drift-checked `VelaPureGrammar.v`, nine zero-axiom Rocq parser theorems, recursive `rocqchk`, and extracted `vela-checked-parser` runtime (`vela-parser support`) across 70 pure and 173 migration fixtures on Linux and Windows, retiring the handwritten Python `_Parser`. ([note](docs/assurance/completion-log.md#q25h-qualify-checked-vela-parsing-and-retire-the-python-parser))
-- [x] **Q25i · Extend the Menhir grammar across the Vela authoring surface** · 24 h retained estimate, actual n/a · agent-parallel
-  - Extends the single Menhir grammar with the `surface_file` (schema-2) entry covering dependent, resource, contract, grade, handler/task, proof and machine/hardware syntax across 400 independent surface fixtures (`vela-parser qualify`). ([note](docs/assurance/completion-log.md#q25i-extend-the-menhir-grammar-across-the-vela-authoring-surface))
-- [x] **Q25j · Prototype path-sensitive loan-end inference over explicit flow facts** · 12 h retained estimate, actual n/a · agent-parallel
-  - The bounded explicit-flow diagnostic infers path-specific loan ends while retaining unresolved restoration, interpretation and overlap obligations. ([note](docs/assurance/completion-log.md#q25j-prototype-path-sensitive-loan-end-inference-over-explicit-flow-facts))
-- [x] **Q25k · Elaborate generic dependent mathematics and first-class proofs** · 24 h retained estimate, actual n/a · agent-parallel
-  - Elaborates generic and dependent mathematics, indexed vectors, fixed-width integers, records with lifted invariants, `Slots`, `out` loans, coherent interfaces, multi-module imports, exhaustive pattern matching and first-class proofs into Gallina, verified by 142 native parser/Rocq kernel replay cases (`vela-parser elaborate-qualify`). ([note](docs/assurance/completion-log.md#q25k-elaborate-generic-dependent-mathematics-and-first-class-proofs))
-- [x] **Q25l · Clarify Vela borrowing, evidence and resource interfaces** · 0.3 h actual · agent-parallel
-  - The design contracts specify receiver borrowing, visible claim evidence and compositional handler summaries, retaining the existing syntax and executable implementation owners. ([note](docs/assurance/completion-log.md#q25l-clarify-vela-borrowing-evidence-and-resource-interfaces))
-- [x] **Q25m · Specify staged Vela metaprogramming and compiler services** · 0.5 h actual · agent-parallel
-  - The language contracts specify static evaluation, opt-in descriptions, resource-aware generation and shared compiler services, with implementation and artifact qualification retained at their proposed owners. ([note](docs/assurance/completion-log.md#q25m-specify-staged-vela-metaprogramming-and-compiler-services))
-- [x] **Q25n · Prototype and qualify Vela LSP lifecycle and pure diagnostics** · 6 h retained estimate, actual n/a · agent-parallel
-  - Serves bounded stdio lifecycle, UTF-8/UTF-16 coordinate conversion, full and incremental overlays and pure diagnostics in `vela-lsp`, qualified across pinned Neovim `0.11.0` and Vim `9.1.2141` + `yegappan/lsp` clients (`vela-lsp --qualify-clients`). ([note](docs/assurance/completion-log.md#q25n-prototype-and-qualify-vela-lsp-lifecycle-and-pure-diagnostics))
-- [x] **Q25o · Add and qualify pure Vela LSP navigation** · 8 h retained estimate, actual n/a · agent-parallel
-  - Drives hover, definition, references and flat document symbols from compiler-owned resolution facts over synchronized open buffers, qualified across both pinned Neovim and Vim LSP clients. ([note](docs/assurance/completion-log.md#q25o-add-and-qualify-pure-vela-lsp-navigation))
-- [x] **Q25p · Improve Vela authoring syntax and editor hints** · 8 h retained estimate, actual n/a · agent-parallel
-  - Adds inferred lambdas, `=>` expression bodies, trailing commas, token-shape constructor patterns, canonical `Unit`/`this`, bounded `foreach`, declaration-order named arguments, typed required-static `const` declarations and LSP `textDocument/inlayHint` local type hints. ([note](docs/assurance/completion-log.md#q25p-improve-vela-authoring-syntax-and-editor-hints))
-- [x] **Q25q · Implement compositional Vela constant functions and parameters** · 16 h retained estimate, actual n/a · agent-parallel
-  - Implements `const` callable modifiers and symbolic/specialized `const` value parameters across both Menhir entries, the pure and mathematical compilers, editor signatures and native Rocq kernel replay. ([note](docs/assurance/completion-log.md#q25q-implement-compositional-vela-constant-functions-and-parameters))
-- [x] **Q25r · Add Vela numeric digit separators** · 12 h retained estimate, actual n/a · agent-parallel
-  - Supports `_` digit separators across pure decimal and surface decimal/hexadecimal/binary literals while preserving original located spellings and actual-digit bounds. ([note](docs/assurance/completion-log.md#q25r-add-vela-numeric-digit-separators))
-- [x] **Q25s · Attach Vela documentation comments to compiler facts** · 12 h retained estimate, actual n/a · agent-parallel
-  - Source-bound declaration documentation drives bounded plain-text hover, preserves attachment through formatting and refuses forged or stale records. ([note](docs/assurance/completion-log.md#q25s-attach-vela-documentation-comments-to-compiler-facts))
-- [x] **Q25t · Integrate default Vela formatting and lints** · 24 h retained estimate, actual n/a · agent-parallel
-  - Pure formatting and advisory lints preserve ordinary compiler source, publish only explicit source edits and bind emission to the checked snapshot. ([note](docs/assurance/completion-log.md#q25t-integrate-default-vela-formatting-and-lints))
-- [x] **Q25u · Add pure Vela editor formatting and semantic tokens** · 12 h retained estimate, actual n/a · agent-parallel
-  - Serves isolated canonical `textDocument/formatting` edits and full identifier `textDocument/semanticTokens/full` streams from compiler facts, qualified across both pinned Neovim and Vim LSP clients. ([note](docs/assurance/completion-log.md#q25u-add-pure-vela-editor-formatting-and-semantic-tokens))
-- [x] **Q25v · Settle the bounded Vela release and practical language contracts** · 0.7 h actual · agent-parallel
-  - Selects a synchronous release, checked interpretation and concrete primitive/package contracts, with practical ownership, assurance, tooling and staged-delivery acceptance. ([note](docs/assurance/completion-log.md#q25v-settle-the-bounded-vela-release-and-practical-language-contracts))
-- [x] **Q25w · Investigate the concrete Vela buffer foundation within a fixed budget** · 24 h retained estimate, actual n/a · agent-parallel
-  - Records a blocked outcome: a concrete `Span<byte>` carrier, packet validator and purecap Sail and CompCert execution slice whose laws, scenarios and restoration obligations mostly reach the kernel as tautologies, alongside the upstream Sail and machine-logic blockers that keep full machine refinement and subsequent delivery stages closed. ([note](docs/assurance/completion-log.md#q25w-investigate-the-concrete-vela-buffer-foundation-within-a-fixed-budget))
-- [x] **Q25x · Qualify generated tests for existing Vela development tools** · 6 h retained estimate, actual n/a · agent-parallel
-  - Qualifies deterministic `hypothesis==6.170.14` campaigns (`vela generated-tests`) over source coordinates, synchronous LSP overlays, supported requests and pure formatting against independent models, killing all three seeded faults and retaining `hypothesis` as an isolated on-demand instrument with shrunk explicit JSON replays in the Apache-2.0 suite. ([note](docs/assurance/completion-log.md#q25x-qualify-generated-tests-for-existing-vela-development-tools))
-- [x] **Q25y · Qualify Menhir-generated syntax campaigns** · 4.5 h retained estimate, actual n/a · agent-parallel
-  - Qualifies seeded Menhir sentence generation, payload rendering and batch `--interpret --interpret-show-cst` (`vela-parser syntax-campaigns`) against `IndependentPureAstOracle`, killing all three semantic-action/span faults and shrinking failing sentences to deterministic JSON replays without a second grammar or `menhirLib` runtime dependency. ([note](docs/assurance/completion-log.md#q25y-qualify-menhir-generated-syntax-campaigns))
-- [x] **Q25z · Qualify the familiar Vela authoring surface** · 32 h retained estimate, actual n/a · agent-parallel
-  - Qualifies ordinary `F<T>(...)` generic calls, `=>` bodies, fat-arrow `match` arms, `if` expressions, labeled constructor patterns, `with` updates, `let ... else` and `if (x is ...)` guards, `property` declarations, collection-loop syntax, raw strings, interpolated `$"..."` format templates and assist-don't-coerce helpers across the grammar and supported consumers, with represented runtime lowering and wider editor slices retained in the [ergonomics follow-through](#remaining-vela-ergonomics). ([note](docs/assurance/completion-log.md#q25z-qualify-the-familiar-vela-authoring-surface))
-- [x] **Q25aa · Build a local Vela browser playground** · 12 h retained estimate, actual n/a · agent-parallel
-  - The local Monaco playground connects the pure compiler and LSP to source editing, Gallina output and a bounded compile-time expression console. ([note](docs/assurance/completion-log.md#q25aa-build-a-local-vela-browser-playground))
-- [x] **Q25ab · Extend the Vela playground authoring and inspection controls** · 8 h retained estimate, actual n/a · agent-parallel
-  - The playground exposes compiler-backed lint checks, symbol inspection, editor display controls and explicit browser downloads. ([note](docs/assurance/completion-log.md#q25ab-extend-the-vela-playground-authoring-and-inspection-controls))
-- [x] **Q25ac · Extend pure Vela expressions and playground examples** · 8 h retained estimate, actual n/a · agent-parallel
-  - Extends both pure routes and the playground with Boolean negation, short-circuit conjunction/disjunction, all non-chaining comparisons and saturating natural subtraction, verified by migration agreement and native kernel replay. ([note](docs/assurance/completion-log.md#q25ac-extend-pure-vela-expressions-and-playground-examples))
-- [x] **Q25ad · Add natural division and remainder to Vela and its playground** · 6 h retained estimate, actual n/a · agent-parallel
-  - Adds total natural `/` and `%` at multiplication's left-associative precedence across both pure routes, the static evaluator, formatter, playground examples and native kernel replay. ([note](docs/assurance/completion-log.md#q25ad-add-natural-division-and-remainder-to-vela-and-its-playground))
-- [x] **Q25ae · Bring dependent Vela mathematics into the playground** · 16 h retained estimate, actual n/a · agent-parallel
-  - Provides mathematical elaboration and closed dependent expression reduction in every playground buffer, with `VELA105` generic type-parameter naming lints and runnable dependent examples. ([note](docs/assurance/completion-log.md#q25ae-bring-dependent-vela-mathematics-into-the-playground))
-- [x] **Q25af · Make Vela elaboration evidence kernel-honest** · 24 h retained estimate, actual n/a · agent-parallel
-  - Emits the real proposition for every contract, `restores` and theorem obligation, records solver-trusted obligations as named assumptions in `solver_trust`, and defines fixed-width integer arithmetic, shifts, signed comparisons and conversions over bit lists in Gallina. ([note](docs/assurance/completion-log.md#q25af-make-vela-elaboration-evidence-kernel-honest))
-- [x] **Q25ag · Conform the Vela first slice to the synchronous design** · 24 h retained estimate, actual n/a · agent-parallel
-  - Rewrites the first slice and its CompCert/Sail harness to the synchronous design with `Result<ValidatedPacket<'dst>, ValidationError>`, returned subslice views, explicit `effects writes(...)`, independent format-model contracts, capacity-wide symbolic loops and semantic negative controls. ([note](docs/assurance/completion-log.md#q25ag-conform-the-vela-first-slice-to-the-synchronous-design))
-- [x] **Q25ah · Resolve Vela surface collisions and redundant spellings** · 16 h retained estimate, actual n/a · agent-parallel
-  - Adopts `open (...) lifts ...` for invariant lifting, automatic `ref` descriptor preservation, mandatory `let`/`var` local keywords, token-shape constructor patterns (retiring `VELA106`) and unified fat-arrow `match` arms across parsers, elaborators, formatters and examples. ([note](docs/assurance/completion-log.md#q25ah-resolve-vela-surface-collisions-and-redundant-spellings))
-- [x] **Q25ai · Publish the Vela language reference and separate extension research** · 12 h retained estimate, actual n/a · agent-parallel
-  - Publishes the compact [language reference](docs/language/reference.md), moves extension dossiers under `docs/extensions/` and dated language comparisons to background, and records first-release authoring-cost measurements. ([note](docs/assurance/completion-log.md#q25ai-publish-the-vela-language-reference-and-separate-extension-research))
-- [x] **Q25aj · Unify Vela playground assets, single-source grammar sync, and single-pass worker execution** · 8 h retained estimate, actual n/a · agent-parallel
-  - Retires the duplicated `tools/toolchain/playground/` asset tree in favor of canonical `docs/` assets, unifies the in-browser lexer/parser/evaluator and syntax highlighters with exact `lexer.mll`/`Q25ah`/`Corelib` Gallina parity and Web Crypto `sha256Hex`, and eliminates redundant two-pass source compilation during expression evaluation. ([note](docs/assurance/completion-log.md#q25aj-unify-vela-playground-assets-single-source-grammar-sync-and-single-pass-worker-execution))
-- [x] **Q25ak · Close remaining elaboration solver axioms and promote source-bound borrow and mutation-invalidation checking** · 16 h retained estimate, actual n/a · agent-parallel
-  - Replaces the remaining `solver_trust` axioms in `vela-parser elaborate-qualify` with constructive Rocq proof synthesis across unit-step counter loops and sequential/branching `out`-parameter arithmetic, enforces zero `solver_trust` assumptions across all positive elaboration fixtures, and connects path-sensitive loan-end analysis (`loans.py`) and mutation-invalidation rules into statement elaboration (`elaborate_statements.py`) to discharge the source-bound [borrow-analysis promotion joins](docs/language/core-design.md#borrow-analysis-promotion). ([note](docs/assurance/completion-log.md#q25ak-close-remaining-elaboration-solver-axioms-and-promote-source-bound-borrow-and-mutation-invalidation-checking))
-- [x] **Q25al · Elaborate consuming ownership (`owned` parameters and `move` transfers), general `in`/`ref` runtime value loans, and closed `effects` footprints (`reads`/`writes`/`calls`)** · 12 h retained estimate, actual n/a · agent-parallel
-  - Elaborates consuming `owned T` parameters and data fields, `move expr` transfers (including consuming record updates `move base with { ... }` and call-site `move` arguments), flow-sensitive use-after-move (`use-after-owner-move`), partial-move (`partial-owner-move-unsupported`), and move-through-loan (`move-through-loan-unsupported`) refusals, general `in T` and `ref T` runtime value loans across all runtime value types, and closed `effects` contract verification across `reads(...)`, `writes(...)`, `calls(...)` (including transitive callee and higher-order parameter calls), and `effects none`. ([note](docs/assurance/completion-log.md#q25al-elaborate-consuming-ownership-owned-parameters-and-move-transfers-general-in-ref-runtime-value-loans-and-closed-effects-footprints-reads-writes-calls))
 
 ### Shared foundation and retained route
 
 <a id="q25am"></a>
 
-- [ ] **Q25am · Establish the selected machine-logic interpretation and adequacy** · 800 h, range 400–1,200 · X
+- [ ] **Q25am · Establish the selected machine-logic interpretation and adequacy**
   - **Owner:** `machine-logic`. **Start:** Canonical Sail term and Q35 compatibility evidence; retain the external machine-logic owner. **Check:** Supply the selected synchronous subset's checked operational/resource interpretation, adequacy and observation interfaces over that exact term; replay inhabited byte and invalid-operation cases. This is residual logic work beyond already booked Q35 slices.
 
 <a id="q25an"></a>
 
-- [ ] **Q25an · Establish concrete byte and scoped-resource laws** · 400 h, range 200–600 · X
+- [ ] **Q25an · Establish concrete byte and scoped-resource laws**
   - **Owner:** `concrete-resources`. **Start:** machine-logic and the existing byte-instance/scoped-resources owners. **Check:** Prove CHERI read/write/frame, initialization, split/join, nested loan/restoration and returned-view laws over the admitted carrier. Reuse the source-level Span/Slots laws from Q25af/ag/ak/al; no abstract dictionary substitutes for the machine connection.
 
 <a id="q25ao"></a>
 
-- [ ] **Q25ao · Close the retained source-to-target compiler refinement** · 800 h, range 400–1,200 · X
+- [ ] **Q25ao · Close the retained source-to-target compiler refinement**
   - **Owner:** `retained-compiler`. **Start:** machine-logic, concrete-resources and the retained Q35d/M1.2g/Q35j compiler producers. **Check:** Connect the selected Clight representation and purecap ABI through the retained compiler to canonical Sail execution, including calls, loops, failure exits and composition. Budget only residual proof/compatibility work beyond those producers' booked slices.
 
 <a id="q25ap"></a>
 
-- [ ] **Q25ap · Establish contextual security preservation for the release closure** · 1,200 h, range 600–1,800 · X
+- [ ] **Q25ap · Establish contextual security preservation for the release closure**
   - **Owner:** `context-preservation`. **Start:** machine-logic, retained-compiler and an independently reviewed observation/adversarial-context contract. **Check:** Prove the required authority/confidentiality and contextual-preservation statement at the selected endpoint, including linking, callbacks, leakage and resource assumptions; finite generated-code tests and source effect annotations supply no substitute.
 
 <a id="q25aq"></a>
 
-- [ ] **Q25aq · Close TAL and exact-artifact admission for the release closure** · 800 h, range 400–1,200 · X
+- [ ] **Q25aq · Close TAL and exact-artifact admission for the release closure**
   - **Owner:** `artifact-admission`. **Start:** Supplied retained-compiler/context-preservation theorem interfaces and existing TAL/image-validation owners. **Check:** Supply the required TAL/checker soundness joins, post-compiler assembly/link/image validation, theorem composition and applicable binary constant-time/resource evidence progressively for each release client. Publish the independently checked first-client receipt before the second-client trial; close this cell only after both clients have exact-source-to-final-byte admission. Reject stale, changed and malformed artifacts; source kernel replay alone cannot admit bytes.
 
 <a id="q25ar"></a>
 
-- [ ] **Q25ar · Integrate and recheck prerequisite producer receipts** · 40 h, range 24–56 · X
+- [ ] **Q25ar · Integrate and recheck prerequisite producer receipts**
   - **Owner:** `producer-receipts`. **Start:** Named local and externally supplied producer revisions. **Check:** Bind each independently checked subset receipt to source closure, canonical model, assumptions, tool versions and target, including review of user-supplied hosted verdicts. Publish first-client receipts before the second trial and close this cell after complete declared coverage. Missing/skipped receipts remain blockers. This task performs local replay and review; hosted execution remains user-managed.
   - Local first-slice identities, exact retained capacity/control sources and proof-corruption subject/refusal checks, Sail capability image/transcript rechecks with unambiguous terminal and complete trace-record checks, and optional CompCert process/effective-input/image bindings are implemented; [partial evidence](docs/assurance/completion-log.md#q25ar-integrate-and-recheck-prerequisite-producer-receipts) carries no external-producer or artifact-admission verdict.
 
@@ -245,210 +166,210 @@ open until the parent's acceptance conditions are met.
 
 <a id="q25as"></a>
 
-- [ ] **Q25as · Prove the synchronous core interpretation and composition laws** · 160 h, range 80–240 · X
+- [ ] **Q25as · Prove the synchronous core interpretation and composition laws**
   - **Owner:** `core-soundness`. **Start:** concrete-resources and the admitted elaboration-image interpretation. **Check:** Discharge the existing core-soundness package in the [core obligation matrix](docs/language/core-design.md#proof-obligations-and-proposed-work-packages), including substitution, preservation, phase separation and borrow/exit restoration. Carry forward its existing estimate once.
 
 <a id="q25at"></a>
 
-- [ ] **Q25at · Qualify checked synchronous frontend correspondence** · 140 h, range 80–200 · I
+- [ ] **Q25at · Qualify checked synchronous frontend correspondence**
   - **Owner:** `core-frontend`. **Start:** core-soundness interfaces and the existing checked parser/elaborator. **Check:** Implement and independently qualify source-to-interpreted-core SourcePackage correspondence, resolution, derivations, reconstruction and frontend erasure. Publish the checked first-client subset before completing wider release coverage. Reuse landed parsing, mathematical elaboration, owned loans and effects; represented-core-to-Clight lowering belongs to runtime-lowering.
 
 <a id="q25au"></a>
 
-- [ ] **Q25au · Qualify contextual diagnostics and invalidation** · 64 h, range 40–88 · I
+- [ ] **Q25au · Qualify contextual diagnostics and invalidation**
   - **Owner:** `core-diagnostics`. **Start:** core-frontend's checked derivations. **Check:** Complete the existing core-diagnostics producer for typed holes, exact residual propositions, locations, status and dependency invalidation; invalid edits withdraw stale evidence. This does not buy the wider LSP server.
 
 <a id="q25av"></a>
 
-- [ ] **Q25av · Qualify the composed synchronous fixture and repair protocol** · 48 h, range 32–64 · X
+- [ ] **Q25av · Qualify the composed synchronous fixture and repair protocol**
   - **Owner:** `core-repair-trial`. **Start:** core-soundness, core-frontend and concrete-resources. **Check:** Construct the inhabited PreparationOpen/finish fixture and run its independently reviewed negative neighbors, semantic/refactor/representation edits and repair measurements under the [core fixture contract](docs/language/core-design.md#composed-qualification-fixture). Reuse supplied primitive laws.
 
 <a id="q25aw"></a>
 
-- [ ] **Q25aw · Qualify represented scalar and text library behavior** · 96 h, range 64–128 · I
+- [ ] **Q25aw · Qualify represented scalar and text library behavior**
   - **Owner:** `runtime-primitives`. **Start:** Accepted narrow first slice, core-frontend/concrete-resource interfaces and fixed target/ABI. **Check:** Connect existing mathematical integer/UTF-8/raw-string/TextBuilder/Format support to represented runtime definitions; deliver source representation/law interfaces before general lowering and join its per-operation receipts for final runtime acceptance. Qualify aliases, arithmetic/conversions, malformed text, exact-fit/exhaustion and static/runtime agreement under [primitive and text semantics](docs/language/first-release.md#primitive-semantics).
 
 <a id="q25ax"></a>
 
-- [ ] **Q25ax · Implement locked package and build closure** · 96 h, range 64–128 · I
+- [ ] **Q25ax · Implement locked package and build closure**
   - **Owner:** `packages`. **Start:** core-frontend and frozen first-release module/instance semantics. **Check:** Deliver manifests, lockfiles, reproducible dependency/target closure and a batch build graph; qualify nominal identity, coherent instances, import order, cycles, missing dependencies and stale configurations across two independently authored packages. No public registry service is required.
 
 <a id="q25ay"></a>
 
-- [ ] **Q25ay · Qualify represented sequence and ownership libraries** · 120 h, range 80–160 · I
+- [ ] **Q25ay · Qualify represented sequence and ownership libraries**
   - **Owner:** `runtime-ownership`. **Start:** Accepted narrow first slice and primitive/concrete-resource/core-law interfaces. **Check:** Reuse existing mathematical Seq/Slots/iterator/invariant-lifting support and supply represented library laws and generic clients for initialized/vacant ranges, selective lifting, bounded iteration and bulk relocation under [ownership libraries](docs/language/first-release.md#ownership-libraries). Publish source/law interfaces before general lowering, then join its per-operation receipts for runtime acceptance. Tiny and billion-element capacities retain the same obligation/proof complexity.
 
 <a id="q25az"></a>
 
-- [ ] **Q25az · Qualify general synchronous lowering through the retained route** · 112 h, range 64–160 · I
+- [ ] **Q25az · Qualify general synchronous lowering through the retained route**
   - **Owner:** `runtime-lowering`. **Start:** Accepted narrow first slice, core-frontend correspondence, published primitive/ownership representation-law interfaces and retained-compiler theorem interface. **Check:** Extend the existing validator-specific lowering to the declared synchronous release subset with checked represented-core-to-Clight mapping and source maps for calls, branches, loops, errors and resource exits. Publish per-operation runtime receipts for library acceptance, reusing frontend/source and retained-backend theorems; refuse unsupported constructs explicitly.
 
 <a id="q25ba"></a>
 
-- [ ] **Q25ba · Accept the synchronous component at the exact-artifact endpoint** · 96 h, range 48–144 · X
+- [ ] **Q25ba · Accept the synchronous component at the exact-artifact endpoint**
   - **Owner:** `vela-first-slice`. **Start:** Existing validator-specific source/lowering and independently checked first-client core, machine, compiler, security and admission receipts. **Check:** Retain the closed source proof in [first-slice qualification](docs/language/first-release.md#first-slice-qualification), then bind the authored slice to those exact receipts and bytes; independent output, alias/restoration, wrong-operation, stale-input and corruption controls pass. Broader library/general lowering and the second client's receipts are subsequent work. Existing closed source proofs and Sail/C execution receive no second completion credit.
   - All three source residuals now kernel-replay within unchanged budgets; [partial evidence](docs/assurance/completion-log.md#q25ba-accept-the-synchronous-component-at-the-exact-artifact-endpoint) closes no source-correspondence or artifact-admission join.
 
 <a id="q25bb"></a>
 
-- [ ] **Q25bb · Run the independent package and developer-value trial** · 80 h, range 48–112 · X
+- [ ] **Q25bb · Run the independent package and developer-value trial**
   - **Owner:** `vela-package-trial`. **Start:** Accepted first slice, packages, represented-library runtime receipts and general lowering. **Check:** Freeze a genuinely independent second client, baseline and thresholds under the [adoption protocol](docs/assurance/workflow-contract.md#first-release-qualification-and-adoption); qualify real errors/exits, contract/representation/refactor changes, explicit native proof transfer, annotation/review/repair costs and target resources at the same endpoint. Obtain this client's own admission receipt before acceptance; its selection/authorship precedes that receipt.
 
 <a id="q25bc"></a>
 
-- [ ] **Q25bc · Publish a supported and reproducible release closure** · 72 h, range 48–96 · I
+- [ ] **Q25bc · Publish a supported and reproducible release closure**
   - **Owner:** `vela-release`. **Start:** Accepted first slice and package trial, all required producer receipts. **Check:** Version the supported language/libraries, conformance and refusal corpus, compatibility policy, installation/tutorial/reference material, dependency notices and reproducible Windows/Linux artifacts. Cold install/build/proof replay and independent release review pass; every published guarantee names its endpoint.
 
 <a id="q25bd"></a>
 
-- [ ] **Q25bd · Rehearse one supported-release maintenance cycle** · 64 h, range 32–96 · I
+- [ ] **Q25bd · Rehearse one supported-release maintenance cycle**
   - **Owner:** `release-maintenance`. **Start:** vela-release and pinned compiler/kernel/dependency closure. **Check:** Perform one coordinated dependency/tool upgrade, semantic cache invalidation, compatibility/migration, security-response and rollback rehearsal with proof/conformance replay. Record actual human/agent/machine costs separately; this finite cycle does not fund indefinite support.
 
 ### Language extensions
 
 <a id="q25be"></a>
 
-- [ ] **Q25be · Qualify the six graded-foundation law packages** · 296 h, range 168–424 · X
+- [ ] **Q25be · Qualify the six graded-foundation law packages**
   - **Owner:** `graded-laws`. **Start:** Released synchronous resources and the independently selected graded client. **Check:** Discharge GF-domain, GF-substitution, GF-elimination, GF-cbv, GF-control-mutation and GF-erasure-source under the [reviewed extension predicates](docs/extensions/full-language-review.md#reviewed-implementation-pricing). This single cell aggregates their six existing ranges without extending core-soundness's baseline.
 
 <a id="q25bf"></a>
 
-- [ ] **Q25bf · Qualify capture, resumption, suspension and cancellation laws** · 176 h, range 96–256 · X
+- [ ] **Q25bf · Qualify capture, resumption, suspension and cancellation laws**
   - **Owner:** `handler-laws`. **Start:** Concrete scoped resources and a named control/service client. **Check:** Discharge HA-capture-substitution, HA-resume-dispose, HA-suspend-scope and HA-cancel-progress under the [control contract](docs/extensions/handlers-async.md), including fresh clone frames, terminal resources, cancellation races and finite masked distance. This aggregates four existing review rows.
 
 <a id="q25bg"></a>
 
-- [ ] **Q25bg · Qualify the combined handler embedding** · 40 h, range 22–58 · X
+- [ ] **Q25bg · Qualify the combined handler embedding**
   - **Owner:** `handler-embedding`. **Start:** handler-laws and its selected frontend/lowering. **Check:** Discharge HA-combined-embedding over the actual carrier and returned resources; reject adapter-only capture checks and unsupported-feature substitutes. Preserve the existing reviewed range.
 
 <a id="q25bh"></a>
 
-- [ ] **Q25bh · Qualify the five cell and interference law packages** · 200 h, range 110–290 · X
+- [ ] **Q25bh · Qualify the five cell and interference law packages**
   - **Owner:** `mutation-laws`. **Start:** Concrete resources, supplied atomic/publication laws, interference/observation contract and a named mutation client. **Check:** Discharge MUT-CELL, MUT-BORROW, MUT-SNAPSHOT, MUT-SHARE and MUT-EXIT under the [mutation contract](docs/extensions/interior-mutability.md), using the supplied atomic commit laws for snapshot validity, scoped invariant opening and safe backing reuse. Aggregate the five existing review rows once; machine atomicity/publication construction has a separate extension-machine-laws allocation.
 
 <a id="q25bi"></a>
 
-- [ ] **Q25bi · Qualify the combined mutation client** · 32 h, range 18–46 · I
+- [ ] **Q25bi · Qualify the combined mutation client**
   - **Owner:** `mutation-client`. **Start:** mutation-laws and its actual frontend/runtime support. **Check:** Run the existing MUT-CLIENT predicate with independent scalar-counter behavior, interference, commit/reuse and negative neighbors; source syntax alone earns no verdict.
 
 <a id="q25bj"></a>
 
-- [ ] **Q25bj · Reconstruct checked graded-domain evidence** · 72 h, range 40–104 · X
+- [ ] **Q25bj · Reconstruct checked graded-domain evidence**
   - **Owner:** `graded-frontend`. **Start:** graded-laws and core-frontend. **Check:** Implement the existing reviewed elaboration/domain/grade reconstruction row, carrying dictionaries, substitutions and replayable certificates; unresolved or exhausted solver work remains an explicit goal.
 
 <a id="q25bk"></a>
 
-- [ ] **Q25bk · Check and lower the selected handler and async constructs** · 64 h, range 36–92 · X
+- [ ] **Q25bk · Check and lower the selected handler and async constructs**
   - **Owner:** `handler-lowering`. **Start:** handler-laws, core-frontend and a supplied runtime graph interpretation. **Check:** Complete the existing reviewed handler/async frontend row and selected HA-lowering-erasure join with checked capture boundaries, frame/state/reaction graphs and indexed exits. Retained/native backend producers supply their target theorem once.
 
 <a id="q25bl"></a>
 
-- [ ] **Q25bl · Check selected cell protocols and snapshot invalidation** · 40 h, range 22–58 · X
+- [ ] **Q25bl · Check selected cell protocols and snapshot invalidation**
   - **Owner:** `cell-frontend`. **Start:** mutation-laws and core-frontend. **Check:** Complete the existing reviewed cell frontend row, preserving ownership/interference identities, fresh snapshots and invalidation at writes; source-bound positives and well-formed negatives reach the intended rules.
 
 <a id="q25bm"></a>
 
-- [ ] **Q25bm · Prove correspondence for the selected extension combination** · 48 h, range 26–70 · X
+- [ ] **Q25bm · Prove correspondence for the selected extension combination**
   - **Owner:** `extension-correspondence`. **Start:** Selected graded/handler/cell frontend rows and their interpretation laws. **Check:** Complete the reviewed extension SourcePackage row across source binding, insertion, erasure and combined terms; no generated term is accepted solely because it kernel-checks.
 
 <a id="q25bn"></a>
 
-- [ ] **Q25bn · Qualify diagnostics for the added extension rules** · 40 h, range 22–58 · X
+- [ ] **Q25bn · Qualify diagnostics for the added extension rules**
   - **Owner:** `extension-diagnostics`. **Start:** Selected extension derivations and core-diagnostics. **Check:** Complete the reviewed additional-diagnostics row with exact source goals, authority/effect traces and freshness after changes. Wider editor projection remains separately budgeted.
 
 <a id="q25bo"></a>
 
-- [ ] **Q25bo · Implement assurance-preset selection and evidence status** · 48 h, range 26–70 · I
+- [ ] **Q25bo · Implement assurance-preset selection and evidence status**
   - **Owner:** `preset-policy`. **Start:** Checked frontend and the [assurance policy](docs/extensions/assurance-profiles.md). **Check:** Complete the reviewed selection/status-engine row with unchanged shared construct meaning, truthful missing-evidence/assumption status and no proof-dependent optimization after its proof is disabled.
 
 <a id="q25bp"></a>
 
-- [ ] **Q25bp · Qualify mixed-assurance linking and closure declarations** · 40 h, range 24–56 · I
+- [ ] **Q25bp · Qualify mixed-assurance linking and closure declarations**
   - **Owner:** `preset-linking`. **Start:** preset-policy, packages and applicable artifact/context evidence. **Check:** Complete the reviewed mixed-linking row over reachable implementations, instances, dependencies, generated code and runtime components; downgrade and foreign-boundary changes invalidate dependent guarantees.
 
 <a id="q25bq"></a>
 
-- [ ] **Q25bq · Qualify assurance-policy refusals** · 24 h, range 14–34 · I
+- [ ] **Q25bq · Qualify assurance-policy refusals**
   - **Owner:** `preset-qualification`. **Start:** preset-policy and preset-linking. **Check:** Run the reviewed policy-semantics predicate against invented invariants, unresolved safety, hidden assumptions and retained theorem-dependent optimizations; reject at the actual policy rule.
 
 <a id="q25br"></a>
 
-- [ ] **Q25br · Qualify ordinary applications under increasing assurance** · 24 h, range 14–34 · I
+- [ ] **Q25br · Qualify ordinary applications under increasing assurance**
   - **Owner:** `preset-client`. **Start:** preset-policy and real parser/collection/service application interfaces. **Check:** Complete the reviewed ordinary-application row with executable reuse, explicit changes and no manual verified rewrite hidden by a preset label.
 
 <a id="q25bs"></a>
 
-- [ ] **Q25bs · Qualify the asynchronous systems-resource boundary** · 32 h, range 18–46 · I
+- [ ] **Q25bs · Qualify the asynchronous systems-resource boundary**
   - **Owner:** `systems-extension-trial`. **Start:** handler-laws, mutation-laws, selected runtime and concrete resources. **Check:** Complete the reviewed systems-qualification row over an explicit arena and asynchronous operation: cancellation, late completion, failure/exhaustion, quiescence and actual release-gate backing reuse.
 
 <a id="q25bt"></a>
 
-- [ ] **Q25bt · Establish concrete resource laws required by selected extensions** · 400 h, range 200–600 · X
+- [ ] **Q25bt · Establish concrete resource laws required by selected extensions**
   - **Owner:** `extension-machine-laws`. **Start:** Shared machine/resource interfaces and frozen selected grade/control/mutation clients. **Check:** Supply additional GF-resource, MUT-ATOMIC and MUT-PUBLISH machine-connected laws, including atomic counter linearization, publication ordering, frame/address stability, capability invariants and service backing reuse. These are beyond the synchronous concrete-resources baseline and outside the 27 parameterized review ranges.
 
 <a id="q25bu"></a>
 
-- [ ] **Q25bu · Prove target transport for the selected language extensions** · 360 h, range 180–540 · X
+- [ ] **Q25bu · Prove target transport for the selected language extensions**
   - **Owner:** `extension-target-transport`. **Start:** Selected extension interpretations/frontend and extension-machine-laws. **Check:** Close GF-target, HA-lowering-erasure and added source/IR representation-to-target simulation for the chosen graded/handler/cell/service constructs. Reuse shared retained-compiler and native interfaces; this is incremental extension transport, separate from source graph reconstruction and original synchronous compilation.
 
 <a id="q25bv"></a>
 
-- [ ] **Q25bv · Qualify extension security, cost and admission joins** · 240 h, range 120–360 · X
+- [ ] **Q25bv · Qualify extension security, cost and admission joins**
   - **Owner:** `extension-security-admission`. **Start:** extension-target-transport and shared contextual-security/admission laws. **Check:** Close MUT-OBSERVE and selected extension leakage, cost/schedule, attribute/TAL and exact-artifact admission joins over real clients. Prove added premises and counterexamples without rebuilding the shared base theorems or inventing new attribute authority.
 
 <a id="q25bw"></a>
 
-- [ ] **Q25bw · Implement and qualify one bounded asynchronous service runtime** · 160 h, range 80–240 · I
+- [ ] **Q25bw · Implement and qualify one bounded asynchronous service runtime**
   - **Owner:** `vela-service`. **Start:** Accepted synchronous release, handler-laws/lowering and service-specific storage/control laws. **Check:** Implement one named service with direct helper await and one explicit child, capacity failure, ready/pending outcomes, commit/cancel races and cleanup failure. Supply required lifecycle/manifest/register acts and cost/schedule joins before acceptance; this adds runtime implementation, not a second budget for general HA proofs.
 
 <a id="q25bx"></a>
 
-- [ ] **Q25bx · Qualify an explicit bounded-pool library** · 128 h, range 64–192 · I
+- [ ] **Q25bx · Qualify an explicit bounded-pool library**
   - **Owner:** `bounded-pool`. **Start:** Concrete ownership laws and the release or service client needing allocation. **Check:** Supply allocator/free-list representation, manifests, capacity/exhaustion, initialization, cancellation/quiescence and reuse proofs under the [bounded-pool boundary](docs/language/first-release.md#release-boundary). Reuse shared backing laws; no implicit allocation, retry or new OS allocator is assumed.
 
 <a id="q25by"></a>
 
-- [ ] **Q25by · Compare fixed modes with a bounded grading increment** · 32 h, range 16–48 · X
+- [ ] **Q25by · Compare fixed modes with a bounded grading increment**
   - **Owner:** `grading-trial`. **Start:** Independent client and frozen baseline/benefit threshold. **Check:** Run the [graded selection protocol](docs/extensions/graded-foundation.md#extension-selection-and-qualification), separately justifying general domains and type-use accounting; retain the smaller supported account when prerequisite or material benefit is absent.
 
 <a id="q25bz"></a>
 
-- [ ] **Q25bz · Trial derived modality combinators** · 64 h, range 32–96 · X
+- [ ] **Q25bz · Trial derived modality combinators**
   - **Owner:** `grade-derivation`. **Start:** Selected lawful grades, measured boilerplate and checked generation services. **Check:** Qualify the derived-combinator branch of the [conditional usability producers](docs/extensions/graded-foundation.md#conditional-usability-producers) against independent intent and authority preservation. Reuse generic meta construction rather than reimplement it.
 
 <a id="q25ca"></a>
 
-- [ ] **Q25ca · Trial grade-directed synthesis** · 48 h, range 24–72 · X
+- [ ] **Q25ca · Trial grade-directed synthesis**
   - **Owner:** `grade-synthesis`. **Start:** Selected grade interpretation, independent synthesis intent and finite search budget. **Check:** Qualify the synthesis branch of the conditional-usability contract with checked output, explicit residuals/timeouts and measured benefit; proposals receive no proof authority.
 
 <a id="q25cb"></a>
 
-- [ ] **Q25cb · Trial zero-type-use substitution skipping** · 32 h, range 16–48 · X
+- [ ] **Q25cb · Trial zero-type-use substitution skipping**
   - **Owner:** `substitution-skipping`. **Start:** Proved selected type-use irrelevance and a measured substitution bottleneck. **Check:** Prove the selected skip transformation preserves elaborated meaning and compare total checking work, certificate size and replay cost; a toy speedup or zero annotation alone is insufficient.
 
 <a id="q25cc"></a>
 
-- [ ] **Q25cc · Compare borrow-checking alternatives on held-out clients** · 32 h, range 16–48 · X
+- [ ] **Q25cc · Compare borrow-checking alternatives on held-out clients**
   - **Owner:** `borrow-comparison`. **Start:** Package-trial friction measurements and pinned equivalent comparison modes. **Check:** Run the [borrow comparison boundary](docs/language/loan-analysis.md#conditional-borrowing-comparison) with fixed behavior/evidence endpoints, unsupported cases and analysis-budget refusals; this is a selection trial, not implementation of a competing checker.
 
 <a id="q25cd"></a>
 
-- [ ] **Q25cd · Trial a selected two-phase receiver-borrow extension** · 96 h, range 48–144 · X
+- [ ] **Q25cd · Trial a selected two-phase receiver-borrow extension**
   - **Owner:** `two-phase-borrow`. **Start:** Measured receiver friction and borrow-comparison selection. **Check:** Construct interpretation, checked analysis/lowering and invalid-neighbor cases for one selected two-phase receiver rule; preserve evaluation order, effects, alias safety and source/artifact evidence. Ordinary release receivers remain sufficient until this passes.
 
 <a id="q25ce"></a>
 
-- [ ] **Q25ce · Trial a selected local borrowing-alias extension** · 96 h, range 48–144 · X
+- [ ] **Q25ce · Trial a selected local borrowing-alias extension**
   - **Owner:** `borrow-alias`. **Start:** Measured alias need and borrow-comparison selection. **Check:** Qualify one selected local-alias rule with explicit identity/lifetime, restoration, interference and escape controls under the [borrowing promotion contract](docs/language/core-design.md#borrow-analysis-promotion). No general alias facility follows from this envelope.
 
 <a id="q25cf"></a>
 
-- [ ] **Q25cf · Trial selected loop-carried borrowing** · 96 h, range 48–144 · X
+- [ ] **Q25cf · Trial selected loop-carried borrowing**
   - **Owner:** `loop-borrow`. **Start:** Measured loop-client need and borrow-comparison selection. **Check:** Qualify one loop-carried loan shape with loop/exit invariants, termination, initialization and borrow restoration, and held-out valid/invalid neighbors; reuse general flow and concrete laws.
 
 <a id="q25cg"></a>
 
-- [ ] **Q25cg · Trial representation-proof transfer automation** · 32 h, range 16–48 · X
+- [ ] **Q25cg · Trial representation-proof transfer automation**
   - **Owner:** `proof-transfer`. **Start:** Package-trial explicit-relation baseline exposes repeated work. **Check:** Run a bounded [CoqEAL/Trocq comparison](docs/assurance/workflow-contract.md#representation-transfer-comparison), including exact version/licence/assumption closure and maintenance measurement. Preserve the same client laws, preconditions and locked prover; the native baseline remains in the package trial.
 
 ### Tooling and metaprogramming
@@ -458,30 +379,29 @@ open until the parent's acceptance conditions are met.
 - [ ] **Q25ch · Publish qualified compiler inspection services**
   - **Owner:** `vela-compiler-services`. **Start:** Qualified frontend/diagnostic producers; backend for lowering views. **Check:** Meet the [inspection contract](docs/tooling/tooling-protocols.md#compiler-inspection-api) with versioned schemas, bounded snapshots/queries, origins, source reconstruction and stale-handle/input refusal in an independent consumer. Shared identities and producer semantics are charged once here and at their existing producers.
   - The existing pure producer supplies schema-6 source/token/trivia/syntax-tree snapshots, compiler-recorded lexical scopes and memberships, structured identifier and expression types and bounded concrete/tree/expression/scope/resolved queries; [partial evidence](docs/assurance/completion-log.md#q25ch-publish-qualified-compiler-inspection-services) retains wider views and their producer prerequisites.
-  - Its original 112 h (64–160) allocation is partitioned once below; the standalone reader consumes the existing pure producer without admitting wider views.
-  - [x] **Q25ds · Qualify independent offline compiler inspection queries** · 24 h retained estimate, range 12–36, actual n/a · agent-parallel
+  - The standalone reader consumes the existing pure producer. Wider views require their own qualified producers.
+  - [x] **Q25ds · Qualify independent offline compiler inspection queries**
     - A serialized-snapshot reader independently checks schema, exact source/bindings, syntax/scope/declaration/reference inventories and bounded queries without invoking a parser worker. [Landing evidence](docs/assurance/completion-log.md#q25ds-qualify-independent-offline-compiler-inspection-queries).
-  - [ ] **Q25dt · Complete the remaining compiler inspection qualification** · 88 h, range 52–124 · I
+  - [ ] **Q25dt · Complete the remaining compiler inspection qualification**
     - Retain qualified wider-language/import/generated/proof/lowering producers and all Q25ch acceptance duties beyond the independently consumed pure snapshots.
 
 <a id="q25ci"></a>
 
 - [ ] **Q25ci · Extend semantic editor services beyond the pure prototype**
   - **Owner:** `vela-lsp`. **Start:** Compiler services and qualified wider-language facts. **Check:** Meet the [LSP contract](docs/tooling/tooling-protocols.md#language-server-protocol) for selected workspace navigation, completion/signatures, rename, checked actions, token deltas and read-only proof inspection in two clients. Reuse Q25n/o/u and refuse stale or capturing edits.
-  - Compiler-backed callable/value/literal discovery, signatures, token deltas and bounded single-expression recovery invalidate stale producer generations; both pinned clients qualify discovery, recovery and deltas. Rename evidence covers Neovim's versioned previews and pinned Vim's refusal without versioned-edit support. [Partial evidence](docs/assurance/completion-log.md#q25ci-extend-semantic-editor-services-beyond-the-pure-prototype) retains a second successful rename client, general incomplete-source support and wider editor scope. Its original 112 h (64–160) allocation is partitioned once below.
-  - [x] **Q25do · Qualify compiler-backed completion at checked literals** · 8 h retained estimate, range 4–12, actual n/a · agent-parallel
+  - Compiler-backed callable/value/literal discovery, signatures, token deltas and bounded single-expression recovery invalidate stale producer generations; both pinned clients qualify discovery, recovery and deltas. Rename evidence covers Neovim's versioned previews and pinned Vim's refusal without versioned-edit support. [Partial evidence](docs/assurance/completion-log.md#q25ci-extend-semantic-editor-services-beyond-the-pure-prototype) retains a second successful rename client, general incomplete-source support and wider editor scope.
+  - [x] **Q25do · Qualify compiler-backed completion at checked literals**
     - The pure resolver supplies type- and scope-compatible whole-literal edits, narrows nested static arguments and shares bounded source-bound completion inventories; independent controls and an unsaved Unicode/CRLF stdio session pass. [Landing evidence](docs/assurance/completion-log.md#q25do-qualify-compiler-backed-completion-at-checked-literals).
   - [ ] **Q25dp · Complete the remaining semantic editor qualification**
     - Retain Q25ci's full wider-producer, workspace, proof/action, incomplete-source and two-successful-client acceptance duties; reuse completed pure discovery, deltas and rename without duplicate credit.
-    - Its 104 h (60–148) allocation is partitioned once into the following existing-producer increment and residual.
-    - [x] **Q25du · Qualify completion at incomplete pure expression sites** · 16 h retained estimate, range 8–24, actual n/a · agent-parallel
+    - [x] **Q25du · Qualify completion at incomplete pure expression sites**
       - At a single empty or unfinished scalar expression, bounded compiler repairs recover current typed/static choices while preserving original diagnostics and source; ambiguous or unrelated failures refuse. [Landing evidence](docs/assurance/completion-log.md#q25du-qualify-completion-at-incomplete-pure-expression-sites).
-    - [ ] **Q25dv · Complete the wider semantic editor and client qualification** · 88 h, range 52–124 · I
+    - [ ] **Q25dv · Complete the wider semantic editor and client qualification**
       - Retain wider producers, workspace/proof/actions, general incomplete-source support and the second successful versioned-rename client; single-site recovery supplies no accepted source.
 
 <a id="q25cj"></a>
 
-- [x] **Q25cj · Distribute Tree-sitter and TextMate syntax assets** · 56 h retained estimate, range 32–80, actual n/a · agent-parallel
+- [x] **Q25cj · Distribute Tree-sitter and TextMate syntax assets**
   - **Owner:** `vela-highlight`. **Start:** Canonical Menhir grammar/corpus and named editor consumers. **Check:** Meet the [highlighting contract](docs/tooling/tooling-protocols.md#syntax-grammars-and-highlighting) with both asset formats, fresh/incremental agreement and malformed/Unicode cases; assets grant no semantic acceptance.
   - Generated Menhir-derived assets, pinned independent consumers, the complete canonical corpus with frozen recovery dispositions and eight fresh/incremental edit comparisons pass the [syntax-assets qualification](docs/tooling/highlighting.md#executable-qualification). [Landing evidence](docs/assurance/completion-log.md#q25cj-distribute-tree-sitter-and-textmate-syntax-assets) records the syntax-only boundary.
 
@@ -489,169 +409,213 @@ open until the parent's acceptance conditions are met.
 
 - [ ] **Q25ck · Extend canonical formatting, lints and checked previews**
   - **Owner:** `vela-authoring`. **Start:** Qualified wider syntax and semantic fact producers. **Check:** Meet the [authoring contract](docs/tooling/authoring-tools.md) with token/comment/documentation preservation, reparse equivalence, idempotence and source-bound explicit previews. Reuse Q25t/z/ah; default commands preserve source bytes.
-  - Its original 72 h (40–104) allocation is partitioned once below. The standalone pure preview uses existing checked syntax/types; wider formatting retains its original entry predicate.
-  - [x] **Q25dy · Qualify checked Boolean comparison lint previews** · 8 h retained estimate, range 4–12, actual n/a · agent-parallel
+  - The standalone pure preview uses existing checked syntax and types. Wider formatting requires its qualified producers.
+  - [x] **Q25dy · Qualify checked Boolean comparison lint previews**
     - Explicit single-comparison previews recheck source and candidate, preserve operand evaluation and outside bytes, bind exact source/producer identities and refuse comments, malformed or stale edits. [Landing evidence](docs/assurance/completion-log.md#q25dy-qualify-checked-boolean-comparison-lint-previews).
-  - [ ] **Q25dz · Complete the remaining authoring qualification** · 64 h, range 36–92 · I
+  - [ ] **Q25dz · Complete the remaining authoring qualification**
     - Retain wider canonical formatting/lints/previews and their qualified syntax/semantic producers; the pure Boolean action supplies no wider or editor acceptance.
 
 <a id="q25cl"></a>
 
-- [x] **Q25cl · Export qualified batch diagnostics as SARIF** · 28 h retained estimate, range 16–40, actual n/a · agent-parallel
+- [x] **Q25cl · Export qualified batch diagnostics as SARIF**
   - **Owner:** `vela-sarif`. **Start:** Diagnostic producers and compiler-service snapshots. **Check:** Meet the [diagnostic export contract](docs/tooling/tooling-protocols.md#diagnostic-and-semantic-index-exports) with a pinned schema and independent importer for Unicode/cross-file locations, fixes and incomplete status; partial analysis cannot appear clean.
   - The [qualified pure batch projection](docs/tooling/tooling-protocols.md#qualified-pure-batch-sarif) consumes the existing diagnostic/format producers, passes an exact-pinned schema and independent reader, and refuses stale, malformed or incomplete handoffs. [Landing evidence](docs/assurance/completion-log.md#q25cl-export-qualified-batch-diagnostics-as-sarif) preserves wider-producer and admission boundaries.
 
 <a id="q25cm"></a>
 
-- [ ] **Q25cm · Export a qualified offline SCIP index** · 44 h, range 24–64 · I
+- [ ] **Q25cm · Export a qualified offline SCIP index**
   - **Owner:** `vela-scip`. **Start:** Resolved identities, package closure and compiler services. **Check:** Meet the semantic-index export contract with independent offline definition/reference/implementation queries across imports, shadowing, generation and rename; refuse stale bindings and incomplete absence claims.
 
 <a id="q25cn"></a>
 
-- [ ] **Q25cn · Expose the actual build graph through BSP** · 44 h, range 24–64 · I
+- [ ] **Q25cn · Expose the actual build graph through BSP**
   - **Owner:** `vela-build`. **Start:** The packages cell's real locked batch graph and a named client. **Check:** Meet the [build contract](docs/tooling/tooling-protocols.md#build-integration) for targets, dependencies, options and actual bridge commands; cancellation, stale graphs and failed builds preserve batch verdicts. This funds projection, not graph construction.
 
 <a id="q25co"></a>
 
-- [ ] **Q25co · Export optimization decisions and explanations** · 28 h, range 16–40 · I
+- [ ] **Q25co · Export optimization decisions and explanations**
   - **Owner:** `vela-remarks`. **Start:** An actual qualified optimization producer. **Check:** Meet the [remarks contract](docs/tooling/tooling-protocols.md#compiler-decisions-and-performance-traces) in an independent reader for applied/missed/refused cases and source origins; this funds export, not transformations or a speedup claim.
 
 <a id="q25cp"></a>
 
 - [ ] **Q25cp · Expose bounded compiler performance traces**
   - **Owner:** `vela-traces`. **Start:** Named compiler phases and an independent trace consumer. **Check:** Meet the trace contract for clocks, nesting/workers, overhead and bounded recording; dropped events, truncation and cancellation remain explicit. Compiler timing supplies no emitted-program WCET proof.
-  - The pure compiler records bounded schema-3 traces with checked-parser/decode and source-located declaration work, bound to inputs, locks, selected executable bytes and bounded Python installation inventories. Exact-pinned Perfetto imports and qualified offline browser rendering recover independently expected nested spans/counters. [Partial evidence](docs/assurance/completion-log.md#q25cp-expose-bounded-compiler-performance-traces) retains complete runtime closure and wider measurement/overhead coverage. Its original 28 h (16–40) allocation is partitioned once below.
-  - [x] **Q25dq · Qualify parser trace attribution and retained viewer receipts** · 6 h retained estimate, range 4–8, actual n/a · agent-parallel
+  - The pure compiler records bounded schema-3 traces with checked-parser/decode and source-located declaration work, bound to inputs, locks, selected executable bytes and bounded Python installation inventories. Exact-pinned Perfetto imports and qualified offline browser rendering recover independently expected nested spans/counters. [Partial evidence](docs/assurance/completion-log.md#q25cp-expose-bounded-compiler-performance-traces) retains complete runtime closure and wider measurement/overhead coverage.
+  - [x] **Q25dq · Qualify parser trace attribution and retained viewer receipts**
     - Record the actual checked-parse/decode work and independently expected nested reader observations; strictly recheck exact reader/harness identities, controls and retained observations. Actual Windows and Linux Perfetto consumers pass. [Landing evidence](docs/assurance/completion-log.md#q25dq-qualify-parser-trace-attribution-and-retained-viewer-receipts).
   - [ ] **Q25dr · Complete the remaining compiler trace qualification**
     - Retain Q25cp's complete runtime closure, browser UI, broader worker/phase and overhead qualification; existing importer and parser receipts discharge only their named subset.
-    - Its 22 h (12–32) allocation is partitioned once below.
-    - [x] **Q25dw · Qualify offline browser rendering of compiler traces** · 14 h retained estimate, range 8–20, actual n/a · agent-parallel
+    - [x] **Q25dw · Qualify offline browser rendering of compiler traces**
       - A source-bound offline timeline displays phases, declarations and counters; an explicitly pinned real Chromium browser checks independent geometry, source details, focus and filtering. [Landing evidence](docs/assurance/completion-log.md#q25dw-qualify-offline-browser-rendering-of-compiler-traces).
-    - [ ] **Q25dx · Complete runtime and broader compiler trace qualification** · 8 h, range 4–12 · I
+    - [ ] **Q25dx · Complete runtime and broader compiler trace qualification**
       - Retain complete runtime closure, broader phases/workers and overhead qualification; bounded warm-process comparisons supply no hard overhead or program timing bound.
 
 <a id="q25cq"></a>
 
-- [ ] **Q25cq · Emit and qualify exact-image native debug information** · 144 h, range 80–208 · I
+- [ ] **Q25cq · Emit and qualify exact-image native debug information**
   - **Owner:** `vela-dwarf`. **Start:** Executable backend, fixed purecap ABI and compiler-owned maps. **Check:** Meet the [DWARF contract](docs/tooling/tooling-protocols.md#dwarf-native-debug-information) for scopes/types/locations/inlining/unwind and capability metadata in independent readers, including optimized-away values, malformed sections and stale-image refusal.
 
 <a id="q25cr"></a>
 
-- [ ] **Q25cr · Qualify a simulator execution and inspection backend** · 96 h, range 48–144 · I
+- [ ] **Q25cr · Qualify a simulator execution and inspection backend**
   - **Owner:** `debug-runtime`. **Start:** An executable simulator route, exact images and debug maps. **Check:** Implement known stops/stepping, stack/register/capability inspection, reconnect and bounded read-only evaluation against independent expected states; no code patching or hardware trigger is needed. This is the producer missing from the former adapter-only plan.
 
 <a id="q25cs"></a>
 
-- [ ] **Q25cs · Qualify a source debugger through DAP** · 112 h, range 64–160 · I
+- [ ] **Q25cs · Qualify a source debugger through DAP**
   - **Owner:** `vela-dap`. **Start:** debug-runtime and vela-dwarf. **Check:** Meet the [DAP contract](docs/tooling/tooling-protocols.md#debug-adapter-protocol) for lifecycle, source stepping, scopes/values and stale/unauthorized requests in two clients; reuse the execution producer.
 
 <a id="q25ct"></a>
 
-- [ ] **Q25ct · Qualify conditional RSP and GDB-MI integration** · 76 h, range 40–112 · I
+- [ ] **Q25ct · Qualify conditional RSP and GDB-MI integration**
   - **Owner:** `vela-debug-backend`. **Start:** A separately selected debugger engine and its required packet/command subset. **Check:** Meet the [debugger backend contract](docs/tooling/tooling-protocols.md#debugger-backend-protocols) for registers/capabilities, malformed packets, reconnect and stale state in an independent engine. Direct DAP backends need not select this option.
 
 <a id="q25cu"></a>
 
-- [ ] **Q25cu · Qualify a bounded web-output producer** · 192 h, range 96–288 · I
+- [ ] **Q25cu · Qualify a bounded web-output producer**
   - **Owner:** `web-output`. **Start:** A selected pure release subset and independently reviewed JavaScript/WebAssembly semantics. **Check:** Implement and check one bounded output route with exact-source correspondence, independent execution/refusals and fixed runtime/resource limits before offering source maps. The existing Gallina playground is reused as UI, not counted as this compiler backend.
 
 <a id="q25cv"></a>
 
-- [ ] **Q25cv · Export qualified generated-output source maps** · 38 h, range 20–56 · I
+- [ ] **Q25cv · Export qualified generated-output source maps**
   - **Owner:** `vela-source-maps`. **Start:** web-output or an independently qualified compatible producer and a named consumer. **Check:** Meet the [source-map contract](docs/tooling/tooling-protocols.md#generated-source-maps) for composed/Unicode/unmapped sites and exact map/output/source identities; mismatches fail before handoff. This funds maps, not output generation.
 
 <a id="q25cw"></a>
 
-- [ ] **Q25cw · Qualify target-aware aggregate and text static evaluation** · 72 h, range 40–104 · I
+- [ ] **Q25cw · Qualify target-aware aggregate and text static evaluation**
   - **Owner:** `meta-evaluation`. **Start:** Selected static interpretation subject, target types and sealed dependency closure. **Check:** Construct the incremental phase/evaluation preservation laws and meet the [phase/evaluation contract](docs/extensions/metaprogramming.md#evaluation-and-phase-boundaries) for aggregate/table freezing, deterministic inputs and budgets; refuse runtime layout fallback and host-width substitution. Reuse Q25q's scalar constant functions and the fixed core laws without expanding their budget.
 
 <a id="q25cx"></a>
 
-- [ ] **Q25cx · Qualify opt-in descriptions and one codec derivation** · 112 h, range 64–160 · I
+- [ ] **Q25cx · Qualify opt-in descriptions and one codec derivation**
   - **Owner:** `meta-descriptors`. **Start:** meta-evaluation interfaces, nominal declarations and an independently fixed wire-format intent. **Check:** First freeze the description protocol and prove its incremental privacy/coherence/interpretation laws under the [description contract](docs/extensions/metaprogramming.md#typed-introspection-and-derivation). That milestone unblocks meta-construction before this cell closes. Final codec acceptance consumes its checked construction interface, length checks and independently expected bytes; two mutually agreeing incorrect codecs fail.
 
 <a id="q25cy"></a>
 
-- [ ] **Q25cy · Qualify hygienic typed construction and generated evidence** · 152 h, range 80–224 · I
+- [ ] **Q25cy · Qualify hygienic typed construction and generated evidence**
   - **Owner:** `meta-construction`. **Start:** Compiler services and the independently reviewed descriptor-protocol/law milestone from meta-descriptors, without waiting for its final codec. **Check:** Prove the incremental hygienic-substitution/construction preservation laws and meet the [construction contract](docs/extensions/metaprogramming.md#hygienic-construction-and-composition) for dependent binders, freshness, capture/effects/resources and exact source/output evidence. Publish its checked interface for codec acceptance; reject binder escape and duplicated authority without adding a proof-admission path or widening core-soundness's budget.
 
 <a id="q25cz"></a>
 
-- [ ] **Q25cz · Qualify selected cross-feature metaprogramming clients** · 116 h, range 56–176 · X
+- [ ] **Q25cz · Qualify selected cross-feature metaprogramming clients**
   - **Owner:** `meta-composition`. **Start:** Selected meta and graded/resource/control laws plus the actual backend endpoint. **Check:** Run the [meta qualification](docs/extensions/metaprogramming.md#qualification) on independently specified clients, well-formed negatives, stale dependency edits and runtime/code-growth controls. This funds client composition, not the other extensions' underlying proofs.
 
 <a id="q25da"></a>
 
-- [ ] **Q25da · Rehearse one coordinated optional-portfolio refresh** · 192 h, range 96–288 · I
+- [ ] **Q25da · Rehearse one coordinated optional-portfolio refresh**
   - **Owner:** `tool-maintenance`. **Start:** The adopted tool/meta/native/model/hardware subset and pinned dependency/consumer closure. **Check:** Perform one finite coordinated schema/client/dependency or model-interface refresh, compatibility and security triage, regression/proof/consumer requalification and rollback across adopted options. Reuse release infrastructure and record actual recurring costs; stop and reprice an exhausted cycle, and budget each later cycle separately.
 
 ### Whole-system delivery
 
 <a id="q25db"></a>
 
-- [ ] **Q25db · Qualify complete proof authorship for the frozen proof inventory** · 640 h, range 320–960 · X
+- [ ] **Q25db · Qualify complete proof authorship for the frozen proof inventory**
   - **Owner:** `vela-proofs`. **Start:** Checked frontend and independently reviewed proof subjects. **Check:** Meet the [proof-authorship boundary](docs/extensions/unified-source-contract.md#software-and-proof-boundary) for the frozen package inventory, including universes, inductive/coinductive reasoning and logical relations; reconstruct/audit kernel terms with no mandatory handwritten fallback. The underlying machine/security theorems retain their shared owners.
 
 <a id="q25dc"></a>
 
-- [ ] **Q25dc · Migrate the frozen operational software inventory** · 1,280 h, range 640–1,920 · X
+- [ ] **Q25dc · Migrate the frozen operational software inventory**
   - **Owner:** `vela-software`. **Start:** Accepted release, its retained target route and supplied component contracts. **Check:** Meet the software-authoring boundary beyond the two release clients: every frozen first-party component, exit, resource/security contract and exact final-byte join uses the same Vela-authored implementation, without a separate optimized rewrite. Existing OS functionality/algorithm construction is not repriced as migration.
 
 <a id="q25dd"></a>
 
-- [ ] **Q25dd · Define and admit the native compiler interpretations** · 320 h, range 160–480 · X
+- [ ] **Q25dd · Define and admit the native compiler interpretations**
   - **Owner:** `native-ir`. **Start:** Accepted source interpretation, target contract and reviewed replacement duties. **Check:** Define the selected native IRs, source/IR meanings, pass interfaces and admission subjects under the [native compiler contract](docs/extensions/unified-source-contract.md#native-verified-compiler-and-self-hosting); independently review the complete pipeline scope before implementation.
 
 <a id="q25de"></a>
 
-- [ ] **Q25de · Author the selected native parser and compiler in Vela** · 480 h, range 240–720 · X
+- [ ] **Q25de · Author the selected native parser and compiler in Vela**
   - **Owner:** `native-implementation`. **Start:** native-ir and sufficient supported Vela implementation/proof facilities. **Check:** Implement the declared compiler/parser closure in Vela, preserving grammar/source identities and explicit unsupported diagnostics. Reuse the qualified frontend specification and corpus; seed/development dependency retirement waits for bootstrap.
 
 <a id="q25df"></a>
 
-- [ ] **Q25df · Prove native representation and erasure preservation** · 800 h, range 400–1,200 · X
+- [ ] **Q25df · Prove native representation and erasure preservation**
   - **Owner:** `native-representation`. **Start:** native-ir, native-implementation and concrete target resource laws. **Check:** Prove each selected source/IR representation and erasure pass, including ownership, dependent/static information and authority; compose checked pass theorems over actual emitted terms.
 
 <a id="q25dg"></a>
 
-- [ ] **Q25dg · Qualify the selected native optimization families** · 960 h, range 480–1,440 · X
+- [ ] **Q25dg · Qualify the selected native optimization families**
   - **Owner:** `native-optimization`. **Start:** native-ir, native-representation and frozen held-out workloads, retained-route baselines, thresholds and hard envelopes. **Check:** Meet the [optimization evidence contract](docs/extensions/unified-source-contract.md#optimization-stages-and-evidence) for selected specialization, inlining, redundant-check elimination and scoped loop/layout/vector families where the target supports them; freeze the chosen list before dispatch. Qualify independent behavior, relational/resource preservation and measured applied/missed cases. No LLVM parity or blanket performance saving is assumed.
 
 <a id="q25dh"></a>
 
-- [ ] **Q25dh · Prove native selection, allocation and final image construction** · 960 h, range 480–1,440 · X
+- [ ] **Q25dh · Prove native selection, allocation and final image construction**
   - **Owner:** `native-target`. **Start:** Admitted IRs, exact purecap ABI, canonical machine semantics and qualified passes. **Check:** Construct/prove selection, register/stack allocation, calling convention, assembly, relocations, linkage and image formation to exact target bytes; preserve calls, failures, resources and tag-bearing authority. Interim compiler evidence remains required until replacement acceptance.
 
 <a id="q25di"></a>
 
-- [ ] **Q25di · Compose native security, resource and artifact preservation** · 800 h, range 400–1,200 · X
+- [ ] **Q25di · Compose native security, resource and artifact preservation**
   - **Owner:** `native-preservation`. **Start:** native-representation/optimization/target and the shared semantic/security/admission interfaces. **Check:** Transport the shared contextual-security, leakage and hard-resource theorems through this replacement pipeline and compose its final-byte/source correspondence. This funds native transport only, not a second construction of the shared machine logic or security property.
 
 <a id="q25dj"></a>
 
-- [ ] **Q25dj · Qualify the native compiler closure on held-out consumers** · 320 h, range 160–480 · X
+- [ ] **Q25dj · Qualify the native compiler closure on held-out consumers**
   - **Owner:** `native-qualification`. **Start:** Complete native pipeline and separately frozen systems/compute consumers. **Check:** Run independent positive/negative/change trials at the required source/artifact endpoint, measure target envelopes, and audit commercial redistribution/rebuild rights for the exact helper/runtime dependency closure; missing rights/evidence blocks adoption.
 
 <a id="q25dk"></a>
 
-- [ ] **Q25dk · Qualify verified self-hosting and resident rebuilding** · 640 h, range 320–960 · X
+- [ ] **Q25dk · Qualify verified self-hosting and resident rebuilding**
   - **Owner:** `vela-bootstrap`. **Start:** Qualified native compiler definition and sufficient Vela proof authorship. **Check:** Meet the [bootstrap contract](docs/extensions/unified-source-contract.md#bootstrap-and-qualification): connect proved definition, reviewed seed and successive exact binaries, self-compile the declared closure, and qualify reproducibility, runtime/helper/licence closure and resident rebuilding. Reproducibility alone is not the compiler theorem.
 
 <a id="q25dl"></a>
 
-- [ ] **Q25dl · Qualify the frozen Vela machine-model replacement** · 1,280 h, range 640–1,920 · X
+- [ ] **Q25dl · Qualify the frozen Vela machine-model replacement**
   - **Owner:** `vela-machine`. **Start:** Admitted interpretation and the pinned canonical Sail/profile contract. **Check:** Meet the [machine-model contract](docs/extensions/unified-source-contract.md#machine-model) for every frozen operation/configuration with behavior/progress and relational leakage/cost agreement, independent executable cases and malformed/stale refusals. Original machine-logic construction remains in the shared prerequisite cells.
 
 <a id="q25dm"></a>
 
-- [ ] **Q25dm · Qualify hardware interpretation and migrate the frozen blocks** · 1,920 h, range 960–2,880 · X
+- [ ] **Q25dm · Qualify hardware interpretation and migrate the frozen blocks**
   - **Owner:** `vela-hardware`. **Start:** Reviewed cycle/register meaning, block contracts and canonical machine interface. **Check:** Meet the [hardware contract](docs/extensions/unified-source-contract.md#hardware) for every frozen authored block with checked generation to exact synthesis inputs, cycle/commit/progress/refinement evidence and its existing artifact tier. Reuse supplied original block theorems; physical fabrication/lab work is outside language migration.
 
 <a id="q25dn"></a>
 
-- [ ] **Q25dn · Adopt the shared model and retire legacy authoring dependencies** · 640 h, range 320–960 · X
+- [ ] **Q25dn · Adopt the shared model and retire legacy authoring dependencies**
   - **Owner:** `vela-retirement`. **Start:** Accepted machine agreement and complete affected-consumer inventory. **Check:** Meet the [migration gate](docs/extensions/unified-source-contract.md#migration-and-retirement) by rebinding every frozen compiler, logic, TAL, constant-time, timing and hardware consumer in one admitted generation, with explicit amendments and historical evidence retention. No private model or missing consumer is permitted.
+
+<a id="q-assessment-actions"></a>
+
+### Completed foundations and prototypes
+
+- [x] **Q25 · Design the full graded dependent language and its control and mutation rules**
+  [Evidence](docs/assurance/completion-log.md#q25-design-the-full-graded-dependent-language-and-its-control-and-mutation-rules)
+  - [x] **Q25a · Specify the graded dependent foundation** [Evidence](docs/assurance/completion-log.md#q25a-specify-the-graded-dependent-foundation)
+  - [x] **Q25b · Specify handlers and structured async lifecycles** [Evidence](docs/assurance/completion-log.md#q25b-specify-handlers-and-structured-async-lifecycles)
+  - [x] **Q25c · Specify interior mutability and interference guardrails** [Evidence](docs/assurance/completion-log.md#q25c-specify-interior-mutability-and-interference-guardrails)
+- [x] **Q25d · Review the combined calculus and price its implementation** [Evidence](docs/assurance/completion-log.md#q25d-review-the-combined-calculus-and-price-its-implementation)
+- [x] **Q25e · Build a pure Vela-to-Gallina prototype** [Evidence](docs/assurance/completion-log.md#q25e-build-a-pure-vela-to-gallina-prototype)
+- [x] **Q25f · Align the executable Vela subset with its proposed surface** [Evidence](docs/assurance/completion-log.md#q25f-align-the-executable-vela-subset-with-its-proposed-surface)
+- [x] **Q25g · Build the Menhir development parser for pure Vela** [Evidence](docs/assurance/completion-log.md#q25g-build-the-menhir-development-parser-for-pure-vela)
+- [x] **Q25h · Qualify checked Vela parsing and retire the Python parser** [Evidence](docs/assurance/completion-log.md#q25h-qualify-checked-vela-parsing-and-retire-the-python-parser)
+- [x] **Q25i · Extend the Menhir grammar across the Vela authoring surface** [Evidence](docs/assurance/completion-log.md#q25i-extend-the-menhir-grammar-across-the-vela-authoring-surface)
+- [x] **Q25j · Prototype path-sensitive loan-end inference over explicit flow facts** [Evidence](docs/assurance/completion-log.md#q25j-prototype-path-sensitive-loan-end-inference-over-explicit-flow-facts)
+- [x] **Q25k · Elaborate generic dependent mathematics and first-class proofs** [Evidence](docs/assurance/completion-log.md#q25k-elaborate-generic-dependent-mathematics-and-first-class-proofs)
+- [x] **Q25l · Clarify Vela borrowing, evidence and resource interfaces** [Evidence](docs/assurance/completion-log.md#q25l-clarify-vela-borrowing-evidence-and-resource-interfaces)
+- [x] **Q25m · Specify staged Vela metaprogramming and compiler services** [Evidence](docs/assurance/completion-log.md#q25m-specify-staged-vela-metaprogramming-and-compiler-services)
+- [x] **Q25n · Prototype and qualify Vela LSP lifecycle and pure diagnostics** [Evidence](docs/assurance/completion-log.md#q25n-prototype-and-qualify-vela-lsp-lifecycle-and-pure-diagnostics)
+- [x] **Q25o · Add and qualify pure Vela LSP navigation** [Evidence](docs/assurance/completion-log.md#q25o-add-and-qualify-pure-vela-lsp-navigation)
+- [x] **Q25p · Improve Vela authoring syntax and editor hints** [Evidence](docs/assurance/completion-log.md#q25p-improve-vela-authoring-syntax-and-editor-hints)
+- [x] **Q25q · Implement compositional Vela constant functions and parameters** [Evidence](docs/assurance/completion-log.md#q25q-implement-compositional-vela-constant-functions-and-parameters)
+- [x] **Q25r · Add Vela numeric digit separators** [Evidence](docs/assurance/completion-log.md#q25r-add-vela-numeric-digit-separators)
+- [x] **Q25s · Attach Vela documentation comments to compiler facts** [Evidence](docs/assurance/completion-log.md#q25s-attach-vela-documentation-comments-to-compiler-facts)
+- [x] **Q25t · Integrate default Vela formatting and lints** [Evidence](docs/assurance/completion-log.md#q25t-integrate-default-vela-formatting-and-lints)
+- [x] **Q25u · Add pure Vela editor formatting and semantic tokens** [Evidence](docs/assurance/completion-log.md#q25u-add-pure-vela-editor-formatting-and-semantic-tokens)
+- [x] **Q25v · Settle the bounded Vela release and practical language contracts** [Evidence](docs/assurance/completion-log.md#q25v-settle-the-bounded-vela-release-and-practical-language-contracts)
+- [x] **Q25w · Investigate the concrete Vela buffer foundation within a fixed budget** [Evidence](docs/assurance/completion-log.md#q25w-investigate-the-concrete-vela-buffer-foundation-within-a-fixed-budget)
+- [x] **Q25x · Qualify generated tests for existing Vela development tools** [Evidence](docs/assurance/completion-log.md#q25x-qualify-generated-tests-for-existing-vela-development-tools)
+- [x] **Q25y · Qualify Menhir-generated syntax campaigns** [Evidence](docs/assurance/completion-log.md#q25y-qualify-menhir-generated-syntax-campaigns)
+- [x] **Q25z · Qualify the familiar Vela authoring surface** [Evidence](docs/assurance/completion-log.md#q25z-qualify-the-familiar-vela-authoring-surface)
+- [x] **Q25aa · Build a local Vela browser playground** [Evidence](docs/assurance/completion-log.md#q25aa-build-a-local-vela-browser-playground)
+- [x] **Q25ab · Extend the Vela playground authoring and inspection controls** [Evidence](docs/assurance/completion-log.md#q25ab-extend-the-vela-playground-authoring-and-inspection-controls)
+- [x] **Q25ac · Extend pure Vela expressions and playground examples** [Evidence](docs/assurance/completion-log.md#q25ac-extend-pure-vela-expressions-and-playground-examples)
+- [x] **Q25ad · Add natural division and remainder to Vela and its playground** [Evidence](docs/assurance/completion-log.md#q25ad-add-natural-division-and-remainder-to-vela-and-its-playground)
+- [x] **Q25ae · Bring dependent Vela mathematics into the playground** [Evidence](docs/assurance/completion-log.md#q25ae-bring-dependent-vela-mathematics-into-the-playground)
+- [x] **Q25af · Make Vela elaboration evidence kernel-honest** [Evidence](docs/assurance/completion-log.md#q25af-make-vela-elaboration-evidence-kernel-honest)
+- [x] **Q25ag · Conform the Vela first slice to the synchronous design** [Evidence](docs/assurance/completion-log.md#q25ag-conform-the-vela-first-slice-to-the-synchronous-design)
+- [x] **Q25ah · Resolve Vela surface collisions and redundant spellings** [Evidence](docs/assurance/completion-log.md#q25ah-resolve-vela-surface-collisions-and-redundant-spellings)
+- [x] **Q25ai · Publish the Vela language reference and separate extension research** [Evidence](docs/assurance/completion-log.md#q25ai-publish-the-vela-language-reference-and-separate-extension-research)
+- [x] **Q25aj · Unify Vela playground assets, single-source grammar sync, and single-pass worker execution** [Evidence](docs/assurance/completion-log.md#q25aj-unify-vela-playground-assets-single-source-grammar-sync-and-single-pass-worker-execution)
+- [x] **Q25ak · Close remaining elaboration solver axioms and promote source-bound borrow and mutation-invalidation checking** [Evidence](docs/assurance/completion-log.md#q25ak-close-remaining-elaboration-solver-axioms-and-promote-source-bound-borrow-and-mutation-invalidation-checking)
+- [x] **Q25al · Elaborate consuming ownership (`owned` parameters and `move` transfers), general `in`/`ref` runtime value loans, and closed `effects` footprints (`reads`/`writes`/`calls`)** [Evidence](docs/assurance/completion-log.md#q25al-elaborate-consuming-ownership-owned-parameters-and-move-transfers-general-in-ref-runtime-value-loans-and-closed-effects-footprints-reads-writes-calls)
 
 ## Calibration record (Q25 series)
 
