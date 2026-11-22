@@ -550,6 +550,17 @@ a new checked graph. A failed build returns its exit status and bounded diagnost
 The package build's verdict is mathematical elaboration. Kernel replay and the
 packet compiler are separate operations.
 
+For the [packet walkthrough](packet-walkthrough.md), pass
+`--compile-commands NEW_DIRECTORY` to `vela-parser packet-example`. The new
+directory retains the generated C, compiled executable and compilation database.
+The database records the same working directory and argument vector passed to
+the successful C compiler process, including the translation unit and output.
+`vela-parser qualify-compile-commands /usr/lib/llvm-21/bin/clang-scan-deps`
+checks this build and a cross-compiled RISC-V object with an explicit target,
+include path and definition. The [Clang reader](../../THIRD-PARTY.md#independent-compilation-database-reader)
+recovers the expected translation units, included files, options, working
+directories and outputs with spaces in their paths.
+
 ## Compiler decisions and performance traces
 
 Expose optimization decisions using an

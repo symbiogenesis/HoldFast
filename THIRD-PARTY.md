@@ -45,6 +45,17 @@ tree, compiler runtime, or a Vela/VerifiedOS image. Retained reports contain
 Vela-authored fixtures, observed records and tool identities. These records
 authorize local development use and do not assert a redistribution closure.
 
+## Independent compilation database reader
+
+The native [C bridge qualification](docs/tooling/tooling-protocols.md#locked-mathematical-package-builds)
+runs Ubuntu ARM64 `clang-scan-deps` from LLVM 21.1.8,
+SHA-256 `268678d396d51830acbe20f958005cecc9ac155de5822807e3390c0ed3cde995`.
+The selected [Clang license](https://github.com/llvm/llvm-project/blob/llvmorg-21.1.8/clang/LICENSE.TXT)
+and the installed Ubuntu package's copyright record specify Apache-2.0 with LLVM
+exceptions. The reader consumes local compilation databases as an external
+development tool. Its executable and upstream source remain outside the repository
+and release artifacts.
+
 ## CI environment setup
 
 The [static workflow](.github/workflows/static.yml) invokes `actions/setup-python`
