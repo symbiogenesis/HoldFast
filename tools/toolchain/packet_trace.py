@@ -114,7 +114,7 @@ def validate(document: Object, binding: str, source_size: int, pids: dict[str, i
     spans: dict[str, tuple[int, int]] = {}
     previous = 0
     for name, event in zip(PHASES, events, strict=True):
-        if not isinstance(event, dict):
+        if not isinstance(event, dict) or event.get("name") != name:
             raise ValueError("invalid packet trace event")
         start, duration = event.get("ts"), event.get("dur", 0)
         if (type(start) is not int or type(duration) is not int or not previous <= start <= MAX_TIME
