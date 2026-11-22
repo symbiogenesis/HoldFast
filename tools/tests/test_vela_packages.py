@@ -5,6 +5,7 @@ import json
 import shutil
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from tests.harness import Case, ensure
 from toolchain import packages, parser
@@ -118,6 +119,16 @@ def _bound_producer() -> None:
         ensure(packages._producer(root, compiled) == original, "unrelated helper invalidated the package lock")
         (tools / "toolchain" / "elaborate_solver.py").write_bytes(b"new arithmetic")
         ensure(packages._producer(root, compiled) != original, "changed semantic implementation retained the lock")
+        compiled.receipt["generated_sha256"] = {"vela-parser": original["parser_sha256"]}
+        with patch.object(parser, "_inputs", return_value={}) as inputs, patch.object(parser, "_toolchain", return_value={}):
+            packages._recheck_parser(root, compiled)
+            inputs.return_value = {"parser.mly": "updated grammar"}
+            try:
+                packages._recheck_parser(root, compiled)
+            except ValueError as error:
+                ensure("parser sources" in str(error), "late parser change reached an unrelated refusal")
+            else:
+                raise AssertionError("published a lock for a grammar which changed during the build")
 
 
 def cases() -> list[Case]:
