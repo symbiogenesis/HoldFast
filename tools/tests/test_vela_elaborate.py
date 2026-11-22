@@ -2165,14 +2165,14 @@ def _raw_strings_and_checked_formatting() -> None:
     parameters = (("b", target_type), ("writtenBeforeFormat", _NAT))
     collision = _Fixture("FormatSnapshotCapture")
     original = _call(_member(_variable("Format"), "Write"), _ref_arg(_variable("b")),
-                     _interpolated_literal('$"n={Written(b):x4}"'))
+                     _interpolated_literal('$"n={', count, ':x4}"'))
     collision.function("Write", target_type, parameters, original)
     error = _refuses(collision, "type", "let writtenBeforeFormat2 = Written(b)")
     conflicting_line = collision.text.splitlines()[error.line - 1]
     ensure(conflicting_line[error.column - 1:].startswith("b):x4}"), "format conflict did not select the later read")
     fixed = _Fixture("FormatSnapshotCapture")
     fixed_call = _call(_member(_variable("Format"), "Write"), _ref_arg(_variable("b")),
-                       _interpolated_literal('$"n={writtenBeforeFormat2:x4}"'))
+                       _interpolated_literal('$"n={', _variable("writtenBeforeFormat2"), ':x4}"'))
     fixed.function("Write", target_type, parameters, _group(_let("writtenBeforeFormat2", count, fixed_call)))
     fixed_source, fixed_ast = fixed.response()
     ensure(error.message.split("Snapshot the count before borrowing: ")[1] in fixed_source.decode(),
@@ -2186,7 +2186,7 @@ def _raw_strings_and_checked_formatting() -> None:
     multiple = _Fixture("TwoConflictingReads")
     multiple.function("Write", target_type, parameters, _call(
         _member(_variable("Format"), "Write"), _ref_arg(_variable("b")),
-        _interpolated_literal('$"{Written(b):x4} {Written(b):x4}"'),
+        _interpolated_literal('$"{', count, ":x4} {", count, ':x4}"'),
     ))
     ensure("Snapshot the count" not in _refuses(multiple, "type", "cannot alias").message,
            "a partial fix was suggested for a template with two conflicting reads")
