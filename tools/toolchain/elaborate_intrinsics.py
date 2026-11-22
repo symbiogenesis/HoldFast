@@ -885,10 +885,9 @@ class _IntrinsicsMixin:
         self: _Elaborator, operation: str, spec: _IntSpec, operands: tuple[_Term, ...],
         variables: set[int], facts: list[_Term], equality: str, node: Node,
     ) -> tuple[str, str]:
-        supported = {"shr", "wrap_shl", "rem", "div"}
-        if not spec.signed:
-            supported.update({"add", "sub"})
-        else:
+        supported = {"shr", "wrap_shl", "rem", "div", "add", "sub"}
+        signed_sum = spec.signed and operation in {"add", "sub"}
+        if spec.signed:
             supported.add("neg")
         if operation not in supported or any(term.kind not in {"int", "var"} for term in operands):
             raise self.fail("unsupported", "symbolic word replay requires supported primitives on word variables or literals", node)
@@ -904,12 +903,19 @@ class _IntrinsicsMixin:
             name = f"vela_v{var}"
             binders.append(f"({name} : vela_int {shape.tag})")
             arguments.append(name)
-            steps.append(f"pose proof (VelaWordReplay.range {shape.tag} {name}) as R{var}.")
-            reductions[f"VelaWordReplay.capacity (vela_tag_bits {shape.tag})"] = 1 << shape.bits
+            if signed_sum:
+                steps.append(f"pose proof (proj1 (VelaWordReplay.signed_parts {shape.tag} {name} eq_refl)) as S{var}.")
+                reductions[f"VelaWordReplay.half {shape.tag}"] = 1 << (shape.bits - 1)
+            else:
+                steps.append(f"pose proof (VelaWordReplay.range {shape.tag} {name}) as R{var}.")
+                reductions[f"VelaWordReplay.capacity (vela_tag_bits {shape.tag})"] = 1 << shape.bits
 
         def literal(term: _Term, shape: _IntSpec) -> None:
             if term.kind == "int":
-                reductions[f"VelaWordReplay.unsigned {shape.tag} {self.render(term)}"] = cast("int", term.value) % (1 << shape.bits)
+                if signed_sum and shape.signed:
+                    reductions[f"VelaWordReplay.signed {shape.tag} {self.render(term)}"] = cast("int", term.value)
+                else:
+                    reductions[f"VelaWordReplay.unsigned {shape.tag} {self.render(term)}"] = cast("int", term.value) % (1 << shape.bits)
 
         for term in operands:
             if term.kind == "int":
@@ -926,7 +932,7 @@ class _IntrinsicsMixin:
             if comparison is None or not self.free(fact) <= variables:
                 continue
             op, shape, left, right = comparison
-            if shape is None or (shape.signed and op not in {"ne", "eq"}) or any(
+            if shape is None or (shape.signed and not signed_sum and op not in {"ne", "eq"}) or any(
                 term.kind not in {"int", "var"} for term in (left, right)
             ):
                 continue
@@ -937,13 +943,17 @@ class _IntrinsicsMixin:
             arguments.append(name)
             if op in {"ne", "eq"}:
                 lemma = "eqv" if op == "eq" else "ne"
-                steps.append(f"apply VelaWordReplay.{lemma} in {name}.")
+                if signed_sum and shape.signed:
+                    lemma = "signed_eqv" if op == "eq" else f"signed_ne {shape.tag} _ _ eq_refl"
+                steps.append(f"apply (VelaWordReplay.{lemma}) in {name}.")
             else:
                 if op in {"gt", "ge"}:
                     left, right = right, left
                 lemma = "lt" if op in {"lt", "gt"} else "le"
-                steps.append(f"apply (proj1 (VelaWordReplay.{lemma} {shape.tag} {self.render(left)} {self.render(right)} eq_refl)) in {name}.")
-        lemma = f"signed_{operation}" if spec.signed and operation in {"neg", "div"} else operation
+                order_lemma = f"signed_{lemma}" if shape.signed else lemma
+                signed_flag = "" if shape.signed else " eq_refl"
+                steps.append(f"apply (proj1 (VelaWordReplay.{order_lemma} {shape.tag} {self.render(left)} {self.render(right)}{signed_flag})) in {name}.")
+        lemma = f"signed_{operation}" if spec.signed and operation in {"neg", "div", "add", "sub"} else operation
         steps.append(f"apply VelaWordReplay.{lemma}_ok.")
         if operation in {"add", "sub", "div", "neg"}:
             steps.append("1: reflexivity.")
@@ -952,7 +962,7 @@ class _IntrinsicsMixin:
         if operation in {"shr", "wrap_shl"}:
             reductions[f"VelaUnsigned.big (vela_nat_to_bits 64 (vela_tag_bits {spec.tag})) 0%Z"] = spec.bits
         for expression, value in reductions.items():
-            steps.append(f"all: change ({expression}) with ({value}%Z) in *.")
+            steps.append(f"all: change ({expression}) with (({value})%Z) in *.")
         statement = f"forall {' '.join(binders)}, " + " -> ".join([*premises, equality])
         return statement, f"intros {' '.join(arguments)}. " + " ".join([*steps, "all: lia."])
 
