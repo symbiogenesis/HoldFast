@@ -73,6 +73,13 @@ def _publication() -> None:
         data, outputs = graph.prepare_outputs(config, staging, batch)
         ensure(data["batch"] == batch and outputs == {"Weights.Measure": digest}, "lost batch verdict")
         ensure((staging / "Weights.Measure.v").read_bytes() == gold.encode(), "altered generated source bytes")
+        for order in ([], ["Weights.Measure", "Weights.Measure"], ["Other"]):
+            try:
+                graph.prepare_outputs(config, staging, {**batch, "build_order": order})
+            except ValueError as error:
+                ensure("order" in str(error), "invalid order failed at the wrong check")
+            else:
+                raise AssertionError("incomplete or duplicate batch order passed")
         for damaged in ({"Weights.Measure": gold + " "}, {}, {"Extra": gold, "Weights.Measure": gold}):
             path.write_text(json.dumps({**bundle, "modules": damaged}), encoding="utf-8")
             try:
