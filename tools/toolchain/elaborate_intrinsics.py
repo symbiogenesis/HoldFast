@@ -1161,6 +1161,8 @@ class _IntrinsicsMixin:
                     node,
                 )
             if operator == "~":
+                site = cast("list[int]", cast("Node", node["operator"])["span"])[0]
+                self.integer_operations[site] = (operator, spec.name)
                 return _Binding(_app(_constant(f"int_not_{spec.name}"), operand.term), spec.const)
             if not spec.signed:
                 raise self.fail(

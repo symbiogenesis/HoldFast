@@ -610,6 +610,13 @@ test may use its interval comparison.
   these identities against the current checkout and installed inputs, refusing
   changed, missing or malformed data. Its `status: matched` reports byte binding;
   `proof_replayed: false` states that it does not rerun the proof commands.
+  The binding check reparses the exact source, reconstructs the checked integer
+  arithmetic and literal sites, and regenerates Gallina and C. Each observed
+  arithmetic expression, compound update and integer literal records its
+  declaration, source span, checked width and emitted C expression. Missing
+  entries, changed widths and regenerated subjects differing from the retained
+  output withdraw the match. The compiler and machine-logic producers own the
+  source-to-machine simulation obligations.
   It rechecks source/revision, execution/parser inputs, retained outputs and receipt
   bytes after the prover/runtime probes, refusing changes during the binding check.
   Before matching, it checks the declared source, Gallina and C subjects against
