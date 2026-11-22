@@ -487,17 +487,17 @@ unblock the codec. [Protocol contracts](docs/tooling/tooling-protocols.md) ·
 
 <a id="q25cp"></a>
 
-- [ ] **Q25cp · Expose bounded compiler performance traces**
+- [x] **Q25cp · Expose bounded compiler performance traces**
   - **Owner:** `vela-traces`. **Start:** Named compiler phases and an independent trace consumer. **Check:** Meet the trace contract for clocks, nesting/workers, overhead and bounded recording; dropped events, truncation and cancellation remain explicit. Compiler timing supplies no emitted-program WCET proof.
-  - The pure compiler records bounded schema-3 traces with checked-parser/decode and source-located declaration work, bound to inputs, locks, selected executable bytes and bounded Python installation inventories. Exact-pinned Perfetto imports and qualified offline browser rendering recover independently expected nested spans/counters. [Partial evidence](docs/assurance/completion-log.md#q25cp-expose-bounded-compiler-performance-traces) retains complete runtime closure and wider measurement/overhead coverage.
+  - The pure compiler and packet qualification export bounded, input-bound timings. The pinned Perfetto reader recovers phase order, nesting, worker tracks and counters. [Landing evidence](docs/assurance/completion-log.md#q25cp-expose-bounded-compiler-performance-traces).
   - [x] **Q25dq · Qualify parser trace attribution and retained viewer receipts**
     - Record the actual checked-parse/decode work and independently expected nested reader observations; strictly recheck exact reader/harness identities, controls and retained observations. Actual Windows and Linux Perfetto consumers pass. [Landing evidence](docs/assurance/completion-log.md#q25dq-qualify-parser-trace-attribution-and-retained-viewer-receipts).
-  - [ ] **Q25dr · Complete the remaining compiler trace qualification**
-    - Retain Q25cp's complete runtime closure, browser UI, broader worker/phase and overhead qualification; existing importer and parser receipts discharge only their named subset.
+  - [x] **Q25dr · Complete the remaining compiler trace qualification**
+    - The offline browser renders the pure timeline. The two compiler routes bind their user-space inputs, and the pure benchmarks enforce a declared overhead budget. [Landing evidence](docs/assurance/completion-log.md#q25dr-complete-the-remaining-compiler-trace-qualification).
     - [x] **Q25dw · Qualify offline browser rendering of compiler traces**
       - A source-bound offline timeline displays phases, declarations and counters; an explicitly pinned real Chromium browser checks independent geometry, source details, focus and filtering. [Landing evidence](docs/assurance/completion-log.md#q25dw-qualify-offline-browser-rendering-of-compiler-traces).
-    - [ ] **Q25dx · Complete runtime and broader compiler trace qualification**
-      - Retain complete runtime closure, broader phases/workers and overhead qualification; bounded warm-process comparisons supply no hard overhead or program timing bound.
+    - [x] **Q25dx · Complete runtime and broader compiler trace qualification**
+      - Trace the live checked parser and the packet compiler through proof replay and C lowering. Verify phase, clock, runtime, worker and benchmark bindings. [Landing evidence](docs/assurance/completion-log.md#q25dx-complete-runtime-and-broader-compiler-trace-qualification).
 
 <a id="q25cq"></a>
 
@@ -710,14 +710,14 @@ the [release milestones](#current-execution) to judge readiness.
 | Measure | Value |
 | --- | --- |
 | Total estimate midpoint h | 21,457.9 |
-| Total estimate range h | 11,251.9–31,663.9 |
-| Completed scope h | 571.9 |
+| Total estimate range h | 11,255.9–31,659.9 |
+| Completed scope h | 579.9 |
 | Complete by estimate % | 2.7 |
-| Remaining h | 20,886 |
-| Open class I h | 2,802 |
+| Remaining h | 20,878 |
+| Open class I h | 2,794 |
 | Open class X h | 18,084 |
-| Retained completion estimate h | 568.5 |
-| Unmeasured completed items | 37 |
+| Retained completion estimate h | 576.5 |
+| Unmeasured completed items | 38 |
 <!-- estimate-summary:end -->
 
 The table counts each checklist leaf once. Completed work contributes actual

@@ -1777,7 +1777,7 @@ tools supply no wider language or proof admission.
 
 #### Q25cp · Expose bounded compiler performance traces
 
-Partial pure-producer delivery on 2026-11-09 under the
+The pure compiler exports timings under the
 [bounded trace contract](../tooling/pure-prototype.md#bounded-compiler-traces).
 `vela trace` records the existing pure producer's parse, checked-parse,
 syntax-decode and combined
@@ -1810,8 +1810,8 @@ observation refuses over 20,000 files or 512 MiB. Three
 independent Linux/Windows file selections and manifest hashes, same-executable
 source/cache/extension/library/archive changes, unavailable inputs and bounds.
 Windows-to-WSL recording and validation pass with the real locked toolchain.
-Third-party package trees and operating-system libraries remain outside this
-installation-file binding; newly created import caches also change its identity.
+Q25dx extends this binding to active package trees and live mapped libraries.
+New import caches also change the runtime identity.
 The proof-replay input manifest includes the imported runtime-identity helper;
 the independent checker-import audit and all nine replay-control cases pass.
 `vela trace-benchmark` measures bounded alternating plain/traced compilation pairs,
@@ -1834,12 +1834,10 @@ and Linux ARM64 reader qualifications pass, along with all 26 trace cases and
 both-platform typechecking. The [license record](../../THIRD-PARTY.md) records
 the selected reader's own terms; the optional command downloads nothing.
 Combined local gate and behavioral validation cover integration.
-Q25cp remains open for wider phases/workers, overhead qualification and exact
-runtime closure. The comparison measures warm-process wall time,
-including parser waits, and supplies no hard overhead limit. Q25dq records the
-accepted parser attribution and retained-reader validation increment, and Q25dw
-records browser rendering; the parent
-carries no duplicate hours or emitted-program timing verdict.
+Q25dq records parser attribution and retained-reader validation. Q25dw covers
+browser rendering. [Q25dx](#q25dx-complete-runtime-and-broader-compiler-trace-qualification)
+covers runtime identities, packet phases, proof workers and the workload-specific
+overhead budget. The parent carries no duplicate hours.
 
 <a id="q25do-qualify-compiler-backed-completion-at-checked-literals"></a>
 
@@ -1886,8 +1884,7 @@ controls. Malformed, rehashed, stale and altered observations cannot pass by
 retaining a successful status alone. All 26 trace controls and both-platform
 typechecking pass, including actual independent reader import and offline
 receipt rechecks. Combined local gate and behavioral validation cover integration.
-Q25dw records browser rendering; full runtime closure, broader workers/phases
-and overhead qualification remain in Q25dx. Trace timing supplies no program WCET evidence.
+Q25dw records browser rendering and Q25dx records the runtime, worker and overhead qualification.
 
 <a id="q25cl-export-qualified-batch-diagnostics-as-sarif"></a>
 
@@ -2031,8 +2028,8 @@ changed layout or consumer bytes refuse. The browser and its dependencies are
 locally provisioned instruments; this receipt supplies no complete browser runtime
 closure or Perfetto UI claim. All 31 trace controls and the full static gate pass;
 the [timeline controls](../../tools/tests/test_vela_trace_html.py) include stale,
-incomplete, changed-input and atomic-publication refusals. Complete compiler runtime closure, broader
-phases/workers and overhead qualification remain in Q25dx.
+incomplete, changed-input and atomic-publication refusals. Q25dx covers compiler
+runtime identities, broader phases, workers and overhead.
 Combined local gate and behavioral validation cover integration.
 
 <a id="q25dy-qualify-checked-boolean-comparison-lint-previews"></a>
@@ -2103,3 +2100,32 @@ In a live Eglot session, the refactoring request returned one action and a
 quick-fix-only request returned none. Applying the action changed `x == false`
 to `!(x)` in the unsaved buffer. Eglot preserved its Unicode comment, left
 the file on disk untouched and refused the old edit after the version changed.
+
+<a id="q25dr-complete-the-remaining-compiler-trace-qualification"></a>
+
+#### Q25dr · Complete the remaining compiler trace qualification
+
+The [offline browser qualification](#q25dw-qualify-offline-browser-rendering-of-compiler-traces)
+and the [runtime and worker qualification](#q25dx-complete-runtime-and-broader-compiler-trace-qualification)
+complete the remaining compiler trace contract. The allocation stays with those
+two leaves.
+
+<a id="q25dx-complete-runtime-and-broader-compiler-trace-qualification"></a>
+
+#### Q25dx · Complete runtime and broader compiler trace qualification
+
+The [pure recorder](../tooling/pure-prototype.md#bounded-compiler-traces) binds
+the active Python package trees and mapped images, the Windows-to-WSL transport
+and the actual checked-parser process and OCaml runtime. The packet trace binds
+its source, generated Gallina and C, parser, prover commands and user-space
+runtime. Receipt validation checks phase order and nesting, the worker IDs
+observed at process creation, and the durations of their enclosing commands.
+
+Pinned Perfetto v58.2 independently recovered eleven spans across four tracks,
+the source-byte counter and three child process IDs from the deterministic
+packet fixture. The native harness exercised the same recorder while compiling
+the packet proof, auditing assumptions, running `rocqchk` and lowering to C.
+Each seven-pair pure benchmark passed the 25% elapsed-overhead budget on
+`examples/pure.vela` and `examples/expressions.vela`. A fresh process rechecked
+each report. That budget applies to these workloads and measured intervals.
+The retained estimate is 8 h (4–12), actual n/a for this parallel batch.
