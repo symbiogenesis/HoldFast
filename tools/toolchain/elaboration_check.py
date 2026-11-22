@@ -222,6 +222,13 @@ public Nat Inline(Nat x) effects none => Forward(n => n + 2, x);
 public Nat Allowed(Fn(Nat n) -> Nat cb, Nat x) effects calls(cb) => Forward(cb, x);
 lemma Value() ensures Named(2) == 3 proof { assert Named(2) == 3; }
 """),
+        ("scalar-callback-variance", """module ScalarCallback;
+Nat Apply(Fn(Nat x) -> Nat effects(none) with { requires x <= 5; ensures result == x; } f)
+    effects none => f(5);
+Nat Identity(Nat x) requires x <= 10 ensures result == x effects none => x;
+Nat Use() effects none => Apply(Identity);
+lemma Value() ensures Use() == 5 proof { assert Use() == 5; }
+"""),
         ("dependent-type-family", """module FamilyReplay;
 definition type[family(n)] Keep(Fn(Nat index) -> Type family, Nat n,
     type[family(n)] value) => value;

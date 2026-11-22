@@ -432,7 +432,7 @@ def _binary(operator: str, left: Form, right: Form) -> Form:
 
 
 def _function_type(parameters: tuple[Parameter, ...], result: Form,
-                   effects: tuple[Form, ...] = ()) -> Form:
+                   effects: tuple[Form, ...] = (), *, contracts: tuple[Form, ...] = ()) -> Form:
     def form(fixture: _Fixture) -> Node:
         start = fixture.offset
         fixture.write("Fn")
@@ -444,8 +444,15 @@ def _function_type(parameters: tuple[Parameter, ...], result: Form,
             fixture.write(" effects(")
             effect_nodes = fixture.forms(effects)
             fixture.write(")")
+        clauses: list[Node] = []
+        if contracts:
+            fixture.write(" with { ")
+            for clause in contracts:
+                clauses.append(clause(fixture))
+                fixture.write("; ")
+            fixture.write("}")
         return fixture.node("function_type", start, mode="Fn", generics=[], parameters=params,
-                            result=output, captures=None, effects=effect_nodes, contracts=[])
+                            result=output, captures=None, effects=effect_nodes, contracts=clauses)
     return form
 
 
@@ -2153,6 +2160,36 @@ def _raw_strings_and_checked_formatting() -> None:
     )
     _refuses(count_conflict, "type", "exclusive 'ref' target loan starts at line")
     _refuses(count_conflict, "type", 'let writtenBeforeFormat = Written(b) in Format.Write(ref b, $"n={writtenBeforeFormat:x4}")')
+
+    target_type = _type("TextBuilder", _natural(16))
+    parameters = (("b", target_type), ("writtenBeforeFormat", _NAT))
+    collision = _Fixture("FormatSnapshotCapture")
+    original = _call(_member(_variable("Format"), "Write"), _ref_arg(_variable("b")),
+                     _interpolated_literal('$"n={Written(b):x4}"'))
+    collision.function("Write", target_type, parameters, original)
+    error = _refuses(collision, "type", "let writtenBeforeFormat2 = Written(b)")
+    conflicting_line = collision.text.splitlines()[error.line - 1]
+    ensure(conflicting_line[error.column - 1:].startswith("b):x4}"), "format conflict did not select the later read")
+    fixed = _Fixture("FormatSnapshotCapture")
+    fixed_call = _call(_member(_variable("Format"), "Write"), _ref_arg(_variable("b")),
+                       _interpolated_literal('$"n={writtenBeforeFormat2:x4}"'))
+    fixed.function("Write", target_type, parameters, _group(_let("writtenBeforeFormat2", count, fixed_call)))
+    fixed_source, fixed_ast = fixed.response()
+    ensure(error.message.split("Snapshot the count before borrowing: ")[1] in fixed_source.decode(),
+           "the displayed repair differs from the checked source")
+    explicit = _Fixture("FormatSnapshotCapture")
+    explicit.function("Write", target_type, parameters,
+                      _block_stmts(_let_stmt("writtenBeforeFormat2", count), _return_stmt(fixed_call)), block=True)
+    ensure(elaborate(fixed_source, fixed_ast).gallina.split("\n", 2)[2] == elaborate(*explicit.response()).gallina.split("\n", 2)[2],
+           "suggested snapshot changed the explicitly staged calculation")
+
+    multiple = _Fixture("TwoConflictingReads")
+    multiple.function("Write", target_type, parameters, _call(
+        _member(_variable("Format"), "Write"), _ref_arg(_variable("b")),
+        _interpolated_literal('$"{Written(b):x4} {Written(b):x4}"'),
+    ))
+    ensure("Snapshot the count" not in _refuses(multiple, "type", "cannot alias").message,
+           "a partial fix was suggested for a template with two conflicting reads")
 
     bad_hole_syntax = _Fixture("BadHoleSyntax")
     bad_hole_syntax.definition(
@@ -5664,6 +5701,26 @@ def _out_loan_parameters_and_initialization_tracking() -> None:
     )
     _refuses(uninit_return, "type", "before 'out' parameter 'dst' is initialized")
 
+    for initialized in (True, False):
+        propagation = _Fixture("PropagationOutDebt")
+        result = _type("Result", _NAT, _type("Unit"))
+        writes = (_assign_stmt(_variable("first"), "=", _natural(0)),
+                  _assign_stmt(_variable("second"), "=", _natural(0)))
+        unwrap = _let_stmt("value", _propagate(_variable("source")))
+        path = (*writes, unwrap) if initialized else (unwrap, *writes)
+        propagation.function("Construct", result,
+                             (("source", result), ("first", _modified("out", _NAT)), ("second", _modified("out", _NAT))),
+                             _block_stmts(*path, _return_stmt(_call("Ok", _variable("value"), generics=(_NAT, _type("Unit"))))),
+                             block=True)
+        if initialized:
+            elaborate(*propagation.response())
+        else:
+            error = _refuses(propagation, "type", "'out' parameters 'first', 'second' are initialized")
+            ensure("return the completed value in the success case" in error.message,
+                   "fallible construction lost its success-case repair")
+            line = propagation.text.splitlines()[error.line - 1]
+            ensure(line[error.column - 1:].startswith("source?"), "out debt was not reported at the propagation site")
+
     uninit_branch = _Fixture("UninitOutBranch")
     uninit_branch.function(
         "Bad",
@@ -7030,6 +7087,29 @@ def _consuming_ownership_general_loans_and_closed_effects() -> None:
     mode.function("Consume", _NAT, (("n", _modified("owned", _NAT)),), _variable("n"))
     mode.function("AsFn", callback, (), _variable("Consume"))
     _refuses(mode, "type", "ownership or loan modes differ")
+
+    for failure in ("", "pre", "post", "effects", "invocation"):
+        scalar = _Fixture("ScalarCallbackContract")
+        x = _variable("x")
+        none = _effects_clause(_variable("none"))
+        bound = _contract("requires", _binary("<=", x, _natural(5)))
+        guarantee = _contract("ensures", _binary("==", _variable("result"), x))
+        pure_fn = _function_type((("x", _NAT),), _NAT, (_type("none"),), contracts=(bound, guarantee))
+        scalar.function("Apply", _NAT, (("f", pure_fn),),
+                        _call("f", _natural(6 if failure == "invocation" else 5)), contracts=(none,))
+        limit = _contract("requires", _binary("<=", x, _natural(4 if failure == "pre" else 10)))
+        promises = [limit]
+        if failure != "post":
+            promises.append(guarantee)
+        if failure != "effects":
+            promises.append(none)
+        scalar.function("Candidate", _NAT, (("x", _NAT),), x, contracts=tuple(promises))
+        scalar.function("Run", _NAT, (), _call("Apply", _variable("Candidate")), contracts=(none,))
+        if failure:
+            fragment = {"pre": "precondition", "post": "postcondition", "effects": "effects(none)", "invocation": "precondition"}
+            _refuses(scalar, "type", fragment[failure])
+        else:
+            elaborate(*scalar.response())
 
 
 def _unbounded_naturals() -> None:

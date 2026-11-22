@@ -237,13 +237,16 @@ class _StringsMixin:
                         if (hole_count == 0 and spec in {"x2", "x4", "x8", "X2", "X4", "X8"}
                                 and raw[expr_byte_start:expr_byte_end] == snapshot.encode()
                                 and written is not None and written.term == _constant("Written")
-                                and "Written" not in environment and b"writtenBeforeFormat" not in raw
+                                and "Written" not in environment and "{" not in body[end + 1:]
                                 and end_offset - offset <= 100 and b"\n" not in raw[offset:end_offset]
                                 and b"\r" not in raw[offset:end_offset]):
-                            revised = (
-                                raw[offset:expr_byte_start] + b"writtenBeforeFormat" + raw[expr_byte_end:end_offset]
-                            ).decode("utf-8")
-                            repair = f". Snapshot the count before borrowing: (let writtenBeforeFormat = {snapshot} in {revised})"
+                            local = "writtenBeforeFormat"
+                            suffix = 2
+                            while local in environment or local in self.globals:
+                                local = f"writtenBeforeFormat{suffix}"
+                                suffix += 1
+                            revised = (raw[offset:expr_byte_start] + local.encode() + raw[expr_byte_end:end_offset]).decode("utf-8")
+                            repair = f". Snapshot the count before borrowing: (let {local} = {snapshot} in {revised})"
                         raise VelaError(
                             error.kind, error.line, error.column, f"{error.message}. {origin_message}{repair}"
                         ) from error

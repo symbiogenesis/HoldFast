@@ -690,13 +690,23 @@ class _Protocol:
             if values:
                 cursor = self._list(node, span, cursor, values, b"<", b">")
         elif kind == "function_type":
-            if node["captures"] or node["effects"] or node["contracts"]:
+            if node["captures"]:
                 return
             cursor = self._token(node, cursor, cast("str", node["mode"]).encode())
             cursor = self._generics(node, span, cursor)
             cursor = self._list(node, span, cursor, node["parameters"])
             cursor = self._token(node, cursor, b"->")
             cursor = self._child(node, span, cursor, node["result"])
+            if node["effects"]:
+                cursor = self._token(node, cursor, b"effects")
+                cursor = self._list(node, span, cursor, node["effects"])
+            if node["contracts"]:
+                cursor = self._token(node, cursor, b"with")
+                cursor = self._token(node, cursor, b"{")
+                for clause in cast("list[object]", node["contracts"]):
+                    cursor = self._child(node, span, cursor, clause)
+                    cursor = self._token(node, cursor, b";")
+                cursor = self._token(node, cursor, b"}")
         elif kind == "generic_application":
             cursor = self._child(node, span, cursor, node["value"])
             cursor = trivia_end(self.source, cursor, block_comments=True)

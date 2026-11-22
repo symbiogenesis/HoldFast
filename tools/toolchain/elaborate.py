@@ -57,6 +57,7 @@ from toolchain.elaborate_types import (
     _apps,
     _Binding,
     _constant,
+    _FnContract,
     _ImplInstance,
     _int_term,
     _InterfaceInfo,
@@ -173,6 +174,7 @@ class _Elaborator(
         self.active_interface_ensures: dict[tuple[str, tuple[_Term, ...]], dict[str, tuple[tuple[int, ...], tuple[_Term, ...]]]] = {}
         self.callable_where_constraints: dict[str, tuple[tuple[int, ...], tuple[tuple[str, tuple[_Term, ...]], ...]]] = {}
         self.var_preconditions: dict[int, list[tuple[tuple[int, ...], _Term]]] = {}
+        self.fn_contracts: dict[int, _FnContract] = {}
         self.expected_call_type: _Term | None = None
         self.module_name: str = ""
         self.emission_prefix = "vela"
@@ -886,6 +888,9 @@ class _Elaborator(
             for mode in (self.readonly_span_vars, self.ref_parameters, self.out_parameters, self.owned_parameters)
         ):
             raise self.fail("type", "callable parameter ownership or loan modes differ")
+        if (left.kind == right.kind == "pi" and left.value != right.value
+                and (cast("int", left.value) in self.fn_contracts or cast("int", right.value) in self.fn_contracts)):
+            raise self.fail("unsupported", "adapting higher-order callback contracts requires a direct checked wrapper")
         if left == right:
             return
         # Decimal literals abbreviate constructor chains; expose one successor
@@ -1329,6 +1334,8 @@ class _Elaborator(
             return
         if head.kind != "const":
             ident = cast("int", head.value)
+            if head.kind == "var" and ident in self.fn_contracts:
+                return
             if collecting is not None:
                 formals = self.definition_effect_parameters
                 if head.kind == "var" and supplied == 0 and formals is not None and ident in formals:
@@ -1466,7 +1473,15 @@ class _Elaborator(
                     by_value.append((node, value_type.args[0]))
                 if mode in {None, "owned"} and self.in_executable_function:
                     transferred.append((node, value_type.args[0]))
-                if arg_val_node["kind"] == "out_variable":
+                if param_var_id in self.fn_contracts:
+                    if arg_val_node["kind"] not in {"name", "member"}:
+                        raise self.fail("unsupported", "contracted Fn arguments require a named checked callable", arg_val_node)
+                    offered = self._expression(arg_val_node, environment)
+                    self.unify(offered.type, value_type.args[0])
+                    self._adapt_scalar_callback(self.fn_contracts[param_var_id], offered, environment, node)
+                    argument = offered.term
+                    required_static = False
+                elif arg_val_node["kind"] == "out_variable":
                     argument = self.fresh(value_type.args[0])
                     loan_targets[idx] = (arg_val_node, value_type.args[0])
                     required_static = False
@@ -1694,6 +1709,10 @@ class _Elaborator(
                         inst_ens = self.substitute(inst_ens, post_vid, replacement)
                     if self.whnf(inst_ens) != _term("bool", value=1):
                         self.active_facts.append(inst_ens)
+        if callee_head.kind == "var" and (contract := self.fn_contracts.get(cast("int", callee_head.value))) is not None:
+            for post in contract.ensures:
+                fact = self.substitute(post, contract.argument, val_args[0])
+                self.active_facts.append(self.substitute(fact, contract.result, term))
         self._check_call_effects(callee_head, len(callee_gen_args), arguments, val_args, call_site)
         if is_rec_call:
             self.current_rec_used = True
@@ -1729,8 +1748,79 @@ class _Elaborator(
                 term = _term("let", self.types[cast("int", variable.value)], argument, term, value=variable.value)
         return _Binding(term, value_type)
 
+    def _scalar_callback_contract(self, node: Node, domain: _Term) -> _FnContract:
+        parameters = self.nodes(node["parameters"])
+        effects = self.nodes(node["effects"])
+        if (len(parameters) != 1 or parameters[0]["name"] is None or node["generics"]
+                or self.node(parameters[0]["type"])["kind"] == "modified_type" or parameters[0].get("const")
+                or any(t not in {_NAT, _BOOL, _CHAR} and self._int_spec(t) is None for t in domain.args)):
+            raise self.fail("unsupported", "contracted Fn requires one named scalar value parameter and a scalar result", node)
+        if (len(effects) != 1 or effects[0]["kind"] != "type"
+                or self.name(effects[0]["name"]) != "none" or effects[0]["arguments"]):
+            raise self.fail("unsupported", "contracted Fn parameters require an explicit effects(none) bound", node)
+        name = self.name(parameters[0]["name"])
+        if name == "result":
+            raise self.fail("name", "contracted Fn reserves 'result' for its postcondition", parameters[0])
+        argument = cast("int", domain.value)
+        env = {name: _Binding(_term("var", value=argument), domain.args[0])}
+        result = self.fresh(domain.args[1])
+        pre: list[_Term] = []
+        post: list[_Term] = []
+        for clause in self.nodes(node["contracts"]):
+            if clause["role"] not in {"requires", "ensures"}:
+                raise self.fail("unsupported", "contracted Fn supports requires and ensures", clause)
+            pred = self.node(clause["value"])
+            pending = [pred]
+            while pending:
+                part = self._unwrap_group(pending.pop())
+                if part["kind"] == "binary":
+                    pending.extend((self.node(part["left"]), self.node(part["right"])))
+                elif part["kind"] == "unary" and self.operator(part["operator"]) == "!":
+                    pending.append(self.node(part["value"]))
+                elif part["kind"] == "name" and self.name(part["name"]) not in (
+                    {name, "result"} if clause["role"] == "ensures" else {name}
+                ):
+                    raise self.fail("unsupported", "contracted Fn predicates may name only their argument and result", part)
+                elif part["kind"] not in {"name", "bool", "nat", "character"}:
+                    raise self.fail("unsupported", "contracted Fn predicates require scalar expressions", part)
+            if clause["role"] == "requires":
+                pre.append(self.check(pred, _BOOL, env))
+            else:
+                post.append(self.check(pred, _BOOL, {**env, "result": _Binding(result, domain.args[1])}))
+        return _FnContract(argument, cast("int", result.value), tuple(pre), tuple(post))
+
+    def _adapt_scalar_callback(self, wanted: _FnContract, offered: _Binding,
+                               environment: dict[str, _Binding], site: Node) -> None:
+        term = self.resolve(offered.term)
+        signature = self.whnf(offered.type)
+        x, y = (self.fresh(t) for t in signature.args)
+        if term.kind == "var" and (formal := self.fn_contracts.get(cast("int", term.value))) is not None:
+            given_pre = [self.substitute(p, formal.argument, x) for p in formal.requires]
+            given_post = [self.substitute(self.substitute(p, formal.argument, x), formal.result, y) for p in formal.ensures]
+        elif term.kind == "const" and self._pure_callback(site, term):
+            given_pre = [self.substitute(p, ids[0], x) for ids, p in self.callable_preconditions.get(str(term.value), [])]
+            given_post = []
+            for ids, _, result_id, p in self.callable_ensures.get(str(term.value), []):
+                fact = self.substitute(p, ids[0], x)
+                given_post.append(fact if result_id is None else self.substitute(fact, result_id, y))
+        else:
+            raise self.fail("type", "callback must have a checked effects(none) bound", site)
+        old_facts = self.active_facts
+        self.active_facts = [*old_facts, *(self.substitute(p, wanted.argument, x) for p in wanted.requires)]
+        try:
+            for p in given_pre:
+                self._check_precondition_term(p, environment, site)
+            self.active_facts.extend(given_post)
+            for p in wanted.ensures:
+                goal = self.substitute(self.substitute(p, wanted.argument, x), wanted.result, y)
+                if not self._prove_bool_precondition(goal, environment):
+                    raise self.fail("type", "callback guarantees do not establish the required Fn postcondition", site)
+        finally:
+            self.active_facts = old_facts
+
     def telescope(self, generic_nodes: list[Node], parameter_nodes: list[Node],
-                  environment: dict[str, _Binding], *, unit: bool = False) -> tuple[list[_Term], dict[str, _Binding]]:
+                  environment: dict[str, _Binding], *, unit: bool = False,
+                  callback_contracts: bool = False) -> tuple[list[_Term], dict[str, _Binding]]:
         extended = dict(environment)
         variables: list[_Term] = []
         for node in generic_nodes:
@@ -1780,8 +1870,18 @@ class _Elaborator(
                 param_type_node["kind"] == "modified_type"
                 and param_type_node.get("modifier") == "owned"
             )
-            domain = self.type(param_type_node, extended, allow_out=True)
+            annotated_fn = (callback_contracts and param_type_node["kind"] == "function_type"
+                            and bool(param_type_node["effects"] or param_type_node["contracts"]))
+            source_type = {**param_type_node, "effects": [], "contracts": []} if annotated_fn else param_type_node
+            domain = self.type(source_type, extended, allow_out=True)
             variable = self.fresh(domain)
+            if annotated_fn:
+                if node.get("const", False):
+                    raise self.fail("unsupported", "contracted Fn parameters must be runtime parameters", node)
+                contract = self._scalar_callback_contract(param_type_node, domain)
+                identity = cast("int", variable.value)
+                self.fn_contracts[identity] = contract
+                self.var_preconditions[identity] = [((contract.argument,), p) for p in contract.requires]
             variables.append(variable)
             if is_readonly_span:
                 self.readonly_span_vars.add(cast("int", variable.value))

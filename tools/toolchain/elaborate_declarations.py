@@ -1107,6 +1107,7 @@ class _DeclarationsMixin:
         self.unions_by_type.update(mod.unions_by_type)
         self.unions_by_ctor.update(mod.unions_by_ctor)
         self.callable_preconditions.update(mod.callable_preconditions)
+        self.fn_contracts.update(mod.fn_contracts)
         self.callable_ensures.update(mod.callable_ensures)
         self.callable_ref_updates.update({key: value for key, value in mod.callable_ref_updates.items()
                                           if key not in mod.sealed_bodies})
@@ -2788,7 +2789,8 @@ class _DeclarationsMixin:
         self.active_regions = set(decl_regions)
         parameters = [] if kind in {"alias", "constant", "property"} else self.nodes(node["parameters"])
         variables, environment = self.telescope(
-            generics, parameters, {}, unit=kind not in {"alias", "constant", "property"}
+            generics, parameters, {}, unit=kind not in {"alias", "constant", "property"},
+            callback_contracts=kind in {"function", "definition"},
         )
         if kind in {"theorem", "lemma"} and self.out_param_names:
             raise self.fail("type", "proof declarations do not accept 'out' initialization parameters", node)
