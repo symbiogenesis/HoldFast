@@ -2365,6 +2365,23 @@ Definition vela_checked_wrap_shl tag (x : vela_int tag) (count : vela_int 4) :=
   | Some _ => vela_Result_Ok (vela_int tag) vela_ArithmeticError (vela_int_wrap_shl tag x count)
   end.
 
+Fixpoint vela_bits_every (shape : vela_bits) (test : vela_bits -> bool) : bool :=
+  match shape with
+  | vela_bnil => test vela_bnil
+  | vela_bcons _ rest => vela_and
+       (vela_bits_every rest (fun xs => test (vela_bcons false xs)))
+       (vela_bits_every rest (fun xs => test (vela_bcons true xs)))
+  end.
+Lemma vela_bits_every_sound : forall shape bs test,
+  vela_bits_len bs = vela_bits_len shape -> vela_bits_every shape test = true -> test bs = true.
+Proof.
+  induction shape as [|a tail IH]; intros [|b bs] test Hlen H; simpl in *; try discriminate.
+  - exact H.
+  - injection Hlen as Hlen. destruct b.
+    + apply (IH bs (fun xs => test (vela_bcons true xs)) Hlen); exact (vela_and_right _ _ H).
+    + apply (IH bs (fun xs => test (vela_bcons false xs)) Hlen); exact (vela_and_left _ _ H).
+Qed.
+
 Lemma vela_every_word_sound : forall tag (test : vela_int tag -> bool),
   vela_bits_every (vela_int_bits tag (vela_mk_int tag vela_bnil))
     (fun bits => test (vela_mk_int tag bits)) = true ->
