@@ -1635,7 +1635,7 @@ class _PatternsMixin:
                             binder = covering.names[0]
                             reason = f"earlier pattern '{binder}' binds every value"
                             candidate = self.constructor_suggestions.get(cast("list[int]", covering.node["span"])[0])
-                            if candidate:
+                            if candidate is not None:
                                 reason += f"; did you mean '{candidate}'?"
                         raise self.fail("type", f"unreachable match arm: {reason}", pattern.node)
         if arm_uninit_sets:

@@ -16,6 +16,7 @@ from toolchain import elaborate as language
 from toolchain import elaborate_types as terms
 from toolchain.ast import VelaError
 from toolchain.elaborate import elaborate, elaborate_package
+from toolchain.mathematical import inspect_source
 
 type Node = dict[str, object]
 type Form = Callable[[_Fixture], Node]
@@ -6105,8 +6106,6 @@ def _constructor_spelling_and_shadowed_patterns() -> None:
     bad = _Fixture("MisspelledConstructor")
     bad.union("State", (("ready", ()),))
     _refuses(bad, "name", "uppercase")
-    from toolchain.mathematical import inspect_source
-
     last = _Fixture("LastArm")
     last.union("State", (("Ready", ()), ("Busy", ())))
     last.definition("Read", _NAT, (("s", _type("State")),),
