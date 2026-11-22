@@ -3,6 +3,7 @@
 
 import subprocess
 import sys
+import tempfile
 from io import BytesIO
 from pathlib import Path
 from typing import cast
@@ -10,7 +11,7 @@ from unittest.mock import patch
 
 from tests.harness import Case, ensure
 from tests.test_vela_lsp_projection import _error_code, _notice, _request
-from toolchain import authoring_preview, lsp_actions
+from toolchain import authoring_preview, lsp_actions, trace_runtime
 from toolchain.lsp import Server
 from toolchain.protocol_json import decode_message, encode_message, read_frame
 
@@ -92,6 +93,23 @@ def _selection_and_lifecycle() -> None:
                "a late result survived dependency invalidation")
 
 
+def _interpreter_mismatch() -> None:
+    server = Server(checker=lambda _: None)
+    server.handle(_initialize())
+    server.handle(_notice("initialized"))
+    server.handle(_open())
+    with tempfile.TemporaryDirectory() as directory:
+        library = Path(directory) / "alternate-interpreter"
+        library.write_bytes(b"same version label and compiler checkout, different interpreter")
+        # The isolated worker still observes its installed interpreter.
+        with patch.object(trace_runtime, "configured_shared_library", return_value=library):
+            ensure(_error_code(server.handle(_action(2, 28, 28))) == -32803,
+                   "server published a checked edit from a different interpreter")
+    response = server.handle(_action(2, 28, 28, 3))[0]
+    ensure(len(cast("list[object]", response["result"])) == 1, "restoring the interpreter failed to restore edits")
+
+
 def cases() -> list[Case]:
     return [Case("checked comparison actions over stdio and unsaved overlays", _stdio),
-            Case("comparison selection, negotiation and generation refusal", _selection_and_lifecycle)]
+            Case("comparison selection, negotiation and generation refusal", _selection_and_lifecycle),
+            Case("mixed interpreter generations with an isolated comparison worker", _interpreter_mismatch)]
