@@ -2131,3 +2131,17 @@ Each seven-pair pure benchmark passed the 25% elapsed-overhead budget on
 `examples/pure.vela` and `examples/expressions.vela`. A fresh process rechecked
 each report. That budget applies to these workloads and measured intervals.
 The retained estimate is 8 h (4–12), actual n/a for this parallel batch.
+
+<a id="q25dz-complete-the-remaining-authoring-qualification"></a>
+
+#### Q25dz · Complete the remaining authoring qualification
+
+The [mathematical lint preview](../tooling/authoring-tools.md#lint-policy)
+groups the operand reported by `VELA107`. The native parser and elaborator
+check the edited source, compare syntax and emitted Gallina, and preserve the
+original file. The [independent cases](../../tools/tests/test_vela_mathematical_preview.py)
+cover three bitwise operators, left and right operands, Unicode comments and
+CRLF. The original and edited modules replay four expected Boolean outcomes
+through Rocq. Already grouped operands yield no edit. Changed source, a replaced
+OCaml bytecode interpreter or an altered preview record invalidates the edit.
+Wider formatting and semantic lint coverage remain open.

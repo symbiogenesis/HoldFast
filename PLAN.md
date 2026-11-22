@@ -462,7 +462,7 @@ unblock the codec. [Protocol contracts](docs/tooling/tooling-protocols.md) ·
   - [x] **Q25dy · Qualify checked Boolean comparison lint previews**
     - Explicit single-comparison previews recheck source and candidate, preserve operand evaluation and outside bytes, bind exact source/producer identities and refuse comments, malformed or stale edits. [Landing evidence](docs/assurance/completion-log.md#q25dy-qualify-checked-boolean-comparison-lint-previews).
   - [ ] **Q25dz · Complete the remaining authoring qualification**
-    - Retain wider canonical formatting, lints and previews and their qualified syntax and semantic producers. The pure Boolean edit has separate [editor evidence](docs/assurance/completion-log.md#q25dv-complete-the-wider-semantic-editor-and-client-qualification).
+    - The mathematical CLI qualifies a [checked grouping preview](docs/assurance/completion-log.md#q25dz-complete-the-remaining-authoring-qualification) for bitwise comparison operands. Wider canonical formatting, lints and previews still need their qualified producers. The pure Boolean edit has separate [editor evidence](docs/assurance/completion-log.md#q25dv-complete-the-wider-semantic-editor-and-client-qualification).
 
 <a id="q25cl"></a>
 
