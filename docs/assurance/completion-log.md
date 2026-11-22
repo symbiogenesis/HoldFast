@@ -2171,3 +2171,53 @@ import orders resolve the same instances. An instance on a foreign primitive
 fails the ownership rule. This qualification covers the mathematical package
 target. Synchronous frontend correspondence and executable admission retain
 their own milestones. Actual hours are n/a for this parallel batch.
+
+<a id="q25cn-expose-the-actual-build-graph-through-bsp"></a>
+
+#### Q25cn · Expose the actual build graph through BSP
+
+The [BSP server](../tooling/tooling-protocols.md#locked-mathematical-package-builds)
+projects the existing package resolver and invokes the locked batch build.
+Pinned Neovim and bsp.nvim loaded five targets across three configurations
+and recovered the imported provider, its declared inputs and source files.
+The generated provider and client modules, bundle bytes and build verdict
+matched the direct batch run. The [client qualification](../../tools/toolchain/bsp_client.py)
+also cancelled a build, recovered the unknown-name diagnostic from a broken
+client, and rejected a stale graph after the provider changed.
+
+The packet C bridge exports its actual compiler arguments, working directory,
+translation unit and output. The pinned [Clang database reader](../../THIRD-PARTY.md#independent-compilation-database-reader)
+recovered the packet compilation and a separately cross-compiled RISC-V object
+with an explicit target, definition, and include directory containing spaces.
+
+<a id="q25cr-qualify-a-simulator-execution-and-inspection-backend"></a>
+
+#### Q25cr · Qualify a simulator execution and inspection backend
+
+The [packet assembly simulator](../tooling/tooling-protocols.md#packet-assembly-simulator)
+uses the assembler's line and instruction map and Sail's native PC stop.
+At PC `0x80000168` in the passing control, the stack identifies `main`
+and its caller `_start`. Stepping over `cgetlen` exposes a packet-view length
+of four. Disconnecting invalidates the original stop handle. Reconnecting
+replays the same instruction and effect prefix before publishing a new handle.
+
+The [live controls](../../tools/toolchain/simulator_debug_check.py) observed
+93 retired instructions and HTIF 0 on success. The tag, bounds and permission
+controls each entered the trap handler with cause 28 and HTIF 284. The backend
+binds the assembly source, ELF, simulator and profile, and reports unobserved
+capability fields as unavailable. The [refusal cases](../../tools/tests/test_simulator_debug.py)
+exercise altered instructions, divergent effects and a changed target.
+This qualifies assembly inspection on the four development controls.
+
+<a id="q25da-rehearse-one-coordinated-optional-portfolio-refresh"></a>
+
+#### Q25da · Rehearse one coordinated optional-portfolio refresh
+
+The [maintenance rehearsal](inspection-refresh.md) migrated the offline pure
+inspection reader, checked Boolean edit preview and Eglot action together.
+Inspection schema 7 and preview schema 2 bind the Python interpreter identity.
+The upgraded and rolled-back consumers each accepted their own records and
+refused the other generation. On the baseline, candidate, rollback and
+restoration runs, Eglot applied the edit to the unsaved document and refused
+its stale version. Rocq and `rocqchk` checked the original and edited Boolean
+function against both independently expected outputs in every run.

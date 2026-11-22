@@ -478,8 +478,9 @@ unblock the codec. [Protocol contracts](docs/tooling/tooling-protocols.md) ·
 
 <a id="q25cn"></a>
 
-- [ ] **Q25cn · Expose the actual build graph through BSP**
+- [x] **Q25cn · Expose the actual build graph through BSP**
   - **Owner:** `vela-build`. **Start:** The packages cell's real locked batch graph and a named client. **Check:** Meet the [build contract](docs/tooling/tooling-protocols.md#build-integration) for targets, dependencies, options and actual bridge commands; cancellation, stale graphs and failed builds preserve batch verdicts. This funds projection, not graph construction.
+  - The Neovim BSP client consumes the locked mathematical build graph and its generated Gallina. Clang independently reads the packet bridge's compilation database. [Landing evidence](docs/assurance/completion-log.md#q25cn-expose-the-actual-build-graph-through-bsp).
 
 <a id="q25co"></a>
 
@@ -507,8 +508,9 @@ unblock the codec. [Protocol contracts](docs/tooling/tooling-protocols.md) ·
 
 <a id="q25cr"></a>
 
-- [ ] **Q25cr · Qualify a simulator execution and inspection backend**
+- [x] **Q25cr · Qualify a simulator execution and inspection backend**
   - **Owner:** `debug-runtime`. **Start:** An executable simulator route, exact images and debug maps. **Check:** Implement known stops/stepping, stack/register/capability inspection, reconnect and bounded read-only evaluation against independent expected states; no code patching or hardware trigger is needed. This is the producer missing from the former adapter-only plan.
+  - Sail stops at assembler-mapped instructions in four packet control images. The passing run and three trap paths qualify stack frames, observed register and capability fields and handle expiry. [Landing evidence](docs/assurance/completion-log.md#q25cr-qualify-a-simulator-execution-and-inspection-backend).
 
 <a id="q25cs"></a>
 
@@ -552,8 +554,9 @@ unblock the codec. [Protocol contracts](docs/tooling/tooling-protocols.md) ·
 
 <a id="q25da"></a>
 
-- [ ] **Q25da · Rehearse one coordinated optional-portfolio refresh**
+- [x] **Q25da · Rehearse one coordinated optional-portfolio refresh**
   - **Owner:** `tool-maintenance`. **Start:** The adopted tool/meta/native/model/hardware subset and pinned dependency/consumer closure. **Check:** Perform one finite coordinated schema/client/dependency or model-interface refresh, compatibility and security triage, regression/proof/consumer requalification and rollback across adopted options. Reuse release infrastructure and record actual recurring costs; stop and reprice an exhausted cycle, and budget each later cycle separately.
+  - The inspection reader, checked Boolean edit preview and Eglot action completed a forward migration, rollback and restoration against the same source and proof fixture. [Landing evidence](docs/assurance/completion-log.md#q25da-rehearse-one-coordinated-optional-portfolio-refresh).
 
 #### Whole-system delivery
 
@@ -711,14 +714,14 @@ the [release milestones](#current-execution) to judge readiness.
 | Measure | Value |
 | --- | --- |
 | Total estimate midpoint h | 21,457.9 |
-| Total estimate range h | 11,287.9–31,627.9 |
-| Completed scope h | 675.9 |
-| Complete by estimate % | 3.1 |
-| Remaining h | 20,782 |
-| Open class I h | 2,698 |
+| Total estimate range h | 11,451.9–31,463.9 |
+| Completed scope h | 1,007.9 |
+| Complete by estimate % | 4.7 |
+| Remaining h | 20,450 |
+| Open class I h | 2,366 |
 | Open class X h | 18,084 |
-| Retained completion estimate h | 672.5 |
-| Unmeasured completed items | 39 |
+| Retained completion estimate h | 1,004.5 |
+| Unmeasured completed items | 42 |
 <!-- estimate-summary:end -->
 
 The table counts each checklist leaf once. Completed work contributes actual
