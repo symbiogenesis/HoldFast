@@ -49,7 +49,7 @@ def _stage_reader(reader: Path, directory: Path) -> Path:
     return executable
 
 
-def _read(executable: Path, bundle: Path) -> dict[str, _Document]:
+def _read(executable: Path, bundle: Path, expected_paths: set[str]) -> dict[str, _Document]:
     result = subprocess.run(
         [executable, "print", "--json", "index.scip"], cwd=bundle, timeout=15,
         stdin=subprocess.DEVNULL, capture_output=True, check=False,
@@ -58,7 +58,7 @@ def _read(executable: Path, bundle: Path) -> dict[str, _Document]:
         raise ValueError("independent SCIP reader refused the index or exceeded its output bound")
     docs = cast("list[_Document]", json.loads(result.stdout)["documents"])
     by_path = {doc["relative_path"]: doc for doc in docs}
-    if len(by_path) != len(docs) or set(by_path) != {WEIGHTS, SCALE, GENERATED, "__generated__/Scale.Calibration.v"}:
+    if len(by_path) != len(docs) or set(by_path) != expected_paths:
         raise ValueError("independent SCIP reader found a different set of documents")
     global_symbols = {info["symbol"] for doc in docs for info in doc["symbols"] if not info["symbol"].startswith("local ")}
     for doc in docs:
@@ -143,6 +143,25 @@ def _expect_stale(root: Path, workspace: Path, lock: Path, bundle: Path) -> None
     raise ValueError("stale SCIP index survived an imported source change")
 
 
+def _qualify_absence(root: Path, executable: Path, workspace: Path, directory: Path) -> dict[str, int]:
+    source = (b"module Weights.Measure;\npublic definition Nat Unused(Nat x) => x;\n"
+              b"public definition Nat Used(Nat x) => x;\npublic definition Nat Client() => Used(2);\n")
+    (workspace / WEIGHTS).write_bytes(source)
+    lock = directory / "scalar.lock"
+    bundle = directory / "scalar-index"
+    packages.lock_package(root, workspace, "weights", "v1", lock)
+    scip.export(root, workspace, lock, bundle)
+    scip.check(root, workspace, lock, bundle, require_complete=True)
+    doc = _read(executable, bundle, {WEIGHTS, GENERATED})[WEIGHTS]
+    counts = {}
+    for name in ("Unused", "Used"):
+        symbol = _at(doc, _site(source, "Nat |(Nat x)", name), DEFINITION)
+        counts[name] = sum(o["symbol"] == symbol and not o.get("symbol_roles", 0) & DEFINITION for o in doc["occurrences"])
+    if counts != {"Unused": 0, "Used": 1}:
+        raise ValueError(f"offline reference counts disagree in the complete scalar package: {counts}")
+    return counts
+
+
 def qualify(root: Path, reader: Path) -> dict[str, object]:
     with tempfile.TemporaryDirectory(prefix="vela-scip-offline-") as temporary:
         directory = Path(temporary)
@@ -161,7 +180,8 @@ def qualify(root: Path, reader: Path) -> dict[str, object]:
         packages.lock_package(root, workspace, "scale", "v1", lock)
         scip.export(root, workspace, lock, bundle)
         scip.check(root, workspace, lock, bundle)
-        before = _navigate(_read(executable, bundle), workspace, bundle, "Make")
+        paths = {WEIGHTS, SCALE, GENERATED, "__generated__/Scale.Calibration.v"}
+        before = _navigate(_read(executable, bundle, paths), workspace, bundle, "Make")
         try:
             scip.check(root, workspace, lock, bundle, require_complete=True)
         except ValueError as error:
@@ -180,12 +200,14 @@ def qualify(root: Path, reader: Path) -> dict[str, object]:
         renamed = directory / "renamed"
         scip.export(root, workspace, lock, renamed)
         scip.check(root, workspace, lock, renamed)
-        documents = _read(executable, renamed)
+        documents = _read(executable, renamed, paths)
         after = _navigate(documents, workspace, renamed, "Create")
         if any(entry["symbol"] == before["imported_function"]
                for doc in documents.values() for entry in doc["occurrences"]):
             raise ValueError("renamed index still contains an occurrence of the old dependency")
+        counts = _qualify_absence(root, executable, workspace, directory)
         return {"status": "qualified", "reader_sha256": READER_SHA256, "before": before, "after": after,
+                "complete_package_references": counts,
                 "indices_sha256": [hashlib.sha256((item / "index.scip").read_bytes()).hexdigest()
                                    for item in (bundle, renamed)],
                 "refusals": ["incomplete-absence", "deleted-dependency", "renamed-dependency", "replaced-lock"]}

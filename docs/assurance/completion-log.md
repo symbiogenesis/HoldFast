@@ -2206,9 +2206,10 @@ The generated Gallina definition led back to its authored origin.
 Deleting the provider, renaming `Make` to `Create` and replacing the lock all
 invalidated the retained bundle. After reindexing, queries found `Create` and
 the previous provider symbol had no occurrences. Requesting a complete absence
-verdict on the wider package failed. The [behavioral controls](../../tools/tests/test_vela_scip.py)
-also checked full authored-reference coverage on scalar definitions and detected
-changes to the retained index, manifest, generated file and source.
+verdict on the wider package failed. A scalar package passed the completeness
+check, and the upstream reader found zero authored references to `Unused` and
+one to `Used`. The [behavioral controls](../../tools/tests/test_vela_scip.py)
+detected changes to the retained index, manifest, generated file and source.
 
 <a id="q25cr-qualify-a-simulator-execution-and-inspection-backend"></a>
 
