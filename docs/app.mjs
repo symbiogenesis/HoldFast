@@ -6649,6 +6649,7 @@ function initPlaygroundUi() {
   const MONACO_ROOT = `${MONACO_BASE}/vs`;
 
   const state = {
+    exampleName: "squares",
     text: EXAMPLES.squares.source,
     version: 1,
     model: null,
@@ -7167,6 +7168,7 @@ function initPlaygroundUi() {
   function sourceChanged(text) {
     if (text === state.text) return;
     state.text = text;
+    $("edited-source").hidden = text === EXAMPLES[state.exampleName].source;
     state.version++;
     invalidateServices();
     clearCompilation("Output cleared because the source changed.");
@@ -7518,12 +7520,22 @@ function initPlaygroundUi() {
   function loadExample(name, { scrollIntoView = false } = {}) {
     const example = EXAMPLES[name];
     if (!example) return;
+    if (
+      state.text !== EXAMPLES[state.exampleName].source &&
+      state.text !== example.source &&
+      !window.confirm("Discard your source edits and load this example?")
+    ) {
+      $("examples").value = state.exampleName;
+      return;
+    }
+    state.exampleName = name;
     $("examples").value = name;
     $("expression").value = example.expression;
     $("value-type").value = example.valueType;
     renderSuggestions(example.suggestions);
     clearEvaluation();
-    setSource(example.source);
+    if (state.text !== example.source) setSource(example.source);
+    $("edited-source").hidden = true;
     state.editor?.setPosition({ lineNumber: 1, column: 1 });
     activity("Example loaded");
     if (scrollIntoView) {

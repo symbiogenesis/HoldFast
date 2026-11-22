@@ -984,6 +984,21 @@ if (refusal.ok || markers.length !== 1 || !markers[0].message.includes(refusal.e
   throw new Error(`Expected the full compiler diagnostic after editor synchronization: ${JSON.stringify(markers)}`);
 }
 
+let discardEdits = false;
+let discardPrompts = 0;
+window.confirm = () => { discardPrompts++; return discardEdits; };
+const editedSource = elementsById.get("edited-source");
+const picker = elementsById.get("examples");
+if (editedSource.hidden) throw new Error("Edited source should be marked in the file tab");
+picker.value = "vectors";
+await picker.dispatchEvent("change");
+await loadExampleButtons.find((button) => button.getAttribute("data-load-example") === "vectors").dispatchEvent("click");
+if (discardPrompts !== 2 || picker.value !== "squares" || mockModel.getValue() !== invalid ||
+    elementsById.get("expression").value !== indexedSquare || markers.length !== 1 || editedSource.hidden) {
+  throw new Error("Cancelling an example load must preserve the source, selection, expression and diagnostics");
+}
+
+discardEdits = true;
 elementsById.get("examples").value = "vectors";
 await elementsById.get("examples").dispatchEvent("change");
 await expectConsoleValue("Second()", "20");
@@ -991,6 +1006,9 @@ await expectConsoleValue("Second()", "20");
 elementsById.get("examples").value = "squares";
 await elementsById.get("examples").dispatchEvent("change");
 await expectConsoleValue(indexedSquare, "49");
+if (discardPrompts !== 3 || !editedSource.hidden) {
+  throw new Error("Loading an unedited example must clear the edited indicator and skip the prompt");
+}
 console.log(JSON.stringify(parity));
 """
 
