@@ -898,6 +898,9 @@ public Nat RoundTripOwned()
 """),
     )
     negatives = (
+        ("deferred-restoration-at-return",
+         "public Unit Touch(ref Nat value) "
+         "restores value == old(value) { return (); }", "unsupported"),
         ("unrestored-fallible-write", "Result<byte, Unit> Bad(ref Span<byte> dst, byte value) "
          "effects writes(dst) requires dst.CanRead && dst.CanWrite && dst.Length >= 1usize "
          "ensures (result is Err(_)) ==> dst[0] == old(dst[0]) { dst[0] = value; return Err(()); }", "type"),

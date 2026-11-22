@@ -227,7 +227,11 @@ The supported increment includes:
   `Span.Invalidate`, `Span.Disjoint`, `Span.CopyPrefix` and `Span.Restore`),
   together with `requires`, `where`, `ensures` (with `result` bound to the body) and
   `restores param` contract obligations on `definition` and `function`
-  declarations for the [first-slice qualification](../language/first-release.md#first-slice-qualification).
+  declarations. The bare parameter form checks descriptor preservation at call
+  return. A general restoration predicate describes the lender when a returned
+  loan ends and requires a deferred witness. The prototype reports this form
+  as unsupported. Use `ensures` for a predicate over the immediate post-state.
+  See the [first-slice qualification](../language/first-release.md#first-slice-qualification).
 - Pure sequence vocabulary (`Seq<T>`, `Seq.Empty`, `Seq.Singleton`, `.Count`,
   `.At`, `.Update`, `.Append`, `.Take`, `.Skip`, `.Slice`, `.Contains` over
   structurally equatable element types, `.All` and `.Any`), `.Model` domain views on
@@ -272,7 +276,7 @@ The supported increment includes:
   `match`, `let_else`/`var_else` and loops, refusal of reading, partially
   mutating (`+=`, `.Field =`, `[idx] =`), `old(...)`, or returning/propagating
   (`?`) before every `out` parameter is initialized on all normal return paths,
-  and postcondition (`ensures` / `restores`) binding to the final initialized
+  and immediate postcondition (`ensures`) binding to the final initialized
   value.
 - Source-bound local borrow bindings (`let r = in target;` and `let r = ref target;`
   over local variables and disjoint record fields `target.Field`), general

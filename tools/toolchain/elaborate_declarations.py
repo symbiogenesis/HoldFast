@@ -2683,6 +2683,13 @@ class _DeclarationsMixin:
                 elif role == "ensures" and has_params_or_generics:
                     ensures_clauses.append(contract)
                 elif role == "restores" and kind in {"definition", "function"} and has_params_or_generics:
+                    if self.node(contract["value"])["kind"] != "name":
+                        raise self.fail(
+                            "unsupported",
+                            "a deferred restores predicate requires a loan-end witness; "
+                            "use ensures for a property established at function return",
+                            contract,
+                        )
                     restores_clauses.append(contract)
                 else:
                     raise self.fail(
@@ -3329,55 +3336,30 @@ class _DeclarationsMixin:
                     explicitly_restored_params: set[str] = set()
                     for rest_idx, rest_contract in enumerate(restores_clauses):
                         rest_val_node = self.node(rest_contract["value"])
-                        if rest_val_node["kind"] == "name":
-                            target_param_name = self.name(rest_val_node["name"])
-                            if target_param_name not in environment:
-                                raise self.fail(
-                                    "name",
-                                    f"unknown parameter '{target_param_name}' in restores clause",
-                                    rest_val_node,
-                                )
-                            explicitly_restored_params.add(target_param_name)
-                            self._emit_param_descriptor_restores(
-                                emitted=emitted,
-                                rest_idx=rest_idx,
-                                target_param_name=target_param_name,
-                                rest_site=rest_contract,
-                                rest_name_site=rest_val_node,
-                                environment=environment,
-                                ref_param_names=ref_param_names,
-                                post_env=post_env,
-                                post_vars=post_vars,
-                                post_var_ids=post_var_ids,
-                                call_term=call_term,
-                                result=result,
-                                generics_count=len(generics),
-                                post_state_images=post_state_images,
+                        target_param_name = self.name(rest_val_node["name"])
+                        if target_param_name not in environment:
+                            raise self.fail(
+                                "name",
+                                f"unknown parameter '{target_param_name}' in restores clause",
+                                rest_val_node,
                             )
-                        else:
-                            self.reset_budget()
-                            rest_prop = self.asserted_proposition(rest_val_node, post_env)
-                            rest_proof: _Term | None
-                            try:
-                                rest_proof = self._prove_proposition(rest_prop, post_env, post_req_facts, rest_contract)
-                            except VelaError:
-                                if not (
-                                    self._prove_extracted_equality_with_domain_solver(rest_prop, post_env)
-                                    or self._prove_bool_expr_with_domain_solver(rest_val_node, post_env)
-                                ):
-                                    raise
-                                rest_proof = None
-                            self._emit_obligation(
-                                f"{emitted}_restores_{rest_idx}",
-                                post_vars,
-                                rest_prop,
-                                rest_proof,
-                                rest_contract,
-                                "restoration predicate discharged by the untrusted solver",
-                                len(generics),
-                                list(self.active_facts),
-                                post_state_images,
-                            )
+                        explicitly_restored_params.add(target_param_name)
+                        self._emit_param_descriptor_restores(
+                            emitted=emitted,
+                            rest_idx=rest_idx,
+                            target_param_name=target_param_name,
+                            rest_site=rest_contract,
+                            rest_name_site=rest_val_node,
+                            environment=environment,
+                            ref_param_names=ref_param_names,
+                            post_env=post_env,
+                            post_vars=post_vars,
+                            post_var_ids=post_var_ids,
+                            call_term=call_term,
+                            result=result,
+                            generics_count=len(generics),
+                            post_state_images=post_state_images,
+                        )
                     next_rest_idx = len(restores_clauses)
                     for target_param_name, p_node in auto_restores_params:
                         if target_param_name in explicitly_restored_params:

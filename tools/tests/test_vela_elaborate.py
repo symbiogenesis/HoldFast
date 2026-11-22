@@ -3886,14 +3886,6 @@ def _pure_sequences_and_model_reasoning() -> None:
             _contract("requires", _member(_variable("s"), "CanWrite")),
             _contract("requires", _binary(">", _member(_variable("s"), "Length"), _int_lit("0", "usize"))),
             _contract(
-                "restores",
-                _binary(
-                    "==",
-                    _member(_call("final", _variable("s")), "Model"),
-                    _call(_member(_call("old", _member(_variable("s"), "Model")), "Update"), _natural(0), _int_lit("99", "byte")),
-                ),
-            ),
-            _contract(
                 "ensures",
                 _binary(
                     "==",
