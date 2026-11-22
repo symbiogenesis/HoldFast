@@ -529,10 +529,14 @@ test may use its interval comparison.
   capabilities from raw addresses. Bounded operations `Span.Read`, `Span.Write`,
   `Span.Fill`, `Span.Slice`, `Span.ReadOnly`, `Span.Invalidate`,
   `Span.Disjoint`, `Span.CopyPrefix` and `Span.Restore` require checked bounds,
+  including representability of each slice and fill offset plus count,
   read/write capability permissions, loan-mode discipline (`in Span<byte>`
   read-only vs `ref Span<byte>` read-write), read-only enforcement on record
   fields of type `in<'a> Span<byte>`, and disjoint base intervals before
-  emitting terms. Function contracts elaborate `requires` into typing premises,
+  emitting terms. Restoration requires the
+  view's immediate source parent or the parent already updated from that view.
+  These source relationships also apply at the last representable byte, where
+  computing an absolute exclusive end address could overflow. Function contracts elaborate `requires` into typing premises,
   automatic `ref` descriptor preservation (`restores`) into five kernel-proved
   metadata-preservation obligations (`Base`, `Length`, `Tag`, `PermRead`,
   `PermWrite` between the post-state of each `ref` `Span`/`Slots` parameter and
@@ -569,8 +573,9 @@ test may use its interval comparison.
      (`1_000_000_000usize`), checking that obligation count, inference work
      steps, reduction steps and emitted Gallina structure are invariant across
      both capacities and that both pass `rocq c` and `rocqchk`.
-  3. Replays 17 schema-2 semantic negative controls (`oob-read`, `oob-write`,
-     `oob-slice`, `oob-fill`, `mutate-in-borrow`, `mutate-readonly-view`,
+  3. Replays 19 schema-2 semantic negative controls (`oob-read`, `oob-write`,
+     `oob-slice`, `oob-fill`, `overflow-slice-extent`, `overflow-fill-extent`,
+     `mutate-in-borrow`, `mutate-readonly-view`,
      `mutate-readonly-record-view`, `read-invalidated-view`,
      `overlapping-copyprefix`, `foreign-restore`, `broken-restores-contract`,
      `restore-then-return-view`, `capability-fabrication`,
@@ -633,7 +638,7 @@ test may use its interval comparison.
   are required, together with retained capacity sources and libraries. The
   declared small/large capacities, nonnegative work metrics and retained Gallina
   byte lengths are checked. Both original Vela capacity inputs must exactly match
-  the frozen small/large fixtures. All 17 semantic-negative observations must name each
+  the frozen small/large fixtures. All 19 semantic-negative observations must name each
   current control exactly once, report successful surface parsing and the
   expected semantic refusal at a location within its retained Vela source.
   Each retained control source must equal its frozen fixture. Omitted, duplicate,
