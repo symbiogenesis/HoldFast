@@ -6,14 +6,21 @@ import json
 import sys
 from typing import cast
 
-from toolchain import mathematical, parser
+from toolchain import mathematical, packet_runtime, parser
 from toolchain.inspection import compiler_dependency_hashes
 
 
 def _producer(compiled: parser.Build) -> dict[str, str]:
     sources = json.dumps(compiler_dependency_hashes(), sort_keys=True).encode("ascii")
+    runtime = packet_runtime._parser_interpreter(compiled.executable)
+    runtime_digest = hashlib.sha256(runtime.read_bytes()).hexdigest()
+    toolchain = compiled.receipt.get("toolchain")
+    binaries = toolchain.get("binary_sha256") if isinstance(toolchain, dict) else None
+    if not isinstance(binaries, dict) or binaries.get("ocamlrun") != runtime_digest:
+        raise ValueError("mathematical parser interpreter differs from its build")
     return {"compiler_sha256": hashlib.sha256(sources).hexdigest(),
             "parser_sha256": hashlib.sha256(compiled.executable.read_bytes()).hexdigest(),
+            "ocamlrun_sha256": runtime_digest,
             "python": sys.version, "implementation": sys.implementation.name}
 
 
