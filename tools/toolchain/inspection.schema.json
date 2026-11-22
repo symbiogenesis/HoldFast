@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Vela pure development inspection version 6",
+  "title": "Vela pure development inspection version 7",
   "$defs": {
     "concrete": {
       "type": "object", "additionalProperties": false, "required": ["kind", "text", "span"],
@@ -76,10 +76,11 @@
         "coordinate_unit": {"const": "utf8-byte"}, "symbol_lifetime": {"const": "snapshot"},
         "producer": {
           "type": "object", "additionalProperties": false,
-          "required": ["name", "stage", "version", "dependencies", "python", "implementation"],
+          "required": ["name", "stage", "version", "dependencies", "python", "implementation", "interpreter_sha256"],
           "properties": {
             "name": {"const": "vela-pure-development"}, "stage": {"const": "pure-resolution"},
             "version": {"$ref": "#/$defs/digest"},
+            "interpreter_sha256": {"$ref": "#/$defs/digest"},
             "dependencies": {"type": "object", "minProperties": 1, "additionalProperties": {"$ref": "#/$defs/digest"}},
             "python": {"type": "string", "minLength": 1}, "implementation": {"type": "string", "minLength": 1}
           }
@@ -134,7 +135,7 @@
   "type": "object",
   "required": ["schema", "scope", "snapshot", "binding", "status", "complete", "reason"],
   "properties": {
-    "schema": {"const": 6}, "snapshot": {"$ref": "#/$defs/digest"}, "binding": {"$ref": "#/$defs/binding"},
+    "schema": {"const": 7}, "snapshot": {"$ref": "#/$defs/digest"}, "binding": {"$ref": "#/$defs/binding"},
     "status": {"enum": ["checked", "unavailable", "timed-out", "partial", "unsupported", "refused"]},
     "complete": {"type": "boolean"}, "reason": {"type": ["string", "null"]}
   },

@@ -260,7 +260,7 @@ Naming, documentation and other lint findings remain independent.
 Both original and candidate must pass the existing parser and pure checker.
 The checker compares their complete syntax modulo grouping and the two Boolean
 equality identities, retaining calls, arguments, bindings and control flow.
-The schema-1 preview binds the original inspection snapshot, exact source,
+The schema-2 preview binds the original inspection snapshot, exact source,
 producer/configuration/target, replacement span and candidate SHA-256. The
 `authoring_preview.validate` library operation rechecks all fields against the
 current source and producer before returning candidate bytes. Unknown fields,

@@ -416,7 +416,7 @@ def main(argv: list[str] | None = None) -> int:
     inspection = commands.add_parser("inspect", help="export versioned pure compiler facts (Q25ch subset)")
     inspection.add_argument("source", type=Path)
     inspection.add_argument("--query", type=Path,
-                            help="read a version-6 bounded query JSON object instead of exporting all facts")
+                            help="read a version-7 bounded query JSON object instead of exporting all facts")
     inspection.add_argument("--snapshot", type=Path,
                             help="read and independently verify an existing export without recompiling")
     batch = commands.add_parser("sarif", help="export bounded pure batch diagnostics as SARIF 2.1.0")

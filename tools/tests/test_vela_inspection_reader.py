@@ -43,7 +43,7 @@ def _records(value: dict[str, object], key: str) -> list[dict[str, object]]:
 
 
 def _query(reader: inspection_reader.Reader, operation: str, **fields: object) -> dict[str, object]:
-    result = reader.query(SOURCE, {"schema": 6, "snapshot": reader.export()["snapshot"],
+    result = reader.query(SOURCE, {"schema": 7, "snapshot": reader.export()["snapshot"],
                                   "operation": operation, **fields}, binding=inspection.current_binding(SOURCE))
     validate(inspection_reader.SCHEMA_PATH, result)
     return result
@@ -178,7 +178,7 @@ def _malformed_inventory_and_binding_refusals() -> None:
             pass
         else:
             raise AssertionError("offline handoff accepted changed URI, configuration or target")
-    duplicate = _fixture()[:-1] + b',"schema":6}'
+    duplicate = _fixture()[:-1] + b',"schema":7}'
     for publication in (duplicate, b'{"schema":true}', b"[", b"\xff", b" " * (inspection_reader.MAX_PUBLICATION_BYTES + 1)):
         try:
             inspection_reader.read(publication, SOURCE, binding=inspection.current_binding(SOURCE))
@@ -202,8 +202,8 @@ def _bounded_queries_stale_and_failed_status() -> None:
                               ("syntax-children", {"node": "0" * 64 + ":node:0"}),
                               ("scope-symbols", {"scope": "0" * 64 + ":scope:0"})):
         ensure(_query(reader, operation, **fields)["status"] == "refused", "foreign handle accepted offline")
-    request = {"schema": 6, "snapshot": reader.export()["snapshot"], "operation": "symbols"}
-    for bad in (None, [], {}, {**request, "schema": True}, {**request, "schema": 5},
+    request = {"schema": 7, "snapshot": reader.export()["snapshot"], "operation": "symbols"}
+    for bad in (None, [], {}, {**request, "schema": True}, {**request, "schema": 5}, {**request, "schema": 6},
                 {**request, "snapshot": "0" * 64}, {**request, "limit": True},
                 {**request, "limit": 0}, {**request, "limit": 257}, {**request, "extra": True}):
         ensure(reader.query(SOURCE, bad, binding=inspection.current_binding(SOURCE))["status"] == "refused",
@@ -234,7 +234,7 @@ def _cli_roundtrip_without_worker() -> None:
         publication = Path(directory) / "snapshot.json"
         publication.write_bytes(snapshot.publication)
         query = Path(directory) / "request.json"
-        query.write_text(json.dumps({"schema": 6, "snapshot": snapshot.export()["snapshot"],
+        query.write_text(json.dumps({"schema": 7, "snapshot": snapshot.export()["snapshot"],
                                      "operation": "symbols"}), encoding="utf-8")
         with (patch.object(inspection, "inspect_document", side_effect=AssertionError("offline reader invoked compiler")),
               redirect_stdout(output := StringIO()), redirect_stderr(errors := StringIO())):
