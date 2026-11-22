@@ -14,8 +14,11 @@ from toolchain import (
     VelaError,
     bsp,
     bsp_client,
+    env,
     mathematical_preview,
     packages,
+    simulator_debug,
+    simulator_debug_check,
     solver_ledger,
 )
 from toolchain import (
@@ -110,9 +113,34 @@ def _report_findings(source: Path, findings: tuple[Finding, ...], allowed: set[s
     return not failed
 
 
+def _debug_simulator(args: argparse.Namespace) -> dict[str, object]:
+    loaded = env.load()
+    simulator = args.simulator or loaded.simulator
+    profile = args.profile or loaded.profile
+    with tempfile.TemporaryDirectory(prefix="vela-sail-debug-") as temporary:
+        directory = Path(temporary)
+        if args.qualify:
+            if args.operations or args.control != "pass":
+                raise ValueError("qualification runs its own controls and operations")
+            return simulator_debug_check.qualify_controls(simulator, profile, directory)
+        operations = args.operations or ["where"]
+        if len(operations) > 64:
+            raise ValueError("a batch permits up to 64 inspection commands")
+        session = simulator_debug.Session(args.control, simulator, profile, directory)
+        return {"control": args.control, "sha256": session.identities,
+                "results": [simulator_debug.command(session, op) for op in operations]}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(suggest_on_error=True, description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
+    debugger = commands.add_parser("debug-simulator", help="inspect a packet assembly control on Sail")
+    debugger.add_argument("--control", choices=simulator_debug.CONTROLS, default="pass")
+    debugger.add_argument("--simulator", type=Path, help="local Sail executable (defaults to the current lane)")
+    debugger.add_argument("--profile", type=Path, help="matching Sail JSON profile")
+    debugger.add_argument("--command", action="append", dest="operations",
+                          help="repeat source, where, step, until LINE, stack, eval REGISTER.FIELD, disconnect, reconnect or continue")
+    debugger.add_argument("--qualify", action="store_true", help="replay independently expected live stops and refusals")
     commands.add_parser("build", help="make a fresh native parser and receipt")
     commands.add_parser("qualify", help="check independent AST/refusal fixtures and regeneration")
     arithmetic = commands.add_parser("check-arithmetic", help="kernel-check partial word operations against their checked variants")
@@ -217,7 +245,9 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 _publish(args.source, args.output, translation.gallina)
             return 0
-        if args.command == "lint-preview":
+        if args.command == "debug-simulator":
+            output = _debug_simulator(args)
+        elif args.command == "lint-preview":
             output = _lint_preview(root, args.source, args.line, args.column)
         elif args.command == "check-arithmetic":
             output = vela_elaboration_check.check_arithmetic(root, args.source)
