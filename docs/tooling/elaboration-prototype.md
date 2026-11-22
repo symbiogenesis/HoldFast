@@ -233,10 +233,18 @@ The supported increment includes:
   Wrapping left shift checks its count and permits discarded high bits.
   Closed operands support every represented width. With one symbolic byte,
   signed or unsigned, Rocq checks all 256 words under the comparison premises
-  printed in the theorem. The command refuses operands outside that fragment,
-  rejects solver assumptions and runs `rocqchk` on the compiled library.
-  Ordinary development elaboration also accepts wider symbolic bounds using the
-  frontend solver. Its output carries no word-operation replay verdict.
+  printed in the theorem. For wider words or two symbolic operands, structural
+  lemmas connect the actual bits, comparisons and overflow checks to binary
+  integer arithmetic. These lemmas cover unsigned addition and subtraction,
+  signed negation, signed and unsigned division and remainder, right shift and
+  wrapping left shift. Operands can be word variables or literals. Guards can
+  compare unsigned operands for order or equality and signed operands for
+  equality or inequality. Signed division checks both a nonzero divisor and
+  the minimum-value divided by minus-one case.
+  The native qualification applies each source-span theorem to an independent
+  statement about the emitted function under its source guards, audits its
+  assumptions and runs `rocqchk`. Other symbolic operations, compound operands
+  and bounds that the kernel proof cannot establish receive no replay verdict.
 - Suffix framing over byte stores follows writes, fills and restored sliced
   copies through conditional branches. For a symbolic count bounded by a source
   fact, the checker proves a suffix bound when the mathematical sum of the

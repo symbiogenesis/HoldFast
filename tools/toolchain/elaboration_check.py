@@ -47,6 +47,7 @@ class Fixture:
     pure: bool = False
     observations: tuple[tuple[str, str], ...] = ()
     word_proofs: bool = False
+    word_expectations: tuple[tuple[bytes, str], ...] = ()
 
 
 def fixtures(example: bytes, word_count: bytes) -> tuple[Fixture, ...]:
@@ -1480,10 +1481,55 @@ definition i8 Neg(i8 x) requires x != i8.Min => -x;
 definition u8 Shift() => ShiftLeft(3u8, 2usize);
 definition u8 ModularShift() => WrappingShiftLeft(255u8, 2usize);
 """, word_proofs=True)
-    symbolic_wide = Fixture("unreplayed-wide-word-operation", b"""module WideReplay;
+    def word(tag: int, hex_digits: str) -> str:
+        bits = "vela_bnil"
+        for digit in reversed(hex_digits):
+            bits = f"(vela_x{digit} {bits})"
+        return f"(vela_mk_int {tag} {bits})"
+
+    zero64 = word(8, "0000000000000000")
+    symbolic_wide = Fixture("symbolic-wide-word-operations", b"""module WideReplay;
 definition u32 Next(u32 x) requires x < u32.Max => x + 1u32;
-""", expected="unsupported", word_proofs=True)
-    return (arithmetic, symbolic_wide, Fixture("authored-example", example), Fixture("borrowed-word-count", word_count),
+definition usize Add(usize x, usize y) requires x <= 5000000000usize requires y <= 6000000000usize => x + y;
+definition u64 Distance(u64 x, u64 y) requires x >= y => x - y;
+definition u16 Divide(u16 x, u16 d) requires d != 0u16 => x / d;
+definition i64 Remainder(i64 x, i64 d) requires d != 0i64 => x % d;
+definition i64 SignedDivide(i64 x, i64 divisor) requires divisor != 0i64 requires x != i64.Min => x / divisor;
+definition i16 Flip(i16 x) requires x != i16.Min => -x;
+definition i32 Right(i32 x, usize c) requires c < 32usize => ShiftRight(x, c);
+definition u16 Left(u16 x, usize c) requires c < 16usize => WrappingShiftLeft(x, c);
+""", word_proofs=True, word_expectations=(
+        (b"x + 1u32", f"forall x, vela_int_lt 2 x {word(2, 'ffffffff')} = true -> "
+         f"vela_int_chk_add 2 x {word(2, '00000001')} = vela_Result_Ok _ _ (vela_d0_Next x)"),
+        (b"x + y", f"forall x y, vela_int_le 4 x {word(4, '000000012a05f200')} = true -> "
+         f"vela_int_le 4 y {word(4, '0000000165a0bc00')} = true -> "
+         "vela_int_chk_add 4 x y = vela_Result_Ok _ _ (vela_d1_Add x y)"),
+        (b"x - y", "forall x y, vela_int_ge 3 x y = true -> "
+         "vela_int_chk_sub 3 x y = vela_Result_Ok _ _ (vela_d2_Distance x y)"),
+        (b"x / d", f"forall x d, vela_int_ne 1 d {word(1, '0000')} = true -> "
+         "vela_int_chk_div 1 x d = vela_Result_Ok _ _ (vela_d3_Divide x d)"),
+        (b"x % d", f"forall x d, vela_int_ne 8 d {zero64} = true -> "
+         "vela_int_chk_rem 8 x d = vela_Result_Ok _ _ (vela_d4_Remainder x d)"),
+        (b"x / divisor", f"forall x d, vela_int_ne 8 d {zero64} = true -> vela_int_ne 8 x {word(8, '8000000000000000')} = true -> "
+         "vela_int_chk_div 8 x d = vela_Result_Ok _ _ (vela_d5_SignedDivide x d)"),
+        (b"-x", f"forall x, vela_int_ne 6 x {word(6, '8000')} = true -> "
+         "vela_int_chk_neg 6 x = vela_Result_Ok _ _ (vela_d6_Flip x)"),
+        (b"ShiftRight(x, c)", f"forall x c, vela_int_lt 4 c {word(4, '0000000000000020')} = true -> "
+         "vela_int_chk_shr 7 x c = vela_Result_Ok _ _ (vela_d7_Right x c)"),
+        (b"WrappingShiftLeft(x, c)", f"forall x c, vela_int_lt 4 c {word(4, '0000000000000010')} = true -> "
+         "vela_checked_wrap_shl 1 x c = vela_Result_Ok _ _ (vela_d8_Left x c)"),
+    ))
+    wide_refusals = (
+        ("wide-add-overflow", "definition u32 Next(u32 x) requires x <= u32.Max => x + 1u32;", "type"),
+        ("wide-zero-divisor", "definition i64 Rem(i64 x, i64 d) => x % d;", "type"),
+        ("wide-min-div-negative-one", "definition i64 Quot(i64 x, i64 d) requires d != 0i64 => x / d;", "type"),
+        ("wide-invalid-count", "definition u64 Right(u64 x, usize c) requires c <= 64usize => ShiftRight(x, c);", "type"),
+        ("unreplayed-symbolic-product", "definition u64 Product(u64 x) requires x <= 100u64 => x * 2u64;", "unsupported"),
+    )
+    return (arithmetic, symbolic_wide,
+            *(Fixture(name, ("module WordNegative; " + source).encode(), expected, word_proofs=True)
+              for name, source, expected in wide_refusals),
+            Fixture("authored-example", example), Fixture("borrowed-word-count", word_count),
             pure, division, dependent_playground, intervals, span_model, slots, capacity, widths,
             *(Fixture(name, ("module PureNegativeReplay; " + source).encode(), expected, pure=True)
               for name, source, expected in pure_negatives),
@@ -1717,6 +1763,17 @@ def _case(compiled: vela_parser.Build, case: Fixture, directory: Path, index: in
         f"\nDefinition vela_replay_check_{index} : Corelib.Init.Logic.eq "
         f"({module}.{expression}) ({expected}) := Corelib.Init.Logic.eq_refl ({expected}).\n"
         for index, (expression, expected) in enumerate(case.observations))
+    word_checks = re.findall(r"^Lemma (vela_word_[0-9]+_[0-9]+_[0-9]+) :", translated.gallina, flags=re.MULTILINE)
+    if case.word_expectations:
+        _require(len(word_checks) == len(case.word_expectations), f"{case.name}: unexpected number of word equations")
+        checks += f"\nImport {module}.\n"
+        for consumer, (expression, expected_type) in enumerate(case.word_expectations):
+            start = case.source.index(expression)
+            site = f"vela_word_{start}_{start + len(expression)}_"
+            witnesses = [name for name in word_checks if name.startswith(site)]
+            _require(len(witnesses) == 1, f"{case.name}: missing unique word proof at {expression!r}")
+            checks += (f"Lemma vela_word_consumer_{consumer} : {expected_type}.\n"
+                       f"Proof. intros. apply {witnesses[0]}; assumption. Qed.\n")
     target = directory / f"{stem}.v"
     target.write_text(translated.gallina + checks, encoding="utf-8", newline="")
     _run(_opam(["rocq", "c", "-q", "-R", str(directory), "VelaElaboration", target.name]),
@@ -1724,13 +1781,13 @@ def _case(compiled: vela_parser.Build, case: Fixture, directory: Path, index: in
     export_pattern = r"[fc]_[A-Za-z_][A-Za-z0-9_]*" if case.pure else r"vela_d[0-9]+_[A-Za-z_][A-Za-z0-9_]*"
     exports = re.findall(r"^Definition (" + export_pattern + r")\s*(?:\(|:)",
                          translated.gallina, flags=re.MULTILINE)
-    word_checks = re.findall(r"^Lemma (vela_word_[0-9]+_[0-9]+_[0-9]+) :", translated.gallina, flags=re.MULTILINE)
     exports.extend(word_checks)
     row["word_operation_checks"] = len(word_checks)
     if not exports:
         raise ValueError(f"Vela replay {case.name}: no generated exports to audit")
     audited = [f"{module}.{name}" for name in exports]
     audited.extend(f"vela_replay_check_{index}" for index in range(len(case.observations)))
+    audited.extend(f"vela_word_consumer_{index}" for index in range(len(case.word_expectations)))
     query = directory / f"{stem}Assumptions.v"
     query.write_text(f"From VelaElaboration Require Import {stem}.\n"
                      + "".join(f"Print Assumptions {stem}.{name}.\n" for name in audited),

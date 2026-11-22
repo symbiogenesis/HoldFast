@@ -41,6 +41,7 @@ from toolchain.elaborate_types import (
     _U8,
     _UNIT,
     _USIZE,
+    _WORD_REPLAY_PRELUDE,
     MAX_CONSTANT_NAT,
     MAX_DEPTH,
     MAX_NAT_BITS,
@@ -2274,7 +2275,9 @@ def _checked_elaboration(
             elaborator.serial = max((mod.serial for mod in available_modules.values()), default=elaborator.serial)
         for declaration in elaborator.nodes(root["declarations"]):
             elaborator.declaration(declaration)
-        elaborator.output.extend(elaborator.word_proofs.values())
+        if elaborator.word_proofs:
+            elaborator.output.append(_WORD_REPLAY_PRELUDE)
+            elaborator.output.extend(elaborator.word_proofs.values())
         generated_module = (
             "VelaPackage_" + module.encode("ascii").hex() if available_modules is not None else gallina_module_name(module)
         )

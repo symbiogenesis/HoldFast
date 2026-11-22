@@ -846,21 +846,20 @@ class _IntrinsicsMixin:
         variables = set().union(*(self.free(operand) for operand in operands))
         variable = next(iter(variables)) if len(variables) == 1 else None
         var_spec = self._int_spec(self.types[variable]) if variable is not None else None
-        if variables and (var_spec is None or var_spec.bits > 8):
-            raise self.fail("unsupported", "arithmetic replay requires closed operands or one symbolic byte", node)
         raw = self.render(ordinary)
         args = " ".join(self.render(arg) for arg in operands)
         checked_op = "vela_checked_wrap_shl" if operation == "wrap_shl" else f"vela_int_chk_{operation}"
         checked = f"({checked_op} {spec.tag} {args})"
         equality = f"{checked} = vela_Result_Ok (vela_int {spec.tag}) vela_ArithmeticError {raw}"
-        if variable is None or var_spec is None:
+        facts = list(dict.fromkeys([*self.active_facts, *self._fact_bool_terms((), environment)]))
+        if not variables:
             statement = equality
             script = "reflexivity."
-        else:
+        elif variable is not None and var_spec is not None and var_spec.bits == 8:
             bound = f"vela_v{variable}"
             # Retain comparisons on the symbolic byte as hypotheses in the checked statement.
             guard = _term("bool", value=1)
-            for fact in dict.fromkeys([*self.active_facts, *self._fact_bool_terms((), environment)]):
+            for fact in facts:
                 comparison = self._parse_cmp_fact(fact)
                 if comparison is not None and self.free(fact) <= variables and all(
                     arg.kind == "int" or (arg.kind == "var" and arg.value == variable)
@@ -874,11 +873,88 @@ class _IntrinsicsMixin:
                       f"pose proof (vela_every_word_sound {var_spec.tag} {test} eq_refl {bound}) as H. "
                       f"change ((if {guard_text} then vela_int_agrees {spec.tag} {checked} {raw} else true) = true) in H. "
                       "now rewrite Hguard in H.")
+        else:
+            statement, script = self._symbolic_word_equation(operation, spec, operands, variables, facts, equality, node)
         key = (start, end, statement)
         if key not in self.word_proofs:
             name = f"{self.emission_prefix}_word_{start}_{end}_{len(self.word_proofs)}"
             self.word_proofs[key] = f"Lemma {name} : {statement}.\nProof. {script} Qed."
         return result
+
+    def _symbolic_word_equation(
+        self: _Elaborator, operation: str, spec: _IntSpec, operands: tuple[_Term, ...],
+        variables: set[int], facts: list[_Term], equality: str, node: Node,
+    ) -> tuple[str, str]:
+        supported = {"shr", "wrap_shl", "rem", "div"}
+        if not spec.signed:
+            supported.update({"add", "sub"})
+        else:
+            supported.add("neg")
+        if operation not in supported or any(term.kind not in {"int", "var"} for term in operands):
+            raise self.fail("unsupported", "symbolic word replay requires supported primitives on word variables or literals", node)
+
+        binders = []
+        arguments = []
+        steps = []
+        reductions: dict[str, int] = {}
+        for var in sorted(variables):
+            shape = self._int_spec(self.types[var])
+            if shape is None:
+                raise self.fail("unsupported", "symbolic word replay requires represented word operands", node)
+            name = f"vela_v{var}"
+            binders.append(f"({name} : vela_int {shape.tag})")
+            arguments.append(name)
+            steps.append(f"pose proof (VelaWordReplay.range {shape.tag} {name}) as R{var}.")
+            reductions[f"VelaWordReplay.capacity (vela_tag_bits {shape.tag})"] = 1 << shape.bits
+
+        def literal(term: _Term, shape: _IntSpec) -> None:
+            if term.kind == "int":
+                reductions[f"VelaWordReplay.unsigned {shape.tag} {self.render(term)}"] = cast("int", term.value) % (1 << shape.bits)
+
+        for term in operands:
+            if term.kind == "int":
+                literal(term, cast("_IntSpec", self._int_spec(term.args[0])))
+        premises = []
+        pending = list(facts)
+        while pending:
+            fact = pending.pop()
+            head, children = self.spine(fact)
+            if head == _constant("&&"):
+                pending.extend(children)
+                continue
+            comparison = self._parse_cmp_fact(fact)
+            if comparison is None or not self.free(fact) <= variables:
+                continue
+            op, shape, left, right = comparison
+            if shape is None or (shape.signed and op not in {"ne", "eq"}) or any(
+                term.kind not in {"int", "var"} for term in (left, right)
+            ):
+                continue
+            literal(left, shape)
+            literal(right, shape)
+            name = f"G{len(premises)}"
+            premises.append(f"{self.render(fact)} = true")
+            arguments.append(name)
+            if op in {"ne", "eq"}:
+                lemma = "eqv" if op == "eq" else "ne"
+                steps.append(f"apply VelaWordReplay.{lemma} in {name}.")
+            else:
+                if op in {"gt", "ge"}:
+                    left, right = right, left
+                lemma = "lt" if op in {"lt", "gt"} else "le"
+                steps.append(f"apply (proj1 (VelaWordReplay.{lemma} {shape.tag} {self.render(left)} {self.render(right)} eq_refl)) in {name}.")
+        lemma = f"signed_{operation}" if spec.signed and operation in {"neg", "div"} else operation
+        steps.append(f"apply VelaWordReplay.{lemma}_ok.")
+        if operation in {"add", "sub", "div", "neg"}:
+            steps.append("1: reflexivity.")
+        if lemma in {"signed_neg", "signed_div"}:
+            reductions[f"VelaWordReplay.capacity (Nat.pred (vela_tag_bits {spec.tag}))"] = 1 << (spec.bits - 1)
+        if operation in {"shr", "wrap_shl"}:
+            reductions[f"VelaUnsigned.big (vela_nat_to_bits 64 (vela_tag_bits {spec.tag})) 0%Z"] = spec.bits
+        for expression, value in reductions.items():
+            steps.append(f"all: change ({expression}) with ({value}%Z) in *.")
+        statement = f"forall {' '.join(binders)}, " + " -> ".join([*premises, equality])
+        return statement, f"intros {' '.join(arguments)}. " + " ".join([*steps, "all: lia."])
 
     def _check_int_arith_precondition(
         self: _Elaborator,

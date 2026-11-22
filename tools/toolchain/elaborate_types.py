@@ -2413,3 +2413,181 @@ Proof.
   eapply vela_bits_add_lsb_assoc_gen. reflexivity.
 Qed.
 """
+
+_WORD_REPLAY_PRELUDE = r"""
+Module VelaWordReplay.
+Import VelaUnsigned.
+Local Open Scope Z_scope.
+
+Definition unsigned tag (x : vela_int tag) := big (vela_int_bits tag x) 0.
+Fixpoint capacity (n : nat) : Z :=
+  match n with O => 1 | S k => 2 * capacity k end.
+
+Lemma little_range : forall a, 0 <= little a < capacity (vela_bits_len a).
+Proof.
+  induction a as [|x a IH]; [cbn; lia |].
+  destruct x; cbn [little digit vela_bits_len capacity]; lia.
+Qed.
+Lemma range : forall tag x, 0 <= unsigned tag x < capacity (vela_tag_bits tag).
+Proof.
+  intros tag x. pose proof (little_range (vela_bits_rev (vela_int_bits tag x))) as H.
+  rewrite vela_bits_rev_length, vela_int_width in H. unfold vela_bits_rev in H.
+  rewrite rev_value in H. exact H.
+Qed.
+Lemma ult_complement : forall a b, vela_bits_ult a b = negb (vela_bits_ule b a).
+Proof.
+  induction a as [|x a IH]; intros [|y b]; try reflexivity.
+  destruct x, y; cbn [vela_bits_ult vela_bits_ule vela_eq_bool vela_not]; auto.
+Qed.
+Lemma bits_le : forall a b, vela_bits_len a = vela_bits_len b ->
+  (vela_bits_ule a b = true <-> big a 0 <= big b 0).
+Proof. intros a b H. rewrite unsigned_order by assumption. intuition lia. Qed.
+Lemma bits_lt : forall a b, vela_bits_len a = vela_bits_len b ->
+  (vela_bits_ult a b = true <-> big a 0 < big b 0).
+Proof.
+  intros a b H. rewrite ult_complement. pose proof (bits_le b a (eq_sym H)).
+  destruct (vela_bits_ule b a); cbn; intuition (try discriminate; lia).
+Qed.
+Lemma le : forall tag a b, vela_tag_signed tag = false ->
+  (vela_int_le tag a b = true <-> unsigned tag a <= unsigned tag b).
+Proof.
+  intros tag a b H. unfold vela_int_le, vela_int_key, unsigned. rewrite H.
+  apply bits_le. now rewrite !vela_int_width.
+Qed.
+Lemma lt : forall tag a b, vela_tag_signed tag = false ->
+  (vela_int_lt tag a b = true <-> unsigned tag a < unsigned tag b).
+Proof.
+  intros tag a b H. unfold vela_int_lt, vela_int_key, unsigned. rewrite H.
+  apply bits_lt. now rewrite !vela_int_width.
+Qed.
+
+Lemma little_sum : forall a b c, vela_bits_len a = vela_bits_len b ->
+  little a + little b + digit c < capacity (vela_bits_len a) ->
+  little (vela_bits_add_lsb a b c) = little a + little b + digit c.
+Proof.
+  induction a as [|x a IH]; intros [|y b] c L H; try discriminate.
+  - destruct c; cbn in *; lia.
+  - injection L as L. cbn [vela_bits_add_lsb little vela_bits_len capacity] in *.
+    destruct x, y, c; cbn [vela_xorb vela_or vela_and vela_not digit] in *;
+      rewrite IH by (exact L || (cbn [digit]; lia)); cbn [digit]; lia.
+Qed.
+Lemma sum : forall tag a b,
+  unsigned tag a + unsigned tag b < capacity (vela_tag_bits tag) ->
+  unsigned tag (vela_int_add tag a b) = unsigned tag a + unsigned tag b.
+Proof.
+  intros tag a b H. unfold unsigned in *. rewrite vela_int_add_bits. unfold vela_bits_add.
+  change 0 with (little vela_bnil). rewrite <- !rev_value. unfold vela_bits_rev.
+  rewrite vela_bits_rev_acc_rev. cbn [vela_bits_rev_acc]. rewrite little_sum.
+  - cbn [digit]. lia.
+  - change (vela_bits_len (vela_bits_rev (vela_int_bits tag a)) = vela_bits_len (vela_bits_rev (vela_int_bits tag b))). now rewrite !vela_bits_rev_length, !vela_int_width.
+  - rewrite !rev_value, vela_bits_rev_acc_length, vela_int_width, Nat.add_0_r.
+    cbn [little digit]. lia.
+Qed.
+Lemma add_ok : forall tag a b, vela_tag_signed tag = false ->
+  unsigned tag a + unsigned tag b < capacity (vela_tag_bits tag) ->
+  vela_int_chk_add tag a b = vela_Result_Ok _ _ (vela_int_add tag a b).
+Proof.
+  intros tag a b S H. pose proof (sum tag a b H) as E.
+  unfold vela_int_chk_add, vela_bits_add_overflows. rewrite S, <- vela_int_add_bits.
+  destruct (vela_bits_ult _ _) eqn:K.
+  - apply bits_lt in K; [|now rewrite !vela_int_width].
+    pose proof (range tag b). unfold unsigned in *. lia.
+  - unfold vela_int_ok. destruct (vela_int_add tag a b) as [w]. cbn [vela_int_bits].
+    unfold vela_mk_int. now rewrite vela_word_roundtrip.
+Qed.
+Lemma sub_ok : forall tag a b, vela_tag_signed tag = false -> unsigned tag b <= unsigned tag a ->
+  vela_int_chk_sub tag a b = vela_Result_Ok _ _ (vela_int_sub tag a b).
+Proof.
+  intros tag a b S H. unfold vela_int_chk_sub, vela_bits_sub_overflows. rewrite S.
+  destruct (vela_bits_ult _ _) eqn:K; [|reflexivity].
+  apply bits_lt in K; [|now rewrite !vela_int_width]. unfold unsigned in H. lia.
+Qed.
+Lemma zero_value : forall bs, big (vela_bits_zero_like bs) 0 = 0.
+Proof.
+  induction bs; [reflexivity |].
+  change (big (vela_bits_zero_like bs) 0 = 0). exact IHbs.
+Qed.
+Lemma nonzero : forall tag x, unsigned tag x <> 0 ->
+  vela_bits_is_zero (vela_int_bits tag x) = false.
+Proof.
+  intros tag x H. unfold vela_bits_is_zero.
+  destruct (vela_bits_eqb _ _) eqn:E; [|reflexivity].
+  apply vela_bits_eqb_true in E. exfalso. apply H. unfold unsigned.
+  rewrite E at 1. apply zero_value.
+Qed.
+Lemma rem_ok : forall tag a b, unsigned tag b <> 0 ->
+  vela_int_chk_rem tag a b = vela_Result_Ok _ _ (vela_int_rem tag a b).
+Proof. intros tag a b H. unfold vela_int_chk_rem. now rewrite nonzero. Qed.
+Lemma div_ok : forall tag a b, vela_tag_signed tag = false -> unsigned tag b <> 0 ->
+  vela_int_chk_div tag a b = vela_Result_Ok _ _ (vela_int_div tag a b).
+Proof. intros tag a b S H. unfold vela_int_chk_div. now rewrite nonzero, S. Qed.
+Lemma fill_value : forall xs bit p, big (vela_bits_fill xs bit) p =
+  capacity (vela_bits_len xs) * p + (if bit then capacity (vela_bits_len xs) - 1 else 0).
+Proof.
+  induction xs as [|x xs IH]; intros bit p;
+    cbn [vela_bits_fill vela_bits_len big capacity]; [destruct bit; lia |].
+  rewrite IH. destruct bit; cbn [digit]; nia.
+Qed.
+Lemma min_value : forall xs, vela_bits_len xs <> O ->
+  big (vela_bits_min true xs) 0 = capacity (Nat.pred (vela_bits_len xs)).
+Proof.
+  intros [|x xs] H; [contradiction |]. unfold vela_bits_min, vela_bits_zero_like.
+  cbn [vela_bits_tail vela_bits_len big Nat.pred]. rewrite fill_value. cbn [digit]; nia.
+Qed.
+Lemma signed_min_excluded : forall tag x,
+  unsigned tag x <> capacity (Nat.pred (vela_tag_bits tag)) ->
+  vela_bits_eqb (vela_int_bits tag x) (vela_bits_min true (vela_int_bits tag x)) = false.
+Proof.
+  intros tag x H. destruct (vela_bits_eqb _ _) eqn:E; [|reflexivity].
+  apply vela_bits_eqb_true in E. exfalso. apply H. unfold unsigned.
+  rewrite E at 1. rewrite min_value, vela_int_width; [reflexivity |].
+  rewrite vela_int_width. destruct tag as [|[|[|[|[|[|[|[|tag]]]]]]]]; discriminate.
+Qed.
+Lemma signed_div_ok : forall tag a b, vela_tag_signed tag = true -> unsigned tag b <> 0 ->
+  (unsigned tag a <> capacity (Nat.pred (vela_tag_bits tag)) \/ unsigned tag b <> capacity (vela_tag_bits tag) - 1) ->
+  vela_int_chk_div tag a b = vela_Result_Ok _ _ (vela_int_div tag a b).
+Proof.
+  intros tag a b S N [A|B]; unfold vela_int_chk_div; rewrite nonzero by exact N; rewrite S.
+  - now rewrite signed_min_excluded.
+  - destruct (vela_bits_eqb _ (vela_bits_fill _ true)) eqn:E.
+    + apply vela_bits_eqb_true in E. exfalso. apply B. unfold unsigned.
+      rewrite E at 1. rewrite fill_value, vela_int_width. lia.
+    + destruct (vela_bits_eqb (vela_int_bits tag a) (vela_bits_min true (vela_int_bits tag a))); reflexivity.
+Qed.
+Lemma signed_neg_ok : forall tag a, vela_tag_signed tag = true ->
+  unsigned tag a <> capacity (Nat.pred (vela_tag_bits tag)) ->
+  vela_int_chk_neg tag a = vela_Result_Ok _ _ (vela_int_neg tag a).
+Proof. intros tag a S H. unfold vela_int_chk_neg. now rewrite S, signed_min_excluded. Qed.
+Lemma ne : forall tag a b, vela_int_ne tag a b = true -> unsigned tag a <> unsigned tag b.
+Proof.
+  intros tag a b H E. unfold vela_int_ne, vela_int_eq in H.
+  pose proof (vela_int_width tag a) as A. pose proof (vela_int_width tag b) as B.
+  assert (L : vela_bits_len (vela_int_bits tag a) = vela_bits_len (vela_int_bits tag b)) by congruence.
+  assert (K : forall x y, vela_bits_ule x y = true -> vela_bits_ule y x = true -> vela_bits_eqb x y = true).
+  { induction x as [|p x IH]; intros [|q y] P Q; try discriminate; try reflexivity.
+    destruct p, q; cbn in *; intuition. }
+  rewrite K in H; [discriminate | apply bits_le | apply bits_le]; try congruence;
+    unfold unsigned in E; lia.
+Qed.
+Lemma eqv : forall tag a b, vela_int_eq tag a b = true -> unsigned tag a = unsigned tag b.
+Proof. intros tag a b H. apply vela_int_eq_true in H. now subst. Qed.
+Lemma shift_amount : forall tag c,
+  unsigned 4 c < big (vela_nat_to_bits 64 (vela_tag_bits tag)) 0 ->
+  exists k, vela_shift_amount tag c = Some k.
+Proof.
+  intros tag c H. unfold vela_shift_amount. rewrite vela_int_width.
+  assert (L : forall width n, vela_bits_len (vela_nat_to_bits width n) = width).
+  { intros width n. unfold vela_nat_to_bits. rewrite vela_bits_rev_length. revert n.
+    induction width; intros; cbn [vela_nat_to_bits_lsb vela_bits_len]; auto. }
+  rewrite (proj2 (bits_lt _ _ ltac:(rewrite vela_int_width, L; reflexivity)) H). eexists; reflexivity.
+Qed.
+Lemma shr_ok : forall tag a c,
+  unsigned 4 c < big (vela_nat_to_bits 64 (vela_tag_bits tag)) 0 ->
+  vela_int_chk_shr tag a c = vela_Result_Ok _ _ (vela_int_shr tag a c).
+Proof. intros tag a c H. destruct (shift_amount tag c H) as [k E]. unfold vela_int_chk_shr. now rewrite E. Qed.
+Lemma wrap_shl_ok : forall tag a c,
+  unsigned 4 c < big (vela_nat_to_bits 64 (vela_tag_bits tag)) 0 ->
+  vela_checked_wrap_shl tag a c = vela_Result_Ok _ _ (vela_int_wrap_shl tag a c).
+Proof. intros tag a c H. destruct (shift_amount tag c H) as [k E]. unfold vela_checked_wrap_shl. now rewrite E. Qed.
+End VelaWordReplay.
+"""
