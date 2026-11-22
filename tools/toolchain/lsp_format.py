@@ -6,9 +6,9 @@ import subprocess
 from collections.abc import Callable
 
 from toolchain.ast import MAX_SOURCE_BYTES
-from toolchain.lsp_services import INSPECTION_SECONDS, InspectionError
-from toolchain.lsp_worker import worker_command
-from toolchain.protocol_json import MAX_BODY_BYTES, decode_message, encode_message
+from toolchain.lsp_services import InspectionError
+from toolchain.lsp_worker import run_worker
+from toolchain.protocol_json import decode_message, encode_message
 from toolchain.source import SourceSnapshot
 
 type Formatter = Callable[[bytes], dict[str, object]]
@@ -17,12 +17,7 @@ type Formatter = Callable[[bytes], dict[str, object]]
 def format_document(source: bytes) -> dict[str, object]:
     """Run the fixed compiler library without invoking its file-writing command."""
     try:
-        done = subprocess.run(worker_command("--format"),
-                              input=source, capture_output=True,
-                              timeout=INSPECTION_SECONDS, check=False)
-        if done.returncode != 0 or len(done.stdout) > MAX_BODY_BYTES:
-            raise InspectionError("Pure prototype formatting worker failed or exceeded its output bound")
-        return decode_message(done.stdout)
+        return decode_message(run_worker(source, "--format"))
     except subprocess.TimeoutExpired as error:
         raise InspectionError("Pure prototype formatting exceeded 5 seconds") from error
     except (OSError, ValueError) as error:

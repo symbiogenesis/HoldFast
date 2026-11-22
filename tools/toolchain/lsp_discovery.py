@@ -6,15 +6,10 @@ from typing import cast
 
 from toolchain import concrete
 from toolchain.ast import VelaError
-from toolchain.lsp_services import Inspection, InspectionError, Position
+from toolchain.lsp_services import Inspection, InspectionError, Position, lsp_range
 from toolchain.source import SourceSnapshot
 
 METHODS = frozenset({"textDocument/completion", "textDocument/signatureHelp"})
-
-
-def _range(first: Position, last: Position) -> dict[str, object]:
-    return {"start": {"line": first[0], "character": first[1]},
-            "end": {"line": last[0], "character": last[1]}}
 
 
 def _parameters(inspection: Inspection, identity: int) -> list[str]:
@@ -58,7 +53,7 @@ def _completion(snapshot: SourceSnapshot, inspection: Inspection, position: Posi
             continue
         item: dict[str, object] = {"label": candidate.name, "kind": 3 if callable_use else (
                                       21 if candidate.kind == "constant" else 6), "detail": candidate.detail,
-                                  "textEdit": {"range": _range(start, end),
+                                  "textEdit": {"range": lsp_range(start, end),
                                                "newText": candidate.name}}
         if candidate.documentation is not None:
             item["documentation"] = {"kind": "plaintext", "value": candidate.documentation}

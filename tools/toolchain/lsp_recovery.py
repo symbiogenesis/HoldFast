@@ -4,18 +4,18 @@
 import hashlib
 import subprocess
 from collections.abc import Callable
+from dataclasses import replace
 from typing import cast
 
 from toolchain.completion import repair_span
 from toolchain.lsp_discovery import project
 from toolchain.lsp_services import (
-    INSPECTION_SECONDS,
     InspectionError,
     Position,
     validate_inspection,
 )
-from toolchain.lsp_worker import worker_command
-from toolchain.protocol_json import MAX_BODY_BYTES, decode_message, encode_message
+from toolchain.lsp_worker import run_worker
+from toolchain.protocol_json import decode_message, encode_message
 from toolchain.source import SourceSnapshot
 
 type Completer = Callable[[bytes, int], dict[str, object]]
@@ -24,11 +24,7 @@ type Completer = Callable[[bytes, int], dict[str, object]]
 def inspect_recovery(source: bytes, cursor: int) -> dict[str, object]:
     """Use the checkout's isolated compiler worker with a fixed two-repair budget."""
     try:
-        done = subprocess.run(worker_command("--complete-at", str(cursor)), input=source,
-                              capture_output=True, timeout=INSPECTION_SECONDS, check=False)
-        if done.returncode != 0 or len(done.stdout) > MAX_BODY_BYTES:
-            raise InspectionError("Completion worker failed or exceeded its output bound")
-        result = decode_message(done.stdout)
+        result = decode_message(run_worker(source, "--complete-at", str(cursor)))
         if result.pop("source_sha256", None) != hashlib.sha256(source).hexdigest():
             raise InspectionError("Completion repair differs from the current source")
     except (OSError, ValueError, subprocess.SubprocessError) as error:
@@ -56,7 +52,7 @@ def _project_recovery(snapshot: SourceSnapshot, position: Position,
         raise InspectionError("Completion repair differs from the selected source site")
     first, last = span
     repaired = snapshot.source[:first] + cast("str", literal).encode("ascii") + snapshot.source[last:]
-    candidate = SourceSnapshot(snapshot.uri, snapshot.version, repaired.decode("utf-8"), snapshot.generation)
+    candidate = replace(snapshot, text=repaired.decode("utf-8"))
     facts = validate_inspection(candidate, cast("dict[str, object]", raw["facts"]))
     if facts is None:
         raise InspectionError("Completion repair lacks checked facts")

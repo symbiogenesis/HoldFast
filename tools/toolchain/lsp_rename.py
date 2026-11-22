@@ -1,12 +1,18 @@
 # SPDX-License-Identifier: Apache-2.0
 """Source-preserving local rename previews checked by the existing pure producer."""
 
+from bisect import bisect_right
+from collections import defaultdict
+from dataclasses import replace
+
 from toolchain.ast import IDENTIFIER, KEYWORDS, UNSUPPORTED
 from toolchain.lsp_services import (
     Inspection,
     InspectionError,
     Inspector,
+    Occurrence,
     Position,
+    lsp_range,
     validate_inspection,
 )
 from toolchain.source import SourceSnapshot
@@ -17,22 +23,16 @@ def valid_name(name: str) -> bool:
     return IDENTIFIER.fullmatch(name) is not None and name not in KEYWORDS | UNSUPPORTED
 
 
-def _selected(snapshot: SourceSnapshot, facts: Inspection | None, position: Position | None) -> int | None:
+def _selected(snapshot: SourceSnapshot, facts: Inspection | None, position: Position | None) -> Occurrence | None:
     if facts is None:
         return None
     if facts.snapshot != snapshot.identity:
         raise InspectionError("Rename facts differ from the current source")
-    selected = next((item.symbol for item in facts.occurrences
-                     if position is not None and item.start <= position < item.end), None)
+    selected = facts.occurrence_at(position)
     # Public declarations and parameters need package-wide reference coverage.
-    if selected is None or facts.symbols[selected].kind != "variable":
+    if selected is None or facts.symbols[selected.symbol].kind != "variable":
         return None
     return selected
-
-
-def _range(first: Position, last: Position) -> dict[str, object]:
-    return {"start": {"line": first[0], "character": first[1]},
-            "end": {"line": last[0], "character": last[1]}}
 
 
 def prepare(snapshot: SourceSnapshot, facts: Inspection | None, position: Position | None) -> object:
@@ -40,10 +40,8 @@ def prepare(snapshot: SourceSnapshot, facts: Inspection | None, position: Positi
     selected = _selected(snapshot, facts, position)
     if selected is None or facts is None:
         return None
-    occurrence = next(item for item in facts.occurrences
-                      if position is not None and item.start <= position < item.end)
-    return {"range": _range(occurrence.start, occurrence.end),
-            "placeholder": facts.symbols[selected].name}
+    return {"range": lsp_range(selected.start, selected.end),
+            "placeholder": facts.symbols[selected.symbol].name}
 
 
 def rename(snapshot: SourceSnapshot, facts: Inspection | None, position: Position | None,
@@ -54,29 +52,33 @@ def rename(snapshot: SourceSnapshot, facts: Inspection | None, position: Positio
     selected = _selected(snapshot, facts, position)
     if selected is None or facts is None:
         return None
-    old_name = facts.symbols[selected].name
-    occurrences = tuple(item for item in facts.occurrences if item.symbol == selected)
-    edits = [{"range": _range(item.start, item.end), "newText": name} for item in occurrences]
-    if name == old_name:
-        edits = []
-    else:
-        source = snapshot.source
+    old_name = facts.symbols[selected.symbol].name
+    occurrences = tuple(item for item in facts.occurrences if item.symbol == selected.symbol)
+    edits = []
+    if name != old_name:
+        edits = [{"range": lsp_range(item.start, item.end), "newText": name} for item in occurrences]
+        source = bytearray(snapshot.source)
+        replacement = name.encode("ascii")
         for item in reversed(occurrences):
             first = snapshot.position_byte_offset(*item.start)
             last = snapshot.position_byte_offset(*item.end)
-            source = source[:first] + name.encode("ascii") + source[last:]
-        candidate = SourceSnapshot(snapshot.uri, snapshot.version, source.decode("utf-8"), snapshot.generation)
+            source[first:last] = replacement
+        candidate = replace(snapshot, text=source.decode("utf-8"))
         checked = validate_inspection(candidate, inspector(candidate.source))
         if checked is None or len(checked.symbols) != len(facts.symbols):
             raise InspectionError("Renamed source did not preserve checked declarations")
         difference = len(name) - len(old_name)
+        ends_by_line: defaultdict[int, list[int]] = defaultdict(list)
+        for item in occurrences:
+            line, column = item.end
+            ends_by_line[line].append(column)
 
         def shifted(point: Position) -> Position:
-            return (point[0], point[1] + difference * sum(
-                item.end[0] == point[0] and item.end <= point for item in occurrences))
+            line, column = point
+            return line, column + difference * bisect_right(ends_by_line[line], column)
 
         for identity, (before, after) in enumerate(zip(facts.symbols, checked.symbols, strict=True)):
-            expected_name = name if identity == selected else before.name
+            expected_name = name if identity == selected.symbol else before.name
             if (after.name != expected_name or after.kind != before.kind
                     or after.value_type != before.value_type or after.type_hint != before.type_hint
                     or after.documentation != before.documentation

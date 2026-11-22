@@ -2,13 +2,12 @@
 """Project the pure compiler's checked Boolean comparison edit into an LSP action."""
 
 import hashlib
-import subprocess
 from typing import cast
 
 from toolchain.inspection import producer_identity
-from toolchain.lsp_services import INSPECTION_SECONDS, InspectionError, QueryRange
-from toolchain.lsp_worker import worker_command
-from toolchain.protocol_json import MAX_BODY_BYTES, decode_message
+from toolchain.lsp_services import InspectionError, QueryRange
+from toolchain.lsp_worker import run_worker
+from toolchain.protocol_json import decode_message
 from toolchain.source import SourceSnapshot
 
 METHOD = "textDocument/codeAction"
@@ -24,12 +23,8 @@ def supports(kinds: object) -> bool:
 def actions(snapshot: SourceSnapshot, selection: QueryRange) -> list[dict[str, object]]:
     first, last = (snapshot.position_byte_offset(*point) for point in selection)
     source = snapshot.source
-    done = subprocess.run(worker_command("--comparison-action", str(first), str(last)), input=source,
-                          capture_output=True, timeout=INSPECTION_SECONDS, check=False)
-    if done.returncode or len(done.stdout) > MAX_BODY_BYTES:
-        raise InspectionError("Comparison preview worker failed or exceeded its output bound")
     try:
-        result = decode_message(done.stdout)
+        result = decode_message(run_worker(source, "--comparison-action", str(first), str(last)))
         if (result.pop("source_sha256") != hashlib.sha256(source).hexdigest()
                 or result.pop("selection") != [first, last]):
             raise InspectionError("Comparison preview differs from the selected source")

@@ -3,6 +3,7 @@
 
 import hashlib
 import json
+import subprocess
 import sys
 from pathlib import Path
 from typing import cast
@@ -22,73 +23,68 @@ def worker_command(*args: str) -> list[str]:
     return [sys.executable, "-I", "-c", script, *args]
 
 
+def run_worker(source: bytes, *args: str) -> bytes:
+    """Run one isolated compiler operation with the language server's time and output bounds."""
+    done = subprocess.run(worker_command(*args), input=source, capture_output=True, timeout=5, check=False)
+    if done.returncode or len(done.stdout) > MAX_BODY_BYTES:
+        raise ValueError("compiler worker failed or exceeded its output bound")
+    return done.stdout
+
+
 def main() -> int:
     source = sys.stdin.buffer.read(MAX_SOURCE_BYTES + 1)
-    if len(sys.argv) == 4 and sys.argv[1] == "--comparison-action":
-        # The preview consumes the snapshot worker, which imports this entry point.
-        from toolchain.authoring_preview import selection  # noqa: PLC0415
+    result: dict[str, object]
+    match sys.argv[1:]:
+        case []:
+            error_data = None
+            try:
+                translate(source)
+            except VelaError as error:
+                error_data = {"kind": error.kind, "line": error.line, "column": error.column,
+                              "message": error.message[:4096]}
+            print(json.dumps(error_data, ensure_ascii=True))
+            return 0
+        case ["--comparison-action", first, last]:
+            # The preview consumes the snapshot worker, which imports this entry point.
+            from toolchain.authoring_preview import selection  # noqa: PLC0415
 
-        try:
-            start, end = int(sys.argv[2]), int(sys.argv[3])
-            preview = selection(source, start, end)
-        except (ValueError, VelaError, OSError):
+            try:
+                start, end = int(first), int(last)
+                preview = selection(source, start, end)
+            except (ValueError, VelaError, OSError):
+                return 2
+            result = {"selection": [start, end], "edit": None}
+            if preview is not None:
+                binding = cast("dict[str, object]", preview["binding"])
+                result["edit"] = {key: preview[key] for key in ("span", "replacement", "candidate_sha256")}
+                result["producer"] = cast("dict[str, object]", binding["producer"])["version"]
+        case ["--complete-at", cursor]:
+            try:
+                result = recover(source, int(cursor))
+            except (ValueError, VelaError):
+                return 2
+        case ["--format"]:
+            try:
+                result = {"status": "ok", "formatted": format_source(source).decode("utf-8")}
+            except VelaError as error:
+                result = {"status": "unavailable", "reason": error.kind}
+        case [("--inspect" | "--inspect-snapshot" | "--inspect-completion") as mode]:
+            try:
+                result = inspect_source(source, syntax_tree=mode == "--inspect-snapshot",
+                                        completion_options=mode == "--inspect-completion")
+                if mode == "--inspect-snapshot":
+                    result["concrete"] = parts(source)
+            except VelaError as error:
+                result = {"status": "unavailable", "reason": error.kind}
+        case _:
             return 2
-        action: dict[str, object] = {"selection": [start, end],
-                                     "source_sha256": hashlib.sha256(source).hexdigest(), "edit": None}
-        if preview is not None:
-            binding = cast("dict[str, object]", preview["binding"])
-            action["edit"] = {key: preview[key] for key in ("span", "replacement", "candidate_sha256")}
-            action["producer"] = cast("dict[str, object]", binding["producer"])["version"]
-        encoded = json.dumps(action, ensure_ascii=True)
-        if len(encoded.encode("utf-8")) > MAX_BODY_BYTES:
+
+    digest = hashlib.sha256(source).hexdigest()
+    result["source_sha256"] = digest
+    encoded = json.dumps(result, ensure_ascii=True)
+    if len(encoded) > MAX_BODY_BYTES:
+        if sys.argv[1] not in {"--inspect", "--inspect-snapshot", "--inspect-completion"}:
             return 1
-        print(encoded, end="")
-        return 0
-    if len(sys.argv) == 3 and sys.argv[1] == "--complete-at":
-        try:
-            result = recover(source, int(sys.argv[2]))
-        except (ValueError, VelaError):
-            return 2
-        result["source_sha256"] = hashlib.sha256(source).hexdigest()
-        encoded = json.dumps(result, ensure_ascii=True)
-        if len(encoded.encode("utf-8")) > MAX_BODY_BYTES:
-            return 1
-        print(encoded, end="")
-        return 0
-    if sys.argv[1:] == ["--format"]:
-        result: dict[str, object] = {"source_sha256": hashlib.sha256(source).hexdigest()}
-        try:
-            result.update(status="ok", formatted=format_source(source).decode("utf-8"))
-        except VelaError as error:
-            result.update(status="unavailable", reason=error.kind)
-        encoded = json.dumps(result, ensure_ascii=True)
-        if len(encoded.encode("utf-8")) > MAX_BODY_BYTES:
-            return 1
-        print(encoded, end="")
-        return 0
-    if sys.argv[1:] in (["--inspect"], ["--inspect-snapshot"], ["--inspect-completion"]):
-        digest = hashlib.sha256(source).hexdigest()
-        try:
-            inspection = inspect_source(source, syntax_tree=sys.argv[1:] == ["--inspect-snapshot"],
-                                        completion_options=sys.argv[1:] == ["--inspect-completion"])
-            if sys.argv[1:] == ["--inspect-snapshot"]:
-                inspection["concrete"] = parts(source)
-        except VelaError as error:
-            inspection = {"status": "unavailable", "reason": error.kind}
-        inspection["source_sha256"] = digest
-        encoded = json.dumps(inspection, ensure_ascii=True)
-        if len(encoded.encode("utf-8")) > MAX_BODY_BYTES:
-            encoded = json.dumps({"status": "unavailable", "reason": "inspection-limit",
-                                  "source_sha256": digest})
-        print(encoded, end="")
-        return 0
-    if sys.argv[1:]:
-        return 2
-    error_data: dict[str, object] | None = None
-    try:
-        translate(source)
-    except VelaError as error:
-        error_data = {"kind": error.kind, "line": error.line, "column": error.column,
-                      "message": error.message[:4096]}
-    print(json.dumps(error_data, ensure_ascii=True))
+        encoded = json.dumps({"status": "unavailable", "reason": "inspection-limit", "source_sha256": digest})
+    print(encoded, end="")
     return 0

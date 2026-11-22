@@ -22,11 +22,10 @@ from toolchain.ast import (
 )
 from toolchain.documentation import DocumentationSource
 from toolchain.facts import MAX_COMPLETION_OPTIONS, MAX_OCCURRENCES, MAX_SYMBOLS, PureType
-from toolchain.lsp_worker import worker_command
-from toolchain.protocol_json import MAX_BODY_BYTES, decode_message, encode_message
+from toolchain.lsp_worker import run_worker
+from toolchain.protocol_json import decode_message, encode_message
 from toolchain.source import SourceSnapshot
 
-INSPECTION_SECONDS = 5
 SEMANTIC_TOKEN_TYPES = ("function", "parameter", "variable")
 SEMANTIC_TOKEN_MODIFIERS = ("declaration", "readonly")
 METHODS = frozenset({"textDocument/hover", "textDocument/definition",
@@ -46,12 +45,7 @@ def inspect_document(source: bytes, *, concrete: bool = False,
     """Run only the checkout's fixed fact producer, never a client-selected tool."""
     try:
         mode = "--inspect-snapshot" if concrete else "--inspect-completion" if completion else "--inspect"
-        done = subprocess.run(worker_command(mode),
-                              input=source, capture_output=True,
-                              timeout=INSPECTION_SECONDS, check=False)
-        if done.returncode != 0 or len(done.stdout) > MAX_BODY_BYTES:
-            raise InspectionError("Pure prototype inspection worker failed or exceeded its output bound")
-        result = decode_message(done.stdout)
+        result = decode_message(run_worker(source, mode))
         if result.pop("source_sha256", None) != hashlib.sha256(source).hexdigest():
             raise InspectionError("Inspection result differs from the requested source")
     except subprocess.TimeoutExpired as error:
@@ -81,7 +75,7 @@ class _Symbol:
 
 
 @dataclass(frozen=True)
-class _Occurrence:
+class Occurrence:
     symbol: int
     start: Position
     end: Position
@@ -92,13 +86,18 @@ class _Occurrence:
 class Inspection:
     snapshot: str
     symbols: tuple[_Symbol, ...]
-    occurrences: tuple[_Occurrence, ...]
+    occurrences: tuple[Occurrence, ...]
     completions: tuple[tuple[Position, tuple[int, ...]], ...] = ()
     literal_completions: tuple[tuple[Position, Position, tuple[int, ...]], ...] = ()
 
+    def occurrence_at(self, position: Position | None) -> Occurrence | None:
+        if position is None:
+            return None
+        return next((item for item in self.occurrences if item.start <= position < item.end), None)
 
-def _object(value: object, fields: set[str]) -> dict[str, object]:
-    if not isinstance(value, dict) or set(value) != fields:
+
+def _object(value: object, fields: set[str], *optional: str) -> dict[str, object]:
+    if not isinstance(value, dict) or not fields <= value.keys() <= fields.union(optional):
         raise InspectionError("Invalid pure prototype inspection object")
     return cast("dict[str, object]", value)
 
@@ -160,12 +159,7 @@ def _validate(snapshot: SourceSnapshot, raw: dict[str, object]) -> Inspection | 
         if record["reason"] in {"syntax", "name", "type", "unsupported", "limit", "encoding"}:
             return None
         raise InspectionError("Pure prototype inspection unavailable or exceeds its bounds")
-    fields = {"status", "symbols", "occurrences"}
-    if "completions" in raw:
-        fields.add("completions")
-    if "literal_completions" in raw:
-        fields.add("literal_completions")
-    record = _object(raw, fields)
+    record = _object(raw, {"status", "symbols", "occurrences"}, "completions", "literal_completions")
     symbols_raw, occurrences_raw = record["symbols"], record["occurrences"]
     if (record["status"] != "ok" or not isinstance(symbols_raw, list)
             or not isinstance(occurrences_raw, list) or len(symbols_raw) > MAX_SYMBOLS
@@ -175,12 +169,7 @@ def _validate(snapshot: SourceSnapshot, raw: dict[str, object]) -> Inspection | 
     documentation = DocumentationSource(snapshot.source)
     symbols: list[_Symbol] = []
     for value in symbols_raw:
-        fields = {"name", "kind", "detail", "type", "line", "column"}
-        if isinstance(value, dict) and "documentation" in value:
-            fields.add("documentation")
-        if isinstance(value, dict) and "inferred" in value:
-            fields.add("inferred")
-        symbol = _object(value, fields)
+        symbol = _object(value, {"name", "kind", "detail", "type", "line", "column"}, "documentation", "inferred")
         name, kind, detail = symbol["name"], symbol["kind"], symbol["detail"]
         if (not isinstance(name, str) or not IDENTIFIER.fullmatch(name)
                 or name in KEYWORDS | UNSUPPORTED or kind not in {"function", "parameter", "variable", "constant"}
@@ -251,7 +240,7 @@ def _validate(snapshot: SourceSnapshot, raw: dict[str, object]) -> Inspection | 
     if any(symbol.kind == "parameter" and index not in owned_parameters
            for index, symbol in enumerate(symbols)):
         raise InspectionError("Pure prototype parameter has no callable owner")
-    occurrences: list[_Occurrence] = []
+    occurrences: list[Occurrence] = []
     declarations: set[int] = set()
     for value in occurrences_raw:
         occurrence = _object(value, {"symbol", "line", "column", "declaration"})
@@ -269,11 +258,33 @@ def _validate(snapshot: SourceSnapshot, raw: dict[str, object]) -> Inspection | 
             declarations.add(identity)
         elif first == symbol.start:
             raise InspectionError("Pure prototype declaration mislabeled as reference")
-        occurrences.append(_Occurrence(identity, first, last, declaration))
+        occurrences.append(Occurrence(identity, first, last, declaration))
     if len(declarations) != len(symbols):
         raise InspectionError("Pure prototype inspection omits declaration occurrences")
     completions: list[tuple[Position, tuple[int, ...]]] = []
     count = 0
+
+    def completion_candidates(raw_ids: list[object], start: Position,
+                              value_type: PureType, required_static: bool) -> tuple[int, ...]:
+        nonlocal count
+        count += len(raw_ids)
+        if count > MAX_COMPLETION_OPTIONS:
+            raise InspectionError("Pure prototype completion options exceed bounds")
+        candidates = tuple(_integer(identity) for identity in raw_ids)
+        if tuple(sorted(set(candidates))) != candidates:
+            raise InspectionError("Invalid pure prototype completion identities")
+        names: set[str] = set()
+        for identity in candidates:
+            if identity >= len(symbols):
+                raise InspectionError("Unknown pure prototype completion identity")
+            candidate = symbols[identity]
+            if (candidate.kind == "function" or candidate.value_type != value_type
+                    or candidate.start >= start or candidate.name in names
+                    or (required_static and not candidate.required_static)):
+                raise InspectionError("Incompatible pure prototype completion value")
+            names.add(candidate.name)
+        return candidates
+
     if "completions" in record:
         choices_raw = record["completions"]
         if not isinstance(choices_raw, list) or len(choices_raw) > MAX_OCCURRENCES:
@@ -289,23 +300,10 @@ def _validate(snapshot: SourceSnapshot, raw: dict[str, object]) -> Inspection | 
                     or not isinstance(candidates_raw, list) or not candidates_raw
                     or (completions and start <= completions[-1][0])):
                 raise InspectionError("Invalid pure prototype completion site")
-            count += len(candidates_raw)
-            if count > MAX_COMPLETION_OPTIONS:
-                raise InspectionError("Pure prototype completion options exceed bounds")
-            candidates = tuple(_integer(identity) for identity in candidates_raw)
-            if tuple(sorted(set(candidates))) != candidates or selected.symbol not in candidates:
-                raise InspectionError("Invalid pure prototype completion identities")
-            names: set[str] = set()
             target = symbols[selected.symbol]
-            for identity in candidates:
-                if identity >= len(symbols):
-                    raise InspectionError("Unknown pure prototype completion identity")
-                candidate = symbols[identity]
-                if (candidate.kind == "function" or candidate.value_type != target.value_type
-                        or candidate.start >= start or candidate.name in names
-                        or (target.required_static and not candidate.required_static)):
-                    raise InspectionError("Incompatible pure prototype completion value")
-                names.add(candidate.name)
+            candidates = completion_candidates(candidates_raw, start, target.value_type, target.required_static)
+            if selected.symbol not in candidates:
+                raise InspectionError("Pure prototype completion omits its selected binding")
             completions.append((start, candidates))
     literal_completions: list[tuple[Position, Position, tuple[int, ...]]] = []
     if "literal_completions" in record:
@@ -338,34 +336,19 @@ def _validate(snapshot: SourceSnapshot, raw: dict[str, object]) -> Inspection | 
             if (tokens.get((first, last)) != spelling
                     or (literal_completions and start <= literal_completions[-1][0])):
                 raise InspectionError("Literal completion differs from its complete source token")
-            count += len(candidates_raw)
-            if count > MAX_COMPLETION_OPTIONS:
-                raise InspectionError("Pure prototype completion options exceed bounds")
-            candidates = tuple(_integer(identity) for identity in candidates_raw)
-            if tuple(sorted(set(candidates))) != candidates:
-                raise InspectionError("Invalid pure prototype literal completion identities")
-            names: set[str] = set()
-            for identity in candidates:
-                if identity >= len(symbols):
-                    raise InspectionError("Unknown pure prototype literal completion identity")
-                candidate = symbols[identity]
-                if (candidate.kind == "function" or candidate.value_type != PureType(value_type)
-                        or candidate.start >= start or candidate.name in names
-                        or (required_static and not candidate.required_static)):
-                    raise InspectionError("Incompatible pure prototype literal completion value")
-                names.add(candidate.name)
+            candidates = completion_candidates(candidates_raw, start, PureType(value_type), required_static)
             literal_completions.append((start, end, candidates))
     return Inspection(snapshot.identity, tuple(symbols), tuple(occurrences), tuple(completions),
                       tuple(literal_completions))
 
 
-def _range(start: Position, end: Position) -> dict[str, object]:
+def lsp_range(start: Position, end: Position) -> dict[str, object]:
     return {"start": {"line": start[0], "character": start[1]},
             "end": {"line": end[0], "character": end[1]}}
 
 
 def _location(uri: str, start: Position, end: Position) -> dict[str, object]:
-    return {"uri": uri, "range": _range(start, end)}
+    return {"uri": uri, "range": lsp_range(start, end)}
 
 
 def project(snapshot: SourceSnapshot, raw: dict[str, object], method: str,
@@ -422,15 +405,14 @@ def project_inspection(snapshot: SourceSnapshot, inspection: Inspection | None, 
         return [{"name": symbol.name, "kind": kinds[symbol.kind],
                  "location": _location(snapshot.uri, symbol.start, symbol.end)}
                 for symbol in inspection.symbols]
-    selected = next((occurrence for occurrence in inspection.occurrences
-                     if position is not None and occurrence.start <= position < occurrence.end), None)
+    selected = inspection.occurrence_at(position)
     if selected is None:
         return empty
     symbol = inspection.symbols[selected.symbol]
     if method == "textDocument/hover":
         doc = "" if symbol.documentation is None else "\n\n" + symbol.documentation
         return {"contents": {"kind": "plaintext", "value": symbol.detail + doc + "\nVela pure prototype (unqualified)"},
-                "range": _range(selected.start, selected.end)}
+                "range": lsp_range(selected.start, selected.end)}
     if method == "textDocument/definition":
         return _location(snapshot.uri, symbol.start, symbol.end)
     return [_location(snapshot.uri, occurrence.start, occurrence.end)

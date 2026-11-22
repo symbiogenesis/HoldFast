@@ -5,7 +5,7 @@ import hashlib
 import subprocess
 import sys
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import BinaryIO, Never, cast
 
 from toolchain import lsp_actions, lsp_discovery
@@ -19,15 +19,15 @@ from toolchain.lsp_services import (
     Inspection,
     InspectionError,
     Inspector,
+    Position,
     QueryRange,
     inspect_completions,
     project_inspection,
     validate_inspection,
 )
 from toolchain.lsp_tokens import token_edits
-from toolchain.lsp_worker import worker_command
+from toolchain.lsp_worker import run_worker
 from toolchain.protocol_json import (
-    MAX_BODY_BYTES,
     FrameError,
     MessageError,
     decode_message,
@@ -38,7 +38,6 @@ from toolchain.source import SourceSnapshot
 
 MAX_DOCUMENTS = 16
 MAX_CHANGES = 64
-WORKER_SECONDS = 5
 type Checker = Callable[[bytes], dict[str, object] | None]
 _SEMANTIC_DELTA = "textDocument/semanticTokens/full/delta"
 _SEMANTIC_FULL = "textDocument/semanticTokens/full"
@@ -72,13 +71,10 @@ def _modified() -> Never:
 def diagnose(source: bytes) -> dict[str, object] | None:
     """Use the same interpreter and compiler checkout, without client-selected paths."""
     try:
-        done = subprocess.run(worker_command(), input=source,
-                              capture_output=True, timeout=WORKER_SECONDS, check=False)
-        if done.returncode != 0 or len(done.stdout) > MAX_BODY_BYTES:
-            _invalid("pure diagnostic worker failed")
-        if done.stdout.strip() == b"null":
+        raw = run_worker(source)
+        if raw.strip() == b"null":
             return None
-        result = decode_message(done.stdout)
+        result = decode_message(raw)
         if (set(result) != {"kind", "line", "column", "message"}
                 or not isinstance(result["kind"], str)
                 or result["kind"] not in {"syntax", "name", "type", "unsupported", "limit", "encoding"}
@@ -117,6 +113,21 @@ def _integer(value: object) -> int:
     if type(value) is not int or not -(2 ** 31) <= value < 2 ** 31:
         raise ValueError("expected a 32-bit integer")
     return value
+
+
+def _position(point: dict[str, object]) -> Position:
+    return _integer(point.get("line")), _integer(point.get("character"))
+
+
+def _range(value: object) -> QueryRange:
+    span = _object(value)
+    start, end = _object(span.get("start")), _object(span.get("end"))
+    return _position(start), _position(end)
+
+
+def _clamped(snapshot: SourceSnapshot, point: Position) -> Position:
+    normalized = snapshot.byte_position(snapshot.position_byte_offset(*point))
+    return normalized["line"], normalized["character"]
 
 
 def _error(request_id: object, code: int, message: str) -> dict[str, object]:
@@ -220,10 +231,7 @@ class Server:
             if "range" in change:
                 if set(change) - {"range", "rangeLength", "text"}:
                     _invalid("invalid ranged content change")
-                span = _object(change["range"])
-                start, end = _object(span.get("start")), _object(span.get("end"))
-                first_position = _integer(start.get("line")), _integer(start.get("character"))
-                last_position = _integer(end.get("line")), _integer(end.get("character"))
+                first_position, last_position = _range(change["range"])
                 if first_position > last_position:
                     _invalid("content change range is reversed")
                 first = candidate.position_byte_offset(*first_position)
@@ -239,7 +247,7 @@ class Server:
                 _invalid("invalid complete content replacement")
             # Every intermediate is bounded. Nothing becomes current, and no
             # generation is consumed, until all ordered edits have succeeded.
-            candidate = SourceSnapshot(old.uri, version, text, self.generation + 1)
+            candidate = replace(old, version=version, text=text, generation=self.generation + 1)
         return self._snapshot(old.uri, version, candidate.text)
 
     def _diagnostics(self, snapshot: SourceSnapshot) -> dict[str, object]:
@@ -270,30 +278,20 @@ class Server:
         snapshot = self.documents[uri]
         inspector, generation = self.inspector, self._inspection_generation
         completer = self.completer
-        position: tuple[int, int] | None = None
+        position: Position | None = None
         requested_range: QueryRange | None = None
         include_declaration = False
         previous_result: str | None = None
         if method == _SEMANTIC_DELTA:
             previous_result = _string(params.get("previousResultId"))
         if method in {"textDocument/inlayHint", lsp_actions.METHOD}:
-            span = _object(params.get("range"))
-            start, end = _object(span.get("start")), _object(span.get("end"))
-            first = _integer(start.get("line")), _integer(start.get("character"))
-            last = _integer(end.get("line")), _integer(end.get("character"))
+            first, last = _range(params.get("range"))
             if first > last:
                 _invalid("document range is reversed")
-            first_position = snapshot.byte_position(snapshot.position_byte_offset(*first))
-            last_position = snapshot.byte_position(snapshot.position_byte_offset(*last))
-            requested_range = ((first_position["line"], first_position["character"]),
-                               (last_position["line"], last_position["character"]))
+            requested_range = _clamped(snapshot, first), _clamped(snapshot, last)
         elif method not in {"textDocument/documentSymbol", "textDocument/semanticTokens/full",
                             "textDocument/formatting", _SEMANTIC_DELTA}:
-            point = _object(params.get("position"))
-            offset = snapshot.position_byte_offset(_integer(point.get("line")),
-                                                    _integer(point.get("character")))
-            converted = snapshot.byte_position(offset)
-            position = converted["line"], converted["character"]
+            position = _clamped(snapshot, _position(_object(params.get("position"))))
         if method == "textDocument/references":
             context = _object(params.get("context"))
             include = context.get("includeDeclaration")
@@ -508,20 +506,16 @@ class Server:
             self.documents[uri] = snapshot
             self.desynchronized.discard(uri)
             return [self._diagnostics(snapshot)]
-        except (ValueError, UnicodeError) as error:
+        except ValueError as error:
             if request:
                 return [_error(request_id, -32602, str(error)[:256])]
             print(f"vela-lsp: ignored {method}: {str(error)[:256]}", file=sys.stderr)
-            params_value = message.get("params")
-            if isinstance(params_value, dict):
-                document_value = params_value.get("textDocument")
-                if isinstance(document_value, dict):
-                    uri_value = document_value.get("uri")
-                    if isinstance(uri_value, str) and uri_value in self.documents:
-                        self._inspections.pop(uri_value, None)
-                        self._token_history.pop(uri_value, None)
-                        self.desynchronized.add(uri_value)
-                        return [self._clear(uri_value)]
+            match message.get("params"):
+                case {"textDocument": {"uri": str(uri)}} if uri in self.documents:
+                    self._inspections.pop(uri, None)
+                    self._token_history.pop(uri, None)
+                    self.desynchronized.add(uri)
+                    return [self._clear(uri)]
             return []
 
 
@@ -540,7 +534,7 @@ def serve(input_stream: BinaryIO, output_stream: BinaryIO,
                 raise
             except MessageError:
                 replies = [_error(None, -32600, "Invalid Request")]
-            except (ValueError, UnicodeError):
+            except ValueError:
                 replies = [_error(None, -32700, "Parse error")]
             else:
                 replies = server.handle(decoded)
