@@ -206,13 +206,16 @@ def _command() -> None:
         source, output, schema = root / "input.vela", root / "report.sarif", root / "schema.json"
         source.write_bytes(SOURCE.source)
         exporter = sarif.export
-        with (patch.object(cli.compiler_trace, "producer_identity", return_value=PRODUCER),
+        with (patch.object(sarif, "schema_validator") as prepare_schema,
+              patch.object(cli.compiler_trace, "producer_identity",
+                           side_effect=lambda: PRODUCER if prepare_schema.called else "f" * 64),
               patch.object(sarif, "export", wraps=lambda inputs, producer, **_options:
                            exporter(inputs, producer, checker=_checked)),
-              patch.object(sarif, "validate_schema"), patch.object(sarif, "check_schema_current"),
+              patch.object(sarif, "check_schema_current"),
               redirect_stdout(StringIO()), redirect_stderr(StringIO())):
             args = ["sarif", str(source), "--output", str(output), "--schema", str(schema)]
             ensure(cli.main(args) == 0, "SARIF batch command failed")
+            ensure(prepare_schema.return_value.called, "SARIF publication skipped the loaded schema validator")
             ensure(source.read_bytes() == SOURCE.source, "SARIF command rewrote source")
             ensure(cli.main(["sarif-validate", str(output), "--sources", str(source),
                              "--schema", str(schema)]) == 0, "current SARIF handoff refused")
