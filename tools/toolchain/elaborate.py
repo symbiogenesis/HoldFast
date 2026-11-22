@@ -861,6 +861,11 @@ class _Elaborator(
                 and (cast("int", left.value) in self.constant_parameters)
                 != (cast("int", right.value) in self.constant_parameters)):
             raise self.fail("type", "callable constant-parameter requirements differ")
+        if left.kind == right.kind == "pi" and any(
+            (cast("int", left.value) in mode) != (cast("int", right.value) in mode)
+            for mode in (self.readonly_span_vars, self.ref_parameters, self.out_parameters, self.owned_parameters)
+        ):
+            raise self.fail("type", "callable parameter ownership or loan modes differ")
         if left == right:
             return
         # Decimal literals abbreviate constructor chains; expose one successor
@@ -1327,7 +1332,7 @@ class _Elaborator(
         named_in_bound = bound is not None and (name in bound or name.split(".")[-1] in bound)
         if bound is not None and callee in self.untracked_effect_functions and not named_in_bound:
             raise self.fail("type", f"callable invokes function '{name}' not declared in effects calls(...)", site)
-        required = set(self.callable_effect_calls.get(callee, ()))
+        required = set() if named_in_bound else set(self.callable_effect_calls.get(callee, ()))
         for index in self.callable_callback_effects.get(callee, set()):
             if self._pure_callback(arguments[index], terms[index]):
                 continue
@@ -1346,7 +1351,7 @@ class _Elaborator(
                 raise self.fail("unsupported", "callback effects require a known callable or a checked pure lambda", site)
         if collecting is not None:
             collecting.update(required)
-        if bound is not None and not named_in_bound and (missing := sorted(required - bound)):
+        if bound is not None and (missing := sorted(required - bound)):
             raise self.fail("type", f"callable transitively invokes '{missing[0]}' via '{name}' not declared in effects calls(...)", site)
 
     def apply(self, binding: _Binding, arguments: list[Node], environment: dict[str, _Binding]) -> _Binding:

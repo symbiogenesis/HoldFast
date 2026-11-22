@@ -6953,6 +6953,36 @@ def _consuming_ownership_general_loans_and_closed_effects() -> None:
     )
     _refuses(missing_call_effect, "type", "not declared in effects calls(...)")
 
+    callback = _function_type((("n", _NAT),), _NAT)
+    calls_apply = _call("calls", _variable("Apply"))
+    for declares_callback in (False, True):
+        adaptation = _Fixture("CallbackEffectSubstitution")
+        adaptation.definition("Apply", _type("T"), (
+            ("f", _function_type((("value", _type("T")),), _type("T"))), ("value", _type("T")),
+        ), _call("f", _variable("value")), (("type", "T", None),))
+        allowed = (calls_apply, _call("calls", _variable("cb"))) if declares_callback else (calls_apply,)
+        adaptation.function("Forward", _NAT, (("cb", callback),),
+                            _call("Apply", _variable("cb"), _natural(1)), contracts=(_effects_clause(*allowed),))
+        if declares_callback:
+            elaborate(*adaptation.response())
+        else:
+            _refuses(adaptation, "type", "transitively invokes 'cb'")
+
+    for universal in (False, True):
+        adapter = _Fixture("CallbackRequires")
+        adapter.function("Checked", _NAT, (("x", _NAT),), _variable("x"),
+                         contracts=(_contract("requires", _binary("==" if universal else "<", _variable("x"), _variable("x"))),))
+        adapter.function("AsFn", callback, (), _variable("Checked"))
+        if universal:
+            elaborate(*adapter.response())
+        else:
+            _refuses(adapter, "type", "callback precondition is stronger")
+
+    mode = _Fixture("CallbackMode")
+    mode.function("Consume", _NAT, (("n", _modified("owned", _NAT)),), _variable("n"))
+    mode.function("AsFn", callback, (), _variable("Consume"))
+    _refuses(mode, "type", "ownership or loan modes differ")
+
 
 def _unbounded_naturals() -> None:
     elaborator = language._Elaborator(language._Protocol(b""))

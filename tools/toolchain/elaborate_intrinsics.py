@@ -4,6 +4,7 @@
 from typing import TYPE_CHECKING, cast
 
 from toolchain import loans
+from toolchain.ast import VelaError
 from toolchain.elaborate_types import (
     _BOOL,
     _CHAR,
@@ -1962,8 +1963,26 @@ class _IntrinsicsMixin:
             requirements = self.var_preconditions.get(cast("int", head.value), [])
         else:
             return binding
-        if any(len(supplied) < len(parameters) for parameters, _ in requirements):
-            raise self.fail("type", "a callable with pending preconditions requires a direct call or a checked wrapper", node)
+        for parameters, requirement in requirements:
+            if len(supplied) >= len(parameters):
+                continue
+            remaining = self.whnf(binding.type)
+            values = list(supplied)
+            for _ in parameters[len(supplied):]:
+                if remaining.kind != "pi":
+                    raise self.fail("type", "callable adaptation requires a complete parameter telescope", node)
+                fresh = self.fresh(remaining.args[0])
+                values.append(fresh)
+                remaining = self.whnf(self.substitute(remaining.args[1], cast("int", remaining.value), fresh))
+            instantiated = requirement
+            for parameter, argument in zip(parameters, values, strict=True):
+                instantiated = self.substitute(instantiated, parameter, argument)
+            try:
+                self._check_precondition_term(instantiated, environment, node)
+            except VelaError as error:
+                if error.kind != "type":
+                    raise
+                raise self.fail("type", "callback precondition is stronger than the Fn signature: use a checked wrapper", node) from error
         return binding
 
     def _expression(
