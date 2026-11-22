@@ -13,6 +13,7 @@ from filelock import Timeout
 from toolchain import (
     VelaError,
     bsp,
+    bsp_client,
     mathematical_preview,
     packages,
     solver_ledger,
@@ -130,6 +131,7 @@ def main(argv: list[str] | None = None) -> int:
     build.add_argument("workspace", type=Path)
     build.add_argument("lock", type=Path)
     build.add_argument("--output", type=Path, help="atomically publish the generated module bundle")
+    commands.add_parser("qualify-bsp-client", help="check the locked build graph in the pinned Neovim BSP client")
     server = commands.add_parser("bsp", help="serve the locked package graph over BSP 2.1.1 stdio")
     server.add_argument("workspace", type=Path)
     server.add_argument("locks", type=Path, nargs="+", metavar="LOCK")
@@ -230,6 +232,8 @@ def main(argv: list[str] | None = None) -> int:
                 output = check_client_upgrade(load_module(args.baseline), load_module(args.candidate),
                                               [load_module(path) for path in args.client],
                                               [load_module(path) for path in args.dependency])
+        elif args.command == "qualify-bsp-client":
+            output = bsp_client.qualify(root)
         elif args.command == "lock-package":
             output = packages.lock_package(root, args.workspace, args.name, args.revision, args.output)
         elif args.command == "build-package":

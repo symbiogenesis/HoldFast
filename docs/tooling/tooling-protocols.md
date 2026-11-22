@@ -550,6 +550,15 @@ a new checked graph. A failed build returns its exit status and bounded diagnost
 The package build's verdict is mathematical elaboration. Kernel replay and the
 packet compiler are separate operations.
 
+Run `python tools/run.py vela-parser qualify-bsp-client` for the
+[pinned bsp.nvim client](../../tools/toolchain/bsp_client.py). Its Neovim
+project loader reads five targets from three configurations in a workspace
+whose path contains a space. The qualifier compares the two generated modules
+and their bundle against the direct batch build. The client cancels an active
+build, receives the compiler's unknown-name diagnostic for a broken root,
+and observes the stale graph after the imported provider changes. It checks
+the server's clean shutdown after these requests. [BSP 2.1.1 specification release](https://github.com/build-server-protocol/build-server-protocol/releases/tag/v2.1.1)
+
 ## Compiler decisions and performance traces
 
 Expose optimization decisions using an
