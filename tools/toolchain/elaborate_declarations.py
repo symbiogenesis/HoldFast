@@ -408,6 +408,8 @@ class _DeclarationsMixin:
             tail_sig_types=tail_sig_types,
         )
         self.records[name] = record_info
+        if self.package_instance is not None:
+            self.nominal_owners[type_emitted] = self.package_instance
         self.records_by_type[type_emitted] = record_info
         self.records_by_ctor[ctor_emitted] = record_info
         for idx, rf in enumerate(record_fields):
@@ -1001,6 +1003,8 @@ class _DeclarationsMixin:
             propagation=propagation,
         )
         self.unions[name] = union_info
+        if self.package_instance is not None:
+            self.nominal_owners[type_emitted] = self.package_instance
         self.unions_by_type[type_emitted] = union_info
         for uc in union_ctors:
             self.union_ctors[uc.name] = (union_info, uc)
@@ -1081,6 +1085,7 @@ class _DeclarationsMixin:
         mod = self.available_modules[imp_name]
         self.serial = max(self.serial, mod.serial)
         self.interfaces_by_identity.update(mod.interfaces_by_identity)
+        self.nominal_owners.update(mod.nominal_owners)
         self.types.update(mod.types)
         self.parameter_names.update(mod.parameter_names)
         self.argument_labels.update(mod.argument_labels)
@@ -1325,6 +1330,8 @@ class _DeclarationsMixin:
         methods: dict[str, _InterfaceMethodSpec] = {}
         laws: dict[str, _InterfaceLawSpec] = {}
         identity = f"{self.module_name}.{name}" if self.emission_prefix != "vela" else name
+        if self.package_instance is not None:
+            self.nominal_owners[identity] = self.package_instance
         active_key = (identity, tuple(generic_vars))
         self.active_interface_witnesses[active_key] = {}
         self.active_interface_ensures[active_key] = {}
@@ -1644,6 +1651,10 @@ class _DeclarationsMixin:
                 f"blanket impl for '{iface_name}' over bare type parameters is not permitted",
                 impl_type_node,
             )
+        if self.package_instance is not None and self.nominal_owners.get(iface.name) != self.package_instance:
+            heads = [self.spine(term)[0] for term in target_types]
+            if not any(head.kind == "const" and self.nominal_owners.get(str(head.value)) == self.package_instance for head in heads):
+                raise self.fail("type", f"package must own interface '{iface_name}' or an outer nominal implementing type", impl_type_node)
         used_gen_ids = set().union(*(self.free(t) for t in target_types))
         for gv in impl_generic_vars:
             if cast("int", gv.value) not in used_gen_ids:
@@ -2151,6 +2162,8 @@ class _DeclarationsMixin:
             methods=emitted_methods,
         )
         self.impls.setdefault(iface.name, []).append(final_inst)
+        if self.package_instance is not None:
+            self.local_instances.append((iface.name, final_inst))
 
     def _resolve_single_interface_witness(
         self: _Elaborator,

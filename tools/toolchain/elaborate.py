@@ -55,6 +55,7 @@ from toolchain.elaborate_types import (
     CheckedElaboration,
     Elaboration,
     Node,
+    PackageScope,
     _app,
     _apps,
     _Binding,
@@ -179,6 +180,9 @@ class _Elaborator(
         self.fn_contracts: dict[int, _FnContract] = {}
         self.expected_call_type: _Term | None = None
         self.module_name: str = ""
+        self.package_instance: str | None = None
+        self.nominal_owners: dict[str, str] = {}
+        self.local_instances: list[tuple[str, _ImplInstance]] = []
         self.emission_prefix = "vela"
         self.public_symbols: set[str] = set()
         self.sealed_bodies: set[str] = set()
@@ -2259,6 +2263,7 @@ def _checked_elaboration(
     parsed: object,
     *,
     available_modules: dict[str, _Elaborator] | None = None,
+    package_scope: PackageScope | None = None,
     require_word_proofs: bool = False,
     phase: Callable[[str], AbstractContextManager[object]] = nullcontext,
 ) -> tuple[CheckedElaboration, _Elaborator]:
@@ -2272,6 +2277,9 @@ def _checked_elaboration(
         elaborator.module_name = module
         if available_modules is not None:
             module_key = module.encode("ascii").hex()
+            if package_scope is not None:
+                elaborator.package_instance = package_scope.instance
+                module_key = f"{package_scope.instance}_{module_key}"
             elaborator.emission_prefix = f"vela_m{module_key}"
             elaborator.available_modules = dict(available_modules)
             elaborator.serial = max((mod.serial for mod in available_modules.values()), default=elaborator.serial)
@@ -2282,7 +2290,7 @@ def _checked_elaboration(
                 elaborator.output.append(_WORD_REPLAY_PRELUDE)
                 elaborator.output.extend(elaborator.word_proofs.values())
         generated_module = (
-            "VelaPackage_" + module.encode("ascii").hex() if available_modules is not None else gallina_module_name(module)
+            "VelaPackage_" + module_key if available_modules is not None else gallina_module_name(module)
         )
         source_digest = hashlib.sha256(source).hexdigest()
         with phase("generate-gallina"):
@@ -2320,7 +2328,8 @@ def elaborate(
     return elaborate_package([*imports, (source, parsed)], require_word_proofs=require_word_proofs)[module]
 
 
-def elaborate_package(modules: Sequence[tuple[bytes, object]], *, require_word_proofs: bool = False) -> dict[str, CheckedElaboration]:
+def elaborate_package(modules: Sequence[tuple[bytes, object]], *, require_word_proofs: bool = False,
+                      scopes: dict[str, PackageScope] | None = None) -> dict[str, CheckedElaboration]:
     """Check a linked module graph in dependency order, with one owner per import path."""
     decoded: dict[str, tuple[bytes, object, _Protocol, Node, list[tuple[str, Node]]]] = {}
     order_names: list[str] = []
@@ -2364,16 +2373,36 @@ def elaborate_package(modules: Sequence[tuple[bytes, object]], *, require_word_p
         visited[mod_name] = 2
         topo.append(mod_name)
 
+    if scopes is not None and scopes.keys() != decoded.keys():
+        raise ValueError("manifest module names differ from source declarations")
     for mname in order_names:
+        if scopes is not None:
+            for dependency, site in decoded[mname][4]:
+                if dependency != "Vela.Numerics" and dependency not in scopes[mname].modules:
+                    raise decoded[mname][2].error("name", f"module '{mname}' has no declared dependency on '{dependency}'", site)
         if visited.get(mname, 0) == 0:
             visit(mname)
 
     available: dict[str, _Elaborator] = {}
     elaborations: dict[str, CheckedElaboration] = {}
+    package_instances: dict[str, list[_ImplInstance]] = {}
+    instance_variable_types: dict[int, _Term] = {}
     for mname in topo:
         src, parsed, _, _, _ = decoded[mname]
         try:
-            elab, elaborator = _checked_elaboration(src, parsed, available_modules=available, require_word_proofs=require_word_proofs)
+            elab, elaborator = _checked_elaboration(src, parsed, available_modules=available, require_word_proofs=require_word_proofs,
+                                                    package_scope=scopes[mname] if scopes is not None else None)
+            if scopes is not None:
+                # Compare instances from siblings even when no module imports them together.
+                elaborator.types.update(instance_variable_types)
+                for interface, instance in elaborator.local_instances:
+                    prior = package_instances.setdefault(interface, [])
+                    if any(elaborator._impl_instances_overlap(other, instance) for other in prior):
+                        raise elaborator.fail("type", f"overlapping instances for '{interface}' in locked closure")
+                    prior.append(instance)
+                    for variable in instance.generic_vars:
+                        key = cast("int", variable.value)
+                        instance_variable_types[key] = elaborator.types[key]
         except VelaError as error:
             raise VelaError(error.kind, error.line, error.column, f"module '{mname}': {error.message}") from error
         available[mname] = elaborator

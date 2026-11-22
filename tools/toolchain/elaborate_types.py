@@ -328,6 +328,14 @@ class _ImplInstance:
     methods: dict[str, _Binding]
 
 
+@dataclass(frozen=True)
+class PackageScope:
+    """Exact package instance and the modules its direct dependencies expose."""
+
+    instance: str
+    modules: frozenset[str]
+
+
 
 
 

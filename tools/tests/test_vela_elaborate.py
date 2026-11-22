@@ -7167,8 +7167,31 @@ def _speculative_normalization_rollback() -> None:
     ensure(elaborator._try_unify(addition, two), "rollback prevented the true equality 2 + 0 = 2")
 
 
+def _package_scope_and_identity() -> None:
+    lib, client = _Fixture("Lib"), _Fixture("Main")
+    lib.record("Item", (("Value", _NAT),))
+    _import_decl(client, "Lib")
+    client.definition("Read", _NAT, (("item", _type("Item")),), _member(_variable("item"), "Value"))
+    modules = [client.response(), lib.response()]
+    scopes = {"Lib": terms.PackageScope("a" * 64, frozenset({"Lib"})),
+              "Main": terms.PackageScope("b" * 64, frozenset({"Lib", "Main"}))}
+    first = elaborate_package(modules, scopes=scopes)["Main"].gallina
+    scopes["Lib"] = terms.PackageScope("c" * 64, frozenset({"Lib"}))
+    second = elaborate_package(modules, scopes=scopes)["Main"].gallina
+    ensure("vela_m" + "a" * 64 in first and "vela_m" + "c" * 64 in second and "a" * 64 not in second,
+           "the compiled import did not carry the supplying package identity")
+    scopes["Main"] = terms.PackageScope("b" * 64, frozenset({"Main"}))
+    try:
+        elaborate_package(modules, scopes=scopes)
+    except VelaError as error:
+        ensure("no declared dependency on 'Lib'" in error.message, "wrong package visibility refusal")
+    else:
+        raise AssertionError("locked compiler accepted an undeclared package import")
+
+
 def cases() -> list[Case]:
-    return [Case("upgrade-replay-against-unchanged-dependent-clients", _upgrade_client_replay),
+    return [Case("locked-package-import-scope-and-nominal-identity", _package_scope_and_identity),
+            Case("upgrade-replay-against-unchanged-dependent-clients", _upgrade_client_replay),
             Case("selective-imports-and-renamed-constructors", _selective_imports),
             Case("constructor-case-and-redundant-patterns", _constructor_spelling_and_shadowed_patterns),
             Case("fresh-polymorphism-and-higher-order-inference", _polymorphism_and_higher_order),
