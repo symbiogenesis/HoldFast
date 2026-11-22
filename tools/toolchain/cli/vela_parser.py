@@ -25,6 +25,7 @@ from toolchain import (
     simulator_debug,
     simulator_debug_check,
     solver_ledger,
+    web_output,
 )
 from toolchain import (
     elaboration_check as vela_elaboration_check,
@@ -219,6 +220,10 @@ def _debug_simulator(args: argparse.Namespace) -> dict[str, object]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(suggest_on_error=True, description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
+    web = commands.add_parser("emit-web", help="export one exhaustively checked pure Boolean function to JavaScript")
+    web.add_argument("source", type=Path)
+    web.add_argument("function", help="public Vela function to export as the default ES module function")
+    web.add_argument("--output", required=True, type=Path, help="destination .mjs file")
     debugger = commands.add_parser("debug-simulator", help="inspect a packet assembly control on Sail")
     debugger.add_argument("--control", choices=simulator_debug.CONTROLS, default="pass")
     debugger.add_argument("--simulator", type=Path, help="local Sail executable (defaults to the current lane)")
@@ -334,7 +339,9 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 _publish(args.source, args.output, translation.gallina)
             return 0
-        if args.command == "debug-simulator":
+        if args.command == "emit-web":
+            output = web_output.publish(args.source, args.function, args.output)
+        elif args.command == "debug-simulator":
             output = _debug_simulator(args)
         elif args.command == "qualify-compile-commands":
             output = _qualify_compilation_database(root, args.scanner)
