@@ -307,6 +307,9 @@ class _Elaborator(
         bind("FZero", telescope((n,), self.pi(_UNIT, _app(_constant("Fin"), successor), nullary=True)), 1)
         bind("FSucc", telescope((n,), self.pi(fin, _app(_constant("Fin"), successor))), 1)
         bind("At", telescope((a, n), self.pi(vec, self.pi(fin, a))), 2)
+        self.constants["FiniteOffset"] = _Binding(
+            _constant("FiniteOffset"), telescope((n,), self.pi(_NAT, _app(_constant("Fin"), successor)))
+        )
         self.constants["Vec_At_Nat"] = _Binding(
             _constant("Vec_At_Nat"), telescope((a, n), self.pi(a, self.pi(_NAT, self.pi(vec, a)))), 2
         )

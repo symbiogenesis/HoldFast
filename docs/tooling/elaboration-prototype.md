@@ -244,6 +244,11 @@ The supported increment includes:
   `Vec<T, n>`, `Span<byte>`, `Slots<T, capacity>` and `Seq<T>`, postfix indexing
   `expr[idx]` on `Span<byte>`, `Slots<T, capacity>`, `Seq<T>` and `Vec<T, n>`, and
   pre-state `old(...)` expressions inside callable contracts.
+  A proved numeric index into a visibly nonempty vector lowers to a finite index
+  and total `At`, including for abstract element types. An explicit `Fin<n>`
+  indexes a vector of symbolic length. Sequence and slot reads can use a
+  represented element of a nonempty model. A lookup requiring an unavailable
+  element witness reports the limitation at its source location.
 - Mutable local bindings (`var`, `var` pattern bindings and `var ... else`),
   assignments (`=`, `+=`, `-=`, `*=`, `/=`, `%=`) to mutable variables, record
   fields and indexed collections (`target[idx] = val` on `Span<byte>`,

@@ -377,7 +377,7 @@ class _IntrinsicsMixin:
             in_bounds = _apps(_constant("<"), idx_t, cnt_t)
             if not self._prove_bool_precondition(in_bounds, environment):
                 raise self.fail("type", "cannot prove Seq.At index is within Seq.Count bounds", node)
-            d_val = self._default_term_for_type(elem_t)
+            d_val = self._sequence_lookup_default(elem_t, recv_b.term)
             return _Binding(_apps(_constant("Seq_At"), elem_t, d_val, recv_b.term, idx_t), elem_t)
         if member_name == "Update":
             if len(arg_nodes) != 2:
@@ -674,7 +674,7 @@ class _IntrinsicsMixin:
                     "cannot read from a vacant or out-of-bounds slot; prove index < LiveCount (LivePrefix)",
                     node,
                 )
-            d_val = self._default_term_for_type(elem_t)
+            d_val = self._sequence_lookup_default(elem_t, _apps(_constant("Slots_Model"), elem_t, cap_t, s_b.term))
             return _Binding(_apps(_constant("Slots_Read"), elem_t, cap_t, d_val, s_b.term, idx_t), elem_t)
         if member_name == "Write":
             if receiver is not None:
@@ -1404,7 +1404,7 @@ class _IntrinsicsMixin:
                     "cannot read from a vacant or out-of-bounds slot; prove index < LiveCount (LivePrefix)",
                     node,
                 )
-            d_val = self._default_term_for_type(elem_t)
+            d_val = self._sequence_lookup_default(elem_t, _apps(_constant("Slots_Model"), elem_t, cap_t, recv_b.term))
             return _Binding(_apps(_constant("Slots_Read"), elem_t, cap_t, d_val, recv_b.term, idx_t), elem_t), _Binding(idx_t, _USIZE)
         if head == _constant("Seq") and len(targs) == 1:
             elem_t = targs[0]
@@ -1413,7 +1413,7 @@ class _IntrinsicsMixin:
             in_bounds = _apps(_constant("<"), idx_t, cnt_t)
             if not self._prove_bool_precondition(in_bounds, environment):
                 raise self.fail("type", "cannot prove Seq index is within Seq.Count bounds", node)
-            d_val = self._default_term_for_type(elem_t)
+            d_val = self._sequence_lookup_default(elem_t, recv_b.term)
             return _Binding(_apps(_constant("Seq_At"), elem_t, d_val, recv_b.term, idx_t), elem_t), _Binding(idx_t, _NAT)
         if head == _constant("Vec") and len(targs) == 2:
             elem_t, len_t = targs
@@ -1429,6 +1429,11 @@ class _IntrinsicsMixin:
             in_bounds = _apps(_constant("<"), idx_t, len_t)
             if not self._prove_bool_precondition(in_bounds, environment):
                 raise self.fail("type", "cannot prove Vec index is within length bounds", node)
+            _, predecessor = self._peel_nat(self.whnf(len_t))
+            if predecessor is not None:
+                finite = _apps(_constant("FiniteOffset"), predecessor, idx_t)
+                result = _apps(_constant("At"), elem_t, len_t, recv_b.term, finite)
+                return _Binding(result, elem_t), _Binding(idx_t, _NAT)
             d_val = self._default_term_for_type(elem_t)
             return _Binding(_apps(_constant("Vec_At_Nat"), elem_t, len_t, d_val, idx_t, recv_b.term), elem_t), _Binding(idx_t, _NAT)
         raise self.fail(

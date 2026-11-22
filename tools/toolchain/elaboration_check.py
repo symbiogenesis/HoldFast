@@ -170,9 +170,13 @@ lemma CallCorrect() ensures Call() == 8 proof { assert Call() == 8; }
 """),
         ("dependent-vector-lookup", """module VectorReplay;
 definition Vec<T,n> Copy<T, ghost Nat n>(Vec<T,n> xs) => xs;
+definition T First<T>(Vec<T,1> xs) => xs[0];
+definition T Second<T>(Vec<T,2> xs) => xs[1];
+definition T SingletonAt<T>(T value) => Seq.Singleton(value)[0];
 definition Vec<Nat,2> Two() => VCons(7, VCons(8, VNil<Nat>()));
 definition Vec<Nat,0> Empty() => Copy(VNil<Nat>());
 definition Nat Lookup() => At(Copy(Two()), FSucc(FZero<0>()));
+lemma SecondValue() ensures Second(Two()) == 8 proof { assert Second(Two()) == 8; }
 lemma Selected() ensures At(Two(), FSucc(FZero<0>())) == 8 proof { assert At(Two(), FSucc(FZero<0>())) == 8; }
 """),
         ("product-projection-conversion", """module ProductReplay;

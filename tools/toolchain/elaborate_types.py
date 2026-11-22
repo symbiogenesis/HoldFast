@@ -359,6 +359,7 @@ _GALLINA = {
     "EmptyBuilder": "vela_EmptyBuilder", "FormatStep": "vela_FormatStep",
     "Fits": "vela_Fits", "Written": "vela_Written",
     "Fin": "vela_Fin", "FZero": "vela_FZero", "FSucc": "vela_FSucc", "At": "vela_At",
+    "FiniteOffset": "vela_finite_offset",
     "Span": "vela_Span",
     "Span_Base": "vela_Span_Base",
     "Span_Length": "vela_Span_Length",
@@ -1697,6 +1698,14 @@ Inductive vela_Fin : nat -> Type@{vela_u0} :=
 | vela_fsucc : forall n : nat, vela_Fin n -> vela_Fin (S n).
 Definition vela_FZero (n : nat) (_ : unit) : vela_Fin (S n) := vela_fzero n.
 Definition vela_FSucc (n : nat) (i : vela_Fin n) : vela_Fin (S n) := vela_fsucc n i.
+Fixpoint vela_finite_offset (n i : nat) {struct n} : vela_Fin (S n) :=
+  match n as k return vela_Fin (S k) with
+  | O => vela_fzero O
+  | S k => match i with
+           | O => vela_fzero (S k)
+           | S j => vela_fsucc (S k) (vela_finite_offset k j)
+           end
+  end.
 Fixpoint vela_lookup (A : Type@{vela_u0}) (n : nat) (i : vela_Fin n) {struct i}
     : vela_Vec A n -> A :=
   match i in vela_Fin size return vela_Vec A size -> A with
