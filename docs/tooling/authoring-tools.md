@@ -192,7 +192,8 @@ The mathematical parser and elaborator check both snapshots. The full syntax
 trees must agree after adding the selected group and dropping locations.
 The generated Gallina must agree byte for byte apart from the source digest.
 The [preview validator](../../tools/toolchain/mathematical_preview.py) rechecks the
-retained edit against the current source, compiler dependencies and parser executable.
+retained edit against the current source, compiler dependencies, parser bytecode
+and the OCaml interpreter selected by its executable header.
 The command reads the source again before printing the preview.
 
 `VELA104` and `vela lint --preview-bindings` are permanently retired (`Q25ah`)
