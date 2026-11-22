@@ -976,20 +976,7 @@ def build_foundation_inventory() -> dict[str, object]:
         "carrier_representation": (
             "vela_Span (vela_ByteStore = nat -> vela_u8, Base, Length, Tag, PermRead, PermWrite)"
         ),
-        "carrier_laws": [
-            "LawInhabitedByteCase",
-            "LawAllocZeroedRead",
-            "LawReadOverWriteSame",
-            "LawReadOverWriteOther",
-            "LawLoopFramePreservesDisjointSuffix",
-            "LawFillAndFrame",
-    "LawSymbolicFillFrame",
-            "LawSliceMetadataAndRead",
-            "LawReadOnlyAndInvalidate",
-            "LawDisjointCopyAndFrame",
-            "LawCapacityInvarianceSmall",
-            "LawCapacityInvarianceLarge",
-        ],
+        "carrier_laws": list(EXPECTED_LAWS),
         "validator_contract_obligations": [
             "restores_0_Base",
             "restores_0_Length",
@@ -1000,15 +987,7 @@ def build_foundation_inventory() -> dict[str, object]:
             "ensures_1",
             "ensures_2",
         ],
-        "scenario_theorems": [
-            "ValidateEmptyPacketOk",
-            "ValidateFullPacketOk",
-            "ValidatePartialPacketScrubsStaleAndTrailingBytes",
-            "RejectFramingShort",
-            "RejectBadMagic",
-            "RejectLengthOutOfBounds",
-            "RejectChecksumScrubsDestinationAndRestores",
-        ],
+        "scenario_theorems": list(EXPECTED_SCENARIO_THEOREMS),
         "global_assumptions": "exactly the solver-trust ledger recorded at qualification",
         "blocking_dependencies": {
             "Q35b / Q35o / Q35p": (
