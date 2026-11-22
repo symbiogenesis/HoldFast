@@ -192,13 +192,16 @@ class _StringsMixin:
         body_start_byte = cast("list[int]", template_arg["span"])[0] + 2
         literal_chars: list[str] = []
         chunk_terms: list[_Term] = []
-        concrete_bytes = 0
+        minimum_bytes = 0
+
+        def count_bytes(minimum: int) -> None:
+            nonlocal minimum_bytes
+            minimum_bytes += minimum
+            if minimum_bytes > MAX_STRING_BYTES:
+                raise self.fail("limit", f"formatted template exceeds {MAX_STRING_BYTES} UTF-8 bytes", template_arg)
 
         def append_bytes(data: bytes) -> None:
-            nonlocal concrete_bytes
-            concrete_bytes += len(data)
-            if concrete_bytes > MAX_STRING_BYTES:
-                raise self.fail("limit", f"formatted template exceeds {MAX_STRING_BYTES} UTF-8 bytes", template_arg)
+            count_bytes(len(data))
             chunk_terms.append(self._build_seq_term(_NAT, [_term("nat", value=b) for b in data]))
 
         hole_count = 0
@@ -292,8 +295,11 @@ class _StringsMixin:
                         append_bytes(format(n_val, fmt).encode("ascii"))
                     elif spec.lower() in {"x", "x2", "x4", "x8"} and (hole_int_spec is None or not hole_int_spec.signed):
                         op = "nat_hex_bytes" if hole_int_spec is None else f"int_hex_bytes_{hole_int_spec.name}"
-                        chunk_terms.append(_apps(_constant(op), _term("nat", value=int(spec[1:] or "1")),
-                                                 _term("bool", value=int(spec.startswith("X"))), hole_binding.term))
+                        minimum = int(spec[1:] or "1")
+                        encoded = _apps(_constant(op), _term("nat", value=minimum),
+                                        _term("bool", value=int(spec.startswith("X"))), hole_binding.term)
+                        count_bytes(minimum)
+                        chunk_terms.append(encoded)
                     else:
                         raise self.fail(
                             "type",
@@ -307,6 +313,9 @@ class _StringsMixin:
                         )
                     yes = self._build_seq_term(_NAT, [_term("nat", value=b) for b in b"true"])
                     no = self._build_seq_term(_NAT, [_term("nat", value=b) for b in b"false"])
+                    boolean = self.whnf(hole_binding.term)
+                    minimum = 5 if boolean == _term("bool", value=0) else 4
+                    count_bytes(minimum)
                     chunk_terms.append(_term("if", _app(_constant("Seq"), _NAT), hole_binding.term, yes, no))
                 elif hole_type == _CHAR:
                     if spec != "":
@@ -320,7 +329,9 @@ class _StringsMixin:
                     elif self._prove_bool_precondition(
                         _apps(_constant("char_le"), hole_binding.term, _term("char", value=0x7F)), environment
                     ):
-                        chunk_terms.append(_apps(_constant("Seq_Singleton"), _NAT, _app(_constant("char_to_nat"), hole_binding.term)))
+                        code = _app(_constant("char_to_nat"), hole_binding.term)
+                        count_bytes(1)
+                        chunk_terms.append(_apps(_constant("Seq_Singleton"), _NAT, code))
                     else:
                         raise self.fail(
                             "type",
@@ -335,6 +346,8 @@ class _StringsMixin:
                     model = _apps(_constant("Vec_Model"), _NAT, type_args[1], hole_binding.term)
                     if not self._prove_bool_precondition(_app(_constant("ValidUtf8"), model), environment):
                         raise self.fail("type", "formatting a byte vector requires valid UTF-8 bytes", hole_ast)
+                    length = self.whnf(type_args[1])
+                    count_bytes(cast("int", length.value) if length.kind == "nat" else 0)
                     chunk_terms.append(model)
                 else:
                     raise self.fail(

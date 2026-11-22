@@ -974,6 +974,10 @@ public Nat RoundTripOwned()
         ("unrestored-fallible-write", "Result<byte, Unit> Bad(ref Span<byte> dst, byte value) "
          "effects writes(dst) requires dst.CanRead && dst.CanWrite && dst.Length >= 1usize "
          "ensures (result is Err(_)) ==> dst[0] == old(dst[0]) { dst[0] = value; return Err(()); }", "type"),
+        ("format-boolean-byte-limit", 'definition TextBuilder<300> B() => Format.Write(ref EmptyBuilder<300>(), $"'
+         + "{false}" * 52 + '");', "limit"),
+        ("format-vector-byte-limit", 'definition Vec<Nat,5> Tag() => "hello"; '
+         'definition TextBuilder<300> B() => Format.Write(ref EmptyBuilder<300>(), $"' + "{Tag()}" * 52 + '");', "limit"),
         ("private-binder-used-as-label", "Nat F(Nat local as count) => local; Nat G() => F(local: 2);", "name"),
         ("duplicate-external-label", "Nat F(Nat local as size, Nat size) => local;", "name"),
         ("overlapping-symbolic-suffix",
