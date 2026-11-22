@@ -1640,9 +1640,8 @@ whole-cell completion credit or additional hours are recorded for this increment
 
 #### Q25ch · Publish qualified compiler inspection services
 
-Partial pure-producer delivery on 2026-11-09 under the
-[pure snapshot contract](../tooling/tooling-protocols.md#pure-development-snapshot-increment).
-`vela inspect` exports immutable source-preserving snapshots with schema-6
+Under the [pure snapshot contract](../tooling/tooling-protocols.md#pure-development-snapshot-increment),
+`vela inspect` exports immutable source-preserving snapshots with schema-7
 provenance, UTF-8 byte spans, structured scalar/callable identifier types and
 snapshot-scoped resolved symbols/references. Function types include parameter
 types, required-static flags, result types and constant-callable status.
@@ -1689,7 +1688,7 @@ independently check expected source meanings, named/static calls, callee shadowi
 operator/group sites, Unicode/CRLF, bounded/stale/foreign queries and malformed,
 omitted or inconsistent worker decisions. Failed overlays withdraw the snapshot.
 The same resolver records module, function and block environments, declaration
-owners and reference use environments. Schema-6 scope records join those
+owners and reference use environments. The scope records join those
 decisions to source syntax nodes, parent/child links and exact byte spans;
 symbols also expose declaration-order availability offsets. Named argument
 labels retain caller environments and callee parameter identities. Bounded
