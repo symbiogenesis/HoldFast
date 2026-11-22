@@ -25,6 +25,17 @@ class Elaboration:
 
 
 @dataclass(frozen=True)
+class GallinaOrigin:
+    """A group of final Gallina lines and the source spans responsible for it."""
+
+    first_line: int
+    line_count: int
+    source: tuple[int, int]
+    declaration: tuple[int, int]
+    stage: str
+
+
+@dataclass(frozen=True)
 class CheckedElaboration(Elaboration):
     source_sha256: str
     syntax: bytes
