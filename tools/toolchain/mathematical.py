@@ -69,6 +69,10 @@ def inspect_source(source: bytes, parsed: object) -> Compilation:
                     if len(expression) <= 60 and "\n" not in expression and "\r" not in expression:
                         message += f": ({expression})"
                     precedence.append(Finding("VELA107", message, site.line, site.column))
+    for offset, spelling in translation.constructor_suggestions.items():
+        site = position(source[:offset].decode("utf-8"))
+        precedence.append(Finding("VELA108", f"this pattern binds every value. Use '{spelling}' to match the constructor",
+                                  site.line, site.column))
     names.sort(key=lambda item: item[0])
     findings = sorted(
         (*generic_type_findings(tuple(name for _, name in names)), *precedence),

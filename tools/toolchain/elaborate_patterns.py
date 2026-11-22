@@ -276,6 +276,15 @@ class _PatternsMixin:
                 if bound_var is None:
                     bound_var = fresh_v
         if pat.kind == "wild":
+            if pat.names and pat.node["kind"] == "binding_pattern":
+                binder = pat.names[0]
+                expected_head, _ = self.spine(self.whnf(expected_type))
+                for spelling, (owner, constructor) in self.union_ctors.items():
+                    if (_constant(owner.type_const) == expected_head
+                            and constructor.name == binder[:1].upper() + binder[1:]):
+                        start = cast("list[int]", pat.node["span"])[0]
+                        self.constructor_suggestions[start] = spelling
+                        break
             if bound_var is not None:
                 return bound_var
             fresh_w = self.fresh(expected_type)
@@ -1607,8 +1616,8 @@ class _PatternsMixin:
                         if covering.kind == "wild" and covering.names:
                             binder = covering.names[0]
                             reason = f"earlier pattern '{binder}' binds every value"
-                            candidate = binder[:1].upper() + binder[1:]
-                            if candidate in self.union_ctors or candidate in self.records:
+                            candidate = self.constructor_suggestions.get(cast("list[int]", covering.node["span"])[0])
+                            if candidate:
                                 reason += f"; did you mean '{candidate}'?"
                         raise self.fail("type", f"unreachable match arm: {reason}", pattern.node)
         if arm_uninit_sets:

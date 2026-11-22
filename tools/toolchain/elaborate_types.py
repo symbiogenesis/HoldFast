@@ -30,6 +30,7 @@ class CheckedElaboration(Elaboration):
     syntax: bytes
     contextual_literal_types: Mapping[int, str]
     call_declarations: Mapping[int, int]
+    constructor_suggestions: Mapping[int, str] = field(default_factory=dict)
 
     @staticmethod
     def encode_syntax(parsed: object) -> bytes:

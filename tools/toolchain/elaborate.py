@@ -116,6 +116,7 @@ class _Elaborator(
         self.types: dict[int, _Term] = {}
         # Callable parameter labels are source metadata, never CIC constructors.
         self.parameter_names: dict[int, str] = {}
+        self.constructor_suggestions: dict[int, str] = {}
         self.nullary_parameters: set[int] = set()
         self.constant_parameters: set[int] = set()
         self.readonly_span_vars: set[int] = set()
@@ -2119,7 +2120,8 @@ def _checked_elaboration(
             raise protocol.error("limit", "generated Gallina exceeds the output bound")
         return CheckedElaboration(module, gallina, source_digest, CheckedElaboration.encode_syntax(snapshot),
                                   MappingProxyType(elaborator.contextual_literal_types.copy()),
-                                  MappingProxyType(elaborator.call_declarations.copy())), elaborator
+                                  MappingProxyType(elaborator.call_declarations.copy()),
+                                  MappingProxyType(elaborator.constructor_suggestions.copy())), elaborator
     except RecursionError as error:
         raise protocol.error("limit", "elaboration nesting exceeds the host stack bound") from error
 

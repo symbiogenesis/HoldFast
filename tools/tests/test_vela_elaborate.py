@@ -6020,6 +6020,17 @@ def _constructor_spelling_and_shadowed_patterns() -> None:
     bad = _Fixture("MisspelledConstructor")
     bad.union("State", (("ready", ()),))
     _refuses(bad, "name", "uppercase")
+    from toolchain.mathematical import inspect_source
+
+    last = _Fixture("LastArm")
+    last.union("State", (("Ready", ()), ("Busy", ())))
+    last.definition("Read", _NAT, (("s", _type("State")),),
+                    _match_expr(_variable("s"), ((_pat_ctor("Busy"), _natural(0)), (_pat_bind("ready"), _natural(1)))))
+    last.definition("Other", _NAT, (("n", _NAT),),
+                    _match_expr(_variable("n"), ((_pat_bind("ready"), _natural(1)),)))
+    findings = inspect_source(*last.response()).findings
+    ensure(len(findings) == 1 and findings[0].code == "VELA108" and "'Ready'" in findings[0].message,
+           "the final binding pattern warning must use the scrutinee's constructors")
     for first, message in ((_pat_bind("ready"), "did you mean 'Ready'"), (_pat_ctor("Ready"), "covers this pattern")):
         fixture = _Fixture("ShadowedPattern")
         fixture.union("State", (("Ready", ()), ("Busy", ())))
