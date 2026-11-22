@@ -3066,6 +3066,7 @@ class _DeclarationsMixin:
                     is_recursive = self.current_rec_used
                     if is_recursive:
                         candidates = list(self.current_rec_candidates)
+                        self.recursive_declarations.add(cast("list[int]", node["span"])[0])
                     if kind in {"definition", "function"}:
                         if self._term_contains_restored_view(body):
                             raise self.fail(

@@ -105,6 +105,11 @@ The supported increment includes:
   arguments and pass a structurally smaller `Succ(...)` pattern binder for the
   decreasing parameter; non-decreasing, polymorphic-recursive or unapplied
   self-references are rejected.
+  The packet backend erases mathematical declarations, including type-valued
+  functions and recursion over unbounded naturals. For each selected executable
+  declaration it checks the elaborator's resolved recursion information before
+  emitting C. Recursive code needs a stack bound and lowering rule. The packet
+  profile currently admits acyclic calls among its represented functions.
 - Exhaustive `match` expressions and returning statement `match` over `Nat`,
   `bool`, `char`, `Unit`, `Vec<Nat, n>`, products and nominal `record` and `union`
   types, with wildcard (`_`), variable, `()`, Boolean literal, character literal

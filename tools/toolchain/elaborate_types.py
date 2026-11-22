@@ -30,6 +30,7 @@ class CheckedElaboration(Elaboration):
     syntax: bytes
     contextual_literal_types: Mapping[int, str]
     call_declarations: Mapping[int, int]
+    recursive_declarations: frozenset[int]
 
     @staticmethod
     def encode_syntax(parsed: object) -> bytes:

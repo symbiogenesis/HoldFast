@@ -130,6 +130,7 @@ class _Elaborator(
         self.callable_source_names: dict[str, str] = {}
         self.declaration_sites: dict[str, int] = {}
         self.call_declarations: dict[int, int] = {}
+        self.recursive_declarations: set[int] = set()
         self.callable_has_effects: set[str] = set()
         self.callable_effect_calls: dict[str, set[str]] = {}
         self.callable_effect_writes: dict[str, set[int]] = {}
@@ -2122,7 +2123,8 @@ def _checked_elaboration(
             raise protocol.error("limit", "generated Gallina exceeds the output bound")
         return CheckedElaboration(module, gallina, source_digest, CheckedElaboration.encode_syntax(snapshot),
                                   MappingProxyType(elaborator.contextual_literal_types.copy()),
-                                  MappingProxyType(elaborator.call_declarations.copy())), elaborator
+                                  MappingProxyType(elaborator.call_declarations.copy()),
+                                  frozenset(elaborator.recursive_declarations)), elaborator
     except RecursionError as error:
         raise protocol.error("limit", "elaboration nesting exceeds the host stack bound") from error
 
