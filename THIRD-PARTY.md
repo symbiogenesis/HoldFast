@@ -161,6 +161,16 @@ image. The harness records the exact selected Node executable and refuses
 changed runtime bytes before report publication. This use grants no additional
 runtime or generated-parser distribution closure.
 
+### Boolean web execution engine
+
+The [Boolean exporter](docs/tooling/pure-prototype.md#boolean-web-output)
+executes ES modules in the externally installed Ubuntu ARM64 Node.js 22.22.1
+image, SHA-256 `1ea16f5e8d590ca819f1db81e61a6bc4c8e7d8b69776c9236f8ebbf717113225`.
+The selected revision's license covers Node.js under MIT terms and lists the
+licenses of the bundled dependencies individually. Vela invokes the existing
+executable for local qualification. The emitted module contains only Vela's
+generated JavaScript. [Node.js v22.22.1 LICENSE](https://github.com/nodejs/node/blob/v22.22.1/LICENSE)
+
 <a id="development-tools-contained-by-use"></a>
 
 ## Development parser generator

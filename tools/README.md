@@ -30,6 +30,8 @@
 | `python tools/run.py vela-parser qualify-bsp-client` | guest | Run the pinned Neovim build client against successful, failed, cancelled and stale builds |
 | `python tools/run.py vela-parser debug-simulator --qualify` | guest | Check the [packet assembly simulator](../docs/tooling/tooling-protocols.md#packet-assembly-simulator) against expected stops, registers, capability observations and fault paths |
 | `python tools/run.py vela-parser check-arithmetic SOURCE` | guest | Replay [partial word-operation equations](../docs/tooling/elaboration-prototype.md) and audit their kernel assumptions |
+| `python tools/run.py vela-parser emit-web SOURCE FUNCTION --output MODULE.mjs` | guest | Export one [Boolean function](../docs/tooling/pure-prototype.md#boolean-web-output) after exhaustive Node execution and kernel replay |
+| `python tools/run.py vela-parser qualify-web` | guest | Check four independent Boolean web-client tables and two corrupted output modules |
 | `python tools/run.py vela-parser packet-example HEX` | guest | Execute the [packet walkthrough](../docs/tooling/packet-walkthrough.md) on up to eight input bytes using the lowered C and a local C11 compiler |
 
 The test runner reports executed cases and skips separately. By default it omits
