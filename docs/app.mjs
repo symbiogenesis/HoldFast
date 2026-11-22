@@ -6647,6 +6647,12 @@ export function createTicketTracker(isSnapshotCurrent = () => true) {
 function initPlaygroundUi() {
   const $ = (id) => document.getElementById(id);
   const MONACO_ROOT = `${MONACO_BASE}/vs`;
+  const topbar = document.querySelector(".topbar");
+  if (topbar) {
+    new ResizeObserver(() => {
+      document.documentElement.style.scrollPaddingTop = `${topbar.offsetHeight}px`;
+    }).observe(topbar);
+  }
 
   const state = {
     exampleName: "squares",
@@ -7539,7 +7545,8 @@ function initPlaygroundUi() {
     state.editor?.setPosition({ lineNumber: 1, column: 1 });
     activity("Example loaded");
     if (scrollIntoView) {
-      $("playground")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      $("examples").focus({ preventScroll: true });
+      $("playground").scrollIntoView({ block: "start" });
     }
   }
 
