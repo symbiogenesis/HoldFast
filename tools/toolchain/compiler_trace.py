@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import cast
 
 from toolchain import trace_runtime
-from toolchain.jsonutil import unique_object
+from toolchain.jsonutil import canonical_bytes, exceeds_nesting, json_digest, unique_object
 
 MAX_EVENTS = 4096
 MAX_TRACE_BYTES = 2_097_152
@@ -27,21 +27,12 @@ _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 type Object = dict[str, object]
 
 
-def _encoded(value: object) -> bytes:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"),
-                      ensure_ascii=True, allow_nan=False).encode("ascii")
-
-
-def _digest(value: object) -> str:
-    return hashlib.sha256(_encoded(value)).hexdigest()
-
-
 def _python_identity() -> Object:
     descriptor = {"executable_sha256": hashlib.sha256(Path(sys.executable).read_bytes()).hexdigest(),
                   "version": sys.version, "implementation": platform.python_implementation(),
                   "platform": platform.system(), "machine": platform.machine()}
-    descriptor["runtime_sha256"] = _digest({"files": trace_runtime.identity(), "flags": str(sys.flags),
-                                           "search_path": sys.path, "kernel": platform.version()})
+    descriptor["runtime_sha256"] = json_digest({"files": trace_runtime.identity(), "flags": str(sys.flags),
+                                               "search_path": sys.path, "kernel": platform.version()})
     return dict(descriptor)
 
 
@@ -122,7 +113,7 @@ def producer_identity() -> str:
               for path in paths if path.is_file()}
     inputs.update({name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in owners})
     native = _runtime_identity(root.parent)
-    return _digest({"files": inputs, "host": _python_identity(), "native": native})
+    return json_digest({"files": inputs, "host": _python_identity(), "native": native})
 
 
 class Recorder:
@@ -229,10 +220,10 @@ class Recorder:
             "complete": outcome == "success" and not (self.dropped or self.depth or self.clock_fault),
         }
         # Copy the records so later span completion cannot mutate an exported manifest.
-        document: Object = {"traceEvents": json.loads(_encoded(self.events)),
+        document: Object = {"traceEvents": json.loads(canonical_bytes(self.events)),
                             "displayTimeUnit": "ms", "vela": manifest}
-        manifest["binding_sha256"] = _digest(document)
-        if len(_encoded(document)) > MAX_TRACE_BYTES:
+        manifest["binding_sha256"] = json_digest(document)
+        if len(canonical_bytes(document)) > MAX_TRACE_BYTES:
             raise ValueError("trace export exceeds byte limit")
         return document
 
@@ -262,7 +253,7 @@ def validate(document: object, source: bytes, producer: str, *, require_complete
     _require(set(manifest) == fields, "unsupported manifest fields")
     binding = manifest["binding_sha256"]
     unsigned = {key: value for key, value in manifest.items() if key != "binding_sha256"}
-    _require(binding == _digest({**data, "vela": unsigned}), "trace binding mismatch")
+    _require(binding == json_digest({**data, "vela": unsigned}), "trace binding mismatch")
     _require(type(manifest["schema"]) is int and manifest["schema"] == 3
              and manifest["scope"] == "pure-compiler-timing"
              and manifest["clock"] == "perf_counter_ns"
@@ -379,25 +370,9 @@ def _declaration_site(value: object, source: bytes) -> tuple[int, int]:
 def decode(raw: bytes) -> Object:
     if len(raw) > MAX_TRACE_BYTES:
         raise ValueError("trace exceeds byte limit")
-    # The supported document has no deep user data; refuse pathological nesting before decoding.
-    depth = 0
-    quoted = escaped = False
-    for byte in raw:
-        if quoted:
-            if escaped:
-                escaped = False
-            elif byte == 92:
-                escaped = True
-            elif byte == 34:
-                quoted = False
-        elif byte == 34:
-            quoted = True
-        elif byte in (91, 123):
-            depth += 1
-            if depth > 8:
-                raise ValueError("trace nesting exceeds limit")
-        elif byte in (93, 125):
-            depth -= 1
+    if exceeds_nesting(raw, 8):
+        raise ValueError("trace nesting exceeds limit")
+
     def reject(value: str) -> object:
         raise ValueError(f"unsupported trace number: {value}")
     value = json.loads(raw, object_pairs_hook=unique_object, parse_float=reject, parse_constant=reject)

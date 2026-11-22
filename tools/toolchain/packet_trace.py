@@ -1,13 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 """Bounded Chrome Trace Event recording for the packet frontend, proof and C lowering."""
 
-import hashlib
-import json
 import time
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 
 from toolchain.compiler_trace import MAX_TIME
+from toolchain.jsonutil import json_digest as digest
 
 type Object = dict[str, object]
 
@@ -21,11 +20,6 @@ PROOF_STEPS = {"FirstSlice.compile.log": ("proof-compile", "rocq-compile-process
                "FirstSlice.kernel.log": ("proof-kernel", "rocqchk-process")}
 FILENAME = "packet-trace.json"
 MAX_BYTES = 16_384
-
-
-def digest(value: object) -> str:
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"),
-                                     allow_nan=False).encode()).hexdigest()
 
 
 def subjects(receipt: Object) -> str:

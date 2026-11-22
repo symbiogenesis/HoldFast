@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import cast
 
 from toolchain import compiler_trace as trace
+from toolchain.jsonutil import json_digest
 
 RELEASE = "v58.2"
 REVISION = "add693d8b338ba9599dbcbc3e300b1ab8c000897"
@@ -55,11 +56,6 @@ NEGATIVE_CONTROLS = ("stale-source", "stale-producer", "missing-phase", "crossin
 type Object = dict[str, object]
 
 
-def _digest(value: object) -> str:
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"),
-                                     ensure_ascii=True, allow_nan=False).encode("ascii")).hexdigest()
-
-
 def reader_identity(executable: Path) -> Object:
     """Refuse unreviewed bytes before executing the externally provisioned reader."""
     with executable.open("rb") as stream:
@@ -75,8 +71,8 @@ def reader_identity(executable: Path) -> Object:
 
 def harness_identity() -> str:
     root = Path(__file__).resolve().parent
-    return _digest({name: hashlib.sha256((root / name).read_bytes()).hexdigest()
-                    for name in ("compiler_trace.py", "trace_viewer.py", "cli/vela.py")})
+    modules = ("compiler_trace.py", "jsonutil.py", "trace_viewer.py", "cli/vela.py")
+    return json_digest({name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in modules})
 
 
 def check_current(executable: Path, report: Object) -> None:
@@ -118,7 +114,7 @@ def validate(document: object, executable: Path) -> Object:
         raise ValueError("unsupported or oversized trace viewer report")
     report = cast("Object", document)
     unsigned = {key: value for key, value in report.items() if key != "binding_sha256"}
-    if report["binding_sha256"] != _digest(unsigned):
+    if report["binding_sha256"] != json_digest(unsigned):
         raise ValueError("trace viewer report binding mismatch")
     if (type(report["schema"]) is not int or report["schema"] != 1
             or report["scope"] != "pure-trace-independent-importer" or report["accepted"] is not True
@@ -176,7 +172,7 @@ def _negative_controls(document: Object) -> list[str]:
         else:
             manifest.update(outcome="cancelled", complete=False)
         manifest.pop("binding_sha256")
-        manifest["binding_sha256"] = _digest(changed)
+        manifest["binding_sha256"] = json_digest(changed)
         try:
             trace.validate(changed, source, producer)
         except ValueError:
@@ -262,5 +258,5 @@ def qualify(executable: Path) -> Object:
         "negative_controls": refused,
         "queries": queries,
     }
-    report["binding_sha256"] = _digest(report)
+    report["binding_sha256"] = json_digest(report)
     return report

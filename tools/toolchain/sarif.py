@@ -13,6 +13,7 @@ from typing import cast
 
 from toolchain import MAX_SOURCE_BYTES
 from toolchain.lsp import diagnose
+from toolchain.jsonutil import canonical_bytes, json_digest
 from toolchain.lsp_format import format_document, formatting_edits
 from toolchain.lsp_services import InspectionError
 from toolchain.protocol_json import decode_message
@@ -32,11 +33,6 @@ RULE_IDS = tuple(sorted({f"VELA-{kind.upper()}" for kind in KINDS}
 type Object = dict[str, object]
 type Checker = Callable[[bytes], Object | None]
 type Formatter = Callable[[bytes], Object]
-
-
-def _encoded(value: object) -> bytes:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"),
-                      ensure_ascii=True, allow_nan=False).encode("ascii")
 
 
 def _digest(value: bytes) -> str:
@@ -149,8 +145,8 @@ def export(inputs: tuple[Input, ...], producer: str, *, format_fixes: bool = Fal
         "results": results, "invocations": [{"executionSuccessful": complete,
                                                "toolExecutionNotifications": notifications}],
         "properties": {"vela": manifest}}]}
-    manifest["binding_sha256"] = _digest(_encoded(document))
-    if len(results) > MAX_FINDINGS or len(_encoded(document)) > MAX_REPORT_BYTES:
+    manifest["binding_sha256"] = json_digest(document)
+    if len(results) > MAX_FINDINGS or len(canonical_bytes(document)) > MAX_REPORT_BYTES:
         raise ValueError("SARIF export exceeds report bounds")
     return document
 
@@ -196,7 +192,7 @@ def validate(document: Object, inputs: tuple[Input, ...], producer: str,
              *, schema_path: Path | None = None) -> Object:
     """Refuse corrupt structure, coordinates, status and stale source/producer handoffs."""
     _inputs(inputs)
-    if len(_encoded(document)) > MAX_REPORT_BYTES:
+    if len(canonical_bytes(document)) > MAX_REPORT_BYTES:
         raise ValueError("SARIF report exceeds byte limit")
     if schema_path is not None:
         validate_schema(document, schema_path)
@@ -213,7 +209,7 @@ def validate(document: Object, inputs: tuple[Input, ...], producer: str,
         pending = copy.deepcopy(document)
         retained = cast("Object", cast("Object", cast("list[Object]", pending["runs"])[0]["properties"])["vela"])
         claimed = retained.pop("binding_sha256")
-        if claimed != _digest(_encoded(pending)):
+        if claimed != json_digest(pending):
             raise ValueError("SARIF report binding mismatch")
         bindings = cast("list[Object]", manifest["inputs"])
         if (type(manifest["schema"]) is not int or manifest["schema"] != 1 or manifest["scope"] != SCOPE
@@ -268,7 +264,7 @@ def validate(document: Object, inputs: tuple[Input, ...], producer: str,
                 if len(changes) != 1 or changes[0]["artifactLocation"] != location:
                     raise ValueError("SARIF format fix source mismatch")
                 replacements = cast("list[Object]", changes[0]["replacements"])
-                if len(replacements) != 1 or _encoded(replacements[0]["deletedRegion"]) != _encoded({
+                if len(replacements) != 1 or canonical_bytes(replacements[0]["deletedRegion"]) != canonical_bytes({
                         "byteOffset": 0, "byteLength": len(item.source)}):
                     raise ValueError("SARIF format fix range mismatch")
                 inserted = cast("Object", replacements[0]["insertedContent"])["text"]
@@ -280,7 +276,7 @@ def validate(document: Object, inputs: tuple[Input, ...], producer: str,
         for index, (item, binding, artifact) in enumerate(zip(inputs, bindings, artifacts, strict=True)):
             status = binding["status"]
             if (binding["uri"] != item.uri or binding["sha256"] != _digest(item.source)
-                    or _encoded(artifact) != _encoded({"location": {"uri": item.uri}, "length": len(item.source),
+                    or canonical_bytes(artifact) != canonical_bytes({"location": {"uri": item.uri}, "length": len(item.source),
                                                       "hashes": {"sha-256": _digest(item.source)},
                                                       "roles": ["analysisTarget"]})):
                 raise ValueError("SARIF stale input closure")
@@ -314,7 +310,7 @@ def decode(raw: bytes) -> Object:
 
 def encode(document: Object) -> bytes:
     """Bound the actual publication bytes as well as the normalized binding."""
-    raw = _encoded(document) + b"\n"
+    raw = canonical_bytes(document) + b"\n"
     if len(raw) > MAX_REPORT_BYTES:
         raise ValueError("SARIF publication exceeds byte limit")
     return raw

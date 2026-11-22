@@ -9,6 +9,7 @@ from collections.abc import Callable
 from typing import cast
 
 from toolchain import Translation, compiler_trace, translate
+from toolchain.jsonutil import json_digest
 
 DEFAULT_SAMPLES = 7
 DEFAULT_WARMUPS = 1
@@ -22,11 +23,6 @@ type Object = dict[str, object]
 def _require(condition: bool, message: str) -> None:
     if not condition:
         raise ValueError(message)
-
-
-def _digest(value: object) -> str:
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"),
-                                     ensure_ascii=True, allow_nan=False).encode("ascii")).hexdigest()
 
 
 def _limits(samples: object, warmups: object) -> None:
@@ -107,7 +103,7 @@ def measure(source: bytes, producer: str, *, samples: int = DEFAULT_SAMPLES,
         "gallina_sha256": hashlib.sha256(expected.gallina.encode("utf-8")).hexdigest(),
         "pairs": pairs, "summary": _summary(pairs),
     }
-    report["binding_sha256"] = _digest(report)
+    report["binding_sha256"] = json_digest(report)
     validate(report, source, producer)
     return report
 
@@ -122,7 +118,7 @@ def validate(document: object, source: bytes, producer: str, *,
                              "gallina_sha256", "pairs", "summary", "binding_sha256"},
              "unsupported benchmark report fields")
     unsigned = {key: value for key, value in report.items() if key != "binding_sha256"}
-    _require(report["binding_sha256"] == _digest(unsigned), "benchmark binding mismatch")
+    _require(report["binding_sha256"] == json_digest(unsigned), "benchmark binding mismatch")
     _require(type(report["schema"]) is int and report["schema"] == 1
              and report["scope"] == "pure-compiler-tracing-comparison"
              and report["clock"] == "perf_counter_ns" and report["unit"] == "nanoseconds"
@@ -147,7 +143,7 @@ def validate(document: object, source: bytes, producer: str, *,
                  "incorrect benchmark pair order")
         for name in ("plain_ns", "traced_ns", "recording_overhead_ns"):
             _require(_natural(pair[name]), f"invalid {name}")
-    _require(_digest(report["summary"]) == _digest(_summary(pairs)), "benchmark summary mismatch")
+    _require(json_digest(report["summary"]) == json_digest(_summary(pairs)), "benchmark summary mismatch")
     _require(len(json.dumps(report).encode("utf-8")) <= MAX_REPORT_BYTES,
              "benchmark report exceeds byte limit")
     if max_overhead_ppm is not None:

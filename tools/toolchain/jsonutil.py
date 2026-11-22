@@ -1,8 +1,20 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Shared JSON decoder hooks; each caller chooses its numeric and shape policy."""
+"""Shared JSON encoding and decoder checks for the toolchain."""
 
+import hashlib
+import json
 import math
 from collections.abc import Callable
+
+
+def canonical_bytes(value: object) -> bytes:
+    """Encode compact, sorted ASCII JSON for byte bounds and content bindings."""
+    return json.dumps(value, sort_keys=True, separators=(",", ":"),
+                      ensure_ascii=True, allow_nan=False).encode("ascii")
+
+
+def json_digest(value: object) -> str:
+    return hashlib.sha256(canonical_bytes(value)).hexdigest()
 
 
 def unique_object[T](pairs: list[tuple[str, T]], *,
@@ -24,3 +36,26 @@ def finite_float(value: str) -> float:
     if not math.isfinite(parsed):
         raise ValueError(f"JSON number exceeds finite precision: {value}")
     return parsed
+
+
+def exceeds_nesting(raw: bytes, limit: int) -> bool:
+    """Check container depth before decoding. The JSON decoder validates syntax."""
+    depth = 0
+    quoted = escaped = False
+    for byte in raw:
+        if quoted:
+            if escaped:
+                escaped = False
+            elif byte == 92:  # backslash
+                escaped = True
+            elif byte == 34:  # double quote
+                quoted = False
+        elif byte == 34:
+            quoted = True
+        elif byte in b"[{":
+            depth += 1
+            if depth > limit:
+                return True
+        elif byte in b"]}":
+            depth -= 1
+    return False

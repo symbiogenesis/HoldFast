@@ -53,7 +53,7 @@ def reader_identity(directory: Path) -> sarif.Object:
 def harness_identity() -> str:
     root = Path(__file__).resolve().parent
     identities = {name: _digest((root / name).read_bytes())
-                  for name in ("sarif.py", "sarif_reader.py", "cli/vela.py")}
+                  for name in ("sarif.py", "sarif_reader.py", "jsonutil.py", "cli/vela.py")}
     return _digest(json.dumps(identities, sort_keys=True).encode())
 
 

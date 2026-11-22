@@ -4,7 +4,7 @@
 import json
 from typing import BinaryIO, cast
 
-from toolchain.jsonutil import finite_float, unique_object
+from toolchain.jsonutil import exceeds_nesting, finite_float, unique_object
 
 MAX_HEADER_BYTES = 8192
 MAX_BODY_BYTES = 1_048_576
@@ -65,23 +65,9 @@ def _reject_constant(value: str) -> object:
 def decode_message(raw: bytes) -> dict[str, object]:
     if len(raw) > MAX_BODY_BYTES:
         raise FrameError("frame body exceeds limit")
-    quoted, escaped, depth = False, False, 0
-    for byte in raw:
-        if quoted:
-            if escaped:
-                escaped = False
-            elif byte == 92:
-                escaped = True
-            elif byte == 34:
-                quoted = False
-        elif byte == 34:
-            quoted = True
-        elif byte in (91, 123):
-            depth += 1
-            if depth > MAX_JSON_DEPTH:
-                raise FrameError("JSON nesting exceeds limit")
-        elif byte in (93, 125):
-            depth -= 1
+    if exceeds_nesting(raw, MAX_JSON_DEPTH):
+        raise FrameError("JSON nesting exceeds limit")
+
     value = json.loads(raw.decode("utf-8"), object_pairs_hook=unique_object,
                        parse_float=finite_float, parse_constant=_reject_constant)
     if not isinstance(value, dict):

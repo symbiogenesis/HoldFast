@@ -28,7 +28,7 @@ from toolchain import (
 )
 from toolchain.ast import MAX_SOURCE_BYTES, MAX_SYNTAX_DEPTH, VelaError
 from toolchain.atomic import atomic_path
-from toolchain.jsonutil import finite_float, unique_object
+from toolchain.jsonutil import exceeds_nesting, finite_float, unique_object
 
 type Json = bool | int | float | str | list[Json] | dict[str, Json] | None
 
@@ -327,23 +327,8 @@ def _object(value: Json, description: str) -> dict[str, Json]:
 
 def _response(raw: bytes) -> dict[str, Json]:
     """Bound nesting before the JSON decoder, and reject ambiguous objects."""
-    quoted, escaped, depth = False, False, 0
-    for byte in raw:
-        if quoted:
-            if escaped:
-                escaped = False
-            elif byte == 92:
-                escaped = True
-            elif byte == 34:
-                quoted = False
-        elif byte == 34:
-            quoted = True
-        elif byte in (91, 123):
-            depth += 1
-            if depth > MAX_RESPONSE_DEPTH:
-                raise ValueError("native parser response exceeds JSON nesting bound")
-        elif byte in (93, 125):
-            depth -= 1
+    if exceeds_nesting(raw, MAX_RESPONSE_DEPTH):
+        raise ValueError("native parser response exceeds JSON nesting bound")
 
     def reject_constant(value: str) -> Json:
         raise ValueError(f"non-finite native JSON value: {value}")
