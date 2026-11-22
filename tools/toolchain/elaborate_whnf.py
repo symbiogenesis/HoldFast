@@ -660,6 +660,9 @@ class _WhnfMixin:
         if len(arguments) == 2:
             left = self.whnf(arguments[0])
             right = self.whnf(arguments[1])
+            if op in {"add", "wrap_add"} and right.kind == "int" and right.value == 0:
+                self.tick(True)
+                return left
             if left.kind != "int" or right.kind != "int":
                 if left != arguments[0] or right != arguments[1]:
                     self.tick(True)

@@ -614,11 +614,12 @@ def _execute_generated_packet_c() -> None:
                 ensure(observed == expected, f"packet C {optimization} returned {observed}, expected {expected}")
 
 
-def _check_packet_statements(statements: str, start: bytes = b"    var u8 acc = 0x5A ^ rawLen;") -> None:
+def _check_packet_statements(statements: str, start: bytes = b"    var u8 acc = 0x5A ^ rawLen;",
+                             *, replace: bool = False) -> None:
     root = TOOLS.parent
     original = (root / vela_first_slice.EXAMPLE).read_bytes()
     ensure(original.count(start) == 1, "checksum regression fixture lost its insertion point")
-    source = original.replace(start, statements.encode() + start)
+    source = original.replace(start, statements.encode() if replace else statements.encode() + start)
     with parser.cached_build(root) as compiled:
         parsed = parser.parse_source(compiled, source, surface=True)
     checked = vela_elaborate.elaborate(source, parsed)
@@ -651,6 +652,14 @@ def _packet_compound_updates() -> None:
         "    pkt[0usize] += 1u8;\n"
         "    if (pkt[0usize] != 2u8) { return; }\n",
         b"    pkt[0usize] = b0;",
+    )
+
+
+def _packet_affine_index_and_neutral_update() -> None:
+    _check_packet_statements(
+        "            acc = acc ^ pkt[i + 4usize];\n            acc += 0u8;",
+        b"            acc = acc ^ pkt[4usize + i];",
+        replace=True,
     )
 
 
@@ -749,5 +758,6 @@ def cases() -> list[Case]:
         Case("execute-generated-packet-c-and-perturbed-scenarios", _execute_generated_packet_c, lane="guest"),
         Case("packet-word-xor-retains-high-bits", _packet_word_xor, lane="guest"),
         Case("packet-compound-updates-read-before-writing", _packet_compound_updates, lane="guest"),
+        Case("packet-affine-index-and-neutral-accumulator", _packet_affine_index_and_neutral_update, lane="guest"),
         Case("packet-contextual-literals-match-explicit-representations", _packet_contextual_literals, lane="guest"),
     ]

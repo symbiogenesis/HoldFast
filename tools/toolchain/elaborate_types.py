@@ -866,8 +866,12 @@ Definition vela_Result_Err (TValue TError : Type@{vela_u0}) (e : TError) : vela_
 Definition vela_Result_Ok (TValue TError : Type@{vela_u0}) (v : TValue) : vela_Result TValue TError :=
   @inr TError TValue v.
 
+Fixpoint vela_bits_zero (a : vela_bits) : bool :=
+  match a with vela_bnil => true | vela_bcons x rest => if x then false else vela_bits_zero rest end.
+
 Definition vela_int_add (tag : nat) (a b : vela_int tag) : vela_int tag :=
-  vela_mk_int tag (vela_bits_add (vela_int_bits tag a) (vela_int_bits tag b)).
+  if vela_bits_zero (vela_bits_rev (vela_int_bits tag b)) then a
+  else vela_mk_int tag (vela_bits_add (vela_int_bits tag a) (vela_int_bits tag b)).
 Definition vela_int_sub (tag : nat) (a b : vela_int tag) : vela_int tag :=
   vela_mk_int tag (vela_bits_sub (vela_int_bits tag a) (vela_int_bits tag b)).
 Definition vela_int_negative (tag : nat) (bs : vela_bits) : bool :=
@@ -2132,14 +2136,24 @@ Lemma vela_bits_word_exact : forall n bs, vela_bits_len bs = n ->
   vela_word_bits (vela_bits_word n bs) = bs.
 Proof. intros n bs H; subst n; apply vela_bits_roundtrip. Qed.
 
+Lemma vela_bits_zero_right : forall a b, vela_bits_zero b = true ->
+  vela_bits_len a = vela_bits_len b -> vela_bits_add_lsb a b false = a.
+Proof.
+  induction a as [|x a IH]; intros [|y b] Hz H; try discriminate; try reflexivity.
+  injection H as H. destruct y; [discriminate |]. destruct x;
+    cbn [vela_bits_add_lsb vela_xorb vela_or vela_and vela_not]; f_equal; now apply IH.
+Qed.
 Lemma vela_int_add_bits : forall tag a b, vela_int_bits tag (vela_int_add tag a b) =
   vela_bits_add (vela_int_bits tag a) (vela_int_bits tag b).
 Proof.
-  intros tag [a] [b]; change (vela_word_bits (vela_bits_word (vela_tag_bits tag)
-    (vela_bits_add (vela_word_bits a) (vela_word_bits b))) = vela_bits_add (vela_word_bits a) (vela_word_bits b)).
-  apply vela_bits_word_exact. unfold vela_bits_add.
-  rewrite vela_bits_rev_length, vela_bits_add_lsb_length;
-    rewrite !vela_bits_rev_length, !vela_word_bits_length; reflexivity.
+  intros tag a b. unfold vela_int_add.
+  destruct (vela_bits_zero (vela_bits_rev (vela_int_bits tag b))) eqn:Hz.
+  - unfold vela_bits_add. rewrite vela_bits_zero_right by
+      (assumption || now rewrite !vela_bits_rev_length, !vela_int_width).
+    symmetry. apply vela_bits_rev_rev.
+  - apply vela_bits_word_exact. unfold vela_bits_add.
+    rewrite vela_bits_rev_length, vela_bits_add_lsb_length;
+      rewrite !vela_bits_rev_length, !vela_int_width; reflexivity.
 Qed.
 
 Lemma vela_bits_sub_lsb_length : forall a b borrow, vela_bits_len a = vela_bits_len b ->
@@ -2177,8 +2191,6 @@ Proof.
   - apply vela_bits_rev_rev.
   - now rewrite !vela_bits_rev_length, !vela_int_width.
 Qed.
-Fixpoint vela_bits_zero (a : vela_bits) : bool :=
-  match a with vela_bnil => true | vela_bcons x rest => if x then false else vela_bits_zero rest end.
 Lemma vela_bits_zero_left : forall a b, vela_bits_zero a = true ->
   vela_bits_len a = vela_bits_len b -> vela_bits_add_lsb a b false = b.
 Proof.
@@ -2294,7 +2306,7 @@ Qed.
 Lemma vela_int_add_assoc : forall (tag : nat) (a b c : vela_int tag),
   vela_int_add tag (vela_int_add tag a b) c = vela_int_add tag a (vela_int_add tag b c).
 Proof.
-  intros tag a b c. unfold vela_int_add at 1 3. rewrite !vela_int_add_bits. f_equal.
+  intros tag a b c. apply vela_int_bits_inj. rewrite !vela_int_add_bits.
   unfold vela_bits_add. rewrite !vela_bits_rev_rev. f_equal.
   eapply vela_bits_add_lsb_assoc_gen. reflexivity.
 Qed.
