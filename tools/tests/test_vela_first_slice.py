@@ -649,6 +649,13 @@ def _packet_word_xor() -> None:
     )
 
 
+def _packet_complement_widening() -> None:
+    _check_packet_statements(
+        "    let inverted = usize.From(~0u8);\n"
+        "    if (inverted != 255usize) { return 0u8; }\n"
+    )
+
+
 def _packet_compound_updates() -> None:
     _check_packet_statements(
         "    var u8 probe = 1u8;\n"
@@ -765,6 +772,7 @@ def cases() -> list[Case]:
         Case("first-slice-constructive-source-proofs-with-fixed-budgets", _first_slice_source_proofs, lane="guest"),
         Case("execute-generated-packet-c-and-perturbed-scenarios", _execute_generated_packet_c, lane="guest"),
         Case("packet-word-xor-retains-high-bits", _packet_word_xor, lane="guest"),
+        Case("packet-byte-complement-before-widening", _packet_complement_widening, lane="guest"),
         Case("packet-compound-updates-read-before-writing", _packet_compound_updates, lane="guest"),
         Case("packet-affine-index-and-neutral-accumulator", _packet_affine_index_and_neutral_update, lane="guest"),
         Case("packet-contextual-literals-match-explicit-representations", _packet_contextual_literals, lane="guest"),

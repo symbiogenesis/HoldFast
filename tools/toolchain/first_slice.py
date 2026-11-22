@@ -1185,6 +1185,8 @@ def _lower_function_to_c(
                 return False, "unsigned long"
             if isinstance(callee, dict) and callee.get("kind") == "name":
                 return False, _c_scalar_type(function_results[resolve_call(val)])
+        if vkind == "unary" and _node_text(val.get("operator")) == "~":
+            return False, _c_scalar_type(integer_operation(val)[1])
         if vkind == "binary" and _node_text(val.get("operator")) in {"+", "-", "*", "/", "%", "&", "|", "^"}:
             return False, _c_scalar_type(integer_operation(val)[1])
         raise ValueError(f"cannot infer local C type for statement in {fname}: {stmt!r}")
@@ -1316,6 +1318,12 @@ def _lower_function_to_c(
             op = _node_text(node.get("operator"))
             if op in ("ref", "in"):
                 return span_ptr_expr(node)
+            if op == "~":
+                checked_op, width = integer_operation(node)
+                c_type = _c_scalar_type(width)
+                promoted = "unsigned int" if c_type == "unsigned char" else c_type
+                operand = lower_expr(node["value"], prefix)
+                return observed(node, checked_op, width, f"({c_type})({checked_op}({promoted})({operand}))")
             return f"{op}{lower_expr(node.get('value'), prefix)}"
         if ekind == "member":
             mname = _node_text(node.get("name"))
