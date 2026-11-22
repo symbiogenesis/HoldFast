@@ -252,6 +252,8 @@ def _synthetic_session(
         )
 
     send_req("initialize", {"capabilities": {"general": {"positionEncodings": ["utf-16"]},
+        "textDocument": {"codeAction": {"codeActionLiteralSupport": {
+            "codeActionKind": {"valueSet": ["refactor.rewrite"]}}}},
         "workspace": {"workspaceEdit": {"documentChanges": True}}}})
     send_notif("initialized")
     send_notif(

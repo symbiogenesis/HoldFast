@@ -5,6 +5,7 @@ import hashlib
 import json
 import sys
 from pathlib import Path
+from typing import cast
 
 from toolchain import MAX_SOURCE_BYTES, VelaError, inspect_source, translate
 from toolchain.authoring import format_source
@@ -23,6 +24,26 @@ def worker_command(*args: str) -> list[str]:
 
 def main() -> int:
     source = sys.stdin.buffer.read(MAX_SOURCE_BYTES + 1)
+    if len(sys.argv) == 4 and sys.argv[1] == "--comparison-action":
+        # The preview consumes the snapshot worker, which imports this entry point.
+        from toolchain.authoring_preview import selection  # noqa: PLC0415
+
+        try:
+            start, end = int(sys.argv[2]), int(sys.argv[3])
+            preview = selection(source, start, end)
+        except (ValueError, VelaError, OSError):
+            return 2
+        action: dict[str, object] = {"selection": [start, end],
+                                     "source_sha256": hashlib.sha256(source).hexdigest(), "edit": None}
+        if preview is not None:
+            binding = cast("dict[str, object]", preview["binding"])
+            action["edit"] = {key: preview[key] for key in ("span", "replacement", "candidate_sha256")}
+            action["producer"] = cast("dict[str, object]", binding["producer"])["version"]
+        encoded = json.dumps(action, ensure_ascii=True)
+        if len(encoded.encode("utf-8")) > MAX_BODY_BYTES:
+            return 1
+        print(encoded, end="")
+        return 0
     if len(sys.argv) == 3 and sys.argv[1] == "--complete-at":
         try:
             result = recover(source, int(sys.argv[2]))

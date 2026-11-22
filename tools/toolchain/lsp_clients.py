@@ -1252,6 +1252,7 @@ def expected_scenario_oracle(uri: str) -> dict[str, object]:
             "signatureHelpProvider": {"triggerCharacters": ["(", ","], "retriggerCharacters": [","]},
             "documentFormattingProvider": True,
             "renameProvider": {"prepareProvider": True},
+            "codeActionProvider": {"codeActionKinds": ["refactor.rewrite"]},
             "semanticTokensProvider": {
                 "legend": {
                     "tokenTypes": list(SEMANTIC_TOKEN_TYPES),
@@ -1461,6 +1462,7 @@ def verify_client_observation(observation: dict[str, object], oracle: dict[str, 
     expected_caps = dict(_object(oracle["capabilities"]))
     if not versioned_rename:
         expected_caps.pop("renameProvider")
+        expected_caps.pop("codeActionProvider")
     _require(
         observation.get("server_capabilities") == expected_caps,
         f"{label}: negotiated server_capabilities differ from oracle",

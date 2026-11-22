@@ -8,7 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import BinaryIO, Never, cast
 
-from toolchain import lsp_discovery
+from toolchain import lsp_actions, lsp_discovery
 from toolchain.lsp_format import Formatter, format_document, formatting_edits
 from toolchain.lsp_recovery import Completer, inspect_recovery, project_recovery
 from toolchain.lsp_rename import prepare, rename, valid_name
@@ -152,6 +152,7 @@ class Server:
         self._token_serial = 0
         self._token_deltas = False
         self._versioned_edits = False
+        self._comparison_actions = False
         self.generation = 0
         self.initialized = False
         self.ready = False
@@ -275,13 +276,13 @@ class Server:
         previous_result: str | None = None
         if method == _SEMANTIC_DELTA:
             previous_result = _string(params.get("previousResultId"))
-        if method == "textDocument/inlayHint":
+        if method in {"textDocument/inlayHint", lsp_actions.METHOD}:
             span = _object(params.get("range"))
             start, end = _object(span.get("start")), _object(span.get("end"))
             first = _integer(start.get("line")), _integer(start.get("character"))
             last = _integer(end.get("line")), _integer(end.get("character"))
             if first > last:
-                _invalid("hint range is reversed")
+                _invalid("document range is reversed")
             first_position = snapshot.byte_position(snapshot.position_byte_offset(*first))
             last_position = snapshot.byte_position(snapshot.position_byte_offset(*last))
             requested_range = ((first_position["line"], first_position["character"]),
@@ -304,6 +305,14 @@ class Server:
             if _integer(options.get("tabSize")) <= 0 or type(options.get("insertSpaces")) is not bool:
                 _invalid("formatting requires positive tabSize and Boolean insertSpaces")
         new_name = ""
+        wants_comparison = False
+        if method == lsp_actions.METHOD:
+            if not self._comparison_actions:
+                return _error(request_id, -32803, "Code actions require versioned edits and literal rewrite actions")
+            context = _object(params.get("context"))
+            if not isinstance(context.get("diagnostics"), list):
+                _invalid("code action context requires a diagnostics list")
+            wants_comparison = "only" not in context or lsp_actions.supports(context["only"])
         if method in _RENAME_METHODS and not self._versioned_edits:
             return _error(request_id, -32803, "Rename requires versioned documentChanges support")
         if method == "textDocument/rename":
@@ -314,6 +323,8 @@ class Server:
             token_history = None
             if method == "textDocument/formatting":
                 result = formatting_edits(snapshot, self.formatter(snapshot.source))
+            elif method == lsp_actions.METHOD and requested_range is not None:
+                result = lsp_actions.actions(snapshot, requested_range) if wants_comparison else []
             elif method in {_SEMANTIC_FULL, _SEMANTIC_DELTA}:
                 result, token_history = self._tokens(snapshot, previous_result, method == _SEMANTIC_DELTA)
             elif method == "textDocument/prepareRename":
@@ -381,6 +392,10 @@ class Server:
                 versioned_edits = workspace_edits.get("documentChanges", False)
                 if type(versioned_edits) is not bool:
                     _invalid("documentChanges capability must be a boolean")
+                code_actions = _object(text_capabilities.get("codeAction", {}))
+                literals = _object(code_actions.get("codeActionLiteralSupport", {}))
+                kinds = _object(literals.get("codeActionKind", {}))
+                comparison_actions = lsp_actions.supports(kinds.get("valueSet", [])) and versioned_edits
                 semantic = _object(text_capabilities.get("semanticTokens", {}))
                 token_requests = _object(semantic.get("requests", {}))
                 full_tokens = token_requests.get("full", False)
@@ -410,6 +425,9 @@ class Server:
                 if versioned_edits:
                     _object(_object(reply.get("result")).get("capabilities"))["renameProvider"] = {
                         "prepareProvider": True}
+                if comparison_actions:
+                    _object(_object(reply.get("result")).get("capabilities"))["codeActionProvider"] = {
+                        "codeActionKinds": [lsp_actions.KIND]}
                 try:
                     encode_message(reply)
                 except (FrameError, UnicodeError):
@@ -417,6 +435,7 @@ class Server:
                 self.initialized = True
                 self._token_deltas = token_deltas
                 self._versioned_edits = versioned_edits
+                self._comparison_actions = comparison_actions
                 return [reply]
             if method == "shutdown" and request:
                 self.invalidate_inspections()
@@ -426,7 +445,7 @@ class Server:
                 self.received_versions.clear()
                 return [{"jsonrpc": "2.0", "id": request_id, "result": None}]
             if request:
-                if method in METHODS or method in ({"textDocument/formatting", _SEMANTIC_DELTA}
+                if method in METHODS or method in ({"textDocument/formatting", _SEMANTIC_DELTA, lsp_actions.METHOD}
                                                    | _RENAME_METHODS | lsp_discovery.METHODS):
                     return [self._navigation(request_id, method, params)]
                 return [_error(request_id, -32601, "Method not found")]

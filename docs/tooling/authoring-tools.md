@@ -256,8 +256,16 @@ Independent expected edits and exhaustive two-variable truth tables cover both
 literal sides, negation, nested comparisons, precedence, Unicode and CRLF.
 Refusal controls cover comments, invalid source, nonliteral comparisons, changed
 source/producer and tampered fields; CLI controls verify source preservation and
-concurrent-edit refusal. Wider-language previews and editor code actions retain
-their qualified producer and protocol requirements.
+concurrent-edit refusal.
+
+In the pure language server, place the caret on either character of `==`, or
+select a range intersecting exactly one equality operator, and request the
+**Simplify Boolean comparison (VELA103)** refactoring. The editor must support
+literal `refactor.rewrite` actions and versioned `documentChanges`. The server
+checks the current unsaved text in a bounded worker and returns a single edit
+for that document version. The editor chooses whether to apply it. Comments,
+ambiguous selections and excluded action kinds yield no edit. An invalidated
+generation or a failed worker prevents publication.
 
 ## Generic type parameter naming
 
