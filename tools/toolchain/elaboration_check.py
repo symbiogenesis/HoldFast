@@ -342,6 +342,27 @@ public TextBuilder<12> OverflowPacket(Nat id) {
     let TextBuilder<12> tiny = EmptyBuilder();
     return Format.Write(ref tiny, $"hdr={HeaderTag()} id=0x{id:x4}");
 }
+public definition TextBuilder<2> Letter() => Format.Write(ref EmptyBuilder<2>(), $"A");
+public definition TextBuilder<2> TooLong() => Format.Write(ref Letter(), $"BC");
+public definition TextBuilder<2> Accent() => Format.Write(ref EmptyBuilder<2>(), $"\\u{e9}");
+public lemma CheckUtf8()
+    ensures WrittenBytes(Accent()).At(1) == 169
+    ensures ValidUtf8(WrittenBytes(Accent())) == true
+    ensures ValidUtf8(Seq.Singleton(192)) == false
+    proof {
+        assert WrittenBytes(Accent()).At(1) == 169;
+        assert ValidUtf8(WrittenBytes(Accent())) == true;
+        assert ValidUtf8(Seq.Singleton(192)) == false;
+    }
+public lemma CheckByteAndRollback()
+    ensures WrittenBytes(Letter()).At(0) == 65
+    ensures Fits(TooLong()) == false
+    ensures WrittenBytes(TooLong()) == WrittenBytes(Letter())
+    proof {
+        assert WrittenBytes(Letter()).At(0) == 65;
+        assert Fits(TooLong()) == false;
+        assert WrittenBytes(TooLong()) == WrittenBytes(Letter());
+    }
 public lemma DedentedHeaderLength() ensures HeaderBytes == 10 proof { assert HeaderBytes == 10; }
 public lemma SmallPacketFits() ensures Fits(FormatPacket(42, true)) == true
     proof { assert Fits(FormatPacket(42, true)); }
@@ -1336,7 +1357,7 @@ definition bool Fits255() => Fits(Hex(255));
 definition bool Fits256() => Fits(Hex(256));
 definition Nat WordLength() => Written(Word(0xffffffffu32));
 """, observations=(("vela_d2_Fits255 tt", "true"), ("vela_d3_Fits256 tt", "false"),
-                   ("vela_d4_WordLength tt", "8")))
+                   ("vela_d4_WordLength tt", "0")))
     capacity = Fixture("specialized-slot-capacity", b"""module SlotCapacity;
 definition usize CapacityOf<ghost Nat n>(Slots<byte,n> s) => s.Capacity;
 definition usize Closed(Slots<byte,4> s) => s.Capacity;

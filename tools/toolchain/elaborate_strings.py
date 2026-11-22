@@ -179,18 +179,32 @@ class _StringsMixin:
         literal_chars: list[str] = []
         chunk_terms: list[_Term] = []
         concrete_bytes = 0
+
+        def append_bytes(data: bytes) -> None:
+            nonlocal concrete_bytes
+            concrete_bytes += len(data)
+            if concrete_bytes > MAX_STRING_BYTES:
+                raise self.fail("limit", f"formatted template exceeds {MAX_STRING_BYTES} UTF-8 bytes", template_arg)
+            chunk_terms.append(self._build_seq_term(_NAT, [_term("nat", value=b) for b in data]))
+
+        hole_count = 0
         index = 0
         while index < len(body):
             ch = body[index]
+            if ch == "\\":
+                escape_end = body.find("}", index + 3) + 1 if body.startswith("\\u{", index) else index + 2
+                if escape_end <= index or escape_end > len(body):
+                    raise self.fail("syntax", "unterminated escape sequence in format template", template_arg)
+                literal_chars.append(body[index:escape_end])
+                index = escape_end
+                continue
             if ch == "{":
                 if index + 1 < len(body) and body[index + 1] == "{":
                     literal_chars.append("{")
                     index += 2
                     continue
                 if literal_chars:
-                    concrete_bytes += len(
-                        self._decode_escaped_segment("".join(literal_chars), template_arg)
-                    )
+                    append_bytes(self._decode_escaped_segment("".join(literal_chars), template_arg))
                     literal_chars.clear()
                 hole_ast = next(holes, None)
                 expr_byte_start = body_start_byte + len(body[:index + 1].encode("utf-8"))
@@ -220,7 +234,7 @@ class _StringsMixin:
                         raw = self.protocol.source
                         snapshot = f"Written({target_name})"
                         written = self.globals.get("Written")
-                        if (not chunk_terms and spec in {"x2", "x4", "x8", "X2", "X4", "X8"}
+                        if (hole_count == 0 and spec in {"x2", "x4", "x8", "X2", "X4", "X8"}
                                 and raw[expr_byte_start:expr_byte_end] == snapshot.encode()
                                 and written is not None and written.term == _constant("Written")
                                 and "Written" not in environment and b"writtenBeforeFormat" not in raw
@@ -258,31 +272,14 @@ class _StringsMixin:
                     val = self.whnf(hole_binding.term)
                     if val.kind in {"nat", "int"}:
                         n_val = cast("int", val.value)
-                        if spec in {"", "d"}:
-                            concrete_bytes += len(str(n_val))
-                        elif n_val < 0:
-                            raise self.fail(
-                                "type",
-                                f"format specifier '{spec}' requires a non-negative integer value",
-                                template_arg,
-                            )
-                        elif spec in {"x", "X"}:
-                            concrete_bytes += len(format(n_val, "x"))
-                        elif spec in {"x2", "X2"}:
-                            concrete_bytes += max(2, len(format(n_val, "x")))
-                        elif spec in {"x4", "X4"}:
-                            concrete_bytes += max(4, len(format(n_val, "x")))
-                        elif spec in {"x8", "X8"}:
-                            concrete_bytes += max(8, len(format(n_val, "x")))
-                        else:
-                            concrete_bytes += len(format(n_val, "b"))
+                        if n_val < 0 and spec not in {"", "d"}:
+                            raise self.fail("type", f"format specifier '{spec}' requires a non-negative value", hole_ast)
+                        fmt = ("0" + spec[1:] + spec[0]) if len(spec) == 2 else spec
+                        append_bytes(format(n_val, fmt).encode("ascii"))
                     elif spec.lower() in {"x", "x2", "x4", "x8"} and (hole_int_spec is None or not hole_int_spec.signed):
-                        minimum = int(spec[1:] or "1")
-                        if hole_int_spec is not None and hole_int_spec.bits <= 4 * minimum:
-                            concrete_bytes += minimum
-                        else:
-                            op = "nat_hex_width" if hole_int_spec is None else f"int_hex_width_{hole_int_spec.name}"
-                            chunk_terms.append(_apps(_constant(op), _term("nat", value=minimum), hole_binding.term))
+                        op = "nat_hex_bytes" if hole_int_spec is None else f"int_hex_bytes_{hole_int_spec.name}"
+                        chunk_terms.append(_apps(_constant(op), _term("nat", value=int(spec[1:] or "1")),
+                                                 _term("bool", value=int(spec.startswith("X"))), hole_binding.term))
                     else:
                         raise self.fail(
                             "type",
@@ -294,13 +291,9 @@ class _StringsMixin:
                         raise self.fail(
                             "type", f"unsupported format specifier '{spec}' for bool hole", template_arg
                         )
-                    val = self.whnf(hole_binding.term)
-                    if val.kind == "bool":
-                        concrete_bytes += 4 if val.value else 5
-                    else:
-                        chunk_terms.append(
-                            _term("if", _NAT, hole_binding.term, _term("nat", value=4), _term("nat", value=5))
-                        )
+                    yes = self._build_seq_term(_NAT, [_term("nat", value=b) for b in b"true"])
+                    no = self._build_seq_term(_NAT, [_term("nat", value=b) for b in b"false"])
+                    chunk_terms.append(_term("if", _app(_constant("Seq"), _NAT), hole_binding.term, yes, no))
                 elif hole_type == _CHAR:
                     if spec != "":
                         raise self.fail(
@@ -309,11 +302,11 @@ class _StringsMixin:
                     val = self.whnf(hole_binding.term)
                     if val.kind == "char":
                         cp = cast("int", val.value)
-                        concrete_bytes += len(chr(cp).encode("utf-8"))
+                        append_bytes(chr(cp).encode("utf-8"))
                     elif self._prove_bool_precondition(
                         _apps(_constant("char_le"), hole_binding.term, _term("char", value=0x7F)), environment
                     ):
-                        concrete_bytes += 1
+                        chunk_terms.append(_apps(_constant("Seq_Singleton"), _NAT, _app(_constant("char_to_nat"), hole_binding.term)))
                     else:
                         raise self.fail(
                             "type",
@@ -325,17 +318,17 @@ class _StringsMixin:
                         raise self.fail(
                             "type", f"unsupported format specifier '{spec}' for byte-vector hole", template_arg
                         )
-                    len_term = self.whnf(type_args[1])
-                    if len_term.kind == "nat":
-                        concrete_bytes += cast("int", len_term.value)
-                    else:
-                        chunk_terms.append(len_term)
+                    model = _apps(_constant("Vec_Model"), _NAT, type_args[1], hole_binding.term)
+                    if not self._prove_bool_precondition(_app(_constant("ValidUtf8"), model), environment):
+                        raise self.fail("type", "formatting a byte vector requires valid UTF-8 bytes", hole_ast)
+                    chunk_terms.append(model)
                 else:
                     raise self.fail(
                         "type",
                         "interpolated hole type does not implement static Format<T>",
                         template_arg,
                     )
+                hole_count += 1
                 index = end + 1
                 continue
             if ch == "}":
@@ -349,16 +342,10 @@ class _StringsMixin:
         if next(holes, None) is not None:
             raise self.fail("protocol", "unexpected interpolation expression", template_arg)
         if literal_chars:
-            concrete_bytes += len(self._decode_escaped_segment("".join(literal_chars), template_arg))
-        if concrete_bytes > MAX_STRING_BYTES:
-            raise self.fail(
-                "limit", f"formatted template exceeds {MAX_STRING_BYTES} UTF-8 bytes", template_arg
-            )
-        total_chunk = _term("nat", value=concrete_bytes)
-        for extra in chunk_terms:
-            total_chunk = (
-                extra if total_chunk == _term("nat", value=0) else _apps(_constant("+"), total_chunk, extra)
-            )
+            append_bytes(self._decode_escaped_segment("".join(literal_chars), template_arg))
+        total_chunk = _app(_constant("Seq_Empty"), _NAT)
+        for part in reversed(chunk_terms):
+            total_chunk = _apps(_constant("Seq_Append"), _NAT, part, total_chunk)
         return _Binding(
             _apps(_constant("FormatStep"), capacity, builder.term, total_chunk),
             _app(_constant("TextBuilder"), capacity),

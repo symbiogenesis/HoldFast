@@ -213,8 +213,7 @@ buffer-writing interpolation and format surface (comparable to C# 10's
 `{value:spec}`) without runtime reflection, boxing or ambient locale, and
 returns an explicit `Result<usize, CapacityError>`. Standalone `$"..."`
 expressions without an explicit destination buffer are rejected; capacity
-exhaustion returns `Err(CapacityError)` under the target builder or span's
-declared rollback/prefix contract.
+exhaustion returns `Err(CapacityError)` and preserves the builder's previous length and bytes. The direct span API must declare its rollback or prefix contract.
 
 ## Modules and packages
 

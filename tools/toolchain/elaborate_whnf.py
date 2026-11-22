@@ -367,49 +367,40 @@ class _WhnfMixin:
                     self.tick(True)
                     new_tail = self.whnf(_apps(_constant("Vec_Update"), elem_t, tail_len, idx_pred, val_t, tail_vec))
                     return _apps(_constant("VCons"), elem_t, tail_len, head_elem, new_tail)
-        if isinstance(name, str) and (name == "nat_hex_width" or name.startswith("int_hex_width_")) and len(arguments) == 2:
-            minimum, value = (self.whnf(arg) for arg in arguments)
-            if minimum.kind == "nat" and value.kind in {"int", "nat"}:
-                self.tick(True)
-                digits = max(1, (cast("int", value.value).bit_length() + 3) // 4)
-                return _term("nat", value=max(cast("int", minimum.value), digits))
-            return term
+        if isinstance(name, str) and (name == "nat_hex_bytes" or name.startswith("int_hex_bytes_")) and len(arguments) == 3:
+            minimum, upper, value = (self.whnf(arg) for arg in arguments)
+            if minimum.kind == "nat" and upper.kind == "bool" and value.kind in {"int", "nat"}:
+                fmt = f"0{minimum.value}{'X' if upper.value else 'x'}"
+                data = format(cast("int", value.value), fmt).encode("ascii")
+                return self._build_seq_term(_NAT, [_term("nat", value=b) for b in data])
+        if name == "ValidUtf8" and len(arguments) == 1:
+            elements = self._extract_seq_elements(arguments[0])
+            if elements is not None and all(self.whnf(item).kind == "nat" for item in elements):
+                try:
+                    bytes(cast("int", self.whnf(item).value) for item in elements).decode("utf-8")
+                except (ValueError, OverflowError):
+                    return _term("bool", value=0)
+                return _term("bool", value=1)
         if name == "ByteLength" and len(arguments) == 2:
             self.tick(True)
             return self.whnf(arguments[0])
         if name == "EmptyBuilder" and len(arguments) == 2 and self.whnf(arguments[1]).kind == "unit":
-            self.tick(True)
-            return _apps(
-                _constant("TextBuilderVal"),
-                self.whnf(arguments[0]),
-                _term("bool", value=1),
-                _term("nat", value=0),
-            )
-        if name in {"Fits", "Written"} and len(arguments) == 2:
-            builder_head, builder_args = self.spine(self.whnf(arguments[1]))
-            if builder_head == _constant("TextBuilderVal") and len(builder_args) == 3:
-                self.tick(True)
-                return self.whnf(builder_args[1] if name == "Fits" else builder_args[2])
+            return _apps(_constant("TextBuilderVal"), arguments[0], _term("bool", value=1), _app(_constant("Seq_Empty"), _NAT))
+        if name in {"Fits", "Written", "WrittenBytes"} and len(arguments) == 2:
+            head, fields = self.spine(self.whnf(arguments[1]))
+            if head == _constant("TextBuilderVal") and len(fields) == 3:
+                if name == "Written":
+                    return self.whnf(_apps(_constant("Seq_Count"), _NAT, fields[2]))
+                return self.whnf(fields[1] if name == "Fits" else fields[2])
         if name == "FormatStep" and len(arguments) == 3:
-            cap = self.whnf(arguments[0])
-            builder_head, builder_args = self.spine(self.whnf(arguments[1]))
-            chunk = self.whnf(arguments[2])
-            if (cap.kind == "nat" and chunk.kind == "nat"
-                    and builder_head == _constant("TextBuilderVal") and len(builder_args) == 3):
-                ok = self.whnf(builder_args[1])
-                used = self.whnf(builder_args[2])
-                if ok.kind == "bool" and used.kind == "nat":
-                    self.tick(True)
-                    total = cast("int", used.value) + cast("int", chunk.value)
-                    if total > self.natural_limit():
-                        raise self.fail("limit", "computed natural exceeds elaborator evaluation limit")
-                    fits = int(bool(cast("int", ok.value)) and total <= cast("int", cap.value))
-                    return _apps(
-                        _constant("TextBuilderVal"),
-                        cap,
-                        _term("bool", value=fits),
-                        _term("nat", value=total),
-                    )
+            cap, builder, chunk = arguments
+            head, fields = self.spine(self.whnf(builder))
+            if head == _constant("TextBuilderVal") and len(fields) == 3:
+                data = _apps(_constant("Seq_Append"), _NAT, fields[2], chunk)
+                count = _apps(_constant("Seq_Count"), _NAT, data)
+                fits = self.whnf(_apps(_constant("&&"), fields[1], _apps(_constant("<="), count, cap)))
+                if fits.kind == "bool":
+                    return _apps(_constant("TextBuilderVal"), cap, fits, data if fits.value else fields[2])
         if name == "Succ" and len(arguments) == 1:
             value = self.whnf(arguments[0])
             if value.kind == "nat":

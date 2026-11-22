@@ -317,12 +317,17 @@ class _Elaborator(
         bind("EmptyBuilder", telescope((n,), self.pi(_UNIT, tb, nullary=True)), 1)
         bind("Fits", telescope((n,), self.pi(tb, _BOOL)), 1)
         bind("Written", telescope((n,), self.pi(tb, _NAT)), 1)
+        byte_sequence = _app(_constant("Seq"), _NAT)
+        bind("WrittenBytes", telescope((n,), self.pi(tb, byte_sequence)), 1)
+        bind("ValidUtf8", self.pi(byte_sequence, _BOOL))
         self.constants["TextBuilderVal"] = _Binding(
-            _constant("TextBuilderVal"), telescope((n,), self.pi(_BOOL, self.pi(_NAT, tb))), 1
+            _constant("TextBuilderVal"), telescope((n,), self.pi(_BOOL, self.pi(byte_sequence, tb))), 1
         )
-        self.constants["nat_hex_width"] = _Binding(_constant("nat_hex_width"), self.pi(_NAT, self.pi(_NAT, _NAT)))
+        self.constants["nat_hex_bytes"] = _Binding(
+            _constant("nat_hex_bytes"), self.pi(_NAT, self.pi(_BOOL, self.pi(_NAT, byte_sequence)))
+        )
         self.constants["FormatStep"] = _Binding(
-            _constant("FormatStep"), telescope((n,), self.pi(tb, self.pi(_NAT, tb))), 1
+            _constant("FormatStep"), telescope((n,), self.pi(tb, self.pi(byte_sequence, tb))), 1
         )
         for name in ("+", "*", "-", "/", "%"):
             bind(name, self.pi(_NAT, self.pi(_NAT, _NAT)))
@@ -687,6 +692,7 @@ class _Elaborator(
         ce_const = _constant(self.unions["ConversionError"].type_const)
         res_const = _constant(self.unions["Result"].type_const)
         res_char_conv = _apps(res_const, _CHAR, ce_const)
+        byte_sequence = _app(_constant("Seq"), _NAT)
         self.constants["char_try_from_u32"] = _Binding(
             _constant("char_try_from_u32"), self.pi(_INT_SPECS["u32"].const, res_char_conv)
         )
@@ -720,8 +726,10 @@ class _Elaborator(
             for op in ("chk_shl", "chk_shr"):
                 cname = f"int_{op}_{spec.name}"
                 self.constants[cname] = _Binding(_constant(cname), self.pi(t, self.pi(_USIZE, res_arith)))
-            hex_width = f"int_hex_width_{spec.name}"
-            self.constants[hex_width] = _Binding(_constant(hex_width), self.pi(_NAT, self.pi(t, _NAT)))
+            hex_bytes = f"int_hex_bytes_{spec.name}"
+            self.constants[hex_bytes] = _Binding(
+                _constant(hex_bytes), self.pi(_NAT, self.pi(_BOOL, self.pi(t, byte_sequence)))
+            )
             cname_nat = f"int_to_nat_{spec.name}"
             self.constants[cname_nat] = _Binding(_constant(cname_nat), self.pi(t, _NAT))
             cname_tf_nat = f"int_try_from_Nat_{spec.name}"

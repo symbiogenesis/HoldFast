@@ -378,7 +378,8 @@ _GALLINA = {
     "Span_CopyPrefix": "vela_Span_CopyPrefix",
     "Span_Restore": "vela_Span_Restore",
     "nat_to_usize": "vela_nat_to_usize",
-    "nat_hex_width": "vela_nat_hex_width",
+    "nat_hex_bytes": "vela_nat_hex_bytes", "ValidUtf8": "vela_ValidUtf8",
+    "WrittenBytes": "vela_WrittenBytes",
     "Seq": "vela_Seq",
     "Seq_Empty": "vela_Seq_Empty",
     "Seq_Cons": "vela_Seq_Cons",
@@ -475,7 +476,7 @@ _GALLINA = {
             "sat_add", "sat_sub", "sat_mul", "sat_neg",
             "chk_add", "chk_sub", "chk_mul", "chk_div",
             "chk_rem", "chk_neg", "chk_shl", "chk_shr",
-            "to_nat", "try_from_Nat", "hex_width",
+            "to_nat", "try_from_Nat", "hex_bytes",
         )
     },
     **{
@@ -1727,27 +1728,6 @@ Fixpoint vela_Vec_Update (A : Type@{vela_u0}) (n : nat) (idx : nat) (val : A) {s
   end.
 Definition vela_ByteLength (n : nat) (_ : vela_Vec nat n) : nat := n.
 
-Inductive vela_TextBuilder (capacity : nat) : Type@{vela_u0} :=
-| vela_text_builder : bool -> nat -> vela_TextBuilder capacity.
-Definition vela_EmptyBuilder (capacity : nat) (_ : unit) : vela_TextBuilder capacity :=
-  vela_text_builder capacity true O.
-Definition vela_FormatStep (capacity : nat) (builder : vela_TextBuilder capacity) (chunk : nat)
-    : vela_TextBuilder capacity :=
-  match builder with
-  | vela_text_builder _ ok used =>
-      vela_text_builder capacity
-        (vela_and ok (Corelib.Init.Nat.leb (Corelib.Init.Nat.add used chunk) capacity))
-        (Corelib.Init.Nat.add used chunk)
-  end.
-Definition vela_Fits (capacity : nat) (builder : vela_TextBuilder capacity) : bool :=
-  match builder with
-  | vela_text_builder _ ok _ => ok
-  end.
-Definition vela_Written (capacity : nat) (builder : vela_TextBuilder capacity) : nat :=
-  match builder with
-  | vela_text_builder _ _ used => used
-  end.
-
 Definition vela_nat_to_usize (n : nat) : vela_int (4 : nat) :=
   vela_mk_int (4 : nat) (vela_nat_to_bits 64 n).
 
@@ -1789,6 +1769,58 @@ Fixpoint vela_Seq_Append (A : Type@{vela_u0}) (a b : vela_Seq A) {struct a} : ve
   | vela_Seq_Empty _ => b
   | vela_Seq_Cons _ x xs => vela_Seq_Cons A x (vela_Seq_Append A xs b)
   end.
+
+Inductive vela_TextBuilder (capacity : nat) : Type@{vela_u0} :=
+| vela_text_builder : bool -> vela_Seq nat -> vela_TextBuilder capacity.
+Definition vela_EmptyBuilder (capacity : nat) (_ : unit) : vela_TextBuilder capacity :=
+  vela_text_builder capacity true (vela_Seq_Empty nat).
+Definition vela_FormatStep (capacity : nat) (builder : vela_TextBuilder capacity) (chunk : vela_Seq nat)
+    : vela_TextBuilder capacity :=
+  match builder with
+  | vela_text_builder _ ok used =>
+      if vela_and ok (Nat.leb (Nat.add (vela_Seq_Count nat used) (vela_Seq_Count nat chunk)) capacity)
+      then vela_text_builder capacity true (vela_Seq_Append nat used chunk)
+      else vela_text_builder capacity false used
+  end.
+Definition vela_Fits (capacity : nat) (builder : vela_TextBuilder capacity) : bool :=
+  match builder with vela_text_builder _ ok _ => ok end.
+Definition vela_WrittenBytes (capacity : nat) (builder : vela_TextBuilder capacity) : vela_Seq nat :=
+  match builder with vela_text_builder _ _ used => used end.
+Definition vela_Written (capacity : nat) (builder : vela_TextBuilder capacity) : nat :=
+  vela_Seq_Count nat (vela_WrittenBytes capacity builder).
+
+Fixpoint vela_utf8_check (s : vela_Seq nat) (remaining low high : nat) {struct s} : bool :=
+  match s with
+  | vela_Seq_Empty _ => Nat.eqb remaining 0
+  | vela_Seq_Cons _ b tail =>
+      match remaining with
+      | S k => vela_and (vela_and (Nat.leb low b) (Nat.leb b high)) (vela_utf8_check tail k 128 191)
+      | O => if Nat.ltb b 128 then vela_utf8_check tail 0 0 0 else
+             if Nat.ltb b 194 then false else
+             if Nat.ltb b 224 then vela_utf8_check tail 1 128 191 else
+             if Nat.ltb b 240 then vela_utf8_check tail 2
+                 (if Nat.eqb b 224 then 160 else 128) (if Nat.eqb b 237 then 159 else 191) else
+             if Nat.leb b 244 then vela_utf8_check tail 3
+                 (if Nat.eqb b 240 then 144 else 128) (if Nat.eqb b 244 then 143 else 191) else false
+      end
+  end.
+Definition vela_ValidUtf8 (s : vela_Seq nat) := vela_utf8_check s 0 0 0.
+
+Fixpoint vela_hex_digits (count : nat) (upper : bool) (bs : vela_bits) : vela_Seq nat :=
+  match count with
+  | O => vela_Seq_Empty nat
+  | S k =>
+      let step := fun (n : nat) (xs : vela_bits) => Nat.add (Nat.double n) (if vela_bits_head xs then 1 else 0) in
+      let t1 := vela_bits_tail bs in let t2 := vela_bits_tail t1 in let t3 := vela_bits_tail t2 in
+      let digit := step (step (step (step 0 bs) t1) t2) t3 in
+      let code := if Nat.ltb digit 10 then Nat.add 48 digit else Nat.add (if upper then 55 else 87) digit in
+      vela_Seq_Cons nat code (vela_hex_digits k upper (vela_bits_tail t3))
+  end.
+Definition vela_nat_hex_bytes (minimum : nat) (upper : bool) (value : nat) :=
+  let n := vela_nat_hex_width minimum value in vela_hex_digits n upper (vela_nat_to_bits (Nat.mul 4 n) value).
+Definition vela_int_hex_bytes (tag minimum : nat) (upper : bool) (value : vela_int tag) :=
+  let n := vela_int_hex_width tag minimum value in
+  vela_hex_digits n upper (vela_bits_resize (Nat.mul 4 n) false (vela_int_bits tag value)).
 
 Fixpoint vela_Seq_Take (A : Type@{vela_u0}) (s : vela_Seq A) (n : nat) {struct n} : vela_Seq A :=
   match n with

@@ -93,7 +93,7 @@ The supported increment includes:
   specifier is separate from the expression. Holes support `Nat`, `bool`, `char`
   when concrete or proved ASCII, and `Vec<Nat, n>`. Numeric holes accept
   specifiers including `:x2`, `:x4`, `:x8`, `:d` and `:b`. The checker
-  enforces target-buffer aliasing and capacity limits.
+  checks target-buffer aliasing and requires `ValidUtf8(bytes.Model)` for a byte-vector hole. `WrittenBytes(builder)` exposes the exact committed byte sequence and `Written(builder)` counts it. A write appends the whole formatted sequence on success. Exhaustion sets `Fits` to false and preserves the previous bytes. Later writes to that failed builder preserve the same bytes.
 - Structural recursion over `Nat` parameters on `definition`, `function`,
   `lemma` and `theorem` declarations, elaborated to Gallina `fix` terms with
   optional explicit `decreases parameter` contracts on `definition` and
