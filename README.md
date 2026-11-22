@@ -81,6 +81,9 @@ Vela is under active development. The repository is split into working developme
 
 ## Quick start
 
+Follow the [packet validator walkthrough](docs/tooling/packet-walkthrough.md)
+to run three packets and see which destination bytes each outcome preserves.
+
 Every tool and test in this repository runs through `python tools/run.py` (using Python 3.14; on Linux or inside WSL, use `python3 tools/run.py`). When you run a Linux-only command like `vela-parser` or `vela-playground` on Windows, `tools/run.py` automatically forwards it into WSL.
 
 | Command | What it does |

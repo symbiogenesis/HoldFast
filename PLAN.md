@@ -208,6 +208,8 @@ open until the parent's acceptance conditions are met.
   - **Start** Use the [accepted validator](#q25ba), [independent package trial](#q25bb) and all required [producer receipts](#q25ar).
   - **Check** Publish the versioned language and libraries, conformance and refusal corpus, compatibility policy, installation guide, tutorial, reference, dependency notices and reproducible Windows and Linux artifacts. Verify cold installation, build and proof replay, and obtain independent release review. Name each published guarantee's endpoint. Assess feasibility, recurring developer value and adoption separately, including setup, maintenance and per-case target tradeoffs within hard limits. [Adoption protocol](docs/assurance/workflow-contract.md#first-release-qualification-and-adoption).
 
+  - Run the [packet walkthrough](docs/tooling/packet-walkthrough.md) from the release installation. Check the three published byte traces and the diagnostic for each edited program.
+
 <a id="q25bd"></a>
 
 - [ ] **Q25bd · Rehearse one supported-release maintenance cycle**
