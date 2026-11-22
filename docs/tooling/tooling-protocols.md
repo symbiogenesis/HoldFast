@@ -793,18 +793,32 @@ by a debug sidecar.
 
 ## Generated-source maps
 
-When a selected output and consumer use JavaScript/WebAssembly-compatible source
-mapping, emit [ECMA-426 source maps](https://tc39.es/ecma426/). Pin the published
-edition/schema and consumer, keeping any draft-only extension explicit. Map
-generated sites back to authored source and retain multi-stage expansion origins
-through the compiler services; document mappings that the standard cannot express.
-Bind map bytes, exact generated output and source closure in the companion
-manifest. Qualify an independent consumer with composed generation, Unicode
-coordinates and missing/unmapped sites. Separately alter map, output and source
-identities and require the Vela integration wrapper to refuse the mismatch before
-handoff to that consumer. These maps do not replace
-DWARF for native locations, types or unwinding, and a native-only stage has no
-ECMA-426 export duty. Lowering and source provenance remain compiler-owned once.
+To find the Vela source of a generated Gallina proof, run
+`python tools/run.py vela-parser source-map SOURCE --output NEW_DIRECTORY`.
+The mathematical compiler elaborates a standalone module with word equations
+enabled. The directory contains its exact `module.v`, a version 3
+`module.v.map` and a companion `manifest.json`. The text map follows the
+[first edition of ECMA-426](https://ecma-international.org/publications-and-standards/standards/ecma-426/).
+
+Run `python tools/run.py vela-parser source-map-query SOURCE DIRECTORY --node /usr/local/bin/node --line LINE --column COLUMN`
+at a position in that Gallina file. The command accepts and returns one-based
+UTF-16 coordinates. A declaration maps to its authored start. A generated
+arithmetic statement and its proof map to the operation that required the
+equation. The manifest preserves both the operation and its enclosing
+declaration as half-open UTF-8 byte ranges, together with the generation stage.
+The source map gives the same location throughout each nonempty emitted line.
+Compiler preludes, hoisted shared literals, separators, line ends and module
+wrappers report `unmapped`. Native instruction locations and unwinding belong
+to the [DWARF producer](#dwarf-native-debug-information).
+
+The [lookup wrapper](../../tools/toolchain/gallina_source_map.py) regenerates
+the three files from the current source, mathematical compiler, parser and
+interpreter. It verifies their exact bytes before passing the map to the stock
+Node.js reader. Use `python tools/run.py vela-parser qualify-source-maps --node /usr/local/bin/node`
+on the qualified Linux ARM64 setup to exercise Unicode, proof origins after
+literal sharing, unmapped locations and stale inputs.
+[Reader pin](../../THIRD-PARTY.md#independent-gallina-source-map-reader)
+· [Qualification controls](../../tools/toolchain/source_map_check.py)
 
 ## Generated development tests
 

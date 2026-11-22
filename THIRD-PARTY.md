@@ -76,6 +76,17 @@ exceptions. The reader consumes local compilation databases as an external
 development tool. Its executable and upstream source remain outside the repository
 and release artifacts.
 
+## Independent Gallina source map reader
+
+The mathematical Gallina lookup uses the built-in `node:module` SourceMap
+reader in the existing Linux ARM64 Node.js 22.22.1 development executable,
+SHA-256 `1ea16f5e8d590ca819f1db81e61a6bc4c8e7d8b69776c9236f8ebbf717113225`.
+The release licenses Node contributions under MIT terms and identifies separate
+notices for its bundled dependencies. Vela invokes the locally provisioned
+executable and distributes its own maps and lookup code.
+[SourceMap API](https://nodejs.org/download/release/v22.22.1/docs/api/module.html#class-modulesourcemap)
+· [Release license and notices](https://github.com/nodejs/node/blob/v22.22.1/LICENSE)
+
 ## CI environment setup
 
 The [static workflow](.github/workflows/static.yml) invokes `actions/setup-python`
