@@ -376,22 +376,28 @@ or source-to-timing correspondence theorem.
 
 The `vela` schema-3 manifest binds events and completeness metadata, exact source
 bytes, local Python/compiler/parser input files and Python/platform versions.
-The producer identity also binds the Python and opam lock owners, the command
-bootstrap, host Python executable bytes and the checked parser executable bytes
-validated against its build receipt. On Windows it observes the selected WSL
-parser and guest Python executable in the same checkout. Both Python identities
-also bind a bounded installation-file inventory: standard-library source and
-cached bytecode, extension modules, installation archives and Python shared
-libraries. Windows includes installation DLLs and its `DLLs` directory; Linux
-uses the configured extension and shared-library paths. Added, removed, unreadable
-or changed files withdraw freshness. Inventory observation refuses missing
-standard-library/extension/shared-library inputs and totals above 20,000 files or
-512 MiB. Third-party `site-packages`/`dist-packages` trees and operating-system
-libraries remain outside this inventory. Cache creation also changes identity;
-rerun a measurement after normal import caches have settled. Identity observation
-lies outside the measured intervals; unavailable or changed executables refuse.
-These hashes detect changed data; they authenticate no producer and carry no
-complete installed-library/operating-system closure, theorem or artifact-admission verdict. The validation
+The producer identity binds the Python and opam locks, command bootstrap,
+Python executables, active import search paths, interpreter flags and kernel
+versions. Its Python file inventories cover the standard library, installation
+archives and extensions, versioned Python shared libraries, active installed
+package trees including their data and startup hooks, loaded module files and
+their bytecode caches, and mapped user-space images including system libraries.
+Cache creation changes the identity. Each inventory is limited to 20,000 file
+labels and 512 MiB of file content.
+
+An ordinary checked parse starts the persistent worker before timing. A control
+request on that worker's own batch pipe returns its Linux PID. The observer
+checks its live command line against the build receipt's parser file, hashes
+the bytecode executable and follows its actual file-backed mappings through the
+OCaml interpreter, system loader and transitive libraries. Deleted images,
+changed device/inode identities and anonymous executable mappings refuse
+observation, apart from kernel-supplied clock/system-call pages. On Windows
+the binding also includes the libraries of the live WSL transport process and
+the guest Python environment that validates the parser build. Hashes describe
+compiler processes in the observed operating systems. The kernels, WSL service,
+firmware and hardware provide the measurement environment.
+
+Identity observation lies outside the timed intervals. The validation
 command refuses changed source or producer identities, malformed events, crossing
 spans, invalid clocks, missing phases or counters, and incomplete recordings.
 Schema-1/2 recordings lack the mandatory parser-stage contract and refuse;
@@ -486,11 +492,11 @@ altered duration, counter, declaration kind or omitted control cannot restore
 acceptance. This checks retained data consistency and freshness; it supplies no
 transcript authentication or fresh reader observation.
 
-This qualifies the selected Perfetto importer for the deterministic pure trace
-profile. The separate offline browser viewer below uses the same source-bound
-recording contract. Wider phase/worker coverage, exact runtime closure and
-workload-specific overhead qualification remain open under Q25cp. Compiler timings
-supply no execution time, WCET or constant-time evidence for emitted programs.
+The selected Perfetto importer and the offline browser viewer below consume
+the same pure recording contract. The [compiler trace portfolio](../../PLAN.md#q25cp)
+also tracks wider compiler phases and workers. Compiler timings describe tooling
+performance. Emitted-program WCET and constant-time evidence have their own
+qualification requirements.
 
 ### Offline browser timelines
 

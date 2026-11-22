@@ -1001,19 +1001,26 @@ let run_batch () =
   try
     while true do
       let header = input_line stdin in
-      let count =
-        try int_of_string (String.trim header)
-        with Failure _ -> -1
-      in
-      if count < 0 || count > Ast.max_source_bytes + 1 then begin
-        let payload = Ast.encode (diagnostic "" "limit" 0 "source exceeds 65536 bytes") in
-        output_string stdout ("1 " ^ payload ^ "\\n");
-        flush stdout
+      if header = "trace-worker-pid" then begin
+        let stat = open_in "/proc/self/stat" in
+        let pid = List.hd (String.split_on_char ' ' (input_line stat)) in
+        close_in stat;
+        Printf.printf "pid %d\\n%!" (int_of_string pid)
       end else begin
-        let raw_source = really_input_string stdin count in
-        let code, payload = parse_source_string raw_source in
-        output_string stdout (string_of_int code ^ " " ^ payload ^ "\\n");
-        flush stdout
+        let count =
+          try int_of_string (String.trim header)
+          with Failure _ -> -1
+        in
+        if count < 0 || count > Ast.max_source_bytes + 1 then begin
+          let payload = Ast.encode (diagnostic "" "limit" 0 "source exceeds 65536 bytes") in
+          output_string stdout ("1 " ^ payload ^ "\\n");
+          flush stdout
+        end else begin
+          let raw_source = really_input_string stdin count in
+          let code, payload = parse_source_string raw_source in
+          output_string stdout (string_of_int code ^ " " ^ payload ^ "\\n");
+          flush stdout
+        end
       end
     done
   with End_of_file -> ()
@@ -1766,6 +1773,21 @@ def parse_checked(source: bytes, *, root: Path | None = None,
     if sep != b" " or code_bytes not in (b"0", b"1"):
         raise ValueError("checked parser returned a malformed batch response")
     return vela_parser.decode_response(source, int(code_bytes), raw_json, surface=False)
+
+
+def trace_worker_pids() -> tuple[int, int]:
+    """Identify the live transport and parser processes that serve the measured requests."""
+    parse_checked(b"module TraceRuntime; public Nat Id(Nat n) => n;")
+    with _WORKER_LOCK:
+        proc = cast("subprocess.Popen[bytes]", _WORKER_STATE["proc"])
+        if not proc or not proc.stdin or not proc.stdout or proc.poll() is not None:
+            raise ValueError("checked parser worker is unavailable")
+        proc.stdin.write(b"trace-worker-pid\n")
+        proc.stdin.flush()
+        reply = re.fullmatch(rb"pid ([1-9][0-9]{0,9})\n", proc.stdout.readline(32))
+        if reply is None:
+            raise ValueError("checked parser returned an invalid worker identity")
+        return proc.pid, int(reply[1])
 
 
 def _archive(path: Path | None, directory: Path) -> bytes:

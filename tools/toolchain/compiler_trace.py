@@ -3,6 +3,7 @@
 
 import hashlib
 import json
+import os
 import platform
 import re
 import subprocess
@@ -36,13 +37,31 @@ def _digest(value: object) -> str:
 
 
 def _python_identity() -> Object:
-    return {"executable_sha256": hashlib.sha256(Path(sys.executable).read_bytes()).hexdigest(),
-            "runtime_sha256": trace_runtime.identity(),
-            "version": sys.version, "implementation": platform.python_implementation(),
-            "platform": platform.system(), "machine": platform.machine()}
+    descriptor = {"executable_sha256": hashlib.sha256(Path(sys.executable).read_bytes()).hexdigest(),
+                  "version": sys.version, "implementation": platform.python_implementation(),
+                  "platform": platform.system(), "machine": platform.machine()}
+    descriptor["runtime_sha256"] = _digest({"files": trace_runtime.identity(), "flags": str(sys.flags),
+                                           "search_path": sys.path, "kernel": platform.version()})
+    return dict(descriptor)
 
 
-def _native_runtime_identity() -> Object:
+def _parser_images_identity(pid: int, executable: Path) -> str:
+    process = Path(f"/proc/{pid}")
+    with executable.open("rb") as stream:
+        header = stream.readline(4096)
+    if not header.startswith(b"#!/") or not header.endswith(b"\n"):
+        raise ValueError("checked parser has no supported bytecode interpreter")
+    interpreter = Path(os.fsdecode(header[2:-1]))
+    with (process / "cmdline").open("rb") as stream:
+        command = stream.read(65537)
+    if (len(command) > 65536 or command.split(b"\0") != [
+            os.fsencode(interpreter), os.fsencode(executable), b"--batch", b""]
+            or not interpreter.samefile(process / "exe")):
+        raise ValueError("live worker does not execute the selected checked parser")
+    return trace_runtime.file_identity(trace_runtime.process_images(pid))
+
+
+def _native_runtime_identity(pid: int) -> Object:
     """Observe the checked parser's validated executable outside measured intervals."""
     checked = import_module("toolchain.parser_checked")
     compiled = checked.ensure_checked_build()
@@ -51,21 +70,26 @@ def _native_runtime_identity() -> Object:
     if parser_digest != outputs["vela-parser"]:
         raise ValueError("checked parser executable changed during runtime observation")
     return {"python": _python_identity(),
-            "parser_sha256": parser_digest}
+            "parser_sha256": parser_digest,
+            "parser_images_sha256": _parser_images_identity(pid, compiled.executable)}
 
 
 def _runtime_identity(root: Path) -> Object:
+    checked = import_module("toolchain.parser_checked")
+    transport_pid, parser_pid = checked.trace_worker_pids()
     if sys.platform == "linux":
-        return _native_runtime_identity()
+        if transport_pid != parser_pid:
+            raise ValueError("unexpected checked parser process identity")
+        return _native_runtime_identity(parser_pid)
     if sys.platform != "win32":
         raise ValueError("unsupported trace runtime platform")
     script = ("import json, sys; sys.path.insert(0, 'tools'); "
               "from toolchain.compiler_trace import _native_runtime_identity; "
-              "print(json.dumps(_native_runtime_identity(), sort_keys=True))")
+              "print(json.dumps(_native_runtime_identity(int(sys.argv[1])), sort_keys=True))")
     try:
         result = subprocess.run(
             ["wsl", "-u", "root", "-e", "/usr/bin/env", "OPAMROOT=/root/.opam",
-             "/root/build/venv-linux/bin/python", "-c", script],
+             "/root/build/venv-linux/bin/python", "-c", script, str(parser_pid)],
             cwd=root, stdin=subprocess.DEVNULL, capture_output=True, check=False, timeout=180)
     except subprocess.SubprocessError as error:
         raise ValueError("checked parser runtime identity is unavailable") from error
@@ -75,15 +99,16 @@ def _runtime_identity(root: Path) -> Object:
         descriptor = json.loads(result.stdout, object_pairs_hook=unique_object)
     except (ValueError, RecursionError) as error:
         raise ValueError("malformed checked parser runtime identity") from error
-    if (not isinstance(descriptor, dict) or set(descriptor) != {"python", "parser_sha256"}
+    if (not isinstance(descriptor, dict) or set(descriptor) != {"python", "parser_sha256", "parser_images_sha256"}
             or not isinstance(descriptor["python"], dict)
             or set(descriptor["python"]) != {"executable_sha256", "runtime_sha256", "version", "implementation", "platform", "machine"}
             or any(not isinstance(value, str) or not value for value in descriptor["python"].values())
             or not _SHA256.fullmatch(descriptor["python"]["executable_sha256"])
             or not _SHA256.fullmatch(descriptor["python"]["runtime_sha256"])
-            or not isinstance(descriptor["parser_sha256"], str)
-            or not _SHA256.fullmatch(descriptor["parser_sha256"])):
+            or any(not isinstance(descriptor[field], str) or not _SHA256.fullmatch(descriptor[field])
+                   for field in ("parser_sha256", "parser_images_sha256"))):
         raise ValueError("malformed checked parser runtime identity")
+    descriptor["transport_images_sha256"] = trace_runtime.file_identity(trace_runtime.process_images(transport_pid))
     return cast("Object", descriptor)
 
 
@@ -96,7 +121,8 @@ def producer_identity() -> str:
     inputs = {path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
               for path in paths if path.is_file()}
     inputs.update({name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in owners})
-    return _digest({"files": inputs, "host": _python_identity(), "native": _runtime_identity(root.parent)})
+    native = _runtime_identity(root.parent)
+    return _digest({"files": inputs, "host": _python_identity(), "native": native})
 
 
 class Recorder:
