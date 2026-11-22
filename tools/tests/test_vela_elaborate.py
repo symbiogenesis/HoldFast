@@ -5701,6 +5701,26 @@ def _out_loan_parameters_and_initialization_tracking() -> None:
     )
     _refuses(uninit_return, "type", "before 'out' parameter 'dst' is initialized")
 
+    for initialized in (True, False):
+        propagation = _Fixture("PropagationOutDebt")
+        result = _type("Result", _NAT, _type("Unit"))
+        writes = (_assign_stmt(_variable("first"), "=", _natural(0)),
+                  _assign_stmt(_variable("second"), "=", _natural(0)))
+        unwrap = _let_stmt("value", _propagate(_variable("source")))
+        path = (*writes, unwrap) if initialized else (unwrap, *writes)
+        propagation.function("Construct", result,
+                             (("source", result), ("first", _modified("out", _NAT)), ("second", _modified("out", _NAT))),
+                             _block_stmts(*path, _return_stmt(_call("Ok", _variable("value"), generics=(_NAT, _type("Unit"))))),
+                             block=True)
+        if initialized:
+            elaborate(*propagation.response())
+        else:
+            error = _refuses(propagation, "type", "'out' parameters 'first', 'second' are initialized")
+            ensure("return the completed value in the success case" in error.message,
+                   "fallible construction lost its success-case repair")
+            line = propagation.text.splitlines()[error.line - 1]
+            ensure(line[error.column - 1:].startswith("source?"), "out debt was not reported at the propagation site")
+
     uninit_branch = _Fixture("UninitOutBranch")
     uninit_branch.function(
         "Bad",
