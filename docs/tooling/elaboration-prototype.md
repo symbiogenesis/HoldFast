@@ -171,6 +171,11 @@ The supported increment includes:
   arguments), and postfix `base with { Field = expr, ... }` record updates
   evaluated in declaration order (refusing partial updates to an index field when
   a dependent field is not also updated).
+  The raw record carrier supports intermediate values in an `open` block.
+  A theorem or exported postcondition over a direct record input binds each
+  declared invariant as a proof premise. A proof invoking that theorem on a
+  concrete record must supply or establish its validity. An `out` parameter
+  acquires its invariants when initialized.
 - Unicode scalar values (`char` in `[0, 0x10FFFF]` excluding surrogates
   `[0xD800, 0xDFFF]`, character literals `'a'` with `\n`, `\r`, `\t`, `\0`, `\\`,
   `\'`, `\"`, `\xNN` and `\u{...}` escapes, relational comparisons `<`, `<=`, `>`,

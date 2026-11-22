@@ -168,6 +168,14 @@ definition Nat Call() => Identity::<Nat>(8);
 lemma ValueCorrect() ensures Value() == 7 proof { assert Value() == 7; }
 lemma CallCorrect() ensures Call() == 8 proof { assert Call() == 8; }
 """),
+        ("record-entry-invariant-evidence", """module InvariantReplay;
+public record Window(u8 Low, u8 High) invariant Ordered: Low <= High {}
+public lemma Ordered(Window w) ensures (w.Low <= w.High) == true
+    proof { assert (w.Low <= w.High) == true; }
+public lemma Closed() ensures (Window(1u8,2u8).Low <= Window(1u8,2u8).High) == true
+    proof { assert (Window(1u8,2u8).Low <= Window(1u8,2u8).High) == true by Ordered(Window(1u8,2u8)); }
+public bool Observe(Window w) ensures result == true => w.Low <= w.High;
+"""),
         ("dependent-vector-lookup", """module VectorReplay;
 definition Vec<T,n> Copy<T, ghost Nat n>(Vec<T,n> xs) => xs;
 definition T First<T>(Vec<T,1> xs) => xs[0];

@@ -41,6 +41,36 @@ if TYPE_CHECKING:
 
 
 class _DeclarationsMixin:
+    def _record_input_propositions(self: _Elaborator, parameters: list[_Term]) -> list[_Term]:
+        propositions: list[_Term] = []
+        for parameter in parameters:
+            var_id = cast("int", parameter.value)
+            if self.parameter_names.get(var_id) in self.out_param_names:
+                continue
+            head, args = self.spine(self.whnf(self.types[var_id]))
+            if head.kind != "const" or not isinstance(head.value, str):
+                continue
+            record = self.records_by_type.get(head.value)
+            if record is None:
+                continue
+            for invariant in record.invariants:
+                predicate = self._instantiate_record_type(record, args, invariant.term)
+                predicate = self.substitute(predicate, cast("int", invariant.self_var.value), parameter)
+                if self.whnf(invariant.type) == _BOOL:
+                    predicate = _apps(_constant("Eq"), _BOOL, predicate, _term("bool", value=1))
+                propositions.append(predicate)
+        return propositions
+
+    def _bind_record_input_proofs(
+        self: _Elaborator, propositions: list[_Term], environment: dict[str, _Binding],
+    ) -> list[_Term]:
+        witnesses: list[_Term] = []
+        for index, prop in enumerate(propositions):
+            witness = self.fresh(prop)
+            environment[f"__vela_record_entry_{index}"] = _Binding(witness, prop)
+            witnesses.append(witness)
+        return witnesses
+
     def complete(self: _Elaborator, term: _Term, seen: dict[int, _Term] | None = None) -> None:
         if seen is None:
             seen = {}
@@ -605,7 +635,9 @@ class _DeclarationsMixin:
         self.final_ref_bindings = dict(method_env)
         req_bool_terms: list[_Term] = []
         call_requirements: list[_Term] = []
-        req_vars: list[_Term] = []
+        req_vars = self._bind_record_input_proofs(
+            self._record_input_propositions([self_var, *param_vars]), method_env
+        )
         for req_idx, req_contract in enumerate(requires_clauses):
             req_val_node = self.node(req_contract["value"])
             saved_req_metas = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
@@ -2802,8 +2834,9 @@ class _DeclarationsMixin:
                 result = self.infer(body)
                 signature = self.wrap("pi", variables, result)
             else:
-                req_props = []
+                input_props = self._record_input_propositions(param_vars)
                 if kind in {"theorem", "lemma"}:
+                    req_props.extend(input_props)
                     saved_req_active = list(self.active_facts)
                     try:
                         for req_contract in requires_clauses:
@@ -2836,6 +2869,7 @@ class _DeclarationsMixin:
                     finally:
                         self.active_facts = saved_req_active
                 else:
+                    req_vars.extend(self._bind_record_input_proofs(input_props, environment))
                     for req_idx, req_contract in enumerate(requires_clauses):
                         req_val_node = self.node(req_contract["value"])
                         saved_req_metas = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
