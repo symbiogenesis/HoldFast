@@ -26,6 +26,7 @@ from toolchain import (
     simulator_debug_check,
     solver_ledger,
     web_output,
+    web_output_check,
 )
 from toolchain import (
     elaboration_check as vela_elaboration_check,
@@ -224,6 +225,7 @@ def main(argv: list[str] | None = None) -> int:
     web.add_argument("source", type=Path)
     web.add_argument("function", help="public Vela function to export as the default ES module function")
     web.add_argument("--output", required=True, type=Path, help="destination .mjs file")
+    commands.add_parser("qualify-web", help="check independent Boolean client tables and corrupted outputs")
     debugger = commands.add_parser("debug-simulator", help="inspect a packet assembly control on Sail")
     debugger.add_argument("--control", choices=simulator_debug.CONTROLS, default="pass")
     debugger.add_argument("--simulator", type=Path, help="local Sail executable (defaults to the current lane)")
@@ -341,6 +343,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "emit-web":
             output = web_output.publish(args.source, args.function, args.output)
+        elif args.command == "qualify-web":
+            output = web_output_check.qualify(root)
         elif args.command == "debug-simulator":
             output = _debug_simulator(args)
         elif args.command == "qualify-compile-commands":
