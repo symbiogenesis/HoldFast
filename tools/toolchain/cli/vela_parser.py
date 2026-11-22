@@ -12,6 +12,7 @@ from filelock import Timeout
 
 from toolchain import (
     VelaError,
+    packages,
     solver_ledger,
 )
 from toolchain import (
@@ -109,6 +110,15 @@ def main(argv: list[str] | None = None) -> int:
     upgrade.add_argument("candidate", type=Path)
     upgrade.add_argument("--client", required=True, action="append", type=Path, help="dependent client module (repeatable)")
     upgrade.add_argument("--dependency", action="append", type=Path, default=[], help="fixed dependency module (repeatable)")
+    lock = commands.add_parser("lock-package", help="lock an offline mathematical package and its declared inputs")
+    lock.add_argument("workspace", type=Path)
+    lock.add_argument("name")
+    lock.add_argument("revision")
+    lock.add_argument("--output", required=True, type=Path, help="destination lockfile")
+    build = commands.add_parser("build-package", help="check a locked module graph and optionally publish its Gallina bundle")
+    build.add_argument("workspace", type=Path)
+    build.add_argument("lock", type=Path)
+    build.add_argument("--output", type=Path, help="atomically publish the generated module bundle")
     commands.add_parser("migration", help="compare generated AST translation with the retained prototype")
     syntax_campaigns = commands.add_parser(
         "syntax-campaigns",
@@ -198,6 +208,10 @@ def main(argv: list[str] | None = None) -> int:
                 output = check_client_upgrade(load_module(args.baseline), load_module(args.candidate),
                                               [load_module(path) for path in args.client],
                                               [load_module(path) for path in args.dependency])
+        elif args.command == "lock-package":
+            output = packages.lock_package(root, args.workspace, args.name, args.revision, args.output)
+        elif args.command == "build-package":
+            output = packages.build_package(root, args.workspace, args.lock, args.output)
         elif args.command == "elaborate-qualify":
             output = vela_elaboration_check.qualify(root)
         elif args.command == "first-slice":
