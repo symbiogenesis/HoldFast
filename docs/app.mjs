@@ -6889,16 +6889,7 @@ function initPlaygroundUi() {
           )
         );
         item.append(element("span", "diagnostic-message", diagnostic.message));
-        item.addEventListener("click", () => {
-          if (state.editor) {
-            const range = toRange(diagnostic.range);
-            state.editor.setSelection(range);
-            state.editor.revealRangeInCenter(range);
-            state.editor.focus();
-          } else {
-            $("source-fallback").focus();
-          }
-        });
+        item.addEventListener("click", () => revealSource(diagnostic.range));
         return item;
       })
     );
@@ -7242,16 +7233,14 @@ function initPlaygroundUi() {
       const textarea = $("source-fallback");
       textarea.focus();
       textarea.setSelectionRange(
-        sourceOffset(state.text, range.start),
-        sourceOffset(state.text, range.end)
+        sourceOffset(textarea.value, range.start),
+        sourceOffset(textarea.value, range.end)
       );
       const lineHeight = Number.parseFloat(getComputedStyle(textarea).lineHeight) || 22;
       textarea.scrollTop = Math.max(
         0,
         range.start.line * lineHeight - textarea.clientHeight / 2
       );
-      $("cursor-position").textContent =
-        `Ln ${range.start.line + 1}, Col ${range.start.character + 1}`;
     }
   }
 
@@ -8039,20 +8028,13 @@ function initPlaygroundUi() {
   $("source-fallback").addEventListener("input", () =>
     sourceChanged($("source-fallback").value)
   );
-  $("source-fallback").addEventListener("select", sourceSelectionChanged);
-  $("source-fallback").addEventListener("keyup", () => {
-    const position = sourcePosition(state.text, $("source-fallback").selectionStart);
+  $("source-fallback").addEventListener("selectionchange", () => {
+    if (state.editor) return;
+    const source = $("source-fallback");
+    const offset = source.selectionDirection === "backward" ? source.selectionStart : source.selectionEnd;
+    const position = sourcePosition(source.value, offset);
     $("cursor-position").textContent = `Ln ${position.line + 1}, Col ${position.character + 1}`;
     sourceSelectionChanged();
-  });
-  $("source-fallback").addEventListener("click", sourceSelectionChanged);
-  $("source-fallback").addEventListener("keydown", (event) => {
-    if (event.key === "Tab") {
-      event.preventDefault();
-      const source = $("source-fallback");
-      source.setRangeText("    ", source.selectionStart, source.selectionEnd, "end");
-      sourceChanged(source.value);
-    }
   });
   $("expression").addEventListener("input", () =>
     clearEvaluation("Expression changed. Evaluate again for a current result.")
