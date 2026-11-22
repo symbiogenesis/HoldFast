@@ -2046,11 +2046,13 @@ class _IntrinsicsMixin:
                 if full_path in self.union_ctors and not self.union_ctors[full_path][1].fields:
                     return self.apply(self.lookup(full_path, environment), [], environment)
                 return self.lookup(full_path, environment)
-            return self._project_member(
-                self.expression(recv_node, environment),
-                member_name,
-                node,
-            )
+            receiver = self.expression(recv_node, environment)
+            if self.in_executable_function and self._dotted_member_path(self._unwrap_group(recv_node)) is None:
+                paths = self._result_paths("", receiver.type)
+                selected = f".{member_name}"
+                if any(path != selected and not path.startswith(selected + ".") for path in paths):
+                    raise self.fail("type", "unexamined Result in temporary receiver: bind it before selecting a field", recv_node)
+            return self._project_member(receiver, member_name, node)
         if kind in {"name", "operator"}:
             name = self.operator(node["name"]) if kind == "operator" else self.name(node["name"])
             if kind == "name" and name in self.uninitialized_out_params:

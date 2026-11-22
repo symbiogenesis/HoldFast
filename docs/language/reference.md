@@ -462,6 +462,12 @@ Checked arithmetic and conversions return `Result<T, ArithmeticError>` or
 `Result<T, ConversionError>`. `e?` propagates an `Err` or `None` and keeps the
 function's `out` initialization and cleanup duties. An unexamined `Result` or a
 discarded tracked resource is an error, including `Result<Unit, E>`.
+An executable function that owns a record or tuple containing verdicts owes
+each component separately. An exhaustive union match transfers the obligation
+to the selected payload bindings. Returning a whole aggregate forwards its
+obligations. The prototype accepts transfers to constructors and executable
+parameters with a checked verdict type. Passing a verdict through an abstract
+type parameter requires a resource constraint outside the current fragment.
 
 **Parsed example** (propagation and a checked operation):
 
