@@ -10,6 +10,7 @@ type, calls a library, runs cleanup or checks a proof.
 """
 
 import re
+from collections import deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Literal, cast
@@ -1132,8 +1133,8 @@ def analyze(owners: tuple[Owner, ...], graph: Graph, limits: Limits | None = Non
     join_states: dict[str, dict[frozenset[str], _State]] = {
         name: {} for name, deg in in_degree.items() if deg > 1
     }
-    pending_joins: dict[str, list[frozenset[str]]] = {
-        name: [] for name, deg in in_degree.items() if deg > 1
+    pending_joins: dict[str, deque[frozenset[str]]] = {
+        name: deque() for name in join_states
     }
     branch_worklist: list[tuple[str, _State]] = [
         (graph.entry, _State(owner_map, fields, budget, graph.entry))
@@ -1150,7 +1151,7 @@ def analyze(owners: tuple[Owner, ...], graph: Graph, limits: Limits | None = Non
                 (name for name, keys in pending_joins.items() if keys),
                 key=lambda name: rpo_index.get(name, 0),
             )
-            env_key = pending_joins[next_join].pop(0)
+            env_key = pending_joins[next_join].popleft()
             node_name = next_join
             state = join_states[next_join][env_key].clone()
 

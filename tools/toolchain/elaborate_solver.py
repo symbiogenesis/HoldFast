@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Bounded arithmetic, comparison, and Boolean precondition solver for Vela elaboration."""
 
+from collections import defaultdict, deque
 from typing import TYPE_CHECKING, cast, overload
 
 from toolchain.elaborate_types import (
@@ -151,9 +152,9 @@ class _SolverMixin:
 
     def _expand_bool_facts(self: _Elaborator, raw_facts: list[_Term]) -> list[_Term]:
         expanded: list[_Term] = []
-        queue = list(raw_facts)
+        queue = deque(raw_facts)
         while queue:
-            item = self.whnf(queue.pop(0))
+            item = self.whnf(queue.popleft())
             if item.kind in {"sum_match", "pair_match", "unit_match", "sigT_match"} and len(item.args) >= 2:
                 scrut_w = self.whnf(item.args[1])
                 if scrut_w.kind == "if" and len(scrut_w.args) == 4:
@@ -900,27 +901,27 @@ class _SolverMixin:
                     and (spec is None or not spec.signed or self._prove_comparison("ge", spec, args_l[0], zero_t, facts))):
                 return True
         # Bounded transitive chaining over active comparison facts
-        edges: dict[_Term, list[tuple[_Term, bool]]] = {}
+        edges: defaultdict[_Term, list[tuple[_Term, bool]]] = defaultdict(list)
         zero_subj = _int_term(_INT_SPECS["usize"], 0)
         if spec is None or not spec.signed:
-            edges.setdefault(zero_subj, []).append((uwl, False))
-            edges.setdefault(zero_subj, []).append((uwr, False))
+            edges[zero_subj].append((uwl, False))
+            edges[zero_subj].append((uwr, False))
             if is_sub_l:
                 ua_l = self._unwrap_numeric_subject(args_l[0])
                 b_lo, _, _ = self._term_bounds(args_l[1], spec, facts)
                 a_lo, _, _ = self._term_bounds(args_l[0], spec, facts)
-                edges.setdefault(uwl, []).append((ua_l, b_lo > 0 and a_lo > 0))
+                edges[uwl].append((ua_l, b_lo > 0 and a_lo > 0))
             if is_sub_r:
                 ua_r = self._unwrap_numeric_subject(args_r[0])
                 b_lo, _, _ = self._term_bounds(args_r[1], spec, facts)
                 a_lo, _, _ = self._term_bounds(args_r[0], spec, facts)
-                edges.setdefault(uwr, []).append((ua_r, b_lo > 0 and a_lo > 0))
+                edges[uwr].append((ua_r, b_lo > 0 and a_lo > 0))
             if is_div_l:
                 ua_l = self._unwrap_numeric_subject(args_l[0])
                 b_lo, _, _ = self._term_bounds(args_l[1], spec, facts)
                 a_lo, _, _ = self._term_bounds(args_l[0], spec, facts)
                 if b_lo >= 1:
-                    edges.setdefault(uwl, []).append((ua_l, b_lo >= 2 and a_lo > 0))
+                    edges[uwl].append((ua_l, b_lo >= 2 and a_lo > 0))
         for fact in facts:
             parsed = self._parse_cmp_fact(fact)
             if parsed is None:
@@ -929,25 +930,25 @@ class _SolverMixin:
             ufl = self._unwrap_numeric_subject(f_l)
             ufr = self._unwrap_numeric_subject(f_r)
             if f_spec is None or not f_spec.signed:
-                edges.setdefault(zero_subj, []).append((ufl, False))
-                edges.setdefault(zero_subj, []).append((ufr, False))
+                edges[zero_subj].append((ufl, False))
+                edges[zero_subj].append((ufr, False))
             if f_op == "lt":
-                edges.setdefault(ufl, []).append((ufr, True))
+                edges[ufl].append((ufr, True))
             elif f_op == "le":
-                edges.setdefault(ufl, []).append((ufr, False))
+                edges[ufl].append((ufr, False))
             elif f_op == "gt":
-                edges.setdefault(ufr, []).append((ufl, True))
+                edges[ufr].append((ufl, True))
             elif f_op == "ge":
-                edges.setdefault(ufr, []).append((ufl, False))
+                edges[ufr].append((ufl, False))
             elif f_op == "eq":
-                edges.setdefault(ufl, []).append((ufr, False))
-                edges.setdefault(ufr, []).append((ufl, False))
+                edges[ufl].append((ufr, False))
+                edges[ufr].append((ufl, False))
 
         def can_reach(start_node: _Term, target_node: _Term, need_strict: bool) -> bool:
-            frontier: list[tuple[_Term, bool, int]] = [(start_node, False, 0)]
+            frontier = deque([(start_node, False, 0)])
             seen: dict[_Term, bool] = {start_node: False}
             while frontier:
-                cur_n, has_strict, steps = frontier.pop(0)
+                cur_n, has_strict, steps = frontier.popleft()
                 if cur_n == target_node and (has_strict or not need_strict):
                     return True
                 if steps >= 4:
