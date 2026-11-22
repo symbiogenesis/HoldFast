@@ -139,7 +139,7 @@ open until the parent's acceptance conditions are met.
 - [ ] **Q25at · Qualify checked synchronous frontend correspondence**
   - **Owner** `core-frontend`
   - **Start** Use the [core-law interfaces](#q25as) and existing checked parser and elaborator, including mathematical elaboration, owned loans and effects.
-  - **Check** Implement and independently qualify correspondence between the exact `SourcePackage`, its interpreted core and frontend erasure. Check resolution, reconstruction and arithmetic, loan, capture and effect derivations. Report unknown facts and exhausted analysis budgets. Publish the checked validator subset as soon as it passes. For release qualification, compare inferred and explicit clients at the same interpretation and artifact endpoint, covering literal boundaries, ambiguous instances and unstable indices. [Contextual inference](docs/language/first-release.md#contextual-inference).
+  - **Check** Implement and independently qualify correspondence between the exact `SourcePackage`, its interpreted core and frontend erasure. Check resolution, reconstruction and arithmetic, loan, capture and effect derivations. For every partial word operation in the qualified subset, bind the guard proof to its source span, checked operand representation and emitted primitive. Extend the [word-equation replay](docs/tooling/elaboration-prototype.md#commands-and-acceptance) to wider symbolic operands before including those operations. Report unknown facts and exhausted analysis budgets. Publish the checked validator subset as soon as it passes. For release qualification, compare inferred and explicit clients at the same interpretation and artifact endpoint, covering literal boundaries, ambiguous instances and unstable indices. [Contextual inference](docs/language/first-release.md#contextual-inference).
 
 <a id="q25au"></a>
 
@@ -167,7 +167,7 @@ open until the parent's acceptance conditions are met.
 - [ ] **Q25ax · Implement locked package and build closure**
   - **Owner** `packages`
   - **Start** Use the [checked frontend](#q25at) once the first-release module and instance semantics are frozen.
-  - **Check** Build two independently authored packages with manifests, lockfiles and a reproducible batch graph of dependencies and target inputs. Check nominal identity, instance coherence and import-order independence. Exercise cycles, missing dependencies and stale configurations. [Module and package contract](docs/language/first-release.md#modules-and-packages).
+  - **Check** Build two independently authored packages with manifests, lockfiles and a reproducible batch graph of dependencies and target inputs. Check nominal identity, instance coherence and import-order independence. Exercise cycles, missing dependencies and stale configurations. A diamond requiring incompatible revisions of one canonical package must fail with both requirements. Replay an importing client across a local parameter rename with a stable external label and across an external-label change. [Module and package contract](docs/language/first-release.md#modules-and-packages).
 
 <a id="q25ay"></a>
 
@@ -243,7 +243,7 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
 <a id="q25bf"></a>
 
 - [ ] **Q25bf · Qualify capture, resumption, suspension and cancellation laws**
-  - **Owner:** `handler-laws`. **Start:** Concrete scoped resources and a named control/service client. **Check:** Discharge HA-capture-substitution, HA-resume-dispose, HA-suspend-scope and HA-cancel-progress under the [control contract](docs/extensions/handlers-async.md), including fresh clone frames, terminal resources, cancellation races and finite masked distance. This aggregates four existing review rows.
+  - **Owner:** `handler-laws`. **Start:** Concrete scoped resources and a named control/service client. **Check:** Discharge HA-capture-substitution, HA-resume-dispose, HA-suspend-scope and HA-cancel-progress under the [control contract](docs/extensions/handlers-async.md), including fresh clone frames, typed incarnation exhaustion, terminal resources, cancellation at an immediately ready helper's entry and finite masked distance. This aggregates four existing review rows.
 
 <a id="q25bg"></a>
 

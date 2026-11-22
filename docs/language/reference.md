@@ -237,7 +237,7 @@ See [natural division and remainder](../tooling/pure-prototype.md#natural-divisi
 
 | Form | Meaning | Status |
 | --- | --- | --- |
-| Labeled call `Copy(in source, target: ref dst)` | A positional prefix, then labels naming the next declared parameters in order; no reordering or defaults | P |
+| Labeled call `Copy(in source, target: ref dst)` | A positional prefix followed by labels in declaration order. Named functions and methods may give a parameter a stable external label with `Nat local as label`. | M (named functions and methods) |
 | Member call `x.Method(a)` | Supplies the declaration's receiver loan; other arguments repeat their modes | M |
 | Conditional `if (c) a else b` | Mandatory `else`; the same join as a two-arm match | M |
 | Match expression | `match (e) { Pattern => value, ... }`, exhaustive, optional final comma | M |
