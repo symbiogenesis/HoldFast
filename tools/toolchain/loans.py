@@ -2145,6 +2145,10 @@ class _FunctionLowerer:
                 return current, (loan_name,)
 
             if kind == "interpolated_string":
+                if "holes" in expr:
+                    for hole in _ast_nodes(expr["holes"]):
+                        current, _ = self._lower_expr(current, hole)
+                    return current, ()
                 for part in _ast_nodes(expr.get("parts", [])):
                     if part.get("kind") == "interpolation":
                         hole_expr = _ast_node(part.get("expression") or part["value"])

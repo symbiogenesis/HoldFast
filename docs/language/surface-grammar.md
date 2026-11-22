@@ -387,6 +387,9 @@ In `Nat Read(Nat index as offset)`, the body and contracts refer to `index`
 and callers may write `Read(offset: 3)` or `Read(3)`. Without `as`, the local
 parameter name supplies the label. Labels in one telescope must be distinct.
 Renaming only the local name preserves existing positional and labeled calls.
+An interface supplies the labels used by callers. An `impl` may choose its
+own local names and may repeat a published label with `as`. A conflicting
+explicit label is an error at that label.
 
 The domain roles `carrier`, `zero`, `one`, `add`, `mul`, `admits`, `interpret`
 and `laws` introduce entries inside a domain. In value positions they are ordinary
