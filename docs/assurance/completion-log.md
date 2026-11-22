@@ -2070,13 +2070,15 @@ is the default qualification profile, with no broader `--full` verdict.
 The [word-equation checker](../tooling/elaboration-prototype.md#commands-and-acceptance)
 replays guarded arithmetic over represented signed and unsigned words.
 Structural lemmas relate bit-level comparisons and overflow checks to binary
-integer arithmetic. The nine independent consumers include two-symbol `u64`
-subtraction, `usize` addition with multi-billion bounds, signed division and
-guarded shifts. Each applies the theorem for a particular source span to the
-emitted function under the source premises. Native qualification passed 225
-fixtures, including five refusal controls for the wider fragment. Rocq rejected
-a weakened `u32` increment bound admitting the maximum value. The kernel audit
-reported zero solver assumptions. Full source-package correspondence remains open.
+integer arithmetic. Fifteen independent consumers apply the theorem for a
+particular source span to the emitted function under the source premises. They
+cover unsigned subtraction, `usize` addition, signed division, shifts and signed
+addition and subtraction. The signed cases include two symbolic `i64` operands
+with bounds in the billions and operations at the `i16` and `i32` limits.
+Native qualification passed 230 fixtures. The nine wider-word refusal controls
+include a signed increment whose guard admits the maximum and a decrement whose
+guard admits the minimum. The kernel audit reported zero solver-trusted
+assumptions. Full source-package correspondence remains open.
 
 <a id="q25dv-complete-the-wider-semantic-editor-and-client-qualification"></a>
 
