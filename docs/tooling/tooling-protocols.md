@@ -526,6 +526,30 @@ An independent tooling consumer must recover the same includes, defines and targ
 flags, including paths with spaces. This export describes bridge compilations;
 it neither replaces Vela's module graph nor assumes every build has a C stage.
 
+### Locked mathematical package builds
+
+`vela-parser bsp WORKSPACE LOCK [LOCK ...]` serves BSP 2.1.1 over length-framed
+stdio on the native parser lane. Pass one to eight locks created by
+[`lock-package`](elaboration-prototype.md#locked-mathematical-packages). Supply the
+workspace's file URI in `build/initialize`, then send `build/initialized`.
+`workspace/buildTargets` exposes every package in each checked configuration.
+The target URI binds the exact lock bytes and package name. Dependencies point to
+targets in that configuration. The `vela-locked-package` data includes the
+edition, target, package instance, declared input hashes and locked producer.
+Each lock's root exposes the batch compile operation. Supply a separate root
+lock to compile a dependency by itself.
+
+`buildTarget/compile` runs the existing `build-package` command for one root at a
+time, with its locked options and a 180-second process budget. Success carries
+the batch verdict, module digests and exact generated bundle URI and SHA-256 in
+`vela-batch-build` data. `buildTarget/sources` reports the declared Vela files
+and, following success, the corresponding generated Gallina files. Outputs live
+in a private directory for the session. A changed dependency or lock requires
+a new checked graph. A failed build returns its exit status and bounded diagnostic.
+`$/cancelRequest` interrupts the active process group and suppresses publication.
+The package build's verdict is mathematical elaboration. Kernel replay and the
+packet compiler are separate operations.
+
 ## Compiler decisions and performance traces
 
 Expose optimization decisions using an

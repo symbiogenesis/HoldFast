@@ -212,13 +212,18 @@ def lock_package(root: Path, workspace: Path, name: str, revision: str, destinat
             "packages": list(_object(closure.lock["packages"], "packages"))}
 
 
-def build_package(root: Path, workspace: Path, lock_path: Path, destination: Path | None) -> Object:
+def read_lock(lock_path: Path) -> tuple[bytes, Object, str, str]:
     raw = _read(lock_path, MAX_INPUT_BYTES)
     lock = _object(json.loads(raw, object_pairs_hook=unique_object), "lock")
     selection = lock.get("root")
     if not isinstance(selection, list) or len(selection) != 2:
         raise ValueError("invalid locked package root")
     name, revision = _token(selection[0], NAME, "name"), _token(selection[1], REVISION, "revision")
+    return raw, lock, name, revision
+
+
+def build_package(root: Path, workspace: Path, lock_path: Path, destination: Path | None) -> Object:
+    raw, lock, name, revision = read_lock(lock_path)
     with parser.cached_build(root) as compiled:
         closure = resolve(workspace, name, revision, _producer(root, compiled), locked=lock)
         modules = []
