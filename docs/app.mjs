@@ -8178,7 +8178,7 @@ function initPlaygroundUi() {
       !state.editor?.hasTextFocus()
     ) {
       event.preventDefault();
-      if (document.activeElement === $("expression")) evaluate();
+      if ($("evaluate-form").contains(event.target)) evaluate();
       else compile();
     }
     if (

@@ -849,7 +849,7 @@ const compactCodes = blocks.map((text) => {
 const headEl = new MockElement("head");
 const bodyEl = new MockElement("body");
 
-globalThis.document = {
+globalThis.document = Object.assign(new MockElement("document"), {
   head: headEl,
   body: bodyEl,
   activeElement: null,
@@ -872,8 +872,7 @@ globalThis.document = {
     if (sel === "[data-expand-target]") return expandLinks;
     return [];
   },
-  addEventListener() {},
-};
+});
 
 const mockModel = {
   _val: mod.EXAMPLES.squares.source,
@@ -984,6 +983,19 @@ if (!elementsById.get("binding-preview").textContent.includes("module Playground
   throw new Error("Style check did not produce a preview of the current source");
 }
 await expectConsoleValue(indexedSquare, "49");
+
+const form = elementsById.get("evaluate-form");
+for (const [id, modifier] of [["value-type", "metaKey"], ["evaluate-button", "ctrlKey"]]) {
+  const target = elementsById.get(id);
+  form.append(target);
+  document.activeElement = target;
+  const previousResult = elementsById.get("console-result").children[0];
+  await document.dispatchEvent("keydown", { target, key: "Enter", [modifier]: true });
+  if (elementsById.get("console-panel").hidden || elementsById.get("console-result").children[0] === previousResult) {
+    throw new Error(`The evaluation shortcut did not evaluate from #${id}`);
+  }
+}
+document.activeElement = null;
 
 await elementsById.get("reconnect-button").dispatchEvent("click");
 if (!elementsById.get("download-output").disabled || elementsById.get("console-result").children[0].className !== "empty-console") {
