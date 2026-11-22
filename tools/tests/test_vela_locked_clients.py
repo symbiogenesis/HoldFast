@@ -94,8 +94,9 @@ def _client_upgrade() -> None:
         accepted = bundle.read_bytes()
         upgraded = json.loads(accepted)["modules"]
         def weight_type(outputs: dict[str, str]) -> str:
-            [identity] = re.findall(r"^Definition (\w+_Weight) :", outputs["Weights.Measure"], re.MULTILINE)
-            return identity
+            provider = outputs["Weights.Measure"]
+            [definition] = re.finditer(r"^Definition (\w+_Weight) :", provider, re.MULTILINE)
+            return provider[definition.start(1):definition.end(1)]
 
         ensure(weight_type(upgraded) != weight_type(modules), "revisions shared a record identity")
         _replay(directory, upgraded)
