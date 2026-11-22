@@ -616,9 +616,9 @@ class _ProofsMixin:
             if operator != _constant("int_le_usize") or len(args) != 2 or not self._same_cond_term(args[0], count):
                 continue
             limit = self.whnf(args[1])
-            if (limit.kind == "int" and 0 <= cast("int", limit.value) <= 16
+            if (limit.kind == "int"
                     and cast("int", start.value) + cast("int", limit.value) <= cast("int", ceiling.value)):
-                return _apps(_constant("vela_extent_bound_cases"), base, count, limit, hi, fact.term, refl)
+                return _apps(_constant("vela_extent_bound"), base, count, limit, hi, fact.term, refl)
         return None
 
     def _vacant_prefix_proof(self: _Elaborator, goal: _Term, facts: tuple[_Binding, ...]) -> _Term | None:

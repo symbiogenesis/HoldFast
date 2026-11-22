@@ -134,6 +134,17 @@ public theorem LawFillAndFrame(ref Span<byte> s, usize frameIdx, byte fillVal)
             && s[frameIdx] == old(s[frameIdx])) == true;
     }
 
+public theorem LawSymbolicFillFrame(ref Span<byte> s, usize count, usize i)
+    requires s.CanRead && s.CanWrite
+    requires count <= 1_000_000_000usize && 4usize + count <= s.Length
+    requires i >= 1_000_000_004usize && i < s.Length
+    ensures s[i] == old(s)[i]
+    proof
+    {
+        Span.Fill(ref s, 4usize, count, 0u8);
+        assert s[i] == old(s)[i];
+    }
+
 public theorem LawSliceMetadataAndRead(in Span<byte> s, usize idx)
     requires s.CanRead && s.Base <= 0xFFFF_0000usize && s.Length >= 8usize && idx < 3usize
     ensures

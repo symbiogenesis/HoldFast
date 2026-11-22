@@ -194,10 +194,10 @@ The supported increment includes:
   also apply to open parameters and quantified variables.
 - Suffix framing over byte stores follows writes, fills and restored sliced
   copies through conditional branches. For a symbolic count bounded by a source
-  fact, the checker can reconstruct an extent proof at constant offsets by
-  enumerating counts up to a maximum of 16. Rocq checks that the cases cover
-  every word satisfying the bound and that each extent ends before or at the
-  protected suffix.
+  fact, the checker proves a suffix bound when the mathematical sum of the
+  constant offset and maximum count fits below the suffix. A Rocq theorem
+  relates unsigned word comparison and addition to binary integers. Its
+  application takes the same form for every count bound, including a billion.
 - Typed `const` values of `Nat`, `bool`, `Unit` or fixed-width integers, at module or local scope,
   under the [required-static contract](../language/surface-grammar.md#required-static-constants).
   Initializers use earlier constants and admitted total pure calls with static
