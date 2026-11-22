@@ -593,6 +593,51 @@ and commissioning; these compiler exports do not implement them.
 
 ## Debug Adapter Protocol
 
+### Packet assembly simulator
+
+The simulator backend runs the four packet assembly controls on the single-hart
+Sail development model. Its source view is the exact assembly passed to the
+assembler, including the call and trap harness. The assembler supplies a line
+for each expanded instruction. Each retirement must match the encoding at its
+mapped address. The session records SHA-256 identities for that source, the
+resulting ELF, the simulator executable and its configuration.
+[Backend](../../tools/toolchain/simulator_debug.py)
+
+Run the passing control at its packet-view length query with
+`python tools/run.py vela-parser debug-simulator --command "until 102" --command stack --command step --command "eval c13.length"`.
+At line 102, PC `0x80000168`, the stack shows `main` called from `_start` at
+line 20. One machine step retires `cgetlen`, making `c13.length` available as
+4. Use `--command source` to see the numbered assembly and `--control tag-trap`
+to inspect the cleared tag before its fault. Commands accept register names and
+observed fields. The register bits and tag come from Sail's merged-register
+writes. A length comes from an executed query on that register and expires on
+the next register write. Unobserved fields, including base, permissions, sealing
+and provenance, report `unavailable`. Evaluation grants no memory access.
+
+Each control first runs to HTIF completion within 256 instructions. For a
+requested stop, the backend reruns the exact image with Sail's native PC stop
+and an instruction limit one beyond the expected stop. The complete prefix
+of instruction and effect records must agree. The selected controls have unique
+PCs along their execution paths. Calls, returns and trap entries determine
+the available stack frames. Disconnect expires the stop handle. Reconnect
+repeats the stop and issues a fresh handle. Each run has a ten-second deadline
+and a 128 KiB trace limit. Sessions inspect development assembly. Source-level
+Vela debugging additionally requires [exact-image debug information](#dwarf-native-debug-information).
+
+Run `python tools/run.py vela-parser debug-simulator --qualify` in a lane with
+a configured simulator and profile. To select the installation used for the
+four controls explicitly, append
+`--simulator /root/build/verifiedos-model/c_emulator/sail_riscv_sim --profile /root/build/verifiedos-model/config/verifiedos.json`
+to either command. Use `python3` inside Linux. Qualification checks independently
+expected PCs, stacks, register values, capability observations, disconnect and
+reconnect, exhausted inspection budgets and refused commands. The passing
+control retires 93 instructions and exits with HTIF 0. The tag, bounds and
+permission controls each reach the trap handler with cause 28 and HTIF 284.
+[Qualification](../../tools/toolchain/simulator_debug_check.py) ·
+[Malformed and stale controls](../../tools/tests/test_simulator_debug.py)
+
+### Adapter lifecycle
+
 Provide a DAP adapter over an explicitly identified execution backend. Qualify
 simulator debugging first; physical-target support requires the actual target
 adapter and authenticated lifecycle authorization. A Gallina translation or
