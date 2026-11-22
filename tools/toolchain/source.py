@@ -4,6 +4,7 @@
 import hashlib
 import json
 import re
+from bisect import bisect_right
 from dataclasses import dataclass
 from functools import cached_property
 
@@ -46,6 +47,11 @@ class SourceSnapshot:
         return hashlib.sha256(json.dumps(fields, ensure_ascii=False).encode("utf-8")).hexdigest()
 
     @cached_property
+    def _line_starts(self) -> tuple[int, ...]:
+        """UTF-8 offsets of lines delimited by CRLF, CR or LF, including the final empty line."""
+        return (0, *(match.end() for match in re.finditer(rb"\r\n|[\r\n]", self.source)))
+
+    @cached_property
     def _diagnostic_lines(self) -> tuple[str, ...]:
         return tuple(_normalized(self.text).split("\n"))
 
@@ -54,35 +60,26 @@ class SourceSnapshot:
         source = self.source
         if type(offset) is not int or not 0 <= offset <= len(source):
             raise ValueError("source byte offset out of bounds")
-        prefix = source[:offset].decode("utf-8")
-        if prefix.endswith("\r") and source[offset:offset + 1] == b"\n":
+        if offset and source[offset - 1:offset + 1] == b"\r\n":
             raise ValueError("source byte offset splits CRLF")
-        lines = _normalized(prefix).split("\n")
-        return {"line": len(lines) - 1, "character": _utf16_length(lines[-1])}
+        line = bisect_right(self._line_starts, offset) - 1
+        prefix = source[self._line_starts[line]:offset].decode("utf-8")
+        return {"line": line, "character": _utf16_length(prefix)}
 
     def position_byte_offset(self, line: int, character: int) -> int:
         """Convert an LSP UTF-16 position to UTF-8, clamping past line end."""
         if any(type(value) is not int or not 0 <= value < 2 ** 31
                for value in (line, character)):
             raise ValueError("source position requires unsigned 31-bit coordinates")
-        # Only CR, LF and CRLF are line breaks in this source API. Python's
-        # splitlines also recognizes Unicode separators that LSP does not use.
-        breaks = re.finditer(r"\r\n|\r|\n", self.text)
-        start = 0
-        for _ in range(line):
-            boundary = next(breaks, None)
-            if boundary is None:
-                raise ValueError("source position line out of bounds")
-            start = boundary.end()
-        boundary = next(breaks, None)
-        end = len(self.text) if boundary is None else boundary.start()
-        encoded = self.text[start:end].encode("utf-16-le")
+        if line >= len(self._line_starts):
+            raise ValueError("source position line out of bounds")
+        encoded = self._diagnostic_lines[line].encode("utf-16-le")
         column = min(character, len(encoded) // 2)
         try:
             prefix = encoded[:column * 2].decode("utf-16-le")
         except UnicodeDecodeError as error:
             raise ValueError("source position splits a supplementary character") from error
-        return len(self.text[:start].encode("utf-8")) + len(prefix.encode("utf-8"))
+        return self._line_starts[line] + len(prefix.encode("utf-8"))
 
     def diagnostic_position(self, line: int, column: int) -> dict[str, int]:
         """Adapt the legacy producer's one-based normalized code-point site."""

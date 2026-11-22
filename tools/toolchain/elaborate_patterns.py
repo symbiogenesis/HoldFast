@@ -2,6 +2,7 @@
 """Pattern parsing, dependent pattern typing, and exhaustive match compilation for Vela elaboration."""
 
 from collections.abc import Callable
+from functools import partial
 from typing import TYPE_CHECKING, cast
 
 from toolchain.elaborate_types import (
@@ -25,6 +26,7 @@ from toolchain.elaborate_types import (
     _Row,
     _Term,
     _term,
+    _UnionCtor,
 )
 
 if TYPE_CHECKING:
@@ -801,7 +803,7 @@ class _PatternsMixin:
                 "match scrutinee must have type Nat, bool, char, Unit, a fixed-width integer, a product, a record or a union",
                 value_node,
             )
-        inferred_result: list[_Term | None] = [expected]
+        inferred_result = expected
         local_visited: set[int] = set()
         initial_uninit_out = set(self.uninitialized_out_params)
         arm_uninit_sets: list[set[str]] = []
@@ -851,6 +853,7 @@ class _PatternsMixin:
 
         def compile_matrix(columns: list[tuple[_Term, _Term, _Term]], active_rows: list[_Row],
                            pattern_term: _Term) -> _Term:
+            nonlocal inferred_result
             self.tick()
             if not active_rows:
                 raise self.fail("type", "non-exhaustive match: missing pattern case", node)
@@ -906,14 +909,14 @@ class _PatternsMixin:
                 arm = first.arm
                 self.site = arm
                 leaf_expected = (self.substitute(motive_body, root_var_id, leaf_pattern)
-                                 if motive_body is not None else inferred_result[0])
+                                 if motive_body is not None else inferred_result)
                 if expression_arms:
                     if synthetic:
                         self.uninitialized_out_params = set(initial_uninit_out)
                     value_node = self.node(arm["value"])
                     if leaf_expected is None:
                         evaluated = self.expression(value_node, arm_env)
-                        inferred_result[0] = evaluated.type
+                        inferred_result = evaluated.type
                         value = evaluated.term
                     else:
                         value = self.check(value_node, leaf_expected, arm_env)
@@ -924,8 +927,8 @@ class _PatternsMixin:
                 self.uninitialized_out_params = set(initial_uninit_out)
                 evaluated = self.block(block_node, arm_env, leaf_expected, facts=arm_facts)
                 arm_uninit_sets.append(set(self.uninitialized_out_params))
-                if motive_body is None and inferred_result[0] is None:
-                    inferred_result[0] = evaluated.type
+                if motive_body is None and inferred_result is None:
+                    inferred_result = evaluated.type
                 return evaluated.term
 
             index = next(i for i, pat in enumerate(first.patterns) if pat.kind != "wild")
@@ -933,6 +936,11 @@ class _PatternsMixin:
             col_var_id = cast("int", col_var.value)
             col_type = self.whnf(col_type)
             without_index = columns[:index] + columns[index + 1:]
+
+            def column_result_type() -> _Term:
+                if motive_body is not None:
+                    return self.substitute(motive_body, root_var_id, pattern_term)
+                return cast("_Term", inferred_result)
 
             def split_literal_column(
                 lit_term: _Term,
@@ -990,11 +998,7 @@ class _PatternsMixin:
                     no_branch = compile_matrix(columns, no_rows, pattern_term)
                 finally:
                     self.active_facts.pop()
-                ret_ty = (
-                    self.substitute(motive_body, root_var_id, pattern_term)
-                    if motive_body is not None
-                    else inferred_result[0]
-                )
+                ret_ty = column_result_type()
                 return _term("if", ret_ty, eq_cond, yes_branch, no_branch)
 
             if first.patterns[index].kind == "string":
@@ -1067,7 +1071,7 @@ class _PatternsMixin:
                             merged_refs[rk] = yb
                     self.final_ref_bindings = merged_refs
                 if motive_body is None:
-                    return _term("if", cast("_Term", inferred_result[0]), col_scrutinee, yes, no)
+                    return _term("if", cast("_Term", inferred_result), col_scrutinee, yes, no)
                 motive_lam = _term("lam", _BOOL, self.substitute(motive_body, root_var_id, pattern_term), value=col_var_id)
                 return _term("bool_match", motive_lam, col_scrutinee, yes, no)
 
@@ -1095,284 +1099,126 @@ class _PatternsMixin:
                     specialize_rows(active_rows, index, "pair", pair_term, col_var_id, col_type, 2),
                     self.substitute(pattern_term, col_var_id, pair_term),
                 )
-                motive_return = (self.substitute(motive_body, root_var_id, pattern_term)
-                                 if motive_body is not None else cast("_Term", inferred_result[0]))
+                motive_return = column_result_type()
                 motive_lam = _term("lam", col_type, motive_return, value=col_var_id)
                 branch_lam = _term("lam", left_type, _term("lam", right_type, body, value=right_var.value), value=left_var.value)
                 return _term("pair_match", motive_lam, col_scrutinee, branch_lam)
 
             col_head, col_type_args = self.spine(col_type)
-            if col_head.kind == "const" and isinstance(col_head.value, str) and col_head.value in self.records_by_type:
-                record_info = self.records_by_type[col_head.value]
-                if not record_info.fields:
-                    ctor_term = _apps(_constant(record_info.ctor_const), *col_type_args, _term("unit"))
-                    body = compile_matrix(
-                        subst_cols(without_index, col_var_id, ctor_term),
-                        specialize_rows(active_rows, index, "record", ctor_term, col_var_id, col_type, 0),
-                        self.substitute(pattern_term, col_var_id, ctor_term),
-                    )
-                    if motive_body is None:
-                        return body
-                    motive_lam = _term(
-                        "lam", col_type, self.substitute(motive_body, root_var_id, pattern_term), value=col_var_id
-                    )
-                    return _term("unit_match", motive_lam, col_scrutinee, body)
-                if len(record_info.fields) == 1:
-                    ft_0 = self._instantiate_record_type(record_info, col_type_args, record_info.fields[0].type)
-                    fvar_0 = self.fresh(ft_0)
-                    dummy_unit_var = self.fresh(_UNIT)
-                    ctor_term = _apps(_constant(record_info.ctor_const), *col_type_args, fvar_0)
-                    sub_columns = [(fvar_0, fvar_0, ft_0)]
-                    body = compile_matrix(
-                        subst_cols(columns[:index], col_var_id, ctor_term)
-                        + sub_columns
-                        + subst_cols(columns[index + 1:], col_var_id, ctor_term),
-                        specialize_rows(active_rows, index, "record", ctor_term, col_var_id, col_type, 1),
-                        self.substitute(pattern_term, col_var_id, ctor_term),
-                    )
-                    motive_return = (
-                        self.substitute(motive_body, root_var_id, pattern_term)
-                        if motive_body is not None
-                        else cast("_Term", inferred_result[0])
-                    )
-                    motive_lam = _term("lam", col_type, motive_return, value=col_var_id)
-                    branch_lam = _term(
-                        "lam",
-                        ft_0,
-                        _term("lam", _UNIT, body, value=dummy_unit_var.value),
-                        value=fvar_0.value,
-                    )
-                    return _term("pair_match", motive_lam, col_scrutinee, branch_lam)
-                field_types: list[_Term] = []
-                field_vars: list[_Term] = []
-                for idx_f, rf in enumerate(record_info.fields):
-                    ft = self._instantiate_record_type(record_info, col_type_args, rf.type)
-                    for j in range(idx_f):
-                        ft = self.substitute(ft, cast("int", record_info.fields[j].var.value), field_vars[j])
-                    fv = self.fresh(ft)
-                    field_types.append(ft)
-                    field_vars.append(fv)
-                ctor_term = _apps(_constant(record_info.ctor_const), *col_type_args, *field_vars)
-                sub_columns = [(fv, fv, ft) for fv, ft in zip(field_vars, field_types, strict=True)]
-                body = compile_matrix(
+            type_name = col_head.value if col_head.kind == "const" and isinstance(col_head.value, str) else ""
+            record = self.records_by_type.get(type_name)
+            union_info = self.unions_by_type.get(type_name)
+
+            def constructor_body(
+                ctor: _RecordInfo | _UnionCtor, fields: list[_Binding],
+            ) -> _Term:
+                arguments = [binding.term for binding in fields] or [_term("unit")]
+                ctor_term = _apps(_constant(ctor.ctor_const), *col_type_args, *arguments)
+                sub_columns = [(binding.term, binding.term, binding.type) for binding in fields]
+                return compile_matrix(
                     subst_cols(columns[:index], col_var_id, ctor_term)
                     + sub_columns
                     + subst_cols(columns[index + 1:], col_var_id, ctor_term),
-                    specialize_rows(active_rows, index, "record", ctor_term, col_var_id, col_type, len(field_vars)),
+                    specialize_rows(
+                        active_rows, index, "record" if isinstance(ctor, _RecordInfo) else "union",
+                        ctor_term, col_var_id, col_type, len(fields), ctor_name=ctor.ctor_const,
+                    ),
                     self.substitute(pattern_term, col_var_id, ctor_term),
                 )
-                if record_info.is_dependent:
-                    tail_types: list[_Term] = []
-                    for k in range(len(field_types) - 1):
-                        tt = self._instantiate_record_type(
-                            record_info, col_type_args, record_info.tail_sig_types[k + 1]
-                        )
-                        for j in range(k + 1):
-                            tt = self.substitute(tt, cast("int", record_info.fields[j].var.value), field_vars[j])
-                        tail_types.append(tt)
+
+            def product_branch(
+                ctor: _RecordInfo | _UnionCtor, generics: tuple[_Term, ...],
+                subject: _Term, subject_id: int, subject_type: _Term,
+                inject: Callable[[_Term], _Term] | None = None,
+            ) -> _Term:
+                """Destructure two or more fields, restoring their dependencies in each match motive."""
+                nonlocal inferred_result
+                fields: list[_Binding] = []
+
+                def instantiate(target: _Term, earlier: list[_Binding]) -> _Term:
+                    result = self._instantiate_generic_type(generics, col_type_args, target)
+                    for field, binding in zip(ctor.fields, earlier, strict=False):
+                        result = self.substitute(result, cast("int", field.var.value), binding.term)
+                    return result
+
+                for field in ctor.fields:
+                    field_type = instantiate(field.type, fields)
+                    fields.append(_Binding(self.fresh(field_type), field_type))
+                body = constructor_body(ctor, fields)
+                if ctor.is_dependent:
+                    tail_types = [
+                        instantiate(ctor.tail_sig_types[k + 1], fields[:k + 1])
+                        for k in range(len(fields) - 1)
+                    ]
                 else:
-                    tail_types = [field_types[-1]]
-                    for ft in reversed(field_types[1:-1]):
-                        tail_types.append(_term("prod", ft, tail_types[-1]))
+                    tail_types = [fields[-1].type]
+                    for field_binding in reversed(fields[1:-1]):
+                        tail_types.append(_term("prod", field_binding.type, tail_types[-1]))
                     tail_types.reverse()
-                tail_vars: list[_Term] = [
-                    self.fresh(tail_types[k]) for k in range(len(field_types) - 2)
-                ] + [field_vars[-1]]
-                curr_body = body
-                for k in range(len(field_types) - 2, -1, -1):
-                    left_var = field_vars[k]
-                    left_type = field_types[k]
-                    right_var = tail_vars[k]
-                    right_type = tail_types[k]
+                tails = [self.fresh(tail) for tail in tail_types[:-1]] + [fields[-1].term]
+                for k in range(len(fields) - 2, -1, -1):
+                    left, right, right_type = fields[k], tails[k], tail_types[k]
                     if k == 0:
-                        scrut = col_scrutinee
-                        scrut_var_id = col_var_id
-                        scrut_type = col_type
-                        motive_return = (
-                            self.substitute(motive_body, root_var_id, pattern_term)
-                            if motive_body is not None
-                            else cast("_Term", inferred_result[0])
-                        )
+                        scrut, scrut_id, scrut_type = subject, subject_id, subject_type
                     else:
-                        scrut = tail_vars[k - 1]
-                        scrut_var_id = cast("int", scrut.value)
-                        scrut_type = tail_types[k - 1]
-                        motive_return = cast("_Term", inferred_result[0])
-                    if record_info.is_dependent and cast("int", left_var.value) in self.free(motive_return):
-                        fam_lam = _term("lam", left_type, right_type, value=left_var.value)
-                        proj1_var = _term("projT1", left_type, fam_lam, _term("var", value=scrut_var_id))
-                        motive_return = self.substitute(motive_return, cast("int", left_var.value), proj1_var)
-                        if motive_body is None and inferred_result[0] is not None:
-                            inferred_result[0] = self.substitute(motive_return, scrut_var_id, scrut)
-                    motive_lam = _term("lam", scrut_type, motive_return, value=scrut_var_id)
-                    branch_lam = _term(
-                        "lam",
-                        left_type,
-                        _term("lam", right_type, curr_body, value=right_var.value),
-                        value=left_var.value,
-                    )
-                    match_kind = "sigT_match" if record_info.is_dependent else "pair_match"
-                    curr_body = _term(match_kind, motive_lam, scrut, branch_lam)
-                return curr_body
+                        scrut, scrut_type = tails[k - 1], tail_types[k - 1]
+                        scrut_id = cast("int", scrut.value)
+                    motive_return = cast("_Term", inferred_result)
+                    if k == 0 and inject is None and motive_body is not None:
+                        motive_return = self.substitute(motive_body, root_var_id, pattern_term)
+                    elif motive_body is not None and isinstance(ctor, _UnionCtor) and not ctor.is_dependent:
+                        payload, payload_type = scrut, scrut_type
+                        for prefix in reversed(fields[:k]):
+                            payload = _term("pair", prefix.type, payload_type, prefix.term, payload)
+                            payload_type = _term("prod", prefix.type, payload_type)
+                        if inject is not None:
+                            payload = inject(payload)
+                        motive_return = self.substitute(
+                            motive_body, root_var_id, self.substitute(pattern_term, col_var_id, payload),
+                        )
+                    left_id = cast("int", left.term.value)
+                    if ctor.is_dependent and left_id in self.free(motive_return):
+                        family = _term("lam", left.type, right_type, value=left_id)
+                        projection = _term("projT1", left.type, family, _term("var", value=scrut_id))
+                        motive_return = self.substitute(motive_return, left_id, projection)
+                        if motive_body is None and inferred_result is not None:
+                            inferred_result = self.substitute(motive_return, scrut_id, scrut)
+                    motive = _term("lam", scrut_type, motive_return, value=scrut_id)
+                    branch = _term("lam", left.type, _term("lam", right_type, body, value=right.value), value=left_id)
+                    body = _term("sigT_match" if ctor.is_dependent else "pair_match", motive, scrut, branch)
+                return body
 
-            if col_head.kind == "const" and isinstance(col_head.value, str) and col_head.value in self.unions_by_type:
-                union_info = self.unions_by_type[col_head.value]
-                if len(union_info.constructors) == 1:
-                    ctor_info = union_info.constructors[0]
-                    if not ctor_info.fields:
-                        ctor_term = _apps(_constant(ctor_info.ctor_const), *col_type_args, _term("unit"))
-                        body = compile_matrix(
-                            subst_cols(without_index, col_var_id, ctor_term),
-                            specialize_rows(
-                                active_rows, index, "union", ctor_term, col_var_id, col_type, 0, ctor_name=ctor_info.ctor_const
-                            ),
-                            self.substitute(pattern_term, col_var_id, ctor_term),
+            if record is not None:
+                single_ctor, generics = record, record.generic_vars
+            elif union_info is not None and len(union_info.constructors) == 1:
+                single_ctor, generics = union_info.constructors[0], union_info.generic_vars
+            else:
+                single_ctor, generics = None, ()
+            if single_ctor is not None:
+                ctor = single_ctor
+                if not ctor.fields:
+                    body = constructor_body(ctor, [])
+                    if motive_body is None:
+                        return body
+                    motive = self.substitute(motive_body, root_var_id, pattern_term)
+                    return _term("unit_match", _term("lam", col_type, motive, value=col_var_id), col_scrutinee, body)
+                if len(ctor.fields) == 1:
+                    field_type = self._instantiate_generic_type(generics, col_type_args, ctor.fields[0].type)
+                    field_var = self.fresh(field_type)
+                    unit_var = self.fresh(_UNIT)
+                    body = constructor_body(ctor, [_Binding(field_var, field_type)])
+                    if isinstance(ctor, _UnionCtor) and motive_body is not None:
+                        pair = _term("pair", field_type, _UNIT, field_var, unit_var)
+                        unit_motive = self.substitute(
+                            motive_body, root_var_id, self.substitute(pattern_term, col_var_id, pair),
                         )
-                        if motive_body is None:
-                            return body
-                        motive_lam = _term(
-                            "lam", col_type, self.substitute(motive_body, root_var_id, pattern_term), value=col_var_id
-                        )
-                        return _term("unit_match", motive_lam, col_scrutinee, body)
-                    if len(ctor_info.fields) == 1:
-                        ft_0 = self._instantiate_generic_type(
-                            union_info.generic_vars, col_type_args, ctor_info.fields[0].type
-                        )
-                        fvar_0 = self.fresh(ft_0)
-                        dummy_unit_var = self.fresh(_UNIT)
-                        ctor_term = _apps(_constant(ctor_info.ctor_const), *col_type_args, fvar_0)
-                        sub_columns = [(fvar_0, fvar_0, ft_0)]
-                        body = compile_matrix(
-                            subst_cols(columns[:index], col_var_id, ctor_term)
-                            + sub_columns
-                            + subst_cols(columns[index + 1:], col_var_id, ctor_term),
-                            specialize_rows(
-                                active_rows, index, "union", ctor_term, col_var_id, col_type, 1, ctor_name=ctor_info.ctor_const
-                            ),
-                            self.substitute(pattern_term, col_var_id, ctor_term),
-                        )
-                        if motive_body is not None:
-                            unit_motive_ret = self.substitute(
-                                motive_body,
-                                root_var_id,
-                                self.substitute(
-                                    pattern_term,
-                                    col_var_id,
-                                    _term("pair", ft_0, _UNIT, fvar_0, dummy_unit_var),
-                                ),
-                            )
-                            body = _term(
-                                "unit_match",
-                                _term("lam", _UNIT, unit_motive_ret, value=dummy_unit_var.value),
-                                dummy_unit_var,
-                                body,
-                            )
-                        motive_return = (
-                            self.substitute(motive_body, root_var_id, pattern_term)
-                            if motive_body is not None
-                            else cast("_Term", inferred_result[0])
-                        )
-                        motive_lam = _term("lam", col_type, motive_return, value=col_var_id)
-                        branch_lam = _term(
-                            "lam",
-                            ft_0,
-                            _term("lam", _UNIT, body, value=dummy_unit_var.value),
-                            value=fvar_0.value,
-                        )
-                        return _term("pair_match", motive_lam, col_scrutinee, branch_lam)
-                    field_types = []
-                    field_vars = []
-                    for idx_f, rf in enumerate(ctor_info.fields):
-                        ft = self._instantiate_generic_type(union_info.generic_vars, col_type_args, rf.type)
-                        for j in range(idx_f):
-                            ft = self.substitute(ft, cast("int", ctor_info.fields[j].var.value), field_vars[j])
-                        fv = self.fresh(ft)
-                        field_types.append(ft)
-                        field_vars.append(fv)
-                    ctor_term = _apps(_constant(ctor_info.ctor_const), *col_type_args, *field_vars)
-                    sub_columns = [(fv, fv, ft) for fv, ft in zip(field_vars, field_types, strict=True)]
-                    body = compile_matrix(
-                        subst_cols(columns[:index], col_var_id, ctor_term)
-                        + sub_columns
-                        + subst_cols(columns[index + 1:], col_var_id, ctor_term),
-                        specialize_rows(
-                            active_rows,
-                            index,
-                            "union",
-                            ctor_term,
-                            col_var_id,
-                            col_type,
-                            len(field_vars),
-                            ctor_name=ctor_info.ctor_const,
-                        ),
-                        self.substitute(pattern_term, col_var_id, ctor_term),
-                    )
-                    if ctor_info.is_dependent:
-                        tail_types = []
-                        for k in range(len(field_types) - 1):
-                            tt = self._instantiate_generic_type(
-                                union_info.generic_vars, col_type_args, ctor_info.tail_sig_types[k + 1]
-                            )
-                            for j in range(k + 1):
-                                tt = self.substitute(tt, cast("int", ctor_info.fields[j].var.value), field_vars[j])
-                            tail_types.append(tt)
-                    else:
-                        tail_types = [field_types[-1]]
-                        for ft in reversed(field_types[1:-1]):
-                            tail_types.append(_term("prod", ft, tail_types[-1]))
-                        tail_types.reverse()
-                    tail_vars = [
-                        self.fresh(tail_types[k]) for k in range(len(field_types) - 2)
-                    ] + [field_vars[-1]]
-                    curr_body = body
-                    for k in range(len(field_types) - 2, -1, -1):
-                        left_var = field_vars[k]
-                        left_type = field_types[k]
-                        right_var = tail_vars[k]
-                        right_type = tail_types[k]
-                        if k == 0:
-                            scrut = col_scrutinee
-                            scrut_var_id = col_var_id
-                            scrut_type = col_type
-                            motive_return = (
-                                self.substitute(motive_body, root_var_id, pattern_term)
-                                if motive_body is not None
-                                else cast("_Term", inferred_result[0])
-                            )
-                        else:
-                            scrut = tail_vars[k - 1]
-                            scrut_var_id = cast("int", scrut.value)
-                            scrut_type = tail_types[k - 1]
-                            if motive_body is not None and not ctor_info.is_dependent:
-                                partial = scrut
-                                p_type = scrut_type
-                                for j in range(k - 1, -1, -1):
-                                    partial = _term("pair", field_types[j], p_type, field_vars[j], partial)
-                                    p_type = _term("prod", field_types[j], p_type)
-                                motive_return = self.substitute(
-                                    motive_body,
-                                    root_var_id,
-                                    self.substitute(pattern_term, col_var_id, partial),
-                                )
-                            else:
-                                motive_return = cast("_Term", inferred_result[0])
-                        if ctor_info.is_dependent and cast("int", left_var.value) in self.free(motive_return):
-                            fam_lam = _term("lam", left_type, right_type, value=left_var.value)
-                            proj1_var = _term("projT1", left_type, fam_lam, _term("var", value=scrut_var_id))
-                            motive_return = self.substitute(motive_return, cast("int", left_var.value), proj1_var)
-                            if motive_body is None and inferred_result[0] is not None:
-                                inferred_result[0] = self.substitute(motive_return, scrut_var_id, scrut)
-                        motive_lam = _term("lam", scrut_type, motive_return, value=scrut_var_id)
-                        branch_lam = _term(
-                            "lam",
-                            left_type,
-                            _term("lam", right_type, curr_body, value=right_var.value),
-                            value=left_var.value,
-                        )
-                        match_kind = "sigT_match" if ctor_info.is_dependent else "pair_match"
-                        curr_body = _term(match_kind, motive_lam, scrut, branch_lam)
-                    return curr_body
+                        body = _term("unit_match", _term("lam", _UNIT, unit_motive, value=unit_var.value), unit_var, body)
+                    motive = column_result_type()
+                    branch = _term("lam", field_type, _term("lam", _UNIT, body, value=unit_var.value), value=field_var.value)
+                    return _term("pair_match", _term("lam", col_type, motive, value=col_var_id), col_scrutinee, branch)
+                return product_branch(ctor, generics, col_scrutinee, col_var_id, col_type)
 
+            if union_info is not None:
                 inst_payload_types = [
                     self._instantiate_generic_type(union_info.generic_vars, col_type_args, c.payload_type)
                     for c in union_info.constructors
@@ -1402,14 +1248,7 @@ class _PatternsMixin:
                 for ctor_idx, ctor_info in enumerate(union_info.constructors):
                     if not ctor_info.fields:
                         pvar = self.fresh(_UNIT)
-                        ctor_term = _apps(_constant(ctor_info.ctor_const), *col_type_args, _term("unit"))
-                        leaf_body = compile_matrix(
-                            subst_cols(without_index, col_var_id, ctor_term),
-                            specialize_rows(
-                                active_rows, index, "union", ctor_term, col_var_id, col_type, 0, ctor_name=ctor_info.ctor_const
-                            ),
-                            self.substitute(pattern_term, col_var_id, ctor_term),
-                        )
+                        leaf_body = constructor_body(ctor_info, [])
                         if motive_body is None:
                             pbranch = leaf_body
                         else:
@@ -1424,116 +1263,21 @@ class _PatternsMixin:
                                 pvar,
                                 leaf_body,
                             )
-                        payload_vars.append(pvar)
-                        payload_branches.append(pbranch)
                     elif len(ctor_info.fields) == 1:
                         ft_0 = self._instantiate_generic_type(
                             union_info.generic_vars, col_type_args, ctor_info.fields[0].type
                         )
                         pvar = self.fresh(ft_0)
-                        ctor_term = _apps(_constant(ctor_info.ctor_const), *col_type_args, pvar)
-                        sub_columns = [(pvar, pvar, ft_0)]
-                        pbranch = compile_matrix(
-                            subst_cols(columns[:index], col_var_id, ctor_term)
-                            + sub_columns
-                            + subst_cols(columns[index + 1:], col_var_id, ctor_term),
-                            specialize_rows(
-                                active_rows, index, "union", ctor_term, col_var_id, col_type, 1, ctor_name=ctor_info.ctor_const
-                            ),
-                            self.substitute(pattern_term, col_var_id, ctor_term),
-                        )
-                        payload_vars.append(pvar)
-                        payload_branches.append(pbranch)
+                        pbranch = constructor_body(ctor_info, [_Binding(pvar, ft_0)])
                     else:
-                        pvar = self.fresh(inst_payload_types[ctor_idx])
-                        field_types = []
-                        field_vars = []
-                        for idx_f, rf in enumerate(ctor_info.fields):
-                            ft = self._instantiate_generic_type(union_info.generic_vars, col_type_args, rf.type)
-                            for j in range(idx_f):
-                                ft = self.substitute(ft, cast("int", ctor_info.fields[j].var.value), field_vars[j])
-                            fv = self.fresh(ft)
-                            field_types.append(ft)
-                            field_vars.append(fv)
-                        ctor_term = _apps(_constant(ctor_info.ctor_const), *col_type_args, *field_vars)
-                        sub_columns = [(fv, fv, ft) for fv, ft in zip(field_vars, field_types, strict=True)]
-                        leaf_body = compile_matrix(
-                            subst_cols(columns[:index], col_var_id, ctor_term)
-                            + sub_columns
-                            + subst_cols(columns[index + 1:], col_var_id, ctor_term),
-                            specialize_rows(
-                                active_rows,
-                                index,
-                                "union",
-                                ctor_term,
-                                col_var_id,
-                                col_type,
-                                len(field_vars),
-                                ctor_name=ctor_info.ctor_const,
-                            ),
-                            self.substitute(pattern_term, col_var_id, ctor_term),
+                        payload_type = inst_payload_types[ctor_idx]
+                        pvar = self.fresh(payload_type)
+                        pbranch = product_branch(
+                            ctor_info, union_info.generic_vars, pvar, cast("int", pvar.value), payload_type,
+                            partial(ctor_inj, ctor_idx),
                         )
-                        if ctor_info.is_dependent:
-                            tail_types = []
-                            for k in range(len(field_types) - 1):
-                                tt = self._instantiate_generic_type(
-                                    union_info.generic_vars, col_type_args, ctor_info.tail_sig_types[k + 1]
-                                )
-                                for j in range(k + 1):
-                                    tt = self.substitute(tt, cast("int", ctor_info.fields[j].var.value), field_vars[j])
-                                tail_types.append(tt)
-                        else:
-                            tail_types = [field_types[-1]]
-                            for ft in reversed(field_types[1:-1]):
-                                tail_types.append(_term("prod", ft, tail_types[-1]))
-                            tail_types.reverse()
-                        tail_vars = [
-                            self.fresh(tail_types[k]) for k in range(len(field_types) - 2)
-                        ] + [field_vars[-1]]
-                        curr_body = leaf_body
-                        for k in range(len(field_types) - 2, -1, -1):
-                            left_var = field_vars[k]
-                            left_type = field_types[k]
-                            right_var = tail_vars[k]
-                            right_type = tail_types[k]
-                            if k == 0:
-                                scrut = pvar
-                                scrut_var_id = cast("int", pvar.value)
-                                scrut_type = inst_payload_types[ctor_idx]
-                            else:
-                                scrut = tail_vars[k - 1]
-                                scrut_var_id = cast("int", scrut.value)
-                                scrut_type = tail_types[k - 1]
-                            if motive_body is not None and not ctor_info.is_dependent:
-                                partial = scrut
-                                p_type = scrut_type
-                                for j in range(k - 1, -1, -1):
-                                    partial = _term("pair", field_types[j], p_type, field_vars[j], partial)
-                                    p_type = _term("prod", field_types[j], p_type)
-                                motive_return = self.substitute(
-                                    motive_body,
-                                    root_var_id,
-                                    self.substitute(pattern_term, col_var_id, ctor_inj(ctor_idx, partial)),
-                                )
-                            else:
-                                motive_return = cast("_Term", inferred_result[0])
-                            if ctor_info.is_dependent and cast("int", left_var.value) in self.free(motive_return):
-                                fam_lam = _term("lam", left_type, right_type, value=left_var.value)
-                                proj1_var = _term("projT1", left_type, fam_lam, _term("var", value=scrut_var_id))
-                                motive_return = self.substitute(motive_return, cast("int", left_var.value), proj1_var)
-                                if motive_body is None and inferred_result[0] is not None:
-                                    inferred_result[0] = self.substitute(motive_return, scrut_var_id, scrut)
-                            motive_lam = _term("lam", scrut_type, motive_return, value=scrut_var_id)
-                            branch_lam = _term(
-                                "lam",
-                                left_type,
-                                _term("lam", right_type, curr_body, value=right_var.value),
-                                value=left_var.value,
-                            )
-                            match_kind = "sigT_match" if ctor_info.is_dependent else "pair_match"
-                            curr_body = _term(match_kind, motive_lam, scrut, branch_lam)
-                        payload_vars.append(pvar)
-                        payload_branches.append(curr_body)
+                    payload_vars.append(pvar)
+                    payload_branches.append(pbranch)
 
                 sum_vars = [self.fresh(inst_suffix_types[i]) for i in range(1, num_ctors - 1)]
                 acc_body = payload_branches[-1]
@@ -1545,11 +1289,7 @@ class _PatternsMixin:
                         scrut = col_scrutinee
                         scrut_var_id = col_var_id
                         scrut_type = col_type
-                        motive_return = (
-                            self.substitute(motive_body, root_var_id, pattern_term)
-                            if motive_body is not None
-                            else cast("_Term", inferred_result[0])
-                        )
+                        motive_return = column_result_type()
                     else:
                         scrut = sum_vars[i - 1]
                         scrut_var_id = cast("int", scrut.value)
@@ -1561,7 +1301,7 @@ class _PatternsMixin:
                                 self.substitute(pattern_term, col_var_id, suffix_inj(i, scrut)),
                             )
                             if motive_body is not None
-                            else cast("_Term", inferred_result[0])
+                            else cast("_Term", inferred_result)
                         )
                     motive_lam = _term("lam", scrut_type, motive_return, value=scrut_var_id)
                     acc_body = _term("sum_match", motive_lam, scrut, left_lam, right_lam)
@@ -1600,8 +1340,7 @@ class _PatternsMixin:
                     specialize_rows(active_rows, index, "succ", succ_term, col_var_id, _NAT, 1),
                     self.substitute(pattern_term, col_var_id, succ_term),
                 )
-                motive_return = (self.substitute(motive_body, root_var_id, pattern_term)
-                                 if motive_body is not None else cast("_Term", inferred_result[0]))
+                motive_return = column_result_type()
                 motive_lam = _term("lam", _NAT, motive_return, value=col_var_id)
                 succ_lam = _term("lam", _NAT, succ_body, value=pred_var.value)
                 return _term("nat_match", motive_lam, col_scrutinee, zero_body, succ_lam)
@@ -1610,7 +1349,7 @@ class _PatternsMixin:
 
         term = compile_matrix([(root_var, scrutinee.term, scrutinee_type)], rows, root_var)
         result_type = (self.substitute(motive_body, root_var_id, scrutinee.term)
-                       if motive_body is not None else cast("_Term", inferred_result[0]))
+                       if motive_body is not None else cast("_Term", inferred_result))
         if not synthetic:
             for arm_index, arm in enumerate(cases):
                 if arm_index in local_visited:

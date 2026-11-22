@@ -3,6 +3,7 @@
 
 import hashlib
 import re
+from itertools import accumulate
 from typing import cast
 
 from toolchain.ast import (
@@ -10,6 +11,7 @@ from toolchain.ast import (
     MAX_LITERAL_DIGITS,
     MAX_SOURCE_BYTES,
     VelaError,
+    position,
     source_text,
     trivia_end,
 )
@@ -85,6 +87,34 @@ _FIELDS: dict[str, set[str]] = {
     "assert": {"value", "by"}, "proof": {"body"}, "calc": {"body"},
     "hole": {"name"},
 }
+_OPTIONAL_FIELDS = {
+    "parameter": {"const", "label"},
+    "lambda_parameter": {"const"},
+    "contract": {"name"},
+    "import": {"modifiers", "alias", "items"},
+}
+
+# Bytes are literal source tokens; strings are fields containing located children.
+_FIXED_ENVELOPES: dict[str, tuple[bytes | str, ...]] = {
+    "expression_statement": ("value", b";"),
+    "range": ("start", b"..", "end"),
+    "break": (b"break", b";"),
+    "continue": (b"continue", b";"),
+    "match_motive": (b"as", "name", b":", "type"),
+    "name": ("name",),
+    "hole": ("name",),
+    "out_variable": (b"out", b"var", "name"),
+    "unary": ("operator", "value"),
+    "field_update": ("name", b"=", "value"),
+    "member": ("value", b".", "name"),
+    "index": ("value", b"[", "index", b"]"),
+    "typed_lambda": ("signature", b"=>", "body"),
+    "type_expression": (b"type", "type"),
+    "type_argument": (b"type", "type"),
+    "computed_type": (b"type", b"[", "value", b"]"),
+    "propagate": ("value", b"?"),
+}
+
 _PATTERN_KINDS = {
     "wildcard_pattern", "binding_pattern", "unit_pattern", "group_pattern",
     "tuple_pattern", "bool_pattern", "character_pattern", "string_pattern",
@@ -112,19 +142,15 @@ _SYNTAX_WORDS = {
 
 class _Protocol:
     def __init__(self, source: bytes) -> None:
-        source_text(source)
+        text = source_text(source)
         self.source = source
         self.remaining = MAX_SOURCE_BYTES
-        self.boundaries = {0}
-        offset = 0
-        for character in source.decode("utf-8"):
-            offset += len(character.encode("utf-8"))
-            self.boundaries.add(offset)
+        self.boundaries = set(accumulate((len(char.encode("utf-8")) for char in text), initial=0))
 
     def error(self, kind: str, message: str, node: Node | None = None) -> VelaError:
         offset = 0 if node is None else cast("list[int]", node.get("span", [0]))[0]
-        prefix = self.source[:offset].decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
-        return VelaError(kind, prefix.count("\n") + 1, len(prefix.rsplit("\n", 1)[-1]) + 1, message)
+        site = position(self.source[:offset].decode("utf-8"))
+        return VelaError(kind, site.line, site.column, message)
 
     def _span(self, raw: object, parent: tuple[int, int]) -> tuple[int, int]:
         if (not isinstance(raw, list) or len(raw) != 2
@@ -219,9 +245,15 @@ class _Protocol:
         return self._list(node, span, cursor, values, b"<", b">") if values else cursor
 
     def _ordinary_envelope(self, node: Node, span: tuple[int, int]) -> None:
-        kind = node["kind"]
+        kind = cast("str", node["kind"])
         cursor = span[0]
-        if kind in {"definition", "function", "alias", "theorem", "lemma", "record", "union", "property"}:
+        if (layout := _FIXED_ENVELOPES.get(kind)) is not None:
+            for part in layout:
+                if isinstance(part, bytes):
+                    cursor = self._token(node, cursor, part)
+                else:
+                    cursor = self._child(node, span, cursor, node[part])
+        elif kind in {"definition", "function", "alias", "theorem", "lemma", "record", "union", "property"}:
             contracts = node.get("contracts")
             if node.get("cancel"):
                 return  # These roles are refused by the mathematical consumer.
@@ -273,7 +305,7 @@ class _Protocol:
             for modifier in modifiers:
                 cursor = self._token(node, cursor, cast("str", modifier).encode())
             if kind not in {"function", "property"}:
-                cursor = self._token(node, cursor, cast("str", kind).encode())
+                cursor = self._token(node, cursor, kind.encode())
             if kind in {"definition", "function", "property"}:
                 cursor = self._child(node, span, cursor, node["type" if kind == "property" else "result"])
             cursor = self._child(node, span, cursor, node["name"])
@@ -320,7 +352,7 @@ class _Protocol:
                 raise self.error("protocol", "declaration modifiers must be a name list", node)
             for modifier in modifiers:
                 cursor = self._token(node, cursor, cast("str", modifier).encode())
-            cursor = self._token(node, cursor, cast("str", kind).encode())
+            cursor = self._token(node, cursor, kind.encode())
             if kind == "interface":
                 cursor = self._child(node, span, cursor, node["name"])
                 cursor = self._generics(node, span, cursor)
@@ -370,7 +402,7 @@ class _Protocol:
                     cursor = self._child(node, span, cursor, node["type"])
             else:
                 if kind in {"let", "var"}:
-                    cursor = self._token(node, cursor, cast("str", kind).encode())
+                    cursor = self._token(node, cursor, kind.encode())
                 if kind in {"parameter", "lambda_parameter"} and node.get("const", False):
                     cursor = self._token(node, cursor, b"const")
                 if node["type"] is not None:
@@ -418,13 +450,6 @@ class _Protocol:
             for field in ("target", "operator", "value"):
                 cursor = self._child(node, span, cursor, node[field])
             cursor = self._token(node, cursor, b";")
-        elif kind == "expression_statement":
-            cursor = self._child(node, span, cursor, node["value"])
-            cursor = self._token(node, cursor, b";")
-        elif kind == "range":
-            cursor = self._child(node, span, cursor, node["start"])
-            cursor = self._token(node, cursor, b"..")
-            cursor = self._child(node, span, cursor, node["end"])
         elif kind == "foreach":
             if not isinstance(node["range"], dict) or node["range"].get("kind") != "range":
                 raise self.error("protocol", "foreach requires a range node", node)
@@ -486,9 +511,6 @@ class _Protocol:
             for contract_item in contracts:
                 cursor = self._child(node, span, cursor, contract_item)
             cursor = self._child(node, span, cursor, node["body"])
-        elif kind in {"break", "continue"}:
-            cursor = self._token(node, cursor, cast("str", kind).encode())
-            cursor = self._token(node, cursor, b";")
         elif kind == "open_invariant":
             resources = node["resources"]
             if not isinstance(resources, list) or not resources:
@@ -524,15 +546,10 @@ class _Protocol:
                     cursor = self._token(node, cursor, b";")
             else:
                 cursor = self._token(node, cursor, b";")
-        elif kind == "proof":
+        elif kind in {"calc", "proof"}:
             if not isinstance(node["body"], dict) or node["body"].get("kind") != "block":
-                raise self.error("protocol", "proof statement requires a block body", node)
-            cursor = self._token(node, cursor, b"proof")
-            cursor = self._child(node, span, cursor, node["body"])
-        elif kind == "calc":
-            if not isinstance(node["body"], dict) or node["body"].get("kind") != "block":
-                raise self.error("protocol", "calc statement requires a block body", node)
-            cursor = self._token(node, cursor, b"calc")
+                raise self.error("protocol", f"{kind} statement requires a block body", node)
+            cursor = self._token(node, cursor, kind.encode())
             cursor = self._child(node, span, cursor, node["body"])
         elif kind in {"if", "if_expression"}:
             cursor = self._token(node, cursor, b"if")
@@ -569,11 +586,6 @@ class _Protocol:
                     if self.source[after:after + 1] == b",":
                         cursor = after + 1
                 cursor = self._token(node, cursor, b"}")
-        elif kind == "match_motive":
-            cursor = self._token(node, cursor, b"as")
-            cursor = self._child(node, span, cursor, node["name"])
-            cursor = self._token(node, cursor, b":")
-            cursor = self._child(node, span, cursor, node["type"])
         elif kind == "case":
             if not isinstance(node["pattern"], dict) or node["pattern"].get("kind") not in _PATTERN_KINDS:
                 raise self.error("protocol", "match arm requires a pattern node", node)
@@ -617,21 +629,12 @@ class _Protocol:
             cursor = self._child(node, span, cursor, node["label"])
             cursor = self._token(node, cursor, b":")
             cursor = self._child(node, span, cursor, node["pattern"])
-        elif kind in {"name", "hole"}:
-            cursor = self._child(node, span, cursor, node["name"])
         elif kind == "binary":
             op = node["operator"]
             if not isinstance(op, dict) or op.get("text") not in _OPERATORS:
                 raise self.error("protocol", "binary operator differs from source", node)
             for field in ("left", "operator", "right"):
                 cursor = self._child(node, span, cursor, node[field])
-        elif kind == "out_variable":
-            cursor = self._token(node, cursor, b"out")
-            cursor = self._token(node, cursor, b"var")
-            cursor = self._child(node, span, cursor, node["name"])
-        elif kind == "unary":
-            cursor = self._child(node, span, cursor, node["operator"])
-            cursor = self._child(node, span, cursor, node["value"])
         elif kind == "is":
             if not isinstance(node["pattern"], dict) or node["pattern"].get("kind") not in _PATTERN_KINDS:
                 raise self.error("protocol", "is expression requires a pattern child", node)
@@ -646,42 +649,21 @@ class _Protocol:
             cursor = self._child(node, span, cursor, node["value"])
             cursor = self._token(node, cursor, b"with")
             cursor = self._list(node, span, cursor, updates, b"{", b"}")
-        elif kind == "field_update":
-            cursor = self._child(node, span, cursor, node["name"])
-            cursor = self._token(node, cursor, b"=")
-            cursor = self._child(node, span, cursor, node["value"])
-        elif kind == "member":
-            cursor = self._child(node, span, cursor, node["value"])
-            cursor = self._token(node, cursor, b".")
-            cursor = self._child(node, span, cursor, node["name"])
-        elif kind == "index":
-            cursor = self._child(node, span, cursor, node["value"])
-            cursor = self._token(node, cursor, b"[")
-            cursor = self._child(node, span, cursor, node["index"])
-            cursor = self._token(node, cursor, b"]")
         elif kind in {"group", "group_type", "group_pattern", "operator"}:
             cursor = self._token(node, cursor, b"(")
-            field = {"group": "value", "group_type": "type", "group_pattern": "pattern", "operator": "name"}[cast("str", kind)]
+            field = {"group": "value", "group_type": "type", "group_pattern": "pattern", "operator": "name"}[kind]
             if kind == "group_pattern" and (not isinstance(node["pattern"], dict) or node["pattern"].get("kind") not in _PATTERN_KINDS):
                 raise self.error("protocol", "group_pattern requires a pattern child", node)
             cursor = self._child(node, span, cursor, node[field])
             cursor = self._token(node, cursor, b")")
         elif kind in {"tuple", "tuple_type", "tuple_pattern"}:
-            field = {"tuple": "values", "tuple_type": "types", "tuple_pattern": "patterns"}[cast("str", kind)]
+            field = {"tuple": "values", "tuple_type": "types", "tuple_pattern": "patterns"}[kind]
             if kind == "tuple_pattern":
                 patterns = node["patterns"]
                 if (not isinstance(patterns, list) or len(patterns) < 2
                         or any(not isinstance(item, dict) or item.get("kind") not in _PATTERN_KINDS for item in patterns)):
                     raise self.error("protocol", "tuple_pattern requires at least two pattern children", node)
             cursor = self._list(node, span, cursor, node[field], trailing=False)
-        elif kind in {"type_expression", "type_argument", "computed_type"}:
-            cursor = self._token(node, cursor, b"type")
-            if kind == "computed_type":
-                cursor = self._token(node, cursor, b"[")
-                cursor = self._child(node, span, cursor, node["value"])
-                cursor = self._token(node, cursor, b"]")
-            else:
-                cursor = self._child(node, span, cursor, node["type"])
         elif kind == "type":
             cursor = self._child(node, span, cursor, node["name"])
             values = node["arguments"]
@@ -717,10 +699,6 @@ class _Protocol:
             following = trivia_end(self.source, cursor, block_comments=True)
             if not explicit and self.source[following:following + 1] != b"(":
                 raise self.error("protocol", "ordinary generic application must be followed by a call", node)
-        elif kind == "typed_lambda":
-            cursor = self._child(node, span, cursor, node["signature"])
-            cursor = self._token(node, cursor, b"=>")
-            cursor = self._child(node, span, cursor, node["body"])
         elif kind == "let_expression":
             binding = node["binding"]
             if not isinstance(binding, dict) or binding.get("kind") not in {"let", "typed_local", "let_pattern"}:
@@ -792,9 +770,6 @@ class _Protocol:
             if node["alias"] is not None:
                 cursor = self._token(node, cursor, b"as")
                 cursor = self._child(node, span, cursor, node["alias"])
-        elif kind == "propagate":
-            cursor = self._child(node, span, cursor, node["value"])
-            cursor = self._token(node, cursor, b"?")
         else:
             return
         if cursor != span[1]:
@@ -946,17 +921,7 @@ class _Protocol:
         fields = _FIELDS.get(kind)
         if fields is None:
             raise self.error("unsupported", f"'{kind}' is outside mathematical elaboration", node)
-        optional = (
-            {"const"}
-            if kind in {"parameter", "lambda_parameter"}
-            else (
-                {"name"}
-                if kind == "contract"
-                else ({"modifiers", "alias", "items"} if kind == "import" else set())
-            )
-        )
-        if kind == "parameter":
-            optional = optional | {"label"}
+        optional = _OPTIONAL_FIELDS.get(kind, set())
         if (set(node) - optional != {"kind", "span", *fields}
                 or ("const" in node and type(node["const"]) is not bool)):
             raise self.error("protocol", f"invalid fields for '{kind}'", node)
