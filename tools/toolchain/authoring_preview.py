@@ -13,6 +13,10 @@ from toolchain.source import SourceSnapshot
 SCHEMA_VERSION = 1
 
 
+class NoComparisonEditError(ValueError):
+    """The selected comparison has no supported source-preserving edit."""
+
+
 def _meaning(value: object) -> object:
     """Compare checked syntax modulo grouping and Boolean equality identities."""
     if isinstance(value, ast.Expression):
@@ -70,13 +74,13 @@ def preview(source: bytes, line: int, column: int) -> dict[str, object]:
             literal, operand = selected, children[other]
             break
     if literal is None or operand is None:
-        raise ValueError("preview requires a Boolean literal operand (VELA103)")
+        raise NoComparisonEditError("preview requires a Boolean literal operand (VELA103)")
     first, last = cast("list[int]", comparison["span"])
     pieces = cast("list[dict[str, object]]", publication["concrete"])
     if any(piece["kind"] not in concrete.TOKEN_KINDS | {"whitespace"}
            and cast("list[int]", piece["span"])[0] < last
            and cast("list[int]", piece["span"])[1] > first for piece in pieces):
-        raise ValueError("preview refuses comparisons containing comments")
+        raise NoComparisonEditError("preview refuses comparisons containing comments")
     begin, end = cast("list[int]", operand["span"])
     replacement = (b"(" if literal["value"] is True else b"!(") + source[begin:end] + b")"
     candidate = source[:first] + replacement + source[last:]
@@ -93,6 +97,30 @@ def preview(source: bytes, line: int, column: int) -> dict[str, object]:
             "replacement": replacement.decode("utf-8"), "candidate": candidate.decode("utf-8"),
             "candidate_sha256": hashlib.sha256(candidate).hexdigest(), "status": "checked",
             "qualification": "pure-development; no source/artifact correspondence"}
+
+
+def selection(source: bytes, start: int, end: int) -> dict[str, object] | None:
+    """Select one equality token intersecting a half-open editor range or caret."""
+    if not 0 <= start <= end <= len(source):
+        raise ValueError("comparison selection outside source")
+    selection_end = max(end, start + 1)
+    selected: int | None = None
+    for piece in concrete.parts(source):
+        if piece["kind"] != "punctuation" or piece["text"] != "==":
+            continue
+        first, last = cast("list[int]", piece["span"])
+        if start >= last or first >= selection_end:
+            continue
+        if selected is not None:
+            return None
+        selected = first
+    if selected is None:
+        return None
+    site = ast.position(source[:selected].decode("utf-8"))
+    try:
+        return preview(source, site.line, site.column)
+    except NoComparisonEditError:
+        return None
 
 
 def validate(publication: object, source: bytes) -> bytes:
