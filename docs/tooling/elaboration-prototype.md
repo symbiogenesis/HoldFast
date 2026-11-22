@@ -477,6 +477,41 @@ hosted execution. Native acceptance remains pending until its exact-revision
 hosted verdict exists. Report the supported fragment and remaining production
 obligations in the command guide.
 
+## Locked mathematical packages
+
+The batch builder composes packages for edition `math-1` and target
+`rocq-gallina`. In an offline workspace, each package revision lives at
+`<name>/<revision>/vela-package.toml`. The manifest names both identifiers,
+the edition and target, a `modules` table mapping exact Vela module names to
+source paths, a `dependencies` table mapping canonical package names to
+exact revisions, and an `inputs` list of additional files to bind. All input
+paths are relative to the manifest. Install the selected revisions into the
+workspace before locking. [Example manifest](../../examples/packages/scale/v1/vela-package.toml)
+
+```console
+python tools/run.py vela-parser lock-package examples/packages scale v1 --output scale.lock
+python tools/run.py vela-parser build-package examples/packages scale.lock --output scale.json
+```
+
+The lock records every reachable manifest, file digest, module, revision and
+dependency edge together with the parser, elaborator and target configuration.
+A diamond must select a single revision for each package. A module can import
+its own package and its direct dependencies, plus the built-in `Vela.Numerics`
+aliases supplied by the locked frontend. A package instance digest binds its
+canonical name, revision, declared files and dependency instances. Its nominal
+declarations carry that identity in the emitted modules. The compiler checks
+instance ownership and overlap across the closure, including sibling modules.
+
+The build reads the locked inputs again before publishing a result. Its receipt
+lists the module build order and the exact lock, source, package-instance and
+Gallina digests. The optional output bundle maps full module names to complete
+Gallina files and binds them to the lock digest. Missing revisions, undeclared
+imports, conflicting module owners, cycles and stale lockfiles fail the build.
+The closure is bounded to 64 packages, 256 files, 16 MiB of inputs and 32 MiB
+of combined generated Gallina. This target produces mathematical elaborations.
+Kernel replay and release artifact admission have their own evidence owners.
+[Package contract](../language/first-release.md#modules-and-packages)
+
 ## Try the mathematical fragment
 
 The [bounded word counter](../../examples/word_count.vela) borrows validated
