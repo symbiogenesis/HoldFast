@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Syntax-only development example: no elaboration or proof claim.
+// Syntax examples for the [surface parser](../docs/tooling/parser.md).
 module Vela.Surface;
 
 public const usize FirstOffset = 0usize;
@@ -118,7 +118,6 @@ public alias Build<captures C, grade q : NatExact> =
     Fn(usize length, byte seed @ q) -> Buffer<byte, length> captures C;
 
 // Dependent records package represented data with erased evidence.
-// No separate packet, box, cell or protocol-token primitive is needed.
 public record Sized<T>(
     usize Length,
     owned Buffer<T, Length> Storage,
@@ -405,7 +404,7 @@ public void UpdateCell<T : Type<u>>(ref LocalCell<T> cell)
 }
 
 // Product grades are ordinary dictionary applications over pair values.
-// Compatible supplies the interaction laws; syntax establishes none of them.
+// Compatible supplies the interaction laws for the product.
 public domain Product<A : GradeDomain, B : GradeDomain>
     where Compatible(A, B)
 {

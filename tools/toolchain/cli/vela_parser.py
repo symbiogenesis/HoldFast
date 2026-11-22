@@ -281,7 +281,7 @@ def main(argv: list[str] | None = None) -> int:
     server = commands.add_parser("bsp", help="serve the locked package graph over BSP 2.1.1 stdio")
     server.add_argument("workspace", type=Path)
     server.add_argument("locks", type=Path, nargs="+", metavar="LOCK")
-    commands.add_parser("migration", help="compare generated AST translation with the retained prototype")
+    commands.add_parser("migration", help="compare pure parser outputs against independent fixtures")
     syntax_campaigns = commands.add_parser(
         "syntax-campaigns",
         help="qualify Menhir-generated syntax campaigns and independent AST/span oracles",
@@ -307,7 +307,7 @@ def main(argv: list[str] | None = None) -> int:
     commands.add_parser("elaborate-qualify", help="replay pure and mathematical elaboration through the locked kernel")
     first_slice = commands.add_parser(
         "first-slice",
-        help="qualify the Q25w Span<byte> carrier and vela-first-slice validator across Rocq and Sail",
+        help="replay packet-validator source proofs in Rocq and assembly controls in Sail",
     )
     first_slice.add_argument("--ccomp", type=Path, help="require compiler replay with this VerifiedOS typed ccomp")
     first_slice.add_argument("--trace", action="store_true", help="retain a bounded packet compiler timeline alongside the receipt")
@@ -324,9 +324,9 @@ def main(argv: list[str] | None = None) -> int:
     bindings.add_argument("receipt", type=Path)
     elaborate = commands.add_parser(
         "elaborate", help="emit unqualified Gallina for the bounded generic/dependent mathematical fragment",
-        description="Elaborate generic dependent mathematics and explicit proofs. Development prototype; "
-                    "emission supplies no kernel or source-correspondence verdict. "
-                    "Unsupported contracts, effects, resource syntax and unresolved holes are refused.")
+        description="Elaborate the supported mathematical fragment and emit Gallina. "
+                    "Run kernel replay separately to check emitted proof terms. "
+                    "The elaborator reports unsupported constructs and refuses unresolved holes.")
     elaborate.add_argument("source", type=Path)
     elaborate.add_argument("--output", type=Path,
                            help="atomically replace a file in an existing directory")
@@ -341,7 +341,7 @@ def main(argv: list[str] | None = None) -> int:
     support = commands.add_parser("support", help="build and kernel-check the pinned Rocq support library")
     support.add_argument("--archive", type=Path, help="use an already downloaded authenticated release archive")
     parse = commands.add_parser("parse", help="emit a complete located syntax tree as JSON")
-    parse.add_argument("--surface", action="store_true", help="parse the full development surface as schema 2")
+    parse.add_argument("--surface", action="store_true", help="parse the full development surface and emit its AST")
     parse.add_argument("source", type=Path)
     args = parser.parse_args(argv)
     allowed = set(getattr(args, "allow", []))

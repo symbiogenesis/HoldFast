@@ -1,31 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Run the Span<byte> carrier and vela-first-slice packet validator harness.
+"""Replay packet-validator proofs, C lowering, and native controls.
 
-This module connects `examples/first_slice.vela` to:
-1. Rocq elaboration (`rocq c`, `Print Assumptions`, and `rocqchk`) of the concrete
-   `Span<byte>` carrier laws, `PrepareAndValidatePacket` functional and `restores`
-   contracts, format-model agreement (`SpecPacketValid`), and expected-byte/status
-   scenario theorems. Obligations the elaborator cannot kernel-prove reach Rocq as
-   named solver-trust axioms carrying their real statements; the audit requires
-   exactly that ledger, and a non-empty ledger leaves the slice unaccepted;
-2. The capacity-invariance gate (`N = 8` vs `N = 1,000,000_000`) proving identical
-   obligation counts, reduction steps, and proof structure over a capacity-wide
-   symbolic loop (`0usize..dst.Length`);
-3. Well-formed semantic negative neighbors (bounds, `in` borrow mutation, `ReadOnly`
-   mutation, record `in<'a> Span<byte>` field mutation, invalidated tag read,
-   overlapping `CopyPrefix`, uncontained `Restore`, broken `restores` contract,
-   returning a restored view, capability fabrication in executable code, missing
-   `writes(...)` effect, wrong expected byte, stale-input leak, and loop-frame
-   overlap) that parse cleanly and fail during type/proof checking for the intended
-   semantic reason; and
-4. AST-driven lowering of the executable declarations to Clight/C and purecap
-   CHERI-RISC-V assembly, verified through CompCert (`-fverifiedos-typed -dclight`
-   and `-interp`, when present) and target execution on the Sail emulator
-   (`sail_riscv_sim`), including hardware capability bounds-fault and tag-fault traps.
-
-This qualifies the synchronous first-slice vertical prototype and concrete carrier
-laws; it does not claim a closed mechanized Sail-to-Clight/CompCert refinement theorem
-or replace user-managed hosted CI.
+The harness checks source-level byte and loan laws in Rocq, lowers the supported
+validator to C, and runs separate handwritten assembly controls in Sail.
+Optional VerifiedOS CompCert replay exercises the lowered C. See
+[first-slice qualification](../../docs/language/first-release.md#first-slice-qualification)
+for the evidence and its limits.
 """
 
 import copy

@@ -1,9 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Pure Vela syntax consumption and translation into existing CIC terms.
+"""Check pure Vela declarations and translate them to Gallina.
 
-Checked parsing through the Rocq-extracted vela-checked-parser feeds the common
-name/type checker and emitter. The emitted definitions interpret this fragment;
-the Python recursive-descent parser is retired.
+The Rocq-extracted parser supplies syntax to the name and type checker.
+See the [pure prototype](../../docs/tooling/pure-prototype.md) for its scope.
 """
 
 import hashlib

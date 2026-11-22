@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Versioned read-only snapshots of the existing bounded pure compiler facts."""
+"""Publish versioned, read-only snapshots of pure compiler facts."""
 
 import hashlib
 import json

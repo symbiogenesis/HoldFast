@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Mathematical naturals and booleans; development prototype, unqualified.
+// Functions over mathematical naturals and Booleans.
 module Oracle;
 
 /// Computes the cube of a natural number.

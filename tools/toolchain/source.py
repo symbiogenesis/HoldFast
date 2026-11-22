@@ -85,7 +85,7 @@ class SourceSnapshot:
         return len(self.text[:start].encode("utf-8")) + len(prefix.encode("utf-8"))
 
     def diagnostic_position(self, line: int, column: int) -> dict[str, int]:
-        """Adapt the legacy producer's one-based normalized code-point site."""
+        """Convert a one-based compiler site in code points to an LSP UTF-16 position."""
         lines = self._diagnostic_lines
         if not 1 <= line <= len(lines) or not 1 <= column <= len(lines[line - 1]) + 1:
             raise ValueError("producer diagnostic outside source")

@@ -501,7 +501,7 @@ class Server:
                 if version <= self.received_versions[uri]:
                     _invalid("document version must strictly increase")
                 # Remember newer received versions even if their text is refused.
-                # An older later update cannot resynchronize the document.
+                # Only a newer full update can resynchronize the document.
                 self.received_versions[uri] = version
                 snapshot = self._changed_snapshot(old, version, params.get("contentChanges"))
             self._inspections.pop(uri, None)

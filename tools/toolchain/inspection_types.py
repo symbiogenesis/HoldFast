@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Source-bound expression type decisions from the existing pure compiler."""
+"""Project source-bound expression types from the pure compiler."""
 
 from typing import cast
 

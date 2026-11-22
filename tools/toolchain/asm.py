@@ -680,8 +680,7 @@ def _p_call(asm: Assembler, item: Item, pc: int) -> list[Instr]:
 
 
 def _p_ret(asm: Assembler, item: Item, _pc: int) -> list[Instr]:
-    """`ret` is a jump that writes no link, which is the only role a
-    backward-edge sentry is reachable in (R-15-071, extensions/CHERI)."""
+    """Jump through the backward-edge sentry without writing a link register."""
     _arity(asm, item, 0)
     return [("cjalr", [0, 1, 0])]
 

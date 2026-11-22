@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Source-preserving pieces from the existing pure authoring token producer."""
+"""Project source-preserving pieces from the pure compiler's token stream."""
 
 from typing import cast
 

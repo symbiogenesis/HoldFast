@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Source-preserving local rename previews checked by the existing pure producer."""
+"""Propose local renames and recheck the edited source with the pure compiler."""
 
 from toolchain.ast import IDENTIFIER, KEYWORDS, UNSUPPORTED
 from toolchain.lsp_services import (

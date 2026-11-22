@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Bounded SARIF projection of the existing pure diagnostic and format producers."""
+"""Export pure diagnostics and format previews as bounded SARIF."""
 
 import codecs
 import copy

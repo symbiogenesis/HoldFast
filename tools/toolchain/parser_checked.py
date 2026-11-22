@@ -1,12 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Qualify and execute the checked pure Vela parser and Menhir Rocq support pair.
+"""Build, qualify, and run the Rocq-extracted pure parser.
 
-This extracts the pure grammar view from parser.mly, generates VelaPureGrammar.v
-via menhir --coq --strict, proves safety, completeness, correctness, unambiguity
-and concrete parse/refusal/rejection/timeout theorems with zero axioms under
-recursive rocqchk, extracts vela_checked_parser.ml, compiles vela-checked-parser,
-verifies runtime correspondence against the pure qualification and migration
-oracles, and serves as the sole pure Vela parser on Ubuntu and Windows (via WSL).
+See the [parser contract](../../docs/tooling/parser.md) for the grammar, proof,
+extraction, and runtime checks.
 """
 
 import atexit
@@ -1570,7 +1566,7 @@ def ensure_checked_build(root: Path | None = None, *, archive: Path | None = Non
         if cached is not None:
             return cached
         with vela_parser._file_lock(cache / "runtime.lock", timeout=TIMEOUT):
-            # Promote a verified single-entry cache while serializing with its older writer.
+            # Reuse a verified shared-cache entry under the lock that protects its receipt.
             legacy = _read_runtime(cache, wanted, legacy=True)
             if legacy is not None:
                 exe = directory / "vela-checked-parser"

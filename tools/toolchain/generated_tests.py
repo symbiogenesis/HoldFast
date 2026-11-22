@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Independent coordinate, overlay, and formatter oracles and isolated Hypothesis qualification.
+"""Run isolated property tests for source coordinates, editor overlays, and formatting.
 
 See [Generated development tests](../../docs/tooling/tooling-protocols.md#generated-development-tests)
-for the campaign bounds, independent oracle rules, seeded defect controls, and adoption disposition.
+for the independent oracles, bounds, and failure replay.
 """
 
 from __future__ import annotations
@@ -2110,7 +2110,7 @@ def qualify_isolated_campaign(
 ) -> dict[str, object]:
     """Provision `hypothesis==6.170.14` in a disposable venv and run the bounded campaign."""
     if sys.version_info[:2] != (3, 14):
-        raise ValueError(f"Q25x requires Python 3.14, got {sys.version.split()[0]}")
+        raise ValueError(f"generated tests require Python 3.14, got {sys.version.split()[0]}")
     uv_bin = shutil.which("uv")
     if uv_bin is None:
         raise RuntimeError("uv executable not found on PATH")

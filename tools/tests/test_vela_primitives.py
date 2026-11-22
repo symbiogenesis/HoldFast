@@ -476,8 +476,7 @@ def _kernel_replay() -> None:
            f"{(done.stdout + done.stderr)[-3000:]}")
 
 
-# Former placeholders, restored one at a time. Each must leave the prelude
-# compiling and fail a sampled check.
+# Each faulty body must leave the prelude compilable and fail a sampled check.
 _PLACEHOLDERS = {
     "int_mul_": (r"Definition vela_int_mul \(tag : nat\) \(a b : vela_int tag\) : vela_int tag :=\n[^\n]*\n",
                  "Definition vela_int_mul (tag : nat) (a _ : vela_int tag) : vela_int tag := a.\n"),
