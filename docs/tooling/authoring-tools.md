@@ -173,6 +173,7 @@ The initial rule identities are defined here:
 | ~~`VELA104`~~ | Retired (`Q25ah`): bare `T x = e;` local declarations are now refused by the parser in favor of mandatory `let T x = e;` or `var T x = e;`; the ID is never reused |
 | `VELA105` | A generic type parameter name does not use a capital initial and ASCII alphanumeric words |
 | ~~`VELA106`~~ | Retired (`Q25ah`): constructor patterns and pattern binders are now distinguished by token shape and nullary constructors are written bare without `()`; the ID is never reused |
+| `VELA108` | A binding pattern differs only in its initial capitalization from a constructor of the scrutinee type |
 | `VELA107` | An unparenthesized bitwise expression is an operand of a comparison in checked mathematical source |
 
 The mathematical CLI and native playground report `VELA107` for accepted

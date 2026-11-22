@@ -137,6 +137,20 @@ bool WithHeadroom(Nat a, Nat b, Nat k) requires b <= k requires a <= k - b => Gu
 bool Quotient(i8 x, i8 d) requires d >= 2i8 requires x / d <= x => true;
 bool Safe(i8 x, i8 d) requires x >= 0i8 requires d >= 2i8 => Quotient(x, d);
 """),
+        ("evaluate-unused-and-repeated-arguments-once", """module ArgumentOrder;
+Nat ReadAndAdvance(ref Nat cursor) effects writes(cursor) { cursor = cursor + 1; return cursor; }
+definition Nat Ignore(Nat value) => 0;
+definition Nat Twice(Nat value) => value + value;
+Nat Observe() {
+    var cursor = 0;
+    let unused = Ignore(ReadAndAdvance(ref cursor));
+    assert cursor == 1;
+    let doubled = Twice(ReadAndAdvance(ref cursor));
+    assert cursor == 2;
+    return doubled + cursor;
+}
+lemma Once() ensures Observe() == 6 proof { assert Observe() == 6; }
+"""),
         ("symbolic-accumulator-execution", """module FoldReplay;
 public Nat Twice(Nat n) {
     var total = 0;
@@ -341,6 +355,12 @@ public definition Vec<Nat, 10> HeaderTag() =>
     [vela-hdr]
     """;
 public const Nat HeaderBytes = ByteLength(HeaderTag());
+public definition Nat Count(Nat internalCount as count) => internalCount;
+public lemma NamedCount() ensures Count(count: 3) == 3 proof { assert Count(count: 3) == 3; }
+public definition TextBuilder<5> FormatComparison() =>
+    Format.Write(ref EmptyBuilder<5>(), $"{1u8 /* } : */ & 1u8 == 0u8}");
+public lemma ComparisonWritesFalse() ensures Written(FormatComparison()) == 5
+    proof { assert Written(FormatComparison()) == 5; }
 public TextBuilder<36> FormatPacket(Nat id, bool ok) {
     let TextBuilder<36> builder = EmptyBuilder();
     let TextBuilder<36> withHeader = Format.Write(ref builder, $"hdr={HeaderTag()} ");
@@ -351,6 +371,27 @@ public TextBuilder<12> OverflowPacket(Nat id) {
     let TextBuilder<12> tiny = EmptyBuilder();
     return Format.Write(ref tiny, $"hdr={HeaderTag()} id=0x{id:x4}");
 }
+public definition TextBuilder<2> Letter() => Format.Write(ref EmptyBuilder<2>(), $"A");
+public definition TextBuilder<2> TooLong() => Format.Write(ref Letter(), $"BC");
+public definition TextBuilder<2> Accent() => Format.Write(ref EmptyBuilder<2>(), $"\\u{e9}");
+public lemma CheckUtf8()
+    ensures WrittenBytes(Accent()).At(1) == 169
+    ensures ValidUtf8(WrittenBytes(Accent())) == true
+    ensures ValidUtf8(Seq.Singleton(192)) == false
+    proof {
+        assert WrittenBytes(Accent()).At(1) == 169;
+        assert ValidUtf8(WrittenBytes(Accent())) == true;
+        assert ValidUtf8(Seq.Singleton(192)) == false;
+    }
+public lemma CheckByteAndRollback()
+    ensures WrittenBytes(Letter()).At(0) == 65
+    ensures Fits(TooLong()) == false
+    ensures WrittenBytes(TooLong()) == WrittenBytes(Letter())
+    proof {
+        assert WrittenBytes(Letter()).At(0) == 65;
+        assert Fits(TooLong()) == false;
+        assert WrittenBytes(TooLong()) == WrittenBytes(Letter());
+    }
 public lemma DedentedHeaderLength() ensures HeaderBytes == 10 proof { assert HeaderBytes == 10; }
 public lemma SmallPacketFits() ensures Fits(FormatPacket(42, true)) == true
     proof { assert Fits(FormatPacket(42, true)); }
@@ -917,6 +958,8 @@ public Nat RoundTripOwned()
         ("unrestored-fallible-write", "Result<byte, Unit> Bad(ref Span<byte> dst, byte value) "
          "effects writes(dst) requires dst.CanRead && dst.CanWrite && dst.Length >= 1usize "
          "ensures (result is Err(_)) ==> dst[0] == old(dst[0]) { dst[0] = value; return Err(()); }", "type"),
+        ("private-binder-used-as-label", "Nat F(Nat local as count) => local; Nat G() => F(local: 2);", "name"),
+        ("duplicate-external-label", "Nat F(Nat local as size, Nat size) => local;", "name"),
         ("overlapping-symbolic-suffix",
          "Unit FillPrefix(ref Span<byte> dst, usize count) effects writes(dst) "
          "requires dst.CanRead && dst.CanWrite && dst.Length >= 6usize requires count <= 4usize "
@@ -1348,7 +1391,7 @@ definition bool Fits255() => Fits(Hex(255));
 definition bool Fits256() => Fits(Hex(256));
 definition Nat WordLength() => Written(Word(0xffffffffu32));
 """, observations=(("vela_d2_Fits255 tt", "true"), ("vela_d3_Fits256 tt", "false"),
-                   ("vela_d4_WordLength tt", "8")))
+                   ("vela_d4_WordLength tt", "0")))
     capacity = Fixture("specialized-slot-capacity", b"""module SlotCapacity;
 definition usize CapacityOf<ghost Nat n>(Slots<byte,n> s) => s.Capacity;
 definition usize Closed(Slots<byte,4> s) => s.Capacity;

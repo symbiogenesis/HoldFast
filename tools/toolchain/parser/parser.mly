@@ -91,7 +91,9 @@ let build_pattern first last target values =
 %token GENERIC_OPEN CALL_GENERIC_OPEN
 %token ANNOTATION_OPEN LAMBDA_OPEN
 %token <string * string> NUMBER
-%token <string> LIFETIME STRING INTERPOLATED_STRING CHARACTER HOLE ANNOTATION_NAME
+%token <string> LIFETIME STRING CHARACTER HOLE ANNOTATION_NAME
+%token <string * Ast.node list> INTERPOLATED_STRING
+%start <Ast.node * int * bool> format_expression
 %start <Ast.node> file
 %start <Ast.node> surface_file
 %start <unit> generic_call_prefix
@@ -99,6 +101,10 @@ let build_pattern first last target values =
 %%
 
 /* Internal token-only prefix probe; the public entries still own complete files. */
+format_expression:
+  value=s_expression RBRACE { value, $endpos.Lexing.pos_cnum, false }
+| value=s_expression COLON { value, $endpos.Lexing.pos_cnum, true }
+
 generic_call_prefix:
   comma_nonempty_list(s_type_argument) GT s_open_paren { () }
 
@@ -253,6 +259,8 @@ s_value_identifier:
 | CYCLE { name $startpos $endpos "cycle" }
 | MACHINE { name $startpos $endpos "machine" }
 | HARDWARE { name $startpos $endpos "hardware" }
+| CARRIER { name $startpos $endpos "carrier" }
+| role=s_domain_role { name $startpos $endpos role }
 
 s_path:
   value=s_qualified_name(s_identifier) { value }
@@ -261,13 +269,6 @@ s_qualified_name(head):
     { let text = match first with Object fields ->
           (match List.assoc "text" fields with String value -> value | _ -> "") | _ -> "" in
       name $startpos $endpos (String.concat "." (text :: rest)) }
-
-/* Dictionary projections share ordinary paths; role words remain reserved at
-   the start of a name and retain their domain-entry meaning. */
-s_member_identifier:
-  value=s_identifier { value }
-| CARRIER { name $startpos $endpos "carrier" }
-| role=s_domain_role { name $startpos $endpos role }
 
 s_modifier:
   PUBLIC { "public" } | PRIVATE { "private" } | INTERNAL { "internal" }
@@ -370,7 +371,7 @@ s_decl:
 /* Declarations share the telescope; each owner retains its contract/body tail. */
 %inline s_callable_header:
   result=s_type callable_name=s_identifier generics=s_generics s_parameter_open
-  parameters=comma_list(s_parameter) RPAREN
+  parameters=comma_list(s_callable_parameter) RPAREN
     { result, callable_name, generics, parameters }
 %inline s_parameter_open:
   LPAREN { () } | LAMBDA_OPEN { () }
@@ -546,6 +547,12 @@ s_generic_type_atom:
   value=s_named_type(s_qualified_name(s_type_identifier)) { value }
 | value=s_computed_type { value }
 | value=s_function_type { value }
+s_callable_parameter:
+  value=s_parameter { value }
+| constant=option(CONST) value_type=s_type binder=s_identifier AS label=s_identifier grade=option(s_grade)
+    { make "parameter" $symbolstartpos $endpos
+        ([("name", binder); ("label", label); ("type", value_type.syntax); ("grade", optional grade)] @ const_fields constant)
+        (value_type :: children grade) }
 s_parameter:
   constant=option(CONST) value_type=s_type parameter_name=option(s_identifier) grade=option(s_grade)
     { make "parameter" $symbolstartpos $endpos
@@ -676,7 +683,7 @@ s_annotation_path:
   first=ANNOTATION_NAME rest=list(s_path_segment)
     { name $startpos $endpos (String.concat "." (first :: rest)) }
 s_path_segment:
-  DOT value=s_member_identifier
+  DOT value=s_identifier
     { match value with Object fields -> (match List.assoc "text" fields with String text -> text | _ -> "") | _ -> "" }
 %inline s_local_kind:
   LET { "let" } | VAR { "var" }
@@ -857,7 +864,7 @@ s_prefix_with(opening):
     { make "resume" $startpos $endpos [("continuation", continuation); ("value", value.syntax)] [value] }
 s_next_place:
   value=s_value_identifier { make "name" $startpos $endpos [("name", value)] [] }
-| value=s_next_place DOT member=s_member_identifier
+| value=s_next_place DOT member=s_identifier
     { make "member" $startpos $endpos [("value", value.syntax); ("name", member)] [value] }
 | value=s_next_place LBRACKET index=s_expression RBRACKET
     { make "index" $startpos $endpos [("value", value.syntax); ("index", index.syntax)] [value; index] }
@@ -876,7 +883,7 @@ s_postfix_with(opening):
   value=s_atom_with(opening) { value }
 | callee=s_postfix_with(opening) s_parameter_open arguments=comma_list(call_argument(s_argument_value, s_identifier)) RPAREN
     { make "call" $startpos $endpos [("callee", callee.syntax); ("arguments", array arguments)] (callee :: arguments) }
-| value=s_postfix_with(opening) DOT member=s_member_identifier
+| value=s_postfix_with(opening) DOT member=s_identifier
     { make "member" $startpos $endpos [("value", value.syntax); ("name", member)] [value] }
 | value=s_postfix_with(opening) LBRACKET index=s_expression RBRACKET
     { make "index" $startpos $endpos [("value", value.syntax); ("index", index.syntax)] [value; index] }
@@ -893,7 +900,8 @@ s_argument_value:
 s_atom_with(opening):
   value=s_literal { value }
 | value=INTERPOLATED_STRING
-    { make "interpolated_string" $startpos $endpos [("value", String value)] [] }
+    { let spelling, holes = value in
+      make "interpolated_string" $startpos $endpos [("value", String spelling); ("holes", array holes)] holes }
 | value=s_operator_value_with(opening) { value }
 | value=s_hole { value }
 | value=s_value_identifier { make "name" $startpos $endpos [("name", value)] [] }

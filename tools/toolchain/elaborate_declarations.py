@@ -598,7 +598,7 @@ class _DeclarationsMixin:
                 if pname == "this":
                     raise self.fail("name", "duplicate or invalid local binding 'this'", p_node)
                 m_param_names.add(pname)
-                m_param_labels.append(pname)
+                m_param_labels.append(self.name(p_node.get("label", p_node["name"])))
             else:
                 m_param_labels.append(None)
         for g_node in m_generics:
@@ -721,6 +721,8 @@ class _DeclarationsMixin:
             self.complete(self.metas[index].type)
         m_emitted = f"{self.emission_prefix}_d{len(self.output)}_{name}_{method_name}"
         self._classify_phase(m_emitted, body_node, executable=m_kind == "function")
+        if m_kind == "function":
+            self.checked_result_consumers.add(m_emitted)
         self.output.append(f"Definition {m_emitted} : {self.render(m_sig)} :=\n  {self.render(m_def)}.")
         m_binding = _Binding(_constant(m_emitted), m_sig, len(generics) + len(m_generics))
         self.constants[m_emitted] = m_binding
@@ -978,12 +980,25 @@ class _DeclarationsMixin:
                 )
             )
 
+        # Recognize the standard library declaration once, before an import can rename it.
+        propagation = None
+        generic_count = len(generic_vars)
+        case_shapes = {ctor.name: tuple(field.type for field in ctor.fields) for ctor in union_ctors}
+        standard_cases = ((name == "Result" and generic_count == 2
+             and case_shapes == {"Ok": (generic_vars[0],), "Err": (generic_vars[1],)})
+            or (name == "Option" and generic_count == 1
+                and case_shapes == {"Some": (generic_vars[0],), "None": ()}))
+        if standard_cases and not any(cast("int", field.var.value) in self.owned_parameters
+                                      for ctor in union_ctors for field in ctor.fields):
+            success = next(ctor.index for ctor in union_ctors if ctor.name in {"Ok", "Some"})
+            propagation = success, 1 - success
         union_info = _UnionInfo(
             name=name,
             type_const=type_emitted,
             generic_vars=tuple(generic_vars),
             constructors=tuple(union_ctors),
             suffix_types=tuple(suffix_types),
+            propagation=propagation,
         )
         self.unions[name] = union_info
         self.unions_by_type[type_emitted] = union_info
@@ -1068,6 +1083,7 @@ class _DeclarationsMixin:
         self.interfaces_by_identity.update(mod.interfaces_by_identity)
         self.types.update(mod.types)
         self.parameter_names.update(mod.parameter_names)
+        self.argument_labels.update(mod.argument_labels)
         self.nullary_parameters.update(mod.nullary_parameters)
         self.constant_parameters.update(mod.constant_parameters)
         self.readonly_span_vars.update(mod.readonly_span_vars)
@@ -1104,6 +1120,7 @@ class _DeclarationsMixin:
         self.callable_callback_effects.update(mod.callable_callback_effects)
         self.callable_effect_arities.update(mod.callable_effect_arities)
         self.untracked_effect_functions.update(mod.untracked_effect_functions)
+        self.checked_result_consumers.update(mod.checked_result_consumers)
         self.fix_names.update(mod.fix_names)
         existing_out = set(self.output)
         for line in mod.output:
@@ -1376,7 +1393,7 @@ class _DeclarationsMixin:
                     m_gen_vars = m_vars[: len(m_generics)]
                     m_param_vars = m_vars[len(m_generics) :]
                     m_param_labels = [
-                        self.name(p["name"]) if p["name"] is not None else None for p in m_params
+                        self.name(p.get("label", p["name"])) if p["name"] is not None else None for p in m_params
                     ]
                     m_param_mods: list[str | None] = []
                     for p in m_params:
@@ -1436,7 +1453,7 @@ class _DeclarationsMixin:
                         param_labels=tuple(m_param_labels),
                         param_modifiers=tuple(m_param_mods),
                         returns_receiver_loan=loans._returns_borrow_from(
-                            mnode["result"], m_param_labels[0] if m_param_labels else None
+                            mnode["result"], self.name(m_params[0]["name"]) if m_params and m_params[0]["name"] is not None else None
                         ),
                         return_type=m_res_type,
                         signature=m_sig,
@@ -1881,6 +1898,8 @@ class _DeclarationsMixin:
                     self.complete(self.metas[index].type)
                 m_emitted = f"{self.emission_prefix}_d{len(self.output)}_impl_{iface_name.replace('.', '_')}_{mname}"
                 self._classify_phase(m_emitted, body_node, executable=True)
+                if mkind == "function":
+                    self.checked_result_consumers.add(m_emitted)
                 self.output.append(
                     f"Definition {m_emitted} : {self.render(m_sig)} :=\n  {self.render(m_def)}."
                 )
@@ -2261,10 +2280,9 @@ class _DeclarationsMixin:
                 if param["kind"] == "parameter":
                     pname = self.name(param["name"])
                     ptype = self.node(param["type"])
-                    if (ptype.get("modifier") not in {"in", "ref", "out"}
-                            and pname in self.entry_env and self._is_result(self.entry_env[pname].type)):
-                        lowerer.result_parameters.add(pname)
-            lowerer.result_names = set(lowerer.result_bindings.values()) | lowerer.result_parameters
+                    if ptype.get("modifier") not in {"in", "ref", "out"} and pname in self.entry_env:
+                        lowerer.result_parameters.update(self._result_paths(pname, self.entry_env[pname].type))
+            lowerer.result_names = lowerer.result_parameters.union(*lowerer.result_bindings.values())
         try:
             lowered = lowerer.build()
         except loans.AnalysisRefusalError as error:
@@ -3127,6 +3145,8 @@ class _DeclarationsMixin:
                     self.smaller_vars = {}
                     self.current_return_type = None
             emitted = f"{self.emission_prefix}_d{len(self.output)}_{name}"
+            if kind == "function":
+                self.checked_result_consumers.add(emitted)
             if kind in {"function", "definition", "property"}:
                 phase_body = self.node(node["value"]) if kind == "property" else body_node
                 self._classify_phase(emitted, phase_body, executable=kind == "function")

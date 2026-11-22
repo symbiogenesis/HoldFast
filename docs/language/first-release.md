@@ -213,8 +213,7 @@ buffer-writing interpolation and format surface (comparable to C# 10's
 `{value:spec}`) without runtime reflection, boxing or ambient locale, and
 returns an explicit `Result<usize, CapacityError>`. Standalone `$"..."`
 expressions without an explicit destination buffer are rejected; capacity
-exhaustion returns `Err(CapacityError)` under the target builder or span's
-declared rollback/prefix contract.
+exhaustion returns `Err(CapacityError)` and preserves the builder's previous length and bytes. The direct span API must declare its rollback or prefix contract.
 
 ## Modules and packages
 
@@ -226,6 +225,8 @@ selected version/revision, transitive closure, generator/tool identities and
 configuration. Locked builds neither resolve a different version nor read
 undeclared ambient inputs. Fetching dependencies is an explicit preparation
 operation; missing locked inputs produce an incomplete-build result.
+
+Each linked closure selects one revision per canonical package and one owner per module path. Incompatible dependency requirements fail resolution. Aliases change local spellings after resolution. Two revisions can be built in separate closures. The mathematical package checker enforces module-path uniqueness and reports both source digests on a collision.
 
 The initial import graph is acyclic and imports are explicit. Cycles report the
 cycle rather than depending on traversal order. Modules have no runtime
@@ -492,12 +493,34 @@ solver-trusted obligations separately; a non-empty solver-trust ledger leaves
 the slice unaccepted as a closed kernel proof. The local source replay checks
 the exports with `rocqchk` and an empty assumption ledger. On valid input the
 public contract identifies the returned read-only destination slice, the copied
-payload bytes and zero padding for every supported wire length from zero through
-four. Framing rejection preserves the complete entry destination. Later
+payload bytes and zero padding. Two quantified clauses describe each byte in
+the copied interval and each remaining byte before offset eight for every
+accepted payload length. Framing rejection preserves the complete entry destination. Later
 protocol rejection clears its eight-byte working area. Every exit preserves each
 destination byte beyond that area. These guarantees apply
 to the symbolic source model. Exact executable admission also requires the
 [compiler and machine evidence](#first-slice-qualification).
+
+At this checked entry point, `ref dst` and `in pkt` initially loan the
+two descriptor places. Each descriptor must already identify live backing
+with valid provenance, bounds and the declared permissions. The backing
+extents may overlap. The framing test reads descriptor metadata and returns
+`FramingShort` before accessing any byte on that path. Its successful edge
+introduces exclusive access to the destination bytes and shared access to
+the packet bytes for the rest of the operation. The success view retains
+its destination loan as specified by the result. Internal copy operations
+require their content loans and separation at entry. Ordinary calls that
+already require exclusive access to backing retain the
+[core loan rule](core-design.md#loans-and-control-flow).
+
+The generated C harness uses one backing array. Every descriptor base is
+an offset into that array and its pointer is derived from the same offset.
+Successful cases use disjoint extents of the allocation. The overlap case
+observes the source header through the destination view before calling the
+validator and checks every destination byte against its entry snapshot on
+refusal. Admission for a foreign caller requires the machine interpretation
+to justify descriptor validity and this correspondence before the framing
+test may use its interval comparison.
 
 - **Concrete `Span<byte>` carrier and contract obligations:** `Span<byte>` lowers
   in the mathematical consumer to `vela_Span` (`vela_ByteStore` paired with
@@ -518,9 +541,9 @@ to the symbolic source model. Exact executable admission also requires the
   bound to the function body and `ref` parameters bound to their kernel
   post-state images (`_post_<param>`).
 - **Elaborated laws, synchronous validator and scenario theorems:** `Vela.FirstSlice`
-  elaborates eleven carrier laws (`LawInhabitedByteCase`, `LawAllocZeroedRead`,
+  elaborates twelve carrier laws (`LawInhabitedByteCase`, `LawAllocZeroedRead`,
   `LawReadOverWriteSame`, `LawReadOverWriteOther`,
-  `LawLoopFramePreservesDisjointSuffix`, `LawFillAndFrame`,
+  `LawLoopFramePreservesDisjointSuffix`, `LawFillAndFrame`, `LawSymbolicFillFrame`,
   `LawSliceMetadataAndRead`, `LawReadOnlyAndInvalidate`,
   `LawDisjointCopyAndFrame`, `LawCapacityInvarianceSmall`,
   `LawCapacityInvarianceLarge`), two zeroed-header lemmas

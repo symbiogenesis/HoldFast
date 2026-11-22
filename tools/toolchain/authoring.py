@@ -16,7 +16,7 @@ from toolchain.source import SourceSnapshot
 
 STYLE_VERSION = 1
 LINT_CODES = frozenset({"VELA100", "VELA101", "VELA102", "VELA103", "VELA105"})
-MATHEMATICAL_LINT_CODES = ("VELA105", "VELA107")
+MATHEMATICAL_LINT_CODES = ("VELA105", "VELA107", "VELA108")
 RETIRED_LINT_CODES = frozenset({"VELA104", "VELA106"})
 _MEMBER = re.compile(r"[A-Z][A-Za-z0-9]*")
 _BINDING = re.compile(r"[a-z][A-Za-z0-9]*")

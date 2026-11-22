@@ -181,7 +181,7 @@ also include the elaborator's `protocol` and `inference` categories.
 
 Successful compilation returns `findings`, a list of
 `{ "code": "VELA105", "message": "text", "line": 1, "column": 1 }`
-naming warnings and `VELA107` precedence warnings from the native mathematical
+naming warnings and `VELA107` precedence and `VELA108` pattern warnings from the native mathematical
 compiler in source order. Require at most 8,192 findings, exact keys, known code,
 nonempty text and original source positions. Duplicate, unordered, malformed
 or oversized findings refuse the result. Warnings do not prevent Gallina output;

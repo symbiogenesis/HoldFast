@@ -243,7 +243,7 @@ See [natural division and remainder](../tooling/pure-prototype.md#natural-divisi
 | Match expression | `match (e) { Pattern => value, ... }`, exhaustive, optional final comma | M |
 | Pattern test `e is P` | A successful pattern binds its variables in later operands of the same `&&` chain and in the `then` branch of an `if` guard | M |
 | Record update `move base with { F = v }` | Declaration-order update; linear or affine records require `move` | M |
-| Formatting `Format.Write(ref builder, $"n={n}")` | The mathematical builder model returns an updated `TextBuilder` observed through `Fits` and `Written`. The represented buffer API returns `Result<usize, CapacityError>`. | M (builder model), D (represented result) |
+| Formatting `Format.Write(ref builder, $"n={n}")` | The mathematical builder model returns an updated `TextBuilder` observed through `Fits`, `Written` and `WrittenBytes`. A failed append preserves the bytes present before the call. The represented buffer API returns `Result<usize, CapacityError>`. | M (builder model), D (represented result) |
 
 **Parsed example** (operators, a conditional expression and a match):
 
@@ -315,7 +315,7 @@ public Nat CountTo(Nat limit)
 
 | Construct | Meaning | Status |
 | --- | --- | --- |
-| Value parameter `T x` | Passes a value; copying only where the value's resource rules permit | P |
+| Value parameter `T x` | Passes a value where its resource rules permit copying. An unconstrained type parameter may contain owned fields. Use `owned T` and an explicit `move` for a generic transfer. | P |
 | `owned T x` / `move x` | Consuming transfer; the moved-from binding is unusable | M |
 | `in T x` / `in place` | Shared-read loan | M |
 | `ref T x` / `ref place` | Initialized exclusive loan | M |
@@ -462,6 +462,12 @@ Checked arithmetic and conversions return `Result<T, ArithmeticError>` or
 `Result<T, ConversionError>`. `e?` propagates an `Err` or `None` and keeps the
 function's `out` initialization and cleanup duties. An unexamined `Result` or a
 discarded tracked resource is an error, including `Result<Unit, E>`.
+An executable function that owns a record or tuple containing verdicts owes
+each component separately. An exhaustive union match transfers the obligation
+to the selected payload bindings. Returning a whole aggregate forwards its
+obligations. The prototype accepts transfers to constructors and executable
+parameters with a checked verdict type. Passing a verdict through an abstract
+type parameter requires a resource constraint outside the current fragment.
 
 **Parsed example** (propagation and a checked operation):
 

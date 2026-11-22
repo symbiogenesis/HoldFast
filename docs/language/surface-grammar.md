@@ -382,8 +382,15 @@ types. Checking the binding's allowance, evaluation effects and subsequent uses
 remains subject to the [graded foundation](../extensions/graded-foundation.md#functions-and-application).
 In particular, zero demand does not erase an effectful initializer.
 
+A named function or method parameter may give callers a stable external label.
+In `Nat Read(Nat index as offset)`, the body and contracts refer to `index`
+and callers may write `Read(offset: 3)` or `Read(3)`. Without `as`, the local
+parameter name supplies the label. Labels in one telescope must be distinct.
+Renaming only the local name preserves existing positional and labeled calls.
+
 The domain roles `carrier`, `zero`, `one`, `add`, `mul`, `admits`, `interpret`
-and `laws` are contextual member names after a dot. Ordinary paths, type paths
+and `laws` introduce entries inside a domain. In value positions they are ordinary
+identifiers, including parameter names and member names after a dot. Ordinary paths, type paths
 and member expressions can therefore refer to a domain dictionary without new
 operator or projection primitives:
 
@@ -392,9 +399,7 @@ definition NatExact.carrier AddZero(NatExact.carrier value) =>
     NatExact.add(value, NatExact.zero);
 ```
 
-These names preserve the existing located path/member AST forms. They remain
-reserved at the start of a name; this extension does not alter domain-entry
-syntax or establish dictionary sealing, domain laws or an interpretation.
+These names preserve the existing located path/member AST forms. For example, `definition Nat add(Nat zero, Nat one) => zero + one;` uses three role names as ordinary values.
 Domains also reuse the existing generic telescope and declaration contracts,
 for example `domain Product<A : GradeDomain, B : GradeDomain>
 where Compatible(A, B) { carrier (A.carrier, B.carrier); ... }`.

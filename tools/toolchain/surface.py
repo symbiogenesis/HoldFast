@@ -616,6 +616,7 @@ domain Legacy {
     admits (==); interpret Use.Exact; laws ExactLaws;
 }
 alias Associated = Library.NatExact.carrier;
+definition Nat add(Nat zero, Nat one) => zero + one;
 definition NatExact.carrier AddZero(NatExact.carrier value) => NatExact.add(value, NatExact.zero);
 public void Inspect<grade q : NatExact>() {
     let NatExact.carrier selected @ q = NatExact.one;
@@ -1587,8 +1588,6 @@ NEGATIVE: tuple[tuple[str, bytes, str], ...] = (
     ("domain-incomplete-law", b"module M; domain Product<A> where {}", "syntax"),
     ("domain-missing-carrier-member", b"module M; alias A = D.;", "syntax"),
     ("domain-member-without-value", b"module M; void F() { D.add(); let value = D.; }", "syntax"),
-    ("domain-role-remains-reserved", b"module M; definition Nat add() => 0;", "syntax"),
-    ("domain-role-remains-reserved-value", b"module M; void F() { let value = zero; }", "syntax"),
     ("disposal-clause-missing-binder", b"module M; void F() { handle (Run()) { dispose => Cleanup(); }; }", "syntax"),
     ("disposal-clause-missing-arrow", b"module M; void F() { handle (Run()) { dispose reason Cleanup(reason), }; }", "syntax"),
     ("disposal-clause-missing-body", b"module M; void F() { handle (Run()) { dispose reason =>, }; }", "syntax"),
@@ -1699,6 +1698,7 @@ NEGATIVE: tuple[tuple[str, bytes, str], ...] = (
     ("raw-string-underindented-content", b'module M; public void F() { let text = """\n  short\n    """; }', "syntax"),
     ("unterminated-interpolated-string", b'module M; public void F() { Format.Write(ref b, $"unterminated); }', "syntax"),
     ("interpolated-empty-hole", b'module M; public void F() { Format.Write(ref b, $"empty {}"); }', "syntax"),
+    ("interpolated-chained-comparison", b'module M; public void F() { Format.Write(ref b, $"{true == false == false}"); }', "syntax"),
     ("interpolated-whitespace-hole", b'module M; public void F() { Format.Write(ref b, $"empty {   }"); }', "syntax"),
     ("interpolated-empty-specifier", b'module M; public void F() { Format.Write(ref b, $"spec {x:}"); }', "syntax"),
     ("interpolated-whitespace-specifier", b'module M; public void F() { Format.Write(ref b, $"spec {x: x2}"); }', "syntax"),
@@ -4528,7 +4528,7 @@ def _raw_string_and_format_roles(source: bytes, result: dict[str, Json]) -> None
     if len(interpolated) != len(expected):
         raise ValueError("interpolated format templates were omitted or conflated with ordinary strings")
     for node, spelling in zip(interpolated, expected, strict=True):
-        if node.get("value") != spelling.decode("utf-8") or set(node) != {"kind", "span", "value"}:
+        if node.get("value") != spelling.decode("utf-8") or set(node) != {"kind", "span", "value", "holes"}:
             raise ValueError("interpolated format template changed its AST fields or spelling")
         _exact_span(source, node, spelling)
     for binding_name, target_name in (("first", "builder"), ("second", "scratch")):
