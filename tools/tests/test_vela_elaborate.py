@@ -2056,7 +2056,7 @@ def _raw_strings_and_checked_formatting() -> None:
                     _interpolated_literal('$"hdr={', _call("HeaderTag"), '} "'),
                 )
             ),
-            _interpolated_literal('$"id=0x{', _variable("id"), ':x4} ok={', _variable("ok"), '}"'),
+            _interpolated_literal('$"id=0x{', _variable("id"), ":x4} ok={", _variable("ok"), '}"'),
         ),
     )
     fixture.theorem(
@@ -2086,9 +2086,9 @@ def _raw_strings_and_checked_formatting() -> None:
             _member(_variable("Format"), "Write"),
             _ref_arg(_variable("b")),
             _interpolated_literal(
-                '$"next=0x{', _binary("+", _variable("id"), _natural(1)), ':x4} scaled=0x{',
+                '$"next=0x{', _binary("+", _variable("id"), _natural(1)), ":x4} scaled=0x{",
                 _call("Scale", _natural(2), _member(_variable("holder"), "b"), labels=("factor", "value")),
-                ':x4} cond={', _if_expr(_variable("ok"), _boolean(True), _boolean(False)), '}"'
+                ":x4} cond={", _if_expr(_variable("ok"), _boolean(True), _boolean(False)), '}"'
             ),
         ),
     )

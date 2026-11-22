@@ -2141,7 +2141,7 @@ def elaborate(
     imports: Sequence[tuple[bytes, object]] | None = None,
 ) -> CheckedElaboration:
     """Check an exact-source schema-2 AST and propose a complete bounded CIC file."""
-    if not imports:
+    if imports is None or not imports:
         return _checked_elaboration(source, parsed)[0]
     protocol = _Protocol(source)
     module = _Elaborator(protocol).name(protocol.decode(parsed)["name"])
