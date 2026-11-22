@@ -529,8 +529,9 @@ unblock the codec. [Protocol contracts](docs/tooling/tooling-protocols.md) ·
 
 <a id="q25cv"></a>
 
-- [ ] **Q25cv · Export qualified generated-output source maps**
+- [x] **Q25cv · Export qualified generated-output source maps**
   - **Owner:** `vela-source-maps`. **Start:** web-output or an independently qualified compatible producer and a named consumer. **Check:** Meet the [source-map contract](docs/tooling/tooling-protocols.md#generated-source-maps) for composed/Unicode/unmapped sites and exact map/output/source identities; mismatches fail before handoff. This funds maps, not output generation.
+  - The pinned Node.js reader locates mathematical Gallina declarations and generated arithmetic proofs in their authored Vela source. [Landing evidence](docs/assurance/completion-log.md#q25cv-export-qualified-generated-output-source-maps).
 
 <a id="q25cw"></a>
 
@@ -714,14 +715,14 @@ the [release milestones](#current-execution) to judge readiness.
 | Measure | Value |
 | --- | --- |
 | Total estimate midpoint h | 21,457.9 |
-| Total estimate range h | 11,451.9–31,463.9 |
-| Completed scope h | 1,007.9 |
-| Complete by estimate % | 4.7 |
-| Remaining h | 20,450 |
-| Open class I h | 2,366 |
+| Total estimate range h | 11,469.9–31,445.9 |
+| Completed scope h | 1,045.9 |
+| Complete by estimate % | 4.9 |
+| Remaining h | 20,412 |
+| Open class I h | 2,328 |
 | Open class X h | 18,084 |
-| Retained completion estimate h | 1,004.5 |
-| Unmeasured completed items | 42 |
+| Retained completion estimate h | 1,042.5 |
+| Unmeasured completed items | 43 |
 <!-- estimate-summary:end -->
 
 The table counts each checklist leaf once. Completed work contributes actual

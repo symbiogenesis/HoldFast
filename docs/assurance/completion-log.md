@@ -2209,6 +2209,27 @@ capability fields as unavailable. The [refusal cases](../../tools/tests/test_sim
 exercise altered instructions, divergent effects and a changed target.
 This qualifies assembly inspection on the four development controls.
 
+<a id="q25cv-export-qualified-generated-output-source-maps"></a>
+
+#### Q25cv · Export qualified generated-output source maps
+
+The [mathematical Gallina map](../tooling/tooling-protocols.md#generated-source-maps)
+tracks declarations through emission and maps generated arithmetic equations
+and proof scripts to their checked operation spans. The companion manifest
+retains the source declaration, stage and exact source, output, map and
+compiler bindings.
+
+The [native qualifier](../../tools/toolchain/source_map_check.py) exercises 162
+declarations with CRLF and supplementary characters before the mapped tokens.
+Literal sharing moves the first declaration by five generated lines. The pinned
+Node.js reader maps its two proof lines to source line 2, UTF-16 column 50,
+and distinguishes all nine expected lookup results. Independent changes to
+the Gallina, map, manifest and Vela input each refuse before reader handoff.
+The [host controls](../../tools/tests/test_gallina_source_map.py) check negative
+coordinate deltas, end-of-line boundaries and lookup limits. The mapped
+two-operation source also passed local Rocq compilation and `rocqchk`.
+The retained estimate is 38 h (20–56), actual n/a for this parallel batch.
+
 <a id="q25da-rehearse-one-coordinated-optional-portfolio-refresh"></a>
 
 #### Q25da · Rehearse one coordinated optional-portfolio refresh
