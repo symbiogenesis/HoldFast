@@ -2153,6 +2153,36 @@ def _raw_strings_and_checked_formatting() -> None:
     _refuses(count_conflict, "type", "exclusive 'ref' target loan starts at line")
     _refuses(count_conflict, "type", 'let writtenBeforeFormat = Written(b) in Format.Write(ref b, $"n={writtenBeforeFormat:x4}")')
 
+    target_type = _type("TextBuilder", _natural(16))
+    parameters = (("b", target_type), ("writtenBeforeFormat", _NAT))
+    collision = _Fixture("FormatSnapshotCapture")
+    original = _call(_member(_variable("Format"), "Write"), _ref_arg(_variable("b")),
+                     _interpolated_literal('$"n={Written(b):x4}"'))
+    collision.function("Write", target_type, parameters, original)
+    error = _refuses(collision, "type", "let writtenBeforeFormat2 = Written(b)")
+    conflicting_line = collision.text.splitlines()[error.line - 1]
+    ensure(conflicting_line[error.column - 1:].startswith("b):x4}"), "format conflict did not select the later read")
+    fixed = _Fixture("FormatSnapshotCapture")
+    fixed_call = _call(_member(_variable("Format"), "Write"), _ref_arg(_variable("b")),
+                       _interpolated_literal('$"n={writtenBeforeFormat2:x4}"'))
+    fixed.function("Write", target_type, parameters, _group(_let("writtenBeforeFormat2", count, fixed_call)))
+    fixed_source, fixed_ast = fixed.response()
+    ensure(error.message.split("Snapshot the count before borrowing: ")[1] in fixed_source.decode(),
+           "the displayed repair differs from the checked source")
+    explicit = _Fixture("FormatSnapshotCapture")
+    explicit.function("Write", target_type, parameters,
+                      _block_stmts(_let_stmt("writtenBeforeFormat2", count), _return_stmt(fixed_call)), block=True)
+    ensure(elaborate(fixed_source, fixed_ast).gallina.split("\n", 2)[2] == elaborate(*explicit.response()).gallina.split("\n", 2)[2],
+           "suggested snapshot changed the explicitly staged calculation")
+
+    multiple = _Fixture("TwoConflictingReads")
+    multiple.function("Write", target_type, parameters, _call(
+        _member(_variable("Format"), "Write"), _ref_arg(_variable("b")),
+        _interpolated_literal('$"{Written(b):x4} {Written(b):x4}"'),
+    ))
+    ensure("Snapshot the count" not in _refuses(multiple, "type", "cannot alias").message,
+           "a partial fix was suggested for a template with two conflicting reads")
+
     bad_hole_syntax = _Fixture("BadHoleSyntax")
     bad_hole_syntax.definition(
         "Wrong",
