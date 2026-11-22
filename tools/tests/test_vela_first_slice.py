@@ -624,7 +624,15 @@ def _check_packet_statements(statements: str, start: bytes = b"    var u8 acc = 
         parsed = parser.parse_source(compiled, source, surface=True)
     checked = vela_elaborate.elaborate(source, parsed)
     ensure(not solver_ledger.ledger(checked.gallina), "inserted checksum statements changed the proved contract")
-    generated, _ = vela_first_slice.lower_to_c(source, parsed, checked=checked)
+    operations: list[dict[str, object]] = []
+    generated, _ = vela_first_slice.lower_to_c(source, parsed, checked=checked, observations=operations)
+    observed_widths = {row["width"] for row in operations if row["kind"] == "nat"}
+    ensure({"u8", "usize"} <= observed_widths, "lowering provenance omitted one of the packet literal widths")
+    if "+=" in statements:
+        ensure(any(row["kind"] == "assignment" and row["operation"] == "+" and row["width"] == "u8"
+                   and "+=" in source[slice(*cast("list[int]", row["span"]))].decode()
+                   and str(row["c_expression"]) in generated for row in operations),
+               "compound addition did not retain its source, checked width and emitted C")
     with tempfile.TemporaryDirectory() as temporary:
         executable = Path(temporary) / "packet"
         for optimization in ("-O0", "-O2"):

@@ -773,6 +773,22 @@ def _retained_compiler(compiler: dict[str, object], files: dict[str, object], di
                 raise ValueError("first-slice receipt compiler image differs from retained assembly")
 
 
+def _lowering_provenance(checked: CheckedElaboration, generated: str, operations: list[dict[str, object]]) -> dict[str, object]:
+    return {"schema": 1, "source_sha256": checked.source_sha256, "syntax_sha256": _sha256(checked.syntax),
+            "gallina_sha256": _sha256(checked.gallina.encode()), "lowered_c_sha256": _sha256(generated.encode()),
+            "integer_arithmetic_and_literals": operations}
+
+
+def _reconstruct_lowering(root: Path) -> dict[str, object]:
+    source = (root / EXAMPLE).read_bytes()
+    with vela_parser.cached_build(root) as local:
+        parsed = vela_parser.parse_source(local, source, surface=True)
+    checked = vela_elaborate.elaborate(source, parsed)
+    operations: list[dict[str, object]] = []
+    generated, _ = lower_to_c(source, parsed, checked=checked, observations=operations)
+    return _lowering_provenance(checked, generated, operations)
+
+
 def _retained_proof(root: Path, report: dict[str, object], directory: Path,
                     artifacts: dict[str, object]) -> None:
     """Recheck retained declarations and assumption ledgers without native proof replay."""
@@ -1101,6 +1117,7 @@ def _lower_function_to_c(
     function_results: dict[str, str],
     resolve_call: Callable[[dict[str, object]], str],
     integer_operation: Callable[[dict[str, object]], tuple[str, str]],
+    observations: list[dict[str, object]] | None = None,
 ) -> str:
     fname = _node_text(decl.get("name"))
     params = cast("list[dict[str, object]]", decl.get("parameters", []))
@@ -1273,6 +1290,12 @@ def _lower_function_to_c(
             values.append(value)
         return values
 
+    def observed(node: dict[str, object], operation: str, width: str, expression: str) -> str:
+        if observations is not None:
+            observations.append({"declaration": fname, "span": node["span"], "kind": node["kind"],
+                                 "operation": operation, "width": width, "c_expression": expression})
+        return expression
+
     def lower_expr(expr: object, prefix: list[str]) -> str:
         node = _unwrap_arg(expr)
         ekind = str(node.get("kind", ""))
@@ -1281,7 +1304,7 @@ def _lower_function_to_c(
             digits = cast("str", node["value"]).replace("_", "")
             # C treats leading zeros as octal, while Vela uses decimal.
             magnitude = digits if digits.lower().startswith("0x") else str(_parse_numeric_magnitude(digits))
-            return magnitude + ("UL" if width == "usize" else "U")
+            return observed(node, "literal", width, magnitude + ("UL" if width == "usize" else "U"))
         if ekind == "bool":
             return "1" if node.get("value") is True else "0"
         if ekind == "name":
@@ -1325,7 +1348,11 @@ def _lower_function_to_c(
                 bit_op, width = integer_operation(node)
                 c_type = _c_scalar_type(width)
                 promoted = "unsigned int" if c_type == "unsigned char" else c_type
-                return f"({c_type})(({promoted}){lhs} {bit_op} ({promoted}){rhs})"
+                expression = f"({c_type})(({promoted}){lhs} {bit_op} ({promoted}){rhs})"
+                return observed(node, bit_op, width, expression)
+            if op in {"+", "-", "*", "/", "%"}:
+                checked_op, width = integer_operation(node)
+                return observed(node, checked_op, width, f"({lhs} {checked_op} {rhs})")
             return f"({lhs} {op} {rhs})"
         if ekind == "call":
             callee = cast("dict[str, object]", node.get("callee", {}))
@@ -1365,7 +1392,8 @@ def _lower_function_to_c(
         op, width = integer_operation(st)
         old = temp(_c_scalar_type(width))
         prefix.append(f"{old} = {read};")
-        return f"({old} {op} {lower_expr(st['value'], prefix)})"
+        expression = f"({old} {op} {lower_expr(st['value'], prefix)})"
+        return observed(st, op, width, expression)
 
     def lower_stmts(stmts: list[dict[str, object]], indent: str) -> list[str]:
         out_lines: list[str] = []
@@ -1520,14 +1548,15 @@ def _lower_function_to_c(
 
 
 def lower_to_c(
-    source: bytes, parsed: object, *, perturb_check: int = 0, checked: CheckedElaboration | None = None
+    source: bytes, parsed: object, *, perturb_check: int = 0, checked: CheckedElaboration | None = None,
+    observations: list[dict[str, object]] | None = None,
 ) -> tuple[str, int]:
     """Lower the executable subset of `first_slice.vela` from its checked AST to C.
 
     Verifies that the parsed AST carries the expected executable type and callable
     declarations (`ValidationError`, `ValidatedPacket`, `WritePacket8`,
     `CopyPacketToDst`, `ComputePacketChecksum`, `PrepareAndValidatePacket`), the
-    eleven carrier laws, and the seven scenario theorems before lowering the
+    carrier laws, and the seven scenario theorems before lowering the
     executable union, record, and function AST nodes into a self-contained C
     translation unit in the `verifiedos-scalar-source-v1` subset.
     """
@@ -1549,6 +1578,7 @@ def lower_to_c(
         ("LawReadOverWriteOther", "theorem"),
         ("LawLoopFramePreservesDisjointSuffix", "theorem"),
         ("LawFillAndFrame", "theorem"),
+        ("LawSymbolicFillFrame", "theorem"),
         ("LawSliceMetadataAndRead", "theorem"),
         ("LawReadOnlyAndInvalidate", "theorem"),
         ("LawDisjointCopyAndFrame", "theorem"),
@@ -1600,7 +1630,7 @@ def lower_to_c(
 
     fn_c_blocks = [
         _lower_function_to_c(decl_map[fn_name], ctor_map, record_fields, literal_type, function_results,
-                             resolve_call, integer_operation)
+                             resolve_call, integer_operation, observations)
         for fn_name in (
             "WritePacket8",
             "CopyPacketToDst",
@@ -2190,7 +2220,8 @@ def _qualify_attempt(
     neg_controls = _run_negative_controls(compiled, directory)
 
     # 5. Lower executable AST to Clight/C and execute on CompCert + Sail emulator
-    c_source, check_count = lower_to_c(source, parsed, checked=translated)
+    operations: list[dict[str, object]] = []
+    c_source, check_count = lower_to_c(source, parsed, checked=translated, observations=operations)
     c_path = directory / "first_slice.c"
     c_path.write_text(c_source, encoding="utf-8", newline="\n")
 
@@ -2321,6 +2352,7 @@ def _qualify_attempt(
         "capacity_invariance": cap_gate,
         "negative_controls_count": len(neg_controls),
         "negative_controls": neg_controls,
+        "lowering_provenance": _lowering_provenance(translated, c_source, operations),
         "lowered_c": str(c_path),
         "lowered_c_sha256": _sha256(c_path.read_bytes()),
         "purecap_cheri_runs": purecap_runs,
@@ -2443,6 +2475,10 @@ def verify_bindings(root: Path, receipt_path: Path) -> dict[str, object]:
     if _artifacts(output_directory) != artifacts:
         raise ValueError("first-slice receipt outputs changed")
     _retained_proof(root, receipt, output_directory, artifacts)
+    provenance = _reconstruct_lowering(root)
+    if (CheckedElaboration.encode_syntax(receipt.get("lowering_provenance")) != CheckedElaboration.encode_syntax(provenance)
+            or any(receipt.get(key) != provenance[key] for key in ("source_sha256", "gallina_sha256", "lowered_c_sha256"))):
+        raise ValueError("retained integer lowering or generated subjects differ from the checked source")
     _retained_controls(receipt, output_directory, artifacts)
     _retained_execution(receipt, output_directory, artifacts)
     with tempfile.TemporaryDirectory(prefix="bindings-", dir=_work_root(root)) as temporary:
