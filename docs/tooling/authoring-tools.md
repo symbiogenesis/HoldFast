@@ -181,6 +181,20 @@ expressions such as `flags & mask == 0u8`. Write `(flags & mask) == 0u8` to
 show the existing grouping explicitly. The warning locates the bitwise
 operator and leaves the source unchanged.
 
+Use `python tools/run.py vela-parser lint-preview SOURCE --line LINE --column COLUMN`
+with the one-based warning coordinates to preview a pair of parentheses around
+that operand. The JSON gives the half-open UTF-8 byte span, replacement text
+and original and candidate digests. Every original byte stays in order,
+including comments within a multiline operand. An already grouped operand
+produces no warning or edit.
+
+The mathematical parser and elaborator check both snapshots. The full syntax
+trees must agree after adding the selected group and dropping locations.
+The generated Gallina must agree byte for byte apart from the source digest.
+The [preview validator](../../tools/toolchain/mathematical_preview.py) rechecks the
+retained edit against the current source, compiler dependencies and parser executable.
+The command reads the source again before printing the preview.
+
 `VELA104` and `vela lint --preview-bindings` are permanently retired (`Q25ah`)
 now that local variable declarations require an explicit `let` or `var` keyword;
 the migration rewrite helper `preview_bindings` remains available for legacy

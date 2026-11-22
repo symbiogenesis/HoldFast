@@ -33,7 +33,7 @@ def _digest(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
-def producer_identity() -> dict[str, object]:
+def compiler_dependency_hashes() -> dict[str, str]:
     """Conservatively bind all local compiler sources and locked tool dependencies."""
     root = Path(__file__).resolve().parents[2]
     paths = sorted((root / "tools/toolchain").rglob("*.py"))
@@ -41,8 +41,12 @@ def producer_identity() -> dict[str, object]:
     paths.extend(root / name for name in (
         "tools/opam/rocq.lock", "tools/opam/sail.lock", "tools/pyproject.toml", "tools/uv.lock"))
     paths.append(SCHEMA_PATH)
-    dependencies = {path.relative_to(root).as_posix(): _digest(path.read_bytes())
-                    for path in paths if path.is_file()}
+    return {path.relative_to(root).as_posix(): _digest(path.read_bytes())
+            for path in paths if path.is_file()}
+
+
+def producer_identity() -> dict[str, object]:
+    dependencies = compiler_dependency_hashes()
     return {"name": "vela-pure-development", "stage": "pure-resolution",
             "version": _digest(_encoded(dependencies)), "dependencies": dependencies,
             "python": sys.version, "implementation": sys.implementation.name}
