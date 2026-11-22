@@ -383,7 +383,8 @@ remains subject to the [graded foundation](../extensions/graded-foundation.md#fu
 In particular, zero demand does not erase an effectful initializer.
 
 The domain roles `carrier`, `zero`, `one`, `add`, `mul`, `admits`, `interpret`
-and `laws` are contextual member names after a dot. Ordinary paths, type paths
+and `laws` introduce entries inside a domain. In value positions they are ordinary
+identifiers, including parameter names and member names after a dot. Ordinary paths, type paths
 and member expressions can therefore refer to a domain dictionary without new
 operator or projection primitives:
 
@@ -392,9 +393,7 @@ definition NatExact.carrier AddZero(NatExact.carrier value) =>
     NatExact.add(value, NatExact.zero);
 ```
 
-These names preserve the existing located path/member AST forms. They remain
-reserved at the start of a name; this extension does not alter domain-entry
-syntax or establish dictionary sealing, domain laws or an interpretation.
+These names preserve the existing located path/member AST forms. For example, `definition Nat add(Nat zero, Nat one) => zero + one;` uses three role names as ordinary values.
 Domains also reuse the existing generic telescope and declaration contracts,
 for example `domain Product<A : GradeDomain, B : GradeDomain>
 where Compatible(A, B) { carrier (A.carrier, B.carrier); ... }`.

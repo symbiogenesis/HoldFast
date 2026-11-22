@@ -616,6 +616,7 @@ domain Legacy {
     admits (==); interpret Use.Exact; laws ExactLaws;
 }
 alias Associated = Library.NatExact.carrier;
+definition Nat add(Nat zero, Nat one) => zero + one;
 definition NatExact.carrier AddZero(NatExact.carrier value) => NatExact.add(value, NatExact.zero);
 public void Inspect<grade q : NatExact>() {
     let NatExact.carrier selected @ q = NatExact.one;
@@ -1587,8 +1588,6 @@ NEGATIVE: tuple[tuple[str, bytes, str], ...] = (
     ("domain-incomplete-law", b"module M; domain Product<A> where {}", "syntax"),
     ("domain-missing-carrier-member", b"module M; alias A = D.;", "syntax"),
     ("domain-member-without-value", b"module M; void F() { D.add(); let value = D.; }", "syntax"),
-    ("domain-role-remains-reserved", b"module M; definition Nat add() => 0;", "syntax"),
-    ("domain-role-remains-reserved-value", b"module M; void F() { let value = zero; }", "syntax"),
     ("disposal-clause-missing-binder", b"module M; void F() { handle (Run()) { dispose => Cleanup(); }; }", "syntax"),
     ("disposal-clause-missing-arrow", b"module M; void F() { handle (Run()) { dispose reason Cleanup(reason), }; }", "syntax"),
     ("disposal-clause-missing-body", b"module M; void F() { handle (Run()) { dispose reason =>, }; }", "syntax"),

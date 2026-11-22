@@ -258,6 +258,8 @@ s_value_identifier:
 | CYCLE { name $startpos $endpos "cycle" }
 | MACHINE { name $startpos $endpos "machine" }
 | HARDWARE { name $startpos $endpos "hardware" }
+| CARRIER { name $startpos $endpos "carrier" }
+| role=s_domain_role { name $startpos $endpos role }
 
 s_path:
   value=s_qualified_name(s_identifier) { value }
@@ -266,13 +268,6 @@ s_qualified_name(head):
     { let text = match first with Object fields ->
           (match List.assoc "text" fields with String value -> value | _ -> "") | _ -> "" in
       name $startpos $endpos (String.concat "." (text :: rest)) }
-
-/* Dictionary projections share ordinary paths; role words remain reserved at
-   the start of a name and retain their domain-entry meaning. */
-s_member_identifier:
-  value=s_identifier { value }
-| CARRIER { name $startpos $endpos "carrier" }
-| role=s_domain_role { name $startpos $endpos role }
 
 s_modifier:
   PUBLIC { "public" } | PRIVATE { "private" } | INTERNAL { "internal" }
@@ -681,7 +676,7 @@ s_annotation_path:
   first=ANNOTATION_NAME rest=list(s_path_segment)
     { name $startpos $endpos (String.concat "." (first :: rest)) }
 s_path_segment:
-  DOT value=s_member_identifier
+  DOT value=s_identifier
     { match value with Object fields -> (match List.assoc "text" fields with String text -> text | _ -> "") | _ -> "" }
 %inline s_local_kind:
   LET { "let" } | VAR { "var" }
@@ -862,7 +857,7 @@ s_prefix_with(opening):
     { make "resume" $startpos $endpos [("continuation", continuation); ("value", value.syntax)] [value] }
 s_next_place:
   value=s_value_identifier { make "name" $startpos $endpos [("name", value)] [] }
-| value=s_next_place DOT member=s_member_identifier
+| value=s_next_place DOT member=s_identifier
     { make "member" $startpos $endpos [("value", value.syntax); ("name", member)] [value] }
 | value=s_next_place LBRACKET index=s_expression RBRACKET
     { make "index" $startpos $endpos [("value", value.syntax); ("index", index.syntax)] [value; index] }
@@ -881,7 +876,7 @@ s_postfix_with(opening):
   value=s_atom_with(opening) { value }
 | callee=s_postfix_with(opening) s_parameter_open arguments=comma_list(call_argument(s_argument_value, s_identifier)) RPAREN
     { make "call" $startpos $endpos [("callee", callee.syntax); ("arguments", array arguments)] (callee :: arguments) }
-| value=s_postfix_with(opening) DOT member=s_member_identifier
+| value=s_postfix_with(opening) DOT member=s_identifier
     { make "member" $startpos $endpos [("value", value.syntax); ("name", member)] [value] }
 | value=s_postfix_with(opening) LBRACKET index=s_expression RBRACKET
     { make "index" $startpos $endpos [("value", value.syntax); ("index", index.syntax)] [value; index] }
