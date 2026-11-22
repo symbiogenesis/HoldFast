@@ -286,7 +286,7 @@ def _pure_semantic_negatives_and_inventory() -> None:
                 ensure(error.kind == "syntax", "parsing refusal changed kind")
             else:
                 raise AssertionError("a parsing refusal satisfied a pure semantic negative")
-    fixtures = replay.fixtures(b"module M;")
+    fixtures = replay.fixtures(b"module M;", b"module WordCount;")
     operators = next(case for case in fixtures if case.name == "pure-expression-operators")
     ensure(operators.pure and ("f_Difference 2 5", "0") in operators.observations
            and ("f_Precedence", "true") in operators.observations

@@ -162,6 +162,8 @@ open until the parent's acceptance conditions are met.
   - **Start** Use the [accepted validator](#q25ba), [checked frontend](#q25at), [concrete resource interfaces](#q25an) and fixed target and ABI.
   - **Check** Publish representations and laws for the existing integer, UTF-8, raw-string, `TextBuilder` and `Format` definitions for [general lowering](#q25az). Join its per-operation receipts for runtime acceptance. Verify alias identity, arithmetic and conversions, malformed text, exact fit and exhaustion, instance selection, receiver-loan conflicts and static/runtime agreement. [Primitive semantics](docs/language/first-release.md#primitive-semantics) and [bytes and text](docs/language/first-release.md#bytes-and-text).
 
+  - Run the [bounded word counter](examples/word_count.vela) with the [represented ownership libraries](#q25ay). Overwrite the borrowed input between calls. Check that a full key buffer still permits a hit with zero additional key bytes, and that a failed insertion preserves all key bytes and counts. The [mathematical example](docs/tooling/elaboration-prototype.md#try-the-mathematical-fragment) supplies expected outcomes.
+
 <a id="q25ax"></a>
 
 - [ ] **Q25ax · Implement locked package and build closure**

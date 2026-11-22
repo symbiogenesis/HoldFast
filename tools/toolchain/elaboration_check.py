@@ -36,6 +36,7 @@ from toolchain.atomic import atomic_path
 
 TIMEOUT = 120
 EXAMPLE = "examples/dependent.vela"
+WORD_COUNT_EXAMPLE = "examples/word_count.vela"
 
 
 @dataclass(frozen=True)
@@ -48,7 +49,7 @@ class Fixture:
     word_proofs: bool = False
 
 
-def fixtures(example: bytes) -> tuple[Fixture, ...]:
+def fixtures(example: bytes, word_count: bytes) -> tuple[Fixture, ...]:
     """Independent source examples and well-formed semantic negative neighbors."""
     positives = (
         ("generic-slot-prefix-relocation", """module SlotsProof;
@@ -1446,7 +1447,8 @@ definition u8 ModularShift() => WrappingShiftLeft(255u8, 2usize);
     symbolic_wide = Fixture("unreplayed-wide-word-operation", b"""module WideReplay;
 definition u32 Next(u32 x) requires x < u32.Max => x + 1u32;
 """, expected="unsupported", word_proofs=True)
-    return (arithmetic, symbolic_wide, Fixture("authored-example", example), pure, division, dependent_playground, intervals, span_model, slots, capacity, widths,
+    return (arithmetic, symbolic_wide, Fixture("authored-example", example), Fixture("borrowed-word-count", word_count),
+            pure, division, dependent_playground, intervals, span_model, slots, capacity, widths,
             *(Fixture(name, ("module PureNegativeReplay; " + source).encode(), expected, pure=True)
               for name, source, expected in pure_negatives),
             *(Fixture(name, source.encode()) for name, source in positives),
@@ -1510,6 +1512,7 @@ def _run(arguments: list[str], directory: Path, log: Path,
 def _inputs(root: Path) -> dict[str, str]:
     paths = (
         EXAMPLE,
+        WORD_COUNT_EXAMPLE,
         "tools/opam/rocq.lock",
         "tools/pyproject.toml",
         "tools/uv.lock",
@@ -1769,7 +1772,8 @@ def qualify(root: Path) -> dict[str, object]:
             outputs = _parser_outputs(compiled)
             attempt.update({"inputs": inputs, "toolchain": tools, "runtime": runtime,
                             "parser": parser_receipt, "parser_outputs": outputs})
-            for index, case in enumerate(fixtures(vela_parser.read_source(root / EXAMPLE))):
+            cases = fixtures(vela_parser.read_source(root / EXAMPLE), vela_parser.read_source(root / WORD_COUNT_EXAMPLE))
+            for index, case in enumerate(cases):
                 rows.append(_case(compiled, case, directory, index, steps))
                 _write(directory / "attempt.json", attempt)
             libraries = [str(row["library"]) for row in rows if row["category"] == "accepted"]

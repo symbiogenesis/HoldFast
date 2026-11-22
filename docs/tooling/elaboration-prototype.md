@@ -459,6 +459,17 @@ obligations in the command guide.
 
 ## Try the mathematical fragment
 
+The [bounded word counter](../../examples/word_count.vela) borrows validated
+UTF-8 for each lookup. A new key takes its own bytes in a three-byte builder.
+An existing key only updates its count. With `red`, `red`, `blue` the table
+counts two occurrences of `red` and returns `KeyBytesFull` with the table
+intact. Other examples reuse one scratch variable, exhaust the two entry
+slots, and count the two UTF-8 bytes of `é` against the byte budget.
+`vela-parser elaborate-qualify` replays these proofs in Rocq. The
+[represented-library milestone](../../PLAN.md#q25aw) checks storage use
+after lowering. The lookup and insertion policy follows
+[Zero C#'s string-key dictionary](https://github.com/OnurGumus/zero-csharp#lib).
+
 Run from the repository root on Windows, using `python3` on Linux:
 
 ```console

@@ -1,0 +1,122 @@
+// SPDX-License-Identifier: Apache-2.0
+// Two entry slots share three bytes of key storage. A zero count marks a vacant slot.
+module Examples.WordCount;
+
+public record Entry(Nat Offset, Nat Length, Nat Count);
+public record WordTable(TextBuilder<3> Keys, Entry First, Entry Second);
+
+public union Update
+{
+    Counted(WordTable Table);
+    KeyBytesFull(WordTable Table);
+    EntriesFull(WordTable Table);
+}
+
+public definition WordTable EmptyTable() =>
+    WordTable(EmptyBuilder<3>(), Entry(0, 0, 0), Entry(0, 0, 0));
+
+private definition bool Matches<ghost Nat length>(
+    TextBuilder<3> keys, Entry entry, in Vec<Nat, length> word) =>
+    let bytes = WrittenBytes(keys) in
+    if (entry.Count == 0 || entry.Offset + entry.Length > bytes.Count) false
+    else bytes.Slice(entry.Offset, entry.Length) == word.Model;
+
+public definition Update CountWord<ghost Nat length>(
+    WordTable table, in Vec<Nat, length> word)
+    requires ValidUtf8(word.Model) =>
+    if (Matches(table.Keys, table.First, in word))
+        Counted(table with { First = table.First with { Count = table.First.Count + 1 } })
+    else if (Matches(table.Keys, table.Second, in word))
+        Counted(table with { Second = table.Second with { Count = table.Second.Count + 1 } })
+    else if (table.First.Count != 0 && table.Second.Count != 0)
+        EntriesFull(table)
+    else
+        let stored = Format.Write(ref table.Keys, $"{word}") in
+        if (!Fits(stored)) KeyBytesFull(table)
+        else
+            let entry = Entry(Written(table.Keys), ByteLength(word), 1) in
+            if (table.First.Count == 0)
+                Counted(table with { Keys = stored, First = entry })
+            else Counted(table with { Keys = stored, Second = entry });
+
+private definition Update CountNext<ghost Nat length>(Update previous, in Vec<Nat, length> word)
+    requires ValidUtf8(word.Model) =>
+    match (previous) {
+        Counted(table) => CountWord(table, in word),
+        KeyBytesFull(table) => KeyBytesFull(table),
+        EntriesFull(table) => EntriesFull(table),
+    };
+
+public Update ReuseScratch()
+{
+    var scratch = "a";
+    let first = CountWord(EmptyTable(), in scratch);
+    scratch = "b";
+    let second = CountNext(first, in scratch);
+    scratch = "a";
+    return CountNext(second, in scratch);
+}
+
+private definition bool SameTable(WordTable left, WordTable right) =>
+    Fits(left.Keys) == Fits(right.Keys)
+    && WrittenBytes(left.Keys) == WrittenBytes(right.Keys)
+    && left.First == right.First && left.Second == right.Second;
+
+public definition bool ScratchAndSlots() =>
+    let next = "c" in
+    match (ReuseScratch()) {
+        Counted(table) => WrittenBytes(table.Keys) == "ab".Model
+            && table.First == Entry(0, 1, 2) && table.Second == Entry(1, 1, 1)
+            && match (CountWord(table, in next)) {
+                EntriesFull(unchanged) => SameTable(table, unchanged),
+                KeyBytesFull(_) => false,
+                Counted(_) => false,
+            },
+        KeyBytesFull(_) => false,
+        EntriesFull(_) => false,
+    };
+
+public lemma ScratchKeysSurviveAndSlotsDoNotOverflow()
+    ensures ScratchAndSlots() == true
+    proof
+    {
+        assert ScratchAndSlots() == true;
+    }
+
+public definition bool RedRedBlue() =>
+    let red = "red" in
+    let blue = "blue" in
+    let twice = CountNext(CountWord(EmptyTable(), in red), in red) in
+    match (twice) {
+        Counted(table) => WrittenBytes(table.Keys) == "red".Model
+            && table.First == Entry(0, 3, 2) && table.Second.Count == 0
+            && match (CountWord(table, in blue)) {
+                KeyBytesFull(unchanged) => SameTable(table, unchanged),
+                EntriesFull(_) => false,
+                Counted(_) => false,
+            },
+        KeyBytesFull(_) => false,
+        EntriesFull(_) => false,
+    };
+
+public definition bool ExhaustedBytes() =>
+    let accented = "é" in
+    let extra = "cat" in
+    match (CountWord(EmptyTable(), in accented)) {
+        Counted(table) => match (CountWord(table, in extra)) {
+            KeyBytesFull(unchanged) => SameTable(table, unchanged),
+            Counted(_) => false,
+            EntriesFull(_) => false,
+        },
+        KeyBytesFull(_) => false,
+        EntriesFull(_) => false,
+    };
+
+public lemma ExhaustionPreservesTable()
+    ensures RedRedBlue() == true
+    ensures ExhaustedBytes() == true
+    proof
+    {
+        assert RedRedBlue() == true;
+        assert ExhaustedBytes() == true;
+    }
