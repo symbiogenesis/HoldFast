@@ -744,11 +744,12 @@ def _live_two_client_qualification() -> None:
                f"{name}: retained transcript hash mismatch")
         observation = json.loads(observation_raw)
         lsp_clients.verify_client_observation(observation, lsp_clients.expected_scenario_oracle(
-            observation["uri"]), require_token_deltas=True)
+            observation["uri"]), require_token_deltas=True, require_recovery_completion=True)
         lsp_clients.verify_wire_transcript(json.loads(transcript_raw),
             require_ranged_change=name != "vim_full_sync", require_token_deltas=True,
             delta_observation=observation["delta"], require_local_rename=True,
-            rename_observation=observation["stage1"], discovery_observation=observation["stage1"])
+            rename_observation=observation["stage1"], discovery_observation=observation["stage1"],
+            recovery_observation=observation["recovery_completion"])
 
 
 def _rename_wire_evidence_controls() -> None:
