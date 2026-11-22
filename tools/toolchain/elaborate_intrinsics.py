@@ -1953,6 +1953,11 @@ class _IntrinsicsMixin:
                 self.phase_uses.append((node, self.specification_values[str(resolved.value)]))
         if binding.type.kind != "pi":
             return binding
+        signature = binding.type
+        while signature.kind == "pi":
+            if cast("int", signature.value) in self.fn_contracts:
+                raise self.fail("unsupported", "a higher-order callable with a contracted Fn parameter requires a direct call", node)
+            signature = self.whnf(signature.args[1])
         head, supplied = self.spine(self.resolve(binding.term))
         if head.kind == "const":
             requirements = self.callable_preconditions.get(str(head.value), [])

@@ -431,7 +431,7 @@ def _binary(operator: str, left: Form, right: Form) -> Form:
 
 
 def _function_type(parameters: tuple[Parameter, ...], result: Form,
-                   effects: tuple[Form, ...] = ()) -> Form:
+                   effects: tuple[Form, ...] = (), *, contracts: tuple[Form, ...] = ()) -> Form:
     def form(fixture: _Fixture) -> Node:
         start = fixture.offset
         fixture.write("Fn")
@@ -443,8 +443,15 @@ def _function_type(parameters: tuple[Parameter, ...], result: Form,
             fixture.write(" effects(")
             effect_nodes = fixture.forms(effects)
             fixture.write(")")
+        clauses: list[Node] = []
+        if contracts:
+            fixture.write(" with { ")
+            for clause in contracts:
+                clauses.append(clause(fixture))
+                fixture.write("; ")
+            fixture.write("}")
         return fixture.node("function_type", start, mode="Fn", generics=[], parameters=params,
-                            result=output, captures=None, effects=effect_nodes, contracts=[])
+                            result=output, captures=None, effects=effect_nodes, contracts=clauses)
     return form
 
 
@@ -6982,6 +6989,29 @@ def _consuming_ownership_general_loans_and_closed_effects() -> None:
     mode.function("Consume", _NAT, (("n", _modified("owned", _NAT)),), _variable("n"))
     mode.function("AsFn", callback, (), _variable("Consume"))
     _refuses(mode, "type", "ownership or loan modes differ")
+
+    for failure in ("", "pre", "post", "effects", "invocation"):
+        scalar = _Fixture("ScalarCallbackContract")
+        x = _variable("x")
+        none = _effects_clause(_variable("none"))
+        bound = _contract("requires", _binary("<=", x, _natural(5)))
+        guarantee = _contract("ensures", _binary("==", _variable("result"), x))
+        pure_fn = _function_type((("x", _NAT),), _NAT, (_type("none"),), contracts=(bound, guarantee))
+        scalar.function("Apply", _NAT, (("f", pure_fn),),
+                        _call("f", _natural(6 if failure == "invocation" else 5)), contracts=(none,))
+        limit = _contract("requires", _binary("<=", x, _natural(4 if failure == "pre" else 10)))
+        promises = [limit]
+        if failure != "post":
+            promises.append(guarantee)
+        if failure != "effects":
+            promises.append(none)
+        scalar.function("Candidate", _NAT, (("x", _NAT),), x, contracts=tuple(promises))
+        scalar.function("Run", _NAT, (), _call("Apply", _variable("Candidate")), contracts=(none,))
+        if failure:
+            fragment = {"pre": "precondition", "post": "postcondition", "effects": "effects(none)", "invocation": "precondition"}
+            _refuses(scalar, "type", fragment[failure])
+        else:
+            elaborate(*scalar.response())
 
 
 def _unbounded_naturals() -> None:
