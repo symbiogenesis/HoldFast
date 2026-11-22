@@ -49,6 +49,10 @@ with CPython 3.14.4 on Linux ARM64. Its interpreter image digest was
 The [interpreter binding regression](../../tools/tests/test_vela_inspection.py)
 replaces each image separately at a fixed Python version and compiler source
 inventory. Both changes invalidate the compact identity used by the editor.
+The [mixed-interpreter editor case](../../tools/tests/test_vela_lsp_actions.py)
+runs a real isolated worker while the server observes different library
+bytes. The server refuses its edit, then serves the same unchanged document
+once both processes observe the same interpreter.
 
 ### Consumer and kernel observations
 
