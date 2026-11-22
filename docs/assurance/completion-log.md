@@ -2145,3 +2145,30 @@ CRLF. The original and edited modules replay four expected Boolean outcomes
 through Rocq. Already grouped operands yield no edit. Changed source, a replaced
 OCaml bytecode interpreter or an altered preview record invalidates the edit.
 Wider formatting and semantic lint coverage remain open.
+
+<a id="q25ax-implement-locked-package-and-build-closure"></a>
+
+#### Q25ax · Implement locked package and build closure
+
+The [offline package builder](../tooling/elaboration-prototype.md#locked-mathematical-packages)
+locks manifest and source bytes, direct and transitive revisions, explicit
+build inputs, the frontend, the parser and the Gallina target. A changed input
+invalidates the build. The [closure cases](../../tools/tests/test_vela_packages.py)
+cover relocation, missing files, dependency cycles and a diamond that reports
+both conflicting requirements. Package and module identities determine nominal
+declarations. The compiler detects overlapping instances even when their
+defining modules are never imported together. The [binder regression](../../tools/tests/test_vela_package_binders.py)
+reproduces each library's Gallina bytes in isolation and in the presence of an
+unrelated sibling, then checks the client that imports both libraries in Rocq.
+
+The independently authored [weights provider](../../examples/packages/weights/v1/Measure.vela)
+and [scale client](../../examples/packages/scale/v1/Calibration.vela) compose
+through a named argument and a nominal interface instance. The
+[native client cases](../../tools/tests/test_vela_locked_clients.py) compile
+the emitted Gallina and run `rocqchk`. They recover readings 2 and 9 before
+and after a local parameter rename. Renaming the external label rejects the
+unchanged client at its call site and preserves its previous bundle. Two
+import orders resolve the same instances. An instance on a foreign primitive
+fails the ownership rule. This qualification covers the mathematical package
+target. Synchronous frontend correspondence and executable admission retain
+their own milestones. Actual hours are n/a for this parallel batch.

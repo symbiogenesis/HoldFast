@@ -22,7 +22,7 @@ the owner and the evidence needed to resume, then take another row whose inputs 
 | Canonical term and compatibility evidence | Establish the machine interpretation ([Q25am](#q25am)), then the concrete byte and scoped-loan laws ([Q25an](#q25an)). |
 | Machine and resource laws for the validator | Two paths can proceed in parallel as their inputs arrive. Prove the core laws and publish checked frontend correspondence ([Q25as](#q25as), [Q25at](#q25at)). Connect the retained compiler to Sail, prove contextual security, then obtain first-client image admission ([Q25ao](#q25ao), [Q25ap](#q25ap), [Q25aq](#q25aq)). |
 | A producer publishes a checked result | Bind it to the exact inputs as it arrives ([Q25ar](#q25ar)). Join the first-client receipts to the existing narrow lowering to accept the validator ([Q25ba](#q25ba)). Wider frontend, admission and receipt coverage can stay open. |
-| Checked frontend results | Diagnostics can consume checked derivations ([Q25au](#q25au)). The repair trial constructs its fixture from the core laws, checked frontend and concrete resources ([Q25av](#q25av)). Locked packages can start when module and instance semantics are also frozen ([Q25ax](#q25ax)). |
+| Checked frontend results | Diagnostics can consume checked derivations ([Q25au](#q25au)). The repair trial constructs its fixture from the core laws, checked frontend and concrete resources ([Q25av](#q25av)). The mathematical frontend builds locked packages against the frozen module and instance rules ([Q25ax](#q25ax)). |
 | Accepted validator | Publish the scalar and text representations ([Q25aw](#q25aw)). Use the required primitive laws to build the ownership libraries ([Q25ay](#q25ay)). General lowering consumes published representation laws and returns a checked receipt for each operation, so each library can finish qualification ([Q25az](#q25az)). |
 | Locked packages, qualified libraries and general lowering | Freeze the independent second client's baseline and thresholds, run its trial and obtain its own admission receipt ([Q25bb](#q25bb)). Close shared coverage across both clients, publish the reproducible release, then rehearse one upgrade ([Q25bc](#q25bc), [Q25bd](#q25bd)). |
 
@@ -167,10 +167,11 @@ open until the parent's acceptance conditions are met.
 
 <a id="q25ax"></a>
 
-- [ ] **Q25ax · Implement locked package and build closure**
+- [x] **Q25ax · Implement locked package and build closure**
   - **Owner** `packages`
   - **Start** Use the [checked frontend](#q25at) once the first-release module and instance semantics are frozen.
   - **Check** Build two independently authored packages with manifests, lockfiles and a reproducible batch graph of dependencies and target inputs. Check nominal identity, instance coherence and import-order independence. Exercise cycles, missing dependencies and stale configurations. A diamond requiring incompatible revisions of one canonical package must fail with both requirements. Replay an importing client across a local parameter rename with a stable external label and across an external-label change. [Module and package contract](docs/language/first-release.md#modules-and-packages).
+  - The [locked mathematical build](docs/tooling/elaboration-prototype.md#locked-mathematical-packages) reproduces the provider and importing client from declared inputs. [Landing evidence](docs/assurance/completion-log.md#q25ax-implement-locked-package-and-build-closure).
 
 <a id="q25ay"></a>
 
@@ -710,14 +711,14 @@ the [release milestones](#current-execution) to judge readiness.
 | Measure | Value |
 | --- | --- |
 | Total estimate midpoint h | 21,457.9 |
-| Total estimate range h | 11,255.9–31,659.9 |
-| Completed scope h | 579.9 |
-| Complete by estimate % | 2.7 |
-| Remaining h | 20,878 |
-| Open class I h | 2,794 |
+| Total estimate range h | 11,287.9–31,627.9 |
+| Completed scope h | 675.9 |
+| Complete by estimate % | 3.1 |
+| Remaining h | 20,782 |
+| Open class I h | 2,698 |
 | Open class X h | 18,084 |
-| Retained completion estimate h | 576.5 |
-| Unmeasured completed items | 38 |
+| Retained completion estimate h | 672.5 |
+| Unmeasured completed items | 39 |
 <!-- estimate-summary:end -->
 
 The table counts each checklist leaf once. Completed work contributes actual
