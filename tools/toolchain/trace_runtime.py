@@ -55,11 +55,13 @@ def installation_files() -> dict[str, Path]:
             for path in sorted(directory.iterdir()):
                 if path.is_file() and path.suffix in {".dll", ".so", ".zip"}:
                     retain(f"installation/{path.relative_to(base).as_posix()}", path)
-    library = sysconfig.get_config_var("LDLIBRARY")
+    library = (sysconfig.get_config_var("INSTSONAME") if sys.platform == "linux" else None)
+    library = library or sysconfig.get_config_var("LDLIBRARY")
     libdir = sysconfig.get_config_var("LIBDIR")
     if sys.platform == "win32":
         libdir = str(base)
-    if isinstance(library, str) and isinstance(libdir, str) and library.endswith((".dll", ".so")):
+    if isinstance(library, str) and isinstance(libdir, str) and (
+            library.endswith((".dll", ".so")) or ".so." in library):
         path = Path(libdir) / library
         if not path.is_file():
             raise ValueError("Python shared library is unavailable")

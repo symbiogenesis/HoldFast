@@ -101,6 +101,23 @@ def _windows_inventory() -> None:
             _refuses(runtime.installation_files)
 
 
+def _linux_soname() -> None:
+    with tempfile.TemporaryDirectory(prefix="vela-runtime-soname-") as temporary:
+        root = Path(temporary)
+        shared = root / "libpython3.14.so.1.0"
+        shared.write_bytes(b"installed runtime")
+        variables = {"INSTSONAME": shared.name, "LDLIBRARY": "libpython3.14.so", "LIBDIR": str(root)}
+        with patch.object(runtime.sys, "platform", "linux"), \
+                patch.object(runtime.sys, "base_prefix", str(root)), \
+                patch.object(runtime.sysconfig, "get_path", return_value=str(root)), \
+                patch.object(runtime.sysconfig, "get_config_var", side_effect=variables.get):
+            ensure(runtime.installation_files()["python-shared-library"] == shared,
+                   "installed versioned library needs no development symlink")
+            shared.unlink()
+            (root / "libpython3.14.so").write_bytes(b"unrelated link-time library")
+            _refuses(runtime.installation_files)
+
+
 def _unavailable_inputs() -> None:
     with tempfile.TemporaryDirectory(prefix="vela-runtime-missing-") as temporary:
         missing = Path(temporary) / "missing.py"
@@ -112,5 +129,6 @@ def _unavailable_inputs() -> None:
 
 def cases() -> list[Case]:
     return [Case("stdlib-cache-extension-and-shared-library-freshness", _installation_inventory),
+            Case("bind-installed-linux-library-without-development-symlink", _linux_soname),
             Case("windows-runtime-selection", _windows_inventory),
             Case("missing-runtime-inputs-refuse", _unavailable_inputs)]
