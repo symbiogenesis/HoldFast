@@ -1,25 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Run the tools' own behavioral tests.
+"""Run the behavioral suite in isolated worker processes.
 
-Modules under `tools/tests/` run in separate worker processes so environment
-overrides, patched modules, and redirected streams cannot interfere across
-modules. Workers may be reused for later modules; tests still restore their
-temporary state. Cases within a module run in order, and reports merge in sorted
-module order regardless of scheduling. Discovering no modules or loading a
-module that declares no cases is a failure, though lane, `--slow`, and `--shard`
-filtering may leave a module with zero selected cases in a given run. When
-cases are skipped, reports count slow cases and unavailable lanes separately;
-each case is counted once, with the slow filter applied first. When
-`VOS_GATE_TIMINGS` is set (see [toolchain/timings.py](../timings.py)), each
-module's case count and duration are written to that file.
-
-`--shard INDEX/TOTAL` strides across the sorted modules. A module whose cases
-share no state and whose `cases()` returns the same ordered list on every run
-may declare `INDEPENDENT_CASES = True` at the left margin; it keeps its position
-in the module stride so no other module moves, while every shard runs the cases
-at positions `j` where `j % TOTAL == INDEX - 1`.
-
-Exits 0 when clean, 1 on any finding.
+The runner reuses workers, so cases restore any state they modify. Reports
+follow module order. Shards stride over the sorted module list. An independent
+module keeps its place in that list and distributes its ordered cases across shards.
+See the [tool guide](../../README.md) for command usage.
 """
 
 import argparse

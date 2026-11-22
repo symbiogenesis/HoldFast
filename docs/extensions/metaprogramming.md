@@ -1,6 +1,7 @@
 # Vela compile-time metaprogramming
 
-> Non-normative language contract refining the [primary design](../assurance/verification-strategy.md#language-product-contract). The [plan](../../PLAN.md#vela-whole-system-authoring-proposal) owns implementation stages; the [requirements register](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/requirements-register.md) governs admission. This contract supplies no implementation, new semantic anchor, kernel extension or accepted performance result.
+> Design for typed introspection and hygienic compile-time generation.
+> [Implementation plan](../../PLAN.md#tooling-and-metaprogramming)
 
 ## Product and scope
 
@@ -9,7 +10,7 @@ total pure computation for required-static constants and finite specialization.
 Its bounded software path needs no general reflection API, user-defined grade
 algebra or contextual code generator. A narrowly scoped derivation may be selected
 only for an actual library client, with an independently fixed input/output
-contract and separately priced acceptance work.
+contract.
 
 Broader typed introspection, boilerplate derivation and hygienic construction of
 definitions/evidence are later options. Their admission requires a named consumer,
@@ -20,14 +21,9 @@ diagnostics and inspectable output. The rules below constrain a selected extensi
 without making the entire extension a first-release dependency.
 
 The [mathematical prototype](../tooling/elaboration-prototype.md#supported-mathematical-increment)
-already exercises type-valued parameters, computed types and bounded definitional
-computation. Those mechanisms alone do not expose arbitrary types' constructors,
-fields or source declarations. General introspection, generation and their
-composition with ownership, effects and grades remain proposed work. The
-[frontend prerequisites](full-language-review.md#r-05-009-r-05-020-and-what-holds-the-frontend-rows)
-and applicable [software acceptance](unified-source-contract.md#software-and-proof-boundary)
-remain in force; parser support is separately commissioned in the
-[surface grammar](../language/surface-grammar.md).
+checks type-valued parameters, computed types and bounded definitional
+computation. General introspection and generation require the checked descriptor
+and construction interfaces below. [Frontend admission](full-language-review.md#frontend-admission)
 
 ## Evaluation and phase boundaries
 
@@ -130,7 +126,7 @@ optimization, a caller's proof or an accepted `requires`/`ensures` declaration.
 The following is a library API sketch inside a generation context. The names and
 context are illustrative, unimplemented interfaces, not additions to the current
 grammar or executable examples. Its generic call uses the selected
-[familiar authoring syntax](../language/surface-grammar.md#familiar-authoring-migration):
+[familiar authoring syntax](../language/surface-grammar.md#bindings-match-arms-and-generic-calls):
 
 ```text
 let schema = Meta.SchemaOf<Packet<Capacity>>();
@@ -142,10 +138,9 @@ Here `Capacity` and `wireFormat` are declared static inputs. A packet's discover
 length remains represented in the generated program. The format description fixes
 the encoding independently of record layout. The codec must establish its requested
 bounds, failure and correspondence laws, and specialization must establish its
-preservation obligations. This sketch authorizes no alternate production parser:
-the [required Narcissus lowering](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-043) and
-[independent descriptor review](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-046) retain their subjects and
-amendment conditions.
+preservation obligations. Production parsers follow the
+[required Narcissus lowering](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-043)
+and [independent descriptor review](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-046).
 
 ## Hygienic construction and composition
 
@@ -185,7 +180,7 @@ duplication evidence. Test the trace, the final cursor, and each returned owner
 for both generated programs under the [call-by-value application rule](graded-foundation.md#functions-and-application).
 
 Qualification must state these obligations over the admitted interpretation chosen
-under the [frontend disposition](full-language-review.md#r-05-009-r-05-020-and-what-holds-the-frontend-rows).
+under the [frontend disposition](full-language-review.md#frontend-admission).
 The selected extension must prove its laws about the checked elaboration image
 in that existing anchor and supply the required source correspondence; neither
 the interpretation commitment nor a register clarification supplies those proofs. The
@@ -310,11 +305,5 @@ subjects and verdicts; documentation examples alone supply no executed evidence.
 | Compiler/representation and whole-system stages | Static target semantics, finite specialization, growth bounds, exact artifact costs and final-byte/hardware preservation. |
 | Editor/debug protocol stages | Versioned compiler-service consumption, generated-source navigation and exact-image mappings under the existing interoperability contract. |
 
-These rows partition duties, not estimates or implementation commissions. The
-[plan](../../PLAN.md#vela-whole-system-authoring-proposal) and
-[reviewed pricing](full-language-review.md#reviewed-implementation-pricing) own
-scope, budgets and holds. Land the selected syntax/semantic contract and priced
-acceptance item before implementation. Complete the repository's
-[validation handoff](../../AGENTS.md#tool-execution-and-validation) for settled
-changes; hosted acceptance and generated-term checking establish only their stated
-boundaries, never automatic equivalence with another language's entire feature set.
+The [metaprogramming plan](../../PLAN.md#tooling-and-metaprogramming) defines
+selection, owners and implementation prerequisites.

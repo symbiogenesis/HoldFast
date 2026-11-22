@@ -1,12 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Bounded diagnostic over supplied loan facts, never a source safety verdict.
+"""Infer loan ends and report conflicts and obligations over supplied flow facts.
 
-The contract is docs/language/loan-analysis.md. Abstract states over the
-control-flow graph retain their own capture environments, loan states and
-per-conjunct invariant debt sets, merging compatible states at join points and
-loop headers. All supplied interpretation, separation, capture and restoration
-facts remain explicit unresolved obligations. No operation interprets a Vela
-type, calls a library, runs cleanup or checks a proof.
+See the [loan diagnostic contract](../../docs/language/loan-analysis.md) for
+the graph inputs, abstract interpretation, and limits of the result.
 """
 
 import re

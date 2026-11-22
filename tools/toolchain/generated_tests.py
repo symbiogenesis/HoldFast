@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Independent coordinate, overlay, and formatter oracles and isolated Hypothesis qualification.
+"""Run isolated property tests for source coordinates, editor overlays, and formatting.
 
 See [Generated development tests](../../docs/tooling/tooling-protocols.md#generated-development-tests)
-for the campaign bounds, independent oracle rules, seeded defect controls, and adoption disposition.
+for the independent oracles, bounds, and failure replay.
 """
 
 import contextlib

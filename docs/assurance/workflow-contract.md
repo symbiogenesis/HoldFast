@@ -1,19 +1,25 @@
-# The Language Workflow and Artifact Comparison Contract
+# Workflow and artifact comparison
 
-> Q20a's non-normative comparison protocol. Start with the [primary Vela design and examples](verification-strategy.md); its [language product contract](verification-strategy.md#language-product-contract) supplies the objective. [PLAN.md](../../PLAN.md) owns execution state and the [requirements register](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/requirements-register.md) governs obligations. The inspection below lacks the copying implementations, qualified CHERI instance and complete artifact connections needed to run this trial; this contract records no productivity, performance or production result.
+The [release contract](../language/first-release.md#release-boundary) defines
+the language and artifact endpoint. This document defines adoption criteria
+and a conditional protocol for comparing two bounded copying clients.
+[PLAN.md](../../PLAN.md) tracks which work is active.
 
-## Commissioning disposition
+<a id="commissioning-disposition"></a>
 
-Q19c, Q20b and Q20c are canceled in [PLAN.md](../../PLAN.md); their roles below belong to the retained protocol. Re-entry needs a concrete consumer blocked by the existing route, checked foundations, a usable environment, priced missing work and a finite stop threshold in a new suffixed checklist item. Q2b/Q3b, M1, M6 and M7 retain their backend, proof, admission and final-artifact duties.
+## Comparison prerequisites
 
-The [whole-system proposal](../extensions/unified-source-contract.md) separately covers proof, ISA and hardware authorship and Sail retirement. This software trial targets the pinned Sail model; it qualifies neither a replacement model nor a hardware backend.
+A comparison needs a concrete consumer blocked by the retained route, checked
+primitive and representation laws, reproducible implementations, an independent
+baseline, and a priced implementation and trial budget with a stop threshold.
+Record a new suffixed [checklist item](../../PLAN.md#checklist-conventions)
+before commissioning the comparison. The artifact comparison targets the pinned Sail model. The
+[whole-system option](../extensions/unified-source-contract.md) defines the
+requirements for replacing that model.
 
 ## First-release qualification and adoption
 
-The [bounded first release](../language/first-release.md#release-boundary) follows
-[its own delivery sequence](../../PLAN.md#vela-first-release-delivery).
-Q19c/Q20b/Q20c remain canceled; this sequence neither reruns nor changes their
-frozen experiment. Separate three decisions:
+Assess the [bounded first release](../language/first-release.md#release-boundary) along three dimensions.
 
 | Decision | Acceptance and stop rule |
 | --- | --- |
@@ -30,12 +36,10 @@ performance verdict. Never require a universal improvement across every metric
 as a substitute for the product's actual limits, and never average a safety or
 hard-budget failure into a passing score.
 
-The table under [accounting thresholds](#accounting-and-decision-thresholds)
-continues to govern only the canceled Q20 experiment and any explicit replay of
-that exact protocol. Its two-client break-even and Pareto-style optimization
-conditions are not first-release funding or acceptance requirements. A new
-comparison freezes its own subject, evidence endpoint, workloads and envelope
-before execution; safety and independent-intent requirements are unchanged.
+The [two-client thresholds](#accounting-and-decision-thresholds) apply to the
+copying comparison below. For release adoption, freeze the workloads, endpoint,
+resource envelope and decision thresholds for the actual clients before
+measurement.
 
 ### Representation-transfer comparison
 
@@ -55,32 +59,41 @@ prover and assumption policy. Stop the candidate at its declared budget, an
 unresolved compatibility/assumption boundary or failure to meet its predeclared
 maintenance-benefit criterion; retain the native transport and useful checked
 lemmas. A generated proof must concern the same relations and client laws, with
-no strengthened precondition or weakened result. This comparison belongs to the
-first-release package trial and does not reopen Q19c/Q20b/Q20c.
+no strengthened precondition or weakened result. Use this comparison within the first-release package trial.
 
 ## Clients and baseline evidence
 
-**P, parser destination initialization**, is Q2b's copy-once ring-descriptor check with generic bounded fill of its fixed destination. **S, private service staging**, is M7.1's held-out sequential disjoint copy into private staging under M6.4's declaration. Q2b and M7.1 own the implementations and independent baselines; Q19c owns the generic interface, proofs and concrete instance; Q20b owns the single held-out adaptation record shared by both trials.
+**P, parser destination initialization**, is a copy-once ring-descriptor
+check with bounded fill of a fixed destination. **S, private service
+staging**, is the held-out sequential disjoint copy into private storage.
 
-Inspection revision: `e6391c6aacb5a89141250d133f8875efa41a994e`. The table describes evidence at that revision. Before comparison, freeze fresh immutable revisions and content digests for every implementation. Record a missing implementation as `unavailable`, never with its statement's revision.
-
-| Input at the inspection revision | What can be read | What it does not supply | Trial status and owner |
-| --- | --- | --- | --- |
-| [DescriptorCheck.v](https://github.com/symbiogenesis/VerifiedOS/blob/main/tools/bedrock2-lowering/DescriptorCheck.v), `Descriptor.descriptor_check`, `spec_of_descriptor_check`, `descriptor_check_br2fn_ok` | A read-only header check, an unchanged byte-array/frame postcondition and its Rupicola-to-Bedrock2 relation | No destination initialization, byte copy, CHERI memory theorem or final-image correspondence | P implementation baseline unavailable; Q2b owns the extension |
-| [The lowering recipe and evidence](https://github.com/symbiogenesis/VerifiedOS/blob/main/tools/bedrock2-lowering/README.md), [emitted-output digests](https://github.com/symbiogenesis/VerifiedOS/blob/main/tools/bedrock2-lowering/DIGESTS.md) | A reproducible host experiment with a recorded boundary audit | Its C printer and recorded backend experiment do not establish a current CHERI byte endpoint; the older backend observation is not a claim about every later revision | Historical evidence only; Q2b checks the actual producer at entry |
-| [CopyRingService.v](https://github.com/symbiogenesis/VerifiedOS/blob/main/proofs/CopyRingService.v), `copy_once`, `StaysInsideTheValidatedExtent`, `ReadsTheSourceOnce`, `DoesNotVaryWithTheSecondImage`, `RefusesAnOverlongLength` | A statement over `buffer` and `copy_run`, including a rejected rereading copier | `buffer` carries natural-number length and datum, not byte memory; `cr_reads` is a model field, not a measured load count. No implementation of staging or atomic byte snapshot follows | S implementation baseline unavailable; M7.1 owns realization |
-| [The ring declaration](https://github.com/symbiogenesis/VerifiedOS/blob/main/interfaces/ring-reference.json), [RingContract.v](https://github.com/symbiogenesis/VerifiedOS/blob/main/proofs/RingContract.v), and `CopyRingService.svc_op_record` | Generated encoding and capacity inputs; the service's staging and slack fields | Demo values are no composed device or staging-lifetime decision | Freeze actual selected declaration and composition at trial entry; M6.4/M7.1 retain ownership |
-| [Q1's product gate](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/implementation/contracts/product-gate.md) | Product limits, clock separation and report rejection rules | No ratified physical envelope or measurements for these components | Apply relevant limits only at the endpoint that can decide them |
-
-The [foundation map](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/hardware/cheri-foundation-map.md) assigns missing representation, primitive and machine connections; trial entry requires their checked artifacts. The [core design](../language/core-design.md) scopes wider source mechanisms, and the [compiler-route contract](compiler-route-contract.md) owns route comparison and conditional amendments. This protocol selects no route or changed compiler duty.
+Use the [VerifiedOS foundation map](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/hardware/cheri-foundation-map.md)
+for current producers, representations and missing connections.
+[DescriptorCheck](https://github.com/symbiogenesis/VerifiedOS/blob/main/tools/bedrock2-lowering/DescriptorCheck.v)
+models the read-only header check.
+[CopyRingService](https://github.com/symbiogenesis/VerifiedOS/blob/main/proofs/CopyRingService.v)
+specifies abstract read counts and extent. Entry requires runnable byte-copy
+baselines at the selected endpoint, checked CHERI byte and scoped resource
+laws, and the actual ring declaration and staging limits.
+Freeze immutable revisions and digests for each implementation.
+Record missing inputs as `unavailable`.
 
 ### Freeze and independence
 
-Before adapting P, Q2b freezes its manual baseline's operational definition, intended behavior, executable implementation, theorem subjects and assumptions at the candidate's endpoint. Author it independently of generated output; a transcription is invalid. Historic effort without contemporaneous logs stays unknown. Recreating a known solution measures reconstruction or maintenance, not original authoring.
+Before adapting P, freeze the manual baseline's operational definition,
+intended behavior, implementation, theorem subjects and assumptions. The
+baseline author works independently of generated output. Record original
+authoring costs only when contemporaneous records exist.
 
-Before adapting S, Q19c freezes and hashes the interface, generic theorem statements, concrete instance, qualified environment and review. M7.1 may independently develop S's baseline, but S supplies no pre-freeze API feedback. If it does, classify S as another development client and keep the held-out trial unopened until an independently reviewed Q20a amendment names a fresh consumer, owner, baseline and budget. Renaming S, concealing feedback or choosing a replacement after seeing results is invalid.
+Before adapting S, freeze and hash the interface, generic theorems, concrete
+instance and qualified environment. If S informs the interface, treat it
+as a development client. Name a fresh held-out consumer, owner, baseline and
+budget and obtain independent review before observing any comparison results.
 
-Name the experiment author, baseline author and a reviewer who authored neither the compared implementation nor its expected-behavior checks. Review the frozen cases and cost ledger under [the checklist conventions](../../PLAN.md#checklist-conventions). Q19 or the existing compiler owner qualifies newly incorporated upstreams from their pinned licences and dependency notices; this contract imports no code.
+Name the experiment author, baseline author and a reviewer independent of the
+implementations and expected-behavior checks. Follow the
+[licensing policy](../../COPYRIGHT.md#terms-this-tree-does-not-carry) for any
+incorporated tools.
 
 ## Operational subset and observations
 
@@ -125,9 +138,9 @@ Every selected row below must compose in P. Missing mechanisms make the trial un
 | Name and instance resolution | Rename locals, qualify the buffer operation and import an unrelated module while retaining the same resolved constants | Silently select another representation or effect instance: require preserved meaning or explicit ambiguity, never stale acceptance |
 | Dependent computation and automation | Compute bounded cases and replay equation lemmas and the exact transitive assumption audit | Add global UIP, leave a generated obligation open, or produce an executable term stuck on the selected concrete input: fail the relevant assumption, completeness or computation check |
 
-The last row uses only Q19b's qualified definition mechanism, with no new kernel conversion rule. A proved equality principle for the selected decidable index is permitted; a global axiom is not. Saved proof-search reconstructions replay without the search service.
+Use the locked prover's existing definition and conversion rules. A proved equality principle for the selected decidable index is permitted; a global axiom is not. Saved proof-search reconstructions replay without the search service.
 
-Straight-line borrow inference, a loan returned beyond the callback, disjoint-field and nested reborrow inference, resizing, suspension, cancellation, handlers, concurrency, general grades and a new frontend are **unavailable in this pilot**. General isolation, observation-policy and binary-leakage composition are **outside its source claim**. Q21's separately priced eventual-core trial decides those mechanisms. SPSC, DMA and atomic snapshots are **inapplicable to the sequential slice**, not established absences of the full system.
+Straight-line borrow inference, a loan returned beyond the callback, disjoint-field and nested reborrow inference, resizing, suspension, cancellation, handlers, concurrency, general grades and a new frontend are **unavailable in this pilot**. General isolation, observation-policy and binary-leakage composition are **outside its source claim**. The [core design](../language/core-design.md) covers the wider mechanisms. SPSC, DMA and atomic snapshots are **inapplicable to the sequential slice**, not established absences of the full system.
 
 ### Expected behavior, witnesses and mutations
 
@@ -152,7 +165,7 @@ Separately test a semantics-preserving local rename and helper extraction, an un
 
 ## Measurement record and sampling
 
-Q20b's machine-readable record has a generated reading view. Its owner must implement or select a supported recorder; the fields below are not an existing host-checker tool. Retain each measurement's raw log, units, predicate, instrument revision and uncertainty. Missing values are `unknown`, inapplicable axes `n/a`; neither means zero.
+Generate a readable view from the machine-readable measurement record. Retain each measurement's raw log, units, predicate, instrument revision and uncertainty. Missing values are `unknown`, inapplicable axes `n/a`; neither means zero.
 
 | Record family | Required identity or observation |
 | --- | --- |
@@ -175,7 +188,7 @@ Use C#/Dafny and Rust/Verus comparators only where their qualified subsets expre
 
 ## Accounting and decision thresholds
 
-Freeze these contract-owned selection thresholds before Q20b/Q20c. They are experimental rules, not measurements or predictions. An amendment restarts affected comparisons under a new protocol identity and preserves the prior outcome.
+Freeze these selection thresholds before running the workflow and artifact comparisons. A protocol change requires a new identity and a fresh run of the affected cases.
 
 | Parameter | Threshold | Ground and interpretation |
 | --- | --- | --- |
@@ -188,18 +201,18 @@ Freeze these contract-owned selection thresholds before Q20b/Q20c. They are expe
 | Native code and cycles | Final code size and each measured case's target cycles at most 1.05 times its matching manual baseline; no applicable hard bound regresses | A bounded experimental tolerance for competitive output, with failures exposed per dimension rather than hidden in a combined score |
 | Selected optimization | Optimized cycles no greater than the same candidate's unoptimized cycles on any selected case, and total optimized code bytes no greater | This bounded trial retains only an optimization that preserves both dimensions; a deliberate trade needs a separately reviewed comparison |
 
-Account from the first attributable qualification/interface event until P, S and the change probes reach the selected endpoint. Q20b closes source-workflow accounting; Q20c extends that ledger to final artifacts without inheriting a production saving. Further consumers, future targets and imagined edits earn no adoption credit.
+Account from the first attributable qualification/interface event until P, S and the change probes reach the selected endpoint. Close the source-workflow ledger at its own endpoint and extend it with measured final-artifact work. Further consumers, future targets and imagined edits earn no adoption credit.
 
 Use the strategy's [break-even equation](verification-strategy.md#where-time-might-be-saved) without adding another overlapping savings formula. The ledger assigns its terms as follows:
 
 | Term or shared cost | Unique owner and treatment |
 | --- | --- |
-| Library/interface establishment `L` | Q19c; include attributable Q19a/Q19b qualification and initial learning here or at its original owner with a cross-reference, never at both |
+| Library/interface establishment `L` | Count attributable proof-tool qualification, interface design and initial learning once. |
 | Shared maintenance `M` | The owner changing the common interface/tooling; client repair stays in that client's event series |
-| Concrete instance `P_j` | Checked foundation owners identified by Q2c and Q19c's concrete instance work, attributed once to the actual endpoint; the foundation map's scoping cost is distinct from implementation cost |
+| Concrete instance `P_j` | Count concrete-instance and foundation work once at the consuming endpoint. Account for investigation separately from implementation. |
 | Baseline client effort `B_i` | Q2b for P, M7.1 for S; include the matched source, proof, review and maintenance work and baseline-specific prerequisites |
-| Candidate client effort `A_i` | Q20b's adaptation and maintenance events, including its learning, glue and review; S's one adaptation is the same record Q19c consumes |
-| Representation, lowering and final evidence | Q2b, Q3b, applicable M1 compiler/optimizer owners and artifact-validation owners; Q20c joins their actual evidence and counts only its own integration effort again |
+| Candidate client effort `A_i` | Measured adaptation and maintenance, including learning, integration and review. Count S's shared adaptation once. |
+| Representation, lowering and final evidence | Use the representation, lowering, optimization and artifact producers' actual evidence. Charge the artifact comparison for its own integration effort. |
 
 Separately record each route's full establishment, remaining work from the frozen revision and recurring maintenance. Count common foundations once with a transparent allocation/cancellation rule. Retain baseline sunk costs when charging candidate setup; another owner's newly needed source-to-byte work is not sunk. Missing historic records leave full-establishment comparison unknown; report observed recurring work separately.
 
@@ -215,16 +228,23 @@ Use identical target, backend and environment for each manual/generated pair, in
 
 Separately measure executable code bytes, stack, per-class peak storage, runtime/allocation support and source/destination/capability memory traffic. Record functional model behavior per executable vector. Model cycles require an actual timing-annotated instrument, not retirements, host runtime or an unqualified counter; otherwise cycle comparison is unavailable. Replay deterministic cases from recorded initial states and require identical results and supported cycle counts; investigate disagreements. Worst-case claims need exhaustive finite coverage or a checked bound. Label sampled maxima and symbolic overflow cases accurately; neither is measured worst-case execution.
 
-Q20c entry requires accepted Q20b workflow, usable Q2b/Q3b implementation/connections, reviewed Q3c fault model where used, the functional backend, applicable M1.3/M1.3a optimization evidence and assembly/link/image validation and admission artifacts. R-05-020/R-05-023a/R-05-024/R-05-026 retain their exact logic, source correspondence, adversarial-context and tier duties. Bounded emission/source ownership cannot waive them, and Q20c's integration budget builds no missing compiler, logic or certificate machinery.
+Artifact comparison requires accepted workflow results, a reviewed fault
+model where applicable, and the compiler, optimization, assembly, linkage,
+image-validation and admission evidence for both candidates.
+[Exact artifact endpoint](compiler-route-contract.md#equivalent-artifact-endpoint)
 
 Promote the exact final optimized image exercised, binding fresh source correspondence, assembly/link/image validation, admission, resource and applicable security evidence to its bytes and source closure. Changed-byte, relocation, linked-contract and compiler-configuration variants must invalidate affected evidence and fail until renewal. A digest establishes identity only. Retain accepted bytes without recompilation, patching or rewriting.
 
 Apply [Q1's limits](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/implementation/contracts/product-gate.md#2-the-limits) to composed-system claims, keeping `host_elapsed`, `target_model_cycles`, `fpga_observed` and `silicon_measured` separate. Host proof timings establish no device latency, energy or quality limit; converting model cycles to wall time needs latency and operating-point evidence. Component trials ratify no proposed Q1 envelope or unexercised product workload.
 
-## Contract acceptance and remaining gates
+## Review and evidence endpoints
 
-Q20a contract acceptance requires a consistent executable protocol for its clients, baseline freeze, composed/negative cases, behavior/weakening probes, source/evidence identities, sampling, cost allocation and thresholds, conditional on the stated prerequisites. `python tools/run.py gate` checks document consistency, not protocol execution or semantics.
+Review the frozen behavior and cost ledger. Check that each entry has an
+inhabited witness, each well-formed negative reaches its intended obligation,
+and independently expected bytes expose weakened contracts.
 
-Review must establish that independent expected-byte checks detect the weakening, negatives reach their intended obligations from well-formed inputs, and entries inhabit their theorem premises. Check all exits together and reconcile source/IR boundaries with Q21 and foundation owners. A reasoned rejection identifying an unresolved interaction is an acceptable design outcome.
-
-Successful Q20b supplies **source-verified workflow evidence**; a complete source-to-image relation adds **artifact-connected evidence**. **Production-qualified** additionally requires Q20c's complete applicable admission, resource, security and target record. Hardware refinement and silicon measurement remain separate. This contract closes no implementation or proof prerequisite.
+Source proofs establish the **source-verified** result. A complete relation
+through lowering and linkage to exact final bytes establishes
+**artifact-connected** evidence. **Production-qualified** also requires
+admission, resource, security and target evidence at the declared endpoint.
+Hardware refinement and silicon measurement have their own subjects.

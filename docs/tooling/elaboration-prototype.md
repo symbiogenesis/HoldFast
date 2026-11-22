@@ -1,26 +1,16 @@
 # Vela mathematical elaboration prototype
 
-## Commission and boundary
+## Elaboration boundary
 
-[Q25k](../../PLAN.md#q-assessment-actions) commissions an opt-in, bounded
-extension of the [pure prototype](pure-prototype.md). Its source means the emitted
-CIC term. It introduces no independent source semantics, production frontend,
-machine representation, resource interpretation or binary admission. The
-[full-language hold](../extensions/full-language-review.md#r-05-009-r-05-020-and-what-holds-the-frontend-rows)
-and [unified-source acceptance](../extensions/unified-source-contract.md) remain outstanding.
-Land this contract and its checklist predicate before implementation.
+The mathematical elaborator consumes schema-2 syntax from the
+[Menhir surface parser](parser.md) and translates its supported fragment to
+Gallina. Its source terms are interpreted by that translation. The source
+digest binds exact input bytes. Kernel replay checks the generated term.
+[Source and machine correspondence](../extensions/unified-source-contract.md)
 
-The pure checker, schema-1 protocol and parser migration comparison retain
-their contracts. Mathematical elaboration consumes the Menhir surface
-entry point and schema 2, with no second surface parser. Generated Gallina is an
-untrusted proposal until the pinned Rocq kernel checks it. A source digest binds
-bytes; it supplies no source-correspondence theorem.
-
-The [staged metaprogramming design](../extensions/metaprogramming.md) extends the intended
-language beyond this increment. Type-valued parameters, definitional reduction
-and the compositional constant interface support the bounded mathematical fragment.
-General descriptor reflection, generated declaration APIs and composition with
-the refused resource/effect features remain outside it.
+The prototype supports type-valued parameters, definitional reduction and
+compositional constants. General descriptor reflection and generated
+declarations are part of the [metaprogramming design](../extensions/metaprogramming.md).
 
 ## Client upgrade replay
 
@@ -42,14 +32,8 @@ accounts for separately compiled consumers, ABI, and replayed kernel evidence.
 
 ## Supported mathematical increment
 
-The increment uses the [surface grammar](../language/surface-grammar.md), with mathematical
-`=>` bodies and ordinary `<...>` generic calls. Explicit `::<...>` applications
-remain available for generic values and disambiguation. The
-[familiar authoring migration](../language/surface-grammar.md#familiar-authoring-migration)
-binds each accepted spelling to exact source bytes. Native syntax and local
-consumer agreement supply no hosted kernel or source-correspondence verdict.
-
-The supported increment includes:
+The elaborator uses the [surface grammar](../language/surface-grammar.md)
+and supports the following features.
 
 - Generic type and stable ghost-value telescopes, ordinary generic calls and explicit `::<...>` application
   and fresh inferred instantiation at each use. Generic variables in a
@@ -430,15 +414,8 @@ unchecked hole or foreign proof escape is emitted.
 
 ## Commands and acceptance
 
-The [dependent playground increment](playground.md#dependent-mathematics-increment)
-also commissions a public closed-expression evaluator. It validates the original
-source first, accepts exactly one synthetic typed constant initializer through
-the same native surface parser, and uses the existing elaborator and reducer.
-Return a canonical closed `Nat` or `bool` only after complete typing and bounded
-normalization. Refuse extra declarations, malformed syntax, runtime dependencies,
-unresolved terms and exhausted budgets. Preserve original-source diagnostics and
-mark expression-context diagnostics. This development observation adds no kernel
-or source-correspondence verdict.
+The [playground console](playground.md#dependent-mathematics-increment)
+uses the bounded closed-expression evaluator.
 
 `python tools/run.py vela-parser elaborate SOURCE` parses the complete surface,
 elaborates this mathematical fragment and emits Gallina. `--output FILE` uses
@@ -457,8 +434,8 @@ passing receipt. The assumption audit refuses empty, malformed or unsupported
 reports; only the recognized closed-context response establishes zero assumptions.
 A rejected neighbor must reach its intended semantic diagnostic;
 parse failure and unavailable tooling supply no semantic rejection evidence.
-The model Guest CI lane runs this command. A kernel verdict covers generated
-terms only, not checked parsing or source correspondence.
+Kernel replay covers generated terms. Checked parsing and source correspondence
+require their own evidence.
 
 Independent focused host tests exercise fresh polymorphic instantiations,
 explicit/inferred arguments, dependent substitution, vector lengths and finite
@@ -470,12 +447,6 @@ unsupported contracts and resource syntax, and bounded failures. CLI controls
 exercise atomic publication, input aliases and failure preservation. Native
 qualification replays source through the actual parser and kernel rather than
 only using hand-authored syntax fixtures.
-
-Run focused tests and the [local validation handoff](../../AGENTS.md#tool-execution-and-validation).
-Record the settled revision and recommended Host/Guest CI checks; the user owns
-hosted execution. Native acceptance remains pending until its exact-revision
-hosted verdict exists. Report the supported fragment and remaining production
-obligations in the command guide.
 
 ## Locked mathematical packages
 
@@ -520,10 +491,7 @@ An existing key only updates its count. With `red`, `red`, `blue` the table
 counts two occurrences of `red` and returns `KeyBytesFull` with the table
 intact. Other examples reuse one scratch variable, exhaust the two entry
 slots, and count the two UTF-8 bytes of `é` against the byte budget.
-`vela-parser elaborate-qualify` replays these proofs in Rocq. The
-[represented-library milestone](../../PLAN.md#q25aw) checks storage use
-after lowering. The lookup and insertion policy follows
-[Zero C#'s string-key dictionary](https://github.com/OnurGumus/zero-csharp#lib).
+`vela-parser elaborate-qualify` replays these proofs in Rocq. Represented storage is governed by the [release contract](../language/first-release.md).
 
 Run from the repository root on Windows, using `python3` on Linux:
 

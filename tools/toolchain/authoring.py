@@ -1,9 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Source-preserving Vela formatting and optional compiler-owned lints.
+"""Format pure compiler tokens and produce advisory style findings.
 
-The existing compiler owns syntax and semantic acceptance. This module only
-renders its token stream and inspects its syntax and resolved declaration facts.
-It performs no filesystem writes; the compiler command owns publication.
+See the [authoring tools contract](../../docs/tooling/authoring-tools.md).
 """
 
 import re

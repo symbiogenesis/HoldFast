@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Replay bounded Vela elaboration through Menhir and the Rocq kernel.
+"""Check emitted Gallina with Menhir input and Rocq replay.
 
-This qualifies generated CIC terms, never checked parsing, source correspondence,
-the production frontend or machine-code admission. Each attempt retains its own
-native sources, syntax, generated libraries, process logs and exact identities.
+Each attempt retains its source, syntax, Gallina, process logs, and input
+identities. See the [elaboration contract](../../docs/tooling/elaboration-prototype.md)
+for the checks and their scope.
 """
 
 import copy

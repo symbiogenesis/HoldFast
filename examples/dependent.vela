@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-// Mathematical development prototype; kernel replay checks emitted terms.
+// Indexed types, resource contracts, and explicit proofs.
+// See the [mathematical elaborator](../docs/tooling/elaboration-prototype.md).
 module Dependent;
 
 public definition TValue Identity<TValue>(TValue value) => value;

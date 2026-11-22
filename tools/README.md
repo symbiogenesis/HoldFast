@@ -1,6 +1,6 @@
 # VelaLang Tools
 
-`python tools/run.py` is the single entry point for the VelaLang toolchain, static gates, and test runner.
+Run `python tools/run.py` on Windows and `python3 tools/run.py` on Linux. Guest-only commands automatically use WSL on Windows. See `--help` for the full command list and append `--help` to a command for its options.
 
 ## Commands
 
@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | `python tools/run.py validate` | host / guest | Run the static gate and behavioral suite sequentially with bounded worker concurrency |
 | `python tools/run.py validate --full` | host + guest | Run the complete local development qualification profile with native prerequisites required |
-| `python tools/run.py validate --static` | host / guest | Run Python and Markdown checks without invoking the native parser |
+| `python tools/run.py validate --static` | host / guest | Run Python and Markdown checks |
 | `python tools/run.py gate` | host / guest | Run `check`, `markdown`, and `typecheck` in one verdict |
 | `python tools/run.py check` | host / guest | Enforce REUSE v3.3, SPDX headers, EditorConfig, glyph hygiene, source-comment links, JavaScript/playground asset bindings, and plan-summary arithmetic |
 | `python tools/run.py check --fix` | host / guest | Refresh only the generated estimate table in [PLAN.md](../PLAN.md#current-summary), then run all `check` rules |
@@ -58,8 +58,8 @@ stops the profile and prints its log path and a bounded tail for diagnosis.
 It includes slow behavioral cases, live editor interoperability, isolated
 generated tests, fresh checked-parser support qualification, syntax campaigns
 and elaboration/kernel replay. Syntax campaigns already include parser
-qualification and migration comparison, so the profile does not repeat those
-commands. On Windows it also runs the guest behavioral suite in WSL; on Linux
+qualification and the
+[pure parser comparison](../docs/tooling/parser.md#pure-parser-comparison). On Windows it also runs the guest behavioral suite in WSL; on Linux
 the current suite supplies that coverage once. Required toolchain cases cannot
 silently become skips. These are development-tool verdicts; the first-slice
 artifact and external compiler/admission requirements retain their own owners.
@@ -75,7 +75,7 @@ Hosted execution remains user-managed under the
 
 ## Dependency and version policy
 
-- **Single Python version owner**: `project.requires-python` in [tools/pyproject.toml](pyproject.toml) (`>=3.14,<3.15`) is the sole owner of the supported Python minor version.
+- Use the Python minor version specified by `project.requires-python` in [tools/pyproject.toml](pyproject.toml).
 - **Exact checker pins**: `dependency-groups.dev` in [tools/pyproject.toml](pyproject.toml) pins exact versions of `ty`, `ruff`, `rumdl`, `reuse`, and `charset-normalizer`, resolved with `no-build = true`, `python-downloads = "never"`, and `exclude-newer = "3 days"` in [tools/uv.lock](uv.lock).
 - **Reviewed checker schemas**: [tools/ty.toml](ty.toml), [tools/ruff.toml](ruff.toml), and [tools/rumdl.toml](rumdl.toml) are validated against [tools/ty-config.schema.json](ty-config.schema.json), [tools/ruff-config.schema.json](ruff-config.schema.json), and [tools/rumdl-config.schema.json](rumdl-config.schema.json) before any checker runs.
 

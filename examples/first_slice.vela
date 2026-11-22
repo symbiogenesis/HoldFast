@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Bounded synchronous packet/manifest validator for the Vela first-slice gate (Q25w / Q25ag).
+// Bounded byte-packet validator. See the [packet walkthrough](../docs/tooling/packet-walkthrough.md).
 module Vela.FirstSlice;
 
 public union ValidationError

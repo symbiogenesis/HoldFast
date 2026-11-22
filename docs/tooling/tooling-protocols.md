@@ -1,52 +1,22 @@
 # Vela compiler, editor and debugger interoperability
 
-The [primary language design](../assurance/verification-strategy.md#language-product-contract)
-selects useful diagnostics, navigation, formatting and proof inspection for the
-[first supported release](../language/first-release.md#release-boundary). Language Server
-Protocol (LSP) and shared compiler facts support that workflow. Debug Adapter
-Protocol (DAP), DWARF and the wider interchange surfaces below are separately
-selected extensions with actual consumers. This contract defines their
-acceptance boundaries; it requires no first release to implement every adapter.
-DWARF is a debugging information format; LSP and DAP are
-editor-facing message protocols with different message models. SARIF and ECMA-426
-are standards; SCIP, editor grammars, BSP, LLVM remarks and trace formats have
-their own ecosystem specifications rather than a shared standards status.
-
-This is a non-normative design contract. The
-[plan](../../PLAN.md#vela-whole-system-authoring-proposal) owns implementation
-stages and commissioning. The [first host LSP increment](lsp-prototype.md)
-uses the pure prototype as its diagnostic producer. The separately commissioned
-[pure navigation increment](lsp-prototype.md#pure-navigation-increment) exposes
-that prototype's resolution facts as explicitly unqualified host diagnostics.
-Broader semantic services depend on the qualified frontend;
-native debugging additionally needs an executable backend, its ABI and debug
-information. A separately commissioned syntax-only server may precede those
-dependencies if it advertises only its implemented subset.
+Vela tooling shares compiler facts and exact source identities across
+diagnostics, navigation, explicit edits and proof inspection. The
+[pure language server](lsp-prototype.md) exposes the checked pure subset.
+This document defines the wider protocol and qualification boundaries.
+[Release boundary](../language/first-release.md#release-boundary) · [Delivery plan](../../PLAN.md#vela-whole-system-authoring-proposal)
 
 ## Standards and shared boundaries
 
-Delivery starts with LSP lifecycle and pure-prototype diagnostics, sharing immutable
-source snapshots and explicit coordinate conversion. Navigation, explicit
-formatting edits and inspection of supported source obligations follow the same
-producer. Basic tooling should make the first software clients usable before
-additional syntax surfaces or protocol coverage are commissioned. Check, emission
-and build operations follow the [source-preserving command policy](authoring-tools.md#compiler-commands-and-publication);
-formatting applies only through an explicit source-edit action.
+Tools exchange immutable source snapshots and convert coordinates at protocol
+boundaries. Check, emission and build operations follow the
+[source-preserving command policy](authoring-tools.md#compiler-commands-and-publication).
+Formatting applies through an explicit source edit.
 
-SARIF, SCIP, compiler-inspection schema breadth, editor grammar distributions,
-build adapters, optimization remarks and performance traces each need a named
-consumer and demonstrated diagnostic, review or maintenance value. Prefer a small
-shared schema over simultaneous public exposure of every compiler layer. A later
-adapter reuses existing judgments and snapshot identities; its schema does not
-justify creating a second semantic producer. New functionality beyond the basic
-workflow follows the [first-release delivery gates](../../PLAN.md#vela-first-release-delivery).
-
-Native DWARF follows an
-executable producer and fixed ABI; DAP follows a qualified simulator backend and
-consumes matching debug information for native images. These prerequisites favor
-incremental delivery. Compiler identities, source maps and final-image provenance
-have shared owners; LSP JSON-RPC, DAP messages and DWARF emission remain separate
-consumers.
+An adapter needs a named consumer, an identified producer and its own
+qualification. Native DWARF requires an executable producer and defined ABI.
+DAP requires a qualified execution backend and matching debug information
+when debugging native images.
 
 Use the published [LSP specification](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/),
 with interoperability tests for the selected 3.17-compatible feature subset.
@@ -59,10 +29,8 @@ a reproducible dependency pin. Capability exchange describes implemented optiona
 services and grants no target authority.
 
 Use [DWARF 5 and its errata](https://dwarfstd.org/dwarf5std.html) for native debug
-information. A later format revision requires its own consumer qualification;
-[DWARF 6 remains a working draft](https://dwarfstd.org/download.html). Read the
-selected implementation's licences before incorporating libraries, generators
-or debugger code, under the [upstream rules](../../THIRD-PARTY.md).
+information. Each supported format revision needs qualified readers.
+[Upstream incorporation rules](../../THIRD-PARTY.md)
 
 The compiler owns located syntax, name resolution, types, elaboration and source
 maps. The language server consumes those services; it must not introduce another
@@ -89,7 +57,7 @@ inputs before handing the projection to a stock consumer. Independent consumers
 qualify format interpretation; the wrapper owns freshness and completion checks
 that those consumers do not implement. A valid format alone supplies neither.
 
-Host development initially uses standard input/output connections, keeping logs
+Host development uses standard input/output connections, keeping logs
 off the protocol stream. A resident VerifiedOS service must use the
 [capability-delegated compartment transport](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/implementation/userspace-porting.md#zed-the-reference-editor)
 and supervision model. Scope document access and debug sessions to explicitly
@@ -97,9 +65,7 @@ delegated workspaces and targets. Do not infer file, process, network or hardwar
 authority from a URI, workspace setting or client capability. A resident deployment
 fixes its protocol version and feature profile at composition under
 [R-12-043a](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-12-043a), advertises that fixed profile and refuses
-incompatible offers. Broader host-side feature negotiation supplies no exception
-to that rule; resident negotiation beyond it needs a register/prose amendment
-before implementation. Capability exchange cannot weaken admission or security.
+incompatible offers. Capability exchange cannot weaken admission or security.
 
 Host development implementations remain untrusted diagnostic tools. Before
 admitting any resident attacker-facing endpoint or interchange reader described
@@ -233,8 +199,8 @@ pure inspection view. Its [JSON Schema](../../tools/toolchain/inspection.schema.
 covers bulk snapshots and query replies; the
 [implementation](../../tools/toolchain/inspection.py) consumes the existing
 [pure resolution producer](lsp-prototype.md#pure-navigation-increment) through its
-isolated five-second worker. This is partial Q25ch delivery. The wider frontend,
-generated, proof and lowering views retain their producer prerequisites.
+isolated five-second worker. Wider frontend, generated, proof and lowering
+views require their corresponding producers.
 
 Each snapshot preserves the exact UTF-8 source text, including comments, line
 endings and supplementary characters. The `concrete` view partitions that text
@@ -319,8 +285,7 @@ image digest, compiler Python and parser source manifest, and dependency locks.
 The interpreter digest covers the Python executable and configured shared
 Python library on shared builds. Replacing either file invalidates offline
 snapshots, retained lint previews and the editor's worker replies.
-The [maintenance rehearsal](../assurance/inspection-refresh.md) covers upgrade
-and rollback. The pure producer has no imported Vela dependencies. These
+The pure producer has no imported Vela dependencies. These
 identities describe development inspection inputs; they supply no checked source
 correspondence, kernel or runtime-artifact acceptance. The isolated producer uses
 the existing checked-parser runtime qualification and integrity checks.
@@ -827,139 +792,40 @@ literal sharing, unmapped locations and stale inputs.
 
 ## Generated development tests
 
-[Q25x](../../PLAN.md#q-assessment-actions) owns a bounded qualification of
-[Hypothesis](https://hypothesis.readthedocs.io/en/latest/stateful.html) as an
-optional development instrument for the existing Python source API, synchronous
-LSP overlays and pure formatter. Its generators and shrinking can reduce
-handwritten sequence construction and failure reduction. This selects a trial,
-not a permanent dependency or a new semantic producer. Read the selected
-release's own licence and dependency notices and record its use in
-[THIRD-PARTY.md](../../THIRD-PARTY.md) before provisioning it. Pin and qualify
-the exact package closure with the manifest's Python minor version on Windows
-and Ubuntu; a published wheel is not a host verdict. Keep the candidate outside
-the ordinary tool environment until the adoption decision, and reuse the existing
-`Case` runner without a test-framework migration.
+`python tools/run.py vela generated-tests` exercises source coordinates,
+synchronous LSP overlays and pure formatting. It installs the pinned generator
+and its dependency in a disposable environment using the manifest's Python
+minor version and the locked tool runtime. The command runs with Python's
+`-I` isolation, exact generator pins and an explicit dependency cooldown.
+[Campaign implementation](../../tools/toolchain/generated_tests.py) · [Dependency terms](../../THIRD-PARTY.md#generated-development-tests)
 
-Use a small independently written document/state model and independently
-expected canonical text. Compute expected coordinates from scalar traversal and
-explicit UTF-16 unit counts, without calling production coordinate, edit,
-snapshot-identity or invalidation helpers. Retain existing independent coordinate,
-refusal, resource-limit and real-process fixtures. Comparing incremental results
-with fresh analysis helps expose stale state but establishes neither analysis's
-semantic correctness. Formatter generation uses small supported templates with
-expected tokens, comments and documentation attachment; its own output is not an
-expected answer.
+The generator checks expected UTF-8 and UTF-16 coordinates, atomic overlay
+edits and invalidation, current-snapshot requests, and token and comment
+preservation across repeated formatting. Its independent source and overlay
+models compute expectations without the production coordinate or editing
+helpers. An isolated diagnostic stub keeps generated transitions bounded.
+Real producer and protocol controls run separately.
 
-The initial campaign caps are 64 generated examples per property, 32 actions per
-state trace, 4,096 UTF-8 bytes per normal generated document and 60 seconds of
-wall time for each campaign process, including shrinking. Existing explicit
-boundary fixtures still test the implementation's actual resource limits.
-Configure deterministic generation under the pinned tool version and record
-seed, settings and exact input/tool identities. Disable dependence on an ambient
-example database. Retain a minimized failure as explicit data or a normal
-regression fixture, so replay does not depend solely on a version-specific
-reproduction token. Exhaustion, timeout or failure to replay is an incomplete
-campaign, never a passing test.
+The default campaign uses up to 64 examples per property, 32 actions per
+trace, 4,096 UTF-8 bytes per generated document and 60 seconds of wall time
+per campaign process. Reports bind seeds, settings, inputs and tool identities.
+A timeout or replay failure leaves the campaign incomplete. Minimized cases
+replay from explicit data without the original generator. Seeded faults check
+code-point/UTF-16 conversion, sequential edit coordinates and rollback after a
+later invalid edit. [Replay fixtures](../../tools/tests/test_vela_generated_tests.py)
 
-| Subject | Independent observations required |
-| --- | --- |
-| Source coordinates | UTF-8 boundaries and UTF-16 positions agree with the model across supplementary characters, LF/CRLF/bare CR, line-end clamping and rejected interior/out-of-range coordinates |
-| Synchronous overlays | Open/change/close/reopen, strictly increasing versions, sequential ranged edits, later-edit rollback, desynchronization/recovery and configuration invalidation preserve documented source, generation, readiness and diagnostics |
-| Supported requests | Observations use the current synchronized snapshot; closed or desynchronized documents cannot expose prior facts. Cancellation retains its existing synchronous no-op behavior; no pending-work or late-reply claim is made |
-| Pure formatting | Expected tokens, literal values, comments and documentation attachment survive; repeated formatting is idempotent and library/editor calls leave caller-owned source unchanged |
-
-Use a bounded deterministic diagnostic stub for source/protocol-state observations
-and retain the real-producer/process controls for that separate join. Do not
-launch a compiler subprocess for every generated transition. Future asynchronous
-scheduling, dependency graphs and broader language features need their own model
-and consumer; this trial implements none.
-
-Before generation, freeze the same-contract manual baseline and independent
-seeded defects: code-point/UTF-16 confusion, applying every edit to the original
-document, and publishing an early edit before a later invalid edit refuses.
-Keep at least one defect held out from generator design. Reuse the repository's
-mutation vocabulary: an unexecutable mutant is stillborn, a running mutant
-detected by the expected observation is killed, and a survivor needs investigation.
-Require the original to pass, every selected executable mutant to be killed and
-a deliberately nonminimal failing trace to shrink to a strictly smaller replay
-exposing the same observation. A stillborn selected defect leaves its control
-unqualified.
-A go decision also requires unchanged independent controls, both host
-qualifications, bounded reproducible execution and a demonstrated reduction in
-handwritten sequence construction or failure-reduction work for an exercised
-interaction class. Record that maintenance benefit against the frozen baseline;
-neither a test count nor discovery of a production bug is the success criterion.
-Otherwise retain useful explicit regressions and record rejection or unresolved
-prerequisites without promoting the candidate into the ordinary tool closure.
-
-`python tools/run.py vela generated-tests` ([`generated_tests.py`](../../tools/toolchain/generated_tests.py))
-qualifies `hypothesis==6.170.14` and `sortedcontainers==2.4.0` under the
-`2026-10-31T07:17:33Z` dependency cooldown recorded in
-[THIRD-PARTY.md](../../THIRD-PARTY.md) inside a disposable Python 3.14 virtual
-environment. Before installing those separate generator candidates, the command
-synchronizes the compiler's ordinary runtime dependency closure from
-[`tools/uv.lock`](../../tools/uv.lock) with `--locked --no-default-groups` into
-that same disposable environment. This supplies dependencies such as `filelock`
-to the Linux checked-parser build without exposing global or system site
-packages. Candidate installation allows only the two exact pins, disables
-dependency expansion and source builds, and retains the recorded cooldown;
-the campaign runs with Python's `-I` isolation.
-
-Qualification evidence covers Windows ARM64 (Python `3.14.10`, `_native` SHA-256
-`b7722a385d97a5ce0e0a5800770516ce5557f4abed4503b12b7f8e6c6a202c3b`, 4.7 s wall
-time) and Ubuntu ARM64 (Python `3.14.7`, `_native` SHA-256
-`1a25e29e9b879fb3de4bdd805e11d416dc8a4fc62d2f81472095fbfa8630ea61`, 3.0 s wall
-time). Under deterministic seed `20261107` (`max_examples=64`,
-`stateful_step_count=32`, `max_document_bytes=4096`, `timeout_seconds=60`,
-`database=None`, `derandomize=True`), the campaign passes all four subjects
-(`source_coordinates`: 848 examples; `synchronous_overlays` and
-`supported_requests`: 3,224 state-machine steps; `pure_formatting`: 64 examples)
-against [`OracleTextModel`](../../tools/toolchain/generated_tests.py),
-[`OracleOverlayModel`](../../tools/toolchain/generated_tests.py) and
-[`FormatTemplate`](../../tools/toolchain/generated_tests.py), kills all three
-executable seeded defects (`utf16-codepoint-confusion`,
-`edit-against-original-document`, and held-out
-`publish-early-edit-before-rollback`), and shrinks nonminimal failing traces
-(`21 -> 10` coordinate-case units and `8 -> 2` overlay actions) into explicit
-JSON-serializable replays verified by
-[`test_vela_generated_tests.py`](../../tools/tests/test_vela_generated_tests.py)
-under the existing `Case` runner. Compared with the frozen manual baseline
-([`test_vela_lsp.py`](../../tools/tests/test_vela_lsp.py),
-[`test_vela_lsp_services.py`](../../tools/tests/test_vela_lsp_services.py) and
-[`test_vela_format.py`](../../tools/tests/test_vela_format.py)), the state-machine
-rules and structural shrinker replace bespoke multi-step edit/invalidation/recovery
-sequence construction and reduce 8-step failing traces to 2-step minimal replays
-automatically. Because `hypothesis==6.170.14` is licensed under `MPL-2.0` and
-ships a compiled Rust/PyO3 `_native` extension whose wheel metadata omits
-separate crate license notices for its 14-crate Rust closure, the project
-declines promoting `hypothesis` into the permanent
-[`tools/pyproject.toml`](../../tools/pyproject.toml) and
-[`tools/uv.lock`](../../tools/uv.lock) closure, keeps `vela generated-tests` as an
-isolated on-demand qualification command, and retains the independent models,
-fault controls and shrunk explicit regression cases in the Apache-2.0 test suite.
-
-[QCheck](https://github.com/c-cube/qcheck) is an alternative for a separately
-selected native OCaml consumer; no OCaml framework is added beside Hypothesis
-without such a consumer. The parser first uses its
-[existing Menhir facilities](parser.md#generated-syntax-campaigns).
-These campaigns supply development falsification only. Checked source
-correspondence, kernel evidence and independent-client qualification retain their
-existing duties. Hosted verdicts and any benchmark comparisons follow the
-[validation handoff](../../AGENTS.md#tool-execution-and-validation).
+The [native syntax campaigns](parser.md#generated-syntax-campaigns) use Menhir's
+generation and interpreter facilities. Both campaigns exercise development
+tools. Source correspondence, kernel replay and client qualification require
+their own evidence.
 
 ## Qualification and delivery
 
-Each implementation increment first names its actual client and evidence of need,
-then lands a priced plan cell, supported subset,
-backend/client pins, numeric resource budgets and executable acceptance fixtures.
-Language meaning, contextual diagnostics, lowering and protocol adapters retain
-their separate owners; charge shared work once. Preserve full-frontend admission
-prerequisites and existing compiler duties. The first release qualifies its basic
-workflow on the independent software clients in the
-[release contract](../language/first-release.md#qualification); broader protocols add no
-implicit prerequisite to that acceptance. An unsupported adapter remains
-unadvertised. Existing prototype features retain their current qualification
-status rather than becoming accepted through this priority decision.
+Each adapter needs a named client, an identified producer and supported
+subset, exact backend and client pins, resource limits and executable
+acceptance fixtures. Advertise only supported capabilities. The
+[release contract](../language/first-release.md#qualification) governs the
+basic workflow on independent software clients.
 
 | Increment | Required positive and negative controls |
 | --- | --- |
@@ -968,27 +834,9 @@ status rather than becoming accepted through this priority decision.
 | DWARF | Independent verifier/reader plus an end-to-end DAP consumer check unoptimized and optimized images with inlining, generic instances, relocated/removed code, spills, changing locations, CHERI values and unwinding; corrupt/truncate sections and alter source/image/layout to require bounded refusal of false mappings |
 | LSP and DAP transport | Fragmented/coalesced frames, byte lengths with Unicode, malformed JSON, unknown requests, unsupported capabilities, limits, cancellation and clean shutdown; logs never corrupt the protocol stream and no rejected input publishes accepted artifacts |
 
-For the pure LSP subset ([Q25n](../../PLAN.md#q-assessment-actions),
-[Q25o](../../PLAN.md#q-assessment-actions), and
-[Q25u](../../PLAN.md#q-assessment-actions)),
-`python tools/run.py vela-lsp --qualify-clients`
-([`lsp_clients.py`](../../tools/toolchain/lsp_clients.py)) stages the two
-pinned independent editor clients recorded in
-[THIRD-PARTY.md](../../THIRD-PARTY.md#vela-development-and-proof-reuse-candidates)
-— Neovim `0.11.0` (`vim.lsp`, incremental sync) and Vim `9.1.2141` +
-`yegappan/lsp` (`58eac06e81bad174cfa897614ae01adf0d31d10a`, both full and
-incremental sync) — and runs a six-stage headless session against
-`vela-lsp --transcript` covering UTF-16 supplementary-character positions,
-formatting, navigation (`hover`, `definition`, `references`, `documentSymbol`),
-inlay hints, semantic tokens, incremental edits, `check_failure` and
-`unsupported` diagnostics, recovery, and clean `shutdown`/`exit`, verified by
-[`test_vela_lsp_clients.py`](../../tools/tests/test_vela_lsp_clients.py).
-
-Retain exact source, tool, client, backend and final-image identities with
-transcripts, expected results and verdicts. Independent review checks that the
-displayed source and values match the executed artifact, including telling
-negative neighbors. Protocol conformance alone establishes no compiler theorem,
-proof acceptance or measured productivity benefit. Complete the repository's
-[validation handoff](../../AGENTS.md#tool-execution-and-validation): finish
-local integration and record the recommended checks; the user owns publication,
-Host CI and Guest CI. No hosted verdict is supplied until its evidence exists.
+The [pure LSP client qualifier](lsp-prototype.md#acceptance-and-remaining-qualification)
+checks the advertised editing features. New coverage needs independently
+chosen positive and negative cases, with exact source, tool, client,
+backend and image identities as applicable. Source and value observations
+must match the artifact actually executed. Protocol qualification covers
+the adapter's behavior. [Local validation](../../AGENTS.md#tool-execution-and-validation)

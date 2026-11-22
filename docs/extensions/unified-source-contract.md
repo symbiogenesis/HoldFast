@@ -1,30 +1,16 @@
 # Vela Whole-System Authoring Contract
 
-> Non-normative replacement criteria extending the [primary Vela design and examples](../assurance/verification-strategy.md).
-> [PLAN.md](../../PLAN.md#vela-whole-system-authoring-proposal) owns proposal stages;
-> the [requirements register](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/requirements-register.md) governs admission until
-> explicit amendments accept replacements. This contract supplies no implementation
-> or agreement theorem.
+> Qualification criteria for optional Vela-authored software, proofs,
+> machine semantics and hardware.
+> [Whole-system plan](../../PLAN.md#vela-whole-system-authoring-proposal)
 
 ## Authoring end state
 
-The [first supported Vela release](../language/first-release.md#release-boundary) delivers
-bounded synchronous software, contracts and usable proof interfaces through one
-retained backend. Its acceptance does not depend on self-hosting, a new native
-compiler, complete proof-language replacement, ISA-model migration or hardware
-authorship. The [delivery plan](../../PLAN.md#vela-first-release-delivery)
-requires a complete useful software path and an independent client first.
-
-Whole-system authorship is a later product option: Vela may author software,
-contracts, proofs, machine semantics and hardware. Each selected extension needs
-a named blocked consumer or demonstrated benefit, a bounded investigation with a
-stop decision, and separately scoped implementation and acceptance costs. The
-remaining sections are replacement criteria for those options, not a commission
-to build them all or a dependency of the first release. Qualified replacements
-may retire maintained Gallina, Sail, C and VST sources. Generated Rocq terms,
-Clight, machine code and RTL remain valid products; proved libraries may remain
-dependencies behind Vela interfaces. Rewriting a library's syntax earns no
-qualification credit.
+Whole-system authorship extends the [first-release subset](../language/first-release.md#release-boundary).
+Apply the extension selection criteria to each proposed replacement. Qualified
+replacements can author artifacts that the selected backend emits as Rocq terms,
+Clight, machine code or RTL. Proved libraries can remain dependencies behind
+Vela interfaces.
 
 When claiming whole-system authorship, declare the source closure: firmware,
 kernel, storage, services, bootstrap and ISA/ABI primitives, plus compiler, proof
@@ -68,8 +54,7 @@ arithmetic/decoding definitions; an implementation cannot define its own correct
 
 Initially elaborate into admitted interpretations, reconstruct evidence in
 Rocq/CIC and lower supported explicit-memory code through the selected compiler;
-generated Clight is permitted. Replacing the required verified-C or Rust producer
-needs duty-by-duty register/prose amendments under the
+generated Clight is permitted. A replacement for a required verified-C or Rust producer must satisfy the
 [compiler replacement contract](../assurance/compiler-route-contract.md#conditional-amendment-and-reviewer-requirements).
 Language unification and source-neutral admission alone retire neither.
 
@@ -104,7 +89,7 @@ availability is no theorem premise.
 
 Rocq/CIC may remain the checker after handwritten Rocq retires; replacing its
 implementation is a separate qualification decision. The
-[frontend disposition](full-language-review.md#r-05-009-r-05-020-and-what-holds-the-frontend-rows)
+[frontend disposition](full-language-review.md#frontend-admission)
 governs the calculus's interpretation commitment and admission.
 
 ## Native verified compiler and self-hosting
@@ -115,7 +100,7 @@ Its selection needs a concrete consumer and comparison against extending the
 retained route, including compiler proof, bootstrap, maintenance and licensing
 costs. The first software release keeps one retained backend; it owes no new
 native compiler or self-compilation result. Retained-producer interoperation
-remains available throughout qualification/migration.
+remains available throughout qualification of the replacement.
 
 Development uses the [Menhir route](../assurance/verification-strategy.md#development-parser-and-grammar)
 with a reviewed grammar and located AST, preserving separate lexer, parsing,
@@ -167,9 +152,8 @@ where claimed; functional optimization correctness supplies neither CT nor cost.
 
 Independently kernel-check evidence, audit dependencies/assumptions and bind source
 and final image. Pass-theorem reuse needs the checked revision, premises and actual
-application. R-05-023a decompilation/final validation remains required until a
-register/prose amendment admits composed substitutes; compiler assertions cannot
-certify output.
+application. Use R-05-023a decompilation and final validation or an admitted composition of
+checked substitute evidence.
 
 The [Plinth/Plutus design comparison](../assurance/verification-strategy.md#compilation-and-executable-models)
 informs this separation of pass implementation, relation and proof. A composed
@@ -231,7 +215,7 @@ Supply one admitted machine closure, parameterized by actual platform variation,
 with explicit configuration, core class and hart identities. Every consumer resolves
 that closure and declared instances, without private transcriptions. Resolve the
 [canonical term's open configuration question](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/assurance/canonical-machine-term.md#2-generation-identity)
-before migration: a term fixed to one hart cannot stand for all compositions.
+before admission. A one-hart term covers only that configuration.
 
 Prove full-selected-scope agreement with pinned Sail-generated definitions, with
 explicit state/observation maps and behavior preservation both ways: failures,
@@ -270,45 +254,36 @@ Physical implementation, fabrication and device measurement remain separate, wit
 claims bounded by their artifacts' evidence/theorem tier. Structural-absence and
 netlist audits keep independent artifact checks; circuit theorems imply no physical absence.
 
-## Migration and retirement
+<a id="migration-and-retirement"></a>
 
-The [proposal ownership](../../PLAN.md#vela-whole-system-authoring-proposal)
-records conditional stages after the first software release. A successful
-software release starts no migration automatically. For an explicitly selected
-whole-system replacement, the technical transition criteria are:
+## Replacement admission
+
+A replacement route qualifies under these criteria.
 
 1. Establish the software/proof route over the existing machine term. Qualify
    representative systems and mathematical clients, including a held-out client,
    before claiming the general authoring endpoint. Keep required current routes
    available until each consumer has an accepted replacement.
 2. Construct and kernel-check the candidate machine definition and its full-scope
-   agreement evidence under a reviewed comparison scope. During comparison, the
-   pinned Sail term remains the authoritative subject of current claims; parallel
-   candidate artifacts confer no replacement credit by themselves.
+   agreement evidence under a reviewed comparison scope. The
+   pinned Sail term is authoritative until the replacement is admitted.
 3. Rebind and recheck every affected consumer: compiler/primitive meanings, binary
    refinement and admission, TAL soundness, the machine logic and its relational
    and cost theories, emulator/oracle and generated tooling, and hardware evidence
-   and refinement. The migration inventory is generated from actual dependencies,
-   checked for completeness, and records each consumer's revision and verdict.
+   and refinement. Generate the consumer inventory from actual dependencies,
+   check completeness and record each consumer's revision and verdict.
 4. Promote the replacement and retire Sail only when all required destination
    artifacts are admitted, all consumers use the replacement closure, and no
    accepted claim still depends on an unqualified route. Rebuild and revalidate
-   affected images and evidence for the promoted semantics; preserve old model
-   identities for retained historical results. Remove active dual maintenance and
-   update provenance, gates and the trust-base inventory in the same transition.
+   affected images and evidence for the promoted semantics and update provenance, admission gates and the trust-base
+   inventory.
 
-The amendment dossier follows [the register amendment process](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-18-034).
-It reviews the anchor identity and provenance rules R-05-019 through R-05-019c,
-R-05-020's replacement conditions, and all affected source-correspondence,
-primitive, binary-validation and hardware obligations. In particular it accounts
-for R-05-023/R-05-023a/R-05-023b/R-05-026, R-13-017 and the R-15-090 through
-R-15-092 hardware routes; this is an impact starting point, not an exhaustive
-consumer inventory. It amends the register and its paired specification prose,
-updates derived coverage and resolves co-reads before relying on the new route.
-
-Sail, VST and Kami/Kôika remain required until substitute evidence and explicit
-amendments authorize retirement. Vela receives no exception or weakened guarantee;
-current admission gates remain unchanged.
+Replacement admission covers anchor identity and provenance under R-05-019
+through R-05-019c, R-05-020's conditions and all affected compiler, primitive,
+binary-validation and hardware obligations, including R-05-023 through
+R-05-023b, R-05-026, R-13-017 and R-15-090 through R-15-092. The
+[VerifiedOS admission process](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-18-034)
+governs the change to the accepted route.
 
 ## Qualification cases
 

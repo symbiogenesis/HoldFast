@@ -1,29 +1,13 @@
 # Vela development surface grammar
 
-The grammar is a development superset. [The first-release contract](first-release.md#release-boundary)
-selects the supported synchronous runtime language, [primitive meanings](first-release.md#primitive-semantics)
-and [module/package rules](first-release.md#modules-and-packages). Parsing a
-future grade, handler, async or hardware form grants no implementation commitment.
-Ordinary theorem syntax remains available to its separately scoped mathematical
-consumer. Exploratory contract claims use a distinct editor/scratch channel;
-accepted exported `requires`/`ensures` follow the [assurance contract](../extensions/assurance-profiles.md).
+This document specifies located syntax. The [first-release contract](first-release.md#release-boundary)
+selects the synchronous subset and defines [primitive semantics](first-release.md#primitive-semantics)
+and [module rules](first-release.md#modules-and-packages). The
+[language reference](reference.md) describes which constructs each prototype checks.
 
-This is the syntax contract for [Q25i](../../PLAN.md#q-assessment-actions),
-with the selected [familiar authoring migration](#familiar-authoring-migration)
-owned by Q25z. Examples and the development parser use that surface; each
-consumer retains its declared mathematical or runtime boundary. Native fixtures
-and local diagnostics supply no hosted parser or semantic qualification.
-The [language design](../assurance/verification-strategy.md#an-ideal-surface) and
-[whole-system contract](../extensions/unified-source-contract.md#authoring-end-state) own the
-required features and their meanings. This increment accepts located syntax;
-resolution, resource checking, proofs, compilation and admission remain separate.
-
-The [metaprogramming design](../extensions/metaprogramming.md) owns required-static evaluation,
-descriptions and generated definitions. Constant declarations use the
-[required-static constant contract](#required-static-constants). Generic static
-parameter binders, derivation registration and quotation/splicing need their own
-located syntax and independent refusal fixtures before grammar support;
-schematic library calls in that dossier are not parser fixtures.
+The [constant syntax](#required-static-constants) covers required-static evaluation
+in the development parser. Generic static parameter binders, derivation registration,
+and quotation/splicing are [metaprogramming designs](../extensions/metaprogramming.md).
 
 ## Entry points
 
@@ -74,7 +58,7 @@ construct syntax, including syntactically valid programs with semantic errors.
 
 The surface uses type-first declarations and braced containers.
 Ordinary explicit generic calls use `F<T>(arguments)` under the
-[token-only call rule](#familiar-authoring-migration); explicit generic expression
+[token-only call rule](#bindings-match-arms-and-generic-calls); explicit generic expression
 application retains `::<...>` for function values and disambiguation.
 Nested type arguments close with individual `>`
 tokens; shifts may use named operations. Generic arguments admit values and
@@ -128,7 +112,9 @@ Proof holes and theorem signatures parse without establishing a theorem. The
 dependent data, contracts, loans and task cleanup;
 the independent qualification fixtures exercise every feature row above.
 
-## Acceptance and evidence
+<a id="acceptance-and-evidence"></a>
+
+## Syntax and fixtures
 
 ### Composable type and resource syntax
 
@@ -178,7 +164,7 @@ supplies syntax for a future checker, not memory-safety acceptance.
 The foundation's [dependent elimination](../extensions/graded-foundation.md#dependent-data-and-elimination)
 uses the existing record, union and pattern forms. A nonempty expression match
 has comma-separated expression arms, with one optional trailing comma, under
-the [authoring migration](#familiar-authoring-migration):
+the [match arm grammar](#bindings-match-arms-and-generic-calls):
 
 ```text
 definition Vec<byte, packet.Length> Contents(Packed<byte> packet) =>
@@ -231,8 +217,7 @@ Independent fixtures must distinguish the motive binder from branch binders,
 retain dependent indices, field grades, locally bound regions and contract
 ownership, and check original UTF-8 byte spans. Include malformed neighbors and
 syntax-valid examples with incompatible branches, escaping loans or invalid
-grade/resource use. Retain strict generation, pure migration and every existing
-feature row. These extensions keep ancillary boxes, cells, guards and protocols
+grade/resource use. These extensions keep ancillary boxes, cells, guards and protocols
 as ordinary library definitions over shared syntax.
 
 ### Resource contracts and lexical handler capabilities
@@ -264,11 +249,9 @@ interface proof laws use bodyless `lemma`/`theorem` declarations
 declarations state their propositions with `requires`, `where` and `decreases`
 precontracts followed by one or more `ensures` clauses in their `contracts`
 array before `proof { ... }` or `;`; colon-delimited theorem propositions are
-refused. The legacy `trait` and
-`operation` keywords, proposition-less `proof Name;` signature stubs, and
-`handle` parameter binders (`handle` is a reserved effect-handling keyword) are
-refused in the surface entry (`trait` and `operation` remain ordinary
-identifiers in the pure entry). An `invariant` clause may
+refused. The surface entry reserves `trait`, `operation`, and `handle`. Proof signatures
+require a `lemma` or `theorem` declaration with its contracts. The pure entry
+treats `trait` and `operation` as identifiers. An `invariant` clause may
 carry an optional identifier before a colon (`invariant InitializedPrefix: LivePrefix(this.slots, 0usize, this.length)`),
 adding a located `name` field to the `contract` node while unnamed `invariant`
 clauses omit `name`. An `open` statement names the invariant conjuncts it
@@ -310,7 +293,7 @@ empty or malformed `lifts` lists (`lifts {}`, `lifts , Clause`, `lifts A,, B`),
 `open` without `lifts`, `scope (...) lifts ...`, `open` or `lifts` used as a
 surface identifier, and incomplete capability binders without
 publishing an AST. Syntactically valid violations of capability scope or resource
-rules must still parse. Retain every existing qualification and migration case.
+rules must still parse.
 
 ### Type-valued computations and uniform library laws
 
@@ -366,8 +349,7 @@ callable signatures, scoped loans and graded library resources. Assert contract
 ownership, signature/body roles, dependent indices, literal spellings and original
 UTF-8 byte spans. Refuse incomplete kinds, type expressions, callable signatures
 and contracts without an AST; syntax-valid erasure, ownership and grade violations
-must still parse. Retain strict generation and every existing migration and syntax
-case. These forms establish no type-system, borrow-checker or erasure theorem.
+must still parse.
 
 ### Local grades, domain members and disposal clauses
 
@@ -436,7 +418,7 @@ Arrows in these types must not close generic argument lists. Independent fixture
 must distinguish local allowance, initializer and lambda-parameter grades, domain
 member/path spans, and operation/return/disposal clause ownership. Include nested
 handlers, syntax-valid resource violations, malformed neighboring spellings and
-bounded-lookahead exhaustion. Qualify the complete syntax and pure migration corpus.
+bounded-lookahead exhaustion.
 
 ### Computed types and uniform elimination
 
@@ -483,8 +465,7 @@ Independent fixtures must compose computed types with kinded parameters,
 dependent results, scoped loans, local grades and callable contracts. Assert
 expression/type roles, alias/family/member contract ownership, empty-match motive
 and statement/expression boundaries, literal pattern spellings and original UTF-8 byte spans.
-Retain malformed-neighbor refusals, bounded nesting, semantic-error positives,
-the complete surface corpus and pure migration behavior.
+Include malformed neighbors, bounded nesting and syntactically valid semantic errors.
 
 ### Shared operators and local elimination
 
@@ -523,8 +504,7 @@ contract ownership, every child in syntax-depth accounting and the pure entry's
 schema. Independent fixtures must assert operator and nested pattern roles,
 original UTF-8 byte spans, higher-order application and domain compatibility;
 exercise every operator spelling and malformed neighboring forms, syntax-valid
-resource mistakes and nesting limits. Qualify the complete syntax and migration
-corpus and strict conflict-free generation.
+resource mistakes and nesting limits.
 
 Equivalent grammar refactors share named-type application, parenthesized type
 construction, literal payloads, binary-expression construction, generic-binder
@@ -535,9 +515,7 @@ expression binding owns its node kind and span. No helper adds a syntax node.
 Context-specific tokens and AST roles remain explicit: local
 annotations retain lexical disambiguation, literal patterns retain pattern kinds,
 and the pure entry retains schema 1. Preserve the exact accepted/refused language,
-JSON fields, original byte spans and syntax-depth accounting. Compare every
-retained positive fixture's complete JSON before and after, retain all refusal
-and migration cases, and independently check composed types, literal roles,
+JSON fields, original byte spans and syntax-depth accounting. Check composed types, literal roles,
 quantifiers, lambda boundaries, all generic-binder modes and typed initializer
 roles/spans under strict conflict-free generation. Compose erased indices, grade
 parameters, callable captures and library-defined resource types in these cases;
@@ -559,8 +537,8 @@ the outer node includes the body. The binder's scope is the body, not the
 initializer; name resolution, refutability, grades, effects and resource disposal
 remain checking obligations. Bindings associate to the right and occupy a full
 expression, like lambdas and quantifiers. Group them for postfix/operator use.
-Statement bindings keep their semicolon and existing AST. The pure entry and its
-migration contract stay unchanged.
+Statement bindings end in a semicolon. Expression-local bindings belong to the
+surface entry point.
 
 Independent fixtures must compose nested bindings with dependent types, callable
 contracts, grades, constructor patterns, matches and lambdas; distinguish
@@ -633,16 +611,8 @@ spellings, missing unary operands and chained nonassociative comparisons.
 Keep semantically invalid neighbors as positive syntax fixtures, including
 partial matches, implicit conversion attempts, immutable reassignment and
 overlapping/shared-mutation attempts. Their acceptance is no semantic verdict.
-Retain strict conflict-free generation, byte-identical regeneration, every
-surface and pure fixture, pure migration and the native qualification below.
 
 ### Concise authoring syntax
-
-The [Q25p surface](../../PLAN.md#q-assessment-actions), as amended by the
-[Q25z migration](#familiar-authoring-migration), selects the following forms for
-examples, fixtures and prose. Q25z owns migrating the existing implementations
-and does not enlarge Q25p's frozen qualification. The syntax grants no
-implicit conversion, ownership transfer, effect, disposal or proof authority.
 
 - First-class unit types use `Unit`, including `Result<Unit, Error>` and
   `Fn() -> Unit`; the unit value and pattern are `()`. No empty parenthesized
@@ -701,7 +671,7 @@ implicit conversion, ownership transfer, effect, disposal or proof authority.
   accepts the same form. Consumers check it as the existing single return,
   preserving evaluation count/order, result type, effects, resources and source
   locations. Mathematical functions use `definition ... => EXPR;` under the
-  [migration](#familiar-authoring-migration), retaining their distinct declaration
+  [body grammar](#bindings-match-arms-and-generic-calls), retaining their distinct declaration
   kind and pure interpretation. An expression body alone does not assert purity.
   Semantic consumers reject
   void shorthand that would discard a result or resource; syntax acceptance
@@ -733,8 +703,7 @@ implicit conversion, ownership transfer, effect, disposal or proof authority.
   (`Ok(value) => value,` in an expression match or `Ok(value) => { ... },` /
   `Ok(value) => return value;` in a statement match). The outer local keyword
   selects binding mutability. Located binding/constructor/product nodes have
-  distinct roles (`VELA106` is permanently retired under `Q25ah` and never
-  reused).
+  distinct roles.
 
 Acceptance requires independently expected AST roles, original UTF-8 spans,
 precedence, nesting/resource boundaries and malformed neighbors for every form.
@@ -743,9 +712,6 @@ elaboration, including dependent later parameters, callable labels, generics,
 shadowing, duplicate/unknown/out-of-order labels, positional-after-label calls
 and effectful resource-modified arguments. Check unit values separately from
 types, all loop exits and the distinction between rebinding and loan writes.
-Every authored Vela example uses the canonical type, receiver and range-loop
-spellings. The migration below owns the new expression-arm, mathematical-body
-and generic-call spellings and their implementation status.
 Compose inferred lambdas with products, calls, explicit generics and dependent
 expected types; retain typed/graded loan callbacks and unresolved-inference
 refusals. Check expression bodies against equivalent return blocks in both pure
@@ -753,30 +719,19 @@ routes and mathematical elaboration, comparing generated terms apart from exact
 source provenance. Distinguish lambdas inside declaration contracts from the
 expression body. Exercise list forms independently, including nested generic
 closers, and distinguish binding names from explicit nullary constructors.
-Qualify syntax and refusal predicates, strict conflict-free
-generation and byte-identical regeneration. Native fixtures and both authored
-examples must agree with these rules; exact locked-generator acceptance remains hosted. The editor
-part of this increment follows the [hint contract](../tooling/lsp-prototype.md#authoring-hints).
+Editor hints follow the [hint contract](../tooling/lsp-prototype.md#authoring-hints).
 
-### Familiar authoring migration
+<a id="familiar-authoring-migration"></a>
 
-[Q25z](../../PLAN.md#q-assessment-actions) selects this surface refinement.
-Its bounded syntax and existing-consumer migration can proceed independently of
-the [first synchronous component](../../PLAN.md#vela-first-release-delivery);
-represented libraries, runtime checking and production qualification retain
-that component's prerequisites.
-The surface parser accepts typed `let`/`var`, comma-separated expression arms,
-mathematical `=>` bodies and ordinary generic calls. Explicit `::<...>` generic
-application remains supported. Numeric aliases use ordinary type-name syntax;
-their standard-library definitions and represented semantics remain later work.
-The pure prototype also accepts typed immutable `Nat`/`bool` locals, retaining
-its mathematical scalar types and unsupported mutation boundary. Exact-version
-hosted parser, kernel and production qualification retain their existing owners.
+### Bindings, match arms, and generic calls
+
+The development parser accepts typed `let`/`var`, comma-separated expression
+arms, mathematical `=>` bodies and ordinary generic calls. The pure prototype
+checks typed immutable `Nat`/`bool` locals.
 
 **Bindings and aliases.** Local declarations use `let [T] name = value` and
 `var [T] name = value` (where `[T]` denotes an optional type annotation), and bare
-`T name = value;` declarations are refused (`VELA104` is permanently retired
-under `Q25ah`). The [primitive contract](first-release.md#primitive-semantics)
+`T name = value;` declarations are refused. The [primitive contract](first-release.md#primitive-semantics)
 owns the exact integer aliases exported by `Vela.Numerics`: they require explicit
 import or qualification, use ordinary type-name syntax without new keywords,
 implicit conversions, suffixes or default integer types, and agree with their
@@ -828,13 +783,12 @@ bypass the prefix probe at that application. The budget is shared across
 recursive probes, with boundary fixtures before qualification, retaining the
 current source-consumption and diagnostic bounds.
 
-**Qualification and migration.** Independently expected fixtures cover all
+**Qualification.** Independently expected fixtures cover all
 four local forms, their AST roles and reassignment diagnostics; aliases versus
 underlying types, exact boundary values, explicit conversion refusals, import/name
 collisions and alias source identity beside target-type identity; empty,
 single and multiple match arms, nested patterns/motives and malformed separators;
-mathematical body arrows beside contracts and alias/constant `=`, refusing legacy
-or combined body markers; and both
+mathematical body arrows beside contracts and alias/constant `=`, and both
 generic-application spellings beside comparisons. Include nested generic calls,
 computed and member callees, higher-order values, parenthesized relational
 arguments, all generic-argument modes, trailing commas, comments/newlines,
@@ -842,38 +796,11 @@ Unicode byte spans, incomplete delimiters and probe-budget boundaries. Name,
 type, purity, grade and resource mistakes must reach their semantic consumer
 after successful parsing where their token shape is valid.
 
-Retain independently frozen old-source baselines, migrate the checked-in
-examples and fixtures together, and compare corresponding syntax roles and
-elaborated terms apart from exact source provenance. The promoted surface
-refuses legacy `case` match-arm, bare `T x = e;` local and mathematical-body spellings; it has no silent
-fallback parser. Explicit `::<...>` remains
-supported as specified above. Update every source-validating AST consumer,
-formatter, diagnostic and editor projection that reads the changed syntax;
-each revalidates exact source bytes rather than accepting stale spans or facts.
-The pure routes preserve their supported fragment and unsupported-feature
-diagnostics; this migration grants them no dependent or represented integers.
-Qualify strict conflict-free Menhir generation, byte-identical regeneration,
-all retained pure migration cases and mathematical kernel replay for supported
-new spellings. Native acceptance and full suites remain hosted under the
-[validation handoff](../../AGENTS.md#tool-execution-and-validation).
-
 ### Ergonomic authoring and bounded collection iteration
 
-Q25z also owns these authoring refinements. Syntax qualification and the existing
-mathematical consumers do not supply a represented collection checker, iterator
-implementation, source-correspondence theorem or admitted executable.
-
-**Contextual inference.** Infer a literal representation, generic argument,
-lambda annotation or stable dependent index only from the selected declaration
-and its checking context. A unique expected integer type can type an unsuffixed
-literal, including `0` in `0..buffer.Length` when the upper bound establishes
-`usize`. Check its exact value against that representation. Already typed
-operands are never widened, narrowed or otherwise converted; ambiguous widths,
-indices, grades or instances require an annotation or evidence. Inference does
-not invent an `in`, `ref`, `out`, `move`, disposal operation or proof premise.
-Public interfaces retain their reviewed types, modes, effects and contracts.
-The [primitive contract](first-release.md#contextual-inference) owns the semantic
-qualification; the parser preserves unsuffixed literals without guessing types.
+The parser preserves unsuffixed literals for [contextual inference](first-release.md#contextual-inference).
+Collection iteration over represented storage needs the corresponding
+[ownership library contracts](first-release.md#ownership-libraries).
 
 **Collection loops.** The following forms select value, shared-read and exclusive
 element iteration respectively, with an optional explicit element type:
@@ -1040,8 +967,7 @@ updates, non-block `let ... else`, missing `labeled_pattern` sub-patterns, and
 incomplete binders,
 missing `in`, malformed annotations and budget exhaustion without an AST. Keep
 syntax-valid borrowing, copying and cleanup violations for the semantic checker
-to diagnose. Preserve exact-source consumer validation, the retained pure
-migration corpus, strict conflict-free generation and bounded native output.
+to diagnose. Bind consumer facts to exact source and follow [native qualification](#native-qualification).
 Represented inference and iterator acceptance require independent positive and
 invalid-neighbor cases through their actual future producers; parser success
 and an unsupported-feature refusal supply neither verdict.
@@ -1151,12 +1077,7 @@ evaluation. Compare both pure routes and mathematical emission, including a
 constant used as a dependent index. Refuse wrong types, runtime/erased inputs,
 ignored or dead forbidden dependencies, forward/cyclic references, constant
 reassignment/calls, missing type/initializer, malformed spans and exhausted
-budgets. Check mixed-newline/UTF-8 editor positions and invalidation. Native
-fixtures must reach the intended semantic diagnostic; syntax-only acceptance
-establishes no static, graded, borrowing or admission verdict. Run focused host
-tests and the [local validation handoff](../../AGENTS.md#tool-execution-and-validation),
-then record the settled revision and recommended Host/Guest CI checks. The user
-owns hosted execution; exact locked-parser and kernel evidence remains hosted.
+budgets. Check mixed-newline/UTF-8 editor positions and invalidation. Native fixtures must reach the intended semantic diagnostic.
 
 The compositional increment additionally requires runtime and static calls of the
 same constant function; static-factor/runtime-data specialization with an
@@ -1180,11 +1101,4 @@ changing delimiters or keyword interpretation inside them.
 
 `vela-parser qualify` must run both the retained pure cases and the surface cases,
 bind all fixture inputs into its receipt, and retain separate syntax verdicts.
-Focused native builds and helper tests may diagnose candidates; hosted exact-version
-qualification owns acceptance. Complete the
-[local validation handoff](../../AGENTS.md#tool-execution-and-validation), then
-record the settled revision, recommended Host/Guest CI checks and pending guest
-evidence. The user owns hosted execution.
-Q25g/Q25h retain their own acceptance and migration predicates. No parser theorem,
-lexer correctness, full-language elaboration or machine/hardware replacement is
-claimed by this increment.
+See [parser qualification](../tooling/parser.md) for the locked-toolchain checks.

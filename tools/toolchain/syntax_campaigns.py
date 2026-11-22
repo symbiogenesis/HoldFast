@@ -1,10 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Qualify Menhir-generated syntax campaigns and independent AST/span oracles (Q25y).
+"""Check generated Menhir sentences against independent AST and span oracles.
 
 See [Generated syntax campaigns](../../docs/tooling/parser.md#generated-syntax-campaigns)
-and [Generated development tests](../../docs/tooling/tooling-protocols.md#generated-development-tests)
-for the frozen entry point, resource bounds, renderer qualification, independent
-AST/span oracle, seeded-defect controls, sentence shrinking, and replay contract.
+for the bounds, renderer, controls, and replay format.
 """
 
 import copy
@@ -1705,7 +1703,7 @@ def qualify(
         started = time.monotonic()
         inputs = _inputs(root)
 
-        # Prerequisite: Q25g syntax qualification + Q25h migration agreement
+        # Require authored-fixture agreement before generating new cases.
         migration_report = vela_migration.qualify(root)
         if migration_report.get("status") != "agreed" or migration_report.get("differences"):
             raise ValueError("migration prerequisite failed before syntax campaign")

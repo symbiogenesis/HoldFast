@@ -1,14 +1,16 @@
-# Full-language composition review
+# Language extension composition
 
-> Non-normative Q25d integration review: composed client, representation, implementation pricing, frontend disposition and runtime-storage classification. Start with the [primary Vela design and examples](../assurance/verification-strategy.md). The [requirements register](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/requirements-register.md) governs; [workflow commissioning](../assurance/workflow-contract.md#commissioning-disposition) retains canceled trials and re-entry conditions. No implementation, checked metatheory or target qualification is supplied. R-05-020a records the checked-interpretation classification; the later runtime-storage amendment remains a prerequisite to the features that need it.
+> Design for a joint graded, handler, async and cell client. The
+> [first-release contract](../language/first-release.md#release-boundary) defines
+> the synchronous baseline. [Extension plan](../../PLAN.md#language-extensions)
 
-## Inputs and common boundary
+<a id="inputs-and-common-boundary"></a>
 
-The [first-release contract](../language/first-release.md#release-boundary) selects synchronous software with fixed usage modes. General graded demand, async, handlers and concurrent mutation need separate commissioning. The [graded foundation](graded-foundation.md), [control/async](handlers-async.md) and [mutability](interior-mutability.md) dossiers state proof obligations about elaborated terms in existing semantic anchors, without defining independent source semantics.
+## Common boundary
 
-Grades create no memory permission. Each possible outcome must account for its owners, loans, mandatory results, continuations and terminal-completion duties.
-
-The [core](../language/core-design.md) and [foundation map](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/hardware/cheri-foundation-map.md) still lack concrete CHERI laws, and [compiler routes](../assurance/compiler-route-contract.md) lack qualified source-to-machine connections. Q25's added design duties supply none of those prerequisites and reopen no rejected trial.
+The [graded](graded-foundation.md), [handler and async](handlers-async.md) and
+[mutability](interior-mutability.md) designs share the same checked interpretation.
+The [admission requirements](#frontend-admission) apply to their composition.
 
 ## Composed client and inhabited entry
 
@@ -64,11 +66,11 @@ data while changing the stated resource premise.
 
 Restrict syntax/representation to the [core](../language/core-design.md): stable data, flow-sensitive loans, explicit exits and existing callback contracts, without handlers, async, cancellation or concurrent cells. Select domains/structural rules for those uses without weakening `Delta`; preserve runtime lengths, tags and represented values through erasure.
 
-Conservativity must map derivations and executions to the core with identical entry/exit interpretation, effects and observations, introducing no control/memory operations or lost loan/verdict duties. Substitution, reindexing, preservation, erasure, interference and every exit must commute with the projection. That theorem and Q21a's concrete returned-view law remain unavailable.
+Conservativity must map derivations and executions to the core with identical entry/exit interpretation, effects and observations, introducing no control/memory operations or lost loan/verdict duties. Substitution, reindexing, preservation, erasure, interference and every exit must commute with the projection. Qualification requires the conservativity theorem and a concrete returned-view law.
 
 ## The representation the composed duties are stated over
 
-All composed duties use one byte-and-capability carrier: memory regions and tagged capabilities over the Coq definitions emitted by Sail (R-05-019b). Grades, proofs and counter allowances are erased; frames, child slots, continuations and completion records occupy ordinary storage. This selects [Q2c's](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/hardware/cheri-foundation-map.md#foundation-ownership-ledger) `byte-instance` plus `scoped-resources`, fixing theorem subjects without supplying their laws.
+All composed duties use one byte-and-capability carrier: memory regions and tagged capabilities over the Coq definitions emitted by Sail (R-05-019b). Grades, proofs and counter allowances are erased; frames, child slots, continuations and completion records occupy ordinary storage. The [concrete foundation](../../PLAN.md#shared-foundation-and-retained-route) supplies the `byte-instance` and `scoped-resources` laws.
 
 | Composed duty | What it states over that carrier | The missing constant that would discharge it |
 | --- | --- | --- |
@@ -78,111 +80,50 @@ All composed duties use one byte-and-capability carrier: memory regions and tagg
 | Interference | A snapshot's proposition survives exactly the writes the cell's invariant admits, and the counter's committed value and outstanding allowances are conserved across the atomic update. | `machine-logic`'s invariant and mask machinery, with the pinned term's own clause for the atomic operation. |
 | Each exit of the path table above | Every ready, pending, cancelled, `too_late`, capacity and failure exit restores the account that path names, and the frame is released only after terminal collection. | `scoped-resources`' restoration entailments and `byte-instance`'s write law for the reserved completion record. |
 
-Q2c's declined foundation commissioning supplies no checked constant for `machine-logic`, `byte-instance` or `scoped-resources`. The [shared-foundation plan](../../PLAN.md#shared-foundation-and-retained-route) now assigns contingent residual allowances for the synchronous carrier, scoped resources and retained route under its [finite planning baseline](../../PLAN.md#planning-basis-and-scope). The [language-extension plan](../../PLAN.md#language-extensions) separately prices incremental machine/resource laws, target transport and security/admission joins for the selected extensions. Those allowances neither commission external owners nor establish their missing laws. General logic establishment beyond that baseline requires a new scope and estimate. This review constructs no concrete carrier inhabitant. Naming the carrier identifies missing constants; a proof over another carrier cannot transfer merely by sharing predicate names.
+The client requires checked machine-logic, byte-instance and scoped-resource laws
+that construct inhabitants of these carriers. See the
+[shared foundation](../../PLAN.md#shared-foundation-and-retained-route) and
+[extension plan](../../PLAN.md#language-extensions).
 
-## Existing owners, and where each decision is taken
+<a id="existing-owners-and-where-each-decision-is-taken"></a>
+<a id="reviewed-implementation-pricing"></a>
 
-| Obligation | Existing owner, and the decision taken |
+## Implementation obligations
+
+The predicates below apply to the selected extension. The
+[extension plan](../../PLAN.md#language-extensions) assigns scope, owners,
+budgets and entry conditions. The
+[shared foundation](../../PLAN.md#shared-foundation-and-retained-route) supplies
+concrete resources and the base compiler route.
+
+The frontend checks named receiver views, once-only evaluation and overlapping
+arguments. Diagnostics check [claim freshness and scope](assurance-profiles.md#evidence-beside-the-declaration).
+[Handler summaries](handlers-async.md#compositional-handler-summaries) specify
+compositional traces and frame accounting.
+
+| Obligation | Acceptance predicate |
 | --- | --- |
-| Source calculus, dependency substitution and erasure | Q21a's proposed `core-soundness` package is the bounded baseline, and the graded, control and mutation extensions are scoped and priced as their own rows at [the pricing table](#reviewed-implementation-pricing). The old restricted-fragment price funds none of them. |
-| Concrete CHERI resources, invariants and canonical machine interpretation | Q2c's `byte-instance`, `scoped-resources`, `machine-logic` and `context-preservation` map retains the subject. The [shared-foundation plan](../../PLAN.md#shared-foundation-and-retained-route) carries the synchronous baseline; [extension joins](../../PLAN.md#language-extensions) separately price incremental machine/resource laws and security/admission transport. Checked external prerequisites and the entry decision remain required. |
-| Elaboration, grade reconstruction and source correspondence | Q21a's proposed `core-frontend` boundary is the extension point, and domain evidence, handler capture, bounded async lowering and cell protocols are priced once at [the pricing table](#reviewed-implementation-pricing). Q19 tooling qualification supplies no such frontend. |
-| Representation, compiler, linkage and final bytes | Q2b, M1 and Q21b retain their existing duties and the existing M1/M6 production owners retain final-artifact duties. The [shared-foundation and retained-route allowances](../../PLAN.md#shared-foundation-and-retained-route) cover the synchronous baseline; [extension target/security joins](../../PLAN.md#language-extensions) cover additional transport without repricing already owned work. The canceled Q20c comparison owns no implementation. |
-| Diagnostics and qualification clients | Q19's existing-tool scope and Q20's frozen development and held-out protocol stand, and the added source diagnostics and the combined client are priced as rows of their own beside them. |
-| Translator admission | [R-05-020a](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-020a) and the dossiers select checked interpretation in existing anchors. The [admission subsection](#r-05-009-r-05-020-and-what-holds-the-frontend-rows) retains concrete-law, source-correspondence, representation and commissioning prerequisites; no implementation follows from classification. |
-| Runtime-occupancy classification | Taken at [the occupancy subsection](#r-08-046-and-what-the-languages-runtime-varying-storage-is): the classification is performed against the current inventory and every manifest field, its verdict is that a new class is required, and the amendment that verdict implies is proposed rather than taken. |
-| Changed platform behavior | No target control, synchronization, memory or TAL extension is proposed: the scalar counter and the static reaction graph reuse current mechanisms, and a design intention is not target-correspondence evidence. An extension proposed later names its exact normative owner and completes that owner's amendment predicate first. |
-| Assurance-preset policy and mixed-assurance linking | The [preset dossier](assurance-profiles.md) states the claim statuses, composition rules and coverage dimensions this client is selected under, and its policy semantics, status reporting and mixed-assurance interface checks are priced at the same table against the same frontend and evidence-package owners. A claim status is a build output and supplies no source calculus, machine interpretation or admission rule. |
-
-Donors guide these duties without discharging them. The machine-checked graded erasure work restricts modalities/contexts; VerusBelt's subset soundness model leaves its tool's erasure trusted. Dargent's declarative bit-layout accessors carry per-compilation layout proofs in Isabelle, with a trusted C parser and no capability account. Quiver completes specification sketches with checked proofs but cannot establish intended specifications. Every surveyed logic models another language, leaving concrete CHERI laws open. The [research map](../assurance/verification-strategy.md#research-landscape) owns boundaries/licences; donor citations price no work, retire no interim and close no debt.
-
-### Reviewed implementation pricing
-
-The retained extension estimates below price parameterized obligations. The [language-extension plan](../../PLAN.md#language-extensions) allocates all 27 numeric rows once in grouped checklist cells, preserving their ranges. The [shared foundation](../../PLAN.md#shared-foundation-and-retained-route), [first-release sequence](../../PLAN.md#vela-first-release-delivery), [tooling and metaprogramming](../../PLAN.md#tooling-and-metaprogramming) and [whole-system delivery](../../PLAN.md#whole-system-delivery) carry their separate residual work. A planning allocation retains its prerequisite, selection and acceptance gates. Each missing law, frontend component, target connection and [policy qualification stage](assurance-profiles.md#qualification-protocol) has one row, owner and predicate below.
-
-The [receiver rule](../assurance/verification-strategy.md#permanent-language-exclusions)
-refines `core-frontend`'s existing resolution and loan obligations: qualify a named
-view receiver, once-only evaluation and an overlapping later argument; ordinary
-arguments still require their loan modifiers. `core-diagnostics` and
-`preset-policy` implement the [claim presentation](assurance-profiles.md#evidence-beside-the-declaration)
-with its freshness and conditional/success-scope controls.
-The [handler summaries](handlers-async.md#compositional-handler-summaries) refine
-`HA-resume-dispose`'s compositional traces, `HA-suspend-scope`'s live-frame
-accounting and `HA-lowering-erasure`'s target transport. These are acceptance
-details of the existing owners; their implementation holds remain in force.
-
-- Estimates are a range with a work class or a citation to the planning allocation that owns the residual effort; never blank, zero or a bare dash. External proof status remains governed by [the proof map](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/assurance/unassigned-proof-map.md#how-to-read-a-row), independently of the local budget.
-- Range ends are authored; the [checklist](../../PLAN.md#language-extensions) derives the grouped midpoints. Existing Q2c/Q21a/Q2b/Q21b/Q20b/Q20c/M1 duties are charged once, with only added work priced here.
-- Language ranges assume Q25a's parameterized interface. Concrete carrier instantiation remains `byte-instance`/`scoped-resources` work outside them.
-- [Work classes](../../PLAN.md#checklist-conventions) are `I` for implementation and `X` for investigation. The retained row classifications and ranges describe the planned work, not proof authority or its acceptance status.
-- [PLAN's scope and estimate basis](../../PLAN.md#planning-basis-and-scope) owns totals and entry decisions. Conditional extension cells do not authorize implementation before their named prerequisites and selection gates pass.
-
-| Key or component | Implementation owner | Estimate and class | Acceptance predicate, and what fails it |
-| --- | --- | --- | --- |
-| `GF-domain` | `core-soundness`, extended | 24–56 h · X | Domain records, certificate interpreters and interpretation laws check, and cross-domain composition is a law rather than a convention. Fails where an idempotent or Boolean domain admits an exact-use or ownership conclusion, where an order relaxation is accepted without its interpretation, or where a constraint procedure returns a verdict with no reconstructable certificate. |
-| `GF-substitution` | `core-soundness`, extended | 28–68 h · X | Telescope well-formedness, simultaneous substitution, both vector transformations and grade substitution are theorems about the interpretation's image. Fails on a later declaration retaining an unsubstituted index, and fails against R-05-019 where the statement quantifies over a source reduction relation not defined as that image. |
-| `GF-elimination` | `core-soundness`, extended | 22–58 h · X | Dependent functions, pairs, boxes, indexed sums and the admitted recursors preserve grades and well-formed motives, with an inhabited asymmetric-field example carrying its modality premise. Fails where a runtime discriminant is erased, and fails where the positive example is well typed but its hypotheses have no inhabitant, which is R-05-166's case. |
-| `GF-cbv` | `core-soundness`, extended | 32–80 h · X | Demand semantics connects to explicitly sequenced call-by-value computation with usage-aware resource preservation, covering zero-demand effectful arguments and repeated pure values. Fails where zero parameter demand erases the argument's evaluation, effects, failures or mandatory result, where repeated use reexecutes that evaluation instead of using its once-evaluated value, or where ordinary progress/preservation replaces usage-aware resource accounting. This is F-353's open case. |
-| `GF-resource` | Q2c's `scoped-resources` over `byte-instance` | Cited: [extension machine/resource laws](../../PLAN.md#language-extensions) own the incremental carrier and scoped-resource joins over the [shared baseline](../../PLAN.md#shared-foundation-and-retained-route) | Spatial ownership, views, restoration and kinded authority are interpreted at the carrier and a packet entry state is inhabited by a checked constant. Fails on any statement assuming a law the foundation has not supplied. The planning allowance requires the selected logic and representation at entry and supplies no checked law. |
-| `GF-control-mutation` | `core-soundness`, extended | 36–92 h · X | Capture, `Dup`, `Dispose`, `Suspend`, `Transfer` and `Share` compose with the control and cell rules over repeated continuations, hidden cell captures, snapshots, cancellation and fresh per-resumption resources, and the synchronous slice stays a conservative restriction. Fails where a resumption reuses a resource a sibling resumption consumed, and fails where the projection admits a derivation the core judgment does not. |
-| `GF-erasure-source` | `core-soundness`, extended | 26–70 h · X | Phase separation and representation-specific erasure are proved under an assumption set declared per R-05-164 and audited against the proof term by R-05-163. Fails where two instances differing only in erased data have unrelated retained behavior. The elaboration-correspondence and diagnostic halves of this key are charged at the frontend rows below and carry no number here. |
-| `GF-target` | Retained compiler-route owners, preserving Q21b's comparison boundary | Cited: [extension target transport](../../PLAN.md#language-extensions) owns the additional source/IR-to-machine connection over the [retained-route baseline](../../PLAN.md#shared-foundation-and-retained-route) | The selected source representation, its event projections and its obligations reach actual TAL and Sail artifacts. Fails where a source-level count stands in for final cost, and fails where arbitrary-context preservation is assumed rather than carried by `context-preservation`. |
-| `HA-capture-substitution` | `core-soundness`, extended | 26–70 h · X | Moving a transitive resource context into a represented frame preserves graded dependencies, separation, capabilities and loans; substituting a reply preserves each deep, shallow and forwarding contract through nested handler environments and explicit forwarding adapters, with a shallow segment's delimiter hole resolving to the handler its rehandle installs. Under the lexical-scope premise, no operation argument, reply, cell read or spawned child reaches a handler frame through an out-of-scope capability, and an operation argument lending the clause part of the body's own frames ends before `k` is resumed, cloned, rehandled or disposed. Fails where a forwarding adapter's reply contract is read off the handler the capability names at the adapter rather than off the capture's recorded context. |
-| `HA-resume-dispose` | `core-soundness`, extended | 22–58 h · X | One-shot use transfers once, and `Dup` yields separated invocations with fresh inputs and compositional traces: each clone's reinstalled handlers and internal references denote its own frames, and a duplicated handler capability acts as a shared loan authorizing only perform. Zero-shot disposal closes erasure, restoration, mandatory verdicts and protocols on every branch, including continuations stored through mutable interfaces. Fails where storing a continuation in a cell duplicates an exclusive loan or a single-use token. |
-| `HA-suspend-scope` | `core-soundness`, extended | 22–58 h · X | Every activation preserves the frame's typed representation, its stable addresses and its loan tree, and no parent owner or frame is released before each child's indexed terminal resources and returning views are discharged. Fails where a ready result is read as removing the checkpoint duty, and fails where address stability is asserted of the frame rather than derived from the carrier's law, which is `byte-instance`'s and is outside this range. |
-| `HA-cancel-progress` | `core-soundness`, extended | 26–70 h · X | The local sticky-bit and commit machine relates to R-12-097's declared service decisions with exactly one terminal result, a finite masked distance and explicit delivery, child and quiescence terms. Owner-only registration and children registered already marked after the latch ensure that child terms sum over the scope's child set fixed once cleanup begins, and cleanup failure preserves safety without assuming source cleanup runs after a fail-stop. Fails where the bound is a maximum over outcome suffixes that omits the path carrying both a decision delay and a committed suffix, which is F-355's case. |
-| `HA-lowering-erasure` | Retained compiler-route owners, preserving Q21b's comparison boundary | Cited: [extension target transport](../../PLAN.md#language-extensions) owns added artifact preservation over the [retained-route baseline](../../PLAN.md#shared-foundation-and-retained-route); source graph lowering and security/cost admission have separate extension allocations | The graph simulates source checkpoints, capability selection by slot access, handler return transformations and indexed exits. Every reference a handled body holds to its own frames is stored relative to the delimiter's frame from handler entry; resolving it against a clone's invocation frame or a shallow rehandle's fresh incarnation, with performs dispatching over the finite rehandler set fixed by specialization, simulates the source clone or rehandle, and erasure preserves discriminants and effects. Fails where an effect is cloned or moved across a checkpoint, a commit or a handler boundary without its own preservation law, and fails where graph cost is asserted rather than derived from the TAL derivation and the pinned model. |
-| `HA-combined-embedding` | `core-repair-trial`, extended | 22–58 h · X | Q25a's resource interface and Q25c's counter and guard protocol are instantiated with the packet client, each intended negative fails at its stated premise, and the no-handler and no-suspension restriction retains the synchronous core's behavior and exit predicates. Fails where a negative is refused by parsing, an unsupported construct or an unrelated theorem failure rather than at the premise it was built to miss. |
-| `MUT-CELL` | `core-soundness`, extended | 26–70 h · X | Sealed cell predicates, invariant masks, unique opening and closing debts and frame preservation are stated over the parameterized interface, with the local replacement, take, put and scoped-callback rules proved. Fails where an invariant stays open across a suspension or a capturing effect, and fails where the sealed predicate is discharged by a wrapper rather than by the closing rule. |
-| `MUT-BORROW` | `core-soundness`, extended | 22–58 h · X | Represented borrow-state correspondence, bounded guard capacity, alias exclusion, exact release and every source exit are proved, nested capture checks included. Fails where a guard survives an exit path, and fails where the typed conflict result is produced by a runtime check no type rule required. |
-| `MUT-SNAPSHOT` | `core-soundness`, extended | 18–46 h · X | Observation-to-snapshot introduction, stability under interference, invalidation of current predicates and dependent shape transport are proved. Fails where a refinement about an observed value is reused as a proposition about storage another operation may have written, which is the neighbor the client already refuses. |
-| `MUT-SHARE` | `core-soundness`, extended | 22–58 h · X | Transitive capture and the composition of the sharing operations through sealed representations, task frames and handlers are proved. Fails where a local cell becomes concurrently shared through a wrapper. R-15-026's `Zacas` exclusion assumes rather than proves that no capability resides in shared mutable memory; this row owns the source-side half, and the TAL row below owns the target-side half. |
-| `MUT-ATOMIC` | Q2c's `machine-logic` | Cited: [extension machine/resource laws](../../PLAN.md#language-extensions) own the atomic-counter increment over the synchronous baseline; the concurrent-cell entry gate remains open | The counter invariant and history, the one-use allowance interpretation, exact atomic linearization, absence of overflow and the width, alignment, permission and physical-attribute conditions are proved against the pinned Sail subject. Fails where atomicity stands in for a multi-step functional contract, and fails where a second memory semantics appears beside the pinned term. |
-| `MUT-PUBLISH` | Q2c's `machine-logic`, over the existing ring owners | Cited: [extension machine/resource laws](../../PLAN.md#language-extensions) own added ordering/publication joins once; the algorithm remains [RingContract.v](https://github.com/symbiogenesis/VerifiedOS/blob/main/proofs/RingContract.v)'s | Immutable packet and completion publication instantiates the existing single-producer proof with actual ordering, reader and device quiescence and generation retirement. Fails where a counter-only atomic update is read as publishing a payload, and fails where a second ring algorithm appears. |
-| `MUT-EXIT` | `core-soundness`, extended | 22–58 h · X | Cancellation arbitration, checkpoint masking, no-replay receipt storage, child terminal records and reset join the control rules, and each outcome preserves cell and frame resources and its terminal bound. Fails where a cancelled unstarted child's frame is returned before terminal collection, which is F-356's case, and fails where an unused allowance is returned after the commit point. |
-| `MUT-OBSERVE` | Q2c's `context-preservation` | Cited: [extension security/admission](../../PLAN.md#language-extensions) owns additional observation transport over the [shared security baseline](../../PLAN.md#shared-foundation-and-retained-route); M1's backend estimates exclude it | The chosen counter and packet information-flow contract survives optimization and final bytes over the declared leakage model and the actual artifact. Fails where scalar atomicity or a security grade is offered as the relational statement, and fails where an instance with a secret length exposes its count without a different observation contract. |
-| `MUT-CLIENT` | `core-repair-trial`, extended | 18–46 h · I | The combined client's supported positives and negatives replay, the accepted-byte contract is independently reviewed, and each entry state is inhabited at the level the review claims for it. Fails where an entry witness is called concrete without a checked inhabitant of the carrier; the concrete witnesses and the connection to the exact final representation are `byte-instance`'s and `artifact-admission`'s and are outside this range. |
-| Elaboration, domain evidence and grade reconstruction | `core-frontend`, extended | 40–104 h · X · uncommissioned; concrete prerequisites owed | Public signatures resolve domain identities, quantified grade variables, constraints, call modes, captures, effects and representations, and every unresolved constraint stays an explicit goal carrying its proposition, dictionary, substitutions and replayable certificate. Fails where a timeout, an inconsistent solver model or a failed reconstruction is recorded as an established equality, and fails where proof search turns an exact declaration into an upper bound. |
-| Handler capture and bounded async lowering | `core-frontend`, extended | 36–92 h · X · uncommissioned; concrete prerequisites owed | The frontend emits the checked capture boundary, the callback demand and the reaction graph's explicit state and syntactic poll sites from the derivation. Fails where a capture boundary is inferred from lexical variable names, and fails where lowering introduces an internal thread, a run queue or an inner scheduler, which R-07-037a refuses. |
-| Cell, borrow and snapshot protocol checking | `core-frontend`, extended | 22–58 h · X · uncommissioned; concrete prerequisites owed | Sealed-interface, borrow-state and snapshot obligations are checked at the source, and transfer and sharing eligibility is derived structurally through fields, closures, tasks and stored continuations. Fails where a getter or a callback with a hidden transitive effect passes with an exclusive guard open. |
-| `SourcePackage` correspondence, specialization and stale-source rejection | `core-frontend`, extended | 26–70 h · X · uncommissioned; concrete prerequisites owed | Parsing, resolution, instance selection and desugaring carry a correspondence to the exact core computation, specialization fixes phase, calling convention, layout and erasure before emission, and every result carries the generation it was produced at. Fails where a well-typed old core term is accepted for changed source, and fails where one grade-polymorphic function yields one ABI instance across a represented and an erased instantiation with no uniform-representation erasure theorem. |
-| Source diagnostics for the added rules | `core-diagnostics`, extended | 22–58 h · X · uncommissioned; concrete prerequisites owed | Diagnostics locate the first unsatisfied obligation in the developer's own operation and values and distinguish a violated rule, a refuted contract, an unknown or timed-out goal, an unsupported feature and a profile refusal. Fails where a stale or unfinished result is presented as accepted evidence, and fails where a semantic edit leaves the reported obligation unchanged. |
-| Preset selection, obligation expansion and the claim-status engine | `preset-policy`, a new package | 26–70 h · I · uncommissioned; concrete prerequisites owed | A build expands its preset into explicit obligations and requires every authored exported contract under every preset, keeping unestablished claims in unfinished editor/scratch evidence and unavailable to accepted interfaces, proof search, elimination or optimization. Fails where a strictness setting moves the meaning of a construct two presets share, and fails where a release policy lacking the specification a declared dimension needs is completed by default rather than refused. |
-| Mixed-assurance linking and closure declaration | `preset-policy`, a new package | 24–56 h · I · uncommissioned; concrete prerequisites owed | Each call boundary carries its stated rule, the declared closure names the reachable implementations, instantiations, dependencies, generated code and runtime components, and a downgraded interface rechecks its dependents. Fails where ordinary code inherits a property from being linked beside verified code, and fails where compiling with verification disabled retains a theorem-dependent optimization whose justification has gone. |
-| Source representation and IR bridge for the added constructs | Retained compiler-route owners, preserving Q21b's comparison boundary | Cited: [extension target transport](../../PLAN.md#language-extensions) owns additional bridges over the [retained-route baseline](../../PLAN.md#shared-foundation-and-retained-route); Q2b retains device lowering | The graded, handler and cell constructs reach the selected representation with their resource account intact. Fails where a route claims the bridge by naming the constructs rather than by carrying their representation obligations. |
-| Attribute projection under R-05-132 through R-05-134 | The CHERI-TAL owner in [the unassigned map](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/assurance/unassigned-proof-map.md#8-mandatory-work-outside-the-priced-total) | Cited: [extension security/admission](../../PLAN.md#language-extensions) owns additional attribute/TAL transport over the [shared admission baseline](../../PLAN.md#shared-foundation-and-retained-route); external commissioning remains separate | Source grades and protocol laws project into the existing admitted attributes where their actual rules suffice, and the remainder is carried as separately checked kernel terms; the target-side statement that no capability resides in shared mutable memory, which R-15-026's `Zacas` exclusion assumes rather than proves, is one of those terms and is carried here. Fails where a general source domain, dependent normalization or a grade dictionary is asked of an attribute, which is a requested new attribute owing that requirement's own admissibility demonstration. |
-| Final-byte admission and source correspondence under R-05-023a and R-05-026 | Q2c's `artifact-admission` | Cited: [extension security/admission](../../PLAN.md#language-extensions) owns added final-byte joins over the [shared admission baseline](../../PLAN.md#shared-foundation-and-retained-route); canceled Q20c supplies no construction or promotion evidence | The final image's behavior refines behavior the committed source permits through assembly, linking and image construction, with the tier certificate re-checked at admission. Fails where a digest match is offered as a semantic theorem. |
-| Arbitrary-context preservation under R-05-024 and R-05-032 | Q2c's `context-preservation` | Cited: [extension security/admission](../../PLAN.md#language-extensions) owns additional contextual transport over the [shared security baseline](../../PLAN.md#shared-foundation-and-retained-route) | The top-level statement quantifies over an adversarial linked context and composes with the exact final artifact. Fails where a theorem about known generated code fills the slot, and fails where finite emission is offered as the quantifier. |
-| Reaction-graph cost and schedule admission under R-07-037a and R-11-006 | U-28's soundness statement over [the schedule record](https://github.com/symbiogenesis/VerifiedOS/blob/main/proofs/CyclicExecutive.v) U-05 owns | Cited at those slices; [extension security/admission](../../PLAN.md#language-extensions) owns the added cost/schedule transport for the selected service | An admitted reaction graph's cycles are bounded by a max-path sum over its typed graph with loop bounds, and its masked-cancellation distance is a term of that same bound. Fails where an unbounded cleanup retry, forwarding cycle or ready-task selection queue appears, and fails where a bound is asserted rather than derived from the annotated term. |
-| Qualification: policy semantics | `preset-policy`, a new package | 14–34 h · I · uncommissioned; concrete prerequisites owed | The negative cases reject an invented invariant, an unresolved safety goal, a hidden external assumption and a proof-dependent optimization retained after verification is disabled. Fails where a rejection comes from an unsupported construct rather than from the policy rule under test. |
-| Qualification: ordinary application | `preset-policy`, a new package | 14–34 h · I · uncommissioned; concrete prerequisites owed | One parser, collection and service example written against application interfaces alone strengthens its assurance while reusing the executable implementation, with every required code change recorded. Fails where a rewrite is reported as the same program. |
-| Qualification: systems boundary | `core-repair-trial`, extended | 18–46 h · I · uncommissioned; concrete prerequisites owed | An explicit arena and an asynchronous hardware-facing operation establish the point at which the backing becomes reusable, against the cancellation and quiescence rules, over cancellation, late completion, error paths and exhaustion. Fails where reusability is taken at the terminal status rather than established at the release gate. |
-| Qualification: complete release | Existing compiler, admission and image-validation owners; Q20a retains the comparison contract | The [first-release delivery](../../PLAN.md#vela-first-release-delivery) prices closure qualification and its joins. Required implementation evidence remains with its production owners; canceled Q20c owns no release qualification | A dependency change, a callback, a foreign interface and generated code each invalidate the affected evidence in test. Fails where a preset's source-endpoint coverage report is accepted as a statement about the promoted image. |
-| Qualification: maintenance | The [planning baseline](../../PLAN.md#planning-basis-and-scope) and its finite maintenance cycle | Canceled Q20b supplied no maintenance measurement. The current allowance records representation change, proof repair, checking cost and held-out replay for its declared cycle | Executable churn, specification churn, proof repair, checking cost and target resource consequences are reported separately. Fails where proof rediscovery and saved-term replay are reported as one figure. |
+| Graded resource and erasure laws | [Graded proof obligations](graded-foundation.md#proof-and-qualification-obligations) |
+| Handler and async laws | [Control proof obligations](handlers-async.md#proof-and-admission-obligations) |
+| Cell, borrowing and interference laws | [Mutability proof obligations](interior-mutability.md#separate-theorems-and-missing-law-handoff) |
+| Elaboration, domain evidence and grade reconstruction | Public signatures resolve domain identities, quantified grade variables, constraints, call modes, captures, effects and representations, and every unresolved constraint stays an explicit goal carrying its proposition, dictionary, substitutions and replayable certificate. Fails where a timeout, an inconsistent solver model or a failed reconstruction is recorded as an established equality, and fails where proof search turns an exact declaration into an upper bound. |
+| Handler capture and bounded async lowering | The frontend emits the checked capture boundary, the callback demand and the reaction graph's explicit state and syntactic poll sites from the derivation. Fails where a capture boundary is inferred from lexical variable names, and fails where lowering introduces an internal thread, a run queue or an inner scheduler, which R-07-037a refuses. |
+| Cell, borrow and snapshot protocol checking | Sealed-interface, borrow-state and snapshot obligations are checked at the source, and transfer and sharing eligibility is derived structurally through fields, closures, tasks and stored continuations. Fails where a getter or a callback with a hidden transitive effect passes with an exclusive guard open. |
+| `SourcePackage` correspondence, specialization and stale-source rejection | Parsing, resolution, instance selection and desugaring carry a correspondence to the exact core computation, specialization fixes phase, calling convention, layout and erasure before emission, and every result carries the generation it was produced at. Fails where a well-typed old core term is accepted for changed source, and fails where one grade-polymorphic function yields one ABI instance across a represented and an erased instantiation with no uniform-representation erasure theorem. |
+| Source diagnostics for the added rules | Diagnostics locate the first unsatisfied obligation in the developer's own operation and values and distinguish a violated rule, a refuted contract, an unknown or timed-out goal, an unsupported feature and a profile refusal. Fails where a stale or unfinished result is presented as accepted evidence, and fails where a semantic edit leaves the reported obligation unchanged. |
+| Preset selection, mixed linking and policy qualification | [Assurance policy](assurance-profiles.md) and its [qualification protocol](assurance-profiles.md#qualification-protocol). |
+| Source representation and IR bridge for the added constructs | The graded, handler and cell constructs reach the selected representation with their resource account intact. Fails where a route claims the bridge by naming the constructs rather than by carrying their representation obligations. |
+| Attribute projection under R-05-132 through R-05-134 | Source grades and protocol laws project into the existing admitted attributes where their actual rules suffice, and the remainder is carried as separately checked kernel terms; the target-side statement that no capability resides in shared mutable memory, which R-15-026's `Zacas` exclusion assumes rather than proves, is one of those terms and is carried here. Fails where a general source domain, dependent normalization or a grade dictionary is asked of an attribute, which is a requested new attribute owing that requirement's own admissibility demonstration. |
+| Final-byte admission and source correspondence under R-05-023a and R-05-026 | The final image's behavior refines behavior the committed source permits through assembly, linking and image construction, with the tier certificate re-checked at admission. Fails where a digest match is offered as a semantic theorem. |
+| Arbitrary-context preservation under R-05-024 and R-05-032 | The top-level statement quantifies over an adversarial linked context and composes with the exact final artifact. Fails where a theorem about known generated code fills the slot, and fails where finite emission is offered as the quantifier. |
+| Reaction-graph cost and schedule admission under R-07-037a and R-11-006 | An admitted reaction graph's cycles are bounded by a max-path sum over its typed graph with loop bounds, and its masked-cancellation distance is a term of that same bound. Fails where an unbounded cleanup retry, forwarding cycle or ready-task selection queue appears, and fails where a bound is asserted rather than derived from the annotated term. |
 
 ### Metaprogramming and compiler-service extension
 
-The [metaprogramming dossier](metaprogramming.md) refines the intended language
-with required-static evaluation, opt-in descriptions and contextual checked
-generation. The existing combined client does not exercise these mechanisms.
-The [qualification cases](metaprogramming.md#qualification) add inhabited
-generation clients and well-formed negative neighbors; they supply no executed
-verdict. Current prototype normalization and computed types establish neither
-general reflection nor composition with graded ownership, handlers and async.
-
-The [tooling and metaprogramming plan](../../PLAN.md#tooling-and-metaprogramming)
-prices `vela-meta`, `vela-compiler-services` and the separate adapter owners.
-Entry still requires the supported slice, interpretation, descriptor protocol
-and source-correspondence boundary. Existing ranges above are unchanged and
-fund no general evaluator, reflection API, staged calculus or public
-compiler-service implementation. The
-[tooling contract](../tooling/tooling-protocols.md#compiler-inspection-api)
-extends these joins to concrete/typed/elaborated/analysis/lowering inspection,
-syntax assets, SARIF/SCIP, build integration, remarks and compiler traces.
-Conditional debugger protocols and generated-output maps have their own planning
-cells; selecting their consumers and qualifying semantic/backend producers
-remain entry conditions. Q25n's bounded LSP increment supplies none of that
-additional implementation. Charge shared work once at the following joins:
+A selected [metaprogramming client](metaprogramming.md#qualification) exercises
+required-static evaluation, opt-in descriptions or checked generation. The
+[tooling plan](../../PLAN.md#tooling-and-metaprogramming) selects the compiler
+services and adapters it needs. [Compiler inspection contract](../tooling/tooling-protocols.md#compiler-inspection-api)
 
 | Duty | Existing join and additional acceptance |
 | --- | --- |
@@ -191,76 +132,47 @@ additional implementation. Charge shared work once at the following joins:
 | Diagnostics, claims and tooling | `core-diagnostics` and `preset-policy`: preserve source provenance and current evidence status; `vela-compiler-services` exposes shared versioned views, and LSP/SARIF/SCIP consume projections. Syntax assets follow the canonical grammar; build, remarks and trace adapters consume their actual producers. No second semantic implementation or proof-acceptance path. |
 | Lowering and runtime-cost qualification | Existing compiler, admission and hardware owners: retain effects, exits, leakage, representation and final-artifact evidence; inspect removal of generator machinery and measure residual code, descriptors and specialization growth. |
 
-These optional joins retain the concrete-law, checked-correspondence and commissioning prerequisites below. R-05-020a classifies the interpreted producer; it supplies none of the missing implementation or proof artifacts.
+<a id="r-05-009-r-05-020-and-what-holds-the-frontend-rows"></a>
 
-### R-05-009, R-05-020, and what holds the frontend rows
+### Frontend admission
 
-[R-05-020a](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-020a) selects R-05-009's untrusted,
-kernel-rechecked elaboration route. The graded, control and mutation dossiers
-commit to a reviewed interpretation in existing anchors. Their judgments and
-step notation state constraints and theorems about the elaboration image;
-substitution, dependency, ownership, exits and erasure preserve that image's
-interpretation. They do not grant an independently meaningful source reduction
-authority beside Gallina/CIC or the one Iris-over-Sail logic.
+[R-05-020a](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-020a)
+requires untrusted elaboration with kernel rechecking under R-05-009. The
+extension judgments state substitution, dependency, ownership, exit and erasure
+obligations over the elaboration's image in the selected semantic anchor.
 
-The boundary still requires source correspondence. A producer can emit a
-well-typed theorem about the wrong computation. Parsing or parse validation,
-resolution, instance selection, implicit insertion and desugaring must connect
-exact source and generated inputs to the checked term. A stale source binding,
-a changed dependency or a well-typed replacement operation must fail the same
-correspondence obligation. Kernel checking and hashes alone do not establish it.
+Checked source correspondence relates parsing, resolution, instance selection,
+implicit insertion and desugaring to the exact checked term and generated
+inputs. Stale source, a changed dependency and a well-typed replacement
+operation must fail that binding. Concrete resource laws and represented
+lowering are additional prerequisites for executable claims.
 
-The classification decision is settled; production frontend planning cells
-retain their actual prerequisite and scoped-acceptance gates. Q25w closed its
-bounded investigation with a blocked outcome. The
-[shared-foundation allowances](../../PLAN.md#shared-foundation-and-retained-route)
-and [delivery stages](../../PLAN.md#vela-first-release-delivery) now price the
-remaining finite work. Entry decisions precede the selected synchronous
-implementation. Existing bounded mathematical, syntax and diagnostic prototypes
-keep their declared evidence endpoints. This amendment supplies no primitive
-law, metatheory theorem, backend, trusted checker or binary admission verdict.
+An independent semantics or a trusted frontend requires admission under
+R-05-020. A replacement ISA model also meets the
+[canonical-model substitution criteria](unified-source-contract.md#replacement-admission).
 
-A future independent semantics or accepting checker takes R-05-020's full
-amendment route. Machine-model replacement additionally retains the
-[canonical-model migration](unified-source-contract.md#migration-and-retirement)
-duties. The optional whole-system goal grants no exception.
+<a id="r-08-046-and-what-the-languages-runtime-varying-storage-is"></a>
 
-### R-08-046, and what the language's runtime-varying storage is
+### Runtime storage
 
-R-08-046 requires declared bounded pools and complete manifests for static backing with variable occupancy; unclassified counters, arenas, queues or tables affecting admission/progress are review findings. Comparing this design with the current inventory gives the following classification.
+R-08-046 requires declared bounded pools and complete manifests for static
+backing with variable occupancy. Task frames, child slots, scope records,
+continuations, completion records and dynamic-borrow guards need a new pool
+class. The accepted-byte counter is a single fixed-width scalar charged under
+R-08-045. Its outstanding-allowance invariant and overflow behavior belong
+to `MUT-ATOMIC`.
 
-| Storage kind | Covered by a member of R-08-046's current inventory? |
+Each selected pool requires the following manifest and lifecycle evidence.
+
+| Manifest field | Required evidence |
 | --- | --- |
-| Task frame, the represented storage a dormant or suspended computation occupies | No. The nearest members, protocol control blocks and checkpoint transaction slots, are bound to a named protocol or transaction rather than to a source-level computation. |
-| Child slot, a scope's declared child capacity | No, and its exhaustion is the capacity verdict the path table above already requires. |
-| Scope record, the registered structured scope itself | No. |
-| Continuation storage | No, and a captured continuation's occupancy varies with resumption and disposal rather than with a session or a grant. |
-| Completion record, the pre-reserved terminal capacity a child's outcome is written into | No. |
-| Dynamic-borrow guard slot | No. |
-| The accepted-byte counter with its outstanding allowances | Not a pool, and this is a classification rather than an exclusion: its backing is one scalar of fixed width whose members are never bound and released, so the subject R-08-046 names has no referent here. R-08-045's charge covers the scalar, the conservation of committed value against outstanding allowances is a source-level invariant, and overflow is `MUT-ATOMIC`'s law rather than a capacity verdict. |
+| Owning compartment, element type and fixed capacity | Name the concrete owner, represented slot type and finite capacity. |
+| Derivation of contents | Identify the selected typed task family and its lowering to a reaction graph. |
+| Binding and release | Identify compartment-level authorization and prove that scope registration, join and cleanup refine the monotone member lifecycle. |
+| Low and exhausted thresholds, release bound and reserve | Supply numeric thresholds, a target bound from release request to `Reusable`, and the recovery reserve. |
+| Exhaustion action | Return the typed capacity verdict under R-08-047. |
+| Occupancy and telemetry | Declare their confidentiality labels and qualify observations under the selected leakage contract. |
+| Restart and generation migration | Prove restart and migration behavior under the platform containment and revocation rules. |
 
-Every unplaced kind owes R-08-046's full manifest. This design supplies some field kinds, no concrete values.
-
-| Manifest field | Supplied by this design? |
-| --- | --- |
-| Owning compartment | Owed. A composition fixes it. |
-| Element type | Supplied in kind by the rule dossiers, one type per kind above. |
-| Fixed capacity | Owed. The design requires one to exist and names no value. |
-| Derivation source of the contents | Supplied in kind: the declared task family the specialization lowers to a reaction graph. The exact typed key is owed. |
-| Bind authority and release authority | Supplied in kind: the owning scope binds, and its join or its typed cleanup releases. The compartment-level authority is owed. |
-| The binding and release state machine over the monotone member lifecycle | **Owed, and this is the substantive work.** The design's own lifecycle runs from request through the cancelled or committed decision to a terminal result and then to safe reuse; no document yet proves that it refines the register's declared member lifecycle, which an amendment must show rather than assert. |
-| Low threshold and exhausted threshold | Owed. |
-| Maximum time from release request to Reusable | Owed as a value. The control rules bound cleanup, quiescence and collection symbolically, and this review establishes no numeric target. |
-| Exhaustion action | Supplied in kind: R-08-047's typed capacity verdict, which the path table already requires and which no implicit wait may replace. |
-| Recovery reserve | Owed, and this design proposes none. |
-| Confidentiality label of occupancy and telemetry | Owed as a value. Occupancy is an observation the leakage obligation already names, and the witness's own values are public, which cannot establish the stronger case. |
-| Restart semantics | Owed. Fail-stop and restart follow the platform's revocation and containment obligations, and the pool's own restart behavior is not stated by that. |
-| Generation-migration semantics | Owed. |
-
-**A new class is required before the later runtime extension.** The synchronous first release introduces none of these task/continuation/guard pools. Before their implementation, a selected service must supply a concrete manifest and lifecycle refinement, followed by the R-08-046 inventory/prose amendment and co-read. R-05-020a settles producer classification but supplies no pool law or capacity. This review answers F-354's classification duty; the runtime amendment remains owed.
-
-## What this review establishes and what it does not
-
-This design review supplies rules, a composed source-level client, a named representation and owner/estimate/predicate accounting without duplicating existing Q2c/Q21a/Q21b/Q2b/Q20b/Q20c/M1 work. Integrated document gates and required co-reads decide design acceptance. Mechanization, frontend admission, target execution and timing retain separate acceptance predicates; none is established here.
-
-R-05-020a and the interpretation commitments settle the source-classification act. R-08-046's runtime-storage extension remains conditional on a concrete later service and complete lifecycle manifests. The first-release delivery gate retains all missing concrete laws, checked correspondence, implementation and artifact evidence; neither a design decision nor a parameterized theorem price closes them.
+A runtime extension that uses these pools requires the declared manifest,
+checked lifecycle refinement and admission of the pool class under R-08-046.

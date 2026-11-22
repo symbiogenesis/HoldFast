@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Compositional constants in the mathematical development prototype.
+// Required-static constants and runtime arguments.
 module Constants;
 
 /// Computes the square at compile time or runtime.

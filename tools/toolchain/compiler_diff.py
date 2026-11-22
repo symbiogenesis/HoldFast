@@ -41,25 +41,9 @@ def _observe_process(command: list[str], done: subprocess.CompletedProcess[str],
     observations.append(observation)
 
 
-# =====================================================================================
-# The scan: what the in-tree assembler refuses in an emitted stream, by name and by line
-# =====================================================================================
-
-
 @dataclass(frozen=True)
 class Refusal:
-    """One line of an emitted stream the in-tree assembler will not take, and why.
-
-    `kind` is `mnemonic` for a name the dialect table and the pseudo-instructions do not
-    spell, `directive` for a directive the parser does not know, `section` for a `.section`
-    naming one the image does not have, `label` for a numeric local label, which the
-    assembler's label grammar has no form for, `relocation` for a `%pcrel_hi(...)`-style
-    operator, which the assembler has none of by design (R-15-002b, R-15-036l: layout is
-    absolute, so there is nothing to relocate), `operand` for a known mnemonic or directive
-    whose operands the assembler refused, `symbol` for a stream that defines no `main`, and
-    `layout` for an image the composer cannot place. `line` is 1-based in the emitted
-    stream, and 0 where the refusal is not a line's.
-    """
+    """Assembly refusal with a one-based stream line, or zero for a stream-level failure."""
 
     kind: str
     name: str
@@ -73,24 +57,17 @@ _ASM_ERROR_RE = re.compile(r"^(.*?):(\d+): (.*)$", re.DOTALL)
 
 
 def normalize(stream: str) -> str:
-    """The emitted stream with every tab a space, which is the one rewrite the driver makes.
+    """Normalize CompCert's tab separators for the assembler's space-delimited syntax.
 
-    CompCert's printer separates a mnemonic from its operands with a tab and the assembler's
-    line parse splits the two on a space alone, so an unnormalized stream is refused whole,
-    every instruction reading as a mnemonic with its first operand glued on. A tab inside a
-    string literal would move with the rest, which the generator never writes and a reader
-    of the refusal list would see as a changed `.ascii`.
+    The emitted fragments contain no literal tabs inside strings.
     """
     return stream.replace("\t", " ")
 
 
 def _split(raw: str) -> tuple[list[str], str]:
-    """One line as the assembler reads it: the labels it declares, and what follows them
-    once the comment is gone.
+    """Split off labels and comments so the scan can check the instruction separately.
 
-    A numeric local label is taken off the front too, spelled with its colon so a reader
-    tells `1:` from a symbol: the assembler does not read one, and leaving it in place
-    would make the mnemonic behind it read as the refusal.
+    Preserve the colon on numeric labels for refusal diagnostics.
     """
     text = raw.split("#", 1)[0].split("//", 1)[0].strip()
     labels: list[str] = []
@@ -186,10 +163,10 @@ __vela_stack_bounds:
 """
 
 PROLOGUE: Final = f"""\
-# The M1.2f driver's harness around an emitted stream. Every authority is derived off the
-# store-side root (R-15-001c). c4 is reserved by the selected scalar ABI; c8, like every
-# allocatable register, can be overwritten by main. Clearing expanded permission bit 0
-# removes globality while retaining root_data_cap's store-local stack shape.
+# The harness derives authority from the store-side root capability.
+# The scalar ABI reserves c4 across main. Allocatable registers may be overwritten.
+# Clearing permission bit 0 makes the stack capability local while preserving
+# its store-local permission.
 {_SETUP}\
         beqz    a0, __vela_pass
         andi    gp, a0, 0xFF
@@ -277,9 +254,7 @@ def _layout_refusal(exc: AsmError, stream: str, offset: int) -> Refusal:
     if 1 <= number <= len(lines):
         parsed = _head(lines[number - 1])
         return Refusal("operand", parsed[0] if parsed else "?", number, message)
-    # Outside the stream is the harness, and a harness that does not assemble is this
-    # driver's defect rather than the stream's; it is still reported and never raised,
-    # because a run's report is the artifact and a traceback is not one.
+    # Report errors outside the stream against the harness's composite line number.
     return Refusal("operand", "harness", 0, f"line {matched.group(2)} of the composite: "
                                             f"{message}")
 
@@ -416,12 +391,9 @@ _FAILURE_RE = re.compile(r"FAILURE: (\d+)")
 
 
 def htif_verdict(said: str, returncode: int) -> tuple[str, int | None, str]:
-    """Read the emulator's output back as the program's own verdict.
+    """Read the harness result reported by the simulator.
 
-    The exit code is what the program left in the harness's `gp`, on the corpus's own
-    convention; the harness puts `main`'s return below `TRAP_BASE` and a trap's cause at or
-    above it. An emulator that printed neither line gave no verdict, and a trap loop is
-    that case named, because it is what a fault inside the handler itself looks like.
+    Codes below `TRAP_BASE` are return values. Codes from `TRAP_BASE` encode trap causes.
     """
     failed = _FAILURE_RE.search(said)
     if failed:
@@ -439,10 +411,8 @@ def htif_verdict(said: str, returncode: int) -> tuple[str, int | None, str]:
 def cap_roundtrip(records: list[str]) -> bool:
     """Find a stored capability read back intact in normalized commit records.
 
-    R-15-203's capability granule is eight bytes. Every write touching a candidate's
-    granule invalidates it, including an ordinary byte store or a block zeroing. A new
-    aligned tagged capability write can then supply a fresh candidate. Malformed memory
-    records cannot be skipped because a skipped write could hide an intervening change.
+    Any write to a candidate's eight-byte granule invalidates it. Reject malformed
+    memory records because they can hide an intervening write.
     """
     written: dict[int, str] = {}
     for record in records:

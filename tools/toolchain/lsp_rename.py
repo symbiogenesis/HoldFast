@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Source-preserving local rename previews checked by the existing pure producer."""
+"""Propose local renames and recheck the edited source with the pure compiler."""
 
 from bisect import bisect_right
 from collections import defaultdict

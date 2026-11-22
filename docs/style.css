@@ -60,8 +60,7 @@ select:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
 pre:focus-visible,
-summary:focus-visible,
-.scope-note:focus-visible {
+summary:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 3px;
 }
@@ -275,11 +274,6 @@ main {
     margin: 0;
 }
 
-.introduction .eyebrow {
-    color: var(--accent);
-    margin-bottom: 9px;
-}
-
 h1 {
     margin: 0;
     font-size: clamp(24px, 2.3vw, 32px);
@@ -336,109 +330,6 @@ h1 {
     border-color: var(--accent);
     color: #fff;
     background: #1d2536;
-}
-
-/* Scope Note & Hover Popover */
-.scope-note {
-    position: relative;
-    display: flex;
-    align-items: center;
-    gap: 13px;
-    padding: 13px 16px 13px 20px;
-    border-left: 1px solid var(--line);
-    border-radius: 0 8px 8px 0;
-    transition: background .15s;
-    flex-shrink: 0;
-}
-
-.scope-note:hover,
-.scope-note:focus-within {
-    background: #131823;
-}
-
-.scope-icon {
-    width: 35px;
-    height: 35px;
-    border: 1px solid #343d54;
-    background: #1b2232;
-    color: #b0c1f3;
-    border-radius: 9px;
-    display: grid;
-    place-items: center;
-    font: 22px Georgia, serif;
-    flex-shrink: 0;
-}
-
-.scope-note strong {
-    font-size: 12px;
-    font-weight: 500;
-    display: block;
-    margin-bottom: 4px;
-    color: #dfe5f2;
-}
-
-.scope-note > div > span {
-    display: block;
-    color: #7c899f;
-    font-size: 11px;
-}
-
-.scope-popover {
-    position: absolute;
-    top: calc(100% + 6px);
-    right: 0;
-    width: min(560px, 90vw);
-    background: #151a25;
-    border: 1px solid #343e54;
-    border-radius: 10px;
-    padding: 14px;
-    box-shadow: 0 22px 60px rgba(0, 0, 0, 0.55);
-    display: none;
-    z-index: 40;
-}
-
-.scope-note:hover .scope-popover,
-.scope-note:focus-within .scope-popover {
-    display: block;
-}
-
-.popover-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
-}
-
-.popover-card {
-    background: #10141d;
-    border: 1px solid #262e3f;
-    border-radius: 7px;
-    padding: 10px 12px;
-}
-
-.popover-tag {
-    display: block;
-    font: 9px var(--mono);
-    letter-spacing: .8px;
-    text-transform: uppercase;
-    color: var(--accent);
-    margin-bottom: 4px;
-}
-
-.popover-card strong {
-    font-size: 11px;
-    margin-bottom: 4px;
-}
-
-.popover-card code {
-    font: 10px var(--mono);
-    color: #c8d4ff;
-}
-
-.popover-card p {
-    margin: 0;
-    font-size: 11px;
-    line-height: 1.5;
-    color: var(--muted);
 }
 
 .service-notice {
@@ -1377,11 +1268,6 @@ kbd {
     margin-bottom: 20px;
 }
 
-.section-head .eyebrow {
-    color: var(--accent);
-    margin-bottom: 6px;
-}
-
 .section-head h2 {
     margin: 0;
     font-size: clamp(18px, 1.7vw, 22px);
@@ -1412,15 +1298,6 @@ kbd {
     display: flex;
     flex-direction: column;
     gap: 12px;
-}
-
-.pillar-tag {
-    display: block;
-    font: 9px var(--mono);
-    letter-spacing: 1px;
-    text-transform: uppercase;
-    color: var(--accent);
-    margin-bottom: 5px;
 }
 
 .pillar-card h3,
@@ -1593,131 +1470,16 @@ kbd {
     display: none;
 }
 
-.ref-disclosure-summary .eyebrow {
-    color: var(--accent);
-    margin-bottom: 5px;
-}
-
 .ref-disclosure-summary h2 {
     margin: 0;
     font-size: 17px;
     font-weight: 500;
 }
 
-.ref-summary-right {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.status-badges-inline {
-    display: inline-flex;
-    gap: 5px;
-}
-
-.status-pill {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 20px;
-    height: 19px;
-    padding: 0 5px;
-    border-radius: 4px;
-    font: 700 10px var(--mono);
-}
-
-.status-p {
-    background: #172b24;
-    color: var(--green);
-    border: 1px solid #2d5446;
-}
-
-.status-m {
-    background: #1a2338;
-    color: var(--accent);
-    border: 1px solid #354770;
-}
-
-.status-s {
-    background: #2b2519;
-    color: #e3c283;
-    border: 1px solid #52452c;
-}
-
-.status-d {
-    background: #1d222d;
-    color: var(--muted);
-    border: 1px solid #343d50;
-}
-
 .ref-disclosure-body {
     margin-top: 18px;
     padding-top: 16px;
     border-top: 1px solid #242b3a;
-}
-
-.ref-legend-inline {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px 22px;
-    margin-bottom: 16px;
-    font-size: 11px;
-    color: var(--muted);
-}
-
-.ref-legend-inline span {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.ref-tables-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 16px;
-}
-
-.ref-table-card {
-    background: #0f131b;
-    border: 1px solid #242c3c;
-    border-radius: 8px;
-    padding: 14px 16px;
-}
-
-.ref-table-card h3 {
-    margin: 0 0 10px;
-    font-size: 13px;
-    color: #d5def0;
-}
-
-.table-scroll {
-    overflow-x: auto;
-}
-
-.ref-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 11px;
-}
-
-.ref-table th,
-.ref-table td {
-    padding: 7px 8px;
-    text-align: left;
-    border-bottom: 1px solid #1f2634;
-    vertical-align: top;
-}
-
-.ref-table th {
-    color: var(--faint);
-    font: 600 9px var(--mono);
-    text-transform: uppercase;
-    letter-spacing: .7px;
-}
-
-.ref-table code {
-    font: 10px var(--mono);
-    color: #c0ceec;
 }
 
 /* Verification Pipeline Strip */
@@ -1744,12 +1506,6 @@ kbd {
     border-color: #4a5878;
     background: #171c27;
     text-decoration: none;
-}
-
-.pipeline-num {
-    font: 700 9px var(--mono);
-    letter-spacing: .9px;
-    color: var(--accent);
 }
 
 .pipeline-step strong {
@@ -1861,7 +1617,6 @@ kbd {
     }
     .pillars-grid,
     .tour-grid,
-    .ref-tables-grid,
     .pipeline-strip,
     .specs-compact-grid {
         grid-template-columns: minmax(0, 1fr);
@@ -1883,19 +1638,6 @@ kbd {
     .introduction {
         flex-direction: column;
         gap: 16px;
-    }
-    .scope-note {
-        border-left: 0;
-        border-top: 1px solid var(--line);
-        padding: 12px 0 0;
-        width: 100%;
-    }
-    .scope-popover {
-        left: 0;
-        right: auto;
-    }
-    .popover-grid {
-        grid-template-columns: 1fr;
     }
     .workspace {
         grid-template-columns: 1fr;

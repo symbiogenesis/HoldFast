@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Stable source syntax nodes projected from the existing checked parser protocol."""
+"""Project stable source syntax nodes from the checked parser protocol."""
 
 from typing import cast
 

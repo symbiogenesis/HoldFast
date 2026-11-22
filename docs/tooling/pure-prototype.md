@@ -1,42 +1,12 @@
 # Pure Vela translation prototype
 
-Start with the [primary Vela design and examples](../assurance/verification-strategy.md).
-This document specifies the implemented pure fragment and its development commands.
-The opt-in [mathematical elaborator](elaboration-prototype.md) adds generics,
-dependent types, higher-order inference and explicit proof terms through the
-existing native surface parser. The pure command below retains its narrow scope.
-
-## Commission and interpretation
-
-[Q25e/Q25f](../../PLAN.md#q-assessment-actions) commission a bounded host tool
-translating explicitly typed pure functions to Gallina. Accepted expressions mean
-their generated CIC terms, with no independent evaluator, reduction relation or
-semantic anchor. `Nat` and `bool` denote mathematical naturals and booleans, not
-machine words, layouts or CHERI permissions.
-
-The [narrower-fixture rule](../language/core-design.md#decision-and-reopening-evidence) keeps
-this separate from the returned-loan trial and [held full-frontend rows](../extensions/full-language-review.md#r-05-009-r-05-020-and-what-holds-the-frontend-rows).
-The full calculus retains its interpretation/register duties. Untrusted Python
-parsing/checking supplies no kernel acceptance, checked source correspondence,
-`SourcePackage`, metatheory, compiler qualification or binary admission.
-
-## Development parser goal
-
-The [Menhir development route](../assurance/verification-strategy.md#development-parser-and-grammar)
-produces located syntax before separate checking/elaboration. Both the Rocq-extracted
-`vela-checked-parser` and the code-backend `vela-parser` feed the strict generated-AST
-decoder and shared resolution, typing and emission pipeline under the
-[plan's qualification](../../PLAN.md#vela-whole-system-authoring-proposal)
-and [parser/migration contract](parser.md).
-
-`python tools/run.py vela-parser parse SOURCE` exercises generated syntax;
-`vela-parser qualify` checks independent AST fixtures/regeneration;
-`vela-parser migration` compares source edits and independently expected
-acceptance/refusal categories, retaining all differences; and `vela-parser support`
-qualifies the Rocq-extracted `vela-checked-parser`. Ordinary `vela` commands parse
-pure source through `vela-checked-parser` (`vela.parse_module`) on both Ubuntu and
-Windows (`wsl.exe`), with the legacy handwritten Python `_Parser` retired (`Q25h`).
-Retain current examples/refusals as migration fixtures.
+The pure compiler translates explicit `Nat` and `bool` functions and
+constants to Gallina. The [checked parser](parser.md#checked-parser-boundary)
+produces syntax for separate resolution, typing, evaluation and emission.
+Accepted expressions are interpreted by their generated Gallina terms.
+`Nat` and `bool` denote mathematical values. Kernel replay, source
+correspondence and machine-level evidence have separate acceptance checks.
+The [mathematical elaborator](elaboration-prototype.md) covers a wider subset.
 
 ## Source fragment
 
@@ -52,9 +22,7 @@ Identifiers match `[A-Za-z_][A-Za-z0-9_]*`, excluding grammar and reserved exten
 keywords; the latter produce unsupported-feature diagnostics. Decimal
 literals match `[0-9](?:_?[0-9])*`; underscores separate digits, while leading
 zeros are permitted. Separators and leading zeros normalize on emission; their
-authored spelling and source locations remain intact in syntax. The
-[separator contract](authoring-tools.md#numeric-separators) owns the digit bounds
-and wider surface's hexadecimal, binary and representation-suffix rules.
+authored spelling and source locations remain intact in syntax. The [surface grammar](../language/surface-grammar.md) defines the wider numeric syntax.
 Every file contains one named module and at least one function or constant.
 Declarations are resolved in source order. Every parameter and return type is
 explicit. A function can call only earlier functions; recursion and forward calls
@@ -155,9 +123,11 @@ These are host parser limits, not target resource bounds or integer widths.
 
 ## Extended pure expressions
 
-Q25ac in [the plan](../../PLAN.md#q-assessment-actions) commissions an
-expression increment over the source fragment above. Both the checked pure route
-and the development pure entry accept `!`, `&&`, `||`, `!=`, `<`, `>`, `>=` and binary
+The [pure grammar](#source-fragment) defines precedence. Comparisons require
+parentheses to nest. The pure types support binary natural subtraction and
+Boolean negation.
+
+`!`, `&&`, `||`, `!=`, `<`, `>`, `>=` and binary
 `-`, using the existing wider surface's spellings and precedence. From weakest
 to strongest, precedence is `||`, `&&`, a single comparison (`==`, `!=`, `<`,
 `<=`, `>`, `>=`), left-associative `+`/`-`, left-associative `*`, prefix `!`,
@@ -179,35 +149,13 @@ including dead operands. Evaluation and emitted conditionals evaluate the left
 operand once and evaluate the right only when needed. Thus
 `false && (huge * huge == 0)` can avoid a static arithmetic limit, while
 `false && runtimeFlag` still cannot initialize a required-static constant.
-Existing work, depth, output and numeric budgets apply; no new evaluator or
-browser-side interpretation is introduced.
+The evaluator applies its work, depth, output and numeric limits.
 
-Acceptance requires independently expected terms and values for every operator,
-mixed precedence/associativity, nested negation, Nat underflow, both equality
-types, named calls, static parameters and short-circuit limit behavior. Semantic
-negative neighbors must reach the intended type/name/static-dependency refusal;
-malformed/chained operators, unary minus and excessive depth remain refused.
-Native AST controls cover exact operator/operand spans, trivia, Unicode and
-newlines, and reject omitted, substituted or extra source tokens. Retain existing
-translations and migration controls. Formatting must preserve token/comment
-order and reparsed meaning, be idempotent and space prefix negation correctly;
-compiler facts and existing LSP operations must remain usable.
-
-The [playground](playground.md#extended-expression-examples) exposes examples and
-console suggestions through the same compiler and bounded worker. Focused real
-HTTP/worker controls cover new values, Gallina and semantic refusals. Exercise
-browser editing, formatting, compilation and console evaluation when browser
-infrastructure is available; record its absence explicitly otherwise. Run focused
-host tests and the [local validation handoff](../../AGENTS.md#tool-execution-and-validation),
-then record the local revision and recommended hosted checks. The user owns Host CI
-and Guest CI, including native generation and kernel replay; no pending verdict
-counts as qualification or production acceptance.
-
-Hosted `vela-parser elaborate-qualify` includes native pure parsing and the
-shared pure translator, alongside the mathematical consumer. Independently
-expected equalities check emitted runtime functions and evaluated constants;
-the kernel and assumption audit cover both the generated library and these
-observations. A syntax refusal cannot satisfy a semantic negative fixture.
+The [expression fixtures](../../tools/tests/test_vela_expressions.py) check
+expected values, emitted terms, refusal cases and original-source spans.
+`vela-parser elaborate-qualify` replays independently expected constant
+and runtime equalities with the kernel and assumption auditor.
+[Playground examples](playground.md#extended-expression-examples)
 
 ## Boolean web output
 
@@ -259,75 +207,31 @@ truth tables and require the kernel to reject two changed JavaScript expressions
 
 ## Natural division and remainder
 
-Q25ad in [the plan](../../PLAN.md#q-assessment-actions) adds binary `/` and
-`%` to both pure syntax routes, using the existing wider surface spellings.
-They require two `Nat` operands and return `Nat`, with the same precedence as
-`*`; all three associate left to right. Thus `20 / 3 * 2` is `12`,
-`20 % 6 * 2` is `4`, and `20 / (3 * 2)` is `3`.
+Division `/` and remainder `%` take two `Nat` operands and return `Nat`.
+They share multiplication's precedence and associate left to right.
+For example, `20 / 3 * 2` is `12`, `20 % 6 * 2` is `4` and
+`20 / (3 * 2)` is `3`.
 
 These operations denote `Corelib.Init.Nat.div` and `.modulo`. For a positive
 divisor, division is the natural quotient and remainder is the nonnegative
 remainder. The operations are total: `n / 0` is `0`, and `n % 0` is `n`.
-The static evaluator must match these terms, including zero divisors, without
-Python division exceptions. Both operands remain checked; the static evaluator
-evaluates them once in source order, including when the divisor is zero.
-Existing static work, depth, numeric and emission bounds apply. There is no represented integer,
-target divide instruction, timing claim or new proof-admission route.
-This reuses the mathematical elaborator's existing total `Nat` interpretation.
-Represented first-release arithmetic retains the nonzero-divisor and
-representability obligations in [primitive semantics](../language/first-release.md#primitive-semantics);
-these demonstration terms do not discharge those obligations.
+The static evaluator uses the same mathematical operations. Both operands
+are checked and evaluated once in source order, including for a zero divisor.
+[Represented arithmetic](../language/first-release.md#primitive-semantics) has
+its own nonzero-divisor and representability requirements.
 
-Acceptance requires independent values and exact emitted terms for both
-operators, zero and unit divisors, smaller/equal/larger operands, mixed
-precedence and grouping, named calls, constants and static parameters. Invalid
-Boolean/mixed operands must reach type refusals; missing operands, repeated
-operators, `/=` and `%=` remain refused. Native AST controls must preserve
-operator/operand spans and reject omitted, substituted or additional source
-tokens, including comments, Unicode and CRLF boundaries. Retain existing
-arithmetic, short-circuit and resource-limit controls. Zero results must not
-hide non-static dependencies or avoid evaluating an expensive operand.
-
-Formatting must preserve tokens, comments and interpretation and be idempotent;
-LSP diagnostics, hover, formatting and semantic tokens must retain their
-existing source identities. Add independently expected runtime and constant
-observations to hosted native pure kernel replay and retain migration controls.
-The [playground examples](playground.md#division-and-remainder-examples) must use
-the shared compiler and isolated worker for compilation and evaluation.
-Exercise Monaco and plain-text editing, formatting, evaluation, type refusals
-and recovery with available browser infrastructure, or record its absence.
-Run focused host tests and the [local validation handoff](../../AGENTS.md#tool-execution-and-validation),
-then record the settled revision and recommended hosted checks.
-Native regeneration and kernel replay require user-managed hosted evidence;
-pending verdicts do not close qualification.
+The [division fixtures](../../tools/tests/test_vela_division.py) exercise
+values, rendering, operand types and static dependency checks. Native kernel
+replay also checks emitted terms. [Playground examples](playground.md#division-and-remainder-examples)
 
 ## Command and publication
 
-`python tools/run.py vela check SOURCE` parses and checks the complete file,
-preserves the exact source bytes and runs advisory lints before reporting
-its prototype status. The [authoring-tools contract](authoring-tools.md) owns the
-StyleCop-inspired style, documentation, lint policy and publication checks.
-`vela fmt SOURCE` applies formatting explicitly; `vela fmt SOURCE --check` and
-`vela lint SOURCE` leave source unchanged. Normal compiler commands accept
-`--format check` for read-only style enforcement, `--format off` to state the
-source-preserving default, or `--format write` to opt into canonical formatting.
-`--no-lint` disables optional lints; repeatable `--allow ID` and
-`--deny ID` control individual findings without disabling language checks.
-`VELA104` and `vela lint --preview-bindings` are permanently retired (`Q25ah`)
-now that local declarations require an explicit `let` or `var` keyword; the
-library `preview_bindings` helper retains its [source-bound migration contract](authoring-tools.md#lint-policy)
-for legacy inputs without exposing a CLI flag or reusing the rule ID.
-
-`python tools/run.py vela emit SOURCE` uses the same default authoring passes and
-writes Gallina to standard output; `--output FILE` publishes it through the shared
-atomic writer only after complete validation. Reject overwriting the input,
-including aliases. Do not create missing output parent directories implicitly.
-Explicit source rewriting requires an unchanged regular file and a completely
-checked formatted candidate; library and language-server calls never rewrite.
-Diagnostics identify the file, line and column, distinguishing syntax, name,
-type, unsupported-feature, encoding, limit and I/O failures. Rejected source
-produces no generated output. Atomic file publication preserves existing output
-after a failed write; standard output cannot roll back bytes already consumed.
+Run `python tools/run.py vela check SOURCE` to check a file, or
+`python tools/run.py vela emit SOURCE` to print its Gallina. Use `--output FILE`
+to publish Gallina atomically after successful checking. The output must
+have an existing parent and must not alias the source. Diagnostics identify
+the source position and the kind of failure. Formatting and lint behavior
+follow the [authoring command policy](authoring-tools.md#compiler-commands-and-publication).
 
 Deterministic output uses fully qualified CIC operations and SHA-256 provenance
 for the exact authored bytes, or post-format bytes after an explicit formatting write,
@@ -336,28 +240,12 @@ no axioms, admissions, proof scripts or machine-code escape.
 
 ## Acceptance
 
-Land this contract and its priced checklist cells before implementation. A separate
-reviewer reads the scope and independently authored expected translations.
-Focused behavioral tests must cover the example, precedence, lexical scope,
-both types and each operation, plus deterministic output, source binding and
-name hygiene. Well-formed negative neighbors must fail on return type, condition,
-branch, call, duplicate-name or resolution premises. Trailing input, unsupported
-constructs, malformed/invalid UTF-8, excessive nesting and oversized literals
-must produce bounded diagnostics. Surface-conformance cases use the same declaration,
-parameter, return and control-flow spellings as the design dossier. Cover expression
-bodies and equivalent return blocks, trailing commas and malformed adjacent forms
-through both syntax routes, with unchanged terms apart from exact source provenance.
-Reject `fn`, colon-typed parameter, arrow-return and undelimited expression
-body forms, along with missing returns and unreachable trailing statements. CLI tests must establish successful publication
-and preservation of existing output on rejection, input aliases and write errors.
-
-Complete the [local validation handoff](../../AGENTS.md#tool-execution-and-validation)
-and record the settled revision and recommended Host/Guest CI checks. The user
-owns hosted execution; missing verdicts remain pending.
-The translation tests do not establish that a kernel has accepted emitted terms;
-a generated-term kernel replay is a separately identified follow-up unless hosted
-evidence explicitly supplies it. Production language and whole-system migration
-retain the [unified-source acceptance contract](../extensions/unified-source-contract.md).
+Behavioral fixtures check expected translations, types, lexical scope, syntax
+and resource refusals, exact source provenance and output publication.
+The [parser comparison](parser.md#pure-parser-comparison) exercises both syntax
+routes. [Kernel replay](elaboration-prototype.md#commands-and-acceptance) checks
+generated terms and their assumptions. [Unified-source acceptance](../extensions/unified-source-contract.md)
+governs production correspondence.
 
 ## Try the prototype
 
@@ -379,8 +267,7 @@ acceptance requires the separate replay.
 
 ## Bounded compiler traces
 
-The pure development compiler supplies a scoped increment of
-[Q25cp](../../PLAN.md#q25cp) under the
+The compiler records bounded development traces under the
 [performance trace contract](tooling-protocols.md#compiler-decisions-and-performance-traces).
 
 For the packet validator, `python tools/run.py vela-parser first-slice --trace`
@@ -483,8 +370,7 @@ firmware and hardware provide the measurement environment.
 Identity observation lies outside the timed intervals. The validation
 command refuses changed source or producer identities, malformed events, crossing
 spans, invalid clocks, missing phases or counters, and incomplete recordings.
-Schema-1/2 recordings lack the mandatory parser-stage contract and refuse;
-regenerate retained traces after this producer change.
+The validator requires schema 3, including the parser-stage record.
 A successful complete recording measures a successful pure check only.
 
 Recording retains at most 4,096 events; `--max-events` selects a smaller positive
@@ -576,9 +462,7 @@ acceptance. This checks retained data consistency and freshness; it supplies no
 transcript authentication or fresh reader observation.
 
 The selected Perfetto importer and the offline browser viewer below consume
-the same pure recording contract. The [compiler trace portfolio](../../PLAN.md#q25cp)
-also tracks wider compiler phases and workers. Compiler timings describe tooling
-performance. Emitted-program WCET and constant-time evidence have their own
+the same pure recording contract. Compiler timings describe tooling performance. Emitted-program WCET and constant-time evidence have their own
 qualification requirements.
 
 ### Offline browser timelines

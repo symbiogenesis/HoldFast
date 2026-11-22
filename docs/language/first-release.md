@@ -1,14 +1,11 @@
 # Vela first supported release
 
-This contract owns the first supported Vela software release's scope, primitive
-semantics, module boundary and required library behavior. The
-[primary design](../assurance/verification-strategy.md) supplies rationale and examples, and
-the [language reference](reference.md) gives each construct's syntax, meaning,
-example and implementation status;
-[PLAN.md](../../PLAN.md#vela-first-release-delivery) owns commissioning,
-budgets and delivery order. The [requirements register](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/requirements-register.md)
-remains normative for VerifiedOS. These are design decisions and acceptance
-predicates, not a claim that the current prototypes implement them.
+This contract defines the first release's scope, primitive semantics, module
+rules, ownership libraries and acceptance criteria. The
+[language reference](reference.md) describes prototype support. The
+[delivery plan](../../PLAN.md#vela-first-release-delivery) tracks implementation.
+The [VerifiedOS requirements register](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/requirements-register.md)
+governs platform admission.
 
 ## Release boundary
 
@@ -42,18 +39,6 @@ own supported subset; the [pure prototype](../tooling/pure-prototype.md) and
 [surface parser](surface-grammar.md) retain theirs. Parsing a larger feature does
 not make it part of this release.
 
-The selected [familiar authoring surface](surface-grammar.md#familiar-authoring-migration)
-uses explicit `let`/`var` local conventions, ordinary numeric aliases, concise
-expression matches, one function-expression body marker and ordinary generic
-calls. Q25z migrates syntax and existing consumers independently; represented
-libraries and runtime qualification follow the first synchronous slice under
-the [delivery order](../../PLAN.md#vela-first-release-delivery). Typed
-immutable locals, canonical generic calls, expression arms and mathematical
-bodies have development parser support; collection modes remain syntax-only.
-Their adoption preserves this release's semantic scope and
-does not become a prerequisite for its concrete foundation investigation or
-first executable slice.
-
 All language laws concern the elaborated image in an existing semantic anchor
 under [the untrusted-elaboration boundary](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-020a). Located source
 syntax, binding and resource derivations are inputs to checked interpretation
@@ -72,18 +57,11 @@ general reflection/generation, concurrent interior mutation, native self-hosting
 ISA replacement or hardware authorship. Async and one-shot control capture need
 a separately accepted consumer and their own resource/lowering slice.
 
-The [extension designs](../extensions/README.md), including the
-[extended grade dossier](../extensions/graded-foundation.md),
-[control dossier](../extensions/handlers-async.md), [mutation dossier](../extensions/interior-mutability.md),
-[metaprogramming design](../extensions/metaprogramming.md) and
-[whole-system contract](../extensions/unified-source-contract.md), retain their extension
-obligations and define no part of this release. Selecting an extension requires a named client, a comparison with
-the supported subset, a bounded implementation/qualification budget and a
-decision predicate. Grading follows the [incremental selection protocol](../extensions/graded-foundation.md#extension-selection-and-qualification),
-with type-use accounting and generated usability tools justified separately.
-A proposal's syntax or a demonstration assembled to exercise
-the proposal is insufficient evidence of product need. Its omission changes no
-VerifiedOS guarantee or mandatory compiler obligation.
+Selecting an [extension](../extensions/README.md) requires a named client, a
+comparison with the supported subset, an implementation and qualification budget
+and a decision predicate. Select general grade domains, type-use accounting and
+usability tools independently under the
+[graded selection protocol](../extensions/graded-foundation.md#extension-selection-and-qualification).
 
 ## Primitive semantics
 
@@ -124,17 +102,12 @@ binding; explicit qualification identifies the intended declaration. The source
 facts retain that alias declaration and source spelling while type equality,
 instance coherence, representation and lowering use the target type identity.
 An alias creates no new nominal type, distinct implementation instance, runtime
-conversion, numeric suffix or default integer type. Literals use the existing
-suffix or expected-type rule; C# spelling does not import its conversion or
-overflow behavior. Q25z's [migration qualification](surface-grammar.md#familiar-authoring-migration)
-checks alias/target agreement, qualified and imported resolution, collisions,
-range refusals and source provenance before these aliases are supported.
+conversion, numeric suffix or default integer type. Literals follow the suffix and expected-type rule. Qualify alias/target agreement,
+resolution, collisions, range refusals and source provenance.
 
-Named operations are library interface commitments. The surface parser may need
-no new productions for them, but implementations and operation laws remain to be
-qualified. No generic operator overload can change these primitive meanings or
-silently insert a conversion. Bounds failures use explicit checked APIs or proof
-premises under the same rule; there is no unchecked indexing shortcut.
+Named operations require library implementations and checked operation laws.
+Generic operator overloading preserves primitive meanings and explicit conversions.
+Bounds are established by proof or checked APIs.
 
 ### Contextual inference
 
@@ -432,44 +405,14 @@ Two-phase receiver borrowing remains a separately priced option, triggered by
 measured client friction rather than made a prerequisite for ordinary ownership.
 No diagnostic may silently reorder effectful arguments or insert hidden loans.
 
-## C# transition guide <a id="csharp-transition-guide"></a>
+<a id="csharp-transition-guide"></a>
 
-Use type-first declarations, PascalCase members, camelCase locals, `this`, ordinary
-generic calls, expression bodies and inferred lambdas consistently. The
-[authoring style](../tooling/authoring-tools.md#common-style) and
-[binding guidance](../tooling/authoring-tools.md#lint-policy) keep `let`/`var` visible whether
-the type is inferred or explicit. These familiar spellings retain Vela's rules:
+## Authoring idioms
 
-| Surface | Vela meaning to explain |
-| --- | --- |
-| `let T value` | Immutable binding (bare `T value = ...;` is refused; use `let` or `var`); writing through an eligible exclusive loan is a separate operation |
-| `var T value` | Mutable binding, with no implicit shared-write permission |
-| `in`, `ref`, `out` | Explicit shared-read, initialized-exclusive and initialization-exclusive loans; ordinary calls repeat their mode, and [assist-don't-coerce tooling](../tooling/authoring-tools.md#compiler-verified-assist-dont-coerce-tooling) offers a checked insertion when omitted |
-| `out T` with a fallible result | `T` is initialized on every normal return, including errors; partial construction uses outcome-indexed owned storage |
-| Labeled arguments | Labels name the next declared parameter in declaration order, preserving dependent substitution and left-to-right evaluation; no reordering or defaults |
-| `int` and ordinary arithmetic | Explicitly imported exact alias; representability obligations and checked-result alternatives follow [primitive semantics](#primitive-semantics), and conversion diagnostics suggest `long.From(x)` or `usize.TryFrom(x)` |
-| `Option<T>`, `None` and propagation | Absence is an explicit case (`None => ...` in `match`, written bare without `()`); `?` is early-return propagation rather than C# `?.`, so member access writes `(Read()?).Value` or a local `match` |
-| Explicit `effects(...)` on public functions | Public signatures declare a closed read/write/call footprint; when omitted or under-specified, the compiler offers a checked `effects(...)` preview |
-| `if (cond) a else b` (instead of `cond ? a : b`) | Conflict-free conditional expression with mandatory `else`, desugaring to the same exhaustive Boolean elimination and resource join as a two-arm `match` |
-| `Accepted(packet: p, receipt: r)` | Optional declaration-order field labels in constructor patterns, symmetric with labeled call arguments |
-| `base with { Field = value }` / `move base with { ... }` | Postfix record/model update evaluated left-to-right in declaration order; linear or affine records require `move base with { ... }` |
-| `let Some(v) = expr else { return ...; }` and `if (x is Some(v))` | Scoped early-exit guard where `else` must exit the enclosing scope, or flow-refined conditional pattern matching binding `v` in `then` |
-| `public usize Length => ...;` / `public ghost Seq<T> Model => ...;` | Get-only, total, effect-free expression properties (`a.B` is always a pure, allocation-free read); `set` accessors and effectful or fallible getters are excluded |
-| `"""..."""` (raw string literals) | Exact UTF-8 bytes without escape processing; multi-line forms strip the closing delimiter line's indentation prefix and normalize interior line breaks to LF (`\n`) |
-| `Format.Write(ref builder, $"...")` (instead of heap `$"..."` / `ToString()`) | Allocation-free checked formatting into an explicit `ref TextBuilder<capacity>` or `ref Span<byte>` via static `Format<T>` instances, returning `Result<usize, CapacityError>` |
-| `.Model.All(x => ...)`, `.Any(x => ...)`, `.Contains(x)`, `.Take(n)`, `.Skip(n)`, `.Slice(a, b)`, `.Count` | Pure mathematical `Seq<T>` predicates and slices in contracts, discharged in the finite-sequence refinement/domain tier instead of raw `forall`/`exists` index quantifiers |
-| `ISequenceModel<T>`, `IBoundedIterable<T>` (instead of `IEnumerable<T>` / `IQueryable<T>`) | Law-carrying interfaces projecting containers to `Model : Seq<T>` and linking bounded `foreach` steps to `Model.At(k)`, `Model.Take(k)` and `Model.Skip(k)` with explicit element loans and zero enumerator allocation |
-| `invariant Clause: P` and `open (ref this) lifts Clause, ... { ... }` | Named invariant conjuncts and lexical selective lifting; keeps unlifted conjuncts active, forbids early exits or whole-receiver calls while open, and re-proves only the lifted clauses at block exit |
-| `CopyRepresentation(in src, ref dst, count)` then `TransferType<T>(ref src, ref dst, count)` | Two-step bulk relocation over `Slots<T, capacity>`: tag-preserving representation copy into vacant storage followed by erased linear ownership transfer in one capacity-independent range step |
-| `interface I...` and `impl I... for Type`, `where I...(type T)` | Law-carrying interfaces with explicit nonoverlapping `impl` instances and proved `lemma`/`theorem` law fields in the static witness dictionary |
-
-Receiver signature help shows the selected mode and named view. A conflict names
-both accesses and may offer a preceding immutable snapshot only when evaluation,
-effects and lifetimes preserve meaning. Completion can offer exhaustive
-`Option`/`Result` arms and explicit propagation only from the current resolved
-type and resource exits. These wider editor features require their qualified
-[compiler facts](../tooling/tooling-protocols.md#language-server-protocol); the pure language
-server cannot infer a borrow verdict or advertise unsupported code actions.
+For authoring syntax and its semantics, use the [language reference](reference.md),
+[authoring style](../tooling/authoring-tools.md#common-style), and
+[checked code actions](../tooling/authoring-tools.md#compiler-verified-assist-dont-coerce-tooling).
+Unwrap before member access with `(Read()?).Value` or an explicit `match`.
 
 ## Qualification
 
@@ -493,36 +436,18 @@ recurring authoring/maintenance benefit and eventual economic adoption are
 separate decisions. Charge setup and shared maintenance fully, without requiring
 the first two small clients to repay the entire language foundation. Any accepted
 size/speed trade has a declared target envelope and per-case evidence; no average
-hides a missed hard bound. The canceled [workflow comparison](../assurance/workflow-contract.md)
-retains its frozen experiment's identity and verdict, and supplies no current
-product acceptance by implication.
+hides a missed hard bound.
 
 ### First-slice component and concrete `Span<byte>` carrier <a id="first-slice-qualification"></a>
 
-[examples/first_slice.vela](../../examples/first_slice.vela)
-authors the bounded packet/manifest validator `PrepareAndValidatePacket(ref<'dst> Span<byte> dst, in Span<byte> pkt) -> Result<ValidatedPacket<'dst>, ValidationError>`
-and its supporting helpers (`WritePacket8`, `PrepareSliceHeader`,
-`SpecPacketChecksum`, `SpecPacketValid`, `CopyPacketToDst`,
-`ComputePacketChecksum`) over the concrete `Span<byte>` carrier in
-[tools/toolchain/elaborate.py](../../tools/toolchain/elaborate.py) and the
-CompCert Clight/C and purecap CHERI-RISC-V target harness in
-[tools/toolchain/first_slice.py](../../tools/toolchain/first_slice.py).
-Obligations the elaborator cannot kernel-prove reach Rocq with their real
-statements as named solver-trust axioms recorded in `solver_trust`, so
-`Print Assumptions` and the harness report kernel-proved definitions and
-solver-trusted obligations separately; a non-empty solver-trust ledger leaves
-the slice unaccepted as a closed kernel proof. The local source replay checks
-the exports with `rocqchk` and an empty assumption ledger. On valid input the
-public contract identifies the returned read-only destination slice, the copied
-payload bytes and zero padding. Two quantified clauses describe each byte in
-the copied interval and each remaining byte before offset eight for every
-accepted payload length. Framing rejection preserves the complete entry destination. Later
-protocol rejection clears its eight-byte working area. Every exit preserves each
-destination byte beyond that area. These guarantees apply
-to the symbolic source model. Exact executable admission also requires the
-[compiler and machine evidence](#first-slice-qualification).
+The [authored packet validator](../../examples/first_slice.vela) copies the accepted
+header and payload into the destination and zero-pads the eight-byte work area.
+Success returns a read-only view of the payload. Framing rejection preserves
+the complete destination. Other protocol rejections clear the work area.
+Every exit preserves the bytes beyond that area.
+[Packet walkthrough](../tooling/packet-walkthrough.md)
 
-At this checked entry point, `ref dst` and `in pkt` initially loan the
+At this entry point, `ref dst` and `in pkt` initially loan the
 two descriptor places. Each descriptor must already identify live backing
 with valid provenance, bounds and the declared permissions. The backing
 extents may overlap. The framing test reads descriptor metadata and returns
@@ -543,184 +468,45 @@ refusal. Admission for a foreign caller requires the machine interpretation
 to justify descriptor validity and this correspondence before the framing
 test may use its interval comparison.
 
-- **Concrete `Span<byte>` carrier and contract obligations:** `Span<byte>` lowers
-  in the mathematical consumer to `vela_Span` (`vela_ByteStore` paired with
-  `Base`, `Length`, `Tag`, `PermRead`, `PermWrite` and derived
-  `CanRead` / `CanWrite` predicates), while `Span.AllocZeroed` is restricted to
-  specification and theorem contexts so executable code cannot fabricate
-  capabilities from raw addresses. Bounded operations `Span.Read`, `Span.Write`,
-  `Span.Fill`, `Span.Slice`, `Span.ReadOnly`, `Span.Invalidate`,
-  `Span.Disjoint`, `Span.CopyPrefix` and `Span.Restore` require checked bounds,
-  including representability of each slice and fill offset plus count,
-  read/write capability permissions, loan-mode discipline (`in Span<byte>`
-  read-only vs `ref Span<byte>` read-write), read-only enforcement on record
-  fields of type `in<'a> Span<byte>`, and disjoint base intervals before
-  emitting terms. Restoration requires the
-  view's immediate source parent or the parent already updated from that view.
-  These source relationships also apply at the last representable byte, where
-  computing an absolute exclusive end address could overflow. Function contracts elaborate `requires` into typing premises,
-  automatic `ref` descriptor preservation (`restores`) into five kernel-proved
-  metadata-preservation obligations (`Base`, `Length`, `Tag`, `PermRead`,
-  `PermWrite` between the post-state of each `ref` `Span`/`Slots` parameter and
-  its entry state), and `ensures` into postcondition obligations with `result`
-  bound to the function body and `ref` parameters bound to their kernel
-  post-state images (`_post_<param>`).
-- **Elaborated laws, synchronous validator and scenario theorems:** `Vela.FirstSlice`
-  elaborates twelve carrier laws (`LawInhabitedByteCase`, `LawAllocZeroedRead`,
-  `LawReadOverWriteSame`, `LawReadOverWriteOther`,
-  `LawLoopFramePreservesDisjointSuffix`, `LawFillAndFrame`, `LawSymbolicFillFrame`,
-  `LawSliceMetadataAndRead`, `LawReadOnlyAndInvalidate`,
-  `LawDisjointCopyAndFrame`, `LawCapacityInvarianceSmall`,
-  `LawCapacityInvarianceLarge`), two zeroed-header lemmas
-  (`LawZeroedHeaderHasZeroMagic`, `LawZeroedHeaderHasZeroFlags`), synchronous
-  `WritePacket8`, `PrepareSliceHeader`, `SpecPacketChecksum`, `SpecPacketValid`,
-  `CopyPacketToDst`, `ComputePacketChecksum` and `PrepareAndValidatePacket`
-  (with `Result<ValidatedPacket<'dst>, ValidationError>`, fat-arrow `match`,
-  explicit `effects writes(...), reads(...)` lists, returned subslice views in
-  `ValidatedPacket<'dst>`, `foreach` loops with `invariant`/`decreases`, 20
-  kernel-proved automatic `ref` descriptor preservation obligations and
-  kernel-proved `ensures` contracts), and seven symbolic scenario theorems
-  (`ValidateEmptyPacketOk`, `ValidateFullPacketOk`,
-  `ValidatePartialPacketScrubsStaleAndTrailingBytes`, `RejectFramingShort`,
-  `RejectBadMagic`, `RejectLengthOutOfBounds`,
-  `RejectChecksumScrubsDestinationAndRestores`) with separation-logic framing
-  (`dst[frameIdx] == old(dst[frameIdx])`) over loops and slices.
-- **End-to-end qualification (`python tools/run.py vela-parser first-slice`):**
-  1. Parses `first_slice.vela` through the native Menhir `--surface` parser,
-     elaborates all declarations into `FirstSlice.v`, compiles with `rocq c`,
-     audits every exported definition via `Print Assumptions` against the
-     explicit `solver_trust` ledger, requiring an empty ledger for acceptance,
-     and runs `rocqchk`, plus a fail-closed proof-corruption negative control.
-  2. Runs the capacity-invariance gate at $N = 8$ (`8usize`) and $N = 10^9$
-     (`1_000_000_000usize`), checking that obligation count, inference work
-     steps, reduction steps and emitted Gallina structure are invariant across
-     both capacities and that both pass `rocq c` and `rocqchk`.
-  3. Replays 19 schema-2 semantic negative controls (`oob-read`, `oob-write`,
-     `oob-slice`, `oob-fill`, `overflow-slice-extent`, `overflow-fill-extent`,
-     `mutate-in-borrow`, `mutate-readonly-view`,
-     `mutate-readonly-record-view`, `read-invalidated-view`,
-     `overlapping-copyprefix`, `foreign-restore`, `broken-restores-contract`,
-     `restore-then-return-view`, `capability-fabrication`,
-     `missing-write-effect`, `wrong-expected-byte`, `stale-input-leak`,
-     `loop-frame-overlap`) through the native parser and confirms each fails with
-     `category == "type"`.
-  4. Executes the purecap CHERI-RISC-V hardware capability slice (`csetbounds`,
-     `candperm`, capability round-trip and byte checks) and three hardware fault
-     controls (`bounds-trap`, `perm-trap`, `tag-trap`) on `sail_riscv_sim`.
-  5. When a CompCert executable is supplied, lowers the executable union, record and function AST declarations
-     (`ValidationError`, `ValidatedPacket`, `WritePacket8`, `CopyPacketToDst`,
-     `ComputePacketChecksum`, `PrepareAndValidatePacket`) and their seven scenario
-     drivers to CompCert Clight/C (`-fverifiedos-typed -dclight`). The emitter
-     sequences scalar operand evaluation with typed temporaries, keeps guarded
-     arguments under their short-circuit condition, and evaluates both range
-     endpoints once before the first iteration. The harness executes the C
-     harness under both `ccomp -interp` and purecap `sail_riscv_sim`, and verifies
-     four perturbed C controls for an incorrect payload byte, a stale trailing
-     byte, a changed checksum error code and an unscrubbed destination.
-     `first-slice --ccomp /absolute/path/to/ccomp` requires that compiler replay.
-     With automatic discovery, a machine without the compiler records
-     `compcert_sail.available: false`. Rebuilding this dependency requires the
-     private source revision and driver described in the
-     [VerifiedOS compiler build contract](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/implementation/contracts/contained-compiler-reuse.md).
-     Independently, the guest behavioral suite compiles the generated packet C
-     with the system C11 compiler at `-O0` and `-O2` and checks all five exit
-     codes. This exercises the C generator on a fresh development machine.
-- **Retained development receipts:** schema 2 binds the producer Git revision,
-  current local toolchain Python sources, parser sources and generated outputs,
-  dependency locks, instruction-encoding data, locked prover binaries and runtime
-  libraries, Python interpreter, simulator, target profile, optional CompCert
-  executable, retained outputs and process transcripts. Source, tool, profile,
-  parser or runtime changes during qualification withdraw publication; a failed
-  attempt removes the latest passing receipt and retains its failed journal.
-  `python tools/run.py vela-parser first-slice-bindings <receipt.json>` checks
-  these identities against the current checkout and installed inputs, refusing
-  changed, missing or malformed data. Its `status: matched` reports byte binding;
-  `proof_replayed: false` states that it does not rerun the proof commands.
-  The binding check reparses the exact source, reconstructs the checked integer
-  arithmetic and literal sites, and regenerates Gallina and C. Each observed
-  arithmetic expression, compound update and integer literal records its
-  declaration, source span, checked width and emitted C expression. Missing
-  entries, changed widths and regenerated subjects differing from the retained
-  output withdraw the match. The compiler and machine-logic producers own the
-  source-to-machine simulation obligations.
-  It rechecks source/revision, execution/parser inputs, retained outputs and receipt
-  bytes after the prover/runtime probes, refusing changes during the binding check.
-  Before matching, it checks the declared source, Gallina and C subjects against
-  their retained hashes, requires the source compilation, complete export
-  assumption query, recursive kernel check and proof-corruption transcripts,
-  and re-reads the retained Gallina and assumption reports. Missing exports,
-  omitted libraries, changed process subjects or verdicts and source-proof
-  status inconsistent with the actual solver-trust ledger refuse, including
-  attempts to promote a nonempty ledger by changing `accepted` or `kernel_checked`.
-  The corrupted source must equal the retained Gallina followed by the frozen
-  false Boolean-equality definition. A positive checker exit must report the
-  intended type mismatch at that appended definition; signal termination,
-  unrelated source failures and missing or duplicated error diagnostics refuse.
-  Both capacity compilation transcripts and their joint kernel-check transcript
-  are required, together with retained capacity sources and libraries. The
-  declared small/large capacities, nonnegative work metrics and retained Gallina
-  byte lengths are checked. Both original Vela capacity inputs must exactly match
-  the frozen small/large fixtures. All 19 semantic-negative observations must name each
-  current control exactly once, report successful surface parsing and the
-  expected semantic refusal at a location within its retained Vela source.
-  Each retained control source must equal its frozen fixture. Omitted, duplicate,
-  substituted, syntax-only or unrelated refusals cannot preserve a matching receipt. These
-  checks establish retained coverage; they do not rerun the controls or recompute
-  elaboration work counters.
-  Native proof observations bind separate UTF-8 stdout/stderr byte lengths and
-  hashes within each combined retained transcript. The assumption audit consumes
-  that checked stdout segment; tool diagnostics on stderr remain retained without
-  becoming assumption reports or weakening malformed-stdout refusals.
-  All four capability execution controls retain simulator commands and separate
-  stdout/stderr identities. The binding check requires the complete named control
-  set, exact simulator/profile/image arguments and retained process logs; it
-  reassembles the frozen control images and derives their verdicts, record counts,
-  trace digests and capability round trips from those logs. Missing observations,
-  substituted images, malformed streams and changed execution summaries refuse.
-  Capability and optional compiler simulator transcripts must contain exactly one
-  complete terminal verdict and at least one retired instruction. Duplicate,
-  conflicting, embedded-only or malformed verdicts, trace rows following the
-  terminal verdict, trap-loop diagnostics, disagreement between a failure's
-  decimal code and its optional eight-digit hexadecimal rendering,
-  malformed commit records, repeated or regressing retirement counters and memory
-  records whose byte widths disagree with their values refuse even when the
-  retained hashes are refreshed. Both stdout and stderr may carry simulator
-  records; their byte identities remain separately checked. The same execution
-  checks run before publishing a new first-slice receipt.
-  Optional CompCert availability must agree with the execution identity. When
-  available, the main program and four perturbed controls retain all five
-  preprocessing, compilation, interpreter-preprocessing, interpretation and
-  simulator observations. Exact commands, working directories, process exits,
-  split decoded UTF-8 stdout/stderr identities and retained C/effective-input
-  hashes must agree. The two effective inputs must have identical bytes. Interpreter stdout
-  must contain exactly one expected termination; simulator logs must recover the
-  expected target verdict and a nonempty commit trace. The main trace summary is
-  recomputed, and every program's retained assembly must regenerate its exact
-  image. Missing or repeated processes, changed source/image subjects, rehashed
-  contradictory transcripts and invented summaries refuse. An unavailable
-  compiler cannot carry execution claims. Local CompCert remains unavailable;
-  independent process fixtures qualify these optional binding checks without
-  supplying a live compiler verdict. This rechecks retained evidence without
-  simulator, compiler or interpreter replay, and supplies no independent
-  source-to-machine theorem.
-  Output directories must belong to the current checkout's local lane; inventories
-  reject aliases and exceedance of 4,096 entries or 256 MiB. Runtime identity
-  normalizes only the qualification working-directory load-path entry, retaining
-  external library paths, logical names, installation markers and file hashes.
-  Full local proof replay uses `first-slice`. These receipts preserve
-  `accepted` as the source proof's empty solver-trust verdict and explicitly
-  record `source_correspondence: false`, `artifact_accepted: false` and
-  `production_admission: false`. A missing CompCert run stays visible as
-  `compcert_sail.available: false`. No checked canonical-model, compiler,
-  contextual-security or admission receipt is supplied by this binding check;
-  the [producer-receipt cell](../../PLAN.md#q25ar) remains open.
-- **Remaining full-chain boundaries:** this slice connects exact Vela source to
-  kernel-checked Gallina obligations, AST-lowered CompCert Clight/C and purecap
-  `sail_riscv_sim` execution, and emits an explicit law, assumption and
-  blocking-dependency inventory (`inventory` in `vela-parser first-slice`).
-  Whole-term canonical Sail machine-term compilation (`rv64d.v` at Rocq 9.3.0;
-  `Q35b`/`Q35o`/`Q35p`), machine-logic `byte-instance` laws over `rv64d.v`
-  (`Q35c`/`Q35m`/`Q35k`/`Q35l` and [cheri-foundation-map.md](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/hardware/cheri-foundation-map.md)),
-  `Q2b`'s flat `BasicC64Semantics` decoder scope, mechanized Sail-to-Clight/CompCert
-  refinement (`Q35d`, `M1.2g`, `Q35j`), broader frontend/admission closure and
-  user-managed Host CI and Guest CI verdicts remain separate open obligations.
+The [mathematical carrier](../tooling/elaboration-prototype.md) represents a
+`Span<byte>` by its backing store, `Base`, `Length`, `Tag`, `PermRead` and
+`PermWrite`. `Span.AllocZeroed` belongs to specifications and theorems. Span
+operations check bounds, representability of offsets and counts, permissions,
+loans, and any required disjointness. These checks also apply at the last
+representable byte, where an exclusive end address can overflow. Restoration
+requires the view's immediate parent or the parent updated from that view.
+Function postconditions use the returned value and `ref` post-state. Automatic
+restoration checks preserve all five metadata fields of each `ref` span or slot
+descriptor.
+
+#### Qualification and receipt binding
+
+Run `python tools/run.py vela-parser first-slice` for fresh proof and execution
+checks. The [qualification harness](../../tools/toolchain/first_slice.py) owns the
+input fixtures, commands and report fields.
+
+| Check | Evidence |
+| --- | --- |
+| Source proof | Parse with Menhir, elaborate to Gallina, compile with `rocq c`, audit exported assumptions and replay with `rocqchk`. The `accepted` verdict requires an empty `solver_trust` ledger. The appended false equality must fail at the expected definition. |
+| Capacity and refusals | Compare proof structure and inference/reduction work at capacities 8 and 10⁹, replay both proofs, and exercise schema-2 cases that parse successfully and fail at their intended semantic checks. |
+| Capability execution | Run one passing purecap CHERI-RISC-V capability program and the bounds, permission and tag trap controls under Sail. |
+| Optional CompCert execution | Lower the validator and scenario drivers to Clight/C, execute under CompCert's interpreter and run purecap images in Sail. Check the passing paths and altered payload, padding, checksum-code and clearing controls. Use `--ccomp /absolute/path/to/ccomp` to require this run. Automatic discovery records `compcert_sail.available: false` when the compiler is missing. [Compiler build contract](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/implementation/contracts/contained-compiler-reuse.md) |
+| Guest C11 regression | Compile the generated validator with the system C compiler at `-O0` and `-O2` and check all five exits. |
+
+Use `python tools/run.py vela-parser first-slice-bindings <receipt.json>` to
+check a retained schema-2 receipt against the checkout and installed tools.
+A match binds the exact source, toolchain, target profile, generated artifacts
+and check transcripts. The checker regenerates the source-derived Gallina and C,
+reassembles the control images, and derives verdicts from the retained process
+output. It requires the full export audit, kernel replay, type-error and
+execution observations, including the optional CompCert effective inputs if
+that run is present. Missing or substituted artifacts, malformed or contradictory
+transcripts, and changes during verification refuse a match. Inventories are
+limited to 4,096 entries and 256 MiB in the checkout's local output lane.
+`status: matched` is a binding verdict with `proof_replayed: false`.
+
+These checks qualify the symbolic source model and record concrete execution
+observations. Exact executable acceptance requires checked source correspondence,
+resource laws over canonical Sail, compiler refinement, contextual preservation
+and artifact admission. The harness reports missing dependencies in `inventory`.
+[Exact executable acceptance](../../PLAN.md#q25ba)

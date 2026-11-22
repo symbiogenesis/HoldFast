@@ -30,7 +30,7 @@ or dispatch hosted CI.
 
 ## Before editing a document
 
-- **Use current-state prose.** State the current decision, finding, and evidence; replace superseded accounts instead of appending review or search history. Write `n/a` for a not-applicable table cell, never a blank or bare dash.
+- **Use current-state prose.** Describe the current behavior, contract, or decision. Link to the owner of a rule instead of repeating it. Keep backlog state in [PLAN.md](PLAN.md), landing evidence in the [completion log](docs/assurance/completion-log.md), and other change history in Git. Write `n/a` for a not-applicable table cell, never a blank or bare dash.
 - **Link section references to their owners and read their targets.** The closed-world Markdown gate (`python tools/run.py markdown`) verifies every relative link and heading or `<a id="...">` fragment across the tracked corpus.
 - **Keep landing evidence in its assigned place.** Landed or struck items have one [completion-log](docs/assurance/completion-log.md) entry with the exact checklist label. Follow the [checklist conventions](PLAN.md#checklist-conventions).
 

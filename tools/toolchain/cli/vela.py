@@ -49,8 +49,8 @@ class _Source:
 
 
 def _identity(value: os.stat_result) -> tuple[int, int, int, int]:
-    # Windows path stat and descriptor fstat expose different legacy ctime
-    # meanings after a write. File identity, size, mtime and exact bytes agree.
+    # Compare identity, size, mtime and bytes. Windows path and descriptor
+    # stats can report different ctime values for the same file.
     return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns
 
 
@@ -395,16 +395,16 @@ def main(argv: list[str] | None = None) -> int:
         viewer_validation.add_argument("--trace-processor", type=Path, required=True)
     generated = commands.add_parser(
         "generated-tests",
-        help="qualify isolated Hypothesis generated development tests (Q25x)",
+        help="run the generated development tests in an isolated Hypothesis environment",
     )
     generated.add_argument("--seed", type=int, default=DEFAULT_SEED)
     generated.add_argument("--max-examples", type=int, default=DEFAULT_MAX_EXAMPLES)
     generated.add_argument("--step-count", type=int, default=DEFAULT_STEP_COUNT)
     generated.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_SECONDS)
-    inspection = commands.add_parser("inspect", help="export versioned pure compiler facts (Q25ch subset)")
+    inspection = commands.add_parser("inspect", help="export versioned pure compiler facts")
     inspection.add_argument("source", type=Path)
     inspection.add_argument("--query", type=Path,
-                            help="read a version-7 bounded query JSON object instead of exporting all facts")
+                            help="read a bounded inspection query from JSON")
     inspection.add_argument("--snapshot", type=Path,
                             help="read and independently verify an existing export without recompiling")
     batch = commands.add_parser("sarif", help="export bounded pure batch diagnostics as SARIF 2.1.0")

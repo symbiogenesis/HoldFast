@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Compare development-parser consumers without promoting either frontend.
+"""Compare pure-syntax consumers against independent fixture expectations.
 
-Agreement is a migration prerequisite, not checked parsing or source
-correspondence. Every difference remains visible in the native-lane report.
+The report compares acceptance categories, semantic diagnostic locations,
+and Gallina digests. See the [parser contract](../../docs/tooling/parser.md).
 """
 
 import hashlib
@@ -206,11 +206,9 @@ def fixtures(example: bytes) -> tuple[Fixture, ...]:
         Fixture("deep-expression", prefix + b" + ".join([b"1"] * 2000) + b"; }", "limit"),
         Fixture("many-bindings", b"module M; public Nat F() { "
                 + b"".join(f"let x{i} = {i}; ".encode() for i in range(1000)) + b"return 0; }", "limit"),
-        # Keep the known differing depth conventions observable until disposition.
         Fixture("group-boundary", prefix + b"(" * 62 + b"0" + b")" * 62 + b"; }", "accepted"),
     ))
-    # Boundary outcomes independently read by the migration reviewer. Raw syntax
-    # budgets must allow these before the consumer applies semantic limits.
+    # Raw parser budgets leave room for the consumer to apply its expression limits.
     for groups, expected in ((63, "accepted"), (64, "limit")):
         result.append(Fixture(f"group-boundary-{groups}",
                               prefix + b"(" * groups + b"0" + b")" * groups + b"; }", expected))
