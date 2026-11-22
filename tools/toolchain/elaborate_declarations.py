@@ -690,7 +690,7 @@ class _DeclarationsMixin:
         m_emitted = f"{self.emission_prefix}_d{len(self.output)}_{name}_{method_name}"
         self._classify_phase(m_emitted, body_node, executable=m_kind == "function")
         if m_kind == "function":
-            self.checked_result_consumers.add(m_emitted)
+            self.checked_resource_consumers.add(m_emitted)
         self.output.append(f"Definition {m_emitted} : {self.render(m_sig)} :=\n  {self.render(m_def)}.")
         m_binding = _Binding(_constant(m_emitted), m_sig, len(generics) + len(m_generics))
         self.constants[m_emitted] = m_binding
@@ -1076,7 +1076,7 @@ class _DeclarationsMixin:
         self.callable_callback_effects.update(mod.callable_callback_effects)
         self.callable_effect_arities.update(mod.callable_effect_arities)
         self.untracked_effect_functions.update(mod.untracked_effect_functions)
-        self.checked_result_consumers.update(mod.checked_result_consumers)
+        self.checked_resource_consumers.update(mod.checked_resource_consumers)
         self.fix_names.update(mod.fix_names)
         existing_out = set(self.output)
         for line in mod.output:
@@ -1850,7 +1850,7 @@ class _DeclarationsMixin:
                 m_emitted = f"{self.emission_prefix}_d{len(self.output)}_impl_{iface_name.replace('.', '_')}_{mname}"
                 self._classify_phase(m_emitted, body_node, executable=True)
                 if mkind == "function":
-                    self.checked_result_consumers.add(m_emitted)
+                    self.checked_resource_consumers.add(m_emitted)
                 self.output.append(
                     f"Definition {m_emitted} : {self.render(m_sig)} :=\n  {self.render(m_def)}."
                 )
@@ -3086,7 +3086,7 @@ class _DeclarationsMixin:
                     self.current_return_type = None
             emitted = f"{self.emission_prefix}_d{len(self.output)}_{name}"
             if kind == "function":
-                self.checked_result_consumers.add(emitted)
+                self.checked_resource_consumers.add(emitted)
             if kind in {"function", "definition", "property"}:
                 phase_body = self.node(node["value"]) if kind == "property" else body_node
                 self._classify_phase(emitted, phase_body, executable=kind == "function")

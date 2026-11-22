@@ -6614,6 +6614,28 @@ def _owned_aggregate_copy() -> None:
                        _call("Both", _variable("x"), _variable("x"), generics=(abstract,)), generics=generic)
     _refuses(duplicate, "type", "owned fields")
 
+    for mode in ("owned", "in"):
+        erased = _Fixture("ErasedOwnership")
+        erased.record("Asset", (("Value", _modified("owned", _type("u32"))),))
+        erased.record("Both", (("First", abstract), ("Second", abstract)), generics=generic)
+        erased.definition("Dup", _NAT, (("x", _modified(mode, abstract)),),
+                          _let("duplicated", _call("Both", _variable("x"), _variable("x"), generics=(abstract,)),
+                               _natural(0)), generic)
+        source = _move_arg(_variable("x")) if mode == "owned" else _in_arg(_variable("x"))
+        erased.function("Bad", _NAT, (("x", _modified("owned", _type("Asset"))),),
+                        _call("Dup", source, generics=(_type("Asset"),)))
+        _refuses(erased, "type", "an affine argument requires a callee checked for executable ownership")
+
+    fabricated = _Fixture("FabricatedOwnership")
+    fabricated.record("Asset", (("Value", _modified("owned", _type("u32"))),))
+    fabricated.record("Pair", (("First", _type("Asset")), ("Second", _type("Asset"))))
+    fabricated.definition("Repeat", _type("Pair"), (("x", _modified("owned", _type("u32"))),),
+                          _let("asset", _call("Asset", _move_arg(_variable("x"))),
+                               _call("Pair", _variable("asset"), _variable("asset"))))
+    fabricated.function("Bad", _type("Pair"), (("x", _modified("owned", _type("u32"))),),
+                        _call("Repeat", _move_arg(_variable("x"))))
+    _refuses(fabricated, "type", "an affine result requires a callee checked for executable ownership")
+
     transfer = _Fixture("GenericTransfer")
     transfer.function("Relay", abstract, (("x", _modified("owned", abstract)),),
                       _move_arg(_variable("x")), generics=generic)
