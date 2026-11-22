@@ -14,7 +14,6 @@ import contextlib
 import hashlib
 import io
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -36,7 +35,7 @@ from toolchain import (
     parser as vela_parser,
 )
 from toolchain.ast import source_text
-from toolchain.atomic import atomic_path
+from toolchain.atomic import atomic_path, publish_report
 from toolchain.hashing import file_sha256
 from toolchain.hashing import sha256_bytes as _sha256
 
@@ -1248,12 +1247,6 @@ def _release_sources(archive: bytes) -> dict[str, bytes]:
     return sources
 
 
-def _write_json(path: Path, value: dict[str, object]) -> None:
-    with atomic_path(path) as pending:
-        pending.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n",
-                           encoding="utf-8", newline="")
-
-
 def _opam(arguments: list[str], *, switch: str = proofenv.ROCQ_SWITCH) -> list[str]:
     return ["opam", "exec", "--switch", switch, "--", *arguments]
 
@@ -1290,7 +1283,8 @@ def _run(arguments: list[str], directory: Path, log: Path,
 
 def _inputs(root: Path) -> dict[str, str]:
     return {name: file_sha256(root / name) for name in (
-        "tools/opam/rocq.lock", "tools/opam/sail.lock", "tools/toolchain/parser_checked.py", "tools/toolchain/hashing.py",
+        "tools/opam/rocq.lock", "tools/opam/sail.lock", "tools/toolchain/parser_checked.py",
+        "tools/toolchain/hashing.py", "tools/toolchain/atomic.py",
         "tools/toolchain/parser/ast.ml", "tools/toolchain/parser/parser.mly",
         "tools/toolchain/parser/lexer.mll", "examples/pure.vela",
         "examples/constants.vela", "examples/expressions.vela")}
@@ -1510,7 +1504,7 @@ def _publish_runtime_build(runtime_dir: Path, source_tree: Path, wanted: dict[st
             "VelaPureGrammar.v": file_sha256(source_tree / "VelaPureGrammar.v"),
         },
     }
-    _write_json(receipt_path, receipt)
+    publish_report(receipt_path, receipt)
     return vela_parser.Build(runtime_dir, exe_path, receipt)
 
 
@@ -1573,7 +1567,7 @@ def ensure_checked_build(root: Path | None = None, *, archive: Path | None = Non
                     pending.write_bytes(copied)
                     pending.chmod(0o755)
                 receipt = {**legacy.receipt, "directory": str(directory)}
-                _write_json(directory / "receipt.json", receipt)
+                publish_report(directory / "receipt.json", receipt)
                 return vela_parser.Build(directory, exe, receipt)
             return _build_runtime(repo, cache, directory, wanted, archive)
 
@@ -1604,7 +1598,7 @@ def _build_runtime(repo: Path, cache: Path, directory: Path,
         sources = _release_sources(contents)
         _stage(sources, stage_dir, reference=False)
         _compile(stage_dir, steps)
-        _write_json(stamp_path, menhirlib_stamp)
+        publish_report(stamp_path, menhirlib_stamp)
     mly_source = _read_file_bytes(repo / "tools/toolchain/parser/parser.mly").decode("utf-8")
     pure_mly, token_stub = _pure_grammar_view(mly_source)
     _compile_grammar_and_extract(stage_dir, pure_mly, steps)
@@ -1967,11 +1961,11 @@ def qualify(root: Path, *, archive: Path | None = None) -> dict[str, object]:
                                 "reading_sha256": file_sha256(candidate / "assumptions.stdout")},
                 "deferred": [],
             }
-            _write_json(directory / "qualification.json", report)
-            _write_json(latest, report)
+            publish_report(directory / "qualification.json", report)
+            publish_report(latest, report)
         except (OSError, RuntimeError, TypeError, ValueError) as error:
             attempt.update(status="failed", reason=str(error))
-            _write_json(directory / "attempt.json", attempt)
+            publish_report(directory / "attempt.json", attempt)
             raise
         else:
             return report

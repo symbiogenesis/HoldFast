@@ -27,13 +27,19 @@ from toolchain import (
     surface as vela_surface,
 )
 from toolchain.ast import MAX_SOURCE_BYTES, MAX_SYNTAX_DEPTH, VelaError
-from toolchain.atomic import atomic_path
+from toolchain.atomic import atomic_path, publish_report
 from toolchain.hashing import file_sha256 as _digest
 from toolchain.jsonutil import exceeds_nesting, finite_float, unique_object
 
 type Json = bool | int | float | str | list[Json] | dict[str, Json] | None
 
 SOURCES = ("ast.ml", "parser.mly", "lexer.mll", "main.ml")
+INPUT_PATHS = (
+    *(f"tools/toolchain/parser/{name}" for name in SOURCES),
+    "tools/opam/sail.lock", "tools/toolchain/parser.py", "tools/toolchain/surface.py",
+    "tools/toolchain/hashing.py", "tools/toolchain/jsonutil.py", "tools/toolchain/atomic.py",
+    "examples/pure.vela", "examples/surface.vela", "examples/constants.vela", "examples/expressions.vela",
+)
 GENERATED = ("parser.ml", "parser.mli", "lexer.ml")
 GENERATION_FLAGS = ("--strict", "--infer", "--explain")
 BUILD_TIMEOUT = 120
@@ -118,12 +124,7 @@ def _toolchain(root: Path) -> dict[str, object]:
 
 
 def _inputs(root: Path) -> dict[str, str]:
-    paths = [f"tools/toolchain/parser/{name}" for name in SOURCES]
-    paths.extend(("tools/opam/sail.lock", "tools/toolchain/parser.py", "tools/toolchain/surface.py",
-                  "tools/toolchain/hashing.py", "tools/toolchain/jsonutil.py",
-                  "examples/pure.vela", "examples/surface.vela",
-                  "examples/constants.vela", "examples/expressions.vela"))
-    return {name: _digest(root / name) for name in paths}
+    return {name: _digest(root / name) for name in INPUT_PATHS}
 
 
 def _commands() -> tuple[list[str], ...]:
@@ -155,9 +156,7 @@ def _compile(root: Path, directory: Path, tools: dict[str, object]) -> Build:
         "inputs": inputs, "toolchain": tools, "commands": commands,
         "generated_sha256": outputs, "directory": str(directory),
     }
-    with atomic_path(directory / "receipt.json") as pending:
-        pending.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n",
-                           encoding="utf-8", newline="")
+    publish_report(directory / "receipt.json", receipt)
     return Build(directory, executable, receipt)
 
 
@@ -840,10 +839,6 @@ def qualify(root: Path) -> dict[str, object]:
                                     "source_sha256": hashlib.sha256(surface_example).hexdigest()}},
         },
     }
-    with atomic_path(first.directory / "qualification.json") as pending:
-        pending.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n",
-                           encoding="utf-8", newline="")
-    with atomic_path(latest) as pending:
-        pending.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n",
-                           encoding="utf-8", newline="")
+    publish_report(first.directory / "qualification.json", report)
+    publish_report(latest, report)
     return report

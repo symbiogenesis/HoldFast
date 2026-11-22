@@ -46,11 +46,7 @@ class _Fixture:
 def _fixture() -> Generator[_Fixture]:
     with tempfile.TemporaryDirectory(prefix="vela-parser-cache-") as temporary:
         root = Path(temporary)
-        files = [*(f"tools/toolchain/parser/{name}" for name in parser.SOURCES),
-                 "tools/opam/sail.lock", "tools/toolchain/parser.py", "tools/toolchain/surface.py",
-                 "tools/toolchain/hashing.py", "tools/toolchain/jsonutil.py",
-                 *(f"examples/{name}.vela" for name in ("pure", "surface", "constants", "expressions"))]
-        for name in files:
+        for name in parser.INPUT_PATHS:
             path = root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("authored input\n", encoding="utf-8")

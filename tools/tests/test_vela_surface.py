@@ -72,16 +72,13 @@ def _entry_cli() -> None:
 def _qualification_input_binding() -> None:
     with tempfile.TemporaryDirectory(prefix="vela-surface-") as temporary:
         root = Path(temporary)
-        files = [*(f"tools/toolchain/parser/{name}" for name in parser.SOURCES),
-                 "tools/opam/sail.lock", "tools/toolchain/parser.py", "tools/toolchain/surface.py",
-                 "examples/pure.vela", "examples/surface.vela",
-                 "examples/constants.vela", "examples/expressions.vela"]
-        for name in files:
+        for name in parser.INPUT_PATHS:
             path = root / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(name.encode())
         initial = parser._inputs(root)
-        for name in ("tools/toolchain/surface.py", "examples/surface.vela",
+        for name in ("tools/toolchain/surface.py", "tools/toolchain/hashing.py",
+                     "tools/toolchain/jsonutil.py", "tools/toolchain/atomic.py", "examples/surface.vela",
                      "examples/constants.vela", "examples/expressions.vela"):
             path = root / name
             original = path.read_bytes()

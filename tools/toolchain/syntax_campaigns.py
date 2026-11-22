@@ -9,7 +9,6 @@ AST/span oracle, seeded-defect controls, sentence shrinking, and replay contract
 
 import copy
 import hashlib
-import json
 import re
 import subprocess
 import time
@@ -32,7 +31,7 @@ from toolchain import (
     parser as vela_parser,
 )
 from toolchain.ast import MAX_BLOCK_DEPTH, MAX_SYNTAX_DEPTH
-from toolchain.atomic import atomic_path
+from toolchain.atomic import publish_report
 
 type Json = vela_parser.Json
 
@@ -1869,8 +1868,6 @@ def qualify(
                 ),
             },
         }
-        with atomic_path(build_dir / "syntax-campaigns.json") as pending:
-            pending.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="")
-        with atomic_path(latest) as pending:
-            pending.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="")
+        publish_report(build_dir / "syntax-campaigns.json", report)
+        publish_report(latest, report)
         return report

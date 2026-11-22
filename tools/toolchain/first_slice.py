@@ -65,7 +65,7 @@ from toolchain import elaboration_check as replay
 from toolchain import (
     parser as vela_parser,
 )
-from toolchain.atomic import atomic_path
+from toolchain.atomic import publish_report
 from toolchain.elaborate_types import (
     _INT_SPECS,
     CheckedElaboration,
@@ -868,12 +868,6 @@ def _retained_proof(root: Path, report: dict[str, object], directory: Path,
             or inventory.get("solver_trusted_obligations") != [entry.as_json() for entry in trusted]
             or inventory.get("global_assumptions") != assumptions):
         raise ValueError("first-slice receipt source-proof status contradicts its retained assumption ledger")
-
-
-def _write(path: Path, payload: object) -> None:
-    with atomic_path(path) as pending:
-        pending.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n",
-                           encoding="utf-8", newline="")
 
 
 def _opam(arguments: list[str]) -> list[str]:
@@ -2494,7 +2488,7 @@ def qualify(root: Path, *, ccomp_path: Path | None = None, trace_phases: bool = 
             "remaining_chain_owners": ["Q35o", "Q35p", "Q35k", "Q35l", "Q35d", "M1.2g"],
             "inventory": build_foundation_inventory(),
         }
-        _write(directory / "attempt.json", attempt)
+        publish_report(directory / "attempt.json", attempt)
         timing = packet_trace.Recorder() if trace_phases else None
         try:
             execution = _execution_inputs(ccomp_path)
@@ -2509,7 +2503,7 @@ def qualify(root: Path, *, ccomp_path: Path | None = None, trace_phases: bool = 
                             "toolchain": tools, "runtime": runtime,
                             "execution_inputs": execution, "parser": parser_receipt,
                             "parser_outputs": outputs})
-            _write(directory / "attempt.json", attempt)
+            publish_report(directory / "attempt.json", attempt)
             if timing is not None:
                 prover_files = cast("dict[str, str]", runtime["files_sha256"])
                 attempt["trace_runtime_sha256"] = packet_runtime.identity(compiled.executable, prover_files, directory)
@@ -2520,7 +2514,7 @@ def qualify(root: Path, *, ccomp_path: Path | None = None, trace_phases: bool = 
                          "packet compiler runtime changed during measurement")
                 timeline = timing.export(packet_trace.subjects(attempt), "passed")
                 _check_trace(root, attempt, timeline, steps)
-                _write(directory / packet_trace.FILENAME, timeline)
+                publish_report(directory / packet_trace.FILENAME, timeline)
                 attempt["compiler_trace"] = str(directory / packet_trace.FILENAME)
             reported_outputs = _reported_outputs(attempt)
             produced_outputs = _artifacts(directory)
@@ -2541,18 +2535,18 @@ def qualify(root: Path, *, ccomp_path: Path | None = None, trace_phases: bool = 
         except (Exception, KeyboardInterrupt) as error:
             if timing is not None:
                 outcome = "cancelled" if isinstance(error, KeyboardInterrupt) else "refused"
-                _write(directory / packet_trace.FILENAME, timing.export(packet_trace.digest(attempt.get("inputs")), outcome))
+                publish_report(directory / packet_trace.FILENAME, timing.export(packet_trace.digest(attempt.get("inputs")), outcome))
             attempt.update({
                 "status": "failed",
                 "kernel_checked": False,
                 "accepted": False,
                 "error": f"{type(error).__name__}: {error}",
             })
-            _write(directory / "attempt.json", attempt)
+            publish_report(directory / "attempt.json", attempt)
             raise
         else:
-            _write(directory / "attempt.json", attempt)
-            _write(latest, attempt)
+            publish_report(directory / "attempt.json", attempt)
+            publish_report(latest, attempt)
             return attempt
 
 

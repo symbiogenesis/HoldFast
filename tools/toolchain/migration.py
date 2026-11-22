@@ -6,7 +6,6 @@ correspondence. Every difference remains visible in the native-lane report.
 """
 
 import hashlib
-import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,7 +13,7 @@ from typing import cast
 
 import toolchain as vela
 from toolchain import parser as vela_parser
-from toolchain.atomic import atomic_path
+from toolchain.atomic import publish_report
 from toolchain.hashing import file_sha256
 
 
@@ -321,8 +320,6 @@ def qualify(root: Path) -> dict[str, object]:
         raise ValueError("migration parser output changed during comparison")
     report.update({"inputs": inputs, "build": receipt,
                    "syntax_qualification": str(directory / "qualification.json")})
-    with atomic_path(directory / "migration.json") as pending:
-        pending.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="")
-    with atomic_path(latest) as pending:
-        pending.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="")
+    publish_report(directory / "migration.json", report)
+    publish_report(latest, report)
     return report

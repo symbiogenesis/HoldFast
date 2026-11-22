@@ -7,7 +7,6 @@ native sources, syntax, generated libraries, process logs and exact identities.
 """
 
 import copy
-import json
 import re
 import subprocess
 import tempfile
@@ -31,7 +30,7 @@ from toolchain import (
 from toolchain import (
     parser as vela_parser,
 )
-from toolchain.atomic import atomic_path
+from toolchain.atomic import publish_report
 from toolchain.hashing import file_sha256
 from toolchain.hashing import sha256_bytes as _sha256
 
@@ -1580,12 +1579,6 @@ def _require(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
-def _write(path: Path, value: object) -> None:
-    with atomic_path(path) as pending:
-        pending.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n",
-                           encoding="utf-8", newline="")
-
-
 def _opam(arguments: list[str]) -> list[str]:
     return ["opam", "exec", "--switch", proofenv.ROCQ_SWITCH, "--", *arguments]
 
@@ -1745,7 +1738,7 @@ def _case(compiled: vela_parser.Build, case: Fixture, directory: Path, index: in
     source_path.write_bytes(case.source)
     parsed = vela_parser.parse_source(compiled, case.source, surface=not case.pure)
     syntax_path = directory / f"{stem}.syntax.json"
-    _write(syntax_path, parsed)
+    publish_report(syntax_path, parsed)
     row: dict[str, object] = {"name": case.name, "source": str(source_path),
                               "source_sha256": _sha256(case.source), "expected": case.expected,
                               "consumer": "pure" if case.pure else "mathematical",
@@ -1868,7 +1861,7 @@ def qualify(root: Path) -> dict[str, object]:
                                       "status": "running", "directory": str(directory),
                                       "steps": steps, "fixtures": rows, "checked_parser": False,
                                       "source_correspondence": False, "production_admission": False}
-        _write(directory / "attempt.json", attempt)
+        publish_report(directory / "attempt.json", attempt)
         try:
             inputs = _inputs(root)
             tools = _toolchain(root, directory, steps)
@@ -1881,7 +1874,7 @@ def qualify(root: Path) -> dict[str, object]:
             cases = fixtures(vela_parser.read_source(root / EXAMPLE), vela_parser.read_source(root / WORD_COUNT_EXAMPLE))
             for index, case in enumerate(cases):
                 rows.append(_case(compiled, case, directory, index, steps))
-                _write(directory / "attempt.json", attempt)
+                publish_report(directory / "attempt.json", attempt)
             libraries = [str(row["library"]) for row in rows if row["category"] == "accepted"]
             _require(bool(libraries), "Vela replay has no accepted library to kernel-check")
             _run(_opam(["rocqchk", "-R", str(directory), "VelaElaboration", *libraries]),
@@ -1894,12 +1887,12 @@ def qualify(root: Path) -> dict[str, object]:
                      "Vela replay parser identity changed during qualification")
             attempt.update({"status": "passed", "kernel_checked": True,
                             "artifacts_sha256": _observations(rows, steps)})
-            _write(directory / "attempt.json", attempt)
-            _write(latest, attempt)
+            publish_report(directory / "attempt.json", attempt)
+            publish_report(latest, attempt)
         except Exception as error:
             attempt.update({"status": "failed", "kernel_checked": False,
                             "error": f"{type(error).__name__}: {error}"})
-            _write(directory / "attempt.json", attempt)
+            publish_report(directory / "attempt.json", attempt)
             raise
         else:
             return attempt
