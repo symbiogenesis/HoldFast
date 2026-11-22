@@ -511,6 +511,45 @@ and distinguishes an incomplete index from a verified absence of references
 within the qualified scope; the stock reader supplies no such verdict. SCIP is a navigation
 projection, not the typed AST or the complete analysis/proof-state interface.
 
+### Locked mathematical package index
+
+Run `python tools/run.py vela-parser scip WORKSPACE LOCK --output DIRECTORY`
+with a fresh destination directory after
+[locking a mathematical package](elaboration-prototype.md#locked-mathematical-packages).
+The bundle contains `index.scip`, `manifest.json`, the exact authored module
+files at their package paths, and one generated Gallina file per module under
+`__generated__/`. A SCIP v0.10.0 reader can open the index offline. Positions
+are half-open UTF-8 byte columns. Its project root identifies the bundle's
+absolute location. Rebuild at the new location after moving a bundle.
+
+The [elaborator recorder](../../tools/toolchain/package_navigation.py) retains
+value-parameter bindings, callable definitions, looked-up value names and
+interface methods at their resolved sites. A concrete method has an
+implementation relationship to its checked interface method. A call
+instantiated at concrete `Nat` or `bool` type arguments links to the generic
+definition. The instantiated call has its own generated occurrence at the
+authored call range. The [exporter](../../tools/toolchain/scip.py) locates
+each compiler-named Gallina definition in the exact emitted module and links
+its generated symbol to the authored declaration. Source globals carry the
+package name and content-bound instance, module path, spelling and declaration
+offset. A parameter's local symbol uses its declaration offset within its
+document. Identical spellings can resolve to different declarations.
+
+Before handing an index to an offline consumer, run
+`python tools/run.py vela-parser scip-check WORKSPACE LOCK DIRECTORY`.
+This rebuilds against the current compiler and locked closure and compares all
+published bytes, including the schema-bound manifest and generated documents.
+A changed dependency or lock needs a fresh export. Use `--require-complete`
+before interpreting an empty authored-reference result. This mode qualifies
+scalar expression-bodied definitions with `Nat` and `bool` parameters,
+positional calls and complete name-use coverage. Wider syntax can supply
+positive locations and relationships. The manifest lists each such module as
+incomplete. Record fields, general type references, external labels and
+generated helper internals are outside this coverage. Qualification budgets
+allow 100,000 occurrences and 32 MiB of serialized index in addition to the
+locked build's own limits.
+[Behavioral controls](../../tools/tests/test_vela_scip.py)
+
 ## Build integration
 
 Expose selected build targets, source roots, dependencies, options and build

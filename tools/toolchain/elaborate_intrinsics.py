@@ -2623,9 +2623,10 @@ class _IntrinsicsMixin:
             target_head, type_arguments = self.spine(self.resolve(target.term))
             if (self.navigation is not None and target_head.kind == "const" and type_arguments
                     and target_head.value in self.navigation.bindings):
-                resolved_arguments = tuple(self.render(self.resolve(arg)) for arg in type_arguments)
-                self.navigation.instances[Site.at(self.module_name, node)] = (
-                    self.navigation.bindings[target_head.value], resolved_arguments)
+                resolved = [self.resolve(arg) for arg in type_arguments]
+                if all(arg.kind == "const" and arg.value in {"Nat", "bool"} for arg in resolved):
+                    self.navigation.instances[Site.at(self.module_name, node)] = (
+                        self.navigation.bindings[target_head.value], tuple(str(arg.value) for arg in resolved))
             if target_head.kind == "const" and str(target_head.value) in self.declaration_sites:
                 self.call_declarations[cast("list[int]", node["span"])[0]] = self.declaration_sites[str(target_head.value)]
             return application
