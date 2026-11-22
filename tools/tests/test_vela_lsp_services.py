@@ -1,16 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
 """Independent resolved-name and stdio controls for pure Vela LSP services."""
 
-import json
 import subprocess
-import sys
 from contextlib import redirect_stderr
-from io import BytesIO, StringIO
+from io import StringIO
 from pathlib import Path
 from typing import cast
 from unittest.mock import patch
 
 from tests.harness import Case, ensure
+from tests.lsp_wire import read_replies, run_server
 from toolchain.lsp import Server
 
 INDEPENDENT_CASES = True
@@ -300,11 +299,6 @@ def _worker_failure_is_a_request_failure() -> None:
            "failed worker prevented a later independent inspection")
 
 
-def _wire(message: dict[str, object]) -> bytes:
-    body = json.dumps(message, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    return f"Content-Length: {len(body)}\r\n\r\n".encode("ascii") + body
-
-
 def _process_wire_services_and_unsaved_edit() -> None:
     source = ("// 😀\r\nmodule Wire;\r\npublic Nat Echo(Nat arg) { return arg; }\r\n"
               "public Nat Use() { return Echo(1); }")
@@ -324,25 +318,9 @@ def _process_wire_services_and_unsaved_edit() -> None:
                 _request("textDocument/definition", _params(4, 26), 6),
                 _request("textDocument/hover", _params(2, 11), 7),
                 _request("shutdown", identity=8), _notice("exit")]
-    tools = str(Path(__file__).resolve().parents[1])
-    script = (f"import sys; sys.path.insert(0, {tools!r}); "
-              "from toolchain.cli.vela_lsp import main; raise SystemExit(main())")
-    completed = subprocess.run([sys.executable, "-I", "-c", script],
-                               input=b"".join(_wire(message) for message in messages),
-                               capture_output=True, timeout=30, check=False)
-    ensure(completed.returncode == 0 and completed.stderr == b"",
-           f"real service process failed: {completed.stderr!r}")
-    stream = BytesIO(completed.stdout)
     replies: dict[int, dict[str, object]] = {}
     versions: list[object] = []
-    while header := stream.readline():
-        ensure(header.startswith(b"Content-Length: ") and header.endswith(b"\r\n"),
-               "service process stdout contains logs or malformed framing")
-        length = int(header[len(b"Content-Length: "):].strip())
-        ensure(stream.readline() == b"\r\n", "service process omitted frame separator")
-        body = stream.read(length)
-        ensure(len(body) == length, "service process reply was truncated")
-        reply = _object(json.loads(body))
+    for reply in read_replies(run_server(messages)):
         if "id" in reply:
             identity = reply["id"]
             ensure(type(identity) is int and identity not in replies, "wire response identity repeated")

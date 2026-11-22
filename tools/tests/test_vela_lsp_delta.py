@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import BinaryIO, cast
 
 from tests.harness import Case, ensure
+from tests.lsp_wire import server_command
 from tests.test_vela_lsp_editor import _server as _compiler_server
 from tests.test_vela_lsp_projection import _TEXT, _URI, _facts, _notice, _request
 from toolchain.lsp import Server
@@ -209,10 +210,7 @@ def _integer_edit_reconstruction() -> None:
 
 
 def _process_scenario() -> None:
-    tools = str(Path(__file__).resolve().parents[1])
-    script = (f"import sys; sys.path.insert(0, {tools!r}); "
-              "from toolchain.cli.vela_lsp import main; raise SystemExit(main())")
-    with subprocess.Popen([sys.executable, "-I", "-c", script], stdin=subprocess.PIPE,
+    with subprocess.Popen(server_command(), stdin=subprocess.PIPE,
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE) as process:
         ensure(process.stdin is not None and process.stdout is not None, "stdio pipes unavailable")
         input_stream = cast("BinaryIO", process.stdin)

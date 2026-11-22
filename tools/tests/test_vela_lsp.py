@@ -3,7 +3,6 @@
 
 import json
 import subprocess
-import sys
 import tempfile
 from collections.abc import Callable
 from contextlib import redirect_stderr
@@ -13,6 +12,7 @@ from typing import cast, override
 from unittest.mock import patch
 
 from tests.harness import Case, ensure
+from tests.lsp_wire import frame, read_replies, run_server
 from toolchain import source as source_mod
 from toolchain.lsp import Server, diagnose, serve
 from toolchain.protocol_json import decode_message, encode_message, read_frame
@@ -28,11 +28,6 @@ class _Fragmented(BytesIO):
     @override
     def read(self, size: int | None = -1) -> bytes:
         return super().read(min(size, 3) if size is not None and size >= 0 else 3)
-
-
-def _wire(message: dict[str, object]) -> bytes:
-    body = json.dumps(message, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    return f"Content-Length: {len(body)}\r\n\r\n".encode("ascii") + body
 
 
 def _request(method: str, params: object = None, identity: int = 1) -> dict[str, object]:
@@ -87,7 +82,7 @@ def _framing() -> None:
     first: dict[str, object] = {"jsonrpc": "2.0", "method": "example", "params": {"text": "é😀"}}
     second = _request("shutdown", identity=9)
     body = json.dumps(first, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    stream = _Fragmented(_wire(first) + _wire(second))
+    stream = _Fragmented(frame(first) + frame(second))
     ensure(read_frame(stream) == body, "fragmented Unicode frame was not read by byte length")
     ensure(decode_message(cast("bytes", read_frame(stream))) == second,
            "coalesced second frame was consumed or damaged")
@@ -480,24 +475,7 @@ def _incremental_process_transcript() -> None:
     messages = [_request("initialize", {"capabilities": {}}, 20), _notice("initialized"),
                 _open(text=source), _edits(2, [_edit((2, 24), (2, 28), "42", 4)]),
                 _request("shutdown", identity=21), _notice("exit")]
-    tools = str(Path(__file__).resolve().parents[1])
-    script = (f"import sys; sys.path.insert(0, {tools!r}); "
-              "from toolchain.cli.vela_lsp import main; raise SystemExit(main())")
-    completed = subprocess.run([sys.executable, "-I", "-c", script],
-                               input=b"".join(_wire(message) for message in messages),
-                               capture_output=True, timeout=30, check=False)
-    ensure(completed.returncode == 0 and completed.stderr == b"",
-           f"incremental CLI session failed: {completed.stderr!r}")
-    stream = BytesIO(completed.stdout)
-    replies: list[dict[str, object]] = []
-    while header := stream.readline():
-        ensure(header.startswith(b"Content-Length: ") and header.endswith(b"\r\n"),
-               "incremental CLI stdout contained logs or malformed headers")
-        size = int(header[len(b"Content-Length: "):].strip())
-        ensure(stream.readline() == b"\r\n", "incremental CLI frame separator malformed")
-        body = stream.read(size)
-        ensure(len(body) == size, "incremental CLI reply body truncated")
-        replies.append(_record(json.loads(body)))
+    replies = list(read_replies(run_server(messages)))
     ensure(len(replies) == 4 and replies[0].get("id") == 20 and replies[3].get("id") == 21,
            "incremental CLI lifecycle replies lost correlation")
     before, after = _published([replies[1]]), _published([replies[2]])
@@ -514,7 +492,7 @@ def _serve_transcript() -> None:
                 _open(text="module Wire; public Nat F() { return true; }"),
                 _request("shutdown", identity=21), _notice("exit")]
     output = BytesIO()
-    ensure(serve(_Fragmented(b"".join(_wire(message) for message in messages)), output) == 0,
+    ensure(serve(_Fragmented(b"".join(frame(message) for message in messages)), output) == 0,
            "wire session did not complete cleanly")
     stream = BytesIO(output.getvalue())
     replies: list[dict[str, object]] = []
@@ -531,7 +509,7 @@ def _serve_transcript() -> None:
     publication = _published([replies[1]])
     ensure(publication.get("version") == 1 and bool(publication.get("diagnostics")),
            "wire session lost the pure type error")
-    ensure(serve(BytesIO(_wire(_notice("exit"))), BytesIO()) == 1,
+    ensure(serve(BytesIO(frame(_notice("exit"))), BytesIO()) == 1,
            "unclean wire exit returned success")
     ensure(serve(BytesIO(), BytesIO()) == 1, "unexpected EOF returned success")
     with redirect_stderr(StringIO()):
@@ -539,7 +517,7 @@ def _serve_transcript() -> None:
                "truncated frame did not fail the session")
     malformed = b"Content-Length: 1\r\n\r\nx"
     output = BytesIO()
-    serve(BytesIO(malformed + _wire(_notice("exit"))), output)
+    serve(BytesIO(malformed + frame(_notice("exit"))), output)
     stream = BytesIO(output.getvalue())
     header = stream.readline()
     size = int(header[len(b"Content-Length: "):].strip())
@@ -550,7 +528,7 @@ def _serve_transcript() -> None:
     for body in (b"[]", b"null", b'"text"'):
         output = BytesIO()
         raw = f"Content-Length: {len(body)}\r\n\r\n".encode("ascii") + body
-        serve(BytesIO(raw + _wire(_notice("exit"))), output)
+        serve(BytesIO(raw + frame(_notice("exit"))), output)
         reply_body = output.getvalue().split(b"\r\n\r\n", 1)[1]
         reply = _record(json.loads(reply_body))
         ensure(_record(reply.get("error")).get("code") == -32600,

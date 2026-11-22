@@ -3,15 +3,13 @@
 
 import copy
 import json
-import subprocess
-import sys
 from contextlib import redirect_stderr
-from io import BytesIO, StringIO
-from pathlib import Path
+from io import StringIO
 from typing import cast
 from unittest.mock import patch
 
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
+from tests.lsp_wire import run_server
 from toolchain import VelaError, inspect_source
 from toolchain.lsp import Server
 from toolchain.lsp_discovery import project
@@ -205,12 +203,8 @@ def _malformed_coordinates_failures_and_stale_producer() -> None:
            "producer replacement published a late completion")
     snapshot = SourceSnapshot(_URI, 1, _SOURCE, 1)
     facts = validate_inspection(snapshot, inspect_source(snapshot.source))
-    try:
+    with raises(InspectionError, msg="stale callable facts were accepted"):
         project(SourceSnapshot(_URI, 2, _SOURCE, 2), facts, "textDocument/signatureHelp", (8, 30))
-    except InspectionError:
-        pass
-    else:
-        raise AssertionError("stale callable facts were accepted")
 
 
 def _candidate_visibility_static_and_parameter_names() -> None:
@@ -253,6 +247,19 @@ def _complete_bounds_and_worker_refusals() -> None:
                "failed inspection exposed old callable discovery facts")
 
 
+def _completion_replies(messages: list[dict[str, object]]) -> dict[int, dict[str, object]]:
+    stream = run_server(messages, encode_message)
+    replies: dict[int, dict[str, object]] = {}
+    while (frame := read_frame(stream)) is not None:
+        reply = _object(json.loads(frame))
+        if "id" in reply:
+            identity = reply["id"]
+            if type(identity) is not int or identity in replies:
+                raise AssertionError(f"invalid or duplicate response ID: {identity!r}")
+            replies[identity] = reply
+    return replies
+
+
 def _real_process_and_unsaved_edit() -> None:
     messages = [_message("initialize", identity=1), _message("initialized", identity=None),
         _message("textDocument/didOpen", {"textDocument": {
@@ -264,19 +271,7 @@ def _real_process_and_unsaved_edit() -> None:
         _message("textDocument/completion", _params(9, 12), 4),
         _message("textDocument/signatureHelp", _params(9, 30), 5),
         _message("shutdown", identity=6), _message("exit", identity=None)]
-    tools = str(Path(__file__).resolve().parents[1])
-    script = (f"import sys; sys.path.insert(0, {tools!r}); "
-              "from toolchain.cli.vela_lsp import main; raise SystemExit(main())")
-    completed = subprocess.run([sys.executable, "-I", "-c", script],
-                               input=b"".join(encode_message(message) for message in messages),
-                               capture_output=True, timeout=30, check=False)
-    ensure(completed.returncode == 0 and completed.stderr == b"", f"discovery process failed: {completed.stderr!r}")
-    stream = BytesIO(completed.stdout)
-    replies: dict[int, dict[str, object]] = {}
-    while (frame := read_frame(stream)) is not None:
-        reply = _object(json.loads(frame))
-        if "id" in reply:
-            replies[cast("int", reply["id"])] = reply
+    replies = _completion_replies(messages)
     ensure(set(replies) == set(range(1, 7)), "discovery process lost correlated replies")
     ensure(replies[3].get("result") == _signature("Add", 1)
            and replies[5].get("result") == _signature("Add", 1), "wire signature help did not follow the unsaved edit")

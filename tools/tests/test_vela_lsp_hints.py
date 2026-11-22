@@ -4,13 +4,12 @@
 import copy
 import json
 import subprocess
-import sys
 from contextlib import redirect_stderr
-from io import BytesIO, StringIO
-from pathlib import Path
+from io import StringIO
 from typing import cast
 
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
+from tests.lsp_wire import read_replies, run_server
 from toolchain import VelaError, inspect_source
 from toolchain.lsp import Server
 from toolchain.lsp_services import InspectionError, project
@@ -139,13 +138,9 @@ def _explicit_annotations_and_inferred_flags() -> None:
         symbol = next(symbol for symbol in cast("list[dict[str, object]]", changed["symbols"])
                       if symbol["kind"] == kind)
         symbol["inferred"] = malformed
-        try:
+        with raises(InspectionError, msg="hint projection accepted an invented or misplaced inference flag"):
             project(snapshot, changed, "textDocument/inlayHint", None,
                     requested_range=((0, 0), (6, 1)))
-        except InspectionError:
-            pass
-        else:
-            raise AssertionError("hint projection accepted an invented or misplaced inference flag")
     updated = text.replace("let Nat count", "let count")
     refreshed = inspect_source(updated.encode())
     ensure(project(SourceSnapshot(_URI, 2, updated, 2), refreshed, "textDocument/inlayHint", None,
@@ -263,27 +258,14 @@ def _projection_source_links_and_limits() -> None:
         symbol = next(symbol for symbol in cast("list[dict[str, object]]", changed["symbols"])
                       if symbol["kind"] == "variable")
         symbol[field] = value
-        try:
+        with raises(InspectionError, msg="hint projection accepted a source-mismatched worker fact"):
             project(snapshot, changed, "textDocument/inlayHint", None,
                     requested_range=((0, 0), (11, 1)))
-        except InspectionError:
-            pass
-        else:
-            raise AssertionError("hint projection accepted a source-mismatched worker fact")
     oversized = copy.deepcopy(raw)
     oversized["symbols"] = cast("list[object]", oversized["symbols"]) * 200
-    try:
+    with raises(InspectionError, msg="hint projection accepted an over-budget worker result"):
         project(snapshot, oversized, "textDocument/inlayHint", None,
                 requested_range=((0, 0), (11, 1)))
-    except InspectionError:
-        pass
-    else:
-        raise AssertionError("hint projection accepted an over-budget worker result")
-
-
-def _wire(message: dict[str, object]) -> bytes:
-    body = json.dumps(message, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    return f"Content-Length: {len(body)}\r\n\r\n".encode("ascii") + body
 
 
 def _real_process_hints_and_unsaved_edits() -> None:
@@ -305,25 +287,9 @@ def _real_process_hints_and_unsaved_edits() -> None:
                     "contentChanges": [{"text": invalid}]}),
                 _request("textDocument/inlayHint", _params(end=(1, 999)), 5),
                 _request("shutdown", identity=6), _notice("exit")]
-    tools = str(Path(__file__).resolve().parents[1])
-    script = (f"import sys; sys.path.insert(0, {tools!r}); "
-              "from toolchain.cli.vela_lsp import main; raise SystemExit(main())")
-    completed = subprocess.run([sys.executable, "-I", "-c", script],
-                               input=b"".join(_wire(message) for message in messages),
-                               capture_output=True, timeout=30, check=False)
-    ensure(completed.returncode == 0 and completed.stderr == b"",
-           f"real hint process failed: {completed.stderr!r}")
-    stream = BytesIO(completed.stdout)
     replies: dict[int, dict[str, object]] = {}
     versions: list[object] = []
-    while header := stream.readline():
-        ensure(header.startswith(b"Content-Length: ") and header.endswith(b"\r\n"),
-               "hint process emitted logs or malformed framing")
-        length = int(header[len(b"Content-Length: "):].strip())
-        ensure(stream.readline() == b"\r\n", "hint process omitted frame separator")
-        body = stream.read(length)
-        ensure(len(body) == length, "hint response was truncated")
-        reply = _object(json.loads(body))
+    for reply in read_replies(run_server(messages)):
         if "id" in reply:
             identity = reply["id"]
             ensure(type(identity) is int and identity not in replies,

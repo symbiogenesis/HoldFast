@@ -2,20 +2,14 @@
 """Independent literal replacements, static contexts and malformed completion controls."""
 
 import copy
-import json
-import subprocess
-import sys
-from io import BytesIO
-from pathlib import Path
 from typing import cast
 from unittest.mock import patch
 
-from tests.harness import Case, ensure
-from tests.test_vela_lsp_discovery import _message, _object, _params
+from tests.harness import Case, ensure, raises
+from tests.test_vela_lsp_discovery import _completion_replies, _message, _object, _params
 from tests.test_vela_lsp_value_completion import _items, _labels, _server
 from toolchain import VelaError, inspect_source
 from toolchain.lsp_services import InspectionError, validate_inspection
-from toolchain.protocol_json import encode_message, read_frame
 from toolchain.source import SourceSnapshot
 
 INDEPENDENT_CASES = True
@@ -87,12 +81,8 @@ def _source_binding_legacy_and_empty_sites() -> None:
     ensure("literal_completions" not in inspect_source(source.encode()),
            "ordinary inspection acquired optional literal facts")
     invalid = "module Empty; public Nat Use() => missing + 1;"
-    try:
+    with raises(VelaError, msg="invalid source supplied literal completion facts"):
         inspect_source(invalid.encode(), completion_options=True)
-    except VelaError:
-        pass
-    else:
-        raise AssertionError("invalid source supplied literal completion facts")
 
 
 def _malformed_literals_refuse() -> None:
@@ -125,31 +115,22 @@ def _malformed_literals_refuse() -> None:
             context["symbols"] = [True]
         else:
             contexts.reverse()
-        try:
+        with raises(InspectionError, msg=f"malformed {mutation} literal context was accepted"):
             validate_inspection(snapshot, broken)
-        except InspectionError:
-            pass
-        else:
-            raise AssertionError(f"malformed {mutation} literal context was accepted")
 
 
 def _combined_bounds_and_detachment() -> None:
     source = "module Bounds; public Nat Use(Nat amount) => amount + 1;"
     with patch("toolchain.facts.MAX_COMPLETION_OPTIONS", 1):
-        try:
+        with raises(VelaError, msg="combined name/literal producer choices exceeded their budget") as raised:
             inspect_source(source.encode(), completion_options=True)
-        except VelaError as error:
-            ensure(error.kind == "inspection-limit", "combined budget used an unrelated refusal")
-        else:
-            raise AssertionError("combined name/literal producer choices exceeded their budget")
+        ensure(raised.exception.kind == "inspection-limit", "combined budget used an unrelated refusal")
     raw = inspect_source(source.encode(), completion_options=True)
-    with patch("toolchain.lsp_services.MAX_COMPLETION_OPTIONS", 1):
-        try:
-            validate_inspection(SourceSnapshot(_URI, 1, source, 1), raw)
-        except InspectionError:
-            pass
-        else:
-            raise AssertionError("combined name/literal consumer choices exceeded their budget")
+    with (
+        patch("toolchain.lsp_services.MAX_COMPLETION_OPTIONS", 1),
+        raises(InspectionError, msg="combined name/literal consumer choices exceeded their budget"),
+    ):
+        validate_inspection(SourceSnapshot(_URI, 1, source, 1), raw)
     server = _server(source)
     server.inspector = lambda _: raw
     column = source.index("1;")
@@ -174,19 +155,7 @@ def _real_process_unicode_update() -> None:
             "contentChanges": [{"text": moved}]}, None),
         _message("textDocument/completion", _params(2, column + 2), 3),
         _message("shutdown", identity=4), _message("exit", identity=None)]
-    tools = str(Path(__file__).resolve().parents[1])
-    script = (f"import sys; sys.path.insert(0, {tools!r}); "
-              "from toolchain.cli.vela_lsp import main; raise SystemExit(main())")
-    completed = subprocess.run([sys.executable, "-I", "-c", script],
-                               input=b"".join(encode_message(message) for message in messages),
-                               capture_output=True, timeout=30, check=False)
-    ensure(completed.returncode == 0 and completed.stderr == b"", "literal completion process failed")
-    stream = BytesIO(completed.stdout)
-    replies: dict[int, dict[str, object]] = {}
-    while (frame := read_frame(stream)) is not None:
-        reply = _object(json.loads(frame))
-        if "id" in reply:
-            replies[cast("int", reply["id"])] = reply
+    replies = _completion_replies(messages)
     ensure(set(replies) == {1, 2, 3, 4}, "literal completion process lost correlated replies")
     for identity, line in ((2, 1), (3, 2)):
         items = cast("list[dict[str, object]]", _object(replies[identity].get("result"))["items"])

@@ -2,14 +2,10 @@
 """Independent comment-attachment, source-binding and live-hover controls."""
 
 import copy
-import json
-import subprocess
-import sys
-from io import BytesIO
-from pathlib import Path
 from typing import cast
 
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
+from tests.lsp_wire import read_replies, run_server
 from toolchain import VelaError, inspect_source, translate
 from toolchain.authoring import format_source
 from toolchain.documentation import MAX_DOCUMENTATION_BYTES
@@ -127,12 +123,8 @@ def _forged_and_stale_documentation() -> None:
         except InspectionError:
             continue
         raise AssertionError(f"forged documentation reached hover: {raw!r}")
-    try:
+    with raises(InspectionError, msg="old comment facts survived changed source bytes"):
         _hover(source.replace("First.", "Other."), 2, 11, original)
-    except InspectionError:
-        pass
-    else:
-        raise AssertionError("old comment facts survived changed source bytes")
 
 
 def _documentation_bounds_and_invalid_sources() -> None:
@@ -141,12 +133,9 @@ def _documentation_bounds_and_invalid_sources() -> None:
     ensure(len(cast("str", doc["text"]))
            == MAX_DOCUMENTATION_BYTES, "exact documentation bound was refused or truncated")
     translate(source.replace("/// x", "/// xx").encode())
-    try:
+    with raises(VelaError, msg="oversized documentation inspection succeeded") as raised:
         inspect_source(source.replace("/// x", "/// xx").encode())
-    except VelaError as error:
-        ensure(error.kind == "inspection-limit", "oversized documentation got a semantic verdict")
-    else:
-        raise AssertionError("oversized documentation inspection succeeded")
+    ensure(raised.exception.kind == "inspection-limit", "oversized documentation got a semantic verdict")
     for body in ("public Nat F() => missing;", "public Nat F() => true;",
                  "public owned Nat F() => 1;"):
         try:
@@ -188,12 +177,10 @@ def _unicode_documentation_byte_bound() -> None:
            "exact UTF-8 bound changed Unicode text or counted authored CRLF bytes")
     oversized = source.replace("/// abc", "/// abcd")
     translate(oversized.encode())
-    try:
+    with raises(VelaError,
+                msg="Unicode documentation was bounded by characters instead of UTF-8 bytes") as raised:
         inspect_source(oversized.encode())
-    except VelaError as error:
-        ensure(error.kind == "inspection-limit", "Unicode overflow received a semantic verdict")
-    else:
-        raise AssertionError("Unicode documentation was bounded by characters instead of UTF-8 bytes")
+    ensure(raised.exception.kind == "inspection-limit", "Unicode overflow received a semantic verdict")
 
 
 def _use_site_comments_and_formatting_attachment() -> None:
@@ -272,24 +259,9 @@ def _real_stdio_documentation() -> None:
                     "contentChanges": [{"text": source.replace("Documented 😀.", "Changed 😀.")}]}),
                 _message("textDocument/hover", _position(), 3),
                 _message("shutdown", identity=4), _message("exit")]
-    wire = bytearray()
-    for message in messages:
-        body = json.dumps(message, ensure_ascii=False).encode()
-        wire.extend(f"Content-Length: {len(body)}\r\n\r\n".encode() + body)
-    tools = str(Path(__file__).resolve().parents[1])
-    script = (f"import sys; sys.path.insert(0, {tools!r}); "
-              "from toolchain.cli.vela_lsp import main; raise SystemExit(main())")
-    done = subprocess.run([sys.executable, "-I", "-c", script], input=bytes(wire),
-                          capture_output=True, timeout=30, check=False)
-    ensure(done.returncode == 0 and done.stderr == b"", f"documentation stdio failed: {done.stderr!r}")
     replies: dict[int, dict[str, object]] = {}
     versions: list[object] = []
-    stream = BytesIO(done.stdout)
-    while header := stream.readline():
-        ensure(header.startswith(b"Content-Length: ") and stream.readline() == b"\r\n",
-               "documentation reply lost length framing")
-        body = stream.read(int(header[len(b"Content-Length: "):].strip()))
-        reply = cast("dict[str, object]", json.loads(body))
+    for reply in read_replies(run_server(messages)):
         if "id" in reply:
             replies[cast("int", reply["id"])] = reply
         else:

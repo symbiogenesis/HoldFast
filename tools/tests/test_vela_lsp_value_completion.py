@@ -2,20 +2,22 @@
 """Independent expected value choices, source edits, and completion refusals."""
 
 import copy
-import json
-import subprocess
-import sys
-from io import BytesIO
-from pathlib import Path
 from typing import cast
 from unittest.mock import patch
 
-from tests.harness import Case, ensure
-from tests.test_vela_lsp_discovery import _message, _object, _params, _reply, _result
+from tests.harness import Case, ensure, raises
+from tests.test_vela_lsp_discovery import (
+    _completion_replies,
+    _message,
+    _object,
+    _params,
+    _reply,
+    _result,
+)
 from toolchain import VelaError, inspect_source
 from toolchain.lsp import Server
 from toolchain.lsp_services import InspectionError, validate_inspection
-from toolchain.protocol_json import MAX_BODY_BYTES, encode_message, read_frame
+from toolchain.protocol_json import MAX_BODY_BYTES, encode_message
 from toolchain.source import SourceSnapshot
 
 INDEPENDENT_CASES = True
@@ -129,19 +131,14 @@ def _compiler_facts_are_opt_in_and_bounded() -> None:
     checked = validate_inspection(snapshot, raw)
     ensure(checked is not None and bool(checked.completions), "resolver did not record value choices")
     with patch("toolchain.facts.MAX_COMPLETION_OPTIONS", 1):
-        try:
+        with raises(VelaError, msg="completion budget returned partial compiler choices") as raised:
             inspect_source(_SOURCE.encode(), completion_options=True)
-        except VelaError as error:
-            ensure(error.kind == "inspection-limit", "completion budget used an unrelated refusal")
-        else:
-            raise AssertionError("completion budget returned partial compiler choices")
-    with patch("toolchain.lsp_services.MAX_COMPLETION_OPTIONS", 1):
-        try:
-            validate_inspection(snapshot, raw)
-        except InspectionError:
-            pass
-        else:
-            raise AssertionError("completion consumer accepted over-budget facts")
+        ensure(raised.exception.kind == "inspection-limit", "completion budget used an unrelated refusal")
+    with (
+        patch("toolchain.lsp_services.MAX_COMPLETION_OPTIONS", 1),
+        raises(InspectionError, msg="completion consumer accepted over-budget facts"),
+    ):
+        validate_inspection(snapshot, raw)
 
 
 def _malformed_and_detached_choices_refuse() -> None:
@@ -168,12 +165,8 @@ def _malformed_and_detached_choices_refuse() -> None:
             copied.reverse()
         else:
             options[0] = True
-        try:
+        with raises(InspectionError, msg=f"malformed {mutation} completion facts were accepted"):
             validate_inspection(snapshot, broken)
-        except InspectionError:
-            pass
-        else:
-            raise AssertionError(f"malformed {mutation} completion facts were accepted")
     server = _server()
     server.inspector = lambda _: raw
     expected = _items(server, 10, 16)
@@ -221,19 +214,7 @@ def _real_process_value_choices_and_unicode_edit() -> None:
             "contentChanges": [{"text": "// \U0001f600 moved\r\n" + _SOURCE}]}, None),
         _message("textDocument/completion", _params(11, 16), 3),
         _message("shutdown", identity=4), _message("exit", identity=None)]
-    tools = str(Path(__file__).resolve().parents[1])
-    script = (f"import sys; sys.path.insert(0, {tools!r}); "
-              "from toolchain.cli.vela_lsp import main; raise SystemExit(main())")
-    completed = subprocess.run([sys.executable, "-I", "-c", script],
-                               input=b"".join(encode_message(message) for message in messages),
-                               capture_output=True, timeout=30, check=False)
-    ensure(completed.returncode == 0 and completed.stderr == b"", f"value completion process failed: {completed.stderr!r}")
-    replies: dict[int, dict[str, object]] = {}
-    stream = BytesIO(completed.stdout)
-    while (frame := read_frame(stream)) is not None:
-        reply = _object(json.loads(frame))
-        if "id" in reply:
-            replies[cast("int", reply["id"])] = reply
+    replies = _completion_replies(messages)
     ensure(set(replies) == {1, 2, 3, 4}, "value completion process lost correlated replies")
     for identity, line in ((2, 10), (3, 11)):
         items = cast("list[dict[str, object]]", _object(replies[identity].get("result"))["items"])

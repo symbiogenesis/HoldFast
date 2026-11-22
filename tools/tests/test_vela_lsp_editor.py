@@ -7,11 +7,11 @@ import subprocess
 import sys
 from contextlib import redirect_stderr
 from io import BytesIO, StringIO
-from pathlib import Path
 from typing import cast
 from unittest.mock import patch
 
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
+from tests.lsp_wire import run_server
 from toolchain import VelaError, inspect_source, translate
 from toolchain.authoring import format_source
 from toolchain.lsp import Server, serve
@@ -179,22 +179,16 @@ def _formatter_transport_and_limits() -> None:
                 {**valid, "formatted": 1}, {**valid, "formatted": "\ud800"},
                 {"status": "unavailable", "reason": "limit", "source_sha256": valid["source_sha256"]},
                 {"status": "unavailable", "reason": [], "source_sha256": valid["source_sha256"]}):
-        try:
+        with raises(InspectionError, msg="malformed, stale or over-budget format result supplied an edit"):
             formatting_edits(snapshot, raw)
-        except InspectionError:
-            pass
-        else:
-            raise AssertionError("malformed, stale or over-budget format result supplied an edit")
     for done in (subprocess.CompletedProcess([], 1, b"{}", b""),
                  subprocess.CompletedProcess([], 0, b"x" * (MAX_BODY_BYTES + 1), b""),
                  subprocess.CompletedProcess([], 0, b'{"status":"ok","status":"ok"}', b"")):
-        with patch("toolchain.lsp_format.subprocess.run", return_value=done):
-            try:
-                format_document(snapshot.source)
-            except InspectionError:
-                pass
-            else:
-                raise AssertionError("invalid format worker transport was accepted")
+        with (
+            patch("toolchain.lsp_format.subprocess.run", return_value=done),
+            raises(InspectionError, msg="invalid format worker transport was accepted"),
+        ):
+            format_document(snapshot.source)
     with patch("toolchain.lsp_format.subprocess.run", side_effect=subprocess.TimeoutExpired("worker", 5)):
         server = _server()
         server.formatter = format_document
@@ -291,14 +285,7 @@ def _real_process_editor_operations() -> None:
                 _request("textDocument/formatting", _params(True), 4),
                 _request("textDocument/semanticTokens/full", _params(), 5),
                 _request("shutdown", identity=6), _notice("exit")]
-    tools = str(Path(__file__).resolve().parents[1])
-    script = (f"import sys; sys.path.insert(0, {tools!r}); "
-              "from toolchain.cli.vela_lsp import main; raise SystemExit(main())")
-    done = subprocess.run([sys.executable, "-I", "-c", script],
-                          input=b"".join(encode_message(message) for message in messages),
-                          capture_output=True, timeout=30, check=False)
-    ensure(done.returncode == 0 and not done.stderr, f"editor stdio process failed: {done.stderr!r}")
-    stream = BytesIO(done.stdout)
+    stream = run_server(messages, encode_message)
     replies: dict[object, dict[str, object]] = {}
     versions = []
     while (raw := read_frame(stream)) is not None:
