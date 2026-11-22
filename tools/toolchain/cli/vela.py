@@ -16,6 +16,7 @@ from toolchain import (
     authoring_preview,
     compiler_trace,
     inspection_reader,
+    packet_trace_reader,
     sarif,
     sarif_reader,
     trace_benchmark,
@@ -218,22 +219,23 @@ def _trace_benchmark(args: argparse.Namespace) -> int:
 
 
 def _trace_viewer(args: argparse.Namespace) -> int:
+    service = packet_trace_reader if "packet" in args.command else trace_viewer
     try:
-        if args.command == "trace-viewer-validate":
+        if args.command.endswith("-validate"):
             with args.report.open("rb") as stream:
                 data = stream.read(trace_viewer.MAX_REPORT_BYTES + 1)
-            trace_viewer.validate(trace_viewer.decode(data), args.trace_processor)
+            service.validate(trace_viewer.decode(data), args.trace_processor)
             print(f"vela: {args.report}: current pinned Perfetto importer evidence")
             return 0
         _destination(args.trace_processor, args.output)
-        report = trace_viewer.qualify(args.trace_processor)
+        report = service.qualify(args.trace_processor)
         _destination(args.trace_processor, args.output)
         with atomic_path(args.output) as pending:
             pending.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n",
                                encoding="utf-8", newline="")
-            trace_viewer.check_current(args.trace_processor, report)
+            service.check_current(args.trace_processor, report)
     except (OSError, ValueError) as error:
-        print(f"trace-qualify-viewer:1:1: qualification: {error}", file=sys.stderr)
+        print(f"{args.command}:1:1: qualification: {error}", file=sys.stderr)
         return 1
     else:
         print(f"vela: {args.output}: pinned Perfetto importer qualification passed")
@@ -393,13 +395,14 @@ def main(argv: list[str] | None = None) -> int:
     for command in (benchmark, benchmark_validation):
         command.add_argument("--max-overhead-ppm", type=int,
                              help="require the measured elapsed overhead to fit this parts-per-million budget")
-    viewer = commands.add_parser("trace-qualify-viewer", help="qualify a pinned offline Perfetto importer")
-    viewer.add_argument("--trace-processor", type=Path, required=True)
-    viewer.add_argument("--output", type=Path, required=True)
-    viewer_validation = commands.add_parser(
-        "trace-viewer-validate", help="recheck retained pinned importer evidence without execution")
-    viewer_validation.add_argument("report", type=Path)
-    viewer_validation.add_argument("--trace-processor", type=Path, required=True)
+    for prefix, subject in (("", "pure"), ("packet-", "packet compiler")):
+        viewer = commands.add_parser(f"trace-qualify-{prefix}viewer", help=f"import a {subject} trace in pinned Perfetto")
+        viewer.add_argument("--trace-processor", type=Path, required=True)
+        viewer.add_argument("--output", type=Path, required=True)
+        viewer_validation = commands.add_parser(f"trace-{prefix}viewer-validate",
+                                               help=f"recheck retained {subject} importer evidence without execution")
+        viewer_validation.add_argument("report", type=Path)
+        viewer_validation.add_argument("--trace-processor", type=Path, required=True)
     generated = commands.add_parser(
         "generated-tests",
         help="qualify isolated Hypothesis generated development tests (Q25x)",
@@ -440,7 +443,8 @@ def main(argv: list[str] | None = None) -> int:
         return _trace_browser(args)
     if args.command in {"trace-benchmark", "trace-benchmark-validate"}:
         return _trace_benchmark(args)
-    if args.command in {"trace-qualify-viewer", "trace-viewer-validate"}:
+    if args.command in {"trace-qualify-viewer", "trace-viewer-validate",
+                        "trace-qualify-packet-viewer", "trace-packet-viewer-validate"}:
         return _trace_viewer(args)
     if args.command == "generated-tests":
         root = Path(__file__).resolve().parents[3]
