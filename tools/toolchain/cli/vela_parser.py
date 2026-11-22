@@ -53,7 +53,8 @@ from toolchain import (
     syntax_campaigns as vela_syntax_campaigns,
 )
 from toolchain.atomic import atomic_path
-from toolchain.authoring import MATHEMATICAL_LINT_CODES, Finding
+from toolchain.authoring import MATHEMATICAL_LINT_CODES
+from toolchain.cli import report_findings
 from toolchain.elaborate import check_client_upgrade
 from toolchain.elaborate import elaborate as elaborate_source
 from toolchain.hashing import file_sha256
@@ -189,19 +190,6 @@ def _lint_preview(root: Path, path: Path, line: int, column: int) -> dict[str, o
     if vela_parser.read_source(path) != source:
         raise ValueError("source changed before mathematical preview publication")
     return edit
-
-
-def _report_findings(source: Path, findings: tuple[Finding, ...], allowed: set[str], denied: set[str]) -> bool:
-    failed = False
-    for finding in findings:
-        if finding.code in allowed:
-            continue
-        is_error = finding.code in denied
-        failed |= is_error
-        level = "error" if is_error else "warning"
-        print(f"{source}:{finding.line}:{finding.column}: {level} {finding.code}: {finding.message}",
-              file=sys.stderr)
-    return not failed
 
 
 def _debug_simulator(args: argparse.Namespace) -> dict[str, object]:
@@ -360,7 +348,7 @@ def main(argv: list[str] | None = None) -> int:
             with vela_parser.cached_build(root) as compiled:
                 parsed = vela_parser.parse_source(compiled, source, surface=True)
             translation = vela_mathematical.inspect_source(source, parsed)
-            if not _report_findings(args.source, translation.findings, allowed, denied):
+            if not report_findings(args.source, translation.findings, allowed, denied):
                 return 1
             if args.output is None:
                 print(translation.gallina, end="")

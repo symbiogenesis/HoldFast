@@ -25,8 +25,9 @@ from toolchain import (
     trace_viewer,
     translate,
 )
-from toolchain.atomic import atomic_path
+from toolchain.atomic import atomic_path, write_report
 from toolchain.authoring import LINT_CODES, format_source, lint_source
+from toolchain.cli import report_findings
 from toolchain.generated_tests import (
     DEFAULT_MAX_EXAMPLES,
     DEFAULT_SEED,
@@ -108,7 +109,6 @@ def _rewrite(source: _Source, formatted: bytes) -> _Source:
 
 def _lint(path: Path, source: bytes, allowed: set[str], denied: set[str], *,
           require_complete: bool = True) -> bool:
-    failed = False
     try:
         findings = lint_source(source)
     except VelaError as error:
@@ -118,15 +118,7 @@ def _lint(path: Path, source: bytes, allowed: set[str], denied: set[str], *,
         print(f"{path}:{error.line}:{error.column}: {level} lint-unavailable: {error.message}",
               file=sys.stderr)
         return not require_complete
-    for finding in findings:
-        if finding.code in allowed:
-            continue
-        is_error = finding.code in denied
-        failed |= is_error
-        level = "error" if is_error else "warning"
-        print(f"{path}:{finding.line}:{finding.column}: {level} {finding.code}: {finding.message}",
-              file=sys.stderr)
-    return not failed
+    return report_findings(path, findings, allowed, denied)
 
 
 def _trace(args: argparse.Namespace) -> int:
@@ -162,7 +154,7 @@ def _trace(args: argparse.Namespace) -> int:
                 raise OSError("compiler inputs changed during recording")
             _destination(source_path, args.output)
             with atomic_path(args.output) as pending:
-                pending.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="")
+                write_report(pending, document)
                 _unchanged(source)
                 if compiler_trace.producer_identity() != producer:
                     raise OSError("compiler inputs changed before trace publication")
@@ -203,8 +195,7 @@ def _trace_benchmark(args: argparse.Namespace) -> int:
         _producer_unchanged(producer, "during benchmark")
         _destination(source_path, args.output)
         with atomic_path(args.output) as pending:
-            pending.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n",
-                               encoding="utf-8", newline="")
+            write_report(pending, report)
             _unchanged(source)
             _producer_unchanged(producer, "before benchmark publication")
     except VelaError as error:
@@ -231,8 +222,7 @@ def _trace_viewer(args: argparse.Namespace) -> int:
         report = service.qualify(args.trace_processor)
         _destination(args.trace_processor, args.output)
         with atomic_path(args.output) as pending:
-            pending.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n",
-                               encoding="utf-8", newline="")
+            write_report(pending, report)
             service.check_current(args.trace_processor, report)
     except (OSError, ValueError) as error:
         print(f"{args.command}:1:1: qualification: {error}", file=sys.stderr)
@@ -273,8 +263,7 @@ def _trace_browser(args: argparse.Namespace) -> int:
         report = trace_browser.qualify(args.browser, args.browser_sha256)
         _destination(args.browser, args.output)
         with atomic_path(args.output) as pending:
-            pending.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n",
-                               encoding="utf-8", newline="")
+            write_report(pending, report)
             trace_browser.check_current(args.browser, args.browser_sha256, report)
     except (OSError, ValueError) as error:
         print(f"trace-qualify-browser:1:1: qualification: {error}", file=sys.stderr)
@@ -331,8 +320,7 @@ def _sarif_reader(args: argparse.Namespace) -> int:
             _destination(args.reader_directory / name, args.output)
         report = sarif_reader.qualify(args.reader_directory, args.schema)
         with atomic_path(args.output) as pending:
-            pending.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n",
-                               encoding="utf-8", newline="")
+            write_report(pending, report)
             sarif_reader.check_current(args.reader_directory, report)
             sarif.check_schema_current(args.schema)
             _producer_unchanged(cast("str", report["producer_sha256"]), "before SARIF qualification publication")

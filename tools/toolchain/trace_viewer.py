@@ -72,7 +72,7 @@ def reader_identity(executable: Path) -> Object:
 
 def harness_identity() -> str:
     root = Path(__file__).resolve().parent
-    modules = ("compiler_trace.py", "hashing.py", "jsonutil.py", "trace_viewer.py", "cli/vela.py")
+    modules = ("atomic.py", "compiler_trace.py", "hashing.py", "jsonutil.py", "trace_viewer.py", "cli/vela.py")
     return json_digest({name: file_sha256(root / name) for name in modules})
 
 

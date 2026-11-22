@@ -35,7 +35,7 @@ MAX_GENERATED_BYTES = 32 * MAX_INPUT_BYTES
 PRODUCER_INPUTS = (
     *(f"toolchain/{name}" for name in FRONTEND_SOURCES),
     "run.py", "pyproject.toml", "uv.lock", "opam/rocq.lock", "opam/sail.lock", "toolchain/atomic.py",
-    "toolchain/cli/vela_parser.py", "toolchain/packages.py", "toolchain/commands.py", "toolchain/pyversion.py",
+    "toolchain/cli/__init__.py", "toolchain/cli/vela_parser.py", "toolchain/packages.py", "toolchain/commands.py", "toolchain/pyversion.py",
     "toolchain/toolenv.py", "toolchain/corpus.py", "toolchain/env.py", "toolchain/proofenv.py",
 )
 

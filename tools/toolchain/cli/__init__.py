@@ -7,7 +7,13 @@ displays that command's own help.
 """
 
 import argparse
+import sys
 from collections.abc import Callable
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from toolchain.authoring import Finding
 
 # Subcommand handler and dispatch table mapping each subcommand name to its
 # handler and `--help` summary.
@@ -33,3 +39,17 @@ def dispatch(doc: str | None, table: Table, argv: list[str] | None,
     args = parser.parse_args(argv)
     handler, _ = table[args.command]
     return handler(args)
+
+
+def report_findings(source: Path, findings: tuple[Finding, ...], allowed: set[str], denied: set[str]) -> bool:
+    """Print enabled lint findings and return whether all of them are advisory."""
+    failed = False
+    for finding in findings:
+        if finding.code in allowed:
+            continue
+        is_error = finding.code in denied
+        failed |= is_error
+        level = "error" if is_error else "warning"
+        print(f"{source}:{finding.line}:{finding.column}: {level} {finding.code}: {finding.message}",
+              file=sys.stderr)
+    return not failed

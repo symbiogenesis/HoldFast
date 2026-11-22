@@ -49,7 +49,7 @@ def reader_identity(directory: Path) -> sarif.Object:
 def harness_identity() -> str:
     root = Path(__file__).resolve().parent
     identities = {name: file_sha256(root / name)
-                  for name in ("sarif.py", "sarif_reader.py", "hashing.py", "jsonutil.py", "cli/vela.py")}
+                  for name in ("atomic.py", "sarif.py", "sarif_reader.py", "hashing.py", "jsonutil.py", "cli/vela.py")}
     return sha256_bytes(json.dumps(identities, sort_keys=True).encode())
 
 

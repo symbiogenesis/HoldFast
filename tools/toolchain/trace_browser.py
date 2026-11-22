@@ -128,7 +128,8 @@ def _fixture() -> str:
 def harness_identity() -> str:
     modules = (Path(__file__), Path(trace_html.__file__), Path(trace_viewer.__file__),
                Path(compiler_trace.__file__), Path(__file__).with_name("jsonutil.py"),
-               Path(__file__).with_name("hashing.py"), Path(__file__).parent / "cli" / "vela.py")
+               Path(__file__).with_name("hashing.py"), Path(__file__).with_name("atomic.py"),
+               Path(__file__).parent / "cli" / "vela.py")
     return hashlib.sha256(json.dumps({path.name: file_sha256(path)
                                      for path in modules}, sort_keys=True).encode()).hexdigest()
 
