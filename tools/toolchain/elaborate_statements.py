@@ -170,10 +170,7 @@ class _StatementsMixin:
         if head.kind != "const" or not isinstance(head.value, str) or head.value not in self.unions_by_type:
             return False
         union_info = self.unions_by_type[head.value]
-        if len(union_info.constructors) != 2:
-            return False
-        names = {c.name for c in union_info.constructors}
-        return names in ({"None", "Some"}, {"Err", "Ok"})
+        return union_info.propagation is not None
 
     @staticmethod
     def _with_node_field(node: Node, key: str, value: object) -> Node:
@@ -388,27 +385,13 @@ class _StatementsMixin:
                 prop_node,
             )
         union_info = self.unions_by_type[scrut_head.value]
-        if len(union_info.constructors) != 2:
+        if union_info.propagation is None:
             raise self.fail(
                 "type",
-                "'?' operator requires a 2-variant Option (None/Some) or Result (Err/Ok) union operand",
+                "'?' operator requires the standard Option or Result declaration",
                 prop_node,
             )
-        ok_idx: int | None = None
-        err_idx: int | None = None
-        for idx, ctor in enumerate(union_info.constructors):
-            if ctor.name in {"Some", "Ok"} and len(ctor.fields) == 1:
-                ok_idx = idx
-            elif (ctor.name == "None" and len(ctor.fields) == 0) or (
-                ctor.name == "Err" and len(ctor.fields) == 1
-            ):
-                err_idx = idx
-        if ok_idx is None or err_idx is None:
-            raise self.fail(
-                "type",
-                "'?' operator requires an Option (None/Some) or Result (Err/Ok) union operand",
-                prop_node,
-            )
+        ok_idx, err_idx = union_info.propagation
         ret_type = self.whnf(target_return_type)
         ret_head, ret_type_args = self.spine(ret_type)
         if (

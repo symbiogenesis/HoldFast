@@ -674,6 +674,7 @@ class _Elaborator(
             (tv_var, te_var),
             (err_ctor, ok_ctor),
             (res_rep, tv_var),
+            propagation=(1, 0),
         )
         self.unions["Result"] = res_info
         self.unions_by_type[res_type_const] = res_info
@@ -683,9 +684,9 @@ class _Elaborator(
         self.unions_by_ctor[ok_const] = (res_info, ok_ctor)
 
     def _register_int_constants(self) -> None:
-        ae_const = _constant(self.unions["ArithmeticError"].type_const)
-        ce_const = _constant(self.unions["ConversionError"].type_const)
-        res_const = _constant(self.unions["Result"].type_const)
+        ae_const = _constant("vela_ArithmeticError")
+        ce_const = _constant("vela_ConversionError")
+        res_const = _constant("vela_Result")
         res_char_conv = _apps(res_const, _CHAR, ce_const)
         self.constants["char_try_from_u32"] = _Binding(
             _constant("char_try_from_u32"), self.pi(_INT_SPECS["u32"].const, res_char_conv)

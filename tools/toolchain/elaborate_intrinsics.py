@@ -1833,8 +1833,8 @@ class _IntrinsicsMixin:
             "CheckedRem": "chk_rem",
         }
         is_checked = name.startswith("Checked")
-        ae_const = _constant(self.unions["ArithmeticError"].type_const)
-        res_const = _constant(self.unions["Result"].type_const)
+        ae_const = _constant("vela_ArithmeticError")
+        res_const = _constant("vela_Result")
         if name in unary_ops:
             if receiver is not None:
                 if val_nodes:
@@ -2190,8 +2190,8 @@ class _IntrinsicsMixin:
                                     "'char.From' requires a byte/u8 or char operand; use 'char.TryFrom' for u32 or Nat",
                                     node,
                                 )
-                            res_const = _constant(self.unions["Result"].type_const)
-                            ce_const = _constant(self.unions["ConversionError"].type_const)
+                            res_const = _constant("vela_Result")
+                            ce_const = _constant("vela_ConversionError")
                             ret_type = _apps(res_const, _CHAR, ce_const)
                             src_spec = self._int_spec(src_w)
                             if src_spec is not None and src_spec.name == "u32":
@@ -2234,8 +2234,8 @@ class _IntrinsicsMixin:
                                     _app(_constant(f"int_from_{src_spec.name}_{dst_spec.name}"), src_b.term),
                                     dst_spec.const,
                                 )
-                            res_const = _constant(self.unions["Result"].type_const)
-                            ce_const = _constant(self.unions["ConversionError"].type_const)
+                            res_const = _constant("vela_Result")
+                            ce_const = _constant("vela_ConversionError")
                             ret_type = _apps(res_const, dst_spec.const, ce_const)
                             if src_spec is not None:
                                 return _Binding(

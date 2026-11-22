@@ -272,6 +272,7 @@ class _UnionInfo:
     generic_vars: tuple[_Term, ...]
     constructors: tuple[_UnionCtor, ...]
     suffix_types: tuple[_Term, ...]
+    propagation: tuple[int, int] | None = None
 
 
 @dataclass(frozen=True)

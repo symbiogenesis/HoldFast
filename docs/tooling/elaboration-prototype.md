@@ -118,7 +118,11 @@ The supported increment includes:
   early-exit `let Pattern = expr else { return ...; }` (`let_else`) guards in
   blocks and `assert ... by { ... }` proof blocks, and postfix `expr?`
   early-return propagation over 2-variant `Option<T>` (`None`, `Some(v)`) and
-  `Result<T, E>` (`Err(e)`, `Ok(v)`) unions. Propagation inside the right
+  `Result<T, E>` (`Err(e)`, `Ok(v)`) unions. The elaborator records the
+  success and failure cases on the resolved type declaration. An alias retains
+  this capability. A differently named union with similar constructors has its
+  own identity. Checked arithmetic always produces the built-in result type.
+  Propagation inside the right
   operand of `&&` or `||` remains under that operand's Boolean guard:
   `Some(false && absent?)` returns `Some(false)` and
   `Some(true || absent?)` returns `Some(true)` when `absent` is `None`.

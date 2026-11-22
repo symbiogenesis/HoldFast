@@ -3080,6 +3080,19 @@ def _early_return_propagation() -> None:
     bad_ret.definition("Wrong", _NAT, (("x", _type("Option", _NAT)),), _propagate(_variable("x")))
     _refuses(bad_ret, "type", "enclosing callable")
 
+    foreign = _Fixture("ForeignPropagation")
+    foreign.union("Widget", (("Err", (("Error", _NAT),)), ("Ok", (("Value", _NAT),))))
+    foreign.definition("Wrong", _type("Widget"), (("w", _type("Widget")),),
+                       _call("Ok", _propagate(_variable("w"))))
+    _refuses(foreign, "type", "standard Option or Result")
+
+    shadow = _Fixture("ShadowedArithmeticResult")
+    shadow.alias("SumResult", _type("Result", _type("u32"), _type("ArithmeticError")))
+    shadow.record("Result", (("Code", _NAT),))
+    shadow.function("Probe", _type("SumResult"), (),
+                    _call(_member(_variable("u32"), "CheckedAdd"), _int_lit("1", "u32"), _int_lit("2", "u32")))
+    elaborate(*shadow.response())
+
 
 def _short_circuit_propagation() -> None:
     fixture = _Fixture("ShortCircuitPropagation")

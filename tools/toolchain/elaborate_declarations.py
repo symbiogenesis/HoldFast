@@ -944,12 +944,25 @@ class _DeclarationsMixin:
                 )
             )
 
+        # Recognize the standard library declaration once, before an import can rename it.
+        propagation = None
+        generic_count = len(generic_vars)
+        case_shapes = {ctor.name: tuple(field.type for field in ctor.fields) for ctor in union_ctors}
+        if ((name == "Result" and generic_count == 2
+             and case_shapes == {"Ok": (generic_vars[0],), "Err": (generic_vars[1],)})
+            or (name == "Option" and generic_count == 1
+                and case_shapes == {"Some": (generic_vars[0],), "None": ()})):
+            if not any(cast("int", field.var.value) in self.owned_parameters
+                       for ctor in union_ctors for field in ctor.fields):
+                success = next(ctor.index for ctor in union_ctors if ctor.name in {"Ok", "Some"})
+                propagation = success, 1 - success
         union_info = _UnionInfo(
             name=name,
             type_const=type_emitted,
             generic_vars=tuple(generic_vars),
             constructors=tuple(union_ctors),
             suffix_types=tuple(suffix_types),
+            propagation=propagation,
         )
         self.unions[name] = union_info
         self.unions_by_type[type_emitted] = union_info
