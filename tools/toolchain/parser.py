@@ -8,6 +8,7 @@ elaboration, checked-parser or source-correspondence verdict.
 import contextlib
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -53,6 +54,23 @@ class Build:
 
 def _digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def bytecode_interpreter(executable: Path) -> Path:
+    with executable.open("rb") as stream:
+        line = stream.readline(4096)
+    if not line.startswith(b"#!/") or not line.endswith(b"\n"):
+        raise ValueError("missing bytecode interpreter")
+    return Path(os.fsdecode(line[2:-1]))
+
+
+def interpreter_digest(compiled: Build) -> str:
+    runtime_digest = _digest(bytecode_interpreter(compiled.executable))
+    toolchain = compiled.receipt.get("toolchain")
+    binaries = toolchain.get("binary_sha256") if isinstance(toolchain, dict) else None
+    if not isinstance(binaries, dict) or binaries.get("ocamlrun") != runtime_digest:
+        raise ValueError("parser interpreter differs from its build")
+    return runtime_digest
 
 
 def _locked_versions(root: Path) -> dict[str, str]:

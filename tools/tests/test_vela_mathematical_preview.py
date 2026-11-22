@@ -12,7 +12,7 @@ from unittest.mock import patch
 from tests.harness import Case, ensure
 from tests.test_vela_elaborate import _binary, _Fixture, _group, _int_lit, _type, _variable
 from tests.test_vela_elaboration_cli import _invoke
-from toolchain import VelaError, elaboration_check, mathematical_preview, packet_runtime, parser
+from toolchain import VelaError, elaboration_check, mathematical_preview, parser
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = """module Bits;
@@ -81,7 +81,7 @@ def _host_preview() -> None:
         def build() -> parser.Build:
             digest = hashlib.sha256(runtime.read_bytes()).hexdigest()
             return parser.Build(ROOT, compiled.executable, {"toolchain": {"binary_sha256": {"ocamlrun": digest}}})
-        with patch.object(packet_runtime, "_parser_interpreter", return_value=runtime):
+        with patch.object(parser, "bytecode_interpreter", return_value=runtime):
             runtime.write_bytes(b"first runtime")
             original_build = build()
             retained = mathematical_preview.preview(original_build, source, line, column)
@@ -110,7 +110,7 @@ def _native_edits() -> None:
             ensure(code == 0 and not err, f"native precedence preview failed: {err}")
             preview = json.loads(out)
             ensure(preview["producer"]["ocamlrun_sha256"] ==
-                   hashlib.sha256(packet_runtime._parser_interpreter(compiled.executable).read_bytes()).hexdigest(),
+                   hashlib.sha256(parser.bytecode_interpreter(compiled.executable).read_bytes()).hexdigest(),
                    "preview omits the OCaml runtime selected by the parser executable")
             candidate = SOURCE.replace(operand, b"(" + operand + b")", 1)
             start = SOURCE.index(operand)

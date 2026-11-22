@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Locked closure controls independent of the native parser and its cache."""
 
+import hashlib
 import json
 import shutil
 from pathlib import Path
@@ -104,7 +105,7 @@ def _declared_files_and_module_owners() -> None:
 
 
 def _bound_producer() -> None:
-    with TemporaryDirectory() as temporary:
+    with TemporaryDirectory() as temporary, patch.object(parser, "bytecode_interpreter") as interpreter:
         root = Path(temporary)
         tools = root / "tools"
         for name in packages.PRODUCER_INPUTS:
@@ -113,14 +114,19 @@ def _bound_producer() -> None:
             path.write_bytes(name.encode())
         binary = root / "parser"
         binary.write_bytes(b"fixture")
-        compiled = parser.Build(root, binary, {"inputs": {}, "toolchain": {}})
+        runtime = root / "runtime"
+        runtime.write_bytes(b"selected OCaml runtime")
+        interpreter.return_value = runtime
+        digest = hashlib.sha256(runtime.read_bytes()).hexdigest()
+        toolchain = {"binary_sha256": {"ocamlrun": digest}}
+        compiled = parser.Build(root, binary, {"inputs": {}, "toolchain": toolchain})
         original = packages._producer(root, compiled)
         (tools / "toolchain" / "scratch.py").write_bytes(b"undeclared editor scratch file")
         ensure(packages._producer(root, compiled) == original, "unrelated helper invalidated the package lock")
         (tools / "toolchain" / "elaborate_solver.py").write_bytes(b"new arithmetic")
         ensure(packages._producer(root, compiled) != original, "changed semantic implementation retained the lock")
         compiled.receipt["generated_sha256"] = {"vela-parser": original["parser_sha256"]}
-        with patch.object(parser, "_inputs", return_value={}) as inputs, patch.object(parser, "_toolchain", return_value={}):
+        with patch.object(parser, "_inputs", return_value={}) as inputs, patch.object(parser, "_toolchain", return_value=toolchain):
             packages._recheck_parser(root, compiled)
             inputs.return_value = {"parser.mly": "updated grammar"}
             try:
@@ -129,6 +135,13 @@ def _bound_producer() -> None:
                 ensure("parser sources" in str(error), "late parser change reached an unrelated refusal")
             else:
                 raise AssertionError("published a lock for a grammar which changed during the build")
+        runtime.write_bytes(b"changed bytecode interpreter")
+        try:
+            packages._producer(root, compiled)
+        except ValueError as error:
+            ensure("interpreter differs" in str(error), "wrong runtime-mismatch refusal")
+        else:
+            raise AssertionError("package lock accepted different runtime bytes with the original parser bytecode")
 
 
 def cases() -> list[Case]:

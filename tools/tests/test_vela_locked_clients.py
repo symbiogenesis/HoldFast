@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Independent consumers of locked mathematical package builds."""
 
+import hashlib
 import json
 import re
 import shutil
@@ -11,7 +12,7 @@ from io import StringIO
 from pathlib import Path
 
 from tests.harness import TOOLS, Case, ensure
-from toolchain import proofenv
+from toolchain import parser, proofenv
 from toolchain.cli import vela_parser
 
 
@@ -79,6 +80,12 @@ def _client_upgrade() -> None:
         workspace = _workspace(directory)
         bundle = directory / "bundle.json"
         lock = _lock(workspace)
+        with parser.cached_build(TOOLS.parent) as compiled, compiled.executable.open("rb") as binary:
+            first_line = binary.readline(4096)
+            ensure(first_line.startswith(b"#!/") and first_line.endswith(b"\n"), "unsupported native parser executable")
+            actual = hashlib.sha256(Path(first_line[2:-1].decode()).read_bytes()).hexdigest()
+        ensure(json.loads(lock.read_bytes())["producer"]["ocamlrun_sha256"] == actual,
+               "package lock differs from the interpreter selected by the parser's shebang")
         _command("build-package", workspace, lock, "--output", bundle)
         before = bundle.read_bytes()
         modules = json.loads(before)["modules"]
