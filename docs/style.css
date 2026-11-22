@@ -500,6 +500,10 @@ h1 {
     font: 11px var(--mono);
 }
 
+.source-actions {
+    min-width: 0;
+}
+
 .file-icon {
     color: #b5c4ff;
     font-size: 10px;
@@ -569,6 +573,7 @@ select {
     border-top: 1px solid var(--line);
     padding: 10px 14px 10px 18px;
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
@@ -615,6 +620,7 @@ kbd {
     display: flex;
     align-items: center;
     gap: 8px;
+    margin-left: auto;
 }
 
 .button {
@@ -687,7 +693,7 @@ kbd {
 .advanced-menu-panel {
     position: absolute;
     bottom: calc(100% + 8px);
-    right: 0;
+    left: 0;
     width: 245px;
     background: #161c28;
     border: 1px solid #354056;
@@ -1926,11 +1932,18 @@ kbd {
     .topbar-right {
         display: none;
     }
-    .pane-toolbar {
-        padding: 0 10px;
+    .pane-toolbar,
+    .source-footer {
+        padding-inline: 10px;
+    }
+    .footer-actions {
+        gap: 6px;
     }
     #examples {
-        max-width: 160px;
+        max-width: min(160px, 100%);
+    }
+    .output-tab {
+        padding-inline: 6px;
     }
     .shortcut-hint {
         display: none;
