@@ -214,7 +214,7 @@ binary `290c659064d26cb1c51b743ec6a414ed4269e7f686821637656d526333c6c7a2`) and
 `ocamlc 5.4.1` (`454b023dfdebe17bd760300da10dd5b97833a11597cc5f2287444d0ed428a9fc`)
 in `verifiedos-sail-0.20.3-ocaml-5.4.1` without linking `menhirLib`, under the
 generator-output reading recorded in
-[THIRD-PARTY.md](../../THIRD-PARTY.md#vela-development-and-proof-reuse-candidates).
+[THIRD-PARTY.md](../../THIRD-PARTY.md#development-tools-contained-by-use).
 
 `python tools/run.py vela-parser qualify` verifies byte-identical deterministic
 regeneration across two fresh builds (`lexer.ml`
@@ -523,7 +523,7 @@ or worker failures preserve synchronized overlays and session generations.
 
 [`vela-lsp --qualify-clients`](../../tools/toolchain/lsp_clients.py) qualifies two
 pinned independent editor clients recorded in
-[THIRD-PARTY.md](../../THIRD-PARTY.md#vela-development-and-proof-reuse-candidates)
+[THIRD-PARTY.md](../../THIRD-PARTY.md#independent-editor-clients)
 — Neovim `0.11.0` (`vim.lsp`, incremental sync: `97` frames / `37` requests / `7`
 ranged edits on Windows ARM64 and `99` frames / `38` requests / `7` ranged edits
 on Ubuntu 24.04 ARM64) and Vim `9.1.2141` + `yegappan/lsp`
@@ -681,7 +681,7 @@ literal validation, digit-bound accounting and native parser/kernel qualificatio
 #### Q25s · Attach Vela documentation comments to compiler facts
 
 Accepted on 2026-11-03 for public functions and constants in the pure compiler.
-The [independent qualification](../tooling/documentation-qualification.md) covers the
+The [documentation qualification](../tooling/authoring-tools.md#qualification) covers the
 compiler-selected declaration site, original UTF-8 witnesses, bounded plain-text
 hover and complete refusal of forged or stale documentation. At `e29b9547`,
 focused documentation, formatter and lint controls pass, including attachment
@@ -764,10 +764,8 @@ qualification.
 Accepted on 2026-11-03 as a design and planning change. The
 [first-release contract](../language/first-release.md) selects bounded
 synchronous software through one retained backend, explicit scalar/text and
-package semantics, and usable initialization/loan libraries. The
-[critique dispositions](critique.md#vela-interface-clarity) map the
-accepted recommendations to their owners. General grades, runtime multi-shot
-and shallow handlers, broad reflection, extra tool adapters, self-hosting and
+package semantics, and usable initialization/loan libraries. General grades,
+runtime multi-shot and shallow handlers, broad reflection, extra tool adapters, self-hosting and
 machine/hardware replacement require separately justified consumers.
 
 R-05-020/R-05-020a and their co-read prose distinguish checked interpretation
@@ -856,8 +854,9 @@ delivery stages closed:
    restoration claims rest on the untrusted Python solver, and the Gallina model
    defines multiplication, division, remainder, negation and shifts as identity
    functions of their first operand.
-   [Q25af and Q25ag](critique.md#vela-evidence-and-surface-review)
-   own honest emission and slice conformance.
+   [Kernel-honest emission](#q25af-make-vela-elaboration-evidence-kernel-honest)
+   and [slice conformance](#q25ag-conform-the-vela-first-slice-to-the-synchronous-design)
+   were tracked separately.
 3. **Capacity-invariance gate, semantic negative controls and target execution
    ([tools/toolchain/first_slice.py](../../tools/toolchain/first_slice.py)):**
    checking at static capacity $N = 8$ (`8usize`) and $N = 10^9$
@@ -978,7 +977,7 @@ qualifies Menhir `20260209`'s `--random-seed`, `--random-sentence-length`,
 SHA-256 `454b023dfdebe17bd760300da10dd5b97833a11597cc5f2287444d0ed428a9fc`)
 against the `file` entry of [`parser.mly`](../../tools/toolchain/parser/parser.mly)
 (`c249a367a6c7cadae2caf42d613afccb54173270ed453d97593c301c561373d2`) under the
-[output reading](../../THIRD-PARTY.md#vela-development-and-proof-reuse-candidates).
+[output reading](../../THIRD-PARTY.md#generated-development-tests).
 
 Freezing the `multi-declaration-precedence-trailing-comma-and-trivia-boundaries`
 interaction across seeds `20261108..20261171` (`64` sentences, `goal_length=36`,
@@ -1236,9 +1235,8 @@ native replay.
 
 #### Q25af · Make Vela elaboration evidence kernel-honest
 
-Accepted on 2026-11-07 under [R-05-020a](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-020a), the
-[evidence review](critique.md#vela-evidence-and-surface-review)
-and the [primitive contract](../language/first-release.md#primitive-semantics).
+Accepted on 2026-11-07 under [R-05-020a](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-020a) and the
+[primitive contract](../language/first-release.md#primitive-semantics).
 The mathematical elaborator ([tools/toolchain/elaborate.py](../../tools/toolchain/elaborate.py),
 [elaborate_declarations.py](../../tools/toolchain/elaborate_declarations.py),
 [elaborate_types.py](../../tools/toolchain/elaborate_types.py) and
@@ -1326,8 +1324,7 @@ qualification.
 
 #### Q25ah · Resolve Vela surface collisions and redundant spellings
 
-Accepted on 2026-11-07 under the [evidence review](critique.md#vela-evidence-and-surface-review)
-and [surface grammar](../language/surface-grammar.md). Across the Menhir
+Accepted on 2026-11-07 under the [surface grammar](../language/surface-grammar.md). Across the Menhir
 grammar ([tools/toolchain/parser/parser.mly](../../tools/toolchain/parser/parser.mly)),
 lexer ([lexer.mll](../../tools/toolchain/parser/lexer.mll)), pure and mathematical
 elaborators, formatter and lints:
@@ -1360,7 +1357,7 @@ Landed: Tier A. Full grammar, parser, elaborator, formatter and fixture review.
 
 #### Q25ai · Publish the Vela language reference and separate extension research
 
-Accepted on 2026-11-07 under the [evidence review](critique.md#vela-evidence-and-surface-review).
+Accepted on 2026-11-07.
 [docs/language/reference.md](../language/reference.md) provides a
 single compact reference covering lexical structure, primitive types, bindings,
 callables, contracts, records/invariants, unions/patterns, interfaces, loans and
@@ -2275,11 +2272,18 @@ The retained estimate is 38 h (20–56), actual n/a for this parallel batch.
 
 #### Q25da · Rehearse one coordinated optional-portfolio refresh
 
-The [maintenance rehearsal](inspection-refresh.md) migrated the offline pure
-inspection reader, checked Boolean edit preview and Eglot action together.
+The 2026-11-22 rehearsal migrated the offline pure inspection reader, checked
+Boolean edit preview and Eglot action together from baseline `14e450e1` to
+candidate `c8fbe5b` on Linux ARM64 with CPython 3.14.4. The fixture used
+`public bool F(bool x) => x == false;` and an editor overlay with a Unicode
+comment and unsaved line.
 Inspection schema 7 and preview schema 2 bind the Python interpreter identity.
 The upgraded and rolled-back consumers each accepted their own records and
 refused the other generation. On the baseline, candidate, rollback and
 restoration runs, Eglot applied the edit to the unsaved document and refused
 its stale version. Rocq and `rocqchk` checked the original and edited Boolean
-function against both independently expected outputs in every run.
+function against both independently expected outputs in every run. Four
+acceptance runs used 79.440 seconds of command wall time. Agent wall time
+was 10 minutes 15 seconds, with zero observed human intervention.
+[Interpreter identity control](../../tools/tests/test_vela_inspection.py) ·
+[Mixed-interpreter editor control](../../tools/tests/test_vela_lsp_actions.py)

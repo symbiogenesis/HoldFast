@@ -84,5 +84,4 @@ To replay the original source proofs in Rocq and run the Sail capability
 controls, use `python tools/run.py vela-parser first-slice`. The
 [first-slice qualification](../language/first-release.md#first-slice-qualification)
 describes what each check establishes and the evidence still needed for the
-target executable. The progression through runnable cases follows the
-[Zero C# quiz tutorial](https://onurgumus.github.io/zero-csharp/tutorial/index.html).
+target executable.

@@ -1,43 +1,23 @@
 # Graded dependent foundation
 
-> Non-normative Q25a checking interfaces and schematic derivations. Start with the [primary Vela design and examples](../assurance/verification-strategy.md). [Q25](../../PLAN.md#q-assessment-actions) owns design gates; the [requirements register](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/requirements-register.md) remains authoritative. No implementation, checked metatheory, accepted axiom or qualified binary is supplied.
+> Design for graded dependent types beyond the
+> [first-release subset](../language/first-release.md#release-boundary).
 
 ## Scope and research boundary
 
-The [first supported release](../language/first-release.md#release-boundary) uses fixed
-unrestricted, affine, relevant-verdict and linear-obligation cases, stable
-dependent indices and explicit runtime/erased phases. Its ownership, restoration,
-trace and target-cost laws remain mandatory; arbitrary grade algebras do not
-replace them. This dossier specifies the separately gated extension to lawful
-computation/type-use domains. Its generic demand vectors, domain inference and
-multi-shot composition are not prerequisites for the first synchronous product.
-A named client must justify the extension against the fixed discipline under
-the [delivery plan](../../PLAN.md#vela-first-release-delivery) and the
-[selection protocol](#extension-selection-and-qualification) below.
+General domains extend the fixed ownership modes and runtime/erased phases of
+the [synchronous core](../language/core-design.md#judgments-and-interpretations).
+The [resource interface](#resource-and-computation-interface) supplies the common
+premises for [handlers](handlers-async.md) and [mutable cells](interior-mutability.md).
+The [composition contract](full-language-review.md) specifies combined cases.
 
-The [graded design](../assurance/verification-strategy.md#graded-dependent-foundation)
-separates computation/type dependence, lawful extensible grades and CIC
-interpretation, preserving the
-[synchronous resource interpretation](../language/core-design.md#judgments-and-interpretations).
-[Handlers](handlers-async.md) and [mutability](interior-mutability.md) consume the
-[resource interface](#resource-and-computation-interface) when their own increments
-are selected; [Q25d](full-language-review.md) records composition obligations.
+The judgments below construct evidence about the elaborated image. Substitution,
+structural rules, preservation and erasure are theorems over the selected
+CIC and resource interpretation. The frontend must connect the exact source to
+that image. [Frontend admission](full-language-review.md#frontend-admission)
 
-Every law in this dossier must be proved about the elaboration's image in an
-existing anchor, under [the untrusted-elaboration boundary](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-020a).
-The displayed judgments describe proposed syntax-directed evidence construction.
-They carry no independent source evaluation or admission authority. Substitution
-and structural-rule theorems relate the interpreted images of the original and
-transformed syntax, using the selected CIC/resource interpretation; preservation
-and erasure quantify over that interpretation's computation and observations.
-The source-correspondence relation must bind the actual parsed/resolved source,
-generated term and reconstructed evidence. Merely renaming a source calculus or
-kernel-checking an unrelated term establishes none of those laws. Their proofs
-and the required concrete resource instance remain outstanding.
-
-Sources: Moon, Eades and Orchard's [GrTT v2](https://arxiv.org/pdf/2010.13163v2) and Gerty ESOP 2021 prototype; Choudhury, Eades, Eisenberg and Weirich's [GraD v2](https://arxiv.org/html/2011.04070v2); Abel, Danielsson and Eriksson's [ICFP 2023 erasure development](https://research.chalmers.se/en/publication/537991), [extended 30 April 2026](https://arxiv.org/abs/2603.29716). The [strategy](../assurance/verification-strategy.md#reading-the-graded-type-claims) owns the wider comparison. No source/dependency is incorporated.
-
-GrTT supplies two use vectors and dependency bookkeeping. Its call-by-name, restricted normalization result is pen-and-paper; the external-solver prototype is unverified against it. Neither establishes Vela's effectful call-by-value calculus. GraD motivates usage-aware soundness and shows Boolean grade one need not mean unique use; its selected syntactic mechanization and heap result supply no CHERI ownership theorem. The machine-checked Agda erasure donor restricts modalities/contexts, including weak-pair erased elimination, and proves extraction value preservation for natural-number programs under a restricted modality class. It trusts Agda's checker, and its MIT repository covers several papers. Vela still owes CIC erasure/elimination and mutable-computation connections.
+The [graded research comparison](../assurance/verification-strategy.md#reading-the-graded-type-claims)
+describes the roles and limits of GrTT, GraD and the Agda erasure development.
 
 ## Extension selection and qualification
 
@@ -60,7 +40,7 @@ demand reconstruction, constraint search and certificate/kernel replay; record
 fresh and changed-input runs, unresolved goals and budget refusals. Keep the same
 behavior, preconditions and assurance endpoint across candidates, and account for
 setup and maintenance separately from recurring benefit. Run benchmarks and proof
-acceptance through the [hosted validation handoff](../../AGENTS.md#tool-execution-and-validation).
+acceptance through the [validation handoff](../../AGENTS.md#tool-execution-and-validation).
 Absent benefit, missing prerequisite laws or exhausted budgets retain the smaller
 qualified discipline; none permits weakening a client contract or treating
 unsupported syntax as a semantic rejection.
@@ -98,13 +78,9 @@ changed source/dependency/domain bindings, a well-typed but behaviorally wrong c
 bounded failure with no accepted partial result. Measure recurring client benefit
 and total evidence-checking cost before retention.
 
-The existing [frontend and soundness owners](full-language-review.md#existing-owners-and-where-each-decision-is-taken)
-own selected grading increments. Derived combinators reuse
-[`vela-meta`'s generation boundary](metaprogramming.md#qualification); bounded
-synthesis retains the same untrusted-producer and source-correspondence rules.
-Each selected producer needs its own priced checklist predicate before work;
-existing Q25 design credit and conditional estimates commission neither producer.
-All selected increments still owe the applicable [GF obligations](#q25d-debts-and-acceptance-boundary).
+Derived combinators use the [generation contract](metaprogramming.md#qualification).
+Selected synthesis uses the same checked evidence and source correspondence.
+[Extension plan](../../PLAN.md#language-extensions)
 
 ## Dimensions and lawful domains
 
@@ -307,7 +283,12 @@ Changing only `n` to erased while keeping the reader's runtime bound fails the p
 
 A pure callback over an immutable copied two-byte snapshot has a shared-call contract and no owned mutable capture. A total bounded client invokes it twice in declared order. The source trace law gives `CallCount(callback)=1+1=2`; a `NatExact` callable allowance of two supports the two value uses, while `Dup` handles its immutable environment. Allowance one fails `2=1`. A branch invoking it once must either return an indexed count or advertise a bound; silently keeping exact two fails its trace contract.
 
-The deferred Q25 composition fixture retains its packet/frame owner and unique service allowance outside the pure handler's capture delimiter while a child updates a scalar atomic accepted-byte counter. Its `AddOnce(request,n)` allowance is a protocol token in `Delta`; `n` is represented, the overflow bound is erased evidence, and the service handle exposes only its proved atomic operation. Two resumptions of the pure callback continuation cannot capture the child update that consumes this allowance. The AMO transition and cancellation commit behavior belong to Q25c and Q25b. Replacing the callback environment with a cell retaining the owner fails `Dup`; declaring the surface callback unchanged cannot hide that transitive capture. This fixture preserves a future interaction test; it is not the first software milestone or evidence that those extensions are needed.
+The [combined client](full-language-review.md#composed-client-and-inhabited-entry)
+keeps packet and frame owners and its linear `AddOnce(request,n)` allowance in
+`Delta` outside the handler delimiter. `n` is represented and its overflow
+bound is erased. Two resumptions of the pure callback cannot reuse a child
+update that consumes the allowance. A callback retaining an owner through a
+cell fails transitive `Dup` checking.
 
 The Boolean presence calculation `1+1=1` accepts two pure uses as presence. Attempting the same contraction on `AddOnce` still requires a spatial/protocol split that its unique transition cannot provide. This is the invalid authority neighbor even when grade constraints succeed. Dropping the child verdict or must-erase data similarly fails `Dispose`; use/erasure annotations cannot manufacture terminal completion or wiping.
 
@@ -329,21 +310,27 @@ Specialization fixes phase, convention, layout and erasure before emission. Repr
 
 `SourcePackage` binds source/generated inputs, domain implementations/laws, elaborated constraints, reconstructed proofs, implicits/transports, representation and exact core computation. Parsing, resolution, instance selection and desugaring need correspondence; old core proofs cannot accept changed source. Erasure preserves results, control, effects, resource behavior and requested observations under that representation, relating retained behavior across instances differing only in erased proofs. Type-checking an irrelevant term is insufficient.
 
-[R-05-132 through R-05-134](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-132) keep the source/TAL boundary: compile source obligations into the existing admitted attributes where their actual rules suffice, and carry the remaining proved obligations as CIC terms. General source domains, dependent normalization and grade-polymorphic dictionaries do not become TAL attributes. A requested new attribute would need that requirement's amendment demonstration and the TAL's own extension conditions. This dossier proposes none. Final-source correspondence, ABI, optimization, timing, linking and Sail evidence remain with the existing compiler/admission owners.
+Project source obligations into the admitted TAL attributes where their rules
+apply. Carry other obligations as kernel-checked CIC terms, including general
+grade domains and dependent normalization. Use the
+[compiler route](../assurance/compiler-route-contract.md) for source correspondence,
+ABI, linkage, optimization and target evidence.
+[TAL attribute requirements](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-132)
 
-## Q25d debts and acceptance boundary
+<a id="q25d-debts-and-acceptance-boundary"></a>
 
-These debt keys are neither Rocq constants, schedule cells nor assumptions. Q25d joins them with [Q21 packages](../language/core-design.md#proof-obligations-and-proposed-work-packages) and the [foundation map](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/hardware/cheri-foundation-map.md), recording owner and estimate boundaries in [pricing](full-language-review.md#reviewed-implementation-pricing). All theorem subjects below are elaborated images in the selected existing anchor. The [first-release plan](../../PLAN.md#vela-first-release-delivery) selects the fixed resource/phase/correspondence obligations it actually uses; it does not commission every generic-domain or control/mutation debt. The [extension allocations](../../PLAN.md#language-extensions) now price these conditional laws and their incremental concrete-foundation/target joins. Missing evidence still blocks entry; work beyond the [finite baseline](../../PLAN.md#planning-basis-and-scope) needs a new scope and estimate.
+## Proof and qualification obligations
 
-| Debt key | Required artifact and refusal predicate |
+Each obligation applies to the selected graded feature over its elaborated
+image. The [extension plan](../../PLAN.md#language-extensions) owns implementation.
+
+| Obligation | Required artifact and refusal predicate |
 | --- | --- |
-| `GF-domain` | Construct domain records, certificate interpreters and interpretation laws; reject Boolean-to-exact/ownership coercion and unsound order relaxation. Includes cross-domain compatibility rather than duplicating an event-count pilot. |
+| `GF-domain` | Construct domain records, certificate interpreters and cross-domain interpretation laws. Require reconstructable certificates. Reject Boolean-to-exact/ownership coercion and unsound order relaxation. |
 | `GF-substitution` | Mechanize telescope well-formedness, simultaneous substitution, both vector transformations, grade substitution and dependency-preserving structural rules as checked interpretation theorems relating the elaborated images. Reject a later declaration retaining an unsubstituted index; no independent source reduction supplies a theorem premise. |
 | `GF-elimination` | Prove dependent functions, pairs, boxes, indexed sums and admitted recursors preserve grades and well-formed motives. Construct positive asymmetric-field examples with their modality premises; refuse erased runtime discriminants. |
-| `GF-cbv` | Connect the selected demand interpretation to explicitly sequenced call-by-value images, captures and outcome-indexed exits in the anchor. Prove usage-aware resource preservation, including zero-demand effectful arguments and repeated pure values. Ordinary progress/preservation alone is insufficient. |
-| `GF-resource` | Instantiate spatial ownership, views, restoration and kinded authority on the selected logic/CHERI representation; construct inhabited packet entry states. Q2c retains concrete foundation ownership; these rules cannot assume its missing laws. |
-| `GF-control-mutation` | Compose Capture/Dup/Dispose/Suspend/Transfer/Share with Q25b/Q25c, including repeated continuations, hidden cell captures, snapshots, cancellation and fresh per-resumption resources. Preserve the synchronous slice as a conservative restriction. |
-| `GF-erasure-source` | Prove phase separation, representation-specific erasure and source/elaboration correspondence under checked CIC assumptions; qualify domain inference diagnostics and stale-source rejection. Reuse retained frontend/diagnostic duties once. |
+| `GF-cbv` | Connect the selected demand interpretation to explicitly sequenced call-by-value images, captures and outcome-indexed exits in the anchor. Prove that zero demand preserves evaluation, effects, failures and mandatory results, and repeated demand uses the once-evaluated value. |
+| `GF-resource` | Instantiate spatial ownership, views, restoration and kinded authority on the selected logic/CHERI representation; construct inhabited packet entry states. |
+| `GF-control-mutation` | Compose Capture/Dup/Dispose/Suspend/Transfer/Share with the handler and cell rules, including repeated continuations, hidden cell captures, snapshots, cancellation and fresh per-resumption resources. Prove the [conservative restriction](full-language-review.md#conservative-connection-to-the-synchronous-slice). Reject reused resources across resumptions. |
+| `GF-erasure-source` | Prove phase separation, representation-specific erasure and source/elaboration correspondence under CIC assumptions declared under R-05-164 and audited under R-05-163. Instances differing only in erased data must have related retained behavior. Qualify domain inference diagnostics and stale-source rejection. |
 | `GF-target` | Connect the selected source representation, event projections and obligations through the existing compiler route to actual TAL/Sail artifacts. No source count substitutes for final cost or arbitrary-context preservation. |
-
-Q25a design acceptance requires the explicit rules, derivations, rejecting neighbors and debts, closing none of the debts or unimplemented negatives and claiming no soundness, estimate reduction or register amendment. Q25d's independent combined-client review and integrated document gates remain required for design credit.

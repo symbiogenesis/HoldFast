@@ -3,17 +3,15 @@
 Vela distributes a [Tree-sitter grammar and highlighting query](../../tools/editor/tree-sitter/)
 and a [TextMate extension](../../tools/editor/textmate/). These supply local syntax
 coloring when a language server is unavailable, including incomplete source.
-The pinned independent consumers are Tree-sitter CLI `0.25.10` and the VS Code
-tokenization engine `vscode-textmate` `9.2.0` with `vscode-oniguruma` `2.0.1` on
-Node.js `22.22.1`. The executable consumer qualification currently targets Linux
-ARM64; these text assets carry no claim of qualification in every editor or host.
+The [pinned consumers](../../THIRD-PARTY.md#independent-syntax-consumers)
+are qualified on Linux ARM64.
 
 The [Menhir grammar and lexer](parser.md) own syntax. The
 [generator](../../tools/toolchain/highlight.py) translates Menhir productions,
 expands parameterized list rules and removes semantic actions. It emits explicit
 GLR conflicts for lexical contexts that Menhir's lexer classifies with lookahead.
 The TextMate keyword inventory and Tree-sitter query use the same compiler lexer.
-The original [external scanner](../../tools/editor/tree-sitter/src/scanner.c)
+The [external scanner](../../tools/editor/tree-sitter/src/scanner.c)
 handles nested block comments, arbitrary raw-string quote delimiters and bounded
 interpolation nesting. Generated upstream C parser/runtime files and consumer
 packages stay outside the tracked source tree.
@@ -59,9 +57,8 @@ report publication. Reports bind grammar/query bytes, both generator modules, th
 shared corpus and recovery inventory, compiler lexer/grammar and the canonical
 parser's own build receipt.
 
-The [qualifier](../../tools/toolchain/highlight_qualification.py) exercises all six
-authored examples and the complete versioned
-[surface corpus](../../tools/toolchain/surface.py): 76 positives and 320 negatives.
+The [qualifier](../../tools/toolchain/highlight_qualification.py) exercises the
+authored examples and the versioned [surface corpus](../../tools/toolchain/surface.py).
 It independently rechecks the canonical parser's expected results, then checks
 each projected Tree-sitter result against the frozen
 [recovery dispositions](../../tools/editor/recovery.json). The stock query engine
@@ -69,7 +66,7 @@ renders Unicode HTML whose decoded text must equal the exact source, and the
 stock TextMate engine tokenizes every projected shared-corpus source. Independent
 [fixtures](../../tools/editor/fixtures.json) additionally assert token scopes for
 nested comments, raw delimiters, escaped characters, dependent generic syntax,
-Unicode, nested interpolation braces and lifetime apostrophes. Eight edits compare
+Unicode, nested interpolation braces and lifetime apostrophes. Edit fixtures compare
 complete incremental and fresh Tree-sitter trees, including byte ranges, for
 valid changes, incomplete comments/generics/raw strings and repairs.
 
@@ -82,13 +79,13 @@ qualification; they cannot yield a successful syntax-assets report.
 ## Recovery and acceptance boundaries
 
 The editor parser approximates lexical lookahead and omits compiler semantic
-actions. Every canonical positive, including structural local and lambda
-annotations, parses without recovery. Thirty-six canonical syntax negatives retain an editor tree:
-reserved words in contextual identifier positions; declaration modifiers and
-constant/proof-signature restrictions; constructor-pattern spellings and complete
-binding shape; retired null spellings; bare type-shaped locals; raw-string layout;
-and empty interpolation expressions/specifiers. Their exact names and current
-dispositions are executable expectations, not compiler acceptances. Invalid
+actions. Canonical positive cases parse without recovery. Some refused source
+retains an editor tree, including
+reserved words in contextual identifier positions, declaration modifiers and
+constant or proof-signature restrictions, constructor-pattern spellings and
+binding shape, unsupported null spellings, bare typed locals, raw-string layout,
+and empty interpolation expressions or specifiers. The
+[recovery fixtures](../../tools/editor/recovery.json) define those dispositions. Invalid
 UTF-8 and compiler resource-limit cases retain their canonical refusals and are
 outside the projected editor envelope.
 

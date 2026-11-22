@@ -1,10 +1,14 @@
 # Deferred numerical workload candidates
 
-> Non-normative research disposition. The [first-release boundary](../language/first-release.md#release-boundary) and [primitive semantics](../language/first-release.md#primitive-semantics) own supported behavior. The [plan](../../PLAN.md#deferred-numerical-workload-selection) owns selection and commissioning. No numerical workload or floating-point extension is selected here.
+> Candidate outside the [first-release subset](../language/first-release.md#release-boundary).
+> [Selection criteria](../../PLAN.md#deferred-numerical-workload-selection)
 
-## e-means research disposition
+<a id="e-means-research-disposition"></a>
 
-Reviewed 2026-11-09 against Bessa et al., [e-means: outperforming k-means (in one-tenth the epochs), arXiv:2611.09501v1](https://arxiv.org/html/2611.09501v1). The [project site](https://e-means.github.io/) is a discovery link; the versioned paper is the evidence read here.
+## e-means
+
+Bessa et al. specify and evaluate the algorithm in their
+[e-means paper](https://arxiv.org/html/2611.09501v1).
 
 The method trains k-means clusters using mini-batch exponential moving averages
 of counts and sums, scheduled decay, dead-cluster revival and finalization.
@@ -15,19 +19,15 @@ training; they establish no Vela implementation, universal convergence or
 clustering-quality theorem, target timing bound, query-speed improvement or
 inference-throughput improvement.
 
-**Disposition: retain a future bounded numerical verification candidate.** An
-actual search-index or quantization-codebook consumer could exercise explicit
-storage, dimension and index invariants, finite iteration, mutable reductions
-and numerical refinement. VerifiedOS's [e-means assessment](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/performance/e-means-assessment.md#consumer-selection-and-acceptance)
-owns platform consumer selection and target evidence. Vela owns only the
-additional language interpretation, authoring and lowering work a selected client
-needs. Neither repository's research disposition commissions the other's work.
+A search-index or quantization-codebook client could exercise explicit storage,
+dimension and index invariants, finite iteration, mutable reductions and
+numerical refinement. Vela qualification covers the language and lowering the
+client needs. [VerifiedOS consumer and target assessment](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/performance/e-means-assessment.md#consumer-selection-and-acceptance)
 
 ## Selection and prerequisites
 
 The [first release](../language/first-release.md#primitive-semantics) excludes
-runtime floating point. Keep that boundary: mathematical vectors and parsed
-numeric syntax do not provide represented numerical libraries. A faithful
+runtime floating point. A faithful
 floating-point client needs a separately reviewed format and operation contract,
 constant/runtime agreement and target correspondence through the
 [required compiler route](../assurance/verification-strategy.md#compiler-route-decision). A fixed-point
@@ -38,10 +38,8 @@ Select a pilot only after a named application needs clustering, its input and
 output contract is independently frozen, and the needed represented arithmetic,
 sequence libraries and compiler joins are qualified. Compare the supported
 subset and existing qualified implementation before adding language machinery.
-Price the bounded pilot and any missing numerical semantics separately in
-[PLAN.md](../../PLAN.md#deferred-numerical-workload-selection) before implementation.
-Missing prerequisites leave the candidate deferred and preserve the supported
-release's delivery order and independent-client selection.
+The [selection plan](../../PLAN.md#deferred-numerical-workload-selection) owns
+the pilot budget and prerequisites.
 
 ## Bounded pilot acceptance
 

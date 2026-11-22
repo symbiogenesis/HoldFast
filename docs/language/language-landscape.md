@@ -1,50 +1,75 @@
-# Language landscape behind Vela's handler, async and surface decisions
+# Handler, async and surface design comparisons
 
-This background note keeps the dated comparisons with other languages, runtimes
-and papers that informed decisions in the
-[primary Vela design](../assurance/verification-strategy.md). Each section
-names the decision it supported; the design and its contracts own that decision.
-Statements about a language or runtime describe the cited release, preview,
-roadmap or paper revision, and none of them is verified or bounded unless the
-section says so.
+These comparisons identify technical approaches relevant to the
+[handler and async design](../extensions/handlers-async.md) and the
+[Vela surface grammar](surface-grammar.md). Each claim concerns its cited
+proposal, implementation or paper.
 
 ## Effect-handler disposal routes
 
-Supports the [explicit disposal obligation](../assurance/verification-strategy.md#general-handlers-with-resource-safe-resumptions)
-for discarded continuations.
+OCaml's `discontinue` resumes at the effect site by raising an exception.
+An abandoned continuation can retain its captured resources.
+[OCaml effect handlers](https://ocaml.org/manual/5.4/effects.html)
 
-**The shipped and the dynamic disposal routes each fail a premise of that obligation.** OCaml 5's [effect handlers](https://ocaml.org/manual/5.4/effects.html) leave effect safety unchecked and require that "every continuation must be eventually either continued or discontinued", detecting a second resumption only at run time and leaving an abandoned continuation holding whatever it captured; the disposal primitive, `discontinue`, resumes the continuation by raising an exception at its `perform` site, which is the unwinding the [handler realization](../assurance/verification-strategy.md#general-handlers-with-resource-safe-resumptions) excludes. [Dynamic Wind for Effect Handlers](https://pl.cs.uni-tuebingen.de/publications/voigt2025dynamic.pdf), OOPSLA 2025, instead runs a suspend clause that releases external resources at every capture and a resume clause that reacquires them, so a continuation that is never resumed holds nothing when its clauses follow the paper's usage guideline, which the authors state is "not statically checked"; its soundness theorems, and a resource-safety theorem over an abstract machine instrumented to close each resource by construction, are proved on paper, and it is implemented only in Effekt's JavaScript backend, over that runtime's stack unwinding. Release on capture cannot close a device-held loan or an in-flight DMA reference at a suspension and reopen it at resumption, so it does not replace the explicit disposal obligation. The same paper reports that Effekt's tail-resumption optimization is not necessarily semantics-preserving once finalization clauses exist, a published instance of the optimization-preservation case the one-shot qualification names.
+Dynamic Wind pairs a suspend clause that releases resources on capture with a
+resume clause that reacquires them. Its resource-safety argument concerns a
+paper machine instrumented to close resources. That strategy requires
+resources that can be released and reacquired, which excludes a loan still
+held by a device or in-flight DMA. Vela's handler design requires explicit
+[disposal on every relevant exit](../extensions/handlers-async.md#handler-lookup-capture-and-return).
+[Dynamic Wind for Effect Handlers](https://pl.cs.uni-tuebingen.de/publications/voigt2025dynamic.pdf)
 
 ## Handler scoping and continuation copying
 
-Supports [lexically scoped handler capabilities](../extensions/handlers-async.md#handler-lookup-capture-and-return)
-and the deferred cloning extension's delimiter-relative frame references.
-
-Selecting the nearest enclosing handler whose table contains the operation is the dynamically scoped rule under which, as [Virtualizing Continuations](https://cs.uwaterloo.ca/~yizhou/papers/multilexa-pldi2026.pdf), PLDI 2026, summarizes [Zhang and Myers](https://doi.org/10.1145/3290318), a dynamically enclosing handler can accidentally intercept an effect, threatening abstraction safety and modular reasoning. Vela's handler dossier instead performs each operation through a handler capability naming one instance, as in Effekt and Lexa, where a handler can be reached only by code passed it as a capability; Lexa and Effekt's LLVM backend identify each instance by its stack address for constant-time lookup, as preassigned frame slots do in Vela. That identity is what copying breaks: the same paper shows that duplicating a continuation invalidates references to the handlers installed in it, which Effekt answers by routing handler references through a global pointer to the active copy and aborting reentrant resumptions, and the paper by a runtime software memory-management unit translating virtual handler addresses, with a pen-and-paper simulation proof against the standard semantics. Vela's deferred cloning extension has no such translation layer, which is why its candidate representation stores frame references relative to the delimiter's frame. The choice costs proof reuse: Affect's calculus, built on Hazel's language, selects handlers dynamically, and the lexically scoped calculi with checked results that the dossier lists prove type safety, parametricity or soundness rather than Affect's separation of one-shot from multi-shot continuations over retained resources.
+Nearest-handler lookup can intercept an operation in an unrelated dynamically
+enclosing handler. Effekt and Lexa instead use lexically scoped capabilities.
+Cloning a continuation must also rebind references into its copied frames.
+Virtualizing Continuations addresses that with virtual handler addresses.
+Vela's [candidate handler representation](../extensions/handlers-async.md#handler-lookup-capture-and-return)
+uses delimiter-relative frame references.
+[Virtualizing Continuations](https://cs.uwaterloo.ca/~yizhou/papers/multilexa-pldi2026.pdf)
 
 ## Automatic resource analysis for handlers
 
-Supports treating an inferred handler bound as a proposal for Rocq to prove over
-the one-shot fragment.
-
-[Handling Exceptions and Effects with Automatic Resource Analysis](https://arxiv.org/abs/2603.02260), OOPSLA 2026, which describes itself as the first automatic bound analysis supporting handlers, extends the potential-based inference behind [RaML](../assurance/verification-strategy.md#research-that-changes-the-experiments) with a handler contract stating the potential each operation must carry. It charges each lookup as a constant only because every handler must explicitly forward the operations it does not handle and continuations are typed linearly, leaving multi-shot resumption as future work, whereas the handler dossier gets constant-time lookup from handler capabilities rather than from mandatory explicit forwarding; its soundness against a stack-based abstract machine is proved on paper, and its RaML+ implementation over Standard ML is an artifact deposit. A bound it infers is a proposal for Rocq to prove over the one-shot fragment, and it reaches none of the bounds the multiple-resumption case needs.
+RaML+ annotates operations with potential, uses explicit forwarding and
+analyzes linearly typed continuations. Vela can treat an inferred bound for its
+one-shot fragment as a candidate for kernel checking. Multi-shot bounds require
+separate composition laws. [Handling Exceptions and Effects with Automatic Resource Analysis](https://arxiv.org/abs/2603.02260)
 
 ## Async and await design space
 
-Supports the dimensions of the [structured async contract](../assurance/verification-strategy.md#structured-async-and-cancellation).
-
-[A Design Space Exploration of Async/Await](https://arxiv.org/html/2608.20677v1), Gray, Krishnamurthi and Crichton, OOPSLA 2026, read as its August 2026 arXiv version, separates async semantics along eagerness, suspension, extent, reference strength, destruction, propagation, cancellation awareness, direction and persistence, comparing JavaScript, C#, Swift's structured-concurrency subset, Python under asyncio and Trio, and Rust under Tokio and Smol. It supplies a design vocabulary and comparative semantics, not a recommended combination or a bounded CHERI runtime. That semantics is an executable Redex model which a fuzzer checks against the real runtimes by compiling random programs into each language and comparing outputs; the paper states no theorem, so its agreement with those runtimes is tested rather than proved.
+Gray, Krishnamurthi and Crichton compare async systems by eagerness, suspension,
+extent, reference strength, destruction, propagation and cancellation behavior.
+They test a Redex model against language runtimes with generated programs. Vela's
+[structured async design](../extensions/handlers-async.md#frames-child-ownership-and-reaction-execution)
+uses these dimensions to state its own lifecycle and resource rules.
+[A Design Space Exploration of Async/Await](https://arxiv.org/html/2608.20677v1)
 
 ## Structured-concurrency runtimes
 
-Supports the async contract's static extent, bounded checkpoint interval,
-mandatory accounting of ready results and pre-assigned frame storage.
+| System | Relevant behavior in the cited design |
+| --- | --- |
+| Java | Closing a structured scope waits for subtasks. An unresponsive interrupt can delay closing indefinitely. [JEP 533](https://openjdk.org/jeps/533) |
+| Python | `TaskGroup` cancels siblings on failure, waits for them and aggregates non-cancellation exceptions, with special handling for `KeyboardInterrupt` and `SystemExit`. [`asyncio.TaskGroup`](https://docs.python.org/3/library/asyncio-task.html) |
+| Swift | A cancellation shield delays observation of cancellation within a lexical block. An awaited `defer` runs before leaving its scope. [Cancellation shields](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0504-task-cancellation-shields.md) · [Awaited `defer`](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0493-defer-async.md) |
+| Kotlin | Prompt cancellation can supersede a ready result. A resource in that result needs an explicit cancellation handler. [Prompt cancellation](https://kotlinlang.org/api/kotlinx.coroutines/kotlinx-coroutines-core/kotlinx.coroutines/suspend-cancellable-coroutine.html) |
+| C++ | Execution distinguishes stopped, value and error completions. An unjoined used `simple_counting_scope` terminates on destruction. [Scope specification](https://eel.is/c++draft/exec.scope) · [Spawn proposal](https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2025/p3149r11.html) |
+| Rust | The async roadmap describes immovable types and guaranteed destructors as prerequisites for scoped spawn and async drop. [Move-trait project goal](https://goals.rust-lang.org/2026/move-trait.html) |
 
-**Structured runtimes shipped in 2026 approach the extent and destruction rows by different means and still differ on propagation, readiness and masking.** Java's [JEP 533](https://openjdk.org/jeps/533), structured concurrency's seventh preview in JDK 27 of 15 September 2026, makes `close` always wait for subtask threads to finish "even if the scope is cancelled", which is the destruction row; its cancellation is thread interruption, so "subtasks that do not respond to interrupts ... may delay the closing of a scope indefinitely", the unbounded interval Vela's [checkpoint bound](../assurance/verification-strategy.md#structured-async-and-cancellation) exists to exclude, and under its default and `allSuccessfulOrThrow` policies `join` reports "the exception from one of the failed subtasks", so retaining every outcome takes `allUntil` or a custom `Joiner`. Python's [`asyncio.TaskGroup`](https://docs.python.org/3/library/asyncio-task.html) cancels the remaining tasks at the first failure, waits for all of them and combines every failure other than cancellation in an `ExceptionGroup` or `BaseExceptionGroup`, except that a `KeyboardInterrupt` or `SystemExit` is re-raised alone, the shipped rule nearest the propagation row. [Swift 6.4](https://www.swift.org/blog/swift-6.4-released/), released on 15 September 2026, adds [cancellation shields](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0504-task-cancellation-shields.md), under which a cancellation that "is final and cannot be undone" goes unobserved inside a lexical block whose new child tasks start uncancelled, and [awaited `defer` bodies](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0493-defer-async.md) that run to completion before the scope exits; that is the persistence row's shape without its bound. Kotlin's [prompt cancellation guarantee](https://kotlinlang.org/api/kotlinx.coroutines/kotlinx-coroutines-core/kotlinx.coroutines/suspend-cancellable-coroutine.html) takes the suspension row's priority for cancellation but leaves its accounting opt-in: a coroutine cancelled while suspended does not resume successfully even after its value was supplied, so a closeable resource returned as that value "can be lost" unless the resumer passes an `onCancellation` block to `resume`; [the dossier's ready-await rule](../extensions/handlers-async.md#cancellation-commit-and-all-exits) makes that accounting mandatory by carrying an already-produced result onto the cleanup edge. C++26's `std::execution` keeps a stopped completion, [`set_stopped`](https://en.cppreference.com/w/cpp/execution.html), beside the value and error completions, as Vela's `cancelled` terminal result stays distinct from failure, and requires a started operation state's address to stay stable until the operation completes. Destroying a [`simple_counting_scope`](https://eel.is/c++draft/exec.scope) that has been used and not joined invokes `terminate`, which enforces the extent row at run time where Vela proposes a static rule, and [`spawn` allocates](https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2025/p3149r11.html) the operation state through the environment's allocator, an allocation that [the static memory plan](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-08-010) replaces with the read of a pre-assigned frame slot. Rust's [2026 async roadmap](https://goals.rust-lang.org/2026/roadmap-just-add-async.html) records that resources needing asynchronous cleanup "can't clean up properly in `Drop`" and lists immobile types and guaranteed destructors, which "enables scoped spawn and async drop by letting types opt out of being moved or forgotten", as an accepted [2026–2027 project goal](https://goals.rust-lang.org/2026/move-trait.html), not a shipped feature; those are the immovable frames and scope-owned tasks Vela's reference-strength and extent rows already assume. Each of these is documented behavior of a released or preview runtime, or for Rust a roadmap goal, and none is verified or bounded.
+Vela's [cancellation contract](../extensions/handlers-async.md#cancellation-commit-and-all-exits)
+requires accounting for ready results and bounded cancellation. The
+[frame rules](../extensions/handlers-async.md#frames-child-ownership-and-reaction-execution)
+assign static storage and track each child's exit resources.
 
 ## C# unions and Swift spans
 
-Supports the [surface conventions](../assurance/verification-strategy.md#surface-conventions)
-for `union`, the `in`/`ref` view split and place-named loans.
+C#'s proposed type union `union Pet(Cat, Dog, Bird)` wraps existing case types
+and boxes value-type cases. Vela uses [nominal tagged unions](reference.md#declarations)
+with explicit cases and exhaustive matching.
+[C# union proposal](https://devblogs.microsoft.com/dotnet/csharp-15-union-types/)
 
-C# 15, in preview with .NET 11 for a November 2026 release, makes `union` a [type union over existing case types](https://devblogs.microsoft.com/dotnet/csharp-15-union-types/), `union Pet(Cat, Dog, Bird)`, whose generated struct holds the value as one `object?` and so boxes value-type cases, and its other exhaustive sum, the [`closed` class hierarchy](https://devblogs.microsoft.com/dotnet/explore-csharp-15), is reference-typed. Neither representation fits the allocation-free subset, so what carries over is exhaustive matching without a default branch. The loan split has a shipped precedent. [Swift 6.2](https://www.swift.org/blog/swift-6.2-released/), released in September 2025, divides views the way `in` and `ref` do: [`MutableSpan`](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0467-MutableSpan.md) is noncopyable because "exclusive access cannot be modeled with a copyable type", while `Span` stays copyable for shared reads, and both are non-escaping. Swift writes lifetime dependence against the source parameter, in a spelling the proposal itself calls a placeholder, and Rust's roadmap plans [lifetimes named by the borrowed place](../assurance/verification-strategy.md#research-that-changes-the-experiments). Vela's `'input` takes that shape.
+Swift's `Span` is a copyable shared view and `MutableSpan` is a noncopyable
+exclusive view. Both depend on the lifetime of their source. Vela's
+[loan rules](reference.md#loans-and-parameter-modes) similarly distinguish
+shared and exclusive views, and name the borrowed place in the lifetime.
+[Swift `MutableSpan`](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0467-MutableSpan.md)

@@ -1,6 +1,7 @@
 # Assurance presets and evidence policy
 
-> Non-normative Q25 policy proposal; no preset, report, frontend or diagnostic here is implemented. Start with the [primary Vela design and examples](../assurance/verification-strategy.md). [Q25](../../PLAN.md#q-assessment-actions) owns design gates, Q25d prices implementation, and the [requirements register](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/requirements-register.md) governs admission.
+> Proposal for selecting and composing verification obligations beyond the
+> [first-release subset](../language/first-release.md#release-boundary).
 
 ## Scope and the governing rule
 
@@ -238,7 +239,9 @@ Complete refuses missing specifications/evidence for mandatory dimensions; it ne
 
 ## Qualification protocol
 
-The [first-release delivery plan](../../PLAN.md#vela-first-release-delivery) orders foundation, complete software path and independent-client qualification. The [pricing table](full-language-review.md#reviewed-implementation-pricing) retains conditional wider-language estimates; the [frontend disposition](full-language-review.md#r-05-009-r-05-020-and-what-holds-the-frontend-rows) owns interpretation and concrete-law prerequisites. Complete-release and maintenance work stays with cited production owners. This dossier supplies acceptance criteria without commissioning an implementation.
+The [extension plan](../../PLAN.md#language-extensions) owns selection and
+implementation. [Frontend admission](full-language-review.md#frontend-admission)
+specifies checked interpretation and concrete-law requirements.
 
 | Stage | Exercise | Acceptance |
 | --- | --- | --- |
@@ -260,8 +263,8 @@ reject external assumptions lacking permitted provenance.
 
 Acceptance requires sound assurance boundaries and useful ordinary clients under composition/change, without a predetermined automatic-proof percentage.
 
-## What this dossier does not establish
+<a id="what-this-dossier-does-not-establish"></a>
 
-This proposal claims no usability, build-time, annotation-burden or search-scalability measurement; automatic proof of arbitrary programs; optimal compilation; proof-free unsafe primitives; or recovery of requirements from source. It amends no requirement or admission rule; changes must satisfy their normative owner's predicate.
+## Design references
 
-SPARK's [usage scenarios](https://docs.adacore.com/spark2014-docs/html/ug/en/usage_scenarios.html), [Dafny's contracts and ghost material](https://dafny.org/dafny/DafnyRef/DafnyRef) and [Verus's trust accounting](https://verus-lang.github.io/verus/guide/tcb.html) supply adoption patterns and vocabulary, with wider assessment in the [research landscape](../assurance/verification-strategy.md#research-landscape) and source/licence readings in the [proof inventory](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/assurance/proof-reuse.md). Their conclusions transfer only to the checked artifact when its premises match; performance experiments neither establish nor invalidate those logical results. No upstream is incorporated; incorporation requires the selected artifact's [licence reading](../../THIRD-PARTY.md).
+SPARK's [usage scenarios](https://docs.adacore.com/spark2014-docs/html/ug/en/usage_scenarios.html), [Dafny's contracts and ghost material](https://dafny.org/dafny/DafnyRef/DafnyRef) and [Verus's trust accounting](https://verus-lang.github.io/verus/guide/tcb.html) supply adoption patterns and vocabulary, with wider assessment in the [research landscape](../assurance/verification-strategy.md#research-landscape) and source/licence readings in the [proof inventory](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/assurance/proof-reuse.md).

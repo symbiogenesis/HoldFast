@@ -1,122 +1,48 @@
 # VelaLang
 
-**Vela** is a programming language for writing low-level systems code and mathematical proofs in the same file. Its prototypes translate supported programs into Gallina for the [Rocq Prover](https://rocq-prover.org/). The first executable systems example also emits C for the [VerifiedOS](https://github.com/symbiogenesis/VerifiedOS) compiler route.
+**Vela** is a programming language for writing low-level systems code and
+mathematical proofs in the same file. Calls expose ownership transfer and
+read, write, and initialization loans with `move`, `in`, `ref`, and `out`.
+Functions state preconditions and postconditions with `requires` and
+`ensures`. Named invariants can be opened for an update and must hold again
+when the block exits.
 
-> **Try Vela in your browser:** Open the **[Vela Interactive Playground & Language Tour](https://symbiogenesis.github.io/VelaLang/)** to run examples, evaluate expressions, and inspect generated Rocq/Gallina code with zero setup.
+Try the [interactive playground](https://symbiogenesis.github.io/VelaLang/) or
+browse the [authored examples](examples/). The
+[language reference](docs/language/reference.md) describes the surface syntax and
+marks the boundaries between the development tools and the language design.
 
-## Why Vela?
+## Development tools
 
-Usually, building verified systems software means writing your fast, low-level code in one language and rewriting a model of it in a separate theorem prover. When a proof breaks, hidden compiler magic—like implicit copies, silent type conversions, or invisible borrows—makes it hard to see why.
-
-Vela brings the code and the proof together on one explicit surface:
-
-- **Calls show who can read, write and move.** Write `in`, `ref`, `out` or `move` on ordinary arguments to borrow for reading, borrow for writing, initialize an output or transfer ownership. In `buffer.Method(x)`, the method declaration determines the loan of `buffer`. That loan begins before Vela evaluates `x`.
-- **Code and proofs live side by side.** Functions can state what they expect (`requires`) and what they guarantee (`ensures`). Right next to them, you can write `definition` helpers and `lemma` or `theorem` blocks that the toolchain translates into Gallina for independent checking by the Rocq kernel (`rocq c` and `rocqchk`).
-- **Invariants you can temporarily open and restore.** Data types can declare named rules—such as `invariant Ordered: Low <= High`. When a method needs to update several fields at once, `open (ref this) lifts Ordered { ... }` pauses just that rule for the block and checks that it holds again at the end, leaving every other rule intact.
-- **Predictable control flow and memory.** Vela has no exceptions, no stack unwinding, and no garbage collector. Errors are returned as ordinary `Option<T>` or `Result<T, E>` values (with `?` for clean early returns), loops carry explicit bounds or `decreases` measures, and text formatting writes into fixed-capacity `TextBuilder<cap>` buffers.
-- **Parsing is independent of imports.** The Menhir grammar recognizes the surface syntax before name resolution. The pure tools and browser support smaller subsets, and the playground identifies which checks ran for each example.
-
-## A quick look at Vela
-
-Here is a small Vela module from the [authored examples](examples/dependent.vela). It defines a range window that must stay ordered, a method that temporarily lifts that rule while updating both bounds, an `out`-parameter initializer, and a small proof:
-
-```dafny
-module Demo.Window;
-
-public record RangeWindow(u32 Low, u32 High)
-    invariant Ordered: Low <= High
-{
-    public definition u32 SpanWidth() => High - Low;
-}
-
-public RangeWindow RebalanceWindow()
-    ensures result.Low == 4 && result.High == 9
-{
-    var window = RangeWindow(2, 5);
-    open (ref window) lifts Ordered
-    {
-        window.Low = 4;
-        window.High = 9;
-    }
-    return window;
-}
-
-public Unit InitBounds(u32 baseVal, out u32 low, out u32 high)
-    requires baseVal <= 100
-    ensures low == baseVal + 1
-    ensures high == baseVal + 2
-{
-    low = baseVal + 1;
-    high = low + 1;
-    return;
-}
-
-public lemma TransitiveStep(Nat a, Nat b, Nat c)
-    requires a == b
-    requires b == c
-    ensures a == c
-    proof
-    {
-        calc
-        {
-            assert a == b;
-            assert b == c;
-        }
-        assert a == c;
-    }
-```
-
-## What works today
-
-Vela is under active development. The repository is split into working development prototypes and the staged plan for the first production release:
-
-| Area | Current status | Where to look |
-| --- | --- | --- |
-| **Pure compiler & IDE tools** | Runs on Windows and Linux. Typechecks pure `Nat` and `bool` modules through the Rocq-extracted `vela-checked-parser`, formats source code, runs style lints (`VELA100`–`VELA105`), emits Gallina, and serves IDE features over stdio (`vela-lsp`). | [docs/tooling/pure-prototype.md](docs/tooling/pure-prototype.md), [docs/tooling/lsp-prototype.md](docs/tooling/lsp-prototype.md) |
-| **Surface parser & math elaborator** | Runs on Linux / WSL. Parses the wider Vela grammar with Menhir and elaborates generics, length-checked vectors (`Vec<T, length>`, `Fin<length>`), fixed-width integers, records with lifted invariants, `out` loans, interfaces, bounded loops, and proofs into Gallina for Rocq kernel replay. | [docs/tooling/parser.md](docs/tooling/parser.md), [docs/tooling/elaboration-prototype.md](docs/tooling/elaboration-prototype.md) |
-| **Interactive playground** | Runs in the browser on [GitHub Pages](https://symbiogenesis.github.io/VelaLang/) or locally via `vela-playground`. Includes a Monaco editor, live diagnostics, a compile-time expression evaluator, Gallina output preview, and guided examples. | [docs/tooling/playground.md](docs/tooling/playground.md), [docs/index.html](docs/index.html) |
-| **First-release delivery** | In progress. Tracks the remaining work for standard libraries, checked source correspondence, and the machine-level compiler route ([examples/first_slice.vela](examples/first_slice.vela)). | [PLAN.md](PLAN.md), [docs/language/first-release.md](docs/language/first-release.md) |
+- The [pure compiler](docs/tooling/pure-prototype.md) checks `Nat` and `bool`
+  programs through a Rocq-extracted parser and emits Gallina. The
+  [language server](docs/tooling/lsp-prototype.md) provides editor feedback
+  for that subset.
+- The [Menhir parser](docs/tooling/parser.md) recognizes a wider surface. The
+  [mathematical elaborator](docs/tooling/elaboration-prototype.md) checks
+  supported constructs and emits Gallina for replay by
+  [Rocq](https://rocq-prover.org/).
+- The [packet validator walkthrough](docs/tooling/packet-walkthrough.md)
+  runs the lowered C for valid and invalid packets and inspects the resulting
+  buffer and returned view. The [first-slice contract](docs/language/first-release.md#first-slice-qualification)
+  defines the evidence required for the production artifact.
 
 <a id="commands"></a>
 
 ## Quick start
 
-Follow the [packet validator walkthrough](docs/tooling/packet-walkthrough.md)
-to run three packets and see which destination bytes each outcome preserves.
+Run `python tools/run.py` on Windows or `python3 tools/run.py` on Linux
+with the [required Python version](tools/pyproject.toml). The runner dispatches
+guest-only commands to WSL on Windows.
 
-Every tool and test in this repository runs through `python tools/run.py` (using Python 3.14; on Linux or inside WSL, use `python3 tools/run.py`). When you run a Linux-only command like `vela-parser` or `vela-playground` on Windows, `tools/run.py` automatically forwards it into WSL.
+```text
+python tools/run.py vela --help
+python tools/run.py vela-playground
+python tools/run.py validate
+```
 
-| Command | What it does |
-| --- | --- |
-| `python tools/run.py validate` | Run the static gate and behavioral suite sequentially; `--full` adds native development qualification |
-| `python tools/run.py test` | Run the behavioral test suite (also the default when no command is given) |
-| `python tools/run.py gate` | Run all static checks (`check`, `markdown`, and `typecheck`) in one pass |
-| `python tools/run.py vela --help` | Check, format, lint, or emit Gallina for pure Vela files |
-| `python tools/run.py vela-lsp --help` | Start the pure Vela Language Server over stdio |
-| `python tools/run.py vela-playground` | Launch the local browser playground with dependent math support (`[wsl]`) |
-| `python tools/run.py vela-parser --help` | Build the Menhir parser, elaborate dependent Vela, and run Rocq replay (`[wsl]`) |
+See the [tool guide](tools/README.md) for commands and validation profiles.
 
-See [tools/README.md](tools/README.md) for the full command list and toolchain policies.
-
-## Repository map
-
-| Path | What you will find there |
-| --- | --- |
-| [PLAN.md](PLAN.md) | Project backlog (`Q25` series), first-release delivery stages, and current execution state |
-| [docs/README.md](docs/README.md) | Master index of all language specifications, tooling contracts, and extension dossiers |
-| [docs/index.html](docs/index.html) | GitHub Pages language overview, interactive tour, compact reference, and browser playground |
-| [docs/language/reference.md](docs/language/reference.md) | Compact language reference with syntax, examples, operator precedence, and status markers |
-| [docs/language/first-release.md](docs/language/first-release.md) | Scope and semantic rules for the first supported synchronous Vela release |
-| [docs/language/core-design.md](docs/language/core-design.md) | Core calculus, explicit loan and ownership rules, refinements, and proof obligations |
-| [docs/language/surface-grammar.md](docs/language/surface-grammar.md) | Concrete syntax, formatting layout, pattern rules, and compile-time constants |
-| [docs/tooling/elaboration-prototype.md](docs/tooling/elaboration-prototype.md) | How generic dependent math and first-class proofs translate to Rocq/Gallina |
-| [docs/tooling/parser.md](docs/tooling/parser.md) | Menhir grammar, AST schemas, and checked-parser migration contract |
-| [docs/tooling/lsp-prototype.md](docs/tooling/lsp-prototype.md) | Language Server Protocol diagnostics, navigation, type hints, and formatting |
-| [docs/tooling/playground.md](docs/tooling/playground.md) | Browser playground architecture, expression console, and security boundary |
-| [docs/assurance/verification-strategy.md](docs/assurance/verification-strategy.md) | Verification strategy, kernel-checking boundaries, and tool qualification rules |
-| [docs/extensions/](docs/extensions/README.md) | Post-first-release designs: graded types, effect handlers/async, interior mutability, metaprogramming, and whole-system authoring |
-| [examples/](examples/) | Working `.vela` examples ([pure.vela](examples/pure.vela), [constants.vela](examples/constants.vela), [expressions.vela](examples/expressions.vela), [surface.vela](examples/surface.vela), [dependent.vela](examples/dependent.vela), [first_slice.vela](examples/first_slice.vela)) |
-| [tools/toolchain/](tools/toolchain/) | Compiler, dependent elaborator, loan analysis, formatter, linter, LSP server, Menhir parser ([parser/](tools/toolchain/parser/)), and playground server ([playground.py](tools/toolchain/playground.py)) |
-| [tools/tests/](tools/tests/) | Behavioral test suite (`test_vela*.py`) |
-| [COPYRIGHT.md](COPYRIGHT.md) | Licensing overview (`Apache-2.0` for code and examples, `CC-BY-4.0` for documentation) |
-| [THIRD-PARTY.md](THIRD-PARTY.md) | Third-party tool pins, browser editor assets, and upstream license records |
+The [documentation index](docs/README.md) links the language, tooling, and
+assurance contracts. The [first-release contract](docs/language/first-release.md)
+defines the supported endpoint, and [PLAN.md](PLAN.md) tracks progress toward it.

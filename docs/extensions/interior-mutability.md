@@ -1,20 +1,30 @@
 # Interior mutability and interference contract
 
-> Non-normative Q25c extension contract. Start with the [primary Vela design and examples](../assurance/verification-strategy.md) and [first-release boundary](../language/first-release.md#release-boundary). The [requirements register](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/requirements-register.md) governs these proposed cell interfaces and qualification cases; the [delivery plan](../../PLAN.md#vela-first-release-delivery) owns commissioning. These rules/predicates supply no implemented library, proved calculus, admitted executable or accepted axiom.
+> Design for local cells, checked dynamic borrows and concurrent protocols
+> beyond the [first-release subset](../language/first-release.md#release-boundary).
 
 ## Scope and shared interface
 
-The first supported release uses ordinary ownership, explicit loans and the [initialization and collection libraries](../language/first-release.md#ownership-libraries). Local cells, checked dynamic borrowing and concurrent protocols are later library extensions, each requiring a concrete consumer and its own representation and operation proofs. They are not prerequisites for the first synchronous component or first async service. The [mutability guardrails](../assurance/verification-strategy.md#interior-mutability-guardrails) constrain any such extension: each sealed state-transition interface grants only its declared operation rights; handle representation or grade alone authorizes no representation access. Preserve explicit snapshots and transitive capture accounting in the core without commissioning all cell mechanisms.
+Each selected cell, dynamic borrow or concurrent protocol needs a concrete
+consumer and checked representation and operation laws. Sealed interfaces grant
+only their declared operation rights. The [synchronous library contract](../language/first-release.md#ownership-libraries)
+specifies ordinary ownership and loans.
 
-Use Q25a's [resource/computation interface](graded-foundation.md#resource-and-computation-interface): stable `Gamma`, separate computation/type use and dependency rows, and `Delta` for owners, loans and protocols. Outcome-indexed transitions retain captures, effects, event counts, representation and exit duties. This specializes the [synchronous core](../language/core-design.md#judgments-and-interpretations), without a second resource interpretation.
+Use the [resource and computation interface](graded-foundation.md#resource-and-computation-interface): stable `Gamma`, separate computation/type use and dependency rows, and `Delta` for owners, loans and protocols. Outcome-indexed transitions retain captures, effects, event counts, representation and exit duties. This specializes the [synchronous core](../language/core-design.md#judgments-and-interpretations), without a second resource interpretation.
 
 `Capture`, `Dup`, `Dispose`, `Suspend`, `Transfer` and `Share` need semantic evidence. A grade counts invocations only through its trace interpretation; it creates neither ownership, access authority nor release. `Own(r,shape,snapshot)` belongs in `Delta`; stable identity `r` and historical snapshots may index `Gamma`, never unsynchronized current contents.
 
-The retained concurrent qualification candidate uses private packets/tasks and a shared scalar counter within the [atomic profile](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-15-026) and [exclusive-access constraints](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-096a). It is commissioned only if an actual consumer needs that protocol. It adds no shared mutable capability, CAS, blocking mutex, retry loop, inner scheduler or unwinding. Ordinary libraries and a service using one structured child do not acquire a shared-counter dependency.
+The concurrent candidate uses private packets and tasks with an atomic scalar
+counter. It needs an actual consumer and a proof over the selected memory
+model. [Atomic profile](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-15-026)
+· [Exclusive-access constraints](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-096a)
 
 ### Interpretation commitment
 
-All predicates and transition laws in this dossier apply to the checked elaboration's image in an existing semantic anchor under [R-05-020a](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-020a). The schematic notation specifies proof obligations for the untrusted elaborator and kernel-checked resource derivations; it is not an independent source reduction or a new authoritative memory model. Local operations are interpreted by the selected existing resource logic, while target operations and interference refer to the one pinned Sail subject. Substitution, capture, exit preservation and erasure statements quantify over those interpreted computations and their actual representations, connected to exact source by checked correspondence. No rule can obtain a concrete CHERI instance merely by naming its predicate. The [composition review](full-language-review.md#r-05-009-r-05-020-and-what-holds-the-frontend-rows) retains those implementation prerequisites.
+Local operations use the selected resource logic. Target operations and
+interference refer to the pinned Sail term. Substitution, capture, exit
+preservation and erasure quantify over those computations and their
+representations. [Frontend admission](full-language-review.md#frontend-admission)
 
 ## Representation, authority and open invariants
 
@@ -94,7 +104,9 @@ snapshot facts remain stable. The [borrow-analysis promotion contract](../langua
 connects these obligations to source checking without selecting shared mutation
 for the synchronous release.
 
-Selection still needs ownership, open/close and capture laws over all exits, suspension/cancellation, the local-domain boundary and artifact-level exclusivity. The [producer evaluation](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/background/architectural-alternatives.md#ante-place-sensitive-mutation-and-invalidation) retains this candidate without commissioning selection or qualification.
+Qualification requires ownership, opening, closing and capture laws for every
+exit, including suspension and cancellation, plus local-domain and artifact
+exclusivity evidence. [Ante design comparison](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/background/architectural-alternatives.md#ante-place-sensitive-mutation-and-invalidation)
 
 ## Transfer, sharing and lifecycle eligibility
 
@@ -150,9 +162,12 @@ target candidate: one aligned AMOADD.d, aq = false, rl = false
 
 The AMO commits/linearizes counter arithmetic only: no payload publication, stable returned current value or cross-client old-value ordering beyond atomic history. The allowance bound makes word addition equal mathematical addition. The proposed lowering must prove its `aq`/`rl` bits; stronger APIs need separate ordering evidence. Callback grades prove neither AMO occurrence nor allowance consumption.
 
-The deferred Q25 research client combines `n <= N`, an immutable-snapshot graded callback, handler and cancellable child. Multi-shot capture retains only `Dup` resources; unique packet/frame owners and `AddOnce` remain outside. Occurrence contract and multiplicity bound callback demand; `commit_add` is one separate child action. Sharing exposes only counter operations. Explicit sequencing evaluates effectful arguments once, unaffected by zero/repeated use grades. The [first async service](handlers-async.md#first-async-service-qualification) instead exercises sequential helper composition and structured ownership without requiring these extra mechanisms.
+The [combined client](full-language-review.md#composed-client-and-inhabited-entry)
+uses the scalar counter with an immutable callback snapshot, multi-shot handler
+and cancellable child. `commit_add` is a separate child action. Capture excludes
+packet and frame owners and the `AddOnce` allowance.
 
-An entry candidate fixes `N = 4`, `n = 2`, private backing `[1,2,0,0]` with prefix `[1,2]`, a separate immutable callback environment used twice, free declared frame/completion slots, live private grants, zero counter and allowance two. Alternatively two children have lengths/allowances three and two and disjoint packets/frames: either AMO order yields five after joins, with intermediate value three or two. These proposed data witnesses do not construct CHERI resources in Rocq. The [composition review](full-language-review.md#the-representation-the-composed-duties-are-stated-over) constructs no inhabitant of its named carriers. Private grants, atomicity, publication and schedule laws remain required; the [extension machine/resource and security/admission allocations](../../PLAN.md#language-extensions) price their incremental construction over the shared synchronous baseline without establishing them.
+An entry candidate fixes `N = 4`, `n = 2`, private backing `[1,2,0,0]` with prefix `[1,2]`, a separate immutable callback environment used twice, free declared frame/completion slots, live private grants, zero counter and allowance two. Alternatively two children have lengths/allowances three and two and disjoint packets/frames: either AMO order yields five after joins, with intermediate value three or two. Qualification requires checked inhabitants of the [resource carriers](full-language-review.md#the-representation-the-composed-duties-are-stated-over) and proofs of the private grants, atomicity, publication and scheduling laws.
 
 ### Cancellation, completion and reset
 
@@ -233,33 +248,32 @@ The example permits public lengths, scheduling and count while contents stay pri
 
 The [sharing/disposal survey](../assurance/verification-strategy.md#effect-handlers-sharing-and-protocol-logics) records mechanized temporary guarding for `MUT-CELL` and a non-leaking resource-accounting adequacy result for `MUT-EXIT`. The [Rust survey](../assurance/verification-strategy.md#rust-and-low-level-verification) records semantic soundness for a proof tool's cell/invariant/storage subset via guarding plus lifetime logic, and checked Cell/Mutex specifications over a Rust-core model. Each uses another language, trusted base and prover edition, retaining erasure/solver/compiler trust. None constructs this concrete representation, pinned-Sail atomic law or inhabited cell instance.
 
-Q25d records these unproved implementation-law families. The [delivery plan](../../PLAN.md#vela-first-release-delivery) selects and prices only the slice a consumer needs; the deferred combined fixture assigns no first-release duty. Every theorem below is over the checked interpretation image and its source-correspondence relation. The [foundation map](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/hardware/cheri-foundation-map.md), Q2b/M7.1 target work and Q21 contracts retain their owners; charge shared work once.
+Each theorem applies to the selected elaboration image and exact source
+correspondence. [Extension plan](../../PLAN.md#language-extensions)
 
 | Debt | Concrete acceptance predicate and ownership boundary |
 | --- | --- |
-| `MUT-CELL` | Interpret sealed cell predicates, invariant masks, unique opening/closing debts and frame preservation over the selected concrete resource logic; prove local replacement/take/put/scoped callback rules. Q25d assigns the cell layer while reusing Q2c's concrete byte/scoped-resource debts. |
-| `MUT-BORROW` | Prove represented borrow-state correspondence, bounded guard capacity, alias exclusion, exact release and all source exits, including nested capture checks. Join Q25a substitution and Q25b outcome/exit preservation rather than duplicating them. |
+| `MUT-CELL` | Interpret sealed cell predicates, invariant masks, unique opening/closing debts and frame preservation over the selected concrete resource logic; prove local replacement/take/put/scoped callback rules. |
+| `MUT-BORROW` | Prove represented borrow-state correspondence, bounded guard capacity, alias exclusion, exact release and all source exits, including nested capture checks. Apply the graded substitution and handler exit rules. |
 | `MUT-SNAPSHOT` | Prove observation-to-snapshot introduction, stability under interference, invalidation of current predicates and dependent shape transport; connect executable copies to actual initialized memory. |
 | `MUT-SHARE` | Prove transitive capture, `Dup`/`Dispose`/`Suspend`/`Transfer`/`Share` composition through sealed representations, task frames and handlers, with a target theorem excluding shared mutable capability storage and bypass paths. |
-| `MUT-ATOMIC` | Build the concrete counter invariant/history and one-use allowance interpretation; prove exact AMO linearization, no overflow, width/alignment/permission/PMA conditions and atomic observation against the pinned Sail subject. Reuse the target connection's owner; this dossier creates no parallel memory semantics. |
-| `MUT-PUBLISH` | Instantiate the existing SPSC proof with immutable packet/completion publication, actual Ztso/compiler/fabric ordering, reader/DMA quiescence and generation retirement. Reuse the canonical ring/HAL owners rather than inventing a second ring algorithm. |
-| `MUT-EXIT` | Join cancellation arbitration, checkpoint masking, sequential helper cleanup, no-replay receipt storage, child terminal records and reset with Q25b; prove each outcome preserves cell/frame resources and terminal bounds. Ordinary completed error values remain distinct from declared task failure, and helper composition neither resets commit phase nor duplicates cleanup. |
+| `MUT-ATOMIC` | Build the concrete counter invariant/history and one-use allowance interpretation; prove exact AMO linearization, no overflow, width/alignment/permission/PMA conditions and atomic observation against the pinned Sail subject. |
+| `MUT-PUBLISH` | Instantiate the existing SPSC proof with immutable packet/completion publication, actual Ztso/compiler/fabric ordering, reader/DMA quiescence and generation retirement. |
+| `MUT-EXIT` | Join cancellation arbitration, checkpoint masking, sequential helper cleanup, no-replay receipt storage, child terminal records and reset with the async rules. Prove each outcome preserves cell/frame resources and terminal bounds. Ordinary completed error values remain distinct from declared task failure, and helper composition neither resets commit phase nor duplicates cleanup. |
 | `MUT-OBSERVE` | Prove the chosen counter/packet information-flow contract, including AMO results, occupancy, cancellations and schedules, and preserve it through optimization and final bytes. Coordinate with the existing non-interference/WCET and compiler owners. |
-| `MUT-CLIENT` | Construct inhabited concrete entry witnesses for the selected local or concurrent library consumer, replay every supported positive/negative neighbor, independently review the actual behavior/byte contract, and connect the interpreted trace to its exact final representation. A later handler/graded-callback/child combination requires its own commissioned extension and cannot be charged to the first cell client. Q25d records the law boundary; the delivery plan assigns implementation after prerequisites and pricing are reviewed. |
+| `MUT-CLIENT` | Construct inhabited concrete entry witnesses for the selected local or concurrent library consumer, replay every supported positive/negative neighbor, independently review the actual behavior/byte contract, and connect the interpreted trace to its exact final representation. A combined client also meets the [composition requirements](full-language-review.md). |
 
-### Requirement disposition owed at Q25d
+<a id="requirement-disposition-owed-at-q25d"></a>
 
-This dossier changes no platform obligation. The interpretation follows the register's R-05-020a clarification; concrete source correspondence and resource/machine laws remain unimplemented. A selected scalar counter, private frame or immutable-publication consumer retains the following boundaries, including required register/prose co-reads for any later amendment.
+### Platform requirements
 
-| Requirement boundary | Present design and amendment trigger |
+| Requirement | Acceptance evidence |
 | --- | --- |
-| R-05-096a and R-05-096b | Preserve exclusive non-atomic access, explicitly atomic shared cells and the binary/manifest join. No weakening is requested. Any proposal permitting a racing copy, mixed atomic/non-atomic alias or source-only exclusion requires an explicit amendment to these entries and their Sail/TAL theorem, and is outside this selected design. |
-| R-15-026, with R-15-024/R-15-025/R-15-027 | Preserve scalar `Zaamo`/`Zabha` and the absence of CAS, LR/SC and shared mutable capabilities. An unsupported synchronization library requires a separate profile amendment and renewed consumer justification, not an implementation fallback. |
-| R-05-039 and R-05-100 | Preserve injected mutable state and explicit bounded exits. Hidden globals, lazy mutable registries, exceptions or unwinding require amendments; no such feature is used here. |
-| R-05-020/R-05-020a and R-05-026 | This dossier adopts the checked-interpretation route under R-05-009/R-05-020a; the [composition review](full-language-review.md#r-05-009-r-05-020-and-what-holds-the-frontend-rows) retains concrete-law and source-correspondence gates. The exact source-to-artifact obligations remain owed at Q2c's `artifact-admission`. An independent source semantics or trusted checker would still require R-05-020's amendment conditions. A cell dossier or emitted Rocq term establishes none of these proofs. |
-| R-05-132 through R-05-134 | Keep source grades/protocol laws distinct from the frozen TAL attributes and separately checked CIC evidence. A new on-device attribute requires the existing admissibility demonstration; general grade interpretation or open-term reduction requires a reviewed change rather than silent expansion. |
-| R-07-037a and R-11-006 | Retain cooperative reactions and admitted bounds. An inner scheduler, blocking guard acquisition, arbitrary fairness premise or unbounded masking region would require an explicit scheduling amendment. |
-| R-08-045 through R-08-047 | Declare all cell/guard/frame/allowance/completion storage and exhaustion behavior. Unplanned allocation or reuse before the applicable lifecycle completes is inadmissible, not a local cell optimization. |
-| R-12-094 through R-12-099 | Instantiate publication, capacity, cancellation/commit, terminal and generation rules. A cancellable API with different race outcomes, implicit rollback/replay or early release requires amendments to the affected lifecycle entries before qualification. |
-
-Q25c acceptance covers design review of these interfaces and debts. Execution, metatheory, source-to-Sail correspondence, progress, leakage and production qualification remain unfulfilled, separately evidenced claims.
+| R-05-096a and R-05-096b | Retain exclusive non-atomic access and explicitly atomic shared cells. Check the binary and manifest together. |
+| R-15-024 through R-15-027 | Use admitted scalar `Zaamo`/`Zabha` operations. Exclude CAS, LR/SC and shared mutable capability storage. |
+| R-05-039 and R-05-100 | Inject mutable state and use explicit bounded exits. |
+| R-05-020a and R-05-026 | Check interpretation and exact source-to-artifact correspondence. [Frontend admission](full-language-review.md#frontend-admission) |
+| R-05-132 through R-05-134 | Use the admitted TAL attributes and separate kernel-checked source evidence. |
+| R-07-037a and R-11-006 | Use cooperative reactions, bounded masking and nonblocking guard acquisition. |
+| R-08-045 through R-08-047 | Declare storage and exhaustion behavior. Reuse requires the checked lifecycle release. [Runtime storage](full-language-review.md#runtime-storage) |
+| R-12-094 through R-12-099 | Implement publication, capacity, cancellation/commit, terminal and generation rules. |

@@ -1,18 +1,11 @@
 # Vela host language server prototype
 
-## Commissioned increment
+## Connect an editor
 
-Q25n in [the plan](../../PLAN.md#vela-whole-system-authoring-proposal) commissions
-an untrusted host LSP 3.17-compatible development server, invoked with
-`python tools/run.py vela-lsp`. Its producer is the existing
-[pure prototype](pure-prototype.md), including its explicit Nat/bool subset and
-unqualified diagnostics. It adds no parser, proof acceptance or production
-emission. Broader syntax, semantic services and resident deployment retain the
-[protocol contract](tooling-protocols.md#qualification-and-delivery)'s prerequisites.
-
-Deliver LSP first, then DWARF when an executable backend and ABI exist, then DAP
-over an identified execution backend. Simulator DAP can precede DWARF only when
-its backend supplies independently qualified source/runtime mappings.
+`python tools/run.py vela-lsp` starts a stdio server for the
+[pure Nat/bool compiler](pure-prototype.md). It uses LSP 3.17-compatible
+messages. Its diagnostics and editing services use the compiler's checked
+source and resolution facts.
 
 To connect a host editor, configure its stdio language-server command as `python`
 with arguments consisting of the absolute path to `tools/run.py` followed by
@@ -23,10 +16,9 @@ URI's file. Diagnostics and navigation cover only the pure subset linked above.
 
 For Neovim 0.11's built-in LSP client, adapt these absolute paths in `init.lua`
 and reopen a `.vela` file. This configuration uses the
-[documented client configuration API](https://github.com/neovim/neovim/blob/v0.11.0/runtime/doc/lsp.txt);
-`python tools/run.py vela-lsp --qualify-clients`
-([`lsp_clients.py`](../../tools/toolchain/lsp_clients.py)) qualifies both
-Neovim `0.11.0` and Vim `9.1.2141` + `yegappan/lsp` against `vela-lsp`.
+[documented client configuration API](https://github.com/neovim/neovim/blob/v0.11.0/runtime/doc/lsp.txt).
+The [client qualifier](#acceptance-and-remaining-qualification) checks
+interoperability with the pinned editors.
 
 ```lua
 vim.filetype.add({ extension = { vela = 'vela' } })
@@ -86,9 +78,8 @@ Close clears diagnostics. Save rechecks the overlay. Configuration and watched-f
 changes invalidate and recheck all open snapshots conservatively. There are no
 import or interactive-proof providers. The [local rename preview](#local-rename-previews)
 and [Boolean comparison action](authoring-tools.md#checked-boolean-comparison-previews)
-use the existing pure producers and return edits for a specific document version. The separately
-commissioned pure navigation increment below consumes existing resolution facts;
-it supplies no wider-language qualification.
+return edits for a specific document version. Navigation consumes the pure
+compiler's resolution facts.
 
 | Resource | Bound and refusal |
 | --- | --- |
@@ -119,14 +110,9 @@ replacement before any subsequent ranged edits can restore synchronization.
 
 ## Pure navigation increment
 
-Q25o commissions hover, definition, references and flat document symbols for
-completely checked sources in the existing pure Nat/bool subset. These services
-remain unqualified host diagnostics. Record immutable declaration identities,
-types and occurrences in the existing pure elaborator's resolution decisions;
-do not introduce another parser, resolver or type system. Retain both existing
-translation routes and their emitted terms. No facts survive a failed complete
-check. Partial syntax, imports, completion, package-wide rename, proof state and wider-language
-services retain their existing prerequisites.
+Navigation consumes immutable source-bound declaration identities, types and
+occurrences from a complete pure check. Unavailable or refused checks supply
+no resolved facts.
 
 Support `textDocument/hover`, `textDocument/definition`,
 `textDocument/references` and `textDocument/documentSymbol`; advertise only those
@@ -206,31 +192,18 @@ ordinary translation. XML-looking documentation remains authored plain text.
 Hover includes the declaration's documentation for both its declaration and
 references. The projection checks comment bytes, rendered text, adjacency and
 the declaration/name source link before rendering it; it performs no name
-resolution or semantic checking. Old records lacking the optional field remain
-valid. Incomplete, forged or stale documentation records refuse the entire
-inspection. Overlay edits and configuration changes use existing snapshot
+resolution or semantic checking. The documentation field is optional. Incomplete,
+forged or stale documentation records refuse the entire inspection. Overlay edits and configuration changes use existing snapshot
 invalidation, so changed or removed documentation cannot survive in cached facts.
 
-Acceptance requires independently expected signatures, types, declaration sites
-and reference sets for earlier calls, parameters, inferred locals, same-spelled
-bindings across functions and sibling branches, and distinct call/value
-namespaces. Cover half-open token selection, UTF-16 with supplementary comments,
-LF/CRLF/bare CR, invalid and unsupported source, malformed parameters, all limits,
-timeout, unopened/closed/desynchronized overlays and recovery. Incremental edits
-must move or remove facts; invalidation and refused edits cannot expose cached
-facts. A process-level stdio session exercises all four requests against the real
-producer and an unsaved incremental update. Existing translation and LSP controls,
-focused host tests, Python checks, both Host CI aggregates and selected Guest CI
-dispatch remain required. Independent review must check the compiler fact
-producer and protocol projection. Two pinned editor clients with retained
-transcripts remain necessary for final interoperability qualification; a wire
-harness alone does not close Q25o or Q25n.
+Navigation tests check exact signatures, types, definition sites,
+reference sets, scope, UTF-16 coordinates and unsaved edits over stdio.
+[Client qualification](#acceptance-and-remaining-qualification)
 
 ## Authoring hints
 
-[Q25p](../../PLAN.md#q-assessment-actions) supplies `textDocument/inlayHint` for
-inferred local types in the completely checked pure subset. Advertise this
-provider alongside the existing navigation providers. Requests contain a valid
+`textDocument/inlayHint` reports inferred local types in completely checked
+pure source. Requests contain a valid
 half-open document range; return type hints at the ends of inferred local
 identifiers wholly contained in that range, with `kind: 1` and labels such as `: Nat` or
 `: bool`. Parameter declarations and explicit signatures need no redundant hint.
@@ -239,34 +212,15 @@ its hint there. Use the compiler's existing resolved symbol facts; do not repars
 types in the protocol projection. Labels are diagnostic presentation and never
 insert source, conversions, loans, proof steps or accepted artifacts.
 
-Require synchronized initialized overlays, exact snapshot identity, bounded
-complete output and the existing unavailable/error policy. Invalid coordinates,
-reversed ranges, worker failures and stale/desynchronized documents follow the
-navigation protocol's errors. Unsupported or invalid source yields an empty hint
-list. Independent controls cover inferred types, shadowed declarations, requested
-ranges, UTF-16 and mixed newlines, incremental edits, refusal/recovery, malformed
-worker facts, limits and a real process-level request. Retain navigation and
-translation controls and the shared hosted validation handoff.
+Requests require an initialized session and a synchronized overlay. Invalid
+coordinates, refused source and worker failures follow the navigation policy.
+Invalid or unsupported source supplies no hints. [Hint fixtures](../../tools/tests/test_vela_lsp_hints.py)
 
-Unsupported ownership/loan syntax should explain its requested mode and the
-current pure checker's limit, instead of presenting a borrow-conflict judgment
-that this producer cannot establish. Receiver mode/view hints and live-loan
-conflict explanations remain required by the broader
-[editor contract](tooling-protocols.md#language-server-protocol), and require the
-corresponding compiler facts before advertising those services. This increment
-does not commission a second surface parser or a source borrow checker.
-
-Immutable-binding reassignment diagnostics identify the binding and explain
-`let` immutability and explicit `var` reassignment. The pure
-producer states that mutation requires the wider surface; it grants no accepted
-mutable program or source borrow verdict. A write through an exclusive loan is
-distinct from rebinding its immutable descriptor. Diagnostics and locations must
-survive local shadowing, incremental edits and unsupported resource syntax.
-The [familiar authoring migration](../language/surface-grammar.md#familiar-authoring-migration)
-makes the symmetric `let name`/`let T name` and `var name`/`var T name` forms the
-explanation and completion convention. Q25z qualifies those projections against
-each producer's supported subset; editor text must not imply that the pure
-checker accepts mutable or represented-integer programs.
+The pure checker diagnoses mutation and resource syntax outside its subset.
+[Binding syntax](../language/surface-grammar.md#bindings-match-arms-and-generic-calls)
+defines mutable and immutable locals. Receiver-mode hints and conflict
+explanations require the corresponding compiler facts.
+[Wider editor contract](tooling-protocols.md#language-server-protocol)
 
 Constants are compiler-resolved `constant` symbols, with details such as
 `const Nat Limit = 16` and LSP document-symbol kind 14. Their references and
@@ -277,16 +231,14 @@ removes the entire snapshot's semantic facts until a valid edit restores them.
 
 ## Pure editor operations
 
-[Q25u](../../PLAN.md#q-assessment-actions) commissions document formatting and
-full semantic tokens over the synchronized pure-prototype overlay. Reuse the
-existing compiler formatter and resolved inspection facts. These providers add
-no syntax, resolution, proof acceptance or wider-language qualification.
+The compiler formatter and resolved inspection facts serve pure formatting
+and full or delta semantic tokens for synchronized overlays.
 
 `textDocument/formatting` returns no edits for canonical source, otherwise one
 edit replacing the complete original document with the checked canonical text.
 Use the shared source adapter for the original UTF-16 end position, including
 terminal newlines. The formatter retains its token/comment, attachment, syntax
-and idempotence checks and uses style version 1 from the
+and idempotence checks and uses the layout in the
 [authoring contract](authoring-tools.md#common-style). Standard formatting options
 must contain a positive integer `tabSize` and Boolean `insertSpaces`; canonical
 compiler style determines the resulting layout regardless of those preferences.
@@ -331,23 +283,10 @@ IDs, evicted IDs and IDs from earlier document lifetimes receive complete curren
 tokens. Unavailable source removes the old stream through a complete empty result
 or deletion delta; worker failure returns RequestFailed without publishing a base.
 
-Independent delta controls cover exact integer edits and reconstruction,
-negotiation, unknown and foreign IDs, bounded history, source refusal/recovery,
-producer and lifecycle invalidation, malformed capabilities/parameters, and
-publication failure. A real stdio session reconstructs tokens after an unsaved
-edit inserting supplementary text and CRLF. The pinned Neovim and Vim client RPC
-sessions also request a full base, a delta after replacing the unsaved buffer with
-a supplementary-comment/CRLF source, and an unchanged-source delta. Independent
-consumer checks reconstruct the exact expected integer stream and require full
-fallbacks for unknown bases and configuration invalidation. Background highlighting
-requests are suspended during these explicit probes so they cannot evict the
-single retained base. Both full and incremental Vim synchronization are covered.
-Wire checks independently reconstruct UTF-16 source edits, require negotiated
-deltas and the actual Unicode/CRLF snapshot, and compare reconstructed tokens
-with the expected stream. They track the latest published base and lifecycle
-invalidation, then join all five observed responses to their exact wire result IDs,
-source snapshots and request/base chains. Missing delta traffic, changed token
-integers and stale-base edits refuse qualification.
+The [client qualifier](#acceptance-and-remaining-qualification) reconstructs
+semantic token streams from full and delta replies and joins each edit to its
+snapshot and base ID. It checks UTF-16 edits, unknown bases and configuration
+invalidation, including Vim's full and incremental synchronization modes.
 
 These requests require `initialized` and a synchronized open document. Retain the
 navigation errors for malformed parameters, unopened/closed documents, refused
@@ -356,21 +295,13 @@ snapshot; changes and configuration invalidation cannot reuse old results. An
 unknown URI grants no filesystem access. Existing request, reply, source,
 inspection and timeout bounds apply to the complete operation.
 
-Independent controls must assert exact edits and token streams, declaration/use
-identity, shadowing and distinct call/value namespaces, constants, comments,
-supplementary characters and LF/CRLF/bare-CR positions. Exercise canonical,
-invalid and unsupported sources, malformed options and worker results, source
-and reply limits, timeout, lifecycle, incremental edits, desynchronization and
-recovery. A real stdio process must exercise both requests before and after an
-unsaved update. Retain pure translation, authoring and existing LSP controls,
-focused host tests, Python checks, both Host CI aggregates and selected Guest CI
-dispatch. Independent review covers projection and formatting isolation. Two
-pinned editor clients and retained transcripts remain required for final
-interoperability qualification; this increment stays open without them.
+Formatting and token controls cover exact edits and token streams, source
+identity, malformed replies, UTF-16 positions and recovery after unsaved edits.
+[Editor fixtures](../../tools/tests/test_vela_lsp_editor.py)
 
 ## Callable discovery
 
-The pure development increment advertises `textDocument/completion` and
+The server advertises `textDocument/completion` and
 `textDocument/signatureHelp` over synchronized, completely checked overlays.
 Both reuse the validated compiler inspection and its existing source, dependency,
 configuration and producer invalidation. Unopened documents and malformed
@@ -410,8 +341,8 @@ producer or consumer budget failure refuses the operation. Validation requires
 ordered unique sites, valid same-type value identities, unique visible names,
 the selected binding and agreement with static qualifiers. Cached facts contain
 immutable tuples and retain the normal producer/snapshot invalidation.
-Legacy inspection responses may omit the optional completion field, and an
-unrecorded site supplies no value suggestions. Neither absence nor an empty site
+The completion inventory is optional. An unrecorded site supplies no value
+suggestions. Neither absence nor an empty site
 inventory establishes that no compatible values exist. A present site record
 must contain the selected binding; an empty or malformed choice record refuses.
 
@@ -529,14 +460,13 @@ stdio session checks both providers before and after an unsaved Unicode/CRLF
 edit. Pinned Neovim and Vim sessions request both operations explicitly; their
 observations and exact wire responses join to the expected source and cursor.
 Missing traffic, changed suggestions/signatures, mismatched observations and
-stale source positions refuse qualification. This qualifies the bounded pure
-increment. The [rename qualification](#local-rename-previews) covers both
+stale source positions refuse qualification. The [rename qualification](#local-rename-previews) covers both
 version-capable clients. Wider language services remain open under the
 [editor contract](tooling-protocols.md#language-server-protocol).
 
 ## Local rename previews
 
-The pure development increment supports `textDocument/prepareRename` and
+The server supports `textDocument/prepareRename` and
 `textDocument/rename` for compiler-resolved local `let` variables. Functions,
 parameters and constants return null: their public or callable uses require
 package-wide facts that this producer does not supply. A token-end position,
@@ -586,7 +516,7 @@ versions, incomplete edits and mismatched observations fail replay.
 `python tools/run.py vela-lsp --qualify-rename --output rename.json` qualifies
 application in Neovim 0.11.0 and GNU Emacs 30.2 with Eglot on Ubuntu 26.04
 ARM64. Windows runs the clients in WSL and writes the report to the requested
-host path. Install the [pinned client packages](../../THIRD-PARTY.md#vela-development-and-proof-reuse-candidates)
+host path. Install the [pinned client packages](../../THIRD-PARTY.md#independent-editor-clients)
 before running the command. Both clients prepare a local rename against their
 unsaved Unicode document, apply the returned versioned edit with their own
 workspace-edit implementation, and look up the declaration from the renamed use.
@@ -609,39 +539,24 @@ typed constant identity before its static inputs are instantiated; the editor
 must not invent an evaluated value. Changes to a parameter's static requirement
 invalidate the complete source snapshot, including navigation and diagnostics.
 
-Independent wire fixtures exercise fragmented and coalesced frames, Unicode byte
-lengths, strict JSON and bounds, lifecycle ordering, unknown requests, clean and
-unclean exit, overlays, stale versions, close clearing, configuration invalidation,
-unsupported syntax, checker/type errors and timeout. Coordinate fixtures use
-independently chosen UTF-8 and UTF-16 expectations at newline and supplementary
-character boundaries. Tests verify that invalid updates preserve the previous
-snapshot and that no URI causes a file read or accepted artifact publication.
-Incremental controls cover sequential multi-edit coordinates, supplementary
-characters, mixed newlines, clamped columns, optional range lengths, empty batches,
-intermediate source/edit-count limits, later-edit rollback and recovery from a
-refused update. A process-level wire session must show an incremental edit moving
-or clearing a real producer diagnostic with the new document version.
-Run focused host tests and Python type/lint checks, then the shared Host CI and
-selected Guest CI handoff. No native build is required for this host increment.
+Wire tests check UTF-8 framing, strict JSON, lifecycle, overlay edits and
+bounded refusals. Coordinate tests use independent UTF-8 and UTF-16
+expectations for mixed line endings and supplementary characters. An invalid
+update preserves the previous snapshot and desynchronizes the document.
+The server accepts source text through overlays.
 
 `python tools/run.py vela-lsp --qualify-clients`
 ([`lsp_clients.py`](../../tools/toolchain/lsp_clients.py)) executes the two
 pinned independent editor clients recorded in
-[THIRD-PARTY.md](../../THIRD-PARTY.md#vela-development-and-proof-reuse-candidates)
+[THIRD-PARTY.md](../../THIRD-PARTY.md#independent-editor-clients)
 — Neovim `0.11.0` (`vim.lsp`, incremental sync) and Vim `9.1.2141` +
 `yegappan/lsp` (`58eac06e81bad174cfa897614ae01adf0d31d10a`, both full and
 incremental sync) — against `vela-lsp --transcript`, verifying bidirectional
 wire transcripts and client observations against independent expected oracles in
 [`test_vela_lsp_clients.py`](../../tools/tests/test_vela_lsp_clients.py).
-The schema-2 qualification report embeds each session's exact observation and
-transcript JSON text alongside its SHA-256 digest and traffic summary, preserving
-reviewable evidence after temporary editor staging is removed. Use `--output FILE`
-to retain the report. This qualifies the existing pure token-delta transport;
-Q25ci's wider producer and editor-operation prerequisites remain open. The same
-retained sessions also qualify the bounded callable and value discovery providers above.
-User-managed Host CI and Guest CI verdicts remain separate from local client
-qualification for Q25n, Q25o, and Q25u. Broader asynchronous services require
-explicit cancellation and deliberately late-result controls before advertising
-them. DAP, DWARF and their simulator execution producer have separate
-[conditional tooling budgets](../../PLAN.md#tooling-and-metaprogramming);
-this pure LSP qualification supplies none of their implementation.
+The schema-2 report embeds each session's transcript and editor observations,
+their digests and a traffic summary. Use `--output FILE` to save the report.
+The exercised subset includes diagnostics, navigation, hints, formatting,
+full and delta semantic tokens, callable discovery and value completion.
+The [rename qualifier](#local-rename-previews) exercises versioned edit
+application separately. [Wider requirements](tooling-protocols.md#qualification-and-delivery)

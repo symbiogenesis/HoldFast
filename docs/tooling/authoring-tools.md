@@ -1,32 +1,11 @@
 # Vela formatting, documentation and lints
 
-This contract owns [Q25r, Q25s and Q25t](../../PLAN.md#q-assessment-actions)
-and [Q25ck's authoring follow-through](../../PLAN.md#q25ck).
-The [surface grammar](../language/surface-grammar.md) owns syntax and the
-[pure prototype](pure-prototype.md) owns its executable semantic boundary.
-The compiler includes a formatter and an advisory lint pass. The design keeps
-checking and emission read-only with respect to source; formatting writes require
-an explicit command or option. The formatter and original lints cover
-the pure subset, following the
-[source-preserving command policy](#compiler-commands-and-publication).
-Q25ae's [generic type parameter naming lint](#generic-type-parameter-naming) also covers the
-mathematical development fragment. Wider formatting
-and semantic lints consume qualified parser/frontend producers through
-[compiler services](tooling-protocols.md#compiler-inspection-api).
-Q25z owns the [familiar authoring migration](../language/surface-grammar.md#familiar-authoring-migration),
-including mandatory `let`/`var` local keywords and typed pure locals. Wider editor support and
-formatting retain their qualified frontend prerequisites.
+The formatter and advisory lints cover the [pure compiler](pure-prototype.md).
+The mathematical compiler also reports generic type parameter, bitwise precedence
+and constructor-pattern lints. The [surface grammar](../language/surface-grammar.md)
+defines valid syntax. Lints report findings on checked source.
 
 ## Common style
-
-Style version 1 takes its C# layout and naming conventions from
-[StyleCop](https://dotnetanalyzers.github.io/StyleCopAnalyzers/), including
-[Allman braces](https://github.com/DotNetAnalyzers/StyleCopAnalyzers/blob/master/documentation/SA1500.md),
-[upper-case member initials](https://github.com/DotNetAnalyzers/StyleCopAnalyzers/blob/master/documentation/SA1300.md)
-and [lower-case parameter initials](https://github.com/DotNetAnalyzers/StyleCopAnalyzers/blob/master/documentation/SA1313.md).
-[Clippy's lint levels](https://doc.rust-lang.org/clippy/usage.html) inform the
-toolchain integration. This is a Vela style, not a claim to implement every
-StyleCop or Clippy rule; neither upstream implementation is incorporated.
 
 - Use four spaces per indentation level, LF newlines and one terminal newline.
   Opening and closing block braces occupy their own lines; `else` starts a new
@@ -40,12 +19,6 @@ StyleCop or Clippy rule; neither upstream implementation is incorporated.
   and local bindings use camelCase. The formatter never renames symbols.
   Primitive spellings, lifetime identities, grade names and foreign names retain
   their defining contracts; naming is a suppressible lint, not parsing authority.
-- Local declarations use `let name = value` or `let T name = value` for
-  immutable locals, and `var name = value` or `var T name = value` for
-  mutable locals. Both parsers refuse bare `T name = value;` local declarations
-  with a diagnostic directing authors to `let T name = value;` or `var T name = value;`.
-  A formatter preserves the authored form, and diagnostics distinguish rebinding
-  from a write through a permitted loan.
 - Declaration contracts occupy separate indented lines before the body. Long
   signatures and calls may wrap at argument boundaries with one extra indentation
   level; width is guidance, not a source acceptance limit. Keep ownership, loan,
@@ -54,18 +27,9 @@ StyleCop or Clippy rule; neither upstream implementation is incorporated.
   contents. Do not sort imports, declarations or arguments, insert conversions,
   change parentheses or synthesize proof, resource or disposal operations.
 
-The [selected syntax](../language/surface-grammar.md#familiar-authoring-migration)
-uses `Pattern => ...` arms without `case` in both expression and statement
-matches, `=>` for ordinary and mathematical function expression
-bodies, and ordinary `F<T>(arguments)` generic calls. Constant/type-alias `=`
-and explicit `::<...>` applications retain their
-own roles. Numeric aliases follow their [standard module's scope and identity](../language/first-release.md#primitive-semantics);
-the formatter does not rename width types or synthesize imports.
-The explicit source migration owns token-changing rewrites, with preview,
-source binding and semantic-preservation checks; ordinary formatting keeps its
-token-preservation contract. Completion, snippets,
-formatting and lints must describe the selected compiler's actual supported
-syntax and report an unsupported feature rather than silently rewriting it.
+Formatting preserves the authored spelling defined by the
+[surface grammar](../language/surface-grammar.md). Editor suggestions and lints
+follow the selected compiler's supported subset.
 
 ```text
 module Example;
@@ -82,16 +46,10 @@ public Nat Scale(Nat count)
 
 ## Numeric separators
 
-An underscore separates two digits of the same numeric base. Decimal literals
-work in the pure and surface entries; hexadecimal and binary remain surface
-features. Examples are `1_024`, `1_024usize`, `0xFF_FFu64` and `0b1010_0011byte`.
-Leading, trailing and repeated separators are refused, including adjacency to a
-base prefix or representation suffix. Suffix interpretation stays separate from
-the digit run. Preserve raw source spelling and original byte spans in located
-syntax; evaluation removes separators. Count actual digits, not underscores,
-against the existing literal bound. Keep existing leading-zero and representation
-rules. The mathematical consumer and pure translation agree with the corresponding
-unseparated values; a representation suffix grants no new pure-subset type.
+The [lexical rules](../language/surface-grammar.md) define valid digit separators,
+bases and suffixes. Formatters preserve literal spelling and compiler syntax
+carries original byte spans. The compiler removes separators when interpreting
+the value and counts digits against the literal limit.
 
 ## Documentation comments
 
@@ -101,27 +59,17 @@ original UTF-8 text and source positions. A blank line, ordinary comment or
 intervening source token breaks attachment. Orphan documentation remains a
 comment. Formatting must preserve attachment and every comment's content.
 
-Plain text is supported. C#-style XML documentation may be preserved as authored
-text; accepting comment text does not promise XML validation, entity expansion,
-external reference fetching or inherited documentation. Documentation is distinct
-from executable contracts, checked propositions and evidence status.
-
-The compiler attaches documentation to its resolved declaration facts. Existing
-hover presents it as bounded plain text; references show the declaration's
-documentation, not nearby comments at a use site. Protocol projection validates
-source binding and limits, and never reparses or resolves declarations itself.
-The existing parser schemas need no invented documentation fields. Unsupported
-surface declarations retain their comments without acquiring semantic facts.
-The executable increment attaches public function and constant documentation;
-local and parameter documentation remains ordinary comment text.
+The pure compiler attaches documentation to resolved public function and
+constant declarations. Hover presents it as bounded plain text at the
+declaration and its references. XML-looking text stays literal. Documentation
+comments carry no semantic or proof authority.
+[LSP projection](lsp-prototype.md#pure-navigation-increment)
 
 ## Compiler commands and publication
 
-The accepted command policy is:
-
 | Command or mode | Source policy |
 | --- | --- |
-| `vela check SOURCE`, `vela emit SOURCE`, and future package builds | Read an immutable snapshot, run required checks and advisory lints, and preserve source bytes. Emission may publish its explicitly requested output only after successful checking. |
+| `vela check SOURCE` and `vela emit SOURCE` | Read an immutable snapshot, run required checks and advisory lints, and preserve source bytes. Emission may publish its explicitly requested output only after successful checking. |
 | `vela fmt SOURCE` | Explicitly request canonical source formatting. |
 | `vela fmt SOURCE --check`, `--format check` on check/emission | Report formatting differences without writing source; differences fail the formatting check. |
 | `--format off` on check/emission | Explicitly select the ordinary source-preserving default. |
@@ -148,11 +96,6 @@ An I/O failure after that source publication may leave a formatted source but
 must not claim successful output publication. The library checker and language
 server never rewrite files.
 
-The pure CLI defaults `check`/`emit` to `--format off`, preserving the exact
-input snapshot and its emitted provenance. Use `--format check` for read-only
-style enforcement, or explicitly select `fmt` or `--format write` to apply
-canonical formatting. Hosted qualification remains part of Q25t's acceptance.
-
 ## Lint policy
 
 Lints have stable Vela IDs, locations and explicit messages. Default advisory
@@ -162,7 +105,7 @@ justify a finding; no heuristic borrow, effect, termination or proof verdict is
 invented. Emit no semantic/style finding for a source that failed complete checking.
 Lints never rewrite code automatically.
 
-The initial rule identities are defined here:
+The compiler reports these advisory lint IDs.
 
 | ID | Advisory finding |
 | --- | --- |
@@ -170,11 +113,9 @@ The initial rule identities are defined here:
 | `VELA101` | A parameter or local name does not use a lower-case initial and ASCII alphanumeric words; `_` is exempt |
 | `VELA102` | A public function or constant has no attached documentation |
 | `VELA103` | An equality comparison has a Boolean literal operand |
-| ~~`VELA104`~~ | Retired (`Q25ah`): bare `T x = e;` local declarations are now refused by the parser in favor of mandatory `let T x = e;` or `var T x = e;`; the ID is never reused |
 | `VELA105` | A generic type parameter name does not use a capital initial and ASCII alphanumeric words |
-| ~~`VELA106`~~ | Retired (`Q25ah`): constructor patterns and pattern binders are now distinguished by token shape and nullary constructors are written bare without `()`; the ID is never reused |
-| `VELA108` | A binding pattern differs only in its initial capitalization from a constructor of the scrutinee type |
 | `VELA107` | An unparenthesized bitwise expression is an operand of a comparison in checked mathematical source |
+| `VELA108` | A binding pattern differs only in its initial capitalization from a constructor of the scrutinee type |
 
 The mathematical CLI and native playground report `VELA107` for accepted
 expressions such as `flags & mask == 0u8`. Write `(flags & mask) == 0u8` to
@@ -196,34 +137,16 @@ retained edit against the current source, compiler dependencies, parser bytecode
 and the OCaml interpreter selected by its executable header.
 The command reads the source again before printing the preview.
 
-`VELA104` and `vela lint --preview-bindings` are permanently retired (`Q25ah`)
-now that local variable declarations require an explicit `let` or `var` keyword;
-the migration rewrite helper `preview_bindings` remains available for legacy
-source migration without reusing the `VELA104` rule ID. `VELA106` and
-`vela-parser elaborate --preview-patterns` are permanently retired (`Q25ah`) now
-that uppercase constructors and lowercase or `_` binders are distinguished by token
-shape and nullary constructors are written bare (`None`, `ValidatedOk`) without `()`;
-the `VELA106` rule ID is never reused. Optional type annotations
-on `let` and `var` are checked independently of the binding's mutability. Naming
-and mutability guidance does not rename a symbol or change the formatter's tokens.
+<a id="compiler-verified-assist-dont-coerce-tooling"></a>
 
-### Compiler-verified "assist, don't coerce" tooling <a id="compiler-verified-assist-dont-coerce-tooling"></a>
+### Authoring diagnostics and suggestions
 
-Whenever Vela refuses a C# shortcut to preserve soundness, the compiler already
-has the semantic facts needed to offer a verified, source-preserving code action
-or diagnostic suggestion using the compiler's source-bound preview architecture:
-
-| C# / novice habit | Why Vela refuses it | Friendliness bridge (diagnostic + checked edit) |
-| --- | --- | --- |
-| Calling `Fill(buffer, 0)` without `ref` | Ordinary loan arguments require explicit `in`/`ref`/`out` ([verification-strategy.md](../assurance/verification-strategy.md#permanent-language-exclusions)) | Resolve the target parameter's mode and offer a checked insertion of `ref buffer` (`assist_loan_argument` and `assist_refusal`, or an inlay hint while typing). |
-| Writing `None()` instead of `None` | Constructors use an uppercase initial letter and binders use a lowercase letter or `_`; nullary constructors are written bare without `()` ([surface-grammar.md](../language/surface-grammar.md#concise-authoring-syntax)) | Refuse `None()` in patterns and expressions with a direct diagnostic instructing the author to write bare `None`. |
-| Writing `Read()?.Value` | `?` is early-return propagation, not C#'s null-conditional `?.` ([surface-grammar.md](../language/surface-grammar.md#explicit-values-loans-and-absence)) | Explain the difference from C# `?.` and offer `(Read()?).Value` (to propagate) or a `match` skeleton (to handle locally, via `assist_null_conditional` and `assist_refusal`). |
-| Omitting or under-specifying `effects` on a function | Public signatures require explicit closed `effects` ([verification-strategy.md](../assurance/verification-strategy.md#surface-conventions)) | Compute the body's closed read/write/call footprint and offer a checked preview that writes or updates the explicit `effects(...)` clause in source (`assist_effects_clause`). |
-| Passing `int` where `long` or `usize` is expected | No implicit numeric widening ([first-release.md](../language/first-release.md#primitive-semantics)) | Suggest the exact named conversion (`long.From(x)` when infallibly wider, or `usize.TryFrom(x)` when range- or sign-checked, via `suggest_numeric_conversion`). |
-
-Every source-rewriting helper validates its one-based compiler coordinates and token
-boundaries against the original UTF-8 snapshot without mutating files in place or
-silently coercing types during checking.
+Syntax errors can identify an invalid nullary constructor call or explain
+how `?` propagates an error. The formatting checker can suggest an explicit
+`ref` at the target of `Format.Write`. The generic authoring helpers also
+construct suggestions from supplied loan modes, effect sets and numeric types.
+Check a suggestion in the source context before relying on it.
+[Authoring helpers](../../tools/toolchain/authoring.py)
 
 The mathematical compiler reports both the conflicting read and where the
 exclusive loan starts. For a first formatting hole that reads the built-in
@@ -284,8 +207,8 @@ generation or a failed worker prevents publication.
 
 ## Generic type parameter naming
 
-Q25ae's [mathematical playground](playground.md#dependent-mathematics-increment)
-and mathematical CLI expose `VELA105` as an advisory naming lint. Generic types
+The [mathematical playground](playground.md#dependent-mathematics-increment)
+and CLI expose `VELA105` as an advisory naming lint. Generic types
 use PascalCase: `T`, `TValue` and `Element` qualify. Prefer descriptive names when
 they clarify the role; a `T` prefix is useful but is not mandatory. This follows
 the capitalization in [C# type-parameter guidance](https://learn.microsoft.com/en-us/dotnet/standard/design-guidelines/names-of-classes-structs-and-interfaces#names-of-generic-type-parameters),
@@ -296,8 +219,7 @@ value index. Keep that value camelCase; angle brackets do not make it a type.
 Inspect compiler-validated schema-2 generic binders by their declared role,
 including nested callable telescopes, after complete semantic checking succeeds.
 Use exact original identifier coordinates, preserve source and Gallina, and emit
-no naming findings for invalid or incomplete source. This is an optional style
-rule, not a type-system restriction or a naming-based resolution rule.
+no naming findings for invalid or incomplete source. The naming rule is advisory by default.
 
 `vela-parser elaborate SOURCE` reports `VELA105` warnings by default;
 `--allow VELA105` suppresses the rule and `--deny VELA105` makes it an error
@@ -308,69 +230,25 @@ as warning markers and Problems entries; pure responses and mathematical
 evaluation responses retain their existing shapes. Invalid, stale, oversized or
 mislocated worker findings refuse the response rather than claiming clean output.
 
-Acceptance requires independent type/value, uppercase/lowercase/underscore,
-nested-binder, Unicode/newline, invalid-source and source-protocol controls; strict
-CLI publication preservation; worker/HTTP findings validation and browser warning
-recovery. Run focused host controls, Python and corpus checks, then record
-user-managed Host CI and all Guest CI lanes as pending until evidence is supplied.
+<a id="pure-formatting-and-lint-disposition"></a>
 
 ## Qualification
 
-Q25r requires independently expected separator values/spans in both parser
-entries, pure-route and mathematical agreement, constants, literal patterns and
-generic arguments, all bases/suffix boundaries, malformed neighbors and actual
-digit limits. Retain strict conflict-free native generation and byte-identical
-regeneration. Native generation and replay acceptance run on hosted Guest CI.
+The formatter checks a fingerprint of ordered tokens and comments, documentation
+attachment, location-independent syntax and idempotence. The
+[formatting fixtures](../../tools/tests/test_vela_format.py) independently specify
+canonical bytes. The [lint fixtures](../../tools/tests/test_vela_lint.py) check
+findings, original positions and refusal when inspection is unavailable.
 
-Q25s requires direct-declaration attachment and orphan/break cases, Unicode and
-mixed newlines, declaration/use hover agreement, versioned edit invalidation,
-bounded text, forged/stale documentation refusal and a real stdio session. Existing
-two-editor interoperability qualification remains with Q25n/Q25o.
+The [documentation fixtures](../../tools/tests/test_vela_documentation.py) check
+direct attachment, orphan and broken attachment cases, Unicode and mixed
+newlines, bounded plain text, declaration/use hover agreement, forged facts and
+invalidation after unsaved edits over stdio. They compare translation and
+attachment before and after formatting. An oversized orphan is ordinary trivia.
 
-Q25t requires independently expected formatting and lint findings, idempotence,
-unchanged ordered tokens/comments and equivalent reparsed syntax apart from
-locations. Compose named arguments, constants, expression bodies, nesting,
-comments and numeric separators. Verify that default check/emission preserve exact
-source bytes on both success and failure, including noncanonical layout and
-read-only source, while ordinary style differences remain advisory. Check/off modes
-write no source; only `fmt` or explicit `--format write` may change it. Cover
-allow/deny and invalid-ID behavior, stdout/stderr separation, output publication
-failure, unchanged editor overlays, source changes during checking, exact original
-snapshot provenance and separately exact post-format provenance in write mode.
-Retain refusal without writes for invalid, unsupported, oversized, aliased,
-changed or nonregular input/output. Update CLI help, examples and callers with the
-new default before reporting migration complete. Run focused host tests and Python
-checks; hand the selected hosted validation to the user under the shared
-[validation procedure](../../AGENTS.md#tool-execution-and-validation).
-Wider-language formatting and semantic lints remain consumer-gated extensions
-after the [first release](../language/first-release.md#qualification).
-
-## Pure formatting and lint disposition
-
-Q25t's pure implementation meets its local predicate. Independent review covers
-the complete [formatter and lints](../../tools/toolchain/authoring.py),
-[compiler command](../../tools/toolchain/cli/vela.py) and
-[publication helper](../../tools/toolchain/atomic.py) at
-`bd51161f7858b55cb1a3e854730998c1c22c3204`, with the acceptance controls added by
-this landing. Ordered token/comment fingerprints, documentation-break tracking,
-location-erased reparsed syntax and stable second rendering preserve the source
-contract. The [formatting controls](../../tools/tests/test_vela_format.py)
-independently specify canonical bytes, including constants, separators, named
-arguments, expression bodies, nesting and comments together. The
-[lint controls](../../tools/tests/test_vela_lint.py) specify stable findings and
-original locations, complete-check requirements and unavailable-inspection refusal.
-
-The [command controls](../../tools/tests/test_vela_authoring_cli.py) pass for
-immutable repeated defaults, read-only input, original-snapshot emission, explicit
-formatting and post-format provenance, policy choices and refusal without writes.
-Explicit-write denial preserves source and output; an output failure after an
-explicit source publication truthfully retains formatted source and predecessor
-output, cleans pending files and recovers on the next emission. The
-[editor controls](../../tools/tests/test_vela_lsp_editor.py) pass for exact
-proposed edits, unchanged overlays and positions, worker refusal/recovery and real
-stdio operations. Focused Windows host controls and locked Python checks pass.
-The [shared handoff](../../AGENTS.md#tool-execution-and-validation) records the
-settled revision and user-managed hosted validation; no hosted passing verdict
-follows from this acceptance. Wider-language formatting, semantic lints,
-two-editor interoperability, checked source correspondence and production
-admission retain their existing owners.
+The [CLI fixtures](../../tools/tests/test_vela_authoring_cli.py) check immutable
+defaults, read-only source, exact snapshot provenance, explicit formatting, lint
+policy and publication failures. The
+[editor fixtures](../../tools/tests/test_vela_lsp_editor.py) check edit ranges,
+worker refusal and recovery and stdio. Independent client qualification follows
+the [LSP contract](lsp-prototype.md#acceptance-and-remaining-qualification).

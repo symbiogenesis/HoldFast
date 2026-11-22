@@ -1,16 +1,9 @@
 # Vela language reference
 
-This reference gives each Vela construct's syntax, meaning, a short example and
-its implementation status. It covers the
-[first supported release](first-release.md#release-boundary) and lists the
-[extension designs](../extensions/README.md) only as parsed or designed syntax.
-The linked owners decide meaning: [primitive semantics](first-release.md#primitive-semantics),
-[module rules](first-release.md#modules-and-packages),
-[ownership libraries](first-release.md#ownership-libraries),
-[core loan and refinement rules](core-design.md) and the
-[development surface grammar](surface-grammar.md). Where this page summarizes a
-rule, the owner wins. The [primary design](../assurance/verification-strategy.md) supplies the
-rationale and longer examples.
+The tables summarize syntax, semantics and prototype support. See the
+[first-release contract](first-release.md) for primitive semantics, module rules and
+ownership libraries, the [synchronous core](core-design.md) for loan and refinement
+rules, and the [surface grammar](surface-grammar.md) for syntax.
 
 ## How to read this reference
 
@@ -22,26 +15,16 @@ prototype contracts:
 | **P** | Checked by the pure prototype and emitted as Gallina over `Nat` and `bool` | [Pure prototype](../tooling/pure-prototype.md#source-fragment) |
 | **M** | Accepted by the opt-in mathematical elaborator, which emits CIC terms for kernel replay | [Mathematical elaborator](../tooling/elaboration-prototype.md#supported-mathematical-increment) |
 | **S** | Parsed as located syntax by the development parser, with no semantic consumer | [Surface grammar](surface-grammar.md#required-syntax) |
-| **D** | Specified by a design contract, not yet parsed in the spelling shown | The linked contract |
+| **D** | Specified by a design contract with no checking implementation for that behavior | The linked contract |
 
-P implies M unless the row says otherwise, and M implies S. No marker is a
-release implementation: represented semantics, checked source correspondence,
-lowering and production qualification belong to the first-release delivery
-plan. An M marker records that the elaborator accepts and emits a construct as
-its real kernel proposition; obligations discharged by the Python solver are
-emitted and audited in the explicit solver-trust ledger rather than accepted as
-closed ([Q25af](../../PLAN.md#q-assessment-actions)).
-
-Both parser routes enforce the settled surface spellings
-([Q25ah](../../PLAN.md#q-assessment-actions)):
-`open (...) lifts ...` for invariant lifting, `let` or `var` on every local,
-bare nullary constructors, `Pattern => body,` arms in every match and `restores`
-with its returned-loan meaning.
+P implies M unless the row says otherwise, and M implies S. These markers describe
+prototype support. Production requirements are in the [delivery plan](../../PLAN.md#vela-first-release-delivery).
+The mathematical elaborator tracks solver-discharged obligations in its
+[solver-trust ledger](../tooling/elaboration-prototype.md#supported-mathematical-increment).
 
 Examples labeled **parsed** are accepted by
-`python tools/run.py vela-parser parse --surface FILE` at this document's
-revision; examples labeled **design** show the intended surface where a feature
-exceeds the implemented parser or elaborator subset.
+`python tools/run.py vela-parser parse --surface FILE`. Examples labeled **design**
+show features outside the relevant prototype's supported subset.
 
 ## Lexical structure
 
@@ -142,7 +125,7 @@ public Nat Total<T>(T first, T second) where Sized(type T)
 | Tuples `(A, B)` | Products, eliminated by tuple patterns | M |
 | `Option<T>`, `Result<T, E>` | Library unions with `Some(v)`/`None` and `Ok(v)`/`Err(e)`; absence and failure are explicit cases | M |
 | `Seq<T>`, `Vec<T, n>` | Specification sequence, and a mathematical vector of length `n` | M |
-| `Span<byte>` | Concrete capability-and-memory carrier of the first slice | M |
+| `Span<byte>` | A byte span in the [packet validator's source model](first-release.md#first-slice-qualification) | M |
 | `Span<T, count>` | View of `count` initialized elements with runtime `Length` and erased `Model : Seq<T>` | D ([ownership libraries](first-release.md#ownership-libraries)) |
 | `Slots<T, capacity>` | Vacant-slot storage with live-prefix and vacant-suffix ranges. `.Capacity` always has type `usize`. Its mathematical index is `capacity`, whose representability is required at construction. | M |
 | `TextBuilder<capacity>` | Bounded text buffer for allocation-free formatting | M |
@@ -182,7 +165,7 @@ local declaration. `let` makes the binding immutable but does not forbid writing
 through an exclusive loan it holds. Type annotation and mutability are
 independent choices ([binding table](../assurance/verification-strategy.md#surface-conventions)).
 
-**Parsed example** (settled local spellings):
+**Parsed example** (typed and inferred locals):
 
 ```text
 module Reference.Bindings;
@@ -222,7 +205,7 @@ Operators from weakest to strongest binding, as fixed by the
 Comparisons do not chain; parenthesize them. Short-circuit `&&` and `||`
 evaluate the right operand only when needed. A `<` begins a generic call only
 when a complete argument list closes and is followed by `(`
-([token-only rule](surface-grammar.md#familiar-authoring-migration)).
+([token-only rule](surface-grammar.md#bindings-match-arms-and-generic-calls)).
 
 For represented integers, ordinary `+`, `-` and `*` require a representable
 result. Both `/` and `%` require a nonzero divisor. Signed division also
@@ -266,7 +249,7 @@ public Nat Headroom(Option<Nat> used, Nat capacity)
 | Conditional statement | `if (c) { ... } else { ... }` | P |
 | Match statement | `match (e) { Pattern => { ... }, ... }`, exhaustive | M |
 | Range loop | `foreach (let i in low..high) invariant P { ... }` | M |
-| Collection loop | `foreach (let x in xs)`, `foreach (in x in xs)`, `foreach (ref x in xs)`: value, shared-read and exclusive element iteration | M (located modes); D (represented iteration) |
+| Collection loop | `foreach (let x in xs)`, `foreach (in x in xs)`, `foreach (ref x in xs)`: value, shared-read and exclusive element iteration | S (located modes), D (represented iteration) |
 | While loop | `while (c) invariant P decreases m { ... }` | M |
 | `break`, `continue` | Leave or restart the innermost loop, closing local loans | M |
 | Assignment | `x = e;`, `x += e;` and the other compound forms, on `var` locals, fields and indexed elements | M |
@@ -276,7 +259,7 @@ A range loop supplies its bound, a representable increment and its decreasing
 measure; only the functional invariant is authored. Every loop exit closes the
 loans opened in the iteration ([loans and control flow](core-design.md#loans-and-control-flow)).
 
-**Parsed example** (statement match with settled arms and bare `None`):
+**Parsed example** (statement match with a nullary case):
 
 ```text
 module Reference.Control;
@@ -324,7 +307,7 @@ public Nat CountTo(Nat limit)
 | Receiver `this`, `ref this.Tail` | The receiver and a receiver loan limited to a named view | M (`this`), S (views) |
 | Named view `view Tail = slots[length], length grows;` | A part of a struct a signature can lend separately | S |
 | Place-named loan `'input`, `'this.text`; `region 'r` | A loan tied to one parameter or field; a region parameter only where no place can be named | S |
-| Returned loan `Result<ref<'table> V, E>` | A loan leaving with a result, with a `restores` contract for its end | S |
+| Returned loan `Result<ref<'table> V, E>` | Exclusive-loan design with a `restores` contract. The synchronous core admits [shared returned views](core-design.md#loans-and-control-flow). | S (syntax), D (exclusive return) |
 | `*p`, `&place`, `p + n`, `p[i]` | Typed pointer and place operations under access contracts | S |
 
 Executable calls that take or return potentially affine values require a
@@ -336,10 +319,10 @@ inserts `in`, `ref`, `out` or `move`. A loan ends at its last use, branch by
 branch, and restoration is inferred rather than written. A receiver loan starts
 before the explicit arguments are evaluated, and the first release has no
 two-phase receiver borrows and no loans carried across loop iterations
-([product costs](../assurance/verification-strategy.md#language-product-contract)). The
-[loan-analysis diagnostic](loan-analysis.md) experiments with inferred loan
-ends over supplied flow facts; source loan checking is design work under the
-[borrow-analysis promotion contract](core-design.md#borrow-analysis-promotion).
+([release boundary](first-release.md#release-boundary)). The
+[loan diagnostic](loan-analysis.md) proposes ends over explicit flow facts. The
+[core rules](core-design.md#borrow-analysis-promotion) specify checked source
+correspondence and resource derivations.
 
 **Design example** (a place-named result view, after the
 [primary design](../assurance/verification-strategy.md#dependent-results-and-place-named-loans)):
@@ -365,7 +348,7 @@ public Result<PacketView<'input>, ParseError> ParsePrefix(in Span<byte> input)
 | `requires P` | Entry condition the caller proves | M |
 | `ensures P` | Exit condition; `result` names the returned value and `old(e)` evaluates `e` at entry | M |
 | `where Interface(type T)` | Interface constraint or precontract on generic parameters | M |
-| `restores P` | Predicate over the lender that holds when a returned loan ends; `final(x)` is the value the loan leaves behind | D ([restoration contracts](../assurance/verification-strategy.md#flow-sensitive-loans-and-restoration-contracts)) |
+| `restores P` | Predicate over the lender that holds when a returned loan ends; `final(x)` is the value the loan leaves behind | S (syntax), D (meaning, see [restoration contracts](../assurance/verification-strategy.md#flow-sensitive-loans-and-restoration-contracts)) |
 | `invariant Name: P` | Named record or struct invariant conjunct, or a loop invariant | M |
 | `decreases m` | Termination measure of a recursive definition or loop | M |
 | `effects reads(a), writes(b), calls(f)` | Closed upper bound on reads, writes and calls, including transitive callees and captures; no allocation | M |
