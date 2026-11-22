@@ -28,6 +28,7 @@
 | `python tools/run.py vela-parser build-package WORKSPACE LOCK [--output BUNDLE]` | guest | Check the lock and module graph, elaborate in dependency order and optionally publish the bound Gallina bundle |
 | `python tools/run.py vela-parser scip WORKSPACE LOCK --output DIRECTORY` | guest | Export the [offline mathematical package index](../docs/tooling/tooling-protocols.md#locked-mathematical-package-index) and its exact source and generated files |
 | `python tools/run.py vela-parser scip-check WORKSPACE LOCK DIRECTORY [--require-complete]` | guest | Recheck all SCIP bundle bytes and optionally require full authored-reference coverage |
+| `python tools/run.py vela-parser qualify-scip-reader READER` | guest | Exercise imported definitions, references, implementations and freshness in the pinned independent SCIP reader |
 | `python tools/run.py vela-parser bsp WORKSPACE LOCK [LOCK ...]` | guest | Serve the [locked package graph](../docs/tooling/tooling-protocols.md#locked-mathematical-package-builds) over BSP 2.1.1 stdio |
 | `python tools/run.py vela-parser qualify-bsp-client` | guest | Run the pinned Neovim build client against successful, failed, cancelled and stale builds |
 | `python tools/run.py vela-parser debug-simulator --qualify` | guest | Check the [packet assembly simulator](../docs/tooling/tooling-protocols.md#packet-assembly-simulator) against expected stops, registers, capability observations and fault paths |
