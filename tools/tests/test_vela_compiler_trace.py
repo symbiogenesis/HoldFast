@@ -13,7 +13,7 @@ from typing import cast
 from unittest.mock import patch
 
 import toolchain as vela
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from toolchain import compiler_trace as trace
 from toolchain import parser as vela_parser
 from toolchain import parser_checked
@@ -121,13 +121,11 @@ def _declarations() -> None:
     _refuses(changed, source=source)
     for name, kind, line, column in (("bad name", "function", 1, 1), ("X", "proof", 1, 1),
                                      ("X", "function", True, 1), ("X", "constant", 1, 0)):
-        try:
-            with recorder.declaration(name, kind, line, column):
-                pass
-        except ValueError:
+        with (
+            raises(ValueError, msg="invalid declaration site entered recording"),
+            recorder.declaration(name, kind, line, column),
+        ):
             pass
-        else:
-            raise AssertionError("invalid declaration site entered recording")
 
 
 def _bindings_and_completeness() -> None:
@@ -205,12 +203,8 @@ def _clock_and_open_spans() -> None:
     trace.validate(document, SOURCE, PRODUCER, require_complete=False)
     _refuses(document)
     for bound in (0, -1, trace.MAX_EVENTS + 1, True):
-        try:
+        with raises(ValueError, msg="invalid recorder bound accepted"):
             trace.Recorder(max_events=bound)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("invalid recorder bound accepted")
 
 
 def _quantized_boundaries() -> None:
@@ -234,12 +228,8 @@ def _bounded_decoder() -> None:
     ensure(trace.decode(json.dumps(_fixture()).encode())["displayTimeUnit"] == "ms", "decode failed")
     for raw in (b'{"x":1,"x":2}', b'{"x":NaN}', b'{"x":1.1}',
                 b"[" * 20 + b"0" + b"]" * 20, b" " * (trace.MAX_TRACE_BYTES + 1)):
-        try:
+        with raises(ValueError, msg="unbounded or malformed trace decoded"):
             trace.decode(raw)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("unbounded or malformed trace decoded")
 
 
 def _producer_file_freshness() -> None:
@@ -274,12 +264,8 @@ def _producer_file_freshness() -> None:
             runtime["parser_sha256"] = "b" * 64
             ensure(trace.producer_identity() != previous, "native runtime change retained producer identity")
             owners[0].unlink()
-            try:
+            with raises(OSError, msg="missing dependency owner silently omitted from identity"):
                 trace.producer_identity()
-            except OSError:
-                pass
-            else:
-                raise AssertionError("missing dependency owner silently omitted from identity")
 
 
 def _runtime_executable_identity() -> None:
@@ -303,12 +289,8 @@ def _runtime_executable_identity() -> None:
             native = trace._native_runtime_identity(123)
             ensure(native["parser_sha256"] == digest, "native executable bytes omitted")
             parser.write_bytes(b"changed after build observation")
-            try:
+            with raises(ValueError, msg="late native executable mutation accepted"):
                 trace._native_runtime_identity(123)
-            except ValueError:
-                pass
-            else:
-                raise AssertionError("late native executable mutation accepted")
         with patch.object(trace.sys, "platform", "win32"), \
                 patch.object(parser_checked, "trace_worker_pids", return_value=(42, 123)), \
                 patch.object(trace.trace_runtime, "process_images", return_value={"wsl": executable}):
@@ -323,13 +305,11 @@ def _runtime_executable_identity() -> None:
                         b'{"python":{},"python":{},"parser_sha256":"bad"}', b"[]", b"x" * 8193,
                         json.dumps(bad_runtime).encode(),
                         b"[" * 1200 + b"0" + b"]" * 1200):
-                with patch.object(trace.subprocess, "run", return_value=subprocess.CompletedProcess(["wsl"], 0, raw, b"")):
-                    try:
-                        trace._runtime_identity(Path(directory))
-                    except ValueError:
-                        pass
-                    else:
-                        raise AssertionError("malformed guest identity accepted")
+                with (
+                    patch.object(trace.subprocess, "run", return_value=subprocess.CompletedProcess(["wsl"], 0, raw, b"")),
+                    raises(ValueError, msg="malformed guest identity accepted"),
+                ):
+                    trace._runtime_identity(Path(directory))
 
 
 def _compiler_and_command() -> None:

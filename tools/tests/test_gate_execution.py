@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from toolchain import checks, corpus, markdown, proofenv
 from toolchain.report import Reporter
 
@@ -54,12 +54,9 @@ def _shared_load_failure() -> None:
 def _git_deadline() -> None:
     with patch.object(corpus, "git_environment", return_value=None), \
             patch.object(corpus.subprocess, "run", side_effect=subprocess.TimeoutExpired("git", 30)) as run:
-        try:
+        with raises(RuntimeError, msg="a stalled Git index probe was accepted") as raised:
             corpus._git(Path("checkout"), "ls-files", "-z")
-        except RuntimeError as error:
-            ensure("git ls-files -z exceeded" in str(error), "Git timeout lost its command context")
-        else:
-            raise AssertionError("a stalled Git index probe was accepted")
+        ensure("git ls-files -z exceeded" in str(raised.exception), "Git timeout lost its command context")
     ensure(run.call_args.kwargs["timeout"] == corpus.GIT_TIMEOUT
            and run.call_args.kwargs["stdin"] == subprocess.DEVNULL,
            "the Git index probe must have a deadline and cannot wait for interactive input")
@@ -91,12 +88,9 @@ def _translation_deadline() -> None:
                 patch.object(proofenv.shutil, "which", return_value="wslpath"), \
                 patch.object(proofenv.subprocess, "run",
                              side_effect=subprocess.TimeoutExpired("wslpath", 10)) as run:
-            try:
+            with raises(RuntimeError, msg="a stalled worktree path translation was accepted") as raised:
                 proofenv.git_dir(root)
-            except RuntimeError as error:
-                ensure("path translation exceeded" in str(error), "WSL timeout lost its purpose")
-            else:
-                raise AssertionError("a stalled worktree path translation was accepted")
+            ensure("path translation exceeded" in str(raised.exception), "WSL timeout lost its purpose")
         ensure(run.call_args.kwargs["timeout"] == proofenv.PATH_TIMEOUT,
                "worktree translation must have a finite deadline")
 

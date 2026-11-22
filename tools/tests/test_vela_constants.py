@@ -7,7 +7,7 @@ from typing import cast
 from unittest.mock import patch
 
 import toolchain as vela
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 
 
 def _refuses(source: str, kind: str, fragment: str = "") -> vela.VelaError:
@@ -159,12 +159,9 @@ def _independent_constant_ast() -> None:
                 ast["functions"] = ast.pop("declarations")
             else:
                 changed["source_sha256"] = "0" * 64
-            try:
+            with raises((TypeError, ValueError),
+                        msg=f"accepted constant source/protocol {corruption} corruption"):
                 vela.translate_ast(source, changed)
-            except (TypeError, ValueError):
-                pass
-            else:
-                raise AssertionError(f"accepted constant source/protocol {corruption} corruption")
 
 
 def _complete_source_order() -> None:
@@ -190,12 +187,8 @@ def _complete_source_order() -> None:
     for selection in (declarations[:1], declarations[1:], list(reversed(declarations))):
         changed = copy.deepcopy(response)
         cast("dict[str, object]", changed["ast"])["declarations"] = selection
-        try:
+        with raises(ValueError, msg="accepted skipped or reordered module constants"):
             vela.translate_ast(source, changed)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("accepted skipped or reordered module constants")
     source = b"module M; public Nat Read() { const Nat Limit = 2 + 3 * 4; const Nat Hidden = 0; return Limit; }"
     expression = cast("list[dict[str, object]]", cast("dict[str, object]", _constant_tree(source)["ast"])["declarations"])[0]["value"]
     bindings: list[dict[str, object]] = []
@@ -223,12 +216,8 @@ def _complete_source_order() -> None:
         changed_ast = cast("dict[str, object]", changed["ast"])
         changed_function = cast("list[dict[str, object]]", changed_ast["declarations"])[0]
         cast("dict[str, object]", changed_function["body"])["bindings"] = selection
-        try:
+        with raises(ValueError, msg="accepted skipped or reordered local constants"):
             vela.translate_ast(source, changed)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("accepted skipped or reordered local constants")
 
 
 def _lexical_token_boundaries() -> None:
@@ -249,12 +238,8 @@ def _lexical_token_boundaries() -> None:
                     relocate(child, boundary)
         relocate(changed)
         changed["source_sha256"] = hashlib.sha256(edited).hexdigest()
-        try:
+        with raises(ValueError, msg=f"accepted lexical token split at {marker!r}"):
             vela.translate_ast(edited, changed)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError(f"accepted lexical token split at {marker!r}")
 
 
 def _inflated_neighbor_cannot_hide_runtime_shadow() -> None:
@@ -300,12 +285,8 @@ def _inflated_neighbor_cannot_hide_runtime_shadow() -> None:
             changed_body = cast("dict[str, object]", changed_function["body"])
             changed_saved = cast("list[dict[str, object]]", changed_body["bindings"])[0]
             cast("dict[str, object]", changed_saved["value"])["span"] = [zero, hidden_end - 1]
-        try:
+        with raises(ValueError, msg="inflated neighboring binding hid a runtime constant dependency"):
             vela.translate_ast(source, changed)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("inflated neighboring binding hid a runtime constant dependency")
 
 
 def cases() -> list[Case]:

@@ -7,17 +7,15 @@ from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import patch
 
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from toolchain import VelaError, web_output
 
 
 def _refuses(action: Callable[[], object], message: str) -> None:
-    try:
+    with raises((VelaError, ValueError), msg=f"missing refusal for {message}") as raised:
         action()
-    except (VelaError, ValueError) as error:
-        ensure(message in str(error), f"wrong refusal: {error}")
-    else:
-        raise AssertionError(f"missing refusal for {message}")
+    error = raised.exception
+    ensure(message in str(error), f"wrong refusal: {error}")
 
 
 def _rows() -> None:

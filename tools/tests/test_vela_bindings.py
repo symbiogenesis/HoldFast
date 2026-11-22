@@ -4,7 +4,7 @@
 from unittest.mock import patch
 
 import toolchain as vela
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from toolchain import (
     Translation,
     VelaError,
@@ -50,36 +50,27 @@ def _typed_local_semantics() -> None:
 def _typed_local_refusals() -> None:
     for declaration in (b"let Nat value=true;", b"let bool value=1;"):
         source = b"module M;public Nat Count(){" + declaration + b"return 0;}"
-        try:
+        with raises(VelaError, msg="a local annotation inserted a conversion") as raised:
             translate(source)
-        except VelaError as error:
-            ensure(error.kind == "type" and "initializer" in error.message,
-                   "local annotation mismatch was not a type refusal")
-        else:
-            raise AssertionError("a local annotation inserted a conversion")
+        error = raised.exception
+        ensure(error.kind == "type" and "initializer" in error.message,
+               "local annotation mismatch was not a type refusal")
     for declaration in (b"Nat value=1;", b"Nat value=true;", b"bool value=true;", b"bool value=1;"):
         source = b"module M;public Nat Count(){" + declaration + b"return 0;}"
-        try:
+        with raises(VelaError, msg="bare local declaration without let/var was accepted") as raised:
             translate(source)
-        except VelaError as error:
-            ensure(error.kind == "syntax" and "let" in error.message,
-                   "bare local declaration was not refused at parse time")
-        else:
-            raise AssertionError("bare local declaration without let/var was accepted")
+        error = raised.exception
+        ensure(error.kind == "syntax" and "let" in error.message,
+               "bare local declaration was not refused at parse time")
     for declaration in (b"let usize count=0;", b"usize count=0;", b"var Nat count=0;"):
-        try:
+        with raises(VelaError, msg="the pure checker accepted represented types or mutation") as raised:
             translate(b"module M;public Nat Count(){" + declaration + b"return 0;}")
-        except VelaError as error:
-            ensure(error.kind == "unsupported", "wider binding syntax lost its unsupported boundary")
-        else:
-            raise AssertionError("the pure checker accepted represented types or mutation")
-    try:
+        ensure(raised.exception.kind == "unsupported", "wider binding syntax lost its unsupported boundary")
+    with raises(VelaError, msg="explicit let typed local became mutable") as raised:
         translate(b"module M;public Nat Count(){let Nat count=0;count=1;return count;}")
-    except VelaError as error:
-        ensure(error.kind == "unsupported" and "immutable binding 'count'" in error.message,
-               "explicit let typed local did not retain its immutable reassignment diagnostic")
-    else:
-        raise AssertionError("explicit let typed local became mutable")
+    error = raised.exception
+    ensure(error.kind == "unsupported" and "immutable binding 'count'" in error.message,
+           "explicit let typed local did not retain its immutable reassignment diagnostic")
 
 
 def _lint_sites_and_formatter_preservation() -> None:
@@ -125,12 +116,9 @@ def _preview_rejects_forged_sites_and_terms() -> None:
                   (vela.syntax.Site(100, 1),),
                   (vela.syntax.Site(1, 29), vela.syntax.Site(1, 29))):
         with patch.object(vela_authoring, "_bare_binding_sites", return_value=sites):
-            try:
+            with raises(VelaError, msg="preview accepted a forged/duplicate source site") as raised:
                 preview_bindings(source)
-            except VelaError as error:
-                ensure(error.kind == "lint-preview", "forged insertion lost its source-binding refusal")
-            else:
-                raise AssertionError("preview accepted a forged/duplicate source site")
+            ensure(raised.exception.kind == "lint-preview", "forged insertion lost its source-binding refusal")
     expected = b"module M;public Nat Count(){let Nat count=1;return count;}"
     original = translate(expected)
     changed = Translation(original.module, original.gallina + "changed term")
@@ -138,13 +126,11 @@ def _preview_rejects_forged_sites_and_terms() -> None:
         patch.object(vela, "translate", side_effect=(original, changed)),
         patch.object(vela_authoring, "_bare_binding_sites", return_value=()),
     ):
-        try:
+        with raises(VelaError, msg="preview published changed interpreted terms") as raised:
             preview_bindings(expected)
-        except VelaError as error:
-            ensure(error.kind == "lint-preview" and "interpreted terms" in error.message,
-                   "changed preview terms lost their semantic refusal")
-        else:
-            raise AssertionError("preview published changed interpreted terms")
+        error = raised.exception
+        ensure(error.kind == "lint-preview" and "interpreted terms" in error.message,
+               "changed preview terms lost their semantic refusal")
 
 
 def _assist_dont_coerce_bridges() -> None:
@@ -154,12 +140,9 @@ def _assist_dont_coerce_bridges() -> None:
            "loan assist did not insert explicit ref at the checked argument boundary")
     ensure(assist_loan_argument(rewritten_loan, 2, 51, "ref") == rewritten_loan,
            "loan assist was not idempotent on an already explicit ref argument")
-    try:
+    with raises(VelaError, msg="loan assist accepted a non-identifier boundary") as raised:
         assist_loan_argument(loan_source, 2, 50, "ref")
-    except VelaError as error:
-        ensure(error.kind == "lint-preview", "non-token loan insertion lost its lint-preview refusal")
-    else:
-        raise AssertionError("loan assist accepted a non-identifier boundary")
+    ensure(raised.exception.kind == "lint-preview", "non-token loan insertion lost its lint-preview refusal")
     propagate, local_match = assist_null_conditional("Read()", "Value")
     ensure(propagate == "(Read()?).Value"
            and local_match == "match (Read()) { Some(value) => value.Value, None => todo }",

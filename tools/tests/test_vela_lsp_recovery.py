@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import cast
 from unittest.mock import patch
 
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from tests.test_vela_lsp_clients import _recovery_completion_wire_controls
 from tests.test_vela_lsp_discovery import _inspect, _message, _object
 from toolchain import translate
@@ -106,12 +106,8 @@ def _ambiguity_unrelated_errors_and_token_boundaries() -> None:
             _PREFIX + "public Nat Use(Nat amount) { ret|urn missing; }"):
         ensure(_choices(marked) == [], f"unsupported or ambiguous recovery published candidates: {marked!r}")
     for offset in (True, -1, 100_000):
-        try:
+        with raises(ValueError, msg="invalid recovery cursor was accepted"):
             recover(b"module M;", offset)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("invalid recovery cursor was accepted")
 
 
 def _malformed_repairs_and_late_results_refuse() -> None:
@@ -132,12 +128,8 @@ def _malformed_repairs_and_late_results_refuse() -> None:
             broken["facts"] = {"status": "unavailable", "reason": "syntax"}
         else:
             broken["accepted"] = True
-        try:
+        with raises(InspectionError, msg=f"malformed {mutation} recovery facts were accepted"):
             project_recovery(snapshot, point, broken)
-        except InspectionError:
-            pass
-        else:
-            raise AssertionError(f"malformed {mutation} recovery facts were accepted")
     def late(source: bytes, offset: int) -> dict[str, object]:
         server.invalidate_inspections()
         return recover(source, offset)
@@ -145,30 +137,25 @@ def _malformed_repairs_and_late_results_refuse() -> None:
     ensure(_object(_reply(server, point).get("error")).get("code") == -32803,
            "recovery reply survived producer-generation invalidation")
     ensure(server.documents[_URI] is snapshot, "late recovery mutated the source")
-    with patch("toolchain.lsp_recovery.subprocess.run", return_value=subprocess.CompletedProcess(
-            [], 0, b'{"status":"unavailable","source_sha256":"stale"}', b"")):
-        try:
-            inspect_recovery(snapshot.source, cursor)
-        except InspectionError:
-            pass
-        else:
-            raise AssertionError("worker recovery accepted a stale source binding")
+    with (
+        patch("toolchain.lsp_recovery.subprocess.run", return_value=subprocess.CompletedProcess(
+            [], 0, b'{"status":"unavailable","source_sha256":"stale"}', b"")),
+        raises(InspectionError, msg="worker recovery accepted a stale source binding"),
+    ):
+        inspect_recovery(snapshot.source, cursor)
     ensure(hashlib.sha256(snapshot.source).hexdigest() != "stale", "digest control did not differ")
-    with patch("toolchain.lsp_recovery.subprocess.run", side_effect=subprocess.TimeoutExpired([], 5)):
-        try:
-            inspect_recovery(snapshot.source, cursor)
-        except InspectionError:
-            pass
-        else:
-            raise AssertionError("timed-out recovery worker supplied proposals")
-    with patch("toolchain.lsp_recovery.MAX_BODY_BYTES", 1), patch(
-            "toolchain.lsp_recovery.subprocess.run", return_value=subprocess.CompletedProcess([], 0, b"{}", b"")):
-        try:
-            inspect_recovery(snapshot.source, cursor)
-        except InspectionError:
-            pass
-        else:
-            raise AssertionError("over-budget recovery worker supplied a partial result")
+    with (
+        patch("toolchain.lsp_recovery.subprocess.run", side_effect=subprocess.TimeoutExpired([], 5)),
+        raises(InspectionError, msg="timed-out recovery worker supplied proposals"),
+    ):
+        inspect_recovery(snapshot.source, cursor)
+    with (
+        patch("toolchain.lsp_worker.MAX_BODY_BYTES", 1),
+        patch(
+            "toolchain.lsp_recovery.subprocess.run", return_value=subprocess.CompletedProcess([], 0, b"{}", b"")),
+        raises(InspectionError, msg="over-budget recovery worker supplied a partial result"),
+    ):
+        inspect_recovery(snapshot.source, cursor)
 
 
 def _real_stdio_incomplete_source_and_unsaved_unicode_edit() -> None:

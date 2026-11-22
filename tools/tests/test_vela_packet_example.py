@@ -6,7 +6,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from tests.harness import TOOLS, Case, ensure
+from tests.harness import TOOLS, Case, ensure, raises
 from toolchain import VelaError
 from toolchain.cli.vela_parser import (
     _compile_bridge,
@@ -45,12 +45,10 @@ def _walkthrough_edits() -> None:
         for before, after, diagnostic in edits:
             ensure(validator.count(before) == 1, f"walkthrough edit became ambiguous: {before}")
             path.write_text(validator.replace(before, after), encoding="utf-8")
-            try:
+            with raises(VelaError, msg=f"expected walkthrough edit to fail: {after}") as raised:
                 _packet_example(root, path, b"")
-            except VelaError as error:
-                ensure(error.kind == "type" and diagnostic in error.message, str(error))
-            else:
-                raise AssertionError(f"expected walkthrough edit to fail: {after}")
+            error = raised.exception
+            ensure(error.kind == "type" and diagnostic in error.message, str(error))
 
 
 def cases() -> list[Case]:

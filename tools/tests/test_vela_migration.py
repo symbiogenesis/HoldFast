@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import toolchain as vela
-from tests.harness import TOOLS, Case, ensure
+from tests.harness import TOOLS, Case, ensure, raises
 from toolchain import migration
 from toolchain import parser as vela_parser
 from toolchain.cli import vela_parser as cli
@@ -60,12 +60,9 @@ def _diagnostics() -> None:
            "agreement overrode an independent expected category")
     with patch.object(migration.vela_parser, "parse_source", side_effect=RuntimeError("broken protocol")), \
             patch.object(migration.vela, "translate_ast") as consume:
-        try:
+        with raises(RuntimeError, msg="protocol failure counted as a source refusal") as raised:
             migration.compare(compiled, (fixture,))
-        except RuntimeError as error:
-            ensure(str(error) == "broken protocol", "native failure cause lost")
-        else:
-            raise AssertionError("protocol failure counted as a source refusal")
+        ensure(str(raised.exception) == "broken protocol", "native failure cause lost")
         consume.assert_not_called()
 
 

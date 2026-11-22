@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import BinaryIO, cast
 from unittest.mock import patch
 
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from toolchain import env, proofenv
 from toolchain.cli import validate
 
@@ -85,12 +85,8 @@ def _fail_fast() -> None:
             ensure(run.call_count == 1 and "All " not in output.getvalue(), "failed validation ran later work or claimed completion")
             ensure("FAIL first:" in output.getvalue() and ".log" in output.getvalue(),
                    "failed validation omitted the failing step or log path")
-    try:
+    with raises(ValueError, msg="empty validation plan returned success"):
         validate.run(Path(), (), "empty")
-    except ValueError:
-        pass
-    else:
-        raise AssertionError("empty validation plan returned success")
 
 
 def _bounded_log_tail() -> None:
@@ -110,12 +106,9 @@ def _cli_selection_and_errors() -> None:
                "CLI lost the full profile or job override")
     for args in (["--jobs", "0"], ["--jobs", "-1"], ["--full", "--static"], ["--unknown"]):
         with redirect_stderr(StringIO()):
-            try:
+            with raises(SystemExit, msg="invalid validation arguments were accepted") as raised:
                 validate.main(args)
-            except SystemExit as error:
-                ensure(error.code == 2, "invalid validation arguments returned the wrong status")
-            else:
-                raise AssertionError("invalid validation arguments were accepted")
+            ensure(raised.exception.code == 2, "invalid validation arguments returned the wrong status")
 
 
 def cases() -> list[Case]:

@@ -5,7 +5,7 @@ import copy
 from typing import cast
 from unittest.mock import patch
 
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from tests.test_vela_elaborate import (
     _NAT,
     Form,
@@ -207,12 +207,9 @@ def _qualifier_source_binding() -> None:
             parameters[1]["const"] = True
         else:
             parameters[0]["const"] = "true"
-        try:
+        with raises(VelaError, msg=f"accepted {mutation} qualifier forgery") as raised:
             language.elaborate(source, changed)
-        except VelaError as error:
-            ensure(error.kind == "protocol", f"{mutation} escaped source-protocol validation")
-        else:
-            raise AssertionError(f"accepted {mutation} qualifier forgery")
+        ensure(raised.exception.kind == "protocol", f"{mutation} escaped source-protocol validation")
 
 
 def _symbolic_limits() -> None:
@@ -221,12 +218,9 @@ def _symbolic_limits() -> None:
     fixture.function("Use", _NAT, (("value", _NAT),), _call("Scale", _natural(4), _variable("value")))
     source, response = fixture.response()
     with patch.object(language, "MAX_REDUCTIONS", 2):
-        try:
+        with raises(VelaError, msg="specialization ignored its reduction budget") as raised:
             language.elaborate(source, response)
-        except VelaError as error:
-            ensure(error.kind == "limit", "bounded specialization did not return a limit refusal")
-        else:
-            raise AssertionError("specialization ignored its reduction budget")
+        ensure(raised.exception.kind == "limit", "bounded specialization did not return a limit refusal")
     with patch.object(language, "MAX_CONSTANT_NAT", 15):
         _refuses(fixture, "limit", "elaborator evaluation limit")
 

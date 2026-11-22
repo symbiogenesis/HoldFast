@@ -7,7 +7,7 @@ from typing import cast
 from unittest.mock import patch
 
 import toolchain as vela
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from toolchain import ast as vela_ast
 
 
@@ -99,12 +99,9 @@ def _typed_local_protocol() -> None:
                 changed_binding["kind"] = "typed_local"
             else:
                 changed_binding["type"] = None
-            try:
+            with raises((TypeError, ValueError),
+                        msg=f"native decoder accepted a {mutation} annotation forgery"):
                 vela_ast.decode(source, changed)
-            except (TypeError, ValueError):
-                pass
-            else:
-                raise AssertionError(f"native decoder accepted a {mutation} annotation forgery")
 
 
 def _expression_body_protocol() -> None:
@@ -130,12 +127,8 @@ def _expression_body_protocol() -> None:
                 body["value"] = _node("nat", start, start + 1, value="0")
             else:
                 body["ignored"] = True
-            try:
+            with raises((TypeError, ValueError), msg=f"accepted expression-body {label} corruption"):
                 vela.translate_ast(source, changed)
-            except (TypeError, ValueError):
-                pass
-            else:
-                raise AssertionError(f"accepted expression-body {label} corruption")
     for spelling, kind in ((b"true", "type"), (b"missing", "name")):
         source = b"module M; public Nat F() => " + spelling + b";"
         literal = source.index(spelling)
@@ -164,12 +157,9 @@ def _expression_body_uncovered_tokens() -> None:
     for source, spelling in sources:
         start = source.index(spelling, source.index(b"=>"))
         tree = _arrow_fixture(source, _node("nat", start, start + len(spelling), value=spelling.decode()))
-        try:
+        with raises(ValueError,
+                    msg=f"expression body accepted uncovered non-trivia or comment payload: {source!r}"):
             vela.translate_ast(source, tree)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError(f"expression body accepted uncovered non-trivia or comment payload: {source!r}")
 
 
 def _independent_translation() -> None:
@@ -248,12 +238,8 @@ def _extended_operator_protocol() -> None:
             cast("dict[str, object]", changed["operator"])["span"] = [first, first + 2]
         else:
             cast("dict[str, object]", changed["value"])["span"] = [first, first + 5]
-        try:
+        with raises((TypeError, ValueError), msg=f"native decoder accepted unary {mutation} forgery"):
             vela_ast.decode(source, _fixture(source, changed, value_type="bool"))
-        except (TypeError, ValueError):
-            pass
-        else:
-            raise AssertionError(f"native decoder accepted unary {mutation} forgery")
 
 
 def _negation_source_coverage() -> None:
@@ -274,12 +260,8 @@ def _negation_source_coverage() -> None:
                "nested unary source lost a negation across complete trivia")
         omitted = _node("unary", first, literal + 4, operator=_name("!", first), value=value)
         for changed in (omitted, nested, value):
-            try:
+            with raises(ValueError, msg="native unary decoding omitted a source operator"):
                 vela_ast.decode(source, _fixture(source, changed, value_type="bool"))
-            except ValueError:
-                pass
-            else:
-                raise AssertionError("native unary decoding omitted a source operator")
     for authored, operator, operand in ((b"-true", "-", b"true"),
                                         (b"!+true", "!", b"true"),
                                         (b"!true false", "!", b"true"),
@@ -289,12 +271,8 @@ def _negation_source_coverage() -> None:
         literal = source.index(operand, start)
         value = _node("bool", literal, literal + len(operand), value=operand == b"true")
         expression = _node("unary", start, start + len(authored), operator=_name(operator, start), value=value)
-        try:
+        with raises(ValueError, msg=f"native unary source coverage accepted {authored!r}"):
             vela_ast.decode(source, _fixture(source, expression, value_type="bool"))
-        except ValueError:
-            pass
-        else:
-            raise AssertionError(f"native unary source coverage accepted {authored!r}")
     for count in (63, 64, 300):
         source = b"module M; public bool F() { return " + b"!" * count + b"true; }"
         literal = source.index(b"true")
@@ -353,12 +331,8 @@ def _protocol_controls() -> None:
         ("missing AST", {key: value for key, value in expected.items() if key != "ast"}),
     )
     for label, response in mutations:
-        try:
+        with raises(ValueError, msg=f"accepted {label}"):
             vela.translate_ast(source, response)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError(f"accepted {label}")
     for label in ("field", "span", "Boolean span", "name", "literal", "kind", "empty", "child"):
         response = copy.deepcopy(expected)
         # Mutations use the fixture's known shape rather than production decoding.
@@ -382,12 +356,8 @@ def _protocol_controls() -> None:
             ast["declarations"] = []
         else:
             terminal["value"] = []
-        try:
+        with raises((TypeError, ValueError), msg=f"accepted native {label} mutation"):
             vela.translate_ast(source, response)
-        except (TypeError, ValueError):
-            pass
-        else:
-            raise AssertionError(f"accepted native {label} mutation")
 
 
 def _semantic_refusals() -> None:
@@ -430,12 +400,9 @@ def _resource_boundaries() -> None:
         else:
             ensure(count == 63 and actual == vela.translate(source), "native grouping boundary changed")
     # Source bytes are bounded before a forged AST can reach a recursive reader.
-    try:
+    with raises(vela.VelaError, msg="oversized source accepted through native consumer") as raised:
         vela.translate_ast(b" " * (vela.MAX_SOURCE_BYTES + 1), {})
-    except vela.VelaError as error:
-        ensure(error.kind == "limit", "oversized AST source has wrong refusal")
-    else:
-        raise AssertionError("oversized source accepted through native consumer")
+    ensure(raised.exception.kind == "limit", "oversized AST source has wrong refusal")
 
 
 def _named_call_tree(source: bytes) -> dict[str, object]:
@@ -497,12 +464,8 @@ def _located_named_arguments() -> None:
                 call["arguments"] = []
             else:
                 response["source_sha256"] = "0" * 64
-            try:
+            with raises((ValueError, TypeError), msg=f"accepted named-argument {corruption} corruption"):
                 vela.translate_ast(source, response)
-            except (ValueError, TypeError):
-                pass
-            else:
-                raise AssertionError(f"accepted named-argument {corruption} corruption")
 
 
 def cases() -> list[Case]:

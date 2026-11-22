@@ -4,7 +4,7 @@
 import copy
 from typing import cast
 
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from tests.test_vela_elaborate import (
     _NAT,
     Form,
@@ -71,13 +71,11 @@ def _malformed_words() -> None:
                 contract = cast("list[Node]", declarations[2]["contracts"])[0]
                 node, field = cast("Node", contract["value"]), "quantifier"
             node[field] = malformed
-            try:
+            with raises(VelaError, msg=f"malformed {role} word was accepted") as raised:
                 elaborate(source, changed)
-            except VelaError as error:
-                ensure(error.kind == "protocol" and "syntax word" in error.message,
-                       f"malformed {role} word lost its protocol refusal: {error.kind}")
-            else:
-                raise AssertionError(f"malformed {role} word was accepted")
+            error = raised.exception
+            ensure(error.kind == "protocol" and "syntax word" in error.message,
+                   f"malformed {role} word lost its protocol refusal: {error.kind}")
     ensure(elaborate(source, response).module == "ProtocolWords",
            "a refused syntax word damaged the next valid elaboration")
 
@@ -87,13 +85,10 @@ def _supported_and_unsupported_words() -> None:
     output = elaborate(*fixture.response()).gallina
     ensure("Definition vela_d2_Reflexive" in output and "Corelib.Init.Logic.eq_refl" in output,
            "universal proof failed to emit its explicit equality witness")
-    try:
+    with raises(VelaError, msg="existential binder was treated as universally introduced") as raised:
         elaborate(*_fixture("exists").response())
-    except VelaError as error:
-        ensure(error.kind == "name",
-               "an unwitnessed existential assertion did not reject the unbound quantifier variable")
-    else:
-        raise AssertionError("existential binder was treated as universally introduced")
+    ensure(raised.exception.kind == "name",
+           "an unwitnessed existential assertion did not reject the unbound quantifier variable")
     ex_fixture = _Fixture("ExistentialWitness")
     ex_fixture.theorem("HasWitness", (), _quantifier("exists"),
                        _assert(_quantifier("exists"), by=_natural(0)))
@@ -103,22 +98,17 @@ def _supported_and_unsupported_words() -> None:
     fnonce_fixture = _Fixture("UnsupportedCallableMode")
     fnonce_fixture.definition("Once", _callable_mode_type("FnOnce"), (),
                               _lambda((("value", _NAT),), _variable("value")))
-    try:
+    with raises(VelaError, msg="FnOnce callable mode acquired a mathematical interpretation") as raised:
         elaborate(*fnonce_fixture.response())
-    except VelaError as error:
-        ensure(error.kind == "unsupported" and "pure Fn" in error.message,
-               "a source-bound FnOnce callable failed before its semantic boundary")
-    else:
-        raise AssertionError("FnOnce callable mode acquired a mathematical interpretation")
+    error = raised.exception
+    ensure(error.kind == "unsupported" and "pure Fn" in error.message,
+           "a source-bound FnOnce callable failed before its semantic boundary")
     source, response = fixture.response()
     declarations = cast("list[Node]", cast("Node", response["ast"])["declarations"])
     cast("Node", declarations[0]["result"])["mode"] = "FnOnce"
-    try:
+    with raises(VelaError, msg="a callable mode absent from source was accepted") as raised:
         elaborate(source, response)
-    except VelaError as error:
-        ensure(error.kind == "protocol", "a forged valid syntax word escaped source binding")
-    else:
-        raise AssertionError("a callable mode absent from source was accepted")
+    ensure(raised.exception.kind == "protocol", "a forged valid syntax word escaped source binding")
 
 
 def cases() -> list[Case]:

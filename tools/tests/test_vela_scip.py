@@ -5,7 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from tests.test_vela_elaborate import _call, _Fixture, _import_decl, _natural, _type, _variable
 from toolchain import packages, parser, scip
 from toolchain.elaborate import elaborate_package
@@ -45,22 +45,17 @@ def _project() -> None:
             exported = scip.export(root, root, root / "lock", dest)
             ensure(exported["complete"] is False and (dest / "index.scip").is_file(), "missing partial index")
             ensure(scip.check(root, root, root / "lock", dest)["status"] == "current", "fresh bundle refused")
-            try:
+            with raises(ValueError, msg="incomplete index asserted absence of references") as raised:
                 scip.check(root, root, root / "lock", dest, require_complete=True)
-            except ValueError as error:
-                ensure("incomplete" in str(error), "complete-only handoff reached the wrong refusal")
-            else:
-                raise AssertionError("incomplete index asserted absence of references")
+            ensure("incomplete" in str(raised.exception), "complete-only handoff reached the wrong refusal")
             for path in (dest / "index.scip", dest / "manifest.json", dest / "__generated__/Provider.v",
                          dest / "pkg/v1/Client.vela"):
                 original = path.read_bytes()
                 path.write_bytes(b"X" + original[1:])
-                try:
+                with raises(ValueError, msg=f"corrupt SCIP handoff accepted: {path}") as raised:
                     scip.check(root, root, root / "lock", dest)
-                except ValueError as error:
-                    ensure("stale or corrupt" in str(error), f"unexpected corruption refusal: {error}")
-                else:
-                    raise AssertionError(f"corrupt SCIP handoff accepted: {path}")
+                error = raised.exception
+                ensure("stale or corrupt" in str(error), f"unexpected corruption refusal: {error}")
                 path.write_bytes(original)
 
 
@@ -72,12 +67,9 @@ def _producer_changed() -> None:
         manifest: packages.Object = {"lock_sha256": packages._sha(lock.read_bytes())}
         with (patch.object(parser, "cached_build"), patch.object(packages, "_recheck_parser"),
               patch.object(packages, "_producer", return_value={"revision": "new"})):
-            try:
+            with raises(ValueError, msg="accepted a producer replaced during SCIP publication") as raised:
                 scip._current_inputs(root, root, lock, manifest)
-            except ValueError as error:
-                ensure("compiler or parser changed" in str(error), "changed producer reached the wrong refusal")
-            else:
-                raise AssertionError("accepted a producer replaced during SCIP publication")
+            ensure("compiler or parser changed" in str(raised.exception), "changed producer reached the wrong refusal")
 
 
 def cases() -> list[Case]:

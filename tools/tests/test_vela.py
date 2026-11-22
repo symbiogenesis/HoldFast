@@ -8,7 +8,7 @@ from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
-from tests.harness import TOOLS, Case, ensure
+from tests.harness import TOOLS, Case, ensure, raises
 from toolchain import MAX_SOURCE_BYTES, VelaError, translate
 from toolchain.cli import vela as cli
 
@@ -215,12 +215,10 @@ def _surface_and_exits() -> None:
                    "public Nat F(Nat x) -> Nat { return x; }",
                    "public Nat F(x: Nat) { return x; }"):
         # A removed spelling may be an unsupported token or a syntax mismatch.
-        try:
+        with raises(VelaError, msg=f"invalid surface accepted: {source}") as raised:
             translate(("module M; " + source).encode())
-        except VelaError as error:
-            ensure(error.kind in {"syntax", "unsupported"}, f"wrong surface failure: {error}")
-        else:
-            raise AssertionError(f"invalid surface accepted: {source}")
+        error = raised.exception
+        ensure(error.kind in {"syntax", "unsupported"}, f"wrong surface failure: {error}")
     _refuses("module M; fn F(x: Nat) -> Nat { x }", "unsupported")
     _refuses("module M; public Bool F() { return true; }", "unsupported")
 

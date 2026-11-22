@@ -1,8 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Menhir-generated syntax campaign, CST/renderer, and independent AST/span oracle controls (Q25y)."""
 
-from __future__ import annotations
-
 import hashlib
 import json
 import subprocess
@@ -14,7 +12,7 @@ from typing import cast
 from unittest.mock import patch
 
 import toolchain as vela
-from tests.harness import TOOLS, Case, ensure
+from tests.harness import TOOLS, Case, ensure, raises
 from toolchain import MAX_LITERAL_DIGITS, MAX_SOURCE_BYTES, VelaError
 from toolchain import parser as vela_parser
 from toolchain import syntax_campaigns as campaigns
@@ -53,20 +51,12 @@ def _renderer_and_token_payload_controls() -> None:
     )
 
     for bad_line in ("", "surface_file: MODULE IDENT SEMICOLON EOF", "MODULE IDENT SEMICOLON EOF"):
-        try:
+        with raises(ValueError, msg=f"accepted malformed sentence line {bad_line!r}"):
             campaigns.parse_sentence_line(bad_line)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError(f"accepted malformed sentence line {bad_line!r}")
 
     for bad_variant in ("unknown", ""):
-        try:
+        with raises(ValueError, msg=f"accepted unsupported render variant {bad_variant!r}"):
             campaigns.render_sentence(sentence, variant=bad_variant)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError(f"accepted unsupported render variant {bad_variant!r}")
 
 
 def _cst_parser_and_sentence_verification_controls() -> None:
@@ -104,12 +94,10 @@ def _cst_parser_and_sentence_verification_controls() -> None:
         (campaigns.CstNode("surface_file", ("MODULE",)), "root symbol"),
         (campaigns.CstNode("file", ("MODULE", "IDENT")), "leaf terminals"),
     ):
-        try:
+        with raises(ValueError, msg=f"invalid CST {bad_cst!r} passed verification") as raised:
             campaigns.verify_cst_against_sentence(bad_cst, sentence)
-        except ValueError as error:
-            ensure(expected in str(error), f"unexpected CST verification message: {error}")
-        else:
-            raise AssertionError(f"invalid CST {bad_cst!r} passed verification")
+        error = raised.exception
+        ensure(expected in str(error), f"unexpected CST verification message: {error}")
 
     for malformed in (
         "ACCEPT\n",
@@ -259,15 +247,13 @@ def _independent_oracle_and_refusal_controls() -> None:
         ),
     )
     for raw, kind, line, col, snippet in refusal_cases:
-        try:
+        with raises(VelaError, msg=f"oracle accepted refusal case {snippet!r}") as raised:
             campaigns.IndependentPureAstOracle.parse(raw)
-        except VelaError as error:
-            ensure(
-                (error.kind, error.line, error.column) == (kind, line, col) and snippet in error.message,
-                f"oracle refusal mismatch for {snippet!r}: got {(error.kind, error.line, error.column, error.message)}",
-            )
-        else:
-            raise AssertionError(f"oracle accepted refusal case {snippet!r}")
+        error = raised.exception
+        ensure(
+            (error.kind, error.line, error.column) == (kind, line, col) and snippet in error.message,
+            f"oracle refusal mismatch for {snippet!r}: got {(error.kind, error.line, error.column, error.message)}",
+        )
 
 
 def _seeded_faults_shrinking_and_replay_controls() -> None:
@@ -297,21 +283,16 @@ def _seeded_faults_shrinking_and_replay_controls() -> None:
 
         # Verify the shrunk sentence still triggers the seeded fault:
         shrunk_terminals = tuple(cast("list[str]", replay["terminals"]))
-        try:
+        with raises(campaigns.CampaignObservationError,
+                    msg=f"shrunk replay sentence no longer kills {fault}"):
             campaigns.verify_sentence_against_oracle(shrunk_terminals, fault_name=fault)
-        except campaigns.CampaignObservationError:
-            pass
-        else:
-            raise AssertionError(f"shrunk replay sentence no longer kills {fault}")
 
         # Tampered replay digest must fail closed:
         tampered = {**replay, "source_sha256": "0" * 64}
-        try:
+        with raises(ValueError, msg="tampered replay digest accepted") as raised:
             campaigns.replay_sentence_case(tampered)
-        except ValueError as error:
-            ensure("digest" in str(error), f"unexpected tamper error: {error}")
-        else:
-            raise AssertionError("tampered replay digest accepted")
+        error = raised.exception
+        ensure("digest" in str(error), f"unexpected tamper error: {error}")
 
     survived = campaigns.evaluate_seeded_fault(
         campaigns.HELD_OUT_FAULT,
@@ -445,24 +426,18 @@ def _campaign_freshness_and_cli_controls() -> None:
         {"goal_length": 0},
         {"goal_length": campaigns.MAX_SENTENCE_TOKENS + 1},
     ):
-        try:
+        with raises(ValueError, msg=f"out-of-range campaign args {bad_args} were accepted"):
             campaigns.qualify(TOOLS.parent, **bad_args)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError(f"out-of-range campaign args {bad_args} were accepted")
 
     with patch.object(
         campaigns.subprocess,
         "run",
         side_effect=subprocess.TimeoutExpired("menhir", campaigns.PROCESS_TIMEOUT_SECONDS),
     ):
-        try:
+        with raises(RuntimeError, msg="timed-out menhir --random-sentence was accepted") as raised:
             campaigns._generate_menhir_sentence(Path("menhir"), Path("parser.mly"), 1, 20)
-        except RuntimeError as error:
-            ensure("exceeded" in str(error), f"missing timeout message: {error}")
-        else:
-            raise AssertionError("timed-out menhir --random-sentence was accepted")
+        error = raised.exception
+        ensure("exceeded" in str(error), f"missing timeout message: {error}")
 
 
 def cases() -> list[Case]:

@@ -11,7 +11,7 @@ from collections.abc import Callable
 from typing import cast
 from unittest.mock import patch
 
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from toolchain import elaborate as language
 from toolchain import elaborate_types as terms
 from toolchain.ast import VelaError
@@ -713,12 +713,10 @@ def _familiar_generic_spellings() -> None:
         source = canonical_source.replace(b"=>", marker, 1)
         tree = copy.deepcopy(canonical_tree)
         tree["source_sha256"] = hashlib.sha256(source).hexdigest()
-        try:
+        with raises(VelaError,
+                    msg="a mathematical definition accepted a legacy or invented body marker") as raised:
             elaborate(source, tree)
-        except VelaError as error:
-            ensure(error.kind == "protocol", "a forged mathematical body marker reached semantics")
-        else:
-            raise AssertionError("a mathematical definition accepted a legacy or invented body marker")
+        ensure(raised.exception.kind == "protocol", "a forged mathematical body marker reached semantics")
 
     def generic_value(explicit: bool) -> Form:
         def form(fixture: _Fixture) -> Node:
@@ -927,12 +925,9 @@ def _constant_source_protocol() -> None:
         else:
             start, end = cast("list[int]", constant["span"])
             constant["span"] = [start, end - 1]
-        try:
+        with raises(VelaError, msg=f"accepted constant {mutation} corruption") as raised:
             elaborate(source, changed)
-        except VelaError as error:
-            ensure(error.kind == "protocol", f"constant {mutation} forgery reached semantic evaluation")
-        else:
-            raise AssertionError(f"accepted constant {mutation} corruption")
+        ensure(raised.exception.kind == "protocol", f"constant {mutation} forgery reached semantic evaluation")
     fixture = _Fixture()
     fixture.constant("First", _NAT, _natural(1))
     fixture.constant("Second", _NAT, _variable("First"))
@@ -942,12 +937,9 @@ def _constant_source_protocol() -> None:
         root = cast("Node", changed["ast"])
         declarations = cast("list[Node]", root["declarations"])
         root["declarations"] = declarations[1:] if omission else list(reversed(declarations))
-        try:
+        with raises(VelaError, msg="accepted omitted or reordered module constants") as raised:
             elaborate(source, changed)
-        except VelaError as error:
-            ensure(error.kind == "protocol", "module constant order forgery reached dependency checking")
-        else:
-            raise AssertionError("accepted omitted or reordered module constants")
+        ensure(raised.exception.kind == "protocol", "module constant order forgery reached dependency checking")
     fixture = _Fixture()
     fixture.function("Local", _NAT, (),
                      _local_constant("value", _NAT, _natural(1), _variable("value")), block=True)
@@ -958,12 +950,9 @@ def _constant_source_protocol() -> None:
         body = cast("Node", declaration["body"])
         statements = cast("list[Node]", body["statements"])
         body["statements"] = statements[1:] if omission else list(reversed(statements))
-        try:
+        with raises(VelaError, msg="accepted omitted or reordered local constant statements") as raised:
             elaborate(source, changed)
-        except VelaError as error:
-            ensure(error.kind == "protocol", "local constant order forgery reached static evaluation")
-        else:
-            raise AssertionError("accepted omitted or reordered local constant statements")
+        ensure(raised.exception.kind == "protocol", "local constant order forgery reached static evaluation")
 
 
 def _lexical_boundaries_and_hidden_bindings() -> None:
@@ -987,12 +976,9 @@ def _lexical_boundaries_and_hidden_bindings() -> None:
         return source, response
 
     def refuse(source: bytes, response: Node) -> None:
-        try:
+        with raises(VelaError, msg="accepted source token splitting or hidden runtime binding") as raised:
             elaborate(source, response)
-        except VelaError as error:
-            ensure(error.kind == "protocol", "source omission or token splitting reached semantic evaluation")
-        else:
-            raise AssertionError("accepted source token splitting or hidden runtime binding")
+        ensure(raised.exception.kind == "protocol", "source omission or token splitting reached semantic evaluation")
 
     fixture = _Fixture("X")
     fixture.constant("Limit", _NAT, _natural(1))
@@ -1144,12 +1130,9 @@ def _named_argument_source_protocol() -> None:
             node = argument if mutation == "argument-end" else call
             start, end = cast("list[int]", node["span"])
             node["span"] = [start, end - 1]
-        try:
+        with raises(VelaError, msg=f"accepted argument protocol corruption: {mutation}") as raised:
             elaborate(source, changed)
-        except VelaError as error:
-            ensure(error.kind == "protocol", f"argument {mutation} corruption reached semantics")
-        else:
-            raise AssertionError(f"accepted argument protocol corruption: {mutation}")
+        ensure(raised.exception.kind == "protocol", f"argument {mutation} corruption reached semantics")
     fixture = _Fixture()
     fixture.definition("UnitValue", _type("Unit"), (), _natural(1))
     source, response = fixture.response()
@@ -1158,12 +1141,9 @@ def _named_argument_source_protocol() -> None:
     value.pop("value")
     value.pop("suffix")
     value["kind"] = "unit"
-    try:
+    with raises(VelaError, msg="literal bytes reinterpreted as a Unit value") as raised:
         elaborate(source, response)
-    except VelaError as error:
-        ensure(error.kind == "protocol", "forged Unit value reached type checking")
-    else:
-        raise AssertionError("literal bytes reinterpreted as a Unit value")
+    ensure(raised.exception.kind == "protocol", "forged Unit value reached type checking")
 
 
 def _concise_lambdas_and_expression_bodies() -> None:
@@ -1213,12 +1193,9 @@ def _concise_lambdas_and_expression_bodies() -> None:
     declaration = cast("list[Node]", root["declarations"])[0]
     parameter = cast("list[Node]", cast("Node", declaration["value"])["parameters"])[0]
     parameter["type"] = None
-    try:
+    with raises(VelaError, msg="typed source accepted as an annotation-free lambda parameter") as raised:
         elaborate(source, response)
-    except VelaError as error:
-        ensure(error.kind == "protocol", "omitted annotation forgery reached type inference")
-    else:
-        raise AssertionError("typed source accepted as an annotation-free lambda parameter")
+    ensure(raised.exception.kind == "protocol", "omitted annotation forgery reached type inference")
 
     for label in ("arrow", "terminator", "value"):
         fixture = _Fixture()
@@ -1234,12 +1211,9 @@ def _concise_lambdas_and_expression_bodies() -> None:
             body["span"] = [start, end - 1]
         else:
             cast("Node", body["value"])["span"] = [start, start + 1]
-        try:
+        with raises(VelaError, msg=f"accepted expression-body {label} corruption") as raised:
             elaborate(source, response)
-        except VelaError as error:
-            ensure(error.kind == "protocol", f"body {label} forgery reached semantic checking")
-        else:
-            raise AssertionError(f"accepted expression-body {label} corruption")
+        ensure(raised.exception.kind == "protocol", f"body {label} forgery reached semantic checking")
 
 
 def _ergonomic_source_token_coverage() -> None:
@@ -1283,12 +1257,10 @@ def _ergonomic_source_token_coverage() -> None:
         parameter = cast("list[Node]", cast("Node", declaration["value"])["parameters"])[typed_parameter]
         parameter["type"] = None
         parameter["span"] = cast("Node", parameter["name"])["span"]
-        try:
+        with raises(VelaError,
+                    msg="inferred lambda accepted an omitted annotation with a shrunk parameter span") as raised:
             elaborate(source, response)
-        except VelaError as error:
-            ensure(error.kind == "protocol", "shrunk parameter span erased an authored annotation")
-        else:
-            raise AssertionError("inferred lambda accepted an omitted annotation with a shrunk parameter span")
+        ensure(raised.exception.kind == "protocol", "shrunk parameter span erased an authored annotation")
 
 
 def _dependent_vectors_and_indices() -> None:
@@ -1604,12 +1576,9 @@ def _holes_unsupported_and_hygiene() -> None:
 
 def _source_limits() -> None:
     # The source-size guard must run before descending even a missing AST.
-    try:
+    with raises(VelaError, msg="oversized source accepted") as raised:
         elaborate(b" " * 65_537, {})
-    except VelaError as error:
-        ensure(error.kind == "limit", "oversized source reached protocol decoding")
-    else:
-        raise AssertionError("oversized source accepted")
+    ensure(raised.exception.kind == "limit", "oversized source reached protocol decoding")
     wrong = _Fixture()
     nested: Form = _natural(0)
     for _ in range(300):
@@ -1998,12 +1967,9 @@ def _pattern_matching_refusals_and_protocol() -> None:
     tuple_pat = cast("Node", let_pat["pattern"])
     first_bind = cast("list[Node]", tuple_pat["patterns"])[0]
     cast("Node", first_bind["name"])["text"] = "_"
-    try:
+    with raises(VelaError, msg="accepted binding_pattern with wildcard text") as raised:
         elaborate(source, tampered)
-    except VelaError as error:
-        ensure(error.kind == "protocol", "wildcard inside binding_pattern reached semantics")
-    else:
-        raise AssertionError("accepted binding_pattern with wildcard text")
+    ensure(raised.exception.kind == "protocol", "wildcard inside binding_pattern reached semantics")
 
 
 def _string_literal(spelling: str) -> Form:
@@ -6086,12 +6052,10 @@ def _check_callable_member(member_name: str) -> None:
             return original(self, node, environment)
 
         with patch.object(language._Elaborator, "expression", fail_receiver):
-            try:
+            with raises((RuntimeError, VelaError),
+                        msg="member dispatch swallowed a receiver failure") as raised:
                 elaborate(*fixture.response())
-            except (RuntimeError, VelaError) as error:
-                ensure(error is failure, "member dispatch replaced the original receiver failure")
-            else:
-                raise AssertionError("member dispatch swallowed a receiver failure")
+            ensure(raised.exception is failure, "member dispatch replaced the original receiver failure")
 
 
 def _callable_member_receiver_and_failures() -> None:
@@ -6128,12 +6092,10 @@ def _module_private_identity() -> None:
     library.record("Point", (("X", _NAT),), (("Twice", _NAT, _variable("X")),), private_properties=("Twice",))
     _import_decl(reader, "Library")
     reader.definition("Read", _NAT, (("p", _type("Point")),), _member(_variable("p"), "Twice"))
-    try:
+    with raises(VelaError, msg="an imported receiver exposed a private record property") as raised:
         elaborate_package([reader.response(), library.response()])
-    except VelaError as error:
-        ensure(error.kind == "name" and "private property" in error.message, "wrong visibility diagnosis")
-    else:
-        raise AssertionError("an imported receiver exposed a private record property")
+    error = raised.exception
+    ensure(error.kind == "name" and "private property" in error.message, "wrong visibility diagnosis")
 
 
 def _imported_execution_is_opaque() -> None:
@@ -6151,12 +6113,10 @@ def _imported_execution_is_opaque() -> None:
                    for line in modules["Reader"].gallina.splitlines()), "imported executable body remained transparent")
         accidental = _binary("==", _call("Capacity"), _natural(hidden_value))
         consumer.theorem("Guess", (), accidental, _assert(accidental))
-        try:
+        with raises(VelaError,
+                    msg="client proof depended on the private implementation of an executable") as raised:
             elaborate_package([consumer.response(), lib.response()])
-        except VelaError as error:
-            ensure(error.kind == "type", "unexpected opaque call diagnosis")
-        else:
-            raise AssertionError("client proof depended on the private implementation of an executable")
+        ensure(raised.exception.kind == "type", "unexpected opaque call diagnosis")
 
 
 def _constructor_spelling_and_shadowed_patterns() -> None:
@@ -6203,12 +6163,9 @@ def _qualified_imports() -> None:
     client.theorem("CheckStep", (), law, _assert(law))
     elaborate_package([client.response(), producer.response()])
     client.definition("AmbiguousStep", _NAT, (("x", _NAT),), _call("Step", _variable("x")))
-    try:
+    with raises(VelaError, msg="qualified import introduced a bare interface method") as raised:
         elaborate_package([client.response(), producer.response()])
-    except VelaError as error:
-        ensure(error.kind == "name", "wrong qualified-only dispatch diagnosis")
-    else:
-        raise AssertionError("qualified import introduced a bare interface method")
+    ensure(raised.exception.kind == "name", "wrong qualified-only dispatch diagnosis")
 
 
 def _upgrade_client_replay() -> None:
@@ -6229,12 +6186,10 @@ def _upgrade_client_replay() -> None:
         (expanded, old, client, "baseline replay: module 'Client': non-exhaustive"),
         (old, compatible, _Fixture("Unrelated"), "does not import"),
     ):
-        try:
+        with raises(VelaError, msg="an incomplete or incompatible upgrade replay was accepted") as raised:
             language.check_client_upgrade(baseline.response(), candidate.response(), [observer.response()])
-        except VelaError as error:
-            ensure(diagnosis in error.message, f"upgrade refusal lost its source context: {error.message}")
-        else:
-            raise AssertionError("an incomplete or incompatible upgrade replay was accepted")
+        error = raised.exception
+        ensure(diagnosis in error.message, f"upgrade refusal lost its source context: {error.message}")
 
 
 def _selective_imports() -> None:
@@ -6251,12 +6206,10 @@ def _selective_imports() -> None:
     client.definition("RoundTrip", _type("Word"), (("x", _type("Word")),), _variable("x"))
     elaborate_package([client.response(), lib.response()])
     client.definition("ImplicitOpen", _NAT, (), _call("Status"))
-    try:
+    with raises(VelaError, msg="selective import exposed an unselected export") as raised:
         elaborate_package([client.response(), lib.response()])
-    except VelaError as error:
-        ensure(error.kind == "name" and "Status" in error.message, "wrong unselected export diagnosis")
-    else:
-        raise AssertionError("selective import exposed an unselected export")
+    error = raised.exception
+    ensure(error.kind == "name" and "Status" in error.message, "wrong unselected export diagnosis")
 
 
 def _multi_module_imports_and_visibility() -> None:
@@ -6325,57 +6278,46 @@ def _multi_module_imports_and_visibility() -> None:
     duplicate = _Fixture("MathMod")
     duplicate.definition("Different", _NAT, (), _natural(1))
     for root, imports in ((consumer, [math_mod, duplicate]), (math_mod, [duplicate])):
-        try:
+        with raises(VelaError, msg="one module silently replaced another in the linked graph") as raised:
             elaborate(*root.response(), imports=[item.response() for item in imports])
-        except VelaError as error:
-            ensure(error.kind == "name" and "duplicate module 'MathMod'" in error.message
-                   and all(hashlib.sha256(item.response()[0]).hexdigest() in error.message for item in (math_mod, duplicate)),
-                   "conflicting module owners lack their source identities")
-        else:
-            raise AssertionError("one module silently replaced another in the linked graph")
+        error = raised.exception
+        ensure(error.kind == "name" and "duplicate module 'MathMod'" in error.message
+               and all(hashlib.sha256(item.response()[0]).hexdigest() in error.message for item in (math_mod, duplicate)),
+               "conflicting module owners lack their source identities")
 
     invalid_generic = _Fixture("InvalidQualifiedGeneric")
     _import_decl(invalid_generic, "MathMod")
     invalid_generic.definition("Wrong", _NAT, (),
                                _call(_member(_variable("MathMod"), "Double"), _natural(1), generics=(_BOOL,)))
-    try:
+    with raises(VelaError, msg="qualified call silently discarded explicit generic arguments") as raised:
         elaborate_package([math_mod.response(), invalid_generic.response()])
-    except VelaError as error:
-        ensure(error.kind == "unsupported" and "explicit generics" in error.message,
-               "qualified member generic arguments lost their existing refusal")
-    else:
-        raise AssertionError("qualified call silently discarded explicit generic arguments")
+    error = raised.exception
+    ensure(error.kind == "unsupported" and "explicit generics" in error.message,
+           "qualified member generic arguments lost their existing refusal")
 
     priv_access = _Fixture("PrivConsumer")
     _import_decl(priv_access, "MathMod")
     priv_access.definition("Bad", _NAT, (), _call("Secret", _natural(1)))
-    try:
+    with raises(VelaError, msg="accepted cross-module private call") as raised:
         elaborate_package([math_mod.response(), priv_access.response()])
-    except VelaError as error:
-        ensure(error.kind == "name" and "private declaration 'Secret'" in error.message, f"unexpected error: {error}")
-    else:
-        raise AssertionError("accepted cross-module private call")
+    error = raised.exception
+    ensure(error.kind == "name" and "private declaration 'Secret'" in error.message, f"unexpected error: {error}")
 
     cyc_a = _Fixture("CycA")
     _import_decl(cyc_a, "CycB")
     cyc_b = _Fixture("CycB")
     _import_decl(cyc_b, "CycA")
-    try:
+    with raises(VelaError, msg="accepted circular module imports") as raised:
         elaborate_package([cyc_a.response(), cyc_b.response()])
-    except VelaError as error:
-        ensure(error.kind == "name" and "circular module import: CycA -> CycB -> CycA" in error.message,
-               f"unexpected error: {error}")
-    else:
-        raise AssertionError("accepted circular module imports")
+    error = raised.exception
+    ensure(error.kind == "name" and "circular module import: CycA -> CycB -> CycA" in error.message,
+           f"unexpected error: {error}")
 
     recursive = _Fixture("Self")
     _import_decl(recursive, "Self")
-    try:
+    with raises(VelaError, msg="accepted self import") as raised:
         elaborate_package([recursive.response()])
-    except VelaError as error:
-        ensure(error.message == "circular module import: Self -> Self", "self-import lost the closing edge")
-    else:
-        raise AssertionError("accepted self import")
+    ensure(raised.exception.message == "circular module import: Self -> Self", "self-import lost the closing edge")
 
 
 def _in_arg(value: Form) -> Form:
@@ -7191,12 +7133,9 @@ def _package_scope_and_identity() -> None:
     ensure("vela_m" + "a" * 64 in first and "vela_m" + "c" * 64 in second and "a" * 64 not in second,
            "the compiled import did not carry the supplying package identity")
     scopes["Main"] = terms.PackageScope("b" * 64, frozenset({"Main"}))
-    try:
+    with raises(VelaError, msg="locked compiler accepted an undeclared package import") as raised:
         elaborate_package(modules, scopes=scopes)
-    except VelaError as error:
-        ensure("no declared dependency on 'Lib'" in error.message, "wrong package visibility refusal")
-    else:
-        raise AssertionError("locked compiler accepted an undeclared package import")
+    ensure("no declared dependency on 'Lib'" in raised.exception.message, "wrong package visibility refusal")
 
 
 def cases() -> list[Case]:

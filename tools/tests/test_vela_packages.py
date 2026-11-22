@@ -8,7 +8,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from toolchain import packages, parser
 
 
@@ -129,19 +129,15 @@ def _bound_producer() -> None:
         with patch.object(parser, "_inputs", return_value={}) as inputs, patch.object(parser, "_toolchain", return_value=toolchain):
             packages._recheck_parser(root, compiled)
             inputs.return_value = {"parser.mly": "updated grammar"}
-            try:
+            with raises(ValueError,
+                        msg="published a lock for a grammar which changed during the build") as raised:
                 packages._recheck_parser(root, compiled)
-            except ValueError as error:
-                ensure("parser sources" in str(error), "late parser change reached an unrelated refusal")
-            else:
-                raise AssertionError("published a lock for a grammar which changed during the build")
+            ensure("parser sources" in str(raised.exception), "late parser change reached an unrelated refusal")
         runtime.write_bytes(b"changed bytecode interpreter")
-        try:
+        with raises(ValueError,
+                    msg="package lock accepted different runtime bytes with the original parser bytecode") as raised:
             packages._producer(root, compiled)
-        except ValueError as error:
-            ensure("interpreter differs" in str(error), "wrong runtime-mismatch refusal")
-        else:
-            raise AssertionError("package lock accepted different runtime bytes with the original parser bytecode")
+        ensure("interpreter differs" in str(raised.exception), "wrong runtime-mismatch refusal")
 
 
 def cases() -> list[Case]:

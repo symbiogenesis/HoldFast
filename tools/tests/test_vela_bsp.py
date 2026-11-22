@@ -9,7 +9,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from toolchain import bsp, packages
 
 
@@ -45,12 +45,9 @@ def _targets_and_changes() -> None:
         source = graph.workspace / "weights/v1/Measure.vela"
         source.write_bytes(source.read_bytes() + b"\n")
         for query in (graph.targets, lambda: graph.sources({"targets": [root["id"]]})):
-            try:
+            with raises(ValueError, msg="stale package graph remained available") as raised:
                 query()
-            except ValueError as error:
-                ensure("stale package lock" in str(error), "wrong stale-graph refusal")
-            else:
-                raise AssertionError("stale package graph remained available")
+            ensure("stale package lock" in str(raised.exception), "wrong stale-graph refusal")
 
 
 def _publication() -> None:
@@ -74,20 +71,13 @@ def _publication() -> None:
         ensure(data["batch"] == batch and outputs == {"Weights.Measure": digest}, "lost batch verdict")
         ensure((staging / "Weights.Measure.v").read_bytes() == gold.encode(), "altered generated source bytes")
         for order in ([], ["Weights.Measure", "Weights.Measure"], ["Other"]):
-            try:
+            with raises(ValueError, msg="incomplete or duplicate batch order passed") as raised:
                 graph.prepare_outputs(config, staging, {**batch, "build_order": order})
-            except ValueError as error:
-                ensure("order" in str(error), "invalid order failed at the wrong check")
-            else:
-                raise AssertionError("incomplete or duplicate batch order passed")
+            ensure("order" in str(raised.exception), "invalid order failed at the wrong check")
         for damaged in ({"Weights.Measure": gold + " "}, {}, {"Extra": gold, "Weights.Measure": gold}):
             path.write_text(json.dumps({**bundle, "modules": damaged}), encoding="utf-8")
-            try:
+            with raises(ValueError, msg="corrupted or incomplete bundle was eligible for publication"):
                 graph.prepare_outputs(config, staging, batch)
-            except ValueError:
-                pass
-            else:
-                raise AssertionError("corrupted or incomplete bundle was eligible for publication")
 
 
 def _cancel_and_join() -> None:

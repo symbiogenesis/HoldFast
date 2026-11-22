@@ -5,7 +5,7 @@ import copy
 from typing import cast
 
 import toolchain as vela
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from tests.test_vela_ast import _fixture, _literal
 from tests.test_vela_elaborate import _NAT, Form, Node, _call, _Fixture, _type
 from toolchain import (
@@ -73,22 +73,16 @@ def _pure_protocol_and_spelling() -> None:
                 literal["span"] = [start + 1, end]
             else:
                 literal["value"] = "0__001"
-            try:
+            with raises((TypeError, ValueError, VelaError),
+                        msg=f"accepted separated decimal {corruption} corruption"):
                 vela.translate_ast(source, changed)
-            except (TypeError, ValueError, VelaError):
-                pass
-            else:
-                raise AssertionError(f"accepted separated decimal {corruption} corruption")
 
 
 def _malformed_and_digit_limits() -> None:
     for spelling in (b"1_", b"1__0", b"1_024_", b"1_Nat", b"1_usize", b"0b1_0", b"0xA_F"):
-        try:
+        with raises(VelaError, msg=f"invalid pure decimal was accepted: {spelling!r}") as raised:
             vela.translate(b"module M; public Nat F() => " + spelling + b";")
-        except VelaError as error:
-            ensure(error.kind == "syntax", f"invalid decimal has wrong refusal: {spelling!r}")
-        else:
-            raise AssertionError(f"invalid pure decimal was accepted: {spelling!r}")
+        ensure(raised.exception.kind == "syntax", f"invalid decimal has wrong refusal: {spelling!r}")
     maximum = b"_".join([b"9"] * MAX_LITERAL_DIGITS)
     source = b"module M; public Nat F() { return " + maximum + b"; }"
     tree = _fixture(source, _literal(source, maximum))
@@ -97,15 +91,12 @@ def _malformed_and_digit_limits() -> None:
     for native in (False, True):
         oversized = maximum + b"_9"
         source = b"module M; public Nat F() { return " + oversized + b"; }"
-        try:
+        with raises(VelaError, msg="separated decimal bypassed the digit budget") as raised:
             if native:
                 vela.translate_ast(source, _fixture(source, _literal(source, oversized)))
             else:
                 vela.translate(source)
-        except VelaError as error:
-            ensure(error.kind == "limit", "actual-digit overflow has wrong refusal")
-        else:
-            raise AssertionError("separated decimal bypassed the digit budget")
+        ensure(raised.exception.kind == "limit", "actual-digit overflow has wrong refusal")
 
 
 def _mathematical_values_and_indices() -> None:
@@ -131,12 +122,9 @@ def _mathematical_values_and_indices() -> None:
         if node.get("kind") == "nat" and node.get("value") == "1_024":
             node["value"] = "1024"
             break
-    try:
+    with raises(VelaError, msg="mathematical consumer accepted a normalized source forgery") as raised:
         elaborate(source, changed)
-    except VelaError as error:
-        ensure(error.kind == "protocol", "normalized forged literal lost its source-protocol refusal")
-    else:
-        raise AssertionError("mathematical consumer accepted a normalized source forgery")
+    ensure(raised.exception.kind == "protocol", "normalized forged literal lost its source-protocol refusal")
     for digits, expected in ((256, None), (257, "limit")):
         bounded = _Fixture()
         bounded.definition("Wide", _NAT, (), _decimal("_".join(["9"] * digits)))

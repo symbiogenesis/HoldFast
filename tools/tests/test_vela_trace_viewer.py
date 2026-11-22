@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import cast
 from unittest.mock import patch
 
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from toolchain import trace_viewer as viewer
 from toolchain.cli import vela as cli
 
@@ -79,28 +79,20 @@ def _wrong_results_and_late_changes() -> None:
                     before, after = replacements[chosen]
                     result["stdout"] = output.replace(before, after)
                     return result
-                with patch.object(viewer, "_run", side_effect=wrong):
-                    try:
-                        viewer.qualify(binary)
-                    except ValueError:
-                        pass
-                    else:
-                        raise AssertionError(f"wrong independent {field} accepted")
-            with patch.object(viewer, "_run", side_effect=_reader), \
-                    patch.object(viewer, "harness_identity", side_effect=["a" * 64, "b" * 64]):
-                try:
+                with (
+                    patch.object(viewer, "_run", side_effect=wrong),
+                    raises(ValueError, msg=f"wrong independent {field} accepted"),
+                ):
                     viewer.qualify(binary)
-                except ValueError:
-                    pass
-                else:
-                    raise AssertionError("changed harness retained qualification")
-        with patch.object(viewer, "_run") as launch:
-            try:
+            with (
+                patch.object(viewer, "_run", side_effect=_reader),
+                patch.object(viewer, "harness_identity", side_effect=["a" * 64, "b" * 64]),
+                raises(ValueError, msg="changed harness retained qualification"),
+            ):
                 viewer.qualify(binary)
-            except ValueError:
-                pass
-            else:
-                raise AssertionError("unreviewed reader bytes executed")
+        with patch.object(viewer, "_run") as launch:
+            with raises(ValueError, msg="unreviewed reader bytes executed"):
+                viewer.qualify(binary)
             ensure(not launch.called, "unreviewed reader reached execution")
 
 
@@ -111,12 +103,9 @@ def _negative_gate_failure() -> None:
         with patch.object(viewer, "PINS", {"test": DIGEST}), \
                 patch.object(viewer.trace, "validate", return_value={}), \
                 patch.object(viewer, "_run") as launch:
-            try:
+            with raises(ValueError, msg="disabled completeness gate qualified") as raised:
                 viewer.qualify(binary)
-            except ValueError as error:
-                ensure("negative control" in str(error), "negative gate failure lost its cause")
-            else:
-                raise AssertionError("disabled completeness gate qualified")
+            ensure("negative control" in str(raised.exception), "negative gate failure lost its cause")
             ensure(not launch.called, "failed controls reached importer")
 
 
@@ -124,20 +113,16 @@ def _bounded_reader_failures() -> None:
     for result in (subprocess.CompletedProcess([], 1, b"", b"reader failed"),
                    subprocess.CompletedProcess([], 0, b"x" * (viewer.MAX_OUTPUT_BYTES + 1), b""),
                    subprocess.CompletedProcess([], 0, b"", b"x" * (viewer.MAX_OUTPUT_BYTES + 1))):
-        with patch.object(viewer.subprocess, "run", return_value=result):
-            try:
-                viewer._run(Path("reader"), ["--version"])
-            except ValueError:
-                pass
-            else:
-                raise AssertionError("failed or unbounded reader output accepted")
-    with patch.object(viewer.subprocess, "run", side_effect=subprocess.TimeoutExpired("reader", 30)):
-        try:
+        with (
+            patch.object(viewer.subprocess, "run", return_value=result),
+            raises(ValueError, msg="failed or unbounded reader output accepted"),
+        ):
             viewer._run(Path("reader"), ["--version"])
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("reader timeout lost")
+    with (
+        patch.object(viewer.subprocess, "run", side_effect=subprocess.TimeoutExpired("reader", 30)),
+        raises(ValueError, msg="reader timeout lost"),
+    ):
+        viewer._run(Path("reader"), ["--version"])
 
 
 def _publication() -> None:
@@ -157,13 +142,11 @@ def _publication() -> None:
             with patch.object(viewer, "harness_identity", side_effect=["a" * 64, "a" * 64, "b" * 64]):
                 ensure(command(output) == 1, "late harness mutation published evidence")
             ensure(output.read_bytes() == previous, "late mutation replaced existing evidence")
-            with patch.object(viewer, "qualify", side_effect=KeyboardInterrupt):
-                try:
-                    command(output)
-                except KeyboardInterrupt:
-                    pass
-                else:
-                    raise AssertionError("cancellation was hidden")
+            with (
+                patch.object(viewer, "qualify", side_effect=KeyboardInterrupt),
+                raises(KeyboardInterrupt, msg="cancellation was hidden"),
+            ):
+                command(output)
             ensure(output.read_bytes() == previous, "cancelled qualification replaced evidence")
 
 
@@ -229,37 +212,23 @@ def _retained_observations() -> None:
                     else:
                         changed["extra"] = True
                     _bind(changed)
-                    try:
+                    with raises(ValueError, msg=f"rebound wrong {field} retained qualification"):
                         viewer.validate(changed, binary)
-                    except ValueError:
-                        pass
-                    else:
-                        raise AssertionError(f"rebound wrong {field} retained qualification")
-                with patch.object(viewer, "harness_identity", side_effect=[viewer.harness_identity(), "b" * 64]):
-                    try:
-                        viewer.validate(report, binary)
-                    except ValueError:
-                        pass
-                    else:
-                        raise AssertionError("late harness change retained offline qualification")
-                binary.write_bytes(b"changed reader")
-                try:
+                with (
+                    patch.object(viewer, "harness_identity", side_effect=[viewer.harness_identity(), "b" * 64]),
+                    raises(ValueError, msg="late harness change retained offline qualification"),
+                ):
                     viewer.validate(report, binary)
-                except ValueError:
-                    pass
-                else:
-                    raise AssertionError("stale reader retained offline qualification")
+                binary.write_bytes(b"changed reader")
+                with raises(ValueError, msg="stale reader retained offline qualification"):
+                    viewer.validate(report, binary)
 
 
 def _bounded_retained_receipts() -> None:
     for raw in (b"{}", b'{"schema":1,"schema":1}', b"[" * 30 + b"0" + b"]" * 30,
                 b" " * (viewer.MAX_REPORT_BYTES + 1)):
-        try:
+        with raises(ValueError, msg="malformed or unbounded retained receipt accepted"):
             viewer.validate(viewer.decode(raw), Path("reader"))
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("malformed or unbounded retained receipt accepted")
 
 
 def cases() -> list[Case]:

@@ -3,7 +3,7 @@
 
 from pathlib import Path
 
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from toolchain import elaboration_check as replay
 
 
@@ -24,12 +24,8 @@ def _directory_identity() -> None:
         ensure(replay._load_path_identity(changed, Path("/qualification-a")) != before,
                "external or logical load-path change was hidden by cwd normalization")
     for malformed in ("", "unsupported\n", header + "  relative /\n", header + "  Extra relative\n"):
-        try:
+        with raises(ValueError, msg="unsupported load-path listing acquired an identity"):
             replay._load_path_identity(malformed, Path("/qualification-a"))
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("unsupported load-path listing acquired an identity")
 
 
 def cases() -> list[Case]:

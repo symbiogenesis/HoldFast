@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Independent planning fixtures check arithmetic, ownership and safe repair."""
 
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from toolchain import estimates
 
 INDEPENDENT_CASES = True
@@ -42,12 +42,10 @@ stale
 
 
 def _reject(text: str, fragment: str) -> None:
-    try:
+    with raises(ValueError, msg=f"invalid source accepted: {fragment}") as raised:
         estimates.update_summary(text)
-    except ValueError as error:
-        ensure(fragment in str(error), f"expected {fragment!r}, found {error!r}")
-    else:
-        raise AssertionError(f"invalid source accepted: {fragment}")
+    error = raised.exception
+    ensure(fragment in str(error), f"expected {fragment!r}, found {error!r}")
     ensure(bool(estimates.findings(text)), "invalid sources must also produce check findings")
 
 

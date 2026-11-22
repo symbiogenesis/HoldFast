@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from toolchain import asm
 from toolchain import simulator_debug as debug
 
@@ -27,12 +27,10 @@ def _records() -> None:
         (first + b"R 8000 8 1 FF\n", 1, "memory effect"),
         (first + b"malformed row\n", 1, "malformed Sail"),
     ):
-        try:
+        with raises(ValueError, msg="malformed architectural observation was accepted") as raised:
             debug._retirements(data, sites, limit)
-        except ValueError as error:
-            ensure(reason in str(error), f"wrong malformed record refusal: {error}")
-        else:
-            raise AssertionError("malformed architectural observation was accepted")
+        error = raised.exception
+        ensure(reason in str(error), f"wrong malformed record refusal: {error}")
 
 
 def _divergence() -> None:
@@ -48,31 +46,22 @@ def _divergence() -> None:
         initial = session.handle
         wrong_tag = [debug.Retirement(pc, ("X 4 0 C800000000000000",))]
         with patch.object(debug.Session, "_execute", return_value=(wrong_tag, None)) as rerun:
-            try:
+            with raises(ValueError, msg="accepted a state from another execution") as raised:
                 session.advance(initial)
-            except ValueError as error:
-                ensure("diverged" in str(error), "missed the changed capability tag")
-            else:
-                raise AssertionError("accepted a state from another execution")
+            ensure("diverged" in str(raised.exception), "missed the changed capability tag")
             rerun.assert_called_once_with(2, stop_pc=pc + 4)
         ensure(session.handle is None, "divergent execution retained an inspectable stop")
         session.disconnect()
         session.reconnect()
         restored_stop = session.handle
         profile.write_bytes(b"changed configuration")
-        try:
+        with raises(ValueError, msg="inspected a different target configuration") as raised:
             session.where(restored_stop)
-        except ValueError as error:
-            ensure("stale Sail" in str(error), "changed profile reached the wrong refusal")
-        else:
-            raise AssertionError("inspected a different target configuration")
+        ensure("stale Sail" in str(raised.exception), "changed profile reached the wrong refusal")
         profile.write_bytes(b"test configuration")
-        try:
+        with raises(ValueError, msg="expired target handle was resurrected") as raised:
             session.where(restored_stop)
-        except ValueError as error:
-            ensure("stale or disconnected" in str(error), "restored bytes did not expire the stop")
-        else:
-            raise AssertionError("expired target handle was resurrected")
+        ensure("stale or disconnected" in str(raised.exception), "restored bytes did not expire the stop")
         ensure(session.reconnect()["pc"] == pc and session.handle != restored_stop,
                "restored identical target failed to reconnect with a fresh stop")
 

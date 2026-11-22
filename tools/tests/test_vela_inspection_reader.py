@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import cast
 from unittest.mock import patch
 
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from toolchain import inspection, inspection_reader
 from toolchain.cli import vela as cli
 from toolchain.schema import validate
@@ -163,29 +163,17 @@ def _malformed_inventory_and_binding_refusals() -> None:
     changed["snapshot"] = "0" * 64
     corruptions.append(changed)
     for value in corruptions:
-        try:
+        with raises(ValueError, msg="independent consumer accepted corrupt serialized inspection"):
             inspection_reader.read(json.dumps(value).encode(), SOURCE, binding=inspection.current_binding(SOURCE))
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("independent consumer accepted corrupt serialized inspection")
     for binding in (inspection.current_binding(SOURCE, uri="memory:other"),
                     inspection.current_binding(SOURCE, configuration="changed"),
                     inspection.current_binding(SOURCE, target="changed")):
-        try:
+        with raises(ValueError, msg="offline handoff accepted changed URI, configuration or target"):
             inspection_reader.read(_fixture(), SOURCE, binding=binding)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("offline handoff accepted changed URI, configuration or target")
     duplicate = _fixture()[:-1] + b',"schema":7}'
     for publication in (duplicate, b'{"schema":true}', b"[", b"\xff", b" " * (inspection_reader.MAX_PUBLICATION_BYTES + 1)):
-        try:
+        with raises(ValueError, msg="consumer accepted duplicate, malformed or over-budget JSON"):
             inspection_reader.read(publication, SOURCE, binding=inspection.current_binding(SOURCE))
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("consumer accepted duplicate, malformed or over-budget JSON")
 
 
 def _bounded_queries_stale_and_failed_status() -> None:

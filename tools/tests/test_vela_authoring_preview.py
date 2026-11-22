@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import cast
 from unittest.mock import patch
 
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from toolchain import VelaError, ast, authoring_preview, inspection, parse_module
 from toolchain.cli import vela as cli
 
@@ -90,12 +90,9 @@ def _refusals() -> None:
         b"module M;public bool Check(bool flag)=>flag // preserve\n== true;",
         b"module M;public bool Check(bool flag)=>flag == (// preserve\ntrue);",
     ):
-        try:
+        with raises(ValueError, msg="preview discarded authored comments") as raised:
             authoring_preview.preview(source, *_site(source))
-        except ValueError as error:
-            ensure("comments" in str(error), "comment refusal used the wrong boundary")
-        else:
-            raise AssertionError("preview discarded authored comments")
+        ensure("comments" in str(raised.exception), "comment refusal used the wrong boundary")
 
 
 def _stale_and_tampered() -> None:
@@ -111,20 +108,14 @@ def _stale_and_tampered() -> None:
         except ValueError:
             continue
         raise AssertionError(f"forged preview field {key} was accepted")
-    try:
+    with raises(ValueError, msg="preview survived a changed source"):
         authoring_preview.validate(publication, source + b" ")
-    except ValueError:
-        pass
-    else:
-        raise AssertionError("preview survived a changed source")
     identity = inspection.producer_identity()
-    with patch.object(inspection, "producer_identity", return_value={**identity, "version": "0" * 64}):
-        try:
-            authoring_preview.validate(publication, source)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("preview survived a changed compiler producer")
+    with (
+        patch.object(inspection, "producer_identity", return_value={**identity, "version": "0" * 64}),
+        raises(ValueError, msg="preview survived a changed compiler producer"),
+    ):
+        authoring_preview.validate(publication, source)
 
 
 def _cli_publication() -> None:

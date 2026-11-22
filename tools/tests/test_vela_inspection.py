@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import cast
 from unittest.mock import patch
 
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from toolchain import concrete, inspect_source, inspection
 from toolchain.cli import vela as cli
 from toolchain.lsp_services import InspectionError
@@ -183,12 +183,8 @@ def _malformed_type_refusal() -> None:
     for index, value_type in ((0, scalar), (1, callable_type)):
         invalid = snapshot.export()
         _symbols(invalid)[index]["type"] = value_type
-        try:
+        with raises(ValueError, msg="public schema accepted a callable/scalar kind mismatch"):
             validate(inspection.SCHEMA_PATH, invalid)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("public schema accepted a callable/scalar kind mismatch")
 
 
 def _parameter_inventory_refusal() -> None:
@@ -298,12 +294,8 @@ def _unavailable_status_and_schema() -> None:
     ensure(timed["status"] == "timed-out" and timed["symbols"] == [], "timeout retained successful status")
     for change in ({"schema": 1}, {"complete": True}, {"unknown": "field"}):
         invalid = {**timed, **change}
-        try:
+        with raises(ValueError, msg="independent schema validator accepted malformed inspection"):
             validate(inspection.SCHEMA_PATH, invalid)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("independent schema validator accepted malformed inspection")
 
 
 def _export_bound() -> None:

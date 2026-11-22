@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import toolchain as vela
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from toolchain import parser as vela_parser
 from toolchain import parser_checked as checked
 
@@ -44,12 +44,9 @@ def _archive_controls() -> None:
     with patch.object(checked, "LICENSES", licenses), patch.object(checked, "VERSION_SHA256", version):
         with patch.object(checked, "ARCHIVE_SHA512", hashlib.sha512(original).hexdigest()):
             ensure(checked._release_sources(original) == files, "authenticated selected sources changed")
-            try:
+            with raises(ValueError, msg="corrupt archive consumed") as raised:
                 checked._release_sources(original + b"corruption")
-            except ValueError as error:
-                ensure("digest" in str(error), "archive corruption lost its cause")
-            else:
-                raise AssertionError("corrupt archive consumed")
+            ensure("digest" in str(raised.exception), "archive corruption lost its cause")
         for change in ("missing", "license", "version", "escape"):
             changed = dict(files)
             if change == "missing":
@@ -61,13 +58,11 @@ def _archive_controls() -> None:
             else:
                 changed["../escape"] = b"unsafe"
             archive = _tar(changed)
-            with patch.object(checked, "ARCHIVE_SHA512", hashlib.sha512(archive).hexdigest()):
-                try:
-                    checked._release_sources(archive)
-                except ValueError:
-                    pass
-                else:
-                    raise AssertionError(f"unsupported {change} archive accepted")
+            with (
+                patch.object(checked, "ARCHIVE_SHA512", hashlib.sha512(archive).hexdigest()),
+                raises(ValueError, msg=f"unsupported {change} archive accepted"),
+            ):
+                checked._release_sources(archive)
 
 
 def _proof_footprint() -> None:
@@ -82,19 +77,13 @@ def _proof_footprint() -> None:
         ensure(checked._proof_openings(original) == candidate, "repair changed more than proof openings")
         ensure(checked._proof_openings(original, reference=True) == reference, "diagnostic twin changed terms")
         for source in (original + b"changed", candidate):
-            try:
+            with raises(ValueError, msg="repair accepted different or already modified source") as raised:
                 checked._proof_openings(source)
-            except ValueError as error:
-                ensure("unsupported" in str(error), "unsupported source repair lost its cause")
-            else:
-                raise AssertionError("repair accepted different or already modified source")
+            ensure("unsupported" in str(raised.exception), "unsupported source repair lost its cause")
         with patch.object(checked, "CANDIDATE_SHA256", "0" * 64):
-            try:
+            with raises(ValueError, msg="unexpected repaired bytes accepted") as raised:
                 checked._proof_openings(original)
-            except ValueError as error:
-                ensure("reviewed candidate" in str(error), "changed repair digest lost its cause")
-            else:
-                raise AssertionError("unexpected repaired bytes accepted")
+            ensure("reviewed candidate" in str(raised.exception), "changed repair digest lost its cause")
 
 
 def _validator_items_map_footprint() -> None:
@@ -126,19 +115,13 @@ def _validator_items_map_footprint() -> None:
         ensure(checked._validator_items_map(original) == candidate, "items_map repair changed unexpected bytes")
         ensure(checked._validator_items_map(original, reference=True) == original, "reference items_map changed")
         for source in (original + b"changed", candidate):
-            try:
+            with raises(ValueError, msg="Validator_complete repair accepted unexpected source") as raised:
                 checked._validator_items_map(source)
-            except ValueError as error:
-                ensure("unsupported" in str(error), "unsupported Validator_complete source lost its cause")
-            else:
-                raise AssertionError("Validator_complete repair accepted unexpected source")
+            ensure("unsupported" in str(raised.exception), "unsupported Validator_complete source lost its cause")
         with patch.object(checked, "VALIDATOR_COMPLETE_CANDIDATE_SHA256", "0" * 64):
-            try:
+            with raises(ValueError, msg="unexpected Validator_complete repaired bytes accepted") as raised:
                 checked._validator_items_map(original)
-            except ValueError as error:
-                ensure("reviewed candidate" in str(error), "changed Validator_complete digest lost its cause")
-            else:
-                raise AssertionError("unexpected Validator_complete repaired bytes accepted")
+            ensure("reviewed candidate" in str(raised.exception), "changed Validator_complete digest lost its cause")
 
 
 def _pure_grammar_view_and_assumptions() -> None:
@@ -152,21 +135,14 @@ def _pure_grammar_view_and_assumptions() -> None:
         mly_text.replace("MODULE module_name=name SEMICOLON", "MODULE module_name=name"),
         mly_text.replace("%token MODULE ", "%token "),
     ):
-        try:
+        with raises(ValueError, msg="drifted parser.mly pure grammar skeleton accepted"):
             checked._pure_grammar_view(mutated)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("drifted parser.mly pure grammar skeleton accepted")
     closed = "Closed under the global context\n" * len(checked.THEOREMS)
     checked._check_closed_assumptions(closed, len(checked.THEOREMS))
     for unclosed in ("Axioms:\nAut.Gram.token : Type\n", "Closed under the global context\n"):
-        try:
+        with raises(ValueError, msg="unclosed concrete theorem assumptions accepted") as raised:
             checked._check_closed_assumptions(unclosed, len(checked.THEOREMS))
-        except ValueError as error:
-            ensure("unclosed assumptions" in str(error), "unclosed assumption refusal lost its cause")
-        else:
-            raise AssertionError("unclosed concrete theorem assumptions accepted")
+        ensure("unclosed assumptions" in str(raised.exception), "unclosed assumption refusal lost its cause")
 
 
 def _process_controls() -> None:
@@ -191,12 +167,9 @@ def _process_controls() -> None:
         with patch.object(checked.subprocess, "run", side_effect=subprocess.TimeoutExpired(
                 "rocq", checked.TIMEOUT, output=b"partial", stderr=b"diagnostic")):
             steps = []
-            try:
+            with raises(RuntimeError, msg="timed-out support command passed") as raised:
                 checked._run(["rocq"], directory, directory / "timeout.stdout", steps)
-            except RuntimeError as error:
-                ensure("exceeded" in str(error), "timeout lacks a diagnostic")
-            else:
-                raise AssertionError("timed-out support command passed")
+            ensure("exceeded" in str(raised.exception), "timeout lacks a diagnostic")
             ensure(steps[0]["status"] == "timeout", "timed-out attempt lost its verdict")
             ensure((directory / "timeout.stdout").read_bytes() == b"partialdiagnostic", "partial failure log lost")
 
@@ -209,12 +182,9 @@ def _refused_qualification() -> None:
         with patch.object(checked, "_work_root", return_value=directory), \
                 patch.object(checked, "_inputs", return_value={}), \
                 patch.object(checked, "_toolchain", side_effect=ValueError("different locked prover")):
-            try:
+            with raises(ValueError, msg="unsupported toolchain acquired a passing receipt") as raised:
                 checked.qualify(directory)
-            except ValueError as error:
-                ensure("different locked prover" in str(error), "qualification failure swallowed")
-            else:
-                raise AssertionError("unsupported toolchain acquired a passing receipt")
+            ensure("different locked prover" in str(raised.exception), "qualification failure swallowed")
         ensure(not latest.exists(), "failed qualification preserved old success")
         attempts = list(directory.glob("support-*/attempt.json"))
         ensure(len(attempts) == 1 and '"status": "failed"' in attempts[0].read_text(encoding="utf-8"),
@@ -245,21 +215,16 @@ def _toolchain_controls() -> None:
         for index in (0, 1, 2, 3, 4):
             changed = [*expected]
             changed[index] = "different identity"
-            with patch.object(checked, "_run", side_effect=changed):
-                try:
-                    checked._toolchain(directory, directory, [])
-                except ValueError:
-                    pass
-                else:
-                    raise AssertionError("unsupported tool identity accepted")
+            with (
+                patch.object(checked, "_run", side_effect=changed),
+                raises(ValueError, msg="unsupported tool identity accepted"),
+            ):
+                checked._toolchain(directory, directory, [])
         sail.write_text('"menhir.different"\n', encoding="utf-8")
         with patch.object(checked, "_run") as run:
-            try:
+            with raises(ValueError, msg="support source disagreed with locked generator") as raised:
                 checked._toolchain(directory, directory, [])
-            except ValueError as error:
-                ensure("Sail snapshot" in str(error), "different generator source lost its cause")
-            else:
-                raise AssertionError("support source disagreed with locked generator")
+            ensure("Sail snapshot" in str(raised.exception), "different generator source lost its cause")
             run.assert_not_called()
 
 
@@ -314,19 +279,13 @@ def _host_replacement_and_retirement() -> None:
         }
         (runtime_dir / "receipt.json").write_text(json.dumps(receipt), encoding="utf-8")
         with patch.object(checked, "_runtime_root", return_value=runtime_dir):
-            try:
+            with raises(ValueError, msg="tampered runtime binary was accepted") as raised:
                 checked.ensure_checked_build(root)
-            except ValueError as error:
-                ensure("changed after its build" in str(error), "tampered runtime binary lost its cause")
-            else:
-                raise AssertionError("tampered runtime binary was accepted")
+            ensure("changed after its build" in str(raised.exception), "tampered runtime binary lost its cause")
         tampered = vela_parser.Build(runtime_dir, exe, receipt)
-        try:
+        with raises(ValueError, msg="tampered explicit build was accepted") as raised:
             checked.parse_checked(source, compiled=tampered)
-        except ValueError as error:
-            ensure("changed after its build" in str(error), "tampered explicit build lost its cause")
-        else:
-            raise AssertionError("tampered explicit build was accepted")
+        ensure("changed after its build" in str(raised.exception), "tampered explicit build lost its cause")
 
 
 def _runtime_variants() -> None:
@@ -352,19 +311,13 @@ def _runtime_variants() -> None:
                     ensure(current.executable == origin.executable and current.receipt == origin.receipt,
                            "alternating checkouts replaced or rebuilt a verified runtime")
             (b.directory / "receipt.json").write_text(json.dumps(a.receipt), encoding="utf-8")
-            try:
+            with raises(ValueError, msg="one grammar accepted another grammar's runtime receipt") as raised:
                 checked.ensure_checked_build(grammar_b)
-            except ValueError as error:
-                ensure("different inputs" in str(error), "receipt substitution lost its source identity diagnostic")
-            else:
-                raise AssertionError("one grammar accepted another grammar's runtime receipt")
+            ensure("different inputs" in str(raised.exception), "receipt substitution lost its source identity diagnostic")
             a.executable.write_bytes(b"changed")
-            try:
+            with raises(ValueError, msg="changed executable passed receipt verification") as raised:
                 checked.ensure_checked_build(grammar_a)
-            except ValueError as error:
-                ensure("changed after its build" in str(error), "damaged cache entry lost its integrity diagnostic")
-            else:
-                raise AssertionError("changed executable passed receipt verification")
+            ensure("changed after its build" in str(raised.exception), "damaged cache entry lost its integrity diagnostic")
 
 
 def cases() -> list[Case]:

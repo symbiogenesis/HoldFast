@@ -8,7 +8,7 @@ from io import StringIO
 from typing import cast
 from unittest.mock import patch
 
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from tests.test_vela_lsp_projection import (
     _TEXT,
     _URI,
@@ -187,19 +187,13 @@ def _validated_source_binding() -> None:
     first = SourceSnapshot(_URI, 1, _TEXT, 1)
     facts = validate_inspection(first, _facts())
     second = SourceSnapshot(_URI, 2, _TEXT, 2)
-    try:
+    with raises(InspectionError, msg="validated facts projected under a different snapshot identity"):
         project_inspection(second, facts, "textDocument/documentSymbol", None)
-    except InspectionError:
-        pass
-    else:
-        raise AssertionError("validated facts projected under a different snapshot identity")
-    with patch("toolchain.lsp_services.MAX_SYMBOLS", 1):
-        try:
-            lsp_services.validate_inspection(first, _facts())
-        except InspectionError:
-            pass
-        else:
-            raise AssertionError("immutable fact validation skipped the symbol bound")
+    with (
+        patch("toolchain.lsp_services.MAX_SYMBOLS", 1),
+        raises(InspectionError, msg="immutable fact validation skipped the symbol bound"),
+    ):
+        lsp_services.validate_inspection(first, _facts())
 
 
 def cases() -> list[Case]:

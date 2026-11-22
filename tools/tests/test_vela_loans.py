@@ -6,7 +6,7 @@ from itertools import product
 from pathlib import Path
 from typing import cast
 
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from toolchain import parser, solver_ledger
 from toolchain.ast import VelaError
 from toolchain.elaborate import elaborate
@@ -68,12 +68,10 @@ def _ends(path: PathReport) -> list[tuple[str, str, str]]:
 
 
 def _refuses(action: Callable[[], object], text: str) -> None:
-    try:
+    with raises(AnalysisRefusalError, msg=f"analysis did not refuse {text}") as raised:
         action()
-    except AnalysisRefusalError as error:
-        ensure(text in str(error), f"wrong structural refusal: {error}")
-    else:
-        raise AssertionError(f"analysis did not refuse {text}")
+    error = raised.exception
+    ensure(text in str(error), f"wrong structural refusal: {error}")
 
 
 def _last_use_and_residuals() -> None:

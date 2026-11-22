@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import cast
 from unittest.mock import patch
 
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from toolchain import Translation, VelaError, compiler_trace
 from toolchain import trace_benchmark as benchmark
 from toolchain.cli import vela as cli
@@ -119,53 +119,35 @@ def _report_integrity() -> None:
     ensure(benchmark.decode(json.dumps(report).encode()) == report, "benchmark decoding changed report")
     for raw in (b'{"x":1,"x":2}', b'{"x":NaN}', b"[" * 20 + b"0" + b"]" * 20,
                 b" " * (benchmark.MAX_REPORT_BYTES + 1)):
-        try:
+        with raises(ValueError, msg="malformed or unbounded report decoded"):
             benchmark.decode(raw)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("malformed or unbounded report decoded")
 
 
 def _limits_and_failures() -> None:
     with patch.object(benchmark, "translate", side_effect=_compile) as compile_mock:
         for samples, warmups in ((0, 0), (True, 0), (benchmark.MAX_SAMPLES + 1, 0),
                                  (1, -1), (1, True), (1, benchmark.MAX_WARMUPS + 1)):
-            try:
+            with raises(ValueError, msg="unbounded benchmark configuration accepted"):
                 benchmark.measure(SOURCE, PRODUCER, samples=samples, warmups=warmups)
-            except ValueError:
-                pass
-            else:
-                raise AssertionError("unbounded benchmark configuration accepted")
         ensure(not compile_mock.called, "invalid limits invoked the compiler")
         for readings in ((-1,), (True,), (0.5,), (10, 9), (0, compiler_trace.MAX_TIME + 1)):
             ticks = iter(readings)
-            try:
+            with raises(ValueError, msg="invalid benchmark clock accepted"):
                 benchmark.measure(SOURCE, PRODUCER, samples=1, warmups=0,
                                   clock=cast("Callable[[], int]", ticks.__next__))
-            except ValueError:
-                pass
-            else:
-                raise AssertionError("invalid benchmark clock accepted")
     def changed_output(source: bytes, *, trace: compiler_trace.Recorder | None = None) -> Translation:
         result = _compile(source, trace=trace)
         return result if trace is None else Translation("Timed", "different")
     with patch.object(benchmark, "translate", side_effect=changed_output):
-        try:
+        with raises(ValueError, msg="instrumentation changed emitted terms without refusal") as raised:
             benchmark.measure(SOURCE, PRODUCER, samples=1, warmups=0)
-        except ValueError as error:
-            ensure("changed emitted output" in str(error), "wrong output mismatch refusal")
-        else:
-            raise AssertionError("instrumentation changed emitted terms without refusal")
+        ensure("changed emitted output" in str(raised.exception), "wrong output mismatch refusal")
     recorder = compiler_trace.Recorder(max_events=2)
     with patch.object(benchmark, "translate", side_effect=_compile), \
             patch.object(compiler_trace, "Recorder", return_value=recorder):
-        try:
+        with raises(ValueError, msg="truncated recording produced an accepted comparison") as raised:
             benchmark.measure(SOURCE, PRODUCER, samples=1, warmups=0)
-        except ValueError as error:
-            ensure("incomplete" in str(error), "wrong incomplete recording refusal")
-        else:
-            raise AssertionError("truncated recording produced an accepted comparison")
+        ensure("incomplete" in str(raised.exception), "wrong incomplete recording refusal")
 
 
 def _command_publication() -> None:
@@ -219,12 +201,9 @@ def _overhead_budget() -> None:
     for report, limit, message in (
             (boundary, 333, "exceeds"), (comparison(0, 0), 100, "baseline"),
             (_fixture(), 100, "seven"), (boundary, -1, "invalid")):
-        try:
+        with raises(ValueError, msg="accepted an out-of-budget or unqualified timing comparison") as raised:
             benchmark.validate(report, SOURCE, PRODUCER, max_overhead_ppm=limit)
-        except ValueError as error:
-            ensure(message in str(error), "wrong overhead budget refusal")
-        else:
-            raise AssertionError("accepted an out-of-budget or unqualified timing comparison")
+        ensure(message in str(raised.exception), "wrong overhead budget refusal")
 
 
 def _real_compiler() -> None:

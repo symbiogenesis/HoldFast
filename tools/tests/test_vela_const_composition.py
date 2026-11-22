@@ -7,17 +7,15 @@ from typing import cast
 from unittest.mock import patch
 
 import toolchain as vela
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 
 
 def _refuses(source: str, kind: str, message: str) -> None:
-    try:
+    with raises(vela.VelaError, msg="accepted forbidden const composition") as raised:
         vela.translate(source.encode())
-    except vela.VelaError as error:
-        ensure(error.kind == kind and message in error.message,
-               f"wrong const-composition refusal: {error.kind}: {error.message}")
-    else:
-        raise AssertionError("accepted forbidden const composition")
+    error = raised.exception
+    ensure(error.kind == kind and message in error.message,
+           f"wrong const-composition refusal: {error.kind}: {error.message}")
 
 
 def _both_phases_and_legacy_pure_calls() -> None:
@@ -230,12 +228,8 @@ def _independent_qualifier_protocol() -> None:
             changed_source = source.replace(remove, remove.replace(b"const", b"     "))
             changed = copy.deepcopy(response)
             changed["source_sha256"] = hashlib.sha256(changed_source).hexdigest()
-            try:
+            with raises(ValueError, msg="accepted an invented qualifier absent from source"):
                 vela.translate_ast(changed_source, changed)
-            except ValueError:
-                pass
-            else:
-                raise AssertionError("accepted an invented qualifier absent from source")
 
 
 def cases() -> list[Case]:

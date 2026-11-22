@@ -15,7 +15,7 @@ from typing import cast
 from unittest.mock import patch
 
 import toolchain as vela
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from toolchain import parser, playground
 from toolchain.facts import MAX_SYMBOLS
 from toolchain.playground_worker import compile_request
@@ -67,13 +67,11 @@ def _static_refusals() -> None:
                        "", "import Something", "Square(7); 2"):
         _refuses(lambda expression=expression: vela.evaluate(source, expression, "Nat"))
     for expression in ("", "1 +"):
-        try:
+        with raises(vela.VelaError, msg="accepted incomplete console expression") as raised:
             vela.evaluate(source, expression, "Nat")
-        except vela.VelaError as error:
-            ensure(error.line == 1 and 1 <= error.column <= len(expression) + 1,
-                   "synthetic parser suffix leaked into console error coordinates")
-        else:
-            raise AssertionError("accepted incomplete console expression")
+        error = raised.exception
+        ensure(error.line == 1 and 1 <= error.column <= len(expression) + 1,
+               "synthetic parser suffix leaked into console error coordinates")
     _refuses(lambda: vela.evaluate(source, "Small(1)", "Nat"), "type")
     _refuses(lambda: vela.evaluate(source, "missing", "Nat"), "name")
     _refuses(lambda: vela.evaluate(source, "9" * 4097, "Nat"), "limit")
@@ -91,13 +89,11 @@ def _static_refusals() -> None:
     _refuses(lambda: vela.evaluate(exponential, "F15(0)", "Nat"), "limit")
     with patch.object(vela, "MAX_STATIC_WORK", 2):
         _refuses(lambda: vela.evaluate(b"module M; public Nat Id(Nat x) => x;", "Id(1) + 2", "Nat"), "limit")
-    try:
+    with raises(vela.VelaError, msg="accepted unbounded console evaluation") as raised:
         vela.evaluate(exponential, "F15(0)", "Nat")
-    except vela.VelaError as error:
-        ensure(error.line == 1 and error.column == 1 and error.message.startswith("expression:"),
-               "function-body evaluation refusal was mislabeled as expression coordinates")
-    else:
-        raise AssertionError("accepted unbounded console evaluation")
+    error = raised.exception
+    ensure(error.line == 1 and error.column == 1 and error.message.startswith("expression:"),
+           "function-body evaluation refusal was mislabeled as expression coordinates")
     with patch.object(vela, "MAX_OUTPUT_BYTES", 32):
         _refuses(lambda: vela.evaluate(source, "42", "Nat"), "limit")
 

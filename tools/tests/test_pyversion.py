@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from toolchain import pyversion
 from toolchain.cli import typecheck
 from toolchain.report import Reporter
@@ -41,12 +41,9 @@ def _invalid_owner_refuses() -> None:
                         ">=3.14, <3.15", "==3.14", ">=3.14,<3.15,!=3.14.1"))):
             if text is not None:
                 path.write_text(text, encoding="utf-8", newline="")
-            try:
+            with raises((OSError, ValueError),
+                        msg=f"invalid or missing interpreter owner accepted: {text!r}"):
                 pyversion.supported_minor(root)
-            except (OSError, ValueError):
-                pass
-            else:
-                raise AssertionError(f"invalid or missing interpreter owner accepted: {text!r}")
 
 
 def _runtime_follows_manifest() -> None:
@@ -61,14 +58,12 @@ def _runtime_follows_manifest() -> None:
                 pyversion.require_supported(root)
             for version in ((3, minor - 1, 9), (3, minor + 1, 0)):
                 with patch.object(pyversion.sys, "version_info", version):
-                    try:
+                    with raises(ValueError, msg=f"wrong interpreter accepted: {version}") as raised:
                         pyversion.require_supported(root)
-                    except ValueError as error:
-                        ensure(f"Python 3.{minor}" in str(error)
-                               and pyversion.PROJECT in str(error),
-                               "the diagnostic must identify the version's owner")
-                    else:
-                        raise AssertionError(f"wrong interpreter accepted: {version}")
+                    error = raised.exception
+                    ensure(f"Python 3.{minor}" in str(error)
+                           and pyversion.PROJECT in str(error),
+                           "the diagnostic must identify the version's owner")
 
 
 def _editor_targets_follow_metadata() -> None:

@@ -4,7 +4,7 @@
 from unittest.mock import patch
 
 import toolchain as vela
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 
 _NAT = "Corelib.Init.Datatypes.nat"
 _BOOL = "Corelib.Init.Datatypes.bool"
@@ -132,24 +132,18 @@ def _short_circuit() -> None:
         ensure(vela.evaluate(_BASE, expression, "bool").value is expected,
                "skipped logical operand consumed arithmetic budget")
     for expression in (f"true && {expensive}", f"false || {expensive}"):
-        try:
+        with raises(vela.VelaError, msg="live expensive logical operand escaped numeric budget") as raised:
             vela.evaluate(_BASE, expression, "bool")
-        except vela.VelaError as error:
-            ensure(error.kind == "limit", "live expensive operand had the wrong refusal")
-        else:
-            raise AssertionError("live expensive logical operand escaped numeric budget")
+        ensure(raised.exception.kind == "limit", "live expensive operand had the wrong refusal")
     declarations = ["module Work; public Nat F0(Nat x) => x;"]
     declarations.extend(f"public Nat F{index}(Nat x) => F{index - 1}(x) + F{index - 1}(x);"
                         for index in range(1, 16))
     source = " ".join(declarations).encode()
     ensure(vela.evaluate(source, "false && (F15(0) == 0)", "bool").value is False,
            "short circuit evaluated an exponentially costly call")
-    try:
+    with raises(vela.VelaError, msg="live expensive call escaped work budget") as raised:
         vela.evaluate(source, "true && (F15(0) == 0)", "bool")
-    except vela.VelaError as error:
-        ensure(error.kind == "limit", "live expensive call had wrong refusal")
-    else:
-        raise AssertionError("live expensive call escaped work budget")
+    ensure(raised.exception.kind == "limit", "live expensive call had wrong refusal")
 
 
 def _constants_and_facts() -> None:

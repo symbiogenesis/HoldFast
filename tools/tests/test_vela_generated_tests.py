@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import cast
 from unittest.mock import patch
 
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from toolchain import generated_tests
 from toolchain.cli import vela as vela_cli
 from toolchain.generated_tests import (
@@ -349,12 +349,9 @@ def _isolated_compiler_runtime_closure() -> None:
     failure = subprocess.CalledProcessError(1, ["uv-fixture", "sync"])
     with patch.object(generated_tests.shutil, "which", return_value="uv-fixture"), \
             patch.object(generated_tests.subprocess, "run", side_effect=[done, failure]) as run:
-        try:
+        with raises(subprocess.CalledProcessError,
+                    msg="failed runtime synchronization produced a campaign verdict"):
             generated_tests.qualify_isolated_campaign(root)
-        except subprocess.CalledProcessError:
-            pass
-        else:
-            raise AssertionError("failed runtime synchronization produced a campaign verdict")
         ensure(run.call_count == 2, "failed runtime synchronization still installed or ran the generator")
 
 

@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 from typing import cast
 
-from tests.harness import TOOLS, Case, ensure
+from tests.harness import TOOLS, Case, ensure, raises
 from toolchain import compiler_diff as cd
 from toolchain import (
     elaborate as vela_elaborate,
@@ -366,12 +366,10 @@ def _capacity_invariance_and_contracts() -> None:
     mismatched[-1] = mismatched[-1].replace("ensures_0", "ensures_1")
     ensure(mismatched != large_state.output, "capacity fixture should include its named ensures obligation")
     large_state.output = mismatched
-    try:
+    with raises(ValueError,
+                msg="capacity gate accepted different obligation names of equal encoded size") as raised:
         vela_first_slice._check_capacity_structure(small_state, large_state)
-    except ValueError as error:
-        ensure("proof structure" in str(error), "changed capacity proof should identify its structural mismatch")
-    else:
-        raise AssertionError("capacity gate accepted different obligation names of equal encoded size")
+    ensure("proof structure" in str(raised.exception), "changed capacity proof should identify its structural mismatch")
     for field_tag in ("Base", "Length", "Tag", "PermRead", "PermWrite"):
         ensure(
             f"vela_d0_PrepareHeader_restores_0_{field_tag}" in small_elab.gallina,
@@ -498,15 +496,13 @@ def _negative_span_refusals() -> None:
         ),
     )
     for label, (raw, ast), expected_msg in cases:
-        try:
+        with raises(VelaError, msg=f"{label} was unexpectedly accepted") as raised:
             vela_elaborate.elaborate(raw, ast)
-        except VelaError as error:
-            ensure(
-                error.kind == "type" and expected_msg in error.message,
-                f"{label}: expected type error '{expected_msg}', got {error.kind}: {error.message}",
-            )
-        else:
-            raise AssertionError(f"{label} was unexpectedly accepted")
+        error = raised.exception
+        ensure(
+            error.kind == "type" and expected_msg in error.message,
+            f"{label}: expected type error '{expected_msg}', got {error.kind}: {error.message}",
+        )
 
 
 def _clight_lowering_and_purecap_assembly() -> None:
@@ -524,12 +520,10 @@ def _clight_lowering_and_purecap_assembly() -> None:
 
     incomplete_ast = {"schema": 2, "source_sha256": hashlib.sha256(source).hexdigest(),
                       "ast": {"kind": "surface_file", "declarations": []}}
-    try:
+    with raises(VelaError, msg="incomplete AST was accepted by lower_to_c") as raised:
         vela_first_slice.lower_to_c(source, incomplete_ast)
-    except VelaError as err:
-        ensure(err.kind == "protocol", f"unexpected error on incomplete AST: {err}")
-    else:
-        raise AssertionError("incomplete AST was accepted by lower_to_c")
+    err = raised.exception
+    ensure(err.kind == "protocol", f"unexpected error on incomplete AST: {err}")
 
     with tempfile.TemporaryDirectory(prefix="vela-slice-asm-") as tmp:
         workdir = Path(tmp)
@@ -550,13 +544,12 @@ def _purecap_error_branch_profile() -> None:
         vela_first_slice._check_purecap_control_image(original)
         for word in (0x022180D7, 0x0000200F):  # vadd.vv v1,v2,v3; lc with a forbidden zero destination
             mutation, pc = vela_first_slice._cold_branch_image(original, word)
-            try:
+            with raises(ValueError,
+                        msg=f"out-of-profile word {word:#010x} at the error exit was accepted") as raised:
                 vela_first_slice._check_purecap_control_image(mutation)
-            except ValueError as error:
-                ensure(f"instruction {word:#010x} at PC {pc:#x}" in str(error),
-                       f"control profile reported the wrong word or site: {error}")
-            else:
-                raise AssertionError(f"out-of-profile word {word:#010x} at the error exit was accepted")
+            error = raised.exception
+            ensure(f"instruction {word:#010x} at PC {pc:#x}" in str(error),
+                   f"control profile reported the wrong word or site: {error}")
 
 
 def _ordered_scalar_calls() -> None:
@@ -637,13 +630,11 @@ public Nat WritePacket8(Nat n) decreases n {
 """
         parsed = parser.parse_source(compiled, recursive, surface=True)
         checked = vela_elaborate.elaborate(recursive, parsed)
-        try:
+        with raises(ValueError, msg="packet lowering emitted recursion with unbounded call depth") as raised:
             vela_first_slice.lower_to_c(recursive, parsed, checked=checked)
-        except ValueError as error:
-            ensure("WritePacket8' is recursive and has no admitted stack bound" in str(error),
-                   f"recursive executable lost its resource-bound diagnostic: {error}")
-        else:
-            raise AssertionError("packet lowering emitted recursion with unbounded call depth")
+        error = raised.exception
+        ensure("WritePacket8' is recursive and has no admitted stack bound" in str(error),
+               f"recursive executable lost its resource-bound diagnostic: {error}")
 
 
 def _execute_generated_packet_c() -> None:
@@ -765,12 +756,10 @@ def _packet_contextual_literals() -> None:
         body = cast("Node", declarations["ComputePacketChecksum"]["body"])
         statements = cast("list[Node]", body["statements"])
         statements.pop(0)
-        try:
+        with raises(ValueError,
+                    msg="checked facts for the original tree admitted a substituted function body") as raised:
             vela_first_slice.lower_to_c(source, stale, checked=checked)
-        except ValueError as error:
-            ensure("different source or syntax" in str(error), "substituted syntax lost its diagnostic")
-        else:
-            raise AssertionError("checked facts for the original tree admitted a substituted function body")
+        ensure("different source or syntax" in str(raised.exception), "substituted syntax lost its diagnostic")
 
         explicit_source = bytearray(source)
         for start, width in sorted(checked.contextual_literal_types.items(), reverse=True):
@@ -782,32 +771,27 @@ def _packet_contextual_literals() -> None:
         invalid = bytes(explicit_source).replace(b"acc = acc ^ pkt[4usize + i];", b"acc = true;")
         ensure(invalid != explicit_source, "missing fully suffixed source neighbor")
         parsed = parser.parse_source(compiled, invalid, surface=True)
-        try:
+        with raises(VelaError, msg="fully suffixed source bypassed semantic checking") as raised:
             vela_first_slice.lower_to_c(invalid, parsed)
-        except VelaError as error:
-            ensure(error.kind == "type", f"fully suffixed program lost its type error: {error}")
-        else:
-            raise AssertionError("fully suffixed source bypassed semantic checking")
+        error = raised.exception
+        ensure(error.kind == "type", f"fully suffixed program lost its type error: {error}")
         for replaced, replacement, message in (
             (b"magic != 0x56 ||", b"magic != 256 ||", "out of range for 'u8'"),
             (b"magic = pkt[0];", b"magic = pkt[0u8];", "not definitionally equal"),
         ):
             bad = source.replace(replaced, replacement)
             parsed = parser.parse_source(compiled, bad, surface=True)
-            try:
+            with raises(VelaError, msg=f"packet lowering accepted {replacement!r}") as raised:
                 vela_first_slice.lower_to_c(bad, parsed)
-            except VelaError as error:
-                ensure(error.kind == "type" and message in error.message, f"unexpected literal error: {error}")
-            else:
-                raise AssertionError(f"packet lowering accepted {replacement!r}")
+            error = raised.exception
+            ensure(error.kind == "type" and message in error.message, f"unexpected literal error: {error}")
         untyped = source.replace(b"let magic = pkt[0];", b"let count = 0; let magic = pkt[0];")
         parsed = parser.parse_source(compiled, untyped, surface=True)
-        try:
+        with raises(ValueError,
+                    msg="packet lowering assigned an implicit runtime width to a Nat local") as raised:
             vela_first_slice.lower_to_c(untyped, parsed)
-        except ValueError as error:
-            ensure("requires an explicit type annotation or suffix" in str(error), f"unexpected width error: {error}")
-        else:
-            raise AssertionError("packet lowering assigned an implicit runtime width to a Nat local")
+        error = raised.exception
+        ensure("requires an explicit type annotation or suffix" in str(error), f"unexpected width error: {error}")
 
     ensure(outputs[0] == outputs[1], "contextual literals changed the packet proof terms, C body or checks")
     _, generated, _ = outputs[0]

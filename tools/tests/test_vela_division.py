@@ -7,7 +7,7 @@ from typing import cast
 from unittest.mock import patch
 
 import toolchain as vela
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from toolchain import ast as vela_ast
 from toolchain.authoring import format_source
 
@@ -116,32 +116,24 @@ def _numeric_and_work_limits() -> None:
            "zero remainder narrowed the existing numeric range")
     for expression in (f"({maximum} * 2) / 2", f"({maximum} * 2) / 0",
                        f"({maximum} * 2) % 0", f"0 / ({maximum} * 2)", f"0 % ({maximum} * 2)"):
-        try:
+        with raises(vela.VelaError, msg="division hid a previously overflowing operand") as raised:
             vela.evaluate(_BASE, expression, "Nat")
-        except vela.VelaError as error:
-            ensure(error.kind == "limit", "division changed an operand's numeric-limit refusal")
-        else:
-            raise AssertionError("division hid a previously overflowing operand")
+        ensure(raised.exception.kind == "limit", "division changed an operand's numeric-limit refusal")
     declarations = ["module Work; public Nat F0(Nat value) => value;"]
     declarations.extend(f"public Nat F{index}(Nat value) => F{index - 1}(value) + F{index - 1}(value);"
                         for index in range(1, 16))
     source = " ".join(declarations).encode()
     for expression in ("F15(0) / 0", "F15(0) % 0", "0 / F15(0)", "0 % F15(0)"):
-        try:
+        with raises(vela.VelaError, msg="zero division/remainder skipped an expensive operand") as raised:
             vela.evaluate(source, expression, "Nat")
-        except vela.VelaError as error:
-            ensure(error.kind == "limit", "zero operands changed the static work-limit refusal")
-        else:
-            raise AssertionError("zero division/remainder skipped an expensive operand")
+        ensure(raised.exception.kind == "limit", "zero operands changed the static work-limit refusal")
     for expression, fragment in ((f"({maximum} * 2) / F15(0)", "constant result exceeds"),
                                  (f"F15(0) / ({maximum} * 2)", "work or nesting budget")):
-        try:
+        with raises(vela.VelaError, msg="costly division operands escaped static limits") as raised:
             vela.evaluate(source, expression, "Nat")
-        except vela.VelaError as error:
-            ensure(error.kind == "limit" and fragment in error.message,
-                   "division evaluated operands in the wrong source order")
-        else:
-            raise AssertionError("costly division operands escaped static limits")
+        error = raised.exception
+        ensure(error.kind == "limit" and fragment in error.message,
+               "division evaluated operands in the wrong source order")
 
 
 def _node(kind: str, start: int, end: int, **fields: object) -> dict[str, object]:

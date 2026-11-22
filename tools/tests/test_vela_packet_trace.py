@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import cast
 from unittest.mock import patch
 
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from toolchain import first_slice, packet_trace
 
 INDEPENDENT_CASES = True
@@ -34,12 +34,8 @@ def _inventory_and_rebinding() -> None:
         except ValueError:
             continue
         raise AssertionError("altered compiler timeline survived a matching document digest")
-    try:
+    with raises(ValueError, msg="packet trace survived a changed receipt"):
         packet_trace.validate(original, "b" * 64, 17, _PIDS)
-    except ValueError:
-        pass
-    else:
-        raise AssertionError("packet trace survived a changed receipt")
 
 
 def _partial_and_process() -> None:
@@ -77,12 +73,10 @@ def _command_duration_bound() -> None:
         for index in range(len(steps)):
             changed = copy.deepcopy(steps)
             changed[index]["elapsed_ns"] = 29_000
-            try:
+            with raises(ValueError,
+                        msg="proof trace survived a shorter independent process measurement") as raised:
                 first_slice._check_trace(root, {}, recording, changed)
-            except ValueError as error:
-                ensure("lifetime" in str(error), "proof duration failed at another predicate")
-            else:
-                raise AssertionError("proof trace survived a shorter independent process measurement")
+            ensure("lifetime" in str(raised.exception), "proof duration failed at another predicate")
 
 
 def cases() -> list[Case]:

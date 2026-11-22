@@ -10,7 +10,7 @@ from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
-from tests.harness import TOOLS, Case, ensure
+from tests.harness import TOOLS, Case, ensure, raises
 from toolchain import MAX_SOURCE_BYTES, VelaError, parser
 from toolchain.cli import vela_parser as cli
 
@@ -29,12 +29,10 @@ def _response(value: object, code: int = 0, stderr: bytes = b"") -> subprocess.C
 def _expect_failure(compiled: parser.Build, response: subprocess.CompletedProcess[bytes],
                     message: str) -> None:
     with patch.object(parser.subprocess, "run", return_value=response):
-        try:
+        with raises((TypeError, ValueError, RuntimeError), msg="invalid native response accepted") as raised:
             parser.parse_source(compiled, b"module M;")
-        except (TypeError, ValueError, RuntimeError) as error:
-            ensure(message in str(error), f"missing refusal detail: {error}")
-        else:
-            raise AssertionError("invalid native response accepted")
+        error = raised.exception
+        ensure(message in str(error), f"missing refusal detail: {error}")
 
 
 def _protocol() -> None:
@@ -60,21 +58,16 @@ def _protocol() -> None:
         _expect_failure(compiled, subprocess.CompletedProcess([], 0, b"{invalid", b""), "malformed JSON")
         refusal = {"kind": "syntax", "line": 3, "column": 10, "message": "expected expression"}
         with patch.object(parser.subprocess, "run", return_value=_response(refusal, 1)):
-            try:
+            with raises(VelaError, msg="native refusal accepted") as raised:
                 parser.parse_source(compiled, source)
-            except VelaError as error:
-                ensure((error.kind, error.line, error.column) == ("syntax", 3, 10), "native diagnostic lost")
-            else:
-                raise AssertionError("native refusal accepted")
+            error = raised.exception
+            ensure((error.kind, error.line, error.column) == ("syntax", 3, 10), "native diagnostic lost")
         _expect_failure(compiled, _response({**refusal, "line": True}, 1), "invalid refusal")
         compiled.executable.write_bytes(b"changed")
         with patch.object(parser.subprocess, "run") as process:
-            try:
+            with raises(ValueError, msg="changed executable consumed") as raised:
                 parser.parse_source(compiled, source)
-            except ValueError as error:
-                ensure("changed after" in str(error), "stale executable refusal missing")
-            else:
-                raise AssertionError("changed executable consumed")
+            ensure("changed after" in str(raised.exception), "stale executable refusal missing")
             process.assert_not_called()
 
 
@@ -87,27 +80,18 @@ def _bounds() -> None:
         for operation in (lambda: parser.read_source(source),
                           lambda: parser.parse_source(compiled, source.read_bytes())):
             with patch.object(parser.subprocess, "run") as process:
-                try:
+                with raises(VelaError, msg="oversized source accepted") as raised:
                     operation()
-                except VelaError as error:
-                    ensure(error.kind == "limit", "oversized source has wrong diagnostic")
-                else:
-                    raise AssertionError("oversized source accepted")
+                ensure(raised.exception.kind == "limit", "oversized source has wrong diagnostic")
                 process.assert_not_called()
         with patch.object(parser.subprocess, "run", side_effect=subprocess.TimeoutExpired("parser", 15)):
-            try:
+            with raises(VelaError, msg="timed-out parse accepted") as raised:
                 parser.parse_source(compiled, b"module M;")
-            except VelaError as error:
-                ensure(error.kind == "limit", "timeout has wrong diagnostic")
-            else:
-                raise AssertionError("timed-out parse accepted")
+            ensure(raised.exception.kind == "limit", "timeout has wrong diagnostic")
         with patch.object(parser.subprocess, "run", side_effect=subprocess.TimeoutExpired("tool", 120)):
-            try:
+            with raises(RuntimeError, msg="timed-out build accepted") as raised:
                 parser._run(["tool"], directory)
-            except RuntimeError as error:
-                ensure("exceeded" in str(error), "build timeout has no useful refusal")
-            else:
-                raise AssertionError("timed-out build accepted")
+            ensure("exceeded" in str(raised.exception), "build timeout has no useful refusal")
 
 
 def _strict_response_json() -> None:
@@ -162,12 +146,10 @@ def _located_tree_bounds() -> None:
             response = _response({"schema": 1, "ast": ast})
             if message:
                 with patch.object(parser.subprocess, "run", return_value=response):
-                    try:
+                    with raises(ValueError, msg=f"native tree accepted invalid {message} boundary") as raised:
                         parser.parse_source(compiled, source)
-                    except ValueError as error:
-                        ensure(message in str(error), f"wrong located-tree refusal: {error}")
-                    else:
-                        raise AssertionError(f"native tree accepted invalid {message} boundary")
+                    error = raised.exception
+                    ensure(message in str(error), f"wrong located-tree refusal: {error}")
             else:
                 with patch.object(parser.subprocess, "run", return_value=response):
                     ensure(parser.parse_source(compiled, source)["ast"] == ast,
@@ -187,12 +169,10 @@ def _located_tree_bounds() -> None:
                     ensure(depth == parser.MAX_SYNTAX_DEPTH, "over-budget native syntax accepted")
         ast = {"kind": "file", "span": [0, 1]}
         with patch.object(parser.subprocess, "run", return_value=_response({"schema": 1, "ast": ast})):
-            try:
+            with raises(ValueError,
+                        msg="successful native reply concealed invalid source encoding") as raised:
                 parser.parse_source(compiled, b"\xff")
-            except ValueError as error:
-                ensure("UTF-8" in str(error), "invalid source encoding has no protocol refusal")
-            else:
-                raise AssertionError("successful native reply concealed invalid source encoding")
+            ensure("UTF-8" in str(raised.exception), "invalid source encoding has no protocol refusal")
 
 
 def _versions() -> None:
@@ -207,12 +187,9 @@ def _versions() -> None:
         changed = [*expected]
         changed[index] = "different version"
         with patch.object(parser, "_run", side_effect=changed):
-            try:
+            with raises(ValueError, msg="different parser toolchain accepted") as raised:
                 parser._toolchain(root)
-            except ValueError as error:
-                ensure("identity differs" in str(error), "version refusal missing")
-            else:
-                raise AssertionError("different parser toolchain accepted")
+            ensure("identity differs" in str(raised.exception), "version refusal missing")
 
 
 def _failed_build() -> None:
@@ -233,12 +210,9 @@ def _failed_build() -> None:
         output = root / "native-build"
         output.mkdir()
         with patch.object(parser, "_run", side_effect=RuntimeError("generator refused grammar")):
-            try:
+            with raises(RuntimeError, msg="failed generator acquired a build") as raised:
                 parser._compile(root, output, {})
-            except RuntimeError as error:
-                ensure("refused grammar" in str(error), "generator failure hidden")
-            else:
-                raise AssertionError("failed generator acquired a build")
+            ensure("refused grammar" in str(raised.exception), "generator failure hidden")
         ensure(not (output / "receipt.json").exists(), "failed build left a passing receipt")
 
 
@@ -325,12 +299,9 @@ def _constant_callable_oracle_required() -> None:
         compiled = _build(Path(temporary))
         with patch.object(parser, "_concise_fixture", return_value="concise"), \
                 patch.object(parser, "_constant_callable_fixture", side_effect=ValueError("constant role changed")) as oracle:
-            try:
+            with raises(ValueError, msg="constant callable syntax oracle was bypassed") as raised:
                 parser._fixtures(compiled)
-            except ValueError as error:
-                ensure(str(error) == "constant role changed", "constant oracle failure was replaced")
-            else:
-                raise AssertionError("constant callable syntax oracle was bypassed")
+            ensure(str(raised.exception) == "constant role changed", "constant oracle failure was replaced")
         oracle.assert_called_once_with(compiled)
 
 
@@ -342,12 +313,9 @@ def _extended_expression_oracle_required() -> None:
                 patch.object(parser, "_typed_local_fixture", return_value="locals"), \
                 patch.object(parser, "_extended_expression_fixture",
                              side_effect=ValueError("operator span changed")) as oracle:
-            try:
+            with raises(ValueError, msg="extended expression syntax oracle was bypassed") as raised:
                 parser._fixtures(compiled)
-            except ValueError as error:
-                ensure(str(error) == "operator span changed", "extended expression oracle failure was replaced")
-            else:
-                raise AssertionError("extended expression syntax oracle was bypassed")
+            ensure(str(raised.exception) == "operator span changed", "extended expression oracle failure was replaced")
         oracle.assert_called_once_with(compiled)
 
 

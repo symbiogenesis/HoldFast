@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import cast
 from unittest.mock import patch
 
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from toolchain import sarif
 from toolchain.cli import vela as cli
 from toolchain.lsp_services import InspectionError
@@ -177,27 +177,15 @@ def _corruptions() -> None:
 def _bounds() -> None:
     for inputs in ((), (SOURCE, SOURCE), tuple(sarif.Input(f"file:///{i}", b"") for i in range(17)),
                    (sarif.Input(SOURCE.uri, b"x" * 65_537),)):
-        try:
+        with raises(ValueError, msg="accepted invalid SARIF batch bounds"):
             sarif.export(inputs, PRODUCER, checker=_checked)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("accepted invalid SARIF batch bounds")
     for producer in ("g" * 64, "A" * 64, "a" * 63):
-        try:
+        with raises(ValueError, msg="accepted a malformed producer SHA-256 identity"):
             sarif.export((SOURCE,), producer, checker=_checked)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("accepted a malformed producer SHA-256 identity")
     for raw in (b'{"version":1,"version":2}', b"[]", b"x" * (sarif.MAX_REPORT_BYTES + 1),
                 b'{"x":' + b"[" * 65 + b"0" + b"]" * 65 + b"}", b'{"x":NaN}', b'{"x":1e999}'):
-        try:
+        with raises(ValueError, msg="accepted malformed or oversized SARIF JSON"):
             sarif.decode(raw)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("accepted malformed or oversized SARIF JSON")
 
 
 def _command() -> None:

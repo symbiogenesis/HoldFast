@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Behavioral tests for the Vela solver-trust ledger and its assumption audit."""
 
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from toolchain import solver_ledger
 
 INDEPENDENT_CASES = True
@@ -85,12 +85,8 @@ def _audit_refuses_malformed_reports() -> None:
     ensure(solver_ledger.audit(wrapped, 1, _MODULE, entries)
            == ["Vela_M.vela_solver_vela_d3_Law"],
            "a supported wrapped proposition lost its assumption identity")
-    try:
+    with raises(ValueError, msg="a valid report hid an empty later report"):
         solver_ledger.audit(wrapped + "Axioms:\n", 2, _MODULE, entries)
-    except ValueError:
-        pass
-    else:
-        raise AssertionError("a valid report hid an empty later report")
 
 
 def cases() -> list[Case]:

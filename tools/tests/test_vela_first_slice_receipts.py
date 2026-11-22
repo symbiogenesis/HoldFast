@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import cast
 from unittest.mock import patch
 
-from tests.harness import TOOLS, Case, ensure
+from tests.harness import TOOLS, Case, ensure, raises
 from toolchain import first_slice as slice_harness
 from toolchain.cli import vela_parser as cli
 
@@ -264,12 +264,8 @@ def _source_inventory() -> None:
         ensure("tools/toolchain/new_semantics.py" in slice_harness._inputs(root),
                "new producer module escaped the input inventory")
         (root / slice_harness.EXAMPLE).unlink()
-        try:
+        with raises(OSError, msg="missing source produced a complete inventory"):
             slice_harness._inputs(root)
-        except OSError:
-            pass
-        else:
-            raise AssertionError("missing source produced a complete inventory")
 
 
 def _publication_freshness() -> None:
@@ -409,12 +405,10 @@ def _binding_checks() -> None:
             {"kind": "assignment", "operation": "-", "width": "u8", "span": [0, 1], "c_expression": "(a - b)"}
         ]
         write(changed_map)
-        try:
+        with raises(ValueError,
+                    msg="substituted typed operation provenance retained a matching receipt") as raised:
             slice_harness.verify_bindings(root, receipt)
-        except ValueError as error:
-            ensure("integer lowering" in str(error), "changed operation map lost its binding diagnostic")
-        else:
-            raise AssertionError("substituted typed operation provenance retained a matching receipt")
+        ensure("integer lowering" in str(raised.exception), "changed operation map lost its binding diagnostic")
         write(report)
         for owner, field, original, changed in (
                 (slice_harness, "_inputs", source_inputs, {"source": "changed during probes"}),
@@ -422,13 +416,11 @@ def _binding_checks() -> None:
                 (slice_harness, "_execution_inputs", execution, {"files": {}, "changed": True}),
                 (slice_harness.vela_parser, "_inputs", {}, {"source": "changed parser"}),
                 (slice_harness.vela_parser, "_toolchain", {}, {"menhir": "changed generator"})):
-            with patch.object(owner, field, side_effect=[original, changed]):
-                try:
-                    slice_harness.verify_bindings(root, receipt)
-                except ValueError:
-                    pass
-                else:
-                    raise AssertionError(f"{field} changed during binding checks without refusal")
+            with (
+                patch.object(owner, field, side_effect=[original, changed]),
+                raises(ValueError, msg=f"{field} changed during binding checks without refusal"),
+            ):
+                slice_harness.verify_bindings(root, receipt)
         for mutation in ("artifact", "parser", "receipt"):
             target = {"artifact": artifact, "parser": parser / "vela-parser", "receipt": receipt}[mutation]
             before = target.read_bytes()
@@ -466,12 +458,8 @@ def _binding_checks() -> None:
             damaged = copy.deepcopy(report)
             damaged[field] = changed
             write(damaged)
-            try:
+            with raises((ValueError, TypeError, OSError), msg=f"changed {field} was accepted"):
                 slice_harness.verify_bindings(root, receipt)
-            except (ValueError, TypeError, OSError):
-                pass
-            else:
-                raise AssertionError(f"changed {field} was accepted")
         for field, changed in (("command", ["rocqchk", "another.subject"]),
                                ("cwd", str(root)), ("returncode", True), ("returncode", 0),
                                ("expected_refusal", False), ("log_sha256", "0" * 64),
@@ -480,12 +468,8 @@ def _binding_checks() -> None:
             steps = cast("list[dict[str, object]]", damaged["steps"])
             steps[-1][field] = changed
             write(damaged)
-            try:
+            with raises((ValueError, TypeError, OSError), msg=f"changed process {field} was accepted"):
                 slice_harness.verify_bindings(root, receipt)
-            except (ValueError, TypeError, OSError):
-                pass
-            else:
-                raise AssertionError(f"changed process {field} was accepted")
         write(report)
         for path in (artifact, parser / "vela-parser"):
             before = path.read_bytes()
@@ -494,29 +478,18 @@ def _binding_checks() -> None:
                     path.unlink()
                 else:
                     path.write_bytes(payload)
-                try:
+                with raises((ValueError, OSError), msg="changed or missing producer output was accepted"):
                     slice_harness.verify_bindings(root, receipt)
-                except (ValueError, OSError):
-                    pass
-                else:
-                    raise AssertionError("changed or missing producer output was accepted")
                 path.write_bytes(before)
         for raw in (b'{"schema":2,"schema":2}', b"[" * 2_000 + b"]" * 2_000, b"{}\xff"):
             receipt.write_bytes(raw)
-            try:
+            with raises(ValueError, msg="malformed receipt was accepted"):
                 slice_harness.verify_bindings(root, receipt)
-            except ValueError:
-                pass
-            else:
-                raise AssertionError("malformed receipt was accepted")
         with patch.object(slice_harness, "RECEIPT_BYTES", 4):
             receipt.write_bytes(b" " * 5)
-            try:
+            with raises(ValueError, msg="oversized receipt was accepted") as raised:
                 slice_harness.verify_bindings(root, receipt)
-            except ValueError as error:
-                ensure("size bound" in str(error), "oversized receipt lost its bounded refusal")
-            else:
-                raise AssertionError("oversized receipt was accepted")
+            ensure("size bound" in str(raised.exception), "oversized receipt lost its bounded refusal")
         trusted_report = {**report, **_proof_fixture(root, outputs, trusted=True),
                           "artifacts_sha256": slice_harness._artifacts(outputs)}
         write(trusted_report)
@@ -527,12 +500,8 @@ def _binding_checks() -> None:
             damaged = copy.deepcopy(trusted_report)
             damaged[field] = changed
             write(damaged)
-            try:
+            with raises(ValueError, msg=f"solver-trusted report promoted by changing {field}"):
                 slice_harness.verify_bindings(root, receipt)
-            except ValueError:
-                pass
-            else:
-                raise AssertionError(f"solver-trusted report promoted by changing {field}")
 
 
 def _retained_coverage() -> None:
@@ -558,12 +527,8 @@ def _retained_coverage() -> None:
                 path.write_text(path.read_text(encoding="utf-8") + "Axiom hidden : False.\n", encoding="utf-8")
                 report["gallina_sha256"] = slice_harness._sha256(path.read_bytes())
             artifacts: dict[str, object] = dict(slice_harness._artifacts(outputs))
-            try:
+            with raises(ValueError, msg=f"rehashed {mutation} concealed incomplete local proof coverage"):
                 slice_harness._retained_proof(root, report, outputs, artifacts)
-            except ValueError:
-                pass
-            else:
-                raise AssertionError(f"rehashed {mutation} concealed incomplete local proof coverage")
 
 
 def _process_streams() -> None:
@@ -587,12 +552,8 @@ def _process_streams() -> None:
             damaged = copy.deepcopy(report)
             rows = cast("list[dict[str, object]]", damaged["steps"])
             rows[1][field] = changed
-            try:
+            with raises(ValueError, msg=f"tampered assumption stream {field} was accepted"):
                 slice_harness._retained_proof(root, damaged, outputs, artifacts)
-            except ValueError:
-                pass
-            else:
-                raise AssertionError(f"tampered assumption stream {field} was accepted")
         for mutation in ("missing-stream-identity", "duplicate-observation", "warning-on-stdout"):
             damaged = copy.deepcopy(report)
             rows = cast("list[dict[str, object]]", damaged["steps"])
@@ -604,12 +565,8 @@ def _process_streams() -> None:
                 raw = (outputs / "FirstSlice.assumptions.log").read_bytes()
                 rows[1].update(stdout_bytes=len(raw), stdout_sha256=slice_harness._sha256(raw),
                                stderr_bytes=0, stderr_sha256=slice_harness._sha256(b""))
-            try:
+            with raises(ValueError, msg=f"{mutation} concealed malformed stdout or provenance"):
                 slice_harness._retained_proof(root, damaged, outputs, artifacts)
-            except ValueError:
-                pass
-            else:
-                raise AssertionError(f"{mutation} concealed malformed stdout or provenance")
         stdout, stderr = "Closed under the global context\n", "diagnostic λ\n"
         command = ["independent-command"]
         completed = subprocess.CompletedProcess(command, 0, stdout, stderr)
@@ -641,12 +598,8 @@ def _process_streams() -> None:
                                ("cwd", str(outputs)), ("returncode", 0)):
             damaged = copy.deepcopy(report)
             cast("list[dict[str, object]]", damaged["steps"])[-1][field] = changed
-            try:
+            with raises(ValueError, msg=f"malformed replay-probe {field} was accepted"):
                 slice_harness._retained_proof(root, damaged, outputs, artifacts)
-            except ValueError:
-                pass
-            else:
-                raise AssertionError(f"malformed replay-probe {field} was accepted")
 
 
 def _corruption_control_subjects() -> None:
@@ -775,12 +728,8 @@ def _control_coverage() -> None:
         for name in ("CapSmall.compile.log", "CapLarge.compile.log", "CapGate.kernel.log"):
             damaged = copy.deepcopy(report)
             damaged["steps"] = [step for step in steps if Path(str(step["log"])).name != name]
-            try:
+            with raises(ValueError, msg=f"omitted capacity process {name} was accepted"):
                 slice_harness._retained_proof(root, damaged, outputs, dict(slice_harness._artifacts(outputs)))
-            except ValueError:
-                pass
-            else:
-                raise AssertionError(f"omitted capacity process {name} was accepted")
 
 
 def _execution_coverage() -> None:
@@ -1151,21 +1100,14 @@ def _output_bounds() -> None:
         ensure(slice_harness._receipt_directory(str(output), root, "slice-") == output,
                "expected local output directory was refused")
         for name in (str(root), str(output / ".."), "slice-fixture", str(artifact)):
-            try:
+            with raises(ValueError, msg="receipt escaped the expected output directory scope"):
                 slice_harness._receipt_directory(name, root, "slice-")
-            except ValueError:
-                pass
-            else:
-                raise AssertionError("receipt escaped the expected output directory scope")
         for bound, value, message in (("ARTIFACT_ENTRIES", 0, "entry bound"),
                                       ("ARTIFACT_BYTES", 1, "byte bound")):
             with patch.object(slice_harness, bound, value):
-                try:
+                with raises(ValueError, msg="oversized output inventory was hashed") as raised:
                     slice_harness._artifacts(output)
-                except ValueError as error:
-                    ensure(message in str(error), "oversized output inventory lost its bound diagnostic")
-                else:
-                    raise AssertionError("oversized output inventory was hashed")
+                ensure(message in str(raised.exception), "oversized output inventory lost its bound diagnostic")
 
 
 def _explicit_compiler_path() -> None:
@@ -1175,12 +1117,10 @@ def _explicit_compiler_path() -> None:
         with patch.object(slice_harness, "DEFAULT_CCOMP_CANDIDATES", (str(missing),)):
             ensure(slice_harness._resolve_ccomp(None) is None, "optional compiler discovery changed")
             for invalid in (missing, directory):
-                try:
+                with raises(ValueError, msg="explicit compiler replay silently skipped") as raised:
                     slice_harness._execution_inputs(invalid)
-                except ValueError as error:
-                    ensure(str(invalid) in str(error) and "--ccomp" in str(error), "compiler path diagnostic lost")
-                else:
-                    raise AssertionError("explicit compiler replay silently skipped")
+                error = raised.exception
+                ensure(str(invalid) in str(error) and "--ccomp" in str(error), "compiler path diagnostic lost")
             missing.touch()
             ensure(slice_harness._resolve_ccomp(missing) == missing.resolve(), "explicit compiler path changed")
 
