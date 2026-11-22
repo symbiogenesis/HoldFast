@@ -54,6 +54,7 @@ from toolchain.elaborate_types import (
     MAX_WORK,
     CheckedElaboration,
     Elaboration,
+    GallinaOrigin,
     Node,
     PackageScope,
     _app,
@@ -2254,17 +2255,18 @@ _WORD_LITERAL = re.compile("|".join(
 ))
 
 
-def _proof_module_body(output: list[str]) -> str:
+def _proof_module_body(output: list[str]) -> tuple[str, int]:
     body = "\n\n".join(output)
     if len(body) < MAX_SOURCE_BYTES:
-        return body
+        return body, 0
     counts = Counter(match.group() for match in _WORD_LITERAL.finditer(body))
     shared = {term: f"vela_word_literal_{index}" for index, (term, count) in enumerate(counts.items())
               if count > 2}
     if not shared:
-        return body
+        return body, 0
     definitions = "\n".join(f"Local Definition {name} := {term}." for term, name in shared.items())
-    return definitions + "\n\n" + _WORD_LITERAL.sub(lambda match: shared.get(match.group(), match.group()), body)
+    rewritten = _WORD_LITERAL.sub(lambda match: shared.get(match.group(), match.group()), body)
+    return definitions + "\n\n" + rewritten, len(shared) + 1
 
 
 def _checked_elaboration(
@@ -2275,6 +2277,7 @@ def _checked_elaboration(
     package_scope: PackageScope | None = None,
     require_word_proofs: bool = False,
     phase: Callable[[str], AbstractContextManager[object]] = nullcontext,
+    origins: list[GallinaOrigin] | None = None,
 ) -> tuple[CheckedElaboration, _Elaborator]:
     protocol = _Protocol(source)
     try:
@@ -2302,23 +2305,47 @@ def _checked_elaboration(
             elaborator.emission_prefix = f"vela_m{module_key}"
             generated_module = "VelaPackage_" + module_key
             elaborator.available_modules = dict(available_modules)
+        chunk_origins: dict[int, tuple[tuple[int, int], tuple[int, int], str]] = {}
+        declarations: list[tuple[int, int]] = []
         with phase("resolve-and-elaborate"):
             for declaration in elaborator.nodes(root["declarations"]):
+                first = len(elaborator.output)
                 elaborator.declaration(declaration)
+                if origins is not None:
+                    start, end = cast("list[int]", declaration["span"])
+                    declarations.append((start, end))
+                    for index in range(first, len(elaborator.output)):
+                        chunk_origins[index] = ((start, end), (start, end), "declaration")
             if elaborator.word_proofs:
                 elaborator.output.append(_WORD_REPLAY_PRELUDE)
+                if origins is not None:
+                    owner = 0
+                    for offset, (start, end, _) in sorted(enumerate(elaborator.word_proofs), key=lambda item: item[1][0]):
+                        while owner < len(declarations) and declarations[owner][1] <= start:
+                            owner += 1
+                        if owner == len(declarations) or not declarations[owner][0] <= start < end <= declarations[owner][1]:
+                            raise protocol.error("protocol", "word proof origin outside its declaration")
+                        chunk_origins[len(elaborator.output) + offset] = ((start, end), declarations[owner], "word-equation")
                 elaborator.output.extend(elaborator.word_proofs.values())
         source_digest = hashlib.sha256(source).hexdigest()
         with phase("generate-gallina"):
             # REUSE-IgnoreStart
-            gallina = ("(* SPDX-License-Identifier: Apache-2.0 *)\n"
+            header = ("(* SPDX-License-Identifier: Apache-2.0 *)\n"
                        # REUSE-IgnoreEnd
                        "(* Vela mathematical elaboration: unqualified kernel proposal. "
                        f"Source SHA256: {source_digest} *)\n"
-                       f"Module {generated_module}.\n\n" + _PRELUDE + "\n"
-                       + _proof_module_body(elaborator.output) + f"\n\nEnd {generated_module}.\n")
+                       f"Module {generated_module}.\n\n" + _PRELUDE + "\n")
+            body, hoisted_lines = _proof_module_body(elaborator.output)
+            gallina = header + body + f"\n\nEnd {generated_module}.\n"
         if len(gallina.encode("utf-8")) > MAX_OUTPUT_BYTES:
             raise protocol.error("limit", "generated Gallina exceeds the output bound")
+        if origins is not None:
+            line = header.count("\n") + hoisted_lines
+            for index, chunk in enumerate(elaborator.output):
+                count = chunk.count("\n") + 1
+                if index in chunk_origins:
+                    origins.append(GallinaOrigin(line, count, *chunk_origins[index]))
+                line += count + 1
         return CheckedElaboration(module, gallina, source_digest, CheckedElaboration.encode_syntax(snapshot),
                                   MappingProxyType(elaborator.contextual_literal_types.copy()),
                                   MappingProxyType(elaborator.call_declarations.copy()),

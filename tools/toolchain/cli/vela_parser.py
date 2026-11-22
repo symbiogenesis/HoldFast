@@ -20,11 +20,13 @@ from toolchain import (
     bsp,
     bsp_client,
     env,
+    gallina_source_map,
     mathematical_preview,
     packages,
     simulator_debug,
     simulator_debug_check,
     solver_ledger,
+    source_map_check,
 )
 from toolchain import (
     elaboration_check as vela_elaboration_check,
@@ -230,6 +232,17 @@ def main(argv: list[str] | None = None) -> int:
     commands.add_parser("qualify", help="check independent AST/refusal fixtures and regeneration")
     arithmetic = commands.add_parser("check-arithmetic", help="kernel-check partial word operations against their checked variants")
     arithmetic.add_argument("source", type=Path)
+    mapping = commands.add_parser("source-map", help="publish mathematical Gallina, an ECMA-426 map and its bindings")
+    mapping.add_argument("source", type=Path)
+    mapping.add_argument("--output", type=Path, required=True, metavar="NEW_DIRECTORY")
+    lookup = commands.add_parser("source-map-query", help="locate a generated Gallina position with the checked map")
+    lookup.add_argument("source", type=Path)
+    lookup.add_argument("directory", type=Path)
+    lookup.add_argument("--node", type=Path, required=True, help="pinned Node.js reader executable")
+    lookup.add_argument("--line", type=int, required=True, help="one-based generated line")
+    lookup.add_argument("--column", type=int, required=True, help="one-based generated UTF-16 column")
+    map_check = commands.add_parser("qualify-source-maps", help="exercise the independent source-map reader and stale refusals")
+    map_check.add_argument("--node", type=Path, required=True)
     upgrade = commands.add_parser("check-upgrade", help="re-elaborate the same clients against two module revisions")
     upgrade.add_argument("baseline", type=Path)
     upgrade.add_argument("candidate", type=Path)
@@ -342,6 +355,12 @@ def main(argv: list[str] | None = None) -> int:
             output = _lint_preview(root, args.source, args.line, args.column)
         elif args.command == "check-arithmetic":
             output = vela_elaboration_check.check_arithmetic(root, args.source)
+        elif args.command == "source-map":
+            output = gallina_source_map.export(root, args.source, args.output)
+        elif args.command == "source-map-query":
+            output = gallina_source_map.query(root, args.source, args.directory, args.node, args.line, args.column)
+        elif args.command == "qualify-source-maps":
+            output = source_map_check.qualify(root, args.node)
         elif args.command == "check-upgrade":
             with vela_parser.cached_build(root) as compiled:
                 def load_module(path: Path) -> tuple[bytes, object]:
