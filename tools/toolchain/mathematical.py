@@ -41,6 +41,7 @@ def _build(parser: Path) -> vela_parser.Build:
 @dataclass(frozen=True)
 class Compilation(Elaboration):
     findings: tuple[Finding, ...] = ()
+    precedence_operands: tuple[tuple[Finding, int, int], ...] = ()
 
 
 def inspect_source(source: bytes, parsed: object) -> Compilation:
@@ -48,7 +49,7 @@ def inspect_source(source: bytes, parsed: object) -> Compilation:
     translation = vela_elaborate.elaborate(source, parsed)
     ast = cast("vela_parser.Json", cast("dict[str, object]", parsed)["ast"])
     names: list[tuple[int, Name]] = []
-    precedence: list[Finding] = []
+    operands: list[tuple[Finding, int, int]] = []
     for item in nodes(ast):
         if item.get("kind") == "generic_parameter" and item.get("mode") == "type":
             identifier = cast("dict[str, vela_parser.Json]", item["name"])
@@ -68,17 +69,16 @@ def inspect_source(source: bytes, parsed: object) -> Compilation:
                     message = "parenthesize this bitwise operand to make comparison precedence explicit"
                     if len(expression) <= 60 and "\n" not in expression and "\r" not in expression:
                         message += f": ({expression})"
-                    precedence.append(Finding("VELA107", message, site.line, site.column))
+                    operands.append((Finding("VELA107", message, site.line, site.column), start, end))
+    findings = [finding for finding, _, _ in operands]
     for offset, spelling in translation.constructor_suggestions.items():
         site = position(source[:offset].decode("utf-8"))
-        precedence.append(Finding("VELA108", f"this pattern binds every value. Use '{spelling}' to match the constructor",
-                                  site.line, site.column))
+        findings.append(Finding("VELA108", f"this pattern binds every value. Use '{spelling}' to match the constructor",
+                                site.line, site.column))
     names.sort(key=lambda item: item[0])
-    findings = sorted(
-        (*generic_type_findings(tuple(name for _, name in names)), *precedence),
-        key=lambda item: (item.line, item.column, item.code),
-    )
-    return Compilation(translation.module, translation.gallina, tuple(findings))
+    findings.extend(generic_type_findings(tuple(name for _, name in names)))
+    findings.sort(key=lambda item: (item.line, item.column, item.code))
+    return Compilation(translation.module, translation.gallina, tuple(findings), tuple(operands))
 
 
 def _operator(node: dict[str, vela_parser.Json]) -> str:

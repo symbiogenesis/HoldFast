@@ -12,6 +12,7 @@ from filelock import Timeout
 
 from toolchain import (
     VelaError,
+    mathematical_preview,
     packages,
     solver_ledger,
 )
@@ -83,6 +84,15 @@ def _publish(source: Path, destination: Path, gallina: str) -> None:
         raise VelaError("io", 1, 1, "output aliases the input")
     with atomic_path(destination) as pending:
         pending.write_text(gallina, encoding="utf-8", newline="")
+
+
+def _lint_preview(root: Path, path: Path, line: int, column: int) -> dict[str, object]:
+    source = vela_parser.read_source(path)
+    with vela_parser.cached_build(root) as compiled:
+        edit = mathematical_preview.preview(compiled, source, line, column)
+    if vela_parser.read_source(path) != source:
+        raise ValueError("source changed before mathematical preview publication")
+    return edit
 
 
 def _report_findings(source: Path, findings: tuple[Finding, ...], allowed: set[str], denied: set[str]) -> bool:
@@ -168,6 +178,10 @@ def main(argv: list[str] | None = None) -> int:
                            help="suppress an advisory mathematical lint (repeatable)")
     elaborate.add_argument("--deny", action="append", choices=MATHEMATICAL_LINT_CODES, default=[],
                            help="make an advisory mathematical lint an error (repeatable)")
+    preview = commands.add_parser("lint-preview", help="preview checked grouping for a mathematical VELA107 warning")
+    preview.add_argument("source", type=Path)
+    preview.add_argument("--line", type=int, required=True, help="one-based warning line")
+    preview.add_argument("--column", type=int, required=True, help="one-based warning column")
     support = commands.add_parser("support", help="build and kernel-check the pinned Rocq support library")
     support.add_argument("--archive", type=Path, help="use an already downloaded authenticated release archive")
     parse = commands.add_parser("parse", help="emit a complete located syntax tree as JSON")
@@ -195,7 +209,9 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 _publish(args.source, args.output, translation.gallina)
             return 0
-        if args.command == "check-arithmetic":
+        if args.command == "lint-preview":
+            output = _lint_preview(root, args.source, args.line, args.column)
+        elif args.command == "check-arithmetic":
             output = vela_elaboration_check.check_arithmetic(root, args.source)
         elif args.command == "check-upgrade":
             with vela_parser.cached_build(root) as compiled:
@@ -238,7 +254,7 @@ def main(argv: list[str] | None = None) -> int:
             with vela_parser.cached_build(root) as compiled:
                 output = vela_parser.parse_source(compiled, source, surface=args.surface)
     except VelaError as error:
-        site = str(args.source) if args.command in {"parse", "elaborate", "check-arithmetic", "packet-example"} else args.command
+        site = str(args.source) if hasattr(args, "source") else args.command
         print(f"{site}:{error.line}:{error.column}: {error.kind}: {error.message}", file=sys.stderr)
         return 1
     except (OSError, RuntimeError, TypeError, ValueError, Timeout, subprocess.TimeoutExpired) as error:
