@@ -181,6 +181,20 @@ def _load(root: Path | None = None) -> dict[str, Row]:
 TABLE: Final[dict[str, Row]] = _load()
 
 
+def matches_encoding(row: Row, word: int) -> bool:
+    """Match fixed bits and the table's encoded operand restrictions for a 32-bit word."""
+    if word & row.mask != row.word:
+        return False
+    for requirement in row.requires:
+        slot = next(slot for slot in row.slots if slot.name == requirement.operand)
+        value = 0
+        for high, low, _, source_low in slot.pieces:
+            value |= ((word >> low) & ((1 << (high - low + 1)) - 1)) << source_low
+        if (value in requirement.values) != (requirement.kind == "in"):
+            return False
+    return True
+
+
 def signature(mnemonic: str) -> tuple[str, ...]:
     """Return the expected operand-kind tuple for `mnemonic` in source order."""
     return TABLE[mnemonic].signature

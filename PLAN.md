@@ -114,6 +114,7 @@ open until the parent's acceptance conditions are met.
   - **Owner** `artifact-admission`
   - **Start** Use the [compiler](#q25ao) and [contextual preservation](#q25ap) theorem interfaces and the existing TAL and image-validation producers.
   - **Check** For each client, compose the TAL/checker soundness proofs with assembly, link and image validation and applicable binary constant-time and resource evidence. Reject stale, changed and malformed artifacts. Publish the validator's independently checked admission receipt as soon as it passes. Close after both clients have exact-source-to-final-byte admission.
+  - On the release image, exercise an out-of-profile instruction in a reachable error branch that the passing input skips. Require the image checker to identify its address and encoding even when the passing trace agrees with the original. The [local control regression](docs/assurance/compiler-route-contract.md#equivalent-artifact-endpoint) exercises this case on the handwritten scalar controls.
 
 <a id="q25ar"></a>
 
@@ -161,6 +162,7 @@ open until the parent's acceptance conditions are met.
   - **Owner** `runtime-primitives`
   - **Start** Use the [accepted validator](#q25ba), [checked frontend](#q25at), [concrete resource interfaces](#q25an) and fixed target and ABI.
   - **Check** Publish representations and laws for the existing integer, UTF-8, raw-string, `TextBuilder` and `Format` definitions for [general lowering](#q25az). Join its per-operation receipts for runtime acceptance. Verify alias identity, arithmetic and conversions, malformed text, exact fit and exhaustion, instance selection, receiver-loan conflicts and static/runtime agreement. [Primitive semantics](docs/language/first-release.md#primitive-semantics) and [bytes and text](docs/language/first-release.md#bytes-and-text).
+  - Run the [bounded word counter](examples/word_count.vela) with the [represented ownership libraries](#q25ay). Overwrite the borrowed input between calls. Check that a full key buffer still permits a hit with zero additional key bytes, and that a failed insertion preserves all key bytes and counts. The [mathematical example](docs/tooling/elaboration-prototype.md#try-the-mathematical-fragment) supplies expected outcomes.
 
 <a id="q25ax"></a>
 
@@ -175,6 +177,7 @@ open until the parent's acceptance conditions are met.
   - **Owner** `runtime-ownership`
   - **Start** Use the [accepted validator](#q25ba) and published [primitive](#q25aw), [concrete resource](#q25an) and [core-law](#q25as) interfaces.
   - **Check** Reuse `Seq`, `Slots`, iterators and selective invariant lifting. Publish represented laws and generic clients covering initialized and vacant ranges, restoration on every exit, bounded iteration and tag-preserving copy into vacant slots followed by ownership transfer. At capacities 4 and 10⁹, require equal obligation counts and the same proof and certificate structure after substituting the capacity literal. Reject per-element unfolding or certificates. Replay both within the declared time and output budgets. Join [general lowering](#q25az) receipts per operation for runtime acceptance. [Ownership libraries](docs/language/first-release.md#ownership-libraries) and [capacity qualification](docs/language/first-release.md#qualification).
+  - Replay [the element-loan and relocation pair](docs/language/first-release.md#ownership-libraries) against the represented slots. Identify both access sites when a live element loan blocks the move, and preserve the value copied before relocation in the accepted case.
 
 <a id="q25az"></a>
 
@@ -205,6 +208,7 @@ open until the parent's acceptance conditions are met.
   - **Owner** `vela-release`
   - **Start** Use the [accepted validator](#q25ba), [independent package trial](#q25bb) and all required [producer receipts](#q25ar).
   - **Check** Publish the versioned language and libraries, conformance and refusal corpus, compatibility policy, installation guide, tutorial, reference, dependency notices and reproducible Windows and Linux artifacts. Verify cold installation, build and proof replay, and obtain independent release review. Name each published guarantee's endpoint. Assess feasibility, recurring developer value and adoption separately, including setup, maintenance and per-case target tradeoffs within hard limits. [Adoption protocol](docs/assurance/workflow-contract.md#first-release-qualification-and-adoption).
+  - Run the [packet walkthrough](docs/tooling/packet-walkthrough.md) from the release installation. Check the three published byte traces and the diagnostic for each edited program.
 
 <a id="q25bd"></a>
 
@@ -334,6 +338,7 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
 
 - [ ] **Q25bx · Qualify an explicit bounded-pool library**
   - **Owner:** `bounded-pool`. **Start:** Concrete ownership laws and the release or service client needing allocation. **Check:** Supply allocator/free-list representation, manifests, capacity/exhaustion, initialization, cancellation/quiescence and reuse proofs under the [bounded-pool boundary](docs/language/first-release.md#release-boundary). Reuse shared backing laws; no implicit allocation, retry or new OS allocator is assumed.
+  - Reject reclamation while a surviving list points to backing acquired after the checkpoint. Accept the [owned-copy case](docs/language/first-release.md#ownership-libraries) and verify its retained bytes after the reclaimed storage is reused.
 
 <a id="q25by"></a>
 

@@ -52,6 +52,8 @@ R-05-023a requires CIC-checked decompilation into R-13-017's Iris-over-Sail logi
 
 Validate, execute and promote each route's exact final image. Bytes may differ across routes; their source contract, assumptions and observation model may not. Changed bytes, relocations, certificates, source bindings or configuration invalidate dependent evidence; recompilation requires a new package.
 
+Zero C# found a 486-only instruction in a binary compiled for a 386 by inspecting the linked instructions in its [DOS build](https://github.com/OnurGumus/zero-csharp#dos). The [first-slice harness](../language/first-release.md#first-slice-qualification) checks the executable ELF segment of each of its four handwritten capability controls against their scalar instruction families before simulation and again on receipt inspection. Its native regression puts a vector instruction at the failure branch of the passing control. It requires the image check to identify the offending word and target address, then runs the mutant separately on Sail and checks every normalized commit record against the successful original. This development check covers the control images only. Compiler image admission remains an open [first-slice milestone](../../PLAN.md#q25ba).
+
 ## Route boundaries and closed emission family
 
 **Clight arm.** Prove common-graph-to-imperative transport and its capability-aware CHERI-C/Clight representation bridge, including C printing if used. Retain proofs for applicable CHERI-adapted compiler passes, then supply final Sail validation/admission. Simulation relations may retain invariants; annotation erasure must preserve their semantic consequences.

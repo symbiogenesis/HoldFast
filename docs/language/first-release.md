@@ -390,10 +390,27 @@ transition that ends or repairs that dependency. Equality of bytes and tags
 alone cannot establish the law. The mathematical prototype admits fixed-width
 integers, `bool`, `char` and `Unit` at both operations. Generic or opaque
 elements require a checked law before the release implementation can admit them.
+The [element-loan regression](../../tools/tests/test_vela_loans.py#_element_loan_during_relocation)
+passes a shared loan of the first occupied slot as one argument and relocates the
+source prefix while evaluating the next argument. The elaborator reports the
+exclusive source borrow at relocation and the earlier element loan. Copying the
+`u32` into a local before the call preserves the value to observe and lets the
+same relocation proceed.
+
 No allocation, emergency capacity or cleanup retry is
 implicit. A later explicit bounded-pool library additionally satisfies the
 [pool declaration and exhaustion contracts](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-08-046), with
 reuse/quiescence proof before returned backing is lent again.
+Its qualification includes an older list whose header survives while growth
+moves its elements into scratch storage. Reclaiming that storage with the list
+still pointing into it must fail at the reclamation obligation. In the valid
+case, build the new elements in scratch and copy the selected bytes into the
+older list's independently owned backing. End the scratch loans, reclaim and
+overwrite the scratch storage, then read the retained bytes from the list.
+A surviving field or element that still points into
+scratch keeps its backing live. These cases apply to the
+[bounded-pool milestone](../../PLAN.md#q25bx) and are drawn from
+[Zero C#'s arena rollback example](https://onurgumus.github.io/zero-csharp/concepts/memory.html#the-restore-hazard).
 
 The receiver loan starts before explicit argument evaluation, using its declared
 whole-object or named-view footprint. Preserve this simple first-release rule.

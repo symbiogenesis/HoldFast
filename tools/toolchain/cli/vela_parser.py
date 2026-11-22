@@ -3,13 +3,16 @@
 
 import argparse
 import json
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from filelock import Timeout
 
 from toolchain import (
     VelaError,
+    solver_ledger,
 )
 from toolchain import (
     elaboration_check as vela_elaboration_check,
@@ -35,6 +38,42 @@ from toolchain import (
 from toolchain.atomic import atomic_path
 from toolchain.authoring import MATHEMATICAL_LINT_CODES, Finding
 from toolchain.elaborate import check_client_upgrade
+from toolchain.elaborate import elaborate as elaborate_source
+
+
+def _packet_bytes(argument: str) -> bytes:
+    try:
+        packet = bytes.fromhex(argument)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("supply complete hexadecimal bytes, for example '56 02 6b 01 11 22'") from error
+    if len(packet) > 8:
+        raise argparse.ArgumentTypeError("the packet example accepts at most eight bytes")
+    return packet
+
+
+def _packet_example(root: Path, source_path: Path, packet: bytes) -> str:
+    source = vela_parser.read_source(source_path)
+    with vela_parser.cached_build(root) as compiled:
+        parsed = vela_parser.parse_source(compiled, source, surface=True)
+    checked = elaborate_source(source, parsed)
+    obligations = solver_ledger.ledger(checked.gallina)
+    if obligations:
+        first = obligations[0]
+        raise VelaError("proof", first.line, first.column, f"unproved packet contract: {first.export}")
+    generated, _ = vela_first_slice.lower_to_c(source, parsed, checked=checked)
+    with tempfile.TemporaryDirectory() as tmp:
+        directory = Path(tmp)
+        (directory / "packet.c").write_text(generated, encoding="utf-8")
+        driver = root / "tools/toolchain/packet_example.c"
+        executable = directory / "packet-example"
+        build = subprocess.run(["cc", "-std=c11", "-I", tmp, str(driver), "-o", str(executable)],
+                               capture_output=True, text=True, check=False, timeout=30)
+        if build.returncode:
+            raise RuntimeError(f"packet example C build failed: {build.stderr.strip()}")
+        run = subprocess.run([str(executable)], input=packet, capture_output=True, check=False, timeout=5)
+        if run.returncode:
+            raise RuntimeError(f"packet example exited {run.returncode}: {run.stderr.decode(errors='replace').strip()}")
+        return run.stdout.decode("ascii")
 
 
 def _publish(source: Path, destination: Path, gallina: str) -> None:
@@ -99,6 +138,9 @@ def main(argv: list[str] | None = None) -> int:
         help="qualify the Q25w Span<byte> carrier and vela-first-slice validator across Rocq and Sail",
     )
     first_slice.add_argument("--ccomp", type=Path, help="require compiler replay with this VerifiedOS typed ccomp")
+    packet = commands.add_parser("packet-example", help="run a packet through the validator and display the destination bytes")
+    packet.add_argument("packet", type=_packet_bytes, metavar="HEX", help="up to eight hexadecimal bytes")
+    packet.add_argument("--source", type=Path, default=Path(vela_first_slice.EXAMPLE), help="validator source to elaborate and run")
     bindings = commands.add_parser(
         "first-slice-bindings", help="check retained first-slice identities without proof replay or admission",
     )
@@ -127,6 +169,9 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("a lint cannot be both allowed and denied")
     root = Path(__file__).resolve().parents[3]
     try:
+        if args.command == "packet-example":
+            print(_packet_example(root, args.source, args.packet), end="")
+            return 0
         if args.command == "elaborate":
             source = vela_parser.read_source(args.source)
             with vela_parser.cached_build(root) as compiled:
@@ -178,10 +223,10 @@ def main(argv: list[str] | None = None) -> int:
             with vela_parser.cached_build(root) as compiled:
                 output = vela_parser.parse_source(compiled, source, surface=args.surface)
     except VelaError as error:
-        site = str(args.source) if args.command in {"parse", "elaborate", "check-arithmetic"} else args.command
+        site = str(args.source) if args.command in {"parse", "elaborate", "check-arithmetic", "packet-example"} else args.command
         print(f"{site}:{error.line}:{error.column}: {error.kind}: {error.message}", file=sys.stderr)
         return 1
-    except (OSError, RuntimeError, TypeError, ValueError, Timeout) as error:
+    except (OSError, RuntimeError, TypeError, ValueError, Timeout, subprocess.TimeoutExpired) as error:
         print(f"FAIL vela-parser: {error}", file=sys.stderr)
         return 1
     print(json.dumps(output, indent=2, sort_keys=True))

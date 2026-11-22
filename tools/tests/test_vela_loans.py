@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import cast
 
 from tests.harness import Case, ensure
-from toolchain import parser
+from toolchain import parser, solver_ledger
 from toolchain.ast import VelaError
 from toolchain.elaborate import elaborate
 from toolchain.loans import (
@@ -1246,10 +1246,58 @@ def _checked_receiver_snapshot() -> None:
                 ensure(snapshot, "semantic receiver dispatch skipped the overlapping slot index read")
 
 
+def _element_loan_during_relocation() -> None:
+    declarations = b"""module RelocationLoans;
+public bool Relocate(ref Slots<u32, 4> src, ref Slots<u32, 4> dst)
+    requires src.CanWrite && dst.CanRead
+    requires src.LivePrefix(1usize) && dst.VacantRange(0usize, 1usize)
+    requires src.VacantRange(1usize, 4usize)
+    requires Slots.Disjoint(src, dst)
+    ensures dst.LivePrefix(1usize)
+    ensures src.VacantRange(0usize, 4usize)
+{
+    CopyRepresentation(src, ref dst, 1usize);
+    TransferType<u32>(ref src, ref dst, 1usize);
+    return true;
+}
+public u32 Observe(in u32 value, bool relocated) ensures result == value { return value; }
+public u32 Client(ref Slots<u32, 4> src, ref Slots<u32, 4> dst)
+    requires src.CanWrite && src.CanRead && dst.CanRead
+    requires 0usize < src.LiveCount
+    requires src.LivePrefix(1usize) && dst.VacantRange(0usize, 1usize)
+    requires src.VacantRange(1usize, 4usize)
+    requires Slots.Disjoint(src, dst)
+    ensures result == old(src[0usize])
+{
+"""
+    with parser.cached_build(Path(__file__).resolve().parents[2]) as compiled:
+        for snapshot in (False, True):
+            body = b"    let saved = src[0usize];\n" if snapshot else b""
+            argument = b"in saved" if snapshot else b"in src[0usize]"
+            source = declarations + body + b"    return Observe(" + argument + b",\n        Relocate(ref src, ref dst));\n}"
+            tree = parser.parse_source(compiled, source, surface=True)
+            try:
+                translated = elaborate(source, tree)
+            except VelaError as error:
+                lines = source.splitlines()
+                origin_line = len(lines) - 2
+                origin_column = lines[-3].index(argument) + 1
+                ensure(not snapshot and error.kind == "type"
+                       and f"live shared loan of 'src[*]' created at line {origin_line}, column {origin_column}" in error.message
+                       and "competing-loans" in error.message, f"line {error.line}, column {error.column}: {error}")
+                ensure((error.line, error.column) == (origin_line + 1, lines[-2].index(b"ref src") + 1),
+                       f"relocation conflict has the wrong source location: {error.line}, {error.column}")
+            else:
+                ensure(snapshot, "the source backing was relocated with an outstanding element loan")
+                trusted = solver_ledger.ledger(translated.gallina)
+                ensure(not trusted, f"the relocation snapshot relies on solver-trusted obligations: {trusted}")
+
+
 def cases() -> list[Case]:
     return [
         Case("located receiver order, snapshots, views and retained loans", _located_receiver_timing, lane="toolchain"),
         Case("checked receiver snapshot on actual slots", _checked_receiver_snapshot, lane="toolchain"),
+        Case("element loan and value snapshot across slot relocation", _element_loan_during_relocation, lane="toolchain"),
             Case("last-use restoration and unresolved facts", _last_use_and_residuals),
             Case("nested restoration and suspended ancestors", _nested_restoration_and_suspension),
             Case("declared field partitions and unknown overlap", _field_partitions_and_unknowns),
