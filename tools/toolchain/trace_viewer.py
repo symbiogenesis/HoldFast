@@ -49,6 +49,7 @@ EXPECTED_COUNTERS = [
     ["source_bytes bytes", "1000", "47"],
     ["gallina_bytes bytes", "12000", "48"],
 ]
+PURE_QUERIES = {"slices": (SLICES_SQL, EXPECTED_SLICES), "counters": (COUNTERS_SQL, EXPECTED_COUNTERS)}
 NEGATIVE_CONTROLS = ("stale-source", "stale-producer", "missing-phase", "crossing-span",
                      "negative-timestamp", "dropped-events", "cancelled")
 type Object = dict[str, object]
@@ -131,19 +132,8 @@ def validate(document: object, executable: Path) -> Object:
             or report["negative_controls"] != list(NEGATIVE_CONTROLS)
             or _negative_controls(fixture) != list(NEGATIVE_CONTROLS)):
         raise ValueError("retained fixture or negative controls disagree with qualification")
-    version = _transcript(report["version"])
-    if f"Perfetto {RELEASE}-add693d8b ({REVISION})" not in cast("str", version["stdout"]):
-        raise ValueError("retained reader version disagrees with its pinned release")
-    queries = report["queries"]
-    if not isinstance(queries, dict) or set(queries) != {"slices", "counters"}:
-        raise ValueError("invalid retained reader queries")
-    for name, sql, expected in (("slices", SLICES_SQL, EXPECTED_SLICES),
-                                 ("counters", COUNTERS_SQL, EXPECTED_COUNTERS)):
-        query = queries[name]
-        if (not isinstance(query, dict) or set(query) != {"sql", "transcript", "rows"}
-                or query["sql"] != sql or query["rows"] != expected
-                or _rows(_transcript(query["transcript"])) != expected):
-            raise ValueError("retained reader disagrees with expected query observations")
+    check_version(report["version"])
+    check_queries(report["queries"], PURE_QUERIES)
     check_current(executable, report)
     return report
 
@@ -216,6 +206,39 @@ def _rows(transcript: Object) -> list[list[str]]:
         raise ValueError("malformed independent reader CSV") from error
 
 
+type Queries = dict[str, tuple[str, list[list[str]]]]
+
+
+def read_queries(executable: Path, document: Object, queries: Queries) -> Object:
+    """Import the trace and retain each exact query, transcript and parsed result."""
+    result: Object = {}
+    with tempfile.TemporaryDirectory(prefix="vela-trace-viewer-") as temporary:
+        fixture = Path(temporary) / "fixture.json"
+        fixture.write_text(json.dumps(document), encoding="utf-8")
+        for name, (sql, _) in queries.items():
+            transcript = _run(executable, ["query", str(fixture), sql])
+            result[name] = {"sql": sql, "transcript": transcript, "rows": _rows(transcript)}
+    check_queries(result, queries)
+    return result
+
+
+def check_queries(queries: object, expected: Queries) -> None:
+    if not isinstance(queries, dict) or set(queries) != set(expected):
+        raise ValueError("invalid retained reader queries")
+    for name, (sql, rows) in expected.items():
+        query = queries[name]
+        if (not isinstance(query, dict) or set(query) != {"sql", "transcript", "rows"}
+                or query["sql"] != sql or query["rows"] != rows
+                or _rows(_transcript(query["transcript"])) != rows):
+            raise ValueError("independent reader disagrees with expected query observations")
+
+
+def check_version(version: object) -> None:
+    output = _transcript(version)["stdout"]
+    if f"Perfetto {RELEASE}-add693d8b ({REVISION})" not in cast("str", output):
+        raise ValueError("independent reader version disagrees with its pinned release")
+
+
 def qualify(executable: Path) -> Object:
     """Compare independently chosen nanosecond rows with an actual external importer.
 
@@ -228,16 +251,8 @@ def qualify(executable: Path) -> Object:
     trace.validate(document, SOURCE, FIXTURE_PRODUCER)
     refused = _negative_controls(document)
     version = _run(executable, ["--version"])
-    if f"Perfetto {RELEASE}-add693d8b ({REVISION})" not in cast("str", version["stdout"]):
-        raise ValueError("independent reader version disagrees with its pinned release")
-    with tempfile.TemporaryDirectory(prefix="vela-trace-viewer-") as temporary:
-        fixture = Path(temporary) / "fixture.json"
-        fixture.write_text(json.dumps(document), encoding="utf-8")
-        slices = _run(executable, ["query", str(fixture), SLICES_SQL])
-        counters = _run(executable, ["query", str(fixture), COUNTERS_SQL])
-    slice_rows, counter_rows = _rows(slices), _rows(counters)
-    if slice_rows != EXPECTED_SLICES or counter_rows != EXPECTED_COUNTERS:
-        raise ValueError("independent reader disagrees with expected spans, nesting, workers or counters")
+    check_version(version)
+    queries = read_queries(executable, document, PURE_QUERIES)
     if reader_identity(executable) != reader or harness_identity() != harness:
         raise ValueError("reader or qualification harness changed during qualification")
     report: Object = {
@@ -245,8 +260,7 @@ def qualify(executable: Path) -> Object:
         "reader": reader, "harness_sha256": harness, "version": version,
         "trace": document, "source": SOURCE.decode("ascii"), "producer_sha256": FIXTURE_PRODUCER,
         "negative_controls": refused,
-        "queries": {"slices": {"sql": SLICES_SQL, "transcript": slices, "rows": slice_rows},
-                    "counters": {"sql": COUNTERS_SQL, "transcript": counters, "rows": counter_rows}},
+        "queries": queries,
     }
     report["binding_sha256"] = _digest(report)
     return report

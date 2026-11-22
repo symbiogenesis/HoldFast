@@ -351,6 +351,15 @@ first-slice receipt verifies the source, compiler outputs, parser and proof
 environment, then checks the trace digest, order, nesting and child identities.
 These measurements describe compiler execution.
 
+Run `python tools/run.py vela trace-qualify-packet-viewer --trace-processor PATH --output out/packet-viewer.json`
+with a provisioned, pinned Perfetto v58.2 reader. It imports a deterministic
+packet trace and checks eleven independently specified spans in nanoseconds,
+their depths, logical threads and processes, the source byte counter and the
+three proof-command process IDs. Each child has its own process track and
+falls inside the wall-time interval of its host proof phase.
+`python tools/run.py vela trace-packet-viewer-validate out/packet-viewer.json --trace-processor PATH`
+rechecks the exact fixture, reader, harness, SQL and retained CSV observations.
+
 Create the destination directory, then run:
 
 ```console
