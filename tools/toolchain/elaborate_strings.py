@@ -161,7 +161,21 @@ class _StringsMixin:
         target_name = self.name(target_inner["name"]) if target_inner["kind"] == "name" else None
         origin = self.fail("type", "", target_arg)
         origin_message = f"exclusive 'ref' target loan starts at line {origin.line}, column {origin.column}"
-        builder = self.expression(target_inner, environment)
+        environment = dict(environment)
+        self._apply_call_updates(environment, node, self.last_call_updates)
+
+        def evaluate_operand(operand: Node) -> _Binding:
+            enclosing_updates = self.last_call_updates
+            self.last_call_updates = []
+            try:
+                value = self.expression(operand, environment)
+                self._apply_call_updates(environment, operand, self.last_call_updates)
+                enclosing_updates.extend(self.last_call_updates)
+                return value
+            finally:
+                self.last_call_updates = enclosing_updates
+
+        builder = evaluate_operand(target_inner)
         capacity = self.meta(_NAT, environment)
         self.unify(builder.type, _app(_constant("TextBuilder"), capacity))
         capacity = self.whnf(capacity)
@@ -247,7 +261,7 @@ class _StringsMixin:
                         raise VelaError(
                             error.kind, error.line, error.column, f"{error.message}. {origin_message}{repair}"
                         ) from error
-                hole_binding = self.expression(hole_ast, environment)
+                hole_binding = evaluate_operand(hole_ast)
                 saved_count = (
                     hole_ast["kind"] == "name"
                     and self.name(hole_ast["name"]) in environment

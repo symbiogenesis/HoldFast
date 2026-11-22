@@ -349,6 +349,22 @@ lemma PairEta<TLeft, TRight>((TLeft, TRight) pair)
     }
 }
 """),
+        ("sequenced-formatter-hole-effects", """module FormatEffects;
+public Nat Tick(ref Nat n) { n += 1; return n; }
+public bool Fit() {
+    var n = 0;
+    let b = Format.Write(ref EmptyBuilder<2>(), $"{Tick(ref n):x}{Tick(ref n):x}");
+    return n == 2 && WrittenBytes(b).At(0) == 49 && WrittenBytes(b).At(1) == 50;
+}
+public bool Exhausted() {
+    var n = 0;
+    let initial = Format.Write(ref EmptyBuilder<2>(), $"A");
+    let b = Format.Write(ref initial, $"{Tick(ref n):x}{Tick(ref n):x}");
+    return n == 2 && !Fits(b) && WrittenBytes(b) == WrittenBytes(initial);
+}
+lemma Observed() ensures Fit() == true ensures Exhausted() == true
+    proof { assert Fit() == true; assert Exhausted() == true; }
+"""),
         ("raw-strings-and-checked-formatting", '''module CheckedFormattingReplay;
 public definition Vec<Nat, 10> HeaderTag() =>
     """

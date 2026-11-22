@@ -971,8 +971,14 @@ class _StatementsMixin:
     ) -> None:
         if not self.last_call_updates:
             return
-        pending = list(self.last_call_updates)
-        self.last_call_updates.clear()
+        pending = self.last_call_updates
+        self.last_call_updates = []
+        self._apply_call_updates(updated, site, pending)
+
+    def _apply_call_updates(
+        self: _Elaborator, updated: dict[str, _Binding], site: Node,
+        pending: list[tuple[Node, _Binding, _Term | None]],
+    ) -> None:
         for arg_node, new_b, position in pending:
             if position is not None:
                 owner = self._unwrap_group(self.node(arg_node["value"]))
