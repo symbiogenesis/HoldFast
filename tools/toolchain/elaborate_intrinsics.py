@@ -1212,6 +1212,8 @@ class _IntrinsicsMixin:
         if self._int_spec(left.type) is not None or self._int_spec(right.type) is not None:
             self.unify(left.type, right.type)
             spec = cast("_IntSpec", self._int_spec(left.type))
+            site = cast("list[int]", cast("Node", node["operator"])["span"])[0]
+            self.integer_operations[site] = (operator, spec.name)
             if operator in {"<", "<=", ">", ">="}:
                 cmp_map = {"<": "lt", "<=": "le", ">": "gt", ">=": "ge"}
                 return _Binding(_apps(_constant(f"int_{cmp_map[operator]}_{spec.name}"), left.term, right.term), _BOOL)

@@ -554,7 +554,8 @@ def _ordered_scalar_calls() -> None:
                          "parameters": [{"name": {"text": "vela_eval_0"}, "type": bool_type}],
                          "body": {"kind": "block", "statements": [{"kind": "return", "value": condition}]}}
     code = vela_first_slice._lower_function_to_c(declaration, {}, {}, lambda _: "usize", results,
-                                                lambda node: vela_first_slice._node_text(node["callee"]))
+                                                lambda node: vela_first_slice._node_text(node["callee"]),
+                                                lambda _: ("&&", "bool"))
     expected = """    vela_eval_3 = vela_eval_0;
     if (vela_eval_3) {
         vela_eval_1 = First();
@@ -611,6 +612,33 @@ def _execute_generated_packet_c() -> None:
                                check=True, timeout=30)
                 observed = subprocess.run([str(executable)], check=False, timeout=5).returncode
                 ensure(observed == expected, f"packet C {optimization} returned {observed}, expected {expected}")
+
+
+def _check_packet_checksum_statements(statements: str) -> None:
+    root = TOOLS.parent
+    original = (root / vela_first_slice.EXAMPLE).read_bytes()
+    start = b"    var u8 acc = 0x5A ^ rawLen;"
+    ensure(original.count(start) == 1, "checksum regression fixture lost its insertion point")
+    source = original.replace(start, statements.encode() + start)
+    with parser.cached_build(root) as compiled:
+        parsed = parser.parse_source(compiled, source, surface=True)
+    checked = vela_elaborate.elaborate(source, parsed)
+    ensure(not solver_ledger.ledger(checked.gallina), "inserted checksum statements changed the proved contract")
+    generated, _ = vela_first_slice.lower_to_c(source, parsed, checked=checked)
+    with tempfile.TemporaryDirectory() as temporary:
+        executable = Path(temporary) / "packet"
+        for optimization in ("-O0", "-O2"):
+            subprocess.run(["cc", "-std=c11", optimization, "-x", "c", "-", "-o", str(executable)],
+                           input=generated.encode(), check=True, timeout=30)
+            ensure(subprocess.run([str(executable)], check=False, timeout=5).returncode == 0,
+                   f"lowered checksum statements changed the packet verdict at {optimization}")
+
+
+def _packet_word_xor() -> None:
+    _check_packet_checksum_statements(
+        "    let high = 256usize ^ 0usize;\n"
+        "    if (high == 0usize) { return 0u8; }\n"
+    )
 
 
 def _packet_contextual_literals() -> None:
@@ -706,5 +734,6 @@ def cases() -> list[Case]:
         Case("clight-lowering-and-purecap-cheri-assembly", _clight_lowering_and_purecap_assembly),
         Case("first-slice-constructive-source-proofs-with-fixed-budgets", _first_slice_source_proofs, lane="guest"),
         Case("execute-generated-packet-c-and-perturbed-scenarios", _execute_generated_packet_c, lane="guest"),
+        Case("packet-word-xor-retains-high-bits", _packet_word_xor, lane="guest"),
         Case("packet-contextual-literals-match-explicit-representations", _packet_contextual_literals, lane="guest"),
     ]

@@ -107,6 +107,7 @@ class _Elaborator(
         self.protocol = protocol
         self.checked_receivers: dict[tuple[int, ...], loans._Receiver | None] = {}
         self.contextual_literal_types: dict[int, str] = {}
+        self.integer_operations: dict[int, tuple[str, str]] = {}
         self.serial = 0
         self.work = MAX_WORK
         self.reductions = MAX_REDUCTIONS
@@ -2111,7 +2112,8 @@ def _checked_elaboration(
             raise protocol.error("limit", "generated Gallina exceeds the output bound")
         return CheckedElaboration(module, gallina, source_digest, CheckedElaboration.encode_syntax(snapshot),
                                   MappingProxyType(elaborator.contextual_literal_types.copy()),
-                                  MappingProxyType(elaborator.call_declarations.copy())), elaborator
+                                  MappingProxyType(elaborator.call_declarations.copy()),
+                                  MappingProxyType(elaborator.integer_operations.copy())), elaborator
     except RecursionError as error:
         raise protocol.error("limit", "elaboration nesting exceeds the host stack bound") from error
 

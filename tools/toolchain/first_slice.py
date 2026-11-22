@@ -1098,6 +1098,7 @@ def _lower_function_to_c(
     literal_type: Callable[[dict[str, object]], str],
     function_results: dict[str, str],
     resolve_call: Callable[[dict[str, object]], str],
+    integer_operation: Callable[[dict[str, object]], tuple[str, str]],
 ) -> str:
     fname = _node_text(decl.get("name"))
     params = cast("list[dict[str, object]]", decl.get("parameters", []))
@@ -1165,8 +1166,8 @@ def _lower_function_to_c(
                 return False, "unsigned long"
             if isinstance(callee, dict) and callee.get("kind") == "name":
                 return False, _c_scalar_type(function_results[resolve_call(val)])
-        if vkind == "binary" and _node_text(val.get("operator")) == "^":
-            return False, "unsigned char"
+        if vkind == "binary" and _node_text(val.get("operator")) in {"+", "-", "*", "/", "%", "&", "|", "^"}:
+            return False, _c_scalar_type(integer_operation(val)[1])
         raise ValueError(f"cannot infer local C type for statement in {fname}: {stmt!r}")
 
     def collect_locals(stmts: list[dict[str, object]]) -> None:
@@ -1245,7 +1246,7 @@ def _lower_function_to_c(
         if kind == "binary":
             if _node_text(node["operator"]) in ("==", "!=", "<", "<=", ">", ">=", "&&", "||"):
                 return "int"
-            return scalar_type(_unwrap_arg(node["left"]))
+            return _c_scalar_type(integer_operation(node)[1])
         if kind == "call":
             callee = _unwrap_arg(node["callee"])
             if callee.get("kind") == "member":
@@ -1318,8 +1319,11 @@ def _lower_function_to_c(
                 prefix.extend((f"    {result} = {right};", "}"))
                 return result
             lhs, rhs = ordered([_unwrap_arg(node["left"]), _unwrap_arg(node["right"])], prefix)
-            if op == "^":
-                return f"(unsigned char)((unsigned int){lhs} ^ (unsigned int){rhs})"
+            if op in {"&", "|", "^"}:
+                bit_op, width = integer_operation(node)
+                c_type = _c_scalar_type(width)
+                promoted = "unsigned int" if c_type == "unsigned char" else c_type
+                return f"({c_type})(({promoted}){lhs} {bit_op} ({promoted}){rhs})"
             return f"({lhs} {op} {rhs})"
         if ekind == "call":
             callee = cast("dict[str, object]", node.get("callee", {}))
@@ -1568,8 +1572,17 @@ def lower_to_c(
             raise ValueError("packet call requires a resolved declaration in the executable subset")
         return functions_by_site[site]
 
+    def integer_operation(node: dict[str, object]) -> tuple[str, str]:
+        operator = _unwrap_arg(node["operator"])
+        start = cast("list[int]", operator["span"])[0]
+        fact = checked.integer_operations.get(start)
+        if fact is None or fact[0] != _node_text(operator).removesuffix("="):
+            raise ValueError("packet integer operation lacks a checked representation")
+        return fact
+
     fn_c_blocks = [
-        _lower_function_to_c(decl_map[fn_name], ctor_map, record_fields, literal_type, function_results, resolve_call)
+        _lower_function_to_c(decl_map[fn_name], ctor_map, record_fields, literal_type, function_results,
+                             resolve_call, integer_operation)
         for fn_name in (
             "WritePacket8",
             "CopyPacketToDst",
