@@ -657,7 +657,15 @@ def _check_packet_statements(statements: str, start: bytes = b"    var u8 acc = 
         parsed = parser.parse_source(compiled, source, surface=True)
     checked = vela_elaborate.elaborate(source, parsed)
     ensure(not solver_ledger.ledger(checked.gallina), "inserted checksum statements changed the proved contract")
-    generated, _ = vela_first_slice.lower_to_c(source, parsed, checked=checked)
+    operations: list[dict[str, object]] = []
+    generated, _ = vela_first_slice.lower_to_c(source, parsed, checked=checked, observations=operations)
+    observed_widths = {row["width"] for row in operations if row["kind"] == "nat"}
+    ensure({"u8", "usize"} <= observed_widths, "lowering provenance omitted one of the packet literal widths")
+    if "+=" in statements:
+        ensure(any(row["kind"] == "assignment" and row["operation"] == "+" and row["width"] == "u8"
+                   and "+=" in source[slice(*cast("list[int]", row["span"]))].decode()
+                   and str(row["c_expression"]) in generated for row in operations),
+               "compound addition did not retain its source, checked width and emitted C")
     with tempfile.TemporaryDirectory() as temporary:
         executable = Path(temporary) / "packet"
         for optimization in ("-O0", "-O2"):
@@ -671,6 +679,13 @@ def _packet_word_xor() -> None:
     _check_packet_statements(
         "    let high = 256usize ^ 0usize;\n"
         "    if (high == 0usize) { return 0u8; }\n"
+    )
+
+
+def _packet_complement_widening() -> None:
+    _check_packet_statements(
+        "    let inverted = usize.From(~0u8);\n"
+        "    if (inverted != 255usize) { return 0u8; }\n"
     )
 
 
@@ -791,6 +806,7 @@ def cases() -> list[Case]:
         Case("first-slice-mathematical-and-executable-recursion", _first_slice_recursion_boundary, lane="guest"),
         Case("execute-generated-packet-c-and-perturbed-scenarios", _execute_generated_packet_c, lane="guest"),
         Case("packet-word-xor-retains-high-bits", _packet_word_xor, lane="guest"),
+        Case("packet-byte-complement-before-widening", _packet_complement_widening, lane="guest"),
         Case("packet-compound-updates-read-before-writing", _packet_compound_updates, lane="guest"),
         Case("packet-affine-index-and-neutral-accumulator", _packet_affine_index_and_neutral_update, lane="guest"),
         Case("packet-contextual-literals-match-explicit-representations", _packet_contextual_literals, lane="guest"),

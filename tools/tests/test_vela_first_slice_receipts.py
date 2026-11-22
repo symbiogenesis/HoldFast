@@ -125,6 +125,12 @@ def _compiler_fixture(directory: Path, files: dict[str, object], trace_lines: li
     return programs
 
 
+def _fixture_lowering(source: bytes, outputs: Path) -> dict[str, object]:
+    return {"schema": 1, "integer_arithmetic_and_literals": [], "source_sha256": slice_harness._sha256(source),
+            "syntax_sha256": "a" * 64, "gallina_sha256": slice_harness._sha256((outputs / "FirstSlice.v").read_bytes()),
+            "lowered_c_sha256": slice_harness._sha256((outputs / "first_slice.c").read_bytes())}
+
+
 def _proof_fixture(root: Path, outputs: Path, *, trusted: bool = False,
                    assumption_stderr: bytes = b"") -> dict[str, object]:
     """Retain an independently assembled local proof report for binding-only checks."""
@@ -233,6 +239,7 @@ def _proof_fixture(root: Path, outputs: Path, *, trusted: bool = False,
                          ("lowered_c", outputs / "first_slice.c")):
         report[field] = str(path)
         report[f"{field}_sha256"] = slice_harness._sha256(path.read_bytes())
+    report["lowering_provenance"] = _fixture_lowering(source.read_bytes(), outputs)
     return report
 
 
@@ -386,6 +393,9 @@ def _binding_checks() -> None:
         stack.enter_context(patch.object(slice_harness.replay, "_toolchain", return_value={}))
         stack.enter_context(patch.object(slice_harness.replay, "_runtime", return_value={}))
 
+        stack.enter_context(patch.object(slice_harness, "_reconstruct_lowering",
+                                         side_effect=lambda root: _fixture_lowering((root / slice_harness.EXAMPLE).read_bytes(), outputs)))
+
         def write(value: object) -> None:
             receipt.write_text(json.dumps(value), encoding="utf-8")
 
@@ -394,6 +404,18 @@ def _binding_checks() -> None:
         ensure(result["status"] == "matched" and not result["proof_replayed"]
                and not result["artifact_accepted"] and not result["production_admission"],
                "binding check claimed fresh proof or admission authority")
+        changed_map = copy.deepcopy(report)
+        cast("dict[str, object]", changed_map["lowering_provenance"])["integer_arithmetic_and_literals"] = [
+            {"kind": "assignment", "operation": "-", "width": "u8", "span": [0, 1], "c_expression": "(a - b)"}
+        ]
+        write(changed_map)
+        try:
+            slice_harness.verify_bindings(root, receipt)
+        except ValueError as error:
+            ensure("integer lowering" in str(error), "changed operation map lost its binding diagnostic")
+        else:
+            raise AssertionError("substituted typed operation provenance retained a matching receipt")
+        write(report)
         for owner, field, original, changed in (
                 (slice_harness, "_inputs", source_inputs, {"source": "changed during probes"}),
                 (slice_harness, "_revision", "a" * 40, "b" * 40),

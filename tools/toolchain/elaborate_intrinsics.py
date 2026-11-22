@@ -155,6 +155,16 @@ class _IntrinsicsMixin:
             site,
         )
 
+    def _check_span_extent(
+        self: _Elaborator, member: str, span: _Term, offset: _Term, count: _Term,
+        environment: dict[str, _Binding], node: Node,
+    ) -> None:
+        self._check_int_arith_precondition("+", _INT_SPECS["usize"], offset, count, environment, node)
+        end = _apps(_constant("int_add_usize"), offset, count)
+        length = _apps(_constant("Span_Length"), _U8, span)
+        if not self._prove_bool_precondition(_apps(_constant("int_le_usize"), end, length), environment):
+            raise self.fail("type", f"cannot prove Span.{member} subrange (offset + count <= Span.Length) is in bounds", node)
+
     def _elaborate_span_intrinsic(
         self: _Elaborator,
         node: Node,
@@ -232,15 +242,7 @@ class _IntrinsicsMixin:
             cnt_t = self.check(arg_nodes[2], _USIZE, environment)
             val_t = self.check(arg_nodes[3], _U8, environment)
             self._check_span_can_write(s_t, environment, node)
-            len_t = _apps(_constant("Span_Length"), _U8, s_t)
-            end_t = _apps(_constant("int_add_usize"), off_t, cnt_t)
-            in_bounds = _apps(_constant("int_le_usize"), end_t, len_t)
-            if not self._prove_bool_precondition(in_bounds, environment):
-                raise self.fail(
-                    "type",
-                    "cannot prove Span.Fill subrange (offset + count <= Span.Length) is in bounds",
-                    node,
-                )
+            self._check_span_extent(member_name, s_t, off_t, cnt_t, environment, node)
             return _Binding(_apps(_constant("Span_Fill"), _U8, s_t, off_t, cnt_t, val_t), span_u8)
         if member_name == "Slice":
             if len(arg_nodes) != 3:
@@ -249,15 +251,7 @@ class _IntrinsicsMixin:
             off_t = self.check(arg_nodes[1], _USIZE, environment)
             cnt_t = self.check(arg_nodes[2], _USIZE, environment)
             self._check_span_can_read(s_t, environment, node)
-            len_t = _apps(_constant("Span_Length"), _U8, s_t)
-            end_t = _apps(_constant("int_add_usize"), off_t, cnt_t)
-            in_bounds = _apps(_constant("int_le_usize"), end_t, len_t)
-            if not self._prove_bool_precondition(in_bounds, environment):
-                raise self.fail(
-                    "type",
-                    "cannot prove Span.Slice subrange (offset + count <= Span.Length) is in bounds",
-                    node,
-                )
+            self._check_span_extent(member_name, s_t, off_t, cnt_t, environment, node)
             return _Binding(_apps(_constant("Span_Slice"), _U8, s_t, off_t, cnt_t), span_u8)
         if member_name == "CopyPrefix":
             if len(arg_nodes) != 3:
@@ -281,25 +275,21 @@ class _IntrinsicsMixin:
             parent_t = self.check(arg_nodes[0], span_u8, environment)
             view_t = self.check(arg_nodes[1], span_u8, environment)
             self._check_span_can_write(parent_t, environment, node)
-            p_base = _apps(_constant("Span_Base"), _U8, parent_t)
-            p_len = _apps(_constant("Span_Length"), _U8, parent_t)
-            v_base = _apps(_constant("Span_Base"), _U8, view_t)
-            v_len = _apps(_constant("Span_Length"), _U8, view_t)
-            base_ok = _apps(_constant("int_ge_usize"), v_base, p_base)
-            end_ok = _apps(
-                _constant("int_le_usize"),
-                _apps(_constant("int_add_usize"), v_base, v_len),
-                _apps(_constant("int_add_usize"), p_base, p_len),
-            )
-            if not (
-                self._prove_bool_precondition(base_ok, environment)
-                and self._prove_bool_precondition(end_ok, environment)
-            ):
-                raise self.fail(
-                    "type",
-                    "cannot prove Span.Restore view extent is contained within parent extent",
-                    node,
-                )
+            origin = self.whnf(view_t)
+            while True:
+                head, args = self.spine(origin)
+                if head == _constant("Span_Slice"):
+                    break
+                if (head.kind != "const" or head.value not in {
+                        "Span_ReadOnly", "Span_Invalidate", "Span_Write", "Span_Fill", "Span_CopyPrefix", "Span_Restore",
+                } or len(args) < 2):
+                    raise self.fail("type", "Span.Restore requires a slice derived from its parent", node)
+                origin = self.whnf(args[1])
+            parent_head, parent_args = self.spine(self.whnf(parent_t))
+            already_restored = (parent_head == _constant("Span_Restore") and len(parent_args) == 3
+                                and self._same_cond_term(parent_args[2], view_t))
+            if not already_restored and not self._same_cond_term(args[1], parent_t):
+                raise self.fail("type", "Span.Restore requires a slice derived from its parent", node)
             self.restored_view_terms.add(self.whnf(view_t))
             return _Binding(_apps(_constant("Span_Restore"), _U8, parent_t, view_t), span_u8)
         raise self.fail("name", f"unknown Span intrinsic 'Span.{member_name}'", node)
@@ -899,6 +889,20 @@ class _IntrinsicsMixin:
         environment: dict[str, _Binding],
         node: Node,
     ) -> None:
+        if operator == "+" and not spec.signed:
+            def unsigned_upper(term: _Term) -> int:
+                value = self.resolve(term)
+                if value.kind == "int":
+                    return cast("int", value.value)
+                head, args = self.spine(value)
+                if head.kind == "const" and len(args) == 1 and isinstance(head.value, str):
+                    conversion = head.value.split("_")
+                    if len(conversion) == 4 and conversion[:2] == ["int", "from"] and conversion[3] == spec.name:
+                        return _INT_SPECS[conversion[2]].max_val
+                return spec.max_val
+
+            if unsigned_upper(left) + unsigned_upper(right) <= spec.max_val:
+                return
         facts = self._expand_bool_facts([*self.active_facts, *self._fact_bool_terms((), environment)])
         l_lo, l_hi, l_ne = self._term_bounds(left, spec, facts)
         r_lo, r_hi, r_ne = self._term_bounds(right, spec, facts)
@@ -1161,6 +1165,8 @@ class _IntrinsicsMixin:
                     node,
                 )
             if operator == "~":
+                site = cast("list[int]", cast("Node", node["operator"])["span"])[0]
+                self.integer_operations[site] = (operator, spec.name)
                 return _Binding(_app(_constant(f"int_not_{spec.name}"), operand.term), spec.const)
             if not spec.signed:
                 raise self.fail(
