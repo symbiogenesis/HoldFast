@@ -2209,6 +2209,26 @@ capability fields as unavailable. The [refusal cases](../../tools/tests/test_sim
 exercise altered instructions, divergent effects and a changed target.
 This qualifies assembly inspection on the four development controls.
 
+<a id="q25cu-qualify-a-bounded-web-output-producer"></a>
+
+#### Q25cu · Qualify a bounded web-output producer
+
+The [Boolean web producer](../tooling/pure-prototype.md#boolean-web-output)
+exported `Changed` from the exact playground expression module. Node.js
+22.22.1 returned false, true, true, false in input order. Rocq 9.3.0 checked
+each observation against the selected pure Gallina function by conversion and
+`rocqchk` replayed the resulting library. The exported function checks its
+arity and parameter types before evaluating its bounded Boolean expression.
+
+The [independent qualification](../../tools/toolchain/web_output_check.py)
+checked 265 input tuples across the playground example, a nullary function,
+an asymmetric two-input function and an eight-input function. Changing an
+operand or replacing a conjunction by a disjunction in the generated module
+failed at the kernel equation. The [boundary controls](../../tools/tests/test_web_output.py)
+exercise whole-file checking, unsupported expressions and declarations,
+numeric budgets, malformed observation inventories, output aliases and
+source changes during qualification.
+
 <a id="q25da-rehearse-one-coordinated-optional-portfolio-refresh"></a>
 
 #### Q25da · Rehearse one coordinated optional-portfolio refresh

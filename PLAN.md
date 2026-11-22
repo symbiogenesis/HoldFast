@@ -524,8 +524,9 @@ unblock the codec. [Protocol contracts](docs/tooling/tooling-protocols.md) ·
 
 <a id="q25cu"></a>
 
-- [ ] **Q25cu · Qualify a bounded web-output producer**
+- [x] **Q25cu · Qualify a bounded web-output producer**
   - **Owner:** `web-output`. **Start:** A selected pure release subset and independently reviewed JavaScript/WebAssembly semantics. **Check:** Implement and check one bounded output route with exact-source correspondence, independent execution/refusals and fixed runtime/resource limits before offering source maps. The existing Gallina playground is reused as UI, not counted as this compiler backend.
+  - The [Boolean exporter](docs/tooling/pure-prototype.md#boolean-web-output) checks every input tuple against the selected function's Gallina interpretation before publishing an ES module. [Landing evidence](docs/assurance/completion-log.md#q25cu-qualify-a-bounded-web-output-producer).
 
 <a id="q25cv"></a>
 
@@ -714,14 +715,14 @@ the [release milestones](#current-execution) to judge readiness.
 | Measure | Value |
 | --- | --- |
 | Total estimate midpoint h | 21,457.9 |
-| Total estimate range h | 11,451.9–31,463.9 |
-| Completed scope h | 1,007.9 |
-| Complete by estimate % | 4.7 |
-| Remaining h | 20,450 |
-| Open class I h | 2,366 |
+| Total estimate range h | 11,547.9–31,367.9 |
+| Completed scope h | 1,199.9 |
+| Complete by estimate % | 5.6 |
+| Remaining h | 20,258 |
+| Open class I h | 2,174 |
 | Open class X h | 18,084 |
-| Retained completion estimate h | 1,004.5 |
-| Unmeasured completed items | 42 |
+| Retained completion estimate h | 1,196.5 |
+| Unmeasured completed items | 43 |
 <!-- estimate-summary:end -->
 
 The table counts each checklist leaf once. Completed work contributes actual
