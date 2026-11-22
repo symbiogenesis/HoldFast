@@ -1652,9 +1652,9 @@ static void vela_span_alloc_zeroed(
 {{
     unsigned long i;
     for (i = 0UL; i < length; i++) {{
-        backing[i] = 0U;
+        backing[base + i] = 0U;
     }}
-    out->ptr = backing;
+    out->ptr = backing + base;
     out->base = base;
     out->length = length;
     out->tag = 1;
@@ -1756,16 +1756,17 @@ static void vela_span_restore(
 
 int main(void)
 {{
-    unsigned char dst_buf[10];
-    unsigned char pkt_buf[8];
+    unsigned char arena[136];
+    unsigned char before[8];
+    unsigned long i;
     struct vela_span_byte dst;
     struct vela_span_byte pkt;
     struct vela_Result_ValidatedPacket_ValidationError out;
 
     /* 1. ValidateEmptyPacketOk: valid 0-byte payload + live frame preservation at index 8 */
-    vela_span_alloc_zeroed(&dst, dst_buf, 64UL, 10UL);
+    vela_span_alloc_zeroed(&dst, arena, 64UL, 10UL);
     vela_span_write(&dst, &dst, 8UL, 0xC3U);
-    vela_span_alloc_zeroed(&pkt, pkt_buf, 128UL, 8UL);
+    vela_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
     WritePacket8(&pkt, 0x56U, 0x00U, 0x5AU, 0x01U, 0x00U, 0x00U, 0x00U, 0x00U);
     PrepareAndValidatePacket(&out, &dst, &pkt);
     if (out.is_ok != {exp(1, 1)})
@@ -1780,8 +1781,8 @@ int main(void)
         return 5;
 
     /* 2. ValidateFullPacketOk: valid 4-byte payload [0x10, 0x20, 0x30, 0x40] */
-    vela_span_alloc_zeroed(&dst, dst_buf, 64UL, 8UL);
-    vela_span_alloc_zeroed(&pkt, pkt_buf, 128UL, 8UL);
+    vela_span_alloc_zeroed(&dst, arena, 64UL, 8UL);
+    vela_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
     WritePacket8(&pkt, 0x56U, 0x04U, 0x1EU, 0x01U, 0x10U, 0x20U, 0x30U, 0x40U);
     PrepareAndValidatePacket(&out, &dst, &pkt);
     if (out.is_ok != 1 || out.err != 0 || out.ok.CopiedBytes != 4UL)
@@ -1796,9 +1797,9 @@ int main(void)
         return 9;
 
     /* 3. ValidatePartialPacketScrubsStaleAndTrailingBytes: 2-byte payload scrubs [6..8) and preserves frame [8..10) */
-    vela_span_alloc_zeroed(&dst, dst_buf, 64UL, 10UL);
+    vela_span_alloc_zeroed(&dst, arena, 64UL, 10UL);
     vela_span_fill(&dst, &dst, 0UL, 10UL, 0xAAU);
-    vela_span_alloc_zeroed(&pkt, pkt_buf, 128UL, 8UL);
+    vela_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
     WritePacket8(&pkt, 0x56U, 0x02U, 0x6BU, 0x01U, 0x11U, 0x22U, 0xDEU, 0xADU);
     PrepareAndValidatePacket(&out, &dst, &pkt);
     if (out.is_ok != 1 || out.ok.CopiedBytes != 2UL || out.ok.PayloadView.length != 2UL)
@@ -1809,32 +1810,32 @@ int main(void)
         return 12;
 
     /* 4. RejectFramingShort: pkt.length < 4 */
-    vela_span_alloc_zeroed(&dst, dst_buf, 64UL, 8UL);
-    vela_span_alloc_zeroed(&pkt, pkt_buf, 128UL, 3UL);
+    vela_span_alloc_zeroed(&dst, arena, 64UL, 8UL);
+    vela_span_alloc_zeroed(&pkt, arena, 128UL, 3UL);
     PrepareAndValidatePacket(&out, &dst, &pkt);
     if (out.is_ok != 0 || out.err != {exp(13, 1)} || out.ok.PayloadView.tag != 0)
         return 13;
 
     /* 5. RejectBadMagic: header magic != 0x56 */
-    vela_span_alloc_zeroed(&dst, dst_buf, 64UL, 8UL);
-    vela_span_alloc_zeroed(&pkt, pkt_buf, 128UL, 8UL);
+    vela_span_alloc_zeroed(&dst, arena, 64UL, 8UL);
+    vela_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
     WritePacket8(&pkt, 0x00U, 0x02U, 0x3AU, 0x01U, 0xAAU, 0xCCU, 0x00U, 0x00U);
     PrepareAndValidatePacket(&out, &dst, &pkt);
     if (out.is_ok != 0 || out.err != {exp(14, 2)} || out.ok.PayloadView.tag != 0)
         return 14;
 
     /* 6. RejectLengthOutOfBounds: rawLen == 5 > 4 */
-    vela_span_alloc_zeroed(&dst, dst_buf, 64UL, 8UL);
-    vela_span_alloc_zeroed(&pkt, pkt_buf, 128UL, 8UL);
+    vela_span_alloc_zeroed(&dst, arena, 64UL, 8UL);
+    vela_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
     WritePacket8(&pkt, 0x56U, 0x05U, 0x5FU, 0x01U, 0x10U, 0x20U, 0x30U, 0x40U);
     PrepareAndValidatePacket(&out, &dst, &pkt);
     if (out.is_ok != 0 || out.err != {exp(15, 3)} || out.ok.PayloadView.tag != 0)
         return 15;
 
     /* 7. RejectChecksumScrubsDestinationAndRestores: bad checksum scrubs [0..8), preserves frame at 8, restores dst */
-    vela_span_alloc_zeroed(&dst, dst_buf, 64UL, 10UL);
+    vela_span_alloc_zeroed(&dst, arena, 64UL, 10UL);
     vela_span_fill(&dst, &dst, 0UL, 10UL, 0x77U);
-    vela_span_alloc_zeroed(&pkt, pkt_buf, 128UL, 8UL);
+    vela_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
     WritePacket8(&pkt, 0x56U, 0x04U, 0xFFU, 0x01U, 0x10U, 0x20U, 0x30U, 0x40U);
     PrepareAndValidatePacket(&out, &dst, &pkt);
     if (out.is_ok != 0 || out.err != {exp(16, 4)} || out.ok.PayloadView.tag != 0)
@@ -1847,13 +1848,23 @@ int main(void)
     if (dst.base != 64UL || dst.length != 10UL || dst.perm_write != 1)
         return 18;
 
-    /* 8. Overlapping-span alias control at runtime: disjoint check rejects overlapping base ranges */
-    vela_span_alloc_zeroed(&dst, dst_buf, 64UL, 8UL);
-    vela_span_alloc_zeroed(&pkt, pkt_buf, 68UL, 8UL);
+    /* Overlapping byte views over the same allocation must be rejected before either view writes. */
+    vela_span_alloc_zeroed(&dst, arena, 64UL, 8UL);
+    vela_span_alloc_zeroed(&pkt, arena, 68UL, 8UL);
     WritePacket8(&pkt, 0x56U, 0x04U, 0x1EU, 0x01U, 0x10U, 0x20U, 0x30U, 0x40U);
+    vela_span_write(&dst, &dst, 0UL, 0xA3U);
+    for (i = 0UL; i < 8UL; i++) {{
+        before[i] = vela_span_read(&dst, i);
+    }}
+    if (before[4] != 0x56U || before[7] != 0x01U)
+        return 19;
     PrepareAndValidatePacket(&out, &dst, &pkt);
     if (out.is_ok != 0 || out.err != VOS_ERR_FramingShort || out.ok.PayloadView.tag != 0)
         return 19;
+    for (i = 0UL; i < 8UL; i++) {{
+        if (vela_span_read(&dst, i) != before[i])
+            return 19;
+    }}
 
     return 0;
 }}

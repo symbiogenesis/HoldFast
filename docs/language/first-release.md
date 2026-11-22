@@ -499,6 +499,27 @@ destination byte beyond that area. These guarantees apply
 to the symbolic source model. Exact executable admission also requires the
 [compiler and machine evidence](#first-slice-qualification).
 
+At this checked entry point, `ref dst` and `in pkt` initially loan the
+two descriptor places. Each descriptor must already identify live backing
+with valid provenance, bounds and the declared permissions. The backing
+extents may overlap. The framing test reads descriptor metadata and returns
+`FramingShort` before accessing any byte on that path. Its successful edge
+introduces exclusive access to the destination bytes and shared access to
+the packet bytes for the rest of the operation. The success view retains
+its destination loan as specified by the result. Internal copy operations
+require their content loans and separation at entry. Ordinary calls that
+already require exclusive access to backing retain the
+[core loan rule](core-design.md#loans-and-control-flow).
+
+The generated C harness uses one backing array. Every descriptor base is
+an offset into that array and its pointer is derived from the same offset.
+Successful cases use disjoint extents of the allocation. The overlap case
+observes the source header through the destination view before calling the
+validator and checks every destination byte against its entry snapshot on
+refusal. Admission for a foreign caller requires the machine interpretation
+to justify descriptor validity and this correspondence before the framing
+test may use its interval comparison.
+
 - **Concrete `Span<byte>` carrier and contract obligations:** `Span<byte>` lowers
   in the mathematical consumer to `vela_Span` (`vela_ByteStore` paired with
   `Base`, `Length`, `Tag`, `PermRead`, `PermWrite` and derived
