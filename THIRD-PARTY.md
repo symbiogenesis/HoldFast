@@ -2,6 +2,26 @@
 
 This file records third-party dependencies, development tools, and reference readings for the VelaLang repository, following [COPYRIGHT.md](COPYRIGHT.md).
 
+## Independent SCIP reader
+
+The locked-package index targets the [SCIP schema at revision `1c2b6db`](https://github.com/scip-code/scip/blob/1c2b6db7e560d5233c944f36e4ac1377cc6963fc/scip.proto),
+SHA-256 `b38021b65ef90cbbf6af9c829ff75192859ad9b5da05439ef154bea4ceb2bf03`.
+The [offline qualification](tools/toolchain/scip_reader.py) invokes the external
+Linux ARM64 `scip print --json` reader and queries its decoded occurrences and
+relationships for the current and renamed package. Supply the `scip` executable
+from the [v0.10.0 release](https://github.com/scip-code/scip/releases/tag/v0.10.0).
+The archive has SHA-256 `6ab677dc2c4bf2955975d0530766152e45daaa988f9404068d8adecacd0bb24c`
+and the executable has SHA-256 `2e808bcfc73711f1ab598412ac6ec6f7c68c2c3c07e02f63b05221a2250a357e`.
+The selected revision's [license](https://github.com/scip-code/scip/blob/1c2b6db7e560d5233c944f36e4ac1377cc6963fc/LICENSE)
+is Apache-2.0. The schema and reader are external development inputs. Vela
+distributes its own encoder and qualification harness.
+
+The qualification resolves decoded relationship targets after collecting symbols
+from all documents. In v0.10.0 the separate `scip lint` command checks each
+document's relationships while traversing an unordered document map. It can
+report a missing target when it visits a generated definition before its
+authored source. [Upstream linter](https://github.com/scip-code/scip/blob/1c2b6db7e560d5233c944f36e4ac1377cc6963fc/cmd/scip/lint.go)
+
 <a id="independent-sarif-importer"></a>
 
 ## Independent SARIF importer
