@@ -3,10 +3,11 @@
 
 import argparse
 import json
+import subprocess
 import sys
 from pathlib import Path
 
-from toolchain import lsp_clients
+from toolchain import lsp_clients, lsp_rename_clients
 from toolchain.atomic import atomic_path
 from toolchain.lsp import serve
 
@@ -19,11 +20,14 @@ def main(argv: list[str] | None = None) -> int:
         metavar="FILE",
         help="Write a JSON bidirectional wire transcript on session termination",
     )
-    parser.add_argument(
+    qualifiers = parser.add_mutually_exclusive_group()
+    qualifiers.add_argument(
         "--qualify-clients",
         action="store_true",
         help="Run the pinned two-client Neovim and Vim LSP interoperability qualification",
     )
+    qualifiers.add_argument("--qualify-rename", action="store_true",
+                            help="Qualify applied and stale versioned edits in Neovim and Emacs Eglot on Ubuntu ARM64")
     parser.add_argument(
         "--output",
         type=Path,
@@ -31,11 +35,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Write the JSON qualification report to FILE instead of standard output",
     )
     args = parser.parse_args(argv)
-    if args.qualify_clients:
+    if args.qualify_clients or args.qualify_rename:
         if args.transcript is not None:
-            parser.error("--transcript cannot be combined with --qualify-clients")
+            parser.error("--transcript cannot be combined with client qualification")
         try:
-            report = lsp_clients.qualify_clients()
+            report = lsp_rename_clients.qualify() if args.qualify_rename else lsp_clients.qualify_clients()
             serialized = json.dumps(report, indent=2, ensure_ascii=False) + "\n"
             if args.output is not None:
                 with atomic_path(args.output) as pending:
@@ -43,12 +47,12 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 sys.stdout.buffer.write(serialized.encode("utf-8"))
                 sys.stdout.buffer.flush()
-        except (OSError, RuntimeError, ValueError) as error:
+        except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as error:
             print(f"vela-lsp: qualification failed: {error}", file=sys.stderr)
             return 1
         return 0
     if args.output is not None:
-        parser.error("--output requires --qualify-clients")
+        parser.error("--output requires a client qualification")
     frames: list[dict[str, object]] | None = [] if args.transcript is not None else None
     exit_code = serve(sys.stdin.buffer, sys.stdout.buffer, transcript=frames)
     if args.transcript is not None and frames is not None:
