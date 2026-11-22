@@ -57,14 +57,24 @@ def _divergence() -> None:
             rerun.assert_called_once_with(2, stop_pc=pc + 4)
         ensure(session.handle is None, "divergent execution retained an inspectable stop")
         session.disconnect()
+        session.reconnect()
+        restored_stop = session.handle
         profile.write_bytes(b"changed configuration")
         try:
-            session.reconnect()
+            session.where(restored_stop)
         except ValueError as error:
             ensure("stale Sail" in str(error), "changed profile reached the wrong refusal")
         else:
-            raise AssertionError("reconnected a different target configuration")
-        ensure(not session.connected, "failed reconnect retained a connection")
+            raise AssertionError("inspected a different target configuration")
+        profile.write_bytes(b"test configuration")
+        try:
+            session.where(restored_stop)
+        except ValueError as error:
+            ensure("stale or disconnected" in str(error), "restored bytes did not expire the stop")
+        else:
+            raise AssertionError("expired target handle was resurrected")
+        ensure(session.reconnect()["pc"] == pc and session.handle != restored_stop,
+               "restored identical target failed to reconnect with a fresh stop")
 
 
 def cases() -> list[Case]:
