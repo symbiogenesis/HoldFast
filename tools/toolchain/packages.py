@@ -14,8 +14,9 @@ from toolchain import parser
 from toolchain.ast import MAX_SOURCE_BYTES
 from toolchain.atomic import atomic_path
 from toolchain.elaborate import FRONTEND_SOURCES, elaborate_package
-from toolchain.elaborate_types import PackageScope
+from toolchain.elaborate_types import CheckedElaboration, PackageScope
 from toolchain.jsonutil import unique_object
+from toolchain.package_navigation import Navigation
 
 type Object = dict[str, object]
 
@@ -222,7 +223,8 @@ def read_lock(lock_path: Path) -> tuple[bytes, Object, str, str]:
     return raw, lock, name, revision
 
 
-def build_package(root: Path, workspace: Path, lock_path: Path, destination: Path | None) -> Object:
+def checked_modules(root: Path, workspace: Path, lock_path: Path, *, navigation: Navigation | None = None,
+                    ) -> tuple[bytes, Closure, dict[str, CheckedElaboration]]:
     raw, lock, name, revision = read_lock(lock_path)
     with parser.cached_build(root) as compiled:
         closure = resolve(workspace, name, revision, _producer(root, compiled), locked=lock)
@@ -234,11 +236,16 @@ def build_package(root: Path, workspace: Path, lock_path: Path, destination: Pat
                 raise ValueError(f"manifest module {module} differs from the source declaration")
             modules.append((source, parsed))
         outputs = elaborate_package(modules, scopes=closure.scopes, require_word_proofs=True,
-                                    output_limit=MAX_GENERATED_BYTES)
+                                    output_limit=MAX_GENERATED_BYTES, navigation=navigation)
         _recheck_parser(root, compiled)
         resolve(workspace, name, revision, _producer(root, compiled), locked=lock)
         if raw != _read(lock_path, MAX_INPUT_BYTES):
             raise ValueError("package lock changed during the build")
+    return raw, closure, outputs
+
+
+def build_package(root: Path, workspace: Path, lock_path: Path, destination: Path | None) -> Object:
+    raw, closure, outputs = checked_modules(root, workspace, lock_path)
     binding = _sha(raw)
     if destination is not None:
         _publish(destination, {"schema": 1, "lock_sha256": binding,
