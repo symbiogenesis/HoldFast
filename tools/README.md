@@ -20,6 +20,7 @@
 | `python tools/run.py vela` | host | Pure Vela prototype checker, formatter, linter, Gallina emitter, and generated-test runner |
 | `python tools/run.py vela sarif` | host | Export source-bound pure batch diagnostics and optional format previews as [SARIF 2.1.0](../docs/tooling/tooling-protocols.md#qualified-pure-batch-sarif), with an explicit external schema |
 | `python tools/run.py vela-lsp` | host | Pure Vela Language Server Protocol server over stdio, wire-transcript recorder, and two-client interoperability qualifier |
+| `python tools/run.py vela-lsp --qualify-rename` | Ubuntu ARM64 / WSL | Check versioned rename application and stale refusal in pinned Neovim and Emacs Eglot with [retained editor and wire evidence](../docs/tooling/lsp-prototype.md#local-rename-previews) |
 | `python tools/run.py vela-highlight` | host / guest | Check/regenerate syntax-only editor assets; qualify pinned Tree-sitter and TextMate consumers in the guest |
 | `python tools/run.py vela-playground` | guest (`[wsl]`) | Unified Vela browser playground with dependent mathematics |
 | `python tools/run.py vela-parser` | guest (`[wsl]`) | Menhir parser build/qualification, syntax campaigns, dependent elaboration, first-slice harness, and Rocq kernel replay |

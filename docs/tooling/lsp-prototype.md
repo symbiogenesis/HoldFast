@@ -579,8 +579,25 @@ document edits and checks successful preparation and preview traffic. The pinned
 Vim plugin omits that capability and supplies no override API, so both its full
 and incremental sessions check the explicit refusal. Retained observations join
 the exact responses to wire requests, open source and document version; changed
-versions, incomplete edits and mismatched observations fail replay. Successful
-rename interoperability in a second version-capable client remains open.
+versions, incomplete edits and mismatched observations fail replay.
+
+`python tools/run.py vela-lsp --qualify-rename --output rename.json` qualifies
+application in Neovim 0.11.0 and GNU Emacs 30.2 with Eglot on Ubuntu 26.04
+ARM64. Windows runs the clients in WSL and writes the report to the requested
+host path. Install the [pinned client packages](../../THIRD-PARTY.md#vela-development-and-proof-reuse-candidates)
+before running the command. Both clients prepare a local rename against their
+unsaved Unicode document, apply the returned versioned edit with their own
+workspace-edit implementation, and look up the declaration from the renamed use.
+Replaying the original edit against the newer buffer preserves its bytes and
+binding. An unrelated parameter of the same name and the on-disk file retain
+their original spellings.
+
+The report retains both editor observations and both bidirectional transcripts.
+The qualifier reconstructs the document version at each request and checks the
+exact preparation, two edits, declaration locations, and client buffer contents.
+The existing Vim sessions continue to exercise refusal for a client that omits
+versioned document edits. Workspace-wide rename still requires resolved package
+identities and reference coverage.
 
 ## Acceptance and remaining qualification
 

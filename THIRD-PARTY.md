@@ -313,6 +313,18 @@ clients execute only in ephemeral directories during
 `vela-lsp --qualify-clients`; no third-party editor source, plugin, or binary is
 copied into the tracked repository.
 
+The pure local rename application qualifier also runs GNU Emacs 30.2 with its
+built-in Eglot client, version 1.17.30, as an external batch editor. The
+selected Ubuntu 26.04 ARM64 `emacs-nox`, `emacs-bin-common` and `emacs-common`
+packages have version `1:30.2+1-2ubuntu1`. The installed package notice
+identifies the upstream `emacs-30.2` tag and records GPL-3.0-or-later for
+the editor. Eglot's source header names the Free Software Foundation and
+GPL-3.0-or-later. The [rename qualifier](tools/toolchain/lsp_rename_clients.py)
+checks exact SHA-256 identities for the editor executable, the explicitly
+loaded Eglot bytecode, the shipped GNU GPL version 3 text and the distribution's
+copyright file. Only the test harness and Vela source fixture are distributed
+here. [Emacs 30.2 Eglot source and license](https://github.com/emacs-mirror/emacs/blob/emacs-30.2/lisp/progmodes/eglot.el)
+
 [CoqEAL and Trocq](docs/assurance/verification-strategy.md#existing-tooling-and-implementation-owners)
 remain conditional proof-transfer references. A concrete consumer and separately
 priced qualification must select the revision and read its own complete licence
