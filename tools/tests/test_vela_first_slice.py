@@ -512,7 +512,7 @@ def _negative_span_refusals() -> None:
 def _clight_lowering_and_purecap_assembly() -> None:
     source = (TOOLS.parent / "examples/first_slice.vela").read_bytes()
     inv = vela_first_slice.build_foundation_inventory()
-    ensure(len(cast("list[str]", inv["carrier_laws"])) == 11, "expected 11 carrier laws in foundation inventory")
+    ensure(len(cast("list[str]", inv["carrier_laws"])) == 12, "expected 12 carrier laws in foundation inventory")
     ensure(
         len(cast("list[str]", inv["validator_contract_obligations"])) == 8,
         "expected 8 validator contract obligations in foundation inventory",

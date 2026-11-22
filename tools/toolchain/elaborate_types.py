@@ -457,6 +457,9 @@ _GALLINA = {
     "vela_bs_shift": "vela_bs_shift",
     "vela_Span_Read_write_same": "vela_Span_Read_write_same",
     "vela_Span_Read_write_other_ne": "vela_Span_Read_write_other_ne",
+    "vela_store_read_aligned_copy": "vela_store_read_aligned_copy",
+    "vela_store_fill_byte": "vela_store_fill_byte",
+    "vela_usize_zero_le": "vela_usize_zero_le",
     "vela_extent_bound": "vela_extent_bound",
     "vela_store_lookup_write_ge": "vela_store_lookup_write_ge",
     "vela_usize_le_refl": "vela_usize_le_refl",
@@ -2137,6 +2140,73 @@ Proof.
   apply vela_bits_word_exact. unfold vela_bits_add.
   rewrite vela_bits_rev_length, vela_bits_add_lsb_length;
     rewrite !vela_bits_rev_length, !vela_word_bits_length; reflexivity.
+Qed.
+
+Lemma vela_bits_sub_lsb_length : forall a b borrow, vela_bits_len a = vela_bits_len b ->
+  vela_bits_len (vela_bits_sub_lsb a b borrow) = vela_bits_len a.
+Proof.
+  induction a as [|x a IH]; intros [|y b] c H; cbn in *; try discriminate; try reflexivity.
+  f_equal. apply IH. now injection H.
+Qed.
+Lemma vela_int_sub_bits : forall tag a b, vela_int_bits tag (vela_int_sub tag a b) =
+  vela_bits_sub (vela_int_bits tag a) (vela_int_bits tag b).
+Proof.
+  intros tag [a] [b]. change (vela_word_bits (vela_bits_word (vela_tag_bits tag)
+    (vela_bits_sub (vela_word_bits a) (vela_word_bits b))) = vela_bits_sub (vela_word_bits a) (vela_word_bits b)).
+  apply vela_bits_word_exact. unfold vela_bits_sub.
+  rewrite vela_bits_rev_length, vela_bits_sub_lsb_length;
+    rewrite !vela_bits_rev_length, !vela_word_bits_length; reflexivity.
+Qed.
+Lemma vela_int_bits_inj : forall tag a b, vela_int_bits tag a = vela_int_bits tag b -> a = b.
+Proof.
+  intros tag [a] [b] H. change (vela_word_bits a = vela_word_bits b) in H.
+  apply (f_equal (vela_bits_word (vela_tag_bits tag))) in H.
+  rewrite !vela_word_roundtrip in H. now subst.
+Qed.
+Lemma vela_bits_sub_add_lsb : forall a b c, vela_bits_len a = vela_bits_len b ->
+  vela_bits_add_lsb b (vela_bits_sub_lsb a b c) c = a.
+Proof.
+  induction a as [|x a IH]; intros [|y b] c H; try discriminate; try reflexivity.
+  injection H as H. destruct x, y, c; cbn [vela_bits_sub_lsb vela_bits_add_lsb
+    vela_xorb vela_or vela_and vela_not]; f_equal; now apply IH.
+Qed.
+Lemma vela_int_sub_add : forall tag a b, vela_int_add tag b (vela_int_sub tag a b) = a.
+Proof.
+  intros tag a b. apply vela_int_bits_inj. rewrite vela_int_add_bits, vela_int_sub_bits.
+  unfold vela_bits_add, vela_bits_sub. rewrite vela_bits_rev_rev, vela_bits_sub_add_lsb.
+  - apply vela_bits_rev_rev.
+  - now rewrite !vela_bits_rev_length, !vela_int_width.
+Qed.
+Fixpoint vela_bits_zero (a : vela_bits) : bool :=
+  match a with vela_bnil => true | vela_bcons x rest => if x then false else vela_bits_zero rest end.
+Lemma vela_bits_zero_left : forall a b, vela_bits_zero a = true ->
+  vela_bits_len a = vela_bits_len b -> vela_bits_add_lsb a b false = b.
+Proof.
+  induction a as [|x a IH]; intros [|y b] Hz H; try discriminate; try reflexivity.
+  injection H as H. destruct x; [discriminate |]. destruct y;
+    cbn [vela_bits_add_lsb vela_xorb vela_or vela_and vela_not]; f_equal; now apply IH.
+Qed.
+Lemma vela_int_usize_zero_left : forall x, vela_int_add 4 vela_usize_zero x = x.
+Proof.
+  intro x. apply vela_int_bits_inj. rewrite vela_int_add_bits. unfold vela_bits_add.
+  rewrite vela_bits_zero_left. apply vela_bits_rev_rev. reflexivity.
+  now rewrite !vela_bits_rev_length, !vela_int_width.
+Qed.
+Lemma vela_store_read_aligned_copy : forall base count idx parent rest,
+  vela_int_ge 4 idx base = true -> vela_int_lt 4 idx (vela_extent_end base count) = true ->
+  vela_store_lookup (vela_bs_copy base vela_usize_zero count (vela_bs_slice base count parent) rest) idx =
+  vela_store_lookup parent idx.
+Proof.
+  intros base count idx parent rest Hlo Hhi. change (vela_int_le 4 base idx = true) in Hlo.
+  cbn [vela_store_lookup]. unfold vela_in_extent. rewrite Hlo, Hhi.
+  cbn [vela_and]. now rewrite vela_int_usize_zero_left, vela_int_sub_add.
+Qed.
+Lemma vela_store_fill_byte : forall base count idx val rest,
+  vela_int_le 4 base idx = true -> vela_int_lt 4 idx (vela_extent_end base count) = true ->
+  vela_store_lookup (vela_bs_fill base count val rest) idx = val.
+Proof.
+  intros base count idx val rest Hlo Hhi; cbn [vela_store_lookup]; unfold vela_in_extent.
+  now rewrite Hlo, Hhi.
 Qed.
 
 From Stdlib Require Import ZArith.BinInt.

@@ -492,8 +492,9 @@ solver-trusted obligations separately; a non-empty solver-trust ledger leaves
 the slice unaccepted as a closed kernel proof. The local source replay checks
 the exports with `rocqchk` and an empty assumption ledger. On valid input the
 public contract identifies the returned read-only destination slice, the copied
-payload bytes and zero padding for every supported wire length from zero through
-four. Framing rejection preserves the complete entry destination. Later
+payload bytes and zero padding. Two quantified clauses describe each byte in
+the copied interval and each remaining byte before offset eight for every
+accepted payload length. Framing rejection preserves the complete entry destination. Later
 protocol rejection clears its eight-byte working area. Every exit preserves each
 destination byte beyond that area. These guarantees apply
 to the symbolic source model. Exact executable admission also requires the
@@ -539,9 +540,9 @@ test may use its interval comparison.
   bound to the function body and `ref` parameters bound to their kernel
   post-state images (`_post_<param>`).
 - **Elaborated laws, synchronous validator and scenario theorems:** `Vela.FirstSlice`
-  elaborates eleven carrier laws (`LawInhabitedByteCase`, `LawAllocZeroedRead`,
+  elaborates twelve carrier laws (`LawInhabitedByteCase`, `LawAllocZeroedRead`,
   `LawReadOverWriteSame`, `LawReadOverWriteOther`,
-  `LawLoopFramePreservesDisjointSuffix`, `LawFillAndFrame`,
+  `LawLoopFramePreservesDisjointSuffix`, `LawFillAndFrame`, `LawSymbolicFillFrame`,
   `LawSliceMetadataAndRead`, `LawReadOnlyAndInvalidate`,
   `LawDisjointCopyAndFrame`, `LawCapacityInvarianceSmall`,
   `LawCapacityInvarianceLarge`), two zeroed-header lemmas

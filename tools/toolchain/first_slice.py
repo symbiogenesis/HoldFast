@@ -92,6 +92,7 @@ EXPECTED_LAWS: Final[tuple[str, ...]] = (
     "LawReadOverWriteOther",
     "LawLoopFramePreservesDisjointSuffix",
     "LawFillAndFrame",
+    "LawSymbolicFillFrame",
     "LawSliceMetadataAndRead",
     "LawReadOnlyAndInvalidate",
     "LawDisjointCopyAndFrame",
@@ -105,7 +106,7 @@ EXPECTED_CONTRACT_OBLIGATIONS: Final[tuple[str, ...]] = (
     "PrepareAndValidatePacket_restores_0_Tag",
     "PrepareAndValidatePacket_restores_0_PermRead",
     "PrepareAndValidatePacket_restores_0_PermWrite",
-    *(f"PrepareAndValidatePacket_ensures_{index}" for index in range(12)),
+    *(f"PrepareAndValidatePacket_ensures_{index}" for index in range(9)),
 )
 
 EXPECTED_SCENARIO_THEOREMS: Final[tuple[str, ...]] = (
@@ -925,6 +926,7 @@ def build_foundation_inventory() -> dict[str, object]:
             "LawReadOverWriteOther",
             "LawLoopFramePreservesDisjointSuffix",
             "LawFillAndFrame",
+    "LawSymbolicFillFrame",
             "LawSliceMetadataAndRead",
             "LawReadOnlyAndInvalidate",
             "LawDisjointCopyAndFrame",
