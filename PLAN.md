@@ -438,7 +438,7 @@ unblock the codec. [Protocol contracts](docs/tooling/tooling-protocols.md) ·
 
 - [ ] **Q25ci · Extend semantic editor services beyond the pure prototype**
   - **Owner:** `vela-lsp`. **Start:** Compiler services and qualified wider-language facts. **Check:** Meet the [LSP contract](docs/tooling/tooling-protocols.md#language-server-protocol) for selected workspace navigation, completion/signatures, rename, checked actions, token deltas and read-only proof inspection in two clients. Reuse Q25n/o/u and refuse stale or capturing edits.
-  - Compiler-backed callable/value/literal discovery, signatures, token deltas and bounded single-expression recovery invalidate stale producer generations; both pinned clients qualify discovery, recovery and deltas. Rename evidence covers Neovim's versioned previews and pinned Vim's refusal without versioned-edit support. [Partial evidence](docs/assurance/completion-log.md#q25ci-extend-semantic-editor-services-beyond-the-pure-prototype) retains a second successful rename client, general incomplete-source support and wider editor scope.
+  - Compiler-backed callable/value/literal discovery, signatures, token deltas and bounded single-expression recovery invalidate stale producer generations. Pinned Neovim and Vim qualify discovery, recovery and deltas. Neovim and Emacs/Eglot both apply checked local renames and reject stale versions. [Editor evidence](docs/assurance/completion-log.md#q25ci-extend-semantic-editor-services-beyond-the-pure-prototype).
   - [x] **Q25do · Qualify compiler-backed completion at checked literals**
     - The pure resolver supplies type- and scope-compatible whole-literal edits, narrows nested static arguments and shares bounded source-bound completion inventories; independent controls and an unsaved Unicode/CRLF stdio session pass. [Landing evidence](docs/assurance/completion-log.md#q25do-qualify-compiler-backed-completion-at-checked-literals).
   - [ ] **Q25dp · Complete the remaining semantic editor qualification**
@@ -446,7 +446,7 @@ unblock the codec. [Protocol contracts](docs/tooling/tooling-protocols.md) ·
     - [x] **Q25du · Qualify completion at incomplete pure expression sites**
       - At a single empty or unfinished scalar expression, bounded compiler repairs recover current typed/static choices while preserving original diagnostics and source; ambiguous or unrelated failures refuse. [Landing evidence](docs/assurance/completion-log.md#q25du-qualify-completion-at-incomplete-pure-expression-sites).
     - [ ] **Q25dv · Complete the wider semantic editor and client qualification**
-      - Retain wider producers, workspace/proof/actions, general incomplete-source support and the second successful versioned-rename client; single-site recovery supplies no accepted source.
+      - Wider producers, workspace and proof services, general incomplete-source support and wider actions remain open. Two independent editors qualify versioned local rename. The pure server also offers a checked Boolean comparison edit against an unsaved overlay. [Semantic-edit evidence](docs/assurance/completion-log.md#q25dv-complete-the-wider-semantic-editor-and-client-qualification).
 
 <a id="q25cj"></a>
 
@@ -462,7 +462,7 @@ unblock the codec. [Protocol contracts](docs/tooling/tooling-protocols.md) ·
   - [x] **Q25dy · Qualify checked Boolean comparison lint previews**
     - Explicit single-comparison previews recheck source and candidate, preserve operand evaluation and outside bytes, bind exact source/producer identities and refuse comments, malformed or stale edits. [Landing evidence](docs/assurance/completion-log.md#q25dy-qualify-checked-boolean-comparison-lint-previews).
   - [ ] **Q25dz · Complete the remaining authoring qualification**
-    - Retain wider canonical formatting/lints/previews and their qualified syntax/semantic producers; the pure Boolean action supplies no wider or editor acceptance.
+    - Retain wider canonical formatting, lints and previews and their qualified syntax and semantic producers. The pure Boolean edit has separate [editor evidence](docs/assurance/completion-log.md#q25dv-complete-the-wider-semantic-editor-and-client-qualification).
 
 <a id="q25cl"></a>
 

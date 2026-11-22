@@ -1767,8 +1767,8 @@ bounds, Unicode/CRLF and unsaved stdio updates. Both pinned clients recover the
 expected static-compatible value edit with retained source/cursor/wire joins.
 Combined local gate and behavioral validation cover integration.
 
-Q25ci remains open for a second successful version-capable rename client, wider
-qualified producers, general incomplete-source support and the remaining
+Q25dv records successful versioned renames in two independent editors. Q25ci
+remains open for wider qualified producers, general incomplete-source support and the remaining
 selected editor operations. Q25do records the separately accepted literal-site
 increment and Q25du records bounded single-expression recovery; the parent carries no duplicate completion hours. These development
 tools supply no wider language or proof admission.
@@ -1864,8 +1864,7 @@ after an unsaved supplementary-comment/CRLF update. Independent implementation
 review found no blocking issue. Both-platform typechecking, Ruff, Markdown and
 the existing editor regression controls pass; combined local gate and behavioral
 validation cover integration. Q25du records bounded single-expression recovery;
-general unfinished source, wider producers and the second successful rename
-client remain in Q25dv within Q25dp.
+general unfinished source and wider producers remain in Q25dv within Q25dp.
 
 <a id="q25dq-qualify-parser-trace-attribution-and-retained-viewer-receipts"></a>
 
@@ -2006,8 +2005,8 @@ stdio session verifies unsaved supplementary Unicode/CRLF edits and retained
 diagnostics. Actual pinned Neovim and both full/incremental pinned Vim sessions
 also recover the exact unfinished-identifier edit, joined to their current
 source/cursor request, wire response and original diagnostic. Changed or omitted
-wire/observation bindings refuse. General incomplete-source/workspace/proof/action support and a second
-successful versioned-rename client remain in Q25dv.
+wire/observation bindings refuse. General incomplete-source, workspace, proof and wider
+action support remain in Q25dv.
 Independent review found no blocking issue; combined local gate and behavioral
 validation cover integration.
 
@@ -2058,8 +2057,8 @@ literal sides, nesting/precedence, Unicode/CRLF, source/producer changes and
 tampered fields. CLI checks preserve modification time and refuse concurrent
 source changes without output. All 16 authoring regression cases and both-platform
 typechecking pass. Independent review added a final producer check after the last
-source read, with an injected late-change CLI refusal. Wider formatting/lints/previews and editor code actions retain
-Q25dz's producer and protocol requirements; these edits supply no source/artifact
+source read, with an injected late-change CLI refusal. Wider formatting, lints and previews retain
+Q25dz's producer and protocol requirements. Q25dv records the pure editor action. These edits supply no source/artifact
 correspondence theorem.
 
 The integrated default `python tools/run.py validate` handoff passes the full
@@ -2081,3 +2080,26 @@ emitted function under the source premises. Native qualification passed 225
 fixtures, including five refusal controls for the wider fragment. Rocq rejected
 a weakened `u32` increment bound admitting the maximum value. The kernel audit
 reported zero solver assumptions. Full source-package correspondence remains open.
+
+<a id="q25dv-complete-the-wider-semantic-editor-and-client-qualification"></a>
+
+#### Q25dv · Complete the wider semantic editor and client qualification
+
+Pinned Neovim 0.11.0 and Emacs 30.2 with Eglot 1.17.30 both applied the same
+local rename through their own LSP workspace-edit handlers. Each changed the
+declaration and use in the unsaved overlay, preserved the sibling binding and
+disk file, resolved the new name and rejected replay at the old version.
+The [client qualification](../../tools/toolchain/lsp_rename_clients.py) joins
+the observed buffers and negotiated versions to their wire transcripts.
+
+The [Boolean rewrite](../tooling/authoring-tools.md#checked-boolean-comparison-previews)
+returns a versioned edit for one selected equality. Stdio controls exercise
+changed unsaved text, CRLF, supplementary characters, comment and selection
+refusals, capability negotiation and late-result invalidation. Wider semantic
+actions, workspace navigation, proof services and general recovery still need
+their producers and client checks.
+
+In a live Eglot session, the refactoring request returned one action and a
+quick-fix-only request returned none. Applying the action changed `x == false`
+to `!(x)` in the unsaved buffer. Eglot preserved its Unicode comment, left
+the file on disk untouched and refused the old edit after the version changed.
