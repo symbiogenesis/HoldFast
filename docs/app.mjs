@@ -328,7 +328,7 @@ public definition Vec<Nat, 1> Preserved() =>
 
 public definition Nat PreservedValue() => At(Preserved(), FZero<0>());
 
-/// The proposed proof is checked by the elaborator; kernel replay is separate.
+/// Prove that the preserved vector still contains 42.
 public lemma SameValue()
     ensures PreservedValue() == 42
     proof
@@ -361,7 +361,7 @@ public definition Vec<Nat, 10> HeaderTag() =>
 
 public const Nat HeaderBytes = ByteLength(HeaderTag());
 
-/// Format.Write targets an explicit ref TextBuilder<capacity> without heap allocation.
+/// The mathematical builder records the bytes appended within its capacity.
 public TextBuilder<36> FormatPacket(Nat id, bool ok)
 {
     let TextBuilder<36> builder = EmptyBuilder();
@@ -370,7 +370,7 @@ public TextBuilder<36> FormatPacket(Nat id, bool ok)
     return complete;
 }
 
-/// A buffer whose capacity is too small fails closed without partial mutation.
+/// An append that exceeds capacity preserves the builder's existing bytes.
 public TextBuilder<12> OverflowPacket(Nat id)
 {
     let TextBuilder<12> tiny = EmptyBuilder();
@@ -6737,7 +6737,7 @@ function initPlaygroundUi() {
           ? ""
           : checking
             ? "Checking whether this service supports the current source."
-            : "This service currently supports pure functions.";
+            : "Available for pure Nat and bool source.";
       }
     }
     if (!available && (!$("inspect-panel").hidden || !$("authoring-panel").hidden)) {
@@ -6749,8 +6749,8 @@ function initPlaygroundUi() {
     });
     if (!state.editor && $("editor-notice").textContent.startsWith("Plain-text mode:")) {
       $("editor-notice").textContent = available
-        ? "Plain-text mode: Monaco could not load from the CDN. Compile, format, evaluate, authoring checks and symbol inspection are available; inline editor features need Monaco."
-        : "Plain-text mode: Monaco could not load from the CDN. Compilation, automatic diagnostics, expression evaluation and downloads are available.";
+        ? "Plain-text mode: Monaco failed to load. Compile, evaluate, format, and inspect in this workspace."
+        : "Plain-text mode: Monaco failed to load. Compile and evaluate in this workspace.";
     }
   }
 
@@ -6873,8 +6873,8 @@ function initPlaygroundUi() {
           result?.sourceStatus === "evaluation-preview"
             ? (result.uncheckedClaims.length
               ? `Unchecked proof obligations for ${result.uncheckedClaims.map((claim) => claim.name).join(", ")}.`
-              : "Only the selected example inputs were evaluated.")
-            : "This is a development check, with no kernel or production acceptance verdict."
+              : "The browser preview checks sample values.")
+            : "Use Rocq kernel replay to check emitted proofs."
         )
       );
       $("diagnostics").replaceChildren(clean);
@@ -6959,7 +6959,7 @@ function initPlaygroundUi() {
     try {
       await api("/api/close", { session }, options);
     } catch {
-      /* Expired sessions and closing tabs also have bounded server-side expiry. */
+      /* The local server expires sessions whose close request fails. */
     }
   }
 
@@ -7863,7 +7863,7 @@ function initPlaygroundUi() {
       $("source-fallback").hidden = false;
       $("source-fallback").value = state.text;
       $("editor-notice").textContent =
-        "Plain-text mode: Monaco could not load from the CDN. Compile, format, evaluate, authoring checks and symbol inspection are available; inline editor features need Monaco.";
+        "Plain-text mode: Monaco failed to load. Compile, evaluate, format, and inspect in this workspace.";
       $("editor-notice").hidden = false;
       updateServiceUI();
     }
@@ -7939,7 +7939,7 @@ function initPlaygroundUi() {
       state.gallina = result.gallina;
       $("gallina-output").textContent = result.gallina;
       $("compile-summary").textContent =
-        `${result.module} \u00b7 unqualified translation; kernel replay separate \u00b7 SHA-256 ${hash.slice(0, 12)}`;
+        `${result.module} \u00b7 Gallina for kernel replay \u00b7 SHA-256 ${hash.slice(0, 12)}`;
       $("copy-output").disabled = false;
       $("download-output").disabled = false;
       activity("Gallina output ready");
@@ -8083,7 +8083,7 @@ function initPlaygroundUi() {
       !current(preview.captured) ||
       preview.candidate === state.text
     ) {
-      clearAuthoring("Preview is no longer current. Check style again before applying an edit.");
+      clearAuthoring("Check style again for a preview of the current source.");
       return;
     }
     replaceBuffer(preview.candidate, "vela-binding-preview");

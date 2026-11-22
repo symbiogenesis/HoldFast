@@ -1,6 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Deploy the static Vela language overview, reference, and browser playground
-# under docs/ to GitHub Pages using Node 24 actions without Jekyll processing.
+# Publish the [static playground](../../docs/tooling/playground.md) from docs/.
 
 name: pages
 
