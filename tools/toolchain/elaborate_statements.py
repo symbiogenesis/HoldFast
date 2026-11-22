@@ -2009,7 +2009,8 @@ class _StatementsMixin:
                         elem_term = self.whnf(_apps(_constant("Span_Read"), _U8, cur_coll_term, idx_u))
                     elif kind_tag == "slots":
                         idx_u = _int_term(_INT_SPECS["usize"], idx)
-                        d_val = self._default_term_for_type(elem_type)
+                        model = _apps(_constant("Slots_Model"), elem_type, c_args[1], cur_coll_term)
+                        d_val = self._sequence_lookup_default(elem_type, model)
                         elem_term = self.whnf(
                             _apps(_constant("Slots_Read"), elem_type, c_args[1], d_val, cur_coll_term, idx_u)
                         )
@@ -2019,7 +2020,7 @@ class _StatementsMixin:
                             if kind_tag == "vec"
                             else cur_coll_term
                         )
-                        d_val = self._default_term_for_type(elem_type)
+                        d_val = self._sequence_lookup_default(elem_type, seq_m)
                         elem_term = self.whnf(
                             _apps(_constant("Seq_At"), elem_type, d_val, seq_m, _term("nat", value=idx))
                         )
@@ -2112,7 +2113,7 @@ class _StatementsMixin:
                        and sym_env[name].term != step_env[name].term]
             if changed:
                 ordinal = self.fresh(_NAT)
-                default = self._default_term_for_type(elem_type)
+                default = self._sequence_lookup_default(elem_type, coll_model)
                 element = _apps(_constant("Seq_At"), elem_type, default, coll_model, ordinal)
                 for name in changed:
                     step_env[name] = _Binding(self.substitute(step_env[name].term, cast("int", elem_var.value), element),

@@ -1119,7 +1119,7 @@ class _SolverMixin:
                         _apps(_constant("Seq_All"), elem, _apps(_constant("Seq_Take"), elem, parent_seq, prev_k), pred_t)
                     )
                     if any(self.convertible(f_item, prev_take_all) for f_item in facts):
-                        d_val = self._default_term_for_type(elem)
+                        d_val = self._sequence_lookup_default(elem, parent_seq)
                         at_term = _apps(_constant("Seq_At"), elem, d_val, parent_seq, prev_k)
                         step_cond = self.whnf(_app(pred_t, at_term))
                         if self._prove_bool_precondition(step_cond, environment):

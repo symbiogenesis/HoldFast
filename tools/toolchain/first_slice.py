@@ -1545,6 +1545,8 @@ def lower_to_c(
         actual = str(decl_node.get("kind", "")) if isinstance(decl_node, dict) else None
         if actual != expected_kind:
             raise ValueError(f"first_slice AST missing executable declaration {name} ({expected_kind}), got {actual}")
+        if expected_kind == "function" and cast("list[int]", decl_map[name]["span"])[0] in checked.recursive_declarations:
+            raise ValueError(f"packet function {name!r} is recursive and has no admitted stack bound")
 
     def literal_type(node: dict[str, object]) -> str:
         width = node.get("suffix")

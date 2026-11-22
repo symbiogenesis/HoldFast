@@ -314,6 +314,17 @@ class _WhnfMixin:
                 self.tick(True)
                 projected = pair.args[2] if name == "Fst" else pair.args[3]
                 return self.whnf(_apps(projected, *arguments[3:]))
+        if name == "FiniteOffset" and len(arguments) == 2:
+            limit, index = arguments
+            limit_shape, limit_pred = self._peel_nat(self.whnf(limit))
+            index_shape, index_pred = self._peel_nat(self.whnf(index))
+            if limit_shape == "zero" or (limit_pred is not None and index_shape == "zero"):
+                self.tick(True)
+                return _apps(_constant("FZero"), limit, _term("unit"))
+            if limit_pred is not None and index_pred is not None:
+                self.tick(True)
+                smaller = _apps(_constant("FiniteOffset"), limit_pred, index_pred)
+                return _apps(_constant("FSucc"), limit, smaller)
         if name == "At" and len(arguments) >= 4:
             vector, values = self.spine(self.whnf(arguments[2]))
             index, indices = self.spine(self.whnf(arguments[3]))
@@ -1036,8 +1047,10 @@ class _WhnfMixin:
             len_w = self.whnf(args[1])
             if len_w.kind == "nat" and 0 <= cast("int", len_w.value) <= 64:
                 n_val = cast("int", len_w.value)
-                elem_def = self._default_term_for_type(args[0])
                 acc = _apps(_constant("VNil"), args[0], _term("unit"))
+                if n_val == 0:
+                    return acc
+                elem_def = self._default_term_for_type(args[0])
                 for k in range(n_val):
                     acc = _apps(_constant("VCons"), args[0], _term("nat", value=k), elem_def, acc)
                 return acc
@@ -1062,6 +1075,8 @@ class _WhnfMixin:
             return _apps(_constant(rinfo.ctor_const), *args, *f_vals)
         if head.kind == "const" and isinstance(head.value, str) and head.value in self.unions_by_type:
             uinfo = self.unions_by_type[head.value]
+            if not uinfo.constructors:
+                raise self.fail("unsupported", "empty union has no lookup default")
             ctor = uinfo.constructors[0]
             if not ctor.fields:
                 return _apps(_constant(ctor.ctor_const), *args, _term("unit"))
@@ -1070,7 +1085,13 @@ class _WhnfMixin:
                 fty = self._instantiate_generic_type(uinfo.generic_vars, args, rf.type)
                 f_vals.append(self._default_term_for_type(fty))
             return _apps(_constant(ctor.ctor_const), *args, *f_vals)
-        return _term("nat", value=0)
+        raise self.fail("unsupported", "lookup needs a represented element witness for this type")
+
+    def _sequence_lookup_default(self: _Elaborator, elem: _Term, sequence: _Term) -> _Term:
+        head, args = self.spine(self.whnf(sequence))
+        if head == _constant("Seq_Cons") and len(args) == 3:
+            return args[1]
+        return self._default_term_for_type(elem)
 
     def _whnf_seq_op(self: _Elaborator, name: str, arguments: list[_Term]) -> _Term | None:
         if name == "Seq_Singleton" and len(arguments) == 2:

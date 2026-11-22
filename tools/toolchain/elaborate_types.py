@@ -30,7 +30,8 @@ class CheckedElaboration(Elaboration):
     syntax: bytes
     contextual_literal_types: Mapping[int, str]
     call_declarations: Mapping[int, int]
-    constructor_suggestions: Mapping[int, str] = field(default_factory=dict)
+    recursive_declarations: frozenset[int]
+    constructor_suggestions: Mapping[int, str]
 
     @staticmethod
     def encode_syntax(parsed: object) -> bytes:
@@ -360,6 +361,7 @@ _GALLINA = {
     "EmptyBuilder": "vela_EmptyBuilder", "FormatStep": "vela_FormatStep",
     "Fits": "vela_Fits", "Written": "vela_Written",
     "Fin": "vela_Fin", "FZero": "vela_FZero", "FSucc": "vela_FSucc", "At": "vela_At",
+    "FiniteOffset": "vela_finite_offset",
     "Span": "vela_Span",
     "Span_Base": "vela_Span_Base",
     "Span_Length": "vela_Span_Length",
@@ -1699,6 +1701,14 @@ Inductive vela_Fin : nat -> Type@{vela_u0} :=
 | vela_fsucc : forall n : nat, vela_Fin n -> vela_Fin (S n).
 Definition vela_FZero (n : nat) (_ : unit) : vela_Fin (S n) := vela_fzero n.
 Definition vela_FSucc (n : nat) (i : vela_Fin n) : vela_Fin (S n) := vela_fsucc n i.
+Fixpoint vela_finite_offset (n i : nat) {struct n} : vela_Fin (S n) :=
+  match n as k return vela_Fin (S k) with
+  | O => vela_fzero O
+  | S k => match i with
+           | O => vela_fzero (S k)
+           | S j => vela_fsucc (S k) (vela_finite_offset k j)
+           end
+  end.
 Fixpoint vela_lookup (A : Type@{vela_u0}) (n : nat) (i : vela_Fin n) {struct i}
     : vela_Vec A n -> A :=
   match i in vela_Fin size return vela_Vec A size -> A with
@@ -2224,6 +2234,39 @@ Proof.
   apply vela_bits_word_exact. unfold vela_bits_add.
   rewrite vela_bits_rev_length, vela_bits_add_lsb_length;
     rewrite !vela_bits_rev_length, !vela_word_bits_length; reflexivity.
+Qed.
+
+Definition vela_int_agrees (tag : nat) (checked : vela_Result (vela_int tag) vela_ArithmeticError)
+    (ordinary : vela_int tag) : bool :=
+  match checked with inl _ => false | inr word => vela_int_eq tag word ordinary end.
+
+Lemma vela_int_agrees_sound : forall tag checked ordinary,
+  vela_int_agrees tag checked ordinary = true ->
+  checked = vela_Result_Ok (vela_int tag) vela_ArithmeticError ordinary.
+Proof.
+  intros tag [e|x] ordinary H; [discriminate |].
+  cbn [vela_int_agrees] in H. apply vela_int_eq_true in H. now subst.
+Qed.
+
+Definition vela_checked_wrap_shl tag (x : vela_int tag) (count : vela_int 4) :=
+  match vela_shift_amount tag count with
+  | None => vela_int_err tag (vela_ArithmeticError_InvalidShift tt)
+  | Some _ => vela_Result_Ok (vela_int tag) vela_ArithmeticError (vela_int_wrap_shl tag x count)
+  end.
+
+Lemma vela_every_word_sound : forall tag (test : vela_int tag -> bool),
+  vela_bits_every (vela_int_bits tag (vela_mk_int tag vela_bnil))
+    (fun bits => test (vela_mk_int tag bits)) = true ->
+  forall x, test x = true.
+Proof.
+  intros tag test H [w].
+  pose proof (vela_bits_every_sound (vela_int_bits tag (vela_mk_int tag vela_bnil))
+    (vela_word_bits w) (fun bits => test (vela_mk_int tag bits))) as specialize_word.
+  assert (Hlen : vela_bits_len (vela_word_bits w) =
+    vela_bits_len (vela_int_bits tag (vela_mk_int tag vela_bnil)))
+    by now rewrite vela_word_bits_length, vela_int_width.
+  specialize (specialize_word Hlen H). unfold vela_mk_int in specialize_word.
+  now rewrite vela_word_roundtrip in specialize_word.
 Qed.
 
 Lemma vela_int_add_assoc : forall (tag : nat) (a b c : vela_int tag),

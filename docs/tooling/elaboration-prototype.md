@@ -30,6 +30,12 @@ compares two revisions of the same named module. Supply additional
 import the module under review. A successful replay records the SHA-256 of
 both revisions and every fixed source. An elaboration failure identifies the
 baseline or candidate, the affected module, and the source position.
+Imported executable function bodies and their post-state computations are opaque
+to clients. A public mathematical `definition` exports its defining equation;
+a `const` function also commits to its static computation. A client may rely
+on those computations or an exported proof without acquiring a dependency on
+the private body of an ordinary function.
+
 The result covers the supplied clients in this mathematical fragment. The
 [release contract](../language/first-release.md#public-api-evolution) also
 accounts for separately compiled consumers, ABI, and replayed kernel evidence.
@@ -101,6 +107,11 @@ The supported increment includes:
   arguments and pass a structurally smaller `Succ(...)` pattern binder for the
   decreasing parameter; non-decreasing, polymorphic-recursive or unapplied
   self-references are rejected.
+  The packet backend erases mathematical declarations, including type-valued
+  functions and recursion over unbounded naturals. For each selected executable
+  declaration it checks the elaborator's resolved recursion information before
+  emitting C. Recursive code needs a stack bound and lowering rule. The packet
+  profile currently admits acyclic calls among its represented functions.
 - Exhaustive `match` expressions and returning statement `match` over `Nat`,
   `bool`, `char`, `Unit`, `Vec<Nat, n>`, products and nominal `record` and `union`
   types, with wildcard (`_`), variable, `()`, Boolean literal, character literal
@@ -167,6 +178,11 @@ The supported increment includes:
   arguments), and postfix `base with { Field = expr, ... }` record updates
   evaluated in declaration order (refusing partial updates to an index field when
   a dependent field is not also updated).
+  The raw record carrier supports intermediate values in an `open` block.
+  A theorem or exported postcondition over a direct record input binds each
+  declared invariant as a proof premise. A proof invoking that theorem on a
+  concrete record must supply or establish its validity. An `out` parameter
+  acquires its invariants when initialized.
 - Unicode scalar values (`char` in `[0, 0x10FFFF]` excluding surrogates
   `[0xD800, 0xDFFF]`, character literals `'a'` with `\n`, `\r`, `\t`, `\0`, `\\`,
   `\'`, `\"`, `\xNN` and `\u{...}` escapes, relational comparisons `<`, `<=`, `>`,
@@ -194,6 +210,16 @@ The supported increment includes:
   width of its tag. Every inhabitant of the emitted character carrier carries
   a proof that its code satisfies the Unicode scalar test. These restrictions
   also apply to open parameters and quantified variables.
+- `python tools/run.py vela-parser check-arithmetic SOURCE` emits and replays a
+  theorem at each elaborated partial word operation. The theorem states that
+  the checked primitive returns `Ok` of the ordinary primitive's result.
+  Wrapping left shift checks its count and permits discarded high bits.
+  Closed operands support every represented width. With one symbolic byte,
+  signed or unsigned, Rocq checks all 256 words under the comparison premises
+  printed in the theorem. The command refuses operands outside that fragment,
+  rejects solver assumptions and runs `rocqchk` on the compiled library.
+  Ordinary development elaboration also accepts wider symbolic bounds using the
+  frontend solver. Its output carries no word-operation replay verdict.
 - Suffix framing over byte stores follows writes, fills and restored sliced
   copies through conditional branches. For a symbolic count bounded by a source
   fact, the checker can reconstruct an extent proof at constant offsets by
@@ -229,13 +255,22 @@ The supported increment includes:
   `Span.Invalidate`, `Span.Disjoint`, `Span.CopyPrefix` and `Span.Restore`),
   together with `requires`, `where`, `ensures` (with `result` bound to the body) and
   `restores param` contract obligations on `definition` and `function`
-  declarations for the [first-slice qualification](../language/first-release.md#first-slice-qualification).
+  declarations. The bare parameter form checks descriptor preservation at call
+  return. A general restoration predicate describes the lender when a returned
+  loan ends and requires a deferred witness. The prototype reports this form
+  as unsupported. Use `ensures` for a predicate over the immediate post-state.
+  See the [first-slice qualification](../language/first-release.md#first-slice-qualification).
 - Pure sequence vocabulary (`Seq<T>`, `Seq.Empty`, `Seq.Singleton`, `.Count`,
   `.At`, `.Update`, `.Append`, `.Take`, `.Skip`, `.Slice`, `.Contains` over
   structurally equatable element types, `.All` and `.Any`), `.Model` domain views on
   `Vec<T, n>`, `Span<byte>`, `Slots<T, capacity>` and `Seq<T>`, postfix indexing
   `expr[idx]` on `Span<byte>`, `Slots<T, capacity>`, `Seq<T>` and `Vec<T, n>`, and
   pre-state `old(...)` expressions inside callable contracts.
+  A proved numeric index into a visibly nonempty vector lowers to a finite index
+  and total `At`, including for abstract element types. An explicit `Fin<n>`
+  indexes a vector of symbolic length. Sequence and slot reads can use a
+  represented element of a nonempty model. A lookup requiring an unavailable
+  element witness reports the limitation at its source location.
 - Mutable local bindings (`var`, `var` pattern bindings and `var ... else`),
   assignments (`=`, `+=`, `-=`, `*=`, `/=`, `%=`) to mutable variables, record
   fields and indexed collections (`target[idx] = val` on `Span<byte>`,
@@ -274,7 +309,7 @@ The supported increment includes:
   `match`, `let_else`/`var_else` and loops, refusal of reading, partially
   mutating (`+=`, `.Field =`, `[idx] =`), `old(...)`, or returning/propagating
   (`?`) before every `out` parameter is initialized on all normal return paths,
-  and postcondition (`ensures` / `restores`) binding to the final initialized
+  and immediate postcondition (`ensures`) binding to the final initialized
   value.
 - Source-bound local borrow bindings (`let r = in target;` and `let r = ref target;`
   over local variables and disjoint record fields `target.Field`), general

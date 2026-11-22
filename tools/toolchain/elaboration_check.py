@@ -45,6 +45,7 @@ class Fixture:
     expected: str = "accepted"
     pure: bool = False
     observations: tuple[tuple[str, str], ...] = ()
+    word_proofs: bool = False
 
 
 def fixtures(example: bytes) -> tuple[Fixture, ...]:
@@ -182,11 +183,23 @@ definition Nat Call() => Identity::<Nat>(8);
 lemma ValueCorrect() ensures Value() == 7 proof { assert Value() == 7; }
 lemma CallCorrect() ensures Call() == 8 proof { assert Call() == 8; }
 """),
+        ("record-entry-invariant-evidence", """module InvariantReplay;
+public record Window(u8 Low, u8 High) invariant Ordered: Low <= High {}
+public lemma Ordered(Window w) ensures (w.Low <= w.High) == true
+    proof { assert (w.Low <= w.High) == true; }
+public lemma Closed() ensures (Window(1u8,2u8).Low <= Window(1u8,2u8).High) == true
+    proof { assert (Window(1u8,2u8).Low <= Window(1u8,2u8).High) == true by Ordered(Window(1u8,2u8)); }
+public bool Observe(Window w) ensures result == true => w.Low <= w.High;
+"""),
         ("dependent-vector-lookup", """module VectorReplay;
 definition Vec<T,n> Copy<T, ghost Nat n>(Vec<T,n> xs) => xs;
+definition T First<T>(Vec<T,1> xs) => xs[0];
+definition T Second<T>(Vec<T,2> xs) => xs[1];
+definition T SingletonAt<T>(T value) => Seq.Singleton(value)[0];
 definition Vec<Nat,2> Two() => VCons(7, VCons(8, VNil<Nat>()));
 definition Vec<Nat,0> Empty() => Copy(VNil<Nat>());
 definition Nat Lookup() => At(Copy(Two()), FSucc(FZero<0>()));
+lemma SecondValue() ensures Second(Two()) == 8 proof { assert Second(Two()) == 8; }
 lemma Selected() ensures At(Two(), FSucc(FZero<0>())) == 8 proof { assert At(Two(), FSucc(FZero<0>())) == 8; }
 """),
         ("product-projection-conversion", """module ProductReplay;
@@ -939,6 +952,9 @@ public Nat RoundTripOwned()
 """),
     )
     negatives = (
+        ("deferred-restoration-at-return",
+         "public Unit Touch(ref Nat value) "
+         "restores value == old(value) { return (); }", "unsupported"),
         ("unrestored-fallible-write", "Result<byte, Unit> Bad(ref Span<byte> dst, byte value) "
          "effects writes(dst) requires dst.CanRead && dst.CanWrite && dst.Length >= 1usize "
          "ensures (result is Err(_)) ==> dst[0] == old(dst[0]) { dst[0] = value; return Err(()); }", "type"),
@@ -1420,7 +1436,17 @@ definition bool EmptyInside() => Apart(2usize, 4usize, 3usize, 0usize);
 definition bool Touch() => Apart(2usize, 4usize, 6usize, 2usize);
 """, observations=(("vela_d1_LastByte tt", "false"), ("vela_d2_EmptyInside tt", "true"),
                    ("vela_d3_Touch tt", "true")))
-    return (Fixture("authored-example", example), pure, division, dependent_playground, intervals, span_model, slots, capacity, widths,
+    arithmetic = Fixture("checked-word-operations", b"""module WordReplay;
+definition u8 Next(u8 x) requires x < 255u8 => x + 1u8;
+definition i8 Divide() => -10i8 / 2i8;
+definition i8 Neg(i8 x) requires x != i8.Min => -x;
+definition u8 Shift() => ShiftLeft(3u8, 2usize);
+definition u8 ModularShift() => WrappingShiftLeft(255u8, 2usize);
+""", word_proofs=True)
+    symbolic_wide = Fixture("unreplayed-wide-word-operation", b"""module WideReplay;
+definition u32 Next(u32 x) requires x < u32.Max => x + 1u32;
+""", expected="unsupported", word_proofs=True)
+    return (arithmetic, symbolic_wide, Fixture("authored-example", example), pure, division, dependent_playground, intervals, span_model, slots, capacity, widths,
             *(Fixture(name, ("module PureNegativeReplay; " + source).encode(), expected, pure=True)
               for name, source, expected in pure_negatives),
             *(Fixture(name, source.encode()) for name, source in positives),
@@ -1626,7 +1652,11 @@ def _case(compiled: vela_parser.Build, case: Fixture, directory: Path, index: in
                               "source_sha256": _sha256(case.source), "expected": case.expected,
                               "consumer": "pure" if case.pure else "mathematical",
                               "syntax": str(syntax_path), "syntax_sha256": _sha256(syntax_path.read_bytes())}
-    consume = vela.translate_ast if case.pure else vela_elaborate.elaborate
+    def consume(source: bytes, syntax: object) -> vela_elaborate.Elaboration | vela.Translation:
+        if case.pure:
+            return vela.translate_ast(source, syntax)
+        return vela_elaborate.elaborate(source, syntax, require_word_proofs=case.word_proofs)
+
     try:
         translated = consume(case.source, parsed)
     except VelaError as error:
@@ -1655,6 +1685,9 @@ def _case(compiled: vela_parser.Build, case: Fixture, directory: Path, index: in
     export_pattern = r"[fc]_[A-Za-z_][A-Za-z0-9_]*" if case.pure else r"vela_d[0-9]+_[A-Za-z_][A-Za-z0-9_]*"
     exports = re.findall(r"^Definition (" + export_pattern + r")\s*(?:\(|:)",
                          translated.gallina, flags=re.MULTILINE)
+    word_checks = re.findall(r"^Lemma (vela_word_[0-9]+_[0-9]+_[0-9]+) :", translated.gallina, flags=re.MULTILINE)
+    exports.extend(word_checks)
+    row["word_operation_checks"] = len(word_checks)
     if not exports:
         raise ValueError(f"Vela replay {case.name}: no generated exports to audit")
     audited = [f"{module}.{name}" for name in exports]
@@ -1679,6 +1712,18 @@ def _case(compiled: vela_parser.Build, case: Fixture, directory: Path, index: in
                 "library": f"VelaElaboration.{stem}", "vo": str(artifact),
                 "vo_sha256": _sha256(artifact.read_bytes())})
     return row
+
+
+def check_arithmetic(root: Path, path: Path) -> dict[str, object]:
+    source = vela_parser.read_source(path)
+    with vela_parser.cached_build(root) as compiled, tempfile.TemporaryDirectory() as tmp:
+        directory = Path(tmp)
+        steps: list[dict[str, object]] = []
+        row = _case(compiled, Fixture(path.name, source, word_proofs=True), directory, 0, steps)
+        _run(_opam(["rocqchk", "-R", tmp, "VelaElaboration", str(row["library"])]),
+             directory, directory / "kernel.log", steps)
+        return {"source_sha256": row["source_sha256"], "word_operation_checks": row["word_operation_checks"],
+                "status": "kernel-checked"}
 
 
 def _observations(rows: list[dict[str, object]], steps: list[dict[str, object]]) -> dict[str, str]:

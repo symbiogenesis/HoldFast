@@ -106,6 +106,8 @@ class _Elaborator(
     def __init__(self, protocol: _Protocol) -> None:
         self.protocol = protocol
         self.checked_receivers: dict[tuple[int, ...], loans._Receiver | None] = {}
+        self.require_word_proofs = False
+        self.word_proofs: dict[tuple[int, int, str], str] = {}
         self.contextual_literal_types: dict[int, str] = {}
         self.serial = 0
         self.work = MAX_WORK
@@ -130,6 +132,7 @@ class _Elaborator(
         self.callable_source_names: dict[str, str] = {}
         self.declaration_sites: dict[str, int] = {}
         self.call_declarations: dict[int, int] = {}
+        self.recursive_declarations: set[int] = set()
         self.callable_has_effects: set[str] = set()
         self.callable_effect_calls: dict[str, set[str]] = {}
         self.callable_effect_writes: dict[str, set[int]] = {}
@@ -172,6 +175,9 @@ class _Elaborator(
         self.module_name: str = ""
         self.emission_prefix = "vela"
         self.public_symbols: set[str] = set()
+        self.sealed_bodies: set[str] = set()
+        self.imported_postconditions: dict[str, tuple[str, ...]] = {}
+        self.sealed_updates: dict[str, tuple[tuple[int, ...], dict[int, _Term]]] = {}
         self.private_symbols: set[str] = set()
         self.available_modules: dict[str, _Elaborator] = {}
         self.imported_modules: set[str] = set()
@@ -306,6 +312,9 @@ class _Elaborator(
         bind("FZero", telescope((n,), self.pi(_UNIT, _app(_constant("Fin"), successor), nullary=True)), 1)
         bind("FSucc", telescope((n,), self.pi(fin, _app(_constant("Fin"), successor))), 1)
         bind("At", telescope((a, n), self.pi(vec, self.pi(fin, a))), 2)
+        self.constants["FiniteOffset"] = _Binding(
+            _constant("FiniteOffset"), telescope((n,), self.pi(_NAT, _app(_constant("Fin"), successor)))
+        )
         self.constants["Vec_At_Nat"] = _Binding(
             _constant("Vec_At_Nat"), telescope((a, n), self.pi(a, self.pi(_NAT, self.pi(vec, a)))), 2
         )
@@ -2098,12 +2107,14 @@ def _checked_elaboration(
     parsed: object,
     *,
     available_modules: dict[str, _Elaborator] | None = None,
+    require_word_proofs: bool = False,
 ) -> tuple[CheckedElaboration, _Elaborator]:
     protocol = _Protocol(source)
     try:
         snapshot = copy.deepcopy(parsed)
         root = protocol.decode(snapshot)
         elaborator = _Elaborator(protocol)
+        elaborator.require_word_proofs = require_word_proofs
         module = elaborator.name(root["name"])
         elaborator.module_name = module
         if available_modules is not None:
@@ -2113,6 +2124,7 @@ def _checked_elaboration(
             elaborator.serial = max((mod.serial for mod in available_modules.values()), default=elaborator.serial)
         for declaration in elaborator.nodes(root["declarations"]):
             elaborator.declaration(declaration)
+        elaborator.output.extend(elaborator.word_proofs.values())
         generated_module = (
             "VelaPackage_" + module.encode("ascii").hex() if available_modules is not None else gallina_module_name(module)
         )
@@ -2129,7 +2141,8 @@ def _checked_elaboration(
         return CheckedElaboration(module, gallina, source_digest, CheckedElaboration.encode_syntax(snapshot),
                                   MappingProxyType(elaborator.contextual_literal_types.copy()),
                                   MappingProxyType(elaborator.call_declarations.copy()),
-                                  MappingProxyType(elaborator.constructor_suggestions.copy())), elaborator
+                                  recursive_declarations=frozenset(elaborator.recursive_declarations),
+                                  constructor_suggestions=MappingProxyType(elaborator.constructor_suggestions.copy())), elaborator
     except RecursionError as error:
         raise protocol.error("limit", "elaboration nesting exceeds the host stack bound") from error
 
@@ -2139,16 +2152,17 @@ def elaborate(
     parsed: object,
     *,
     imports: Sequence[tuple[bytes, object]] | None = None,
+    require_word_proofs: bool = False,
 ) -> CheckedElaboration:
     """Check an exact-source schema-2 AST and propose a complete bounded CIC file."""
     if imports is None or not imports:
-        return _checked_elaboration(source, parsed)[0]
+        return _checked_elaboration(source, parsed, require_word_proofs=require_word_proofs)[0]
     protocol = _Protocol(source)
     module = _Elaborator(protocol).name(protocol.decode(parsed)["name"])
-    return elaborate_package([*imports, (source, parsed)])[module]
+    return elaborate_package([*imports, (source, parsed)], require_word_proofs=require_word_proofs)[module]
 
 
-def elaborate_package(modules: Sequence[tuple[bytes, object]]) -> dict[str, CheckedElaboration]:
+def elaborate_package(modules: Sequence[tuple[bytes, object]], *, require_word_proofs: bool = False) -> dict[str, CheckedElaboration]:
     """Check a linked module graph in dependency order, with one owner per import path."""
     decoded: dict[str, tuple[bytes, object, _Protocol, Node, list[tuple[str, Node]]]] = {}
     order_names: list[str] = []
@@ -2201,7 +2215,7 @@ def elaborate_package(modules: Sequence[tuple[bytes, object]]) -> dict[str, Chec
     for mname in topo:
         src, parsed, _, _, _ = decoded[mname]
         try:
-            elab, elaborator = _checked_elaboration(src, parsed, available_modules=available)
+            elab, elaborator = _checked_elaboration(src, parsed, available_modules=available, require_word_proofs=require_word_proofs)
         except VelaError as error:
             raise VelaError(error.kind, error.line, error.column, f"module '{mname}': {error.message}") from error
         available[mname] = elaborator

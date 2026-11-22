@@ -593,6 +593,39 @@ def _first_slice_source_proofs() -> None:
                    for item in solver_ledger.ledger(wrong.gallina)), "public contract accepted an absent payload copy")
 
 
+def _first_slice_recursion_boundary() -> None:
+    root = TOOLS.parent
+    packet = (root / vela_first_slice.EXAMPLE).read_bytes()
+    math_source = b"""
+public definition Type<1> SmallUniverse() => type Type;
+public definition Nat CountDown(Nat n) decreases n => match (n) { 0 => 0, Succ(k) => CountDown(k) };
+public lemma Erased() ensures CountDown(3) == 0 proof { assert CountDown(3) == 0; }
+"""
+    with parser.cached_build(root) as compiled:
+        proof_source = packet + math_source
+        parsed = parser.parse_source(compiled, proof_source, surface=True)
+        checked = vela_elaborate.elaborate(proof_source, parsed)
+        generated, _ = vela_first_slice.lower_to_c(proof_source, parsed, checked=checked)
+        ensure("_SmallUniverse :" in checked.gallina and "_CountDown :" in checked.gallina,
+               "mathematical universe or structural recursion disappeared from the proof module")
+        ensure("SmallUniverse" not in generated and "CountDown" not in generated,
+               "mathematical declarations consumed executable representation")
+        recursive = packet.replace(b"WritePacket8", b"OriginalWritePacket8") + b"""
+public Nat WritePacket8(Nat n) decreases n {
+    match (n) { 0 => return 0; Succ(k) => return WritePacket8(k); }
+}
+"""
+        parsed = parser.parse_source(compiled, recursive, surface=True)
+        checked = vela_elaborate.elaborate(recursive, parsed)
+        try:
+            vela_first_slice.lower_to_c(recursive, parsed, checked=checked)
+        except ValueError as error:
+            ensure("WritePacket8' is recursive and has no admitted stack bound" in str(error),
+                   f"recursive executable lost its resource-bound diagnostic: {error}")
+        else:
+            raise AssertionError("packet lowering emitted recursion with unbounded call depth")
+
+
 def _execute_generated_packet_c() -> None:
     root = TOOLS.parent
     source = (root / vela_first_slice.EXAMPLE).read_bytes()
@@ -705,6 +738,7 @@ def cases() -> list[Case]:
         Case("ordered-scalar-calls-under-short-circuit", _ordered_scalar_calls),
         Case("clight-lowering-and-purecap-cheri-assembly", _clight_lowering_and_purecap_assembly),
         Case("first-slice-constructive-source-proofs-with-fixed-budgets", _first_slice_source_proofs, lane="guest"),
+        Case("first-slice-mathematical-and-executable-recursion", _first_slice_recursion_boundary, lane="guest"),
         Case("execute-generated-packet-c-and-perturbed-scenarios", _execute_generated_packet_c, lane="guest"),
         Case("packet-contextual-literals-match-explicit-representations", _packet_contextual_literals, lane="guest"),
     ]

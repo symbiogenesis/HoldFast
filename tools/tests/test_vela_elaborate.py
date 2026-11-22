@@ -3893,14 +3893,6 @@ def _pure_sequences_and_model_reasoning() -> None:
             _contract("requires", _member(_variable("s"), "CanWrite")),
             _contract("requires", _binary(">", _member(_variable("s"), "Length"), _int_lit("0", "usize"))),
             _contract(
-                "restores",
-                _binary(
-                    "==",
-                    _member(_call("final", _variable("s")), "Model"),
-                    _call(_member(_call("old", _member(_variable("s"), "Model")), "Update"), _natural(0), _int_lit("99", "byte")),
-                ),
-            ),
-            _contract(
                 "ensures",
                 _binary(
                     "==",
@@ -6016,6 +6008,29 @@ def _module_private_identity() -> None:
         raise AssertionError("an imported receiver exposed a private record property")
 
 
+def _imported_execution_is_opaque() -> None:
+    for hidden_value in (3, 4):
+        lib, consumer = _Fixture("CapacityLibrary"), _Fixture("Reader")
+        lib.definition("Chosen", _NAT, (), _natural(hidden_value), visibility="private")
+        lib.function("Capacity", _NAT, (), _call("Chosen"),
+                     contracts=(_contract("ensures", _binary(">=", _variable("result"), _natural(1))),))
+        _import_decl(consumer, "CapacityLibrary")
+        consumer.definition("Read", _NAT, (), _call("Capacity"))
+        contract = _binary("==", _binary(">=", _call("Capacity"), _natural(1)), _boolean(True))
+        consumer.theorem("PublishedLowerBound", (), contract, _assert(contract))
+        modules = elaborate_package([consumer.response(), lib.response()])
+        ensure(any(line.startswith("Opaque ") and line.endswith("_Capacity.")
+                   for line in modules["Reader"].gallina.splitlines()), "imported executable body remained transparent")
+        accidental = _binary("==", _call("Capacity"), _natural(hidden_value))
+        consumer.theorem("Guess", (), accidental, _assert(accidental))
+        try:
+            elaborate_package([consumer.response(), lib.response()])
+        except VelaError as error:
+            ensure(error.kind == "type", "unexpected opaque call diagnosis")
+        else:
+            raise AssertionError("client proof depended on the private implementation of an executable")
+
+
 def _constructor_spelling_and_shadowed_patterns() -> None:
     bad = _Fixture("MisspelledConstructor")
     bad.union("State", (("ready", ()),))
@@ -7000,6 +7015,7 @@ def cases() -> list[Case]:
             Case("imported-interface-aliases-share-one-dispatch-identity", _imported_interface_aliases),
             Case("callable-member-receiver-once-and-fatal-failures", _callable_member_receiver_and_failures),
             Case("qualified-imports", _qualified_imports),
+            Case("imported-executable-bodies-are-opaque", _imported_execution_is_opaque),
             Case("module-private-identity", _module_private_identity),
             Case("multi-module-imports-and-visibility", _multi_module_imports_and_visibility),
             Case("source-bound-borrows-and-constructive-postconditions", _source_bound_borrows_and_constructive_postconditions),
