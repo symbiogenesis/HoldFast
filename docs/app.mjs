@@ -6647,8 +6647,15 @@ export function createTicketTracker(isSnapshotCurrent = () => true) {
 function initPlaygroundUi() {
   const $ = (id) => document.getElementById(id);
   const MONACO_ROOT = `${MONACO_BASE}/vs`;
+  const topbar = document.querySelector(".topbar");
+  if (topbar) {
+    new ResizeObserver(() => {
+      document.documentElement.style.scrollPaddingTop = `${topbar.offsetHeight}px`;
+    }).observe(topbar);
+  }
 
   const state = {
+    exampleName: "squares",
     text: EXAMPLES.squares.source,
     version: 1,
     model: null,
@@ -6889,16 +6896,7 @@ function initPlaygroundUi() {
           )
         );
         item.append(element("span", "diagnostic-message", diagnostic.message));
-        item.addEventListener("click", () => {
-          if (state.editor) {
-            const range = toRange(diagnostic.range);
-            state.editor.setSelection(range);
-            state.editor.revealRangeInCenter(range);
-            state.editor.focus();
-          } else {
-            $("source-fallback").focus();
-          }
-        });
+        item.addEventListener("click", () => revealSource(diagnostic.range));
         return item;
       })
     );
@@ -6988,12 +6986,14 @@ function initPlaygroundUi() {
     const generation = ++state.generation;
     state.connected = false;
     clearTimeout(state.checkTimer);
-    invalidateServices();
-    clearCompilation("Connection changed. Compile again for current output.");
-    clearEvaluation("Connection changed. Evaluate again for a current result.");
-    clearDiagnostics("Checking the current buffer\u2026");
-    clearAuthoring("Connection changed. Check style again for the current buffer.");
-    clearInspection("Connecting to the language server\u2026");
+    if (generation > 1) {
+      invalidateServices();
+      clearCompilation("Connection changed. Compile again for current output.");
+      clearEvaluation("Connection changed. Evaluate again for a current result.");
+      clearDiagnostics("Checking the current buffer\u2026");
+      clearAuthoring("Connection changed. Check style again for the current buffer.");
+      clearInspection("Connecting to the language server\u2026");
+    }
     state.session = null;
     state.opened = false;
     state.syncedVersion = 0;
@@ -7167,6 +7167,7 @@ function initPlaygroundUi() {
   function sourceChanged(text) {
     if (text === state.text) return;
     state.text = text;
+    $("edited-source").hidden = text === EXAMPLES[state.exampleName].source;
     state.version++;
     invalidateServices();
     clearCompilation("Output cleared because the source changed.");
@@ -7242,16 +7243,14 @@ function initPlaygroundUi() {
       const textarea = $("source-fallback");
       textarea.focus();
       textarea.setSelectionRange(
-        sourceOffset(state.text, range.start),
-        sourceOffset(state.text, range.end)
+        sourceOffset(textarea.value, range.start),
+        sourceOffset(textarea.value, range.end)
       );
       const lineHeight = Number.parseFloat(getComputedStyle(textarea).lineHeight) || 22;
       textarea.scrollTop = Math.max(
         0,
         range.start.line * lineHeight - textarea.clientHeight / 2
       );
-      $("cursor-position").textContent =
-        `Ln ${range.start.line + 1}, Col ${range.start.character + 1}`;
     }
   }
 
@@ -7518,16 +7517,27 @@ function initPlaygroundUi() {
   function loadExample(name, { scrollIntoView = false } = {}) {
     const example = EXAMPLES[name];
     if (!example) return;
+    if (
+      state.text !== EXAMPLES[state.exampleName].source &&
+      state.text !== example.source &&
+      !window.confirm("Discard your source edits and load this example?")
+    ) {
+      $("examples").value = state.exampleName;
+      return;
+    }
+    state.exampleName = name;
     $("examples").value = name;
     $("expression").value = example.expression;
     $("value-type").value = example.valueType;
     renderSuggestions(example.suggestions);
     clearEvaluation();
-    setSource(example.source);
+    if (state.text !== example.source) setSource(example.source);
+    $("edited-source").hidden = true;
     state.editor?.setPosition({ lineNumber: 1, column: 1 });
     activity("Example loaded");
     if (scrollIntoView) {
-      $("playground")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      $("examples").focus({ preventScroll: true });
+      $("playground").scrollIntoView({ block: "start" });
     }
   }
 
@@ -8039,20 +8049,13 @@ function initPlaygroundUi() {
   $("source-fallback").addEventListener("input", () =>
     sourceChanged($("source-fallback").value)
   );
-  $("source-fallback").addEventListener("select", sourceSelectionChanged);
-  $("source-fallback").addEventListener("keyup", () => {
-    const position = sourcePosition(state.text, $("source-fallback").selectionStart);
+  $("source-fallback").addEventListener("selectionchange", () => {
+    if (state.editor) return;
+    const source = $("source-fallback");
+    const offset = source.selectionDirection === "backward" ? source.selectionStart : source.selectionEnd;
+    const position = sourcePosition(source.value, offset);
     $("cursor-position").textContent = `Ln ${position.line + 1}, Col ${position.character + 1}`;
     sourceSelectionChanged();
-  });
-  $("source-fallback").addEventListener("click", sourceSelectionChanged);
-  $("source-fallback").addEventListener("keydown", (event) => {
-    if (event.key === "Tab") {
-      event.preventDefault();
-      const source = $("source-fallback");
-      source.setRangeText("    ", source.selectionStart, source.selectionEnd, "end");
-      sourceChanged(source.value);
-    }
   });
   $("expression").addEventListener("input", () =>
     clearEvaluation("Expression changed. Evaluate again for a current result.")
@@ -8176,7 +8179,7 @@ function initPlaygroundUi() {
       !state.editor?.hasTextFocus()
     ) {
       event.preventDefault();
-      if (document.activeElement === $("expression")) evaluate();
+      if ($("evaluate-form").contains(event.target)) evaluate();
       else compile();
     }
     if (
