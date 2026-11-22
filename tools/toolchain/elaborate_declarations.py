@@ -1770,7 +1770,7 @@ class _DeclarationsMixin:
                     if "label" in p_node and self.name(p_node["label"]) != mspec.param_labels[p_idx]:
                         raise self.fail(
                             "name", f"explicit argument label of '{mname}' must match interface '{iface_name}'",
-                            self.node(p_node["label"]),
+                            cast("Node", p_node["label"]),
                         )
                     pt = self.node(p_node["type"])
                     p_mod = (
