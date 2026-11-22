@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from tests.harness import Case, ensure
 from tests.test_vela_elaborate import _call, _Fixture, _import_decl, _natural, _type, _variable
-from toolchain import packages, scip
+from toolchain import packages, parser, scip
 from toolchain.elaborate import elaborate_package
 from toolchain.elaborate_types import PackageScope
 from toolchain.package_navigation import Navigation
@@ -38,7 +38,7 @@ def _project() -> None:
             "pkg": {"revision": "v1", "instance": "fixed",
                     "modules": {module: module + ".vela" for module in outputs}}}}, sources, scopes, set())
         dest = root / "index"
-        def checked(*args: object, navigation: Navigation) -> tuple[bytes, packages.Closure, object]:
+        def checked(*_args: object, navigation: Navigation) -> tuple[bytes, packages.Closure, object]:
             return b"locked", closure, elaborate_package(inputs, scopes=scopes, navigation=navigation)
         with patch.object(packages, "checked_modules", side_effect=checked), patch.object(scip, "_current_inputs"):
 
@@ -64,5 +64,22 @@ def _project() -> None:
                 path.write_bytes(original)
 
 
+def _producer_changed() -> None:
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        lock = root / "package.lock"
+        lock.write_bytes(b'{"root":["main","v1"],"packages":{},"producer":{"revision":"old"}}')
+        manifest: packages.Object = {"lock_sha256": packages._sha(lock.read_bytes())}
+        with (patch.object(parser, "cached_build"), patch.object(packages, "_recheck_parser"),
+              patch.object(packages, "_producer", return_value={"revision": "new"})):
+            try:
+                scip._current_inputs(root, root, lock, manifest)
+            except ValueError as error:
+                ensure("compiler or parser changed" in str(error), "changed producer reached the wrong refusal")
+            else:
+                raise AssertionError("accepted a producer replaced during SCIP publication")
+
+
 def cases() -> list[Case]:
-    return [Case("locked-import-resolution-coverage-and-stale-scip-handoffs", _project)]
+    return [Case("locked-import-resolution-coverage-and-stale-scip-handoffs", _project),
+            Case("changed-compiler-refused-at-scip-handoff", _producer_changed)]

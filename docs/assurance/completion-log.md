@@ -2190,6 +2190,26 @@ translation unit and output. The pinned [Clang database reader](../../THIRD-PART
 recovered the packet compilation and a separately cross-compiled RISC-V object
 with an explicit target, definition, and include directory containing spaces.
 
+<a id="q25cm-export-a-qualified-offline-scip-index"></a>
+
+#### Q25cm · Export a qualified offline SCIP index
+
+The [locked mathematical package index](../tooling/tooling-protocols.md#locked-mathematical-package-index)
+records source ranges at compiler resolution, including package-qualified
+callables, method implementation edges and specialized calls. The upstream
+SCIP v0.10.0 reader opened both locked revisions offline. The queries followed
+the client's call of `Make` to its provider, found the implementation of
+`Measured.Measure`, distinguished a parameter from a same-spelled global, and
+linked the concrete `Identity::<Nat>` application to its generic declaration.
+The generated Gallina definition led back to its authored origin.
+
+Deleting the provider, renaming `Make` to `Create` and replacing the lock all
+invalidated the retained bundle. After reindexing, queries found `Create` and
+the previous provider symbol had no occurrences. Requesting a complete absence
+verdict on the wider package failed. The [behavioral controls](../../tools/tests/test_vela_scip.py)
+also checked full authored-reference coverage on scalar definitions and detected
+changes to the retained index, manifest, generated file and source.
+
 <a id="q25cr-qualify-a-simulator-execution-and-inspection-backend"></a>
 
 #### Q25cr · Qualify a simulator execution and inspection backend

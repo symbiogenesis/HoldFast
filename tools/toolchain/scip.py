@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Publish and recheck a bounded SCIP projection of a locked mathematical build."""
 
-import hashlib
 import json
 import re
 from bisect import bisect_right
@@ -10,7 +9,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import cast
 
-from toolchain import packages
+from toolchain import packages, parser
 from toolchain.elaborate_types import CheckedElaboration
 from toolchain.package_navigation import Navigation, Site
 
@@ -87,11 +86,11 @@ def _complete(module: str, output: CheckedElaboration, nav: Navigation) -> bool:
         if kind not in {"surface_file", "definition", "parameter", "type", "call", "argument", "name",
                         "expression_body", "nat", "bool", "group", "binary", "unary"}:
             return False
-        if kind == "type" and cast("dict", node["name"])["text"] not in {"Nat", "bool"}:
+        if kind == "type" and cast("dict[str, object]", node["name"])["text"] not in {"Nat", "bool"}:
             return False
         if kind == "argument" and node.get("label") is not None:
             return False
-        if kind == "name" and Site.at(module, cast("dict", node["name"])) not in referenced:
+        if kind == "name" and Site.at(module, cast("dict[str, object]", node["name"])) not in referenced:
             return False
         return all(supported(child) for child in node.values())
 
@@ -120,8 +119,8 @@ def _documents(closure: packages.Closure, outputs: dict[str, CheckedElaboration]
         if doc.source[site.start:site.end] != decl.name.encode("ascii"):
             raise ValueError("navigation declaration lost its authored spelling")
         doc.declare(site.start, site.end, symbols[site], decl.name,
-                    related=symbols[decl.implements] if decl.implements else "", relation=3)
-        if decl.emitted:
+                    related=symbols[decl.implements] if decl.implements is not None else "", relation=3)
+        if decl.emitted is not None:
             emissions[site.module][decl.emitted] = site
     for use, target in nav.references:
         docs[use.module].occurrences.add((use.start, use.end, symbols[target], 0))
@@ -144,6 +143,7 @@ def _documents(closure: packages.Closure, outputs: dict[str, CheckedElaboration]
 
 
 def _bundle(root: Path, workspace: Path, lock: Path, destination: Path) -> tuple[dict[str, bytes], packages.Object]:
+    exporter_digest = packages._sha(Path(__file__).read_bytes())
     nav = Navigation()
     raw, closure, outputs = packages.checked_modules(root, workspace, lock, navigation=nav)
     docs = _documents(closure, outputs, nav)
@@ -159,7 +159,7 @@ def _bundle(root: Path, workspace: Path, lock: Path, destination: Path) -> tuple
     files["index.scip"] = bytes(index)
     incomplete = sorted(module for module, output in outputs.items() if not _complete(module, output, nav))
     manifest: packages.Object = {"schema": 1, "scip_schema_sha256": SCHEMA, "root": destination.as_uri(),
-                                 "exporter_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+                                 "exporter_sha256": exporter_digest,
                                  "lock_sha256": packages._sha(raw), "complete": not incomplete,
                                  "incomplete_modules": incomplete,
                                  "scope": "authored scalar definition and value-parameter references",
@@ -168,11 +168,15 @@ def _bundle(root: Path, workspace: Path, lock: Path, destination: Path) -> tuple
     return files, manifest
 
 
-def _current_inputs(workspace: Path, lock: Path, manifest: packages.Object) -> None:
+def _current_inputs(root: Path, workspace: Path, lock: Path, manifest: packages.Object) -> None:
     raw, locked, name, revision = packages.read_lock(lock)
     if packages._sha(raw) != manifest["lock_sha256"]:
         raise ValueError("SCIP lock changed during the handoff")
-    packages.resolve(workspace, name, revision, packages._object(locked["producer"], "producer"), locked=locked)
+    with parser.cached_build(root) as compiled:
+        packages._recheck_parser(root, compiled)
+        packages.resolve(workspace, name, revision, packages._producer(root, compiled), locked=locked)
+    if packages._sha(Path(__file__).read_bytes()) != manifest["exporter_sha256"]:
+        raise ValueError("SCIP exporter changed during the handoff")
 
 
 def export(root: Path, workspace: Path, lock: Path, destination: Path) -> packages.Object:
@@ -187,7 +191,7 @@ def export(root: Path, workspace: Path, lock: Path, destination: Path) -> packag
             path = staging / name
             path.parent.mkdir(exist_ok=True, parents=True)
             path.write_bytes(data)
-        _current_inputs(workspace, lock, manifest)
+        _current_inputs(root, workspace, lock, manifest)
         staging.rename(destination)
     return {"status": "indexed", **manifest}
 
@@ -203,7 +207,7 @@ def check(root: Path, workspace: Path, lock: Path, destination: Path, *, require
             raise ValueError(f"aliased SCIP bundle member: {name}")
         if packages._read(path, len(expected)) != expected:
             raise ValueError(f"stale or corrupt SCIP bundle: {name}")
-    _current_inputs(workspace, lock, manifest)
+    _current_inputs(root, workspace, lock, manifest)
     if require_complete and not manifest["complete"]:
         raise ValueError("incomplete index: absence of authored references is unverified")
     return {"status": "current", **manifest}

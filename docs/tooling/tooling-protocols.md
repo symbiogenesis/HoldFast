@@ -548,7 +548,9 @@ incomplete. Record fields, general type references, external labels and
 generated helper internals are outside this coverage. Qualification budgets
 allow 100,000 occurrences and 32 MiB of serialized index in addition to the
 locked build's own limits.
-[Behavioral controls](../../tools/tests/test_vela_scip.py)
+Run `python tools/run.py vela-parser qualify-scip-reader READER` with the pinned
+Linux ARM64 SCIP v0.10.0 executable to replay both package revisions in the
+independent reader. [Behavioral controls](../../tools/tests/test_vela_scip.py)
 
 ## Build integration
 

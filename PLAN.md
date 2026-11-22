@@ -473,8 +473,9 @@ unblock the codec. [Protocol contracts](docs/tooling/tooling-protocols.md) ·
 
 <a id="q25cm"></a>
 
-- [ ] **Q25cm · Export a qualified offline SCIP index**
+- [x] **Q25cm · Export a qualified offline SCIP index**
   - **Owner:** `vela-scip`. **Start:** Resolved identities, package closure and compiler services. **Check:** Meet the semantic-index export contract with independent offline definition/reference/implementation queries across imports, shadowing, generation and rename; refuse stale bindings and incomplete absence claims.
+  - A pinned reader recovers cross-package definitions, implementations, specializations and generated Gallina origins before and after a dependency rename. [Landing evidence](docs/assurance/completion-log.md#q25cm-export-a-qualified-offline-scip-index).
 
 <a id="q25cn"></a>
 
@@ -716,14 +717,14 @@ the [release milestones](#current-execution) to judge readiness.
 | Measure | Value |
 | --- | --- |
 | Total estimate midpoint h | 21,457.9 |
-| Total estimate range h | 11,565.9–31,349.9 |
-| Completed scope h | 1,237.9 |
-| Complete by estimate % | 5.8 |
-| Remaining h | 20,220 |
-| Open class I h | 2,136 |
+| Total estimate range h | 11,585.9–31,329.9 |
+| Completed scope h | 1,281.9 |
+| Complete by estimate % | 6.0 |
+| Remaining h | 20,176 |
+| Open class I h | 2,092 |
 | Open class X h | 18,084 |
-| Retained completion estimate h | 1,234.5 |
-| Unmeasured completed items | 44 |
+| Retained completion estimate h | 1,278.5 |
+| Unmeasured completed items | 45 |
 <!-- estimate-summary:end -->
 
 The table counts each checklist leaf once. Completed work contributes actual
