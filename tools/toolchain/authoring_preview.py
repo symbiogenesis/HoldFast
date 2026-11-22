@@ -10,7 +10,7 @@ import toolchain as vela
 from toolchain import ast, concrete, inspection
 from toolchain.source import SourceSnapshot
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class NoComparisonEditError(ValueError):
@@ -127,6 +127,8 @@ def validate(publication: object, source: bytes) -> bytes:
     """Recheck an exact preview against the current source and producer before use."""
     if not isinstance(publication, dict):
         raise TypeError("invalid Boolean comparison preview")
+    if type(publication.get("schema")) is not int or publication["schema"] != SCHEMA_VERSION:
+        raise ValueError("invalid Boolean comparison preview schema")
     line, column = publication.get("line"), publication.get("column")
     if type(line) is not int or type(column) is not int:
         raise ValueError("invalid Boolean comparison preview coordinates")

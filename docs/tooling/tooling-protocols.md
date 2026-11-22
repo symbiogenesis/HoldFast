@@ -228,7 +228,7 @@ checked-generation requests retain their separate metaprogramming obligations.
 
 ### Pure development snapshot increment
 
-`python tools/run.py vela inspect SOURCE` exports version 6 of the bounded
+`python tools/run.py vela inspect SOURCE` exports version 7 of the bounded
 pure inspection view. Its [JSON Schema](../../tools/toolchain/inspection.schema.json)
 covers bulk snapshots and query replies; the
 [implementation](../../tools/toolchain/inspection.py) consumes the existing
@@ -313,14 +313,19 @@ they do not assert visibility in sibling environments. Callable lookup and scala
 value lookup remain distinct, as in the pure compiler.
 
 Snapshot identity binds the source URI and digest, the fixed `pure-default-v1`
-configuration and `gallina-pure-v1` target, Python implementation/version, and a
-conservative digest manifest of local compiler Python/parser sources and locked
-tool dependencies. The pure producer has no imported Vela dependencies. These
+configuration and `gallina-pure-v1` target. The producer's compact version
+hash covers its name, stage, Python implementation and version, interpreter
+image digest, compiler Python and parser source manifest, and dependency locks.
+The interpreter digest covers the Python executable and configured shared
+Python library on shared builds. Replacing either file invalidates offline
+snapshots, retained lint previews and the editor's worker replies.
+The [maintenance rehearsal](../assurance/inspection-refresh.md) covers upgrade
+and rollback. The pure producer has no imported Vela dependencies. These
 identities describe development inspection inputs; they supply no checked source
 correspondence, kernel or runtime-artifact acceptance. The isolated producer uses
 the existing checked-parser runtime qualification and integrity checks.
 
-`vela inspect SOURCE --query REQUEST.json` accepts a strict object with `schema: 6`,
+`vela inspect SOURCE --query REQUEST.json` accepts a strict object with `schema: 7`,
 the exported `snapshot` digest and one `operation`: `symbols`, `symbol-at` or
 `type-at` with a byte `offset`, or `references` with a snapshot-scoped `symbol` handle.
 `tokens` returns the full concrete partition subject to the query limit;
@@ -352,11 +357,10 @@ Leading/trailing trivia outside the module span and EOF select no environment.
 `scope-symbols` with a `scope` handle returns that environment's declarations,
 without inherited declarations or an availability filter. Unknown or foreign scope
 handles refuse. These operations share the same query limits and stale-input checks.
-Version 6 makes the complete lexical scope inventory and membership mandatory
+The schema requires the complete lexical scope inventory and membership
 alongside typed expressions, source syntax, concrete pieces and identifier types.
-Version-1/2/3/4/5 queries and obsolete worker facts without the mandatory views are
-refused; no label-parsing compatibility path supplies missing semantic facts.
-Clients must select the published schema version.
+Clients select version 7 for the interpreter-bound producer. Older queries
+and worker replies missing the required views are refused.
 
 Bulk inspection retains the existing 65,536-byte source, 1,024-declaration and
 4,096-occurrence bounds, with additional 16,384-piece concrete, 8,192-node syntax

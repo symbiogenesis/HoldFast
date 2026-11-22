@@ -18,6 +18,20 @@ def _raise(error: OSError) -> None:
     raise error
 
 
+def configured_shared_library() -> Path | None:
+    """Locate the configured Python interpreter library on shared builds."""
+    library = sysconfig.get_config_var("INSTSONAME") if sys.platform == "linux" else None
+    library = library or sysconfig.get_config_var("LDLIBRARY")
+    libdir = sys.base_prefix if sys.platform == "win32" else sysconfig.get_config_var("LIBDIR")
+    if isinstance(library, str) and (library.endswith((".dll", ".so")) or ".so." in library):
+        if isinstance(libdir, str) and (path := Path(libdir) / library).is_file():
+            return path
+        raise ValueError("Python shared library is unavailable")
+    if sysconfig.get_config_var("Py_ENABLE_SHARED") or sys.platform == "win32":
+        raise ValueError("Python shared library configuration is unavailable")
+    return None
+
+
 def installation_files() -> dict[str, Path]:
     """Select stdlib, bytecode, extensions, archives and Python shared libraries.
 
@@ -57,17 +71,8 @@ def installation_files() -> dict[str, Path]:
             for path in sorted(directory.iterdir()):
                 if path.is_file() and path.suffix in {".dll", ".so", ".zip"}:
                     retain(f"installation/{path.relative_to(base).as_posix()}", path)
-    library = (sysconfig.get_config_var("INSTSONAME") if sys.platform == "linux" else None)
-    library = library or sysconfig.get_config_var("LDLIBRARY")
-    libdir = sysconfig.get_config_var("LIBDIR")
-    if sys.platform == "win32":
-        libdir = str(base)
-    if isinstance(library, str) and isinstance(libdir, str) and (
-            library.endswith((".dll", ".so")) or ".so." in library):
-        path = Path(libdir) / library
-        if not path.is_file():
-            raise ValueError("Python shared library is unavailable")
-        retain("python-shared-library", path)
+    if library := configured_shared_library():
+        retain("python-shared-library", library)
     if not files:
         raise ValueError("Python runtime inventory is empty")
     return files

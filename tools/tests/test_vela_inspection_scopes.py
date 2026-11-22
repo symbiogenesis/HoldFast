@@ -19,7 +19,7 @@ SOURCE = ("// \U0001f600\r\nmodule Scope;\r\npublic const Nat Global = 7;\r\n"
 
 
 def _request(snapshot: inspection.Snapshot, operation: str, **fields: object) -> dict[str, object]:
-    return {"schema": 6, "snapshot": snapshot.export()["snapshot"], "operation": operation, **fields}
+    return {"schema": 7, "snapshot": snapshot.export()["snapshot"], "operation": operation, **fields}
 
 
 def _records(value: dict[str, object], key: str) -> list[dict[str, object]]:

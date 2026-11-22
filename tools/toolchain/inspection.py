@@ -8,7 +8,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-from toolchain import VelaError, concrete, inspection_scopes, inspection_syntax, inspection_types
+from toolchain import (
+    VelaError,
+    concrete,
+    inspection_scopes,
+    inspection_syntax,
+    inspection_types,
+    trace_runtime,
+)
 from toolchain.lsp_services import (
     Inspection,
     InspectionError,
@@ -17,7 +24,7 @@ from toolchain.lsp_services import (
 )
 from toolchain.source import SourceSnapshot
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 CONFIGURATION = "pure-default-v1"
 TARGET = "gallina-pure-v1"
 MAX_QUERY_RESULTS = 256
@@ -46,10 +53,13 @@ def compiler_dependency_hashes() -> dict[str, str]:
 
 
 def producer_identity() -> dict[str, object]:
-    dependencies = compiler_dependency_hashes()
-    return {"name": "vela-pure-development", "stage": "pure-resolution",
-            "version": _digest(_encoded(dependencies)), "dependencies": dependencies,
-            "python": sys.version, "implementation": sys.implementation.name}
+    images = {"executable": Path(sys.executable)}
+    if library := trace_runtime.configured_shared_library():
+        images["shared-library"] = library
+    producer = {"name": "vela-pure-development", "stage": "pure-resolution",
+                "dependencies": compiler_dependency_hashes(), "python": sys.version,
+                "implementation": sys.implementation.name, "interpreter_sha256": trace_runtime.file_identity(images)}
+    return {**producer, "version": _digest(_encoded(producer))}
 
 
 def _binding(document: SourceSnapshot, configuration: str, target: str) -> dict[str, object]:

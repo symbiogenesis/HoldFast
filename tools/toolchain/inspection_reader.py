@@ -231,7 +231,7 @@ class Reader:
             return refuse("stale-input")
         if not isinstance(request, dict):
             return response
-        if type(request.get("schema")) is not int or request["schema"] != 6:
+        if type(request.get("schema")) is not int or request["schema"] != 7:
             return refuse("schema-version")
         if request.get("snapshot") != value["snapshot"]:
             return refuse("stale-snapshot")

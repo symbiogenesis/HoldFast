@@ -25,7 +25,7 @@ SOURCE = ("module Inspect;\r\n// supplementary: 😀\r\n"
 
 
 def _request(snapshot: inspection.Snapshot, operation: str, **fields: object) -> dict[str, object]:
-    return {"schema": 6, "snapshot": snapshot.export()["snapshot"], "operation": operation, **fields}
+    return {"schema": 7, "snapshot": snapshot.export()["snapshot"], "operation": operation, **fields}
 
 
 def _symbols(value: dict[str, object]) -> list[dict[str, object]]:
@@ -236,6 +236,28 @@ def _binding_invalidation() -> None:
            "mid-check producer edit published facts")
 
 
+def _interpreter_binding() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        executable, library = (Path(temporary) / name for name in ("python", "libpython"))
+        executable.write_bytes(b"python image")
+        library.write_bytes(b"shared interpreter")
+        with (patch.object(inspection.sys, "executable", str(executable)),
+              patch.object(inspection.trace_runtime, "configured_shared_library", return_value=library)):
+            initial = inspection.producer_identity()
+            expected = {"executable": hashlib.sha256(b"python image").hexdigest(),
+                        "shared-library": hashlib.sha256(b"shared interpreter").hexdigest()}
+            digest = hashlib.sha256(json.dumps(expected, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+            ensure(initial["interpreter_sha256"] == digest, "inspection lost an interpreter image")
+            previous = initial
+            for image in (executable, library):
+                image.write_bytes(b"replacement with the same Python version")
+                current = inspection.producer_identity()
+                ensure(current["dependencies"] == initial["dependencies"]
+                       and current["interpreter_sha256"] != previous["interpreter_sha256"]
+                       and current["version"] != previous["version"], "worker digest survived an interpreter change")
+                previous = current
+
+
 def _bounded_and_malformed_queries() -> None:
     snapshot = inspection.inspect(SOURCE)
     partial = snapshot.query(SOURCE, _request(snapshot, "symbols", limit=1))
@@ -310,7 +332,7 @@ def _cli_source_preservation() -> None:
         value = json.loads(output.getvalue())
         validate(inspection.SCHEMA_PATH, value)
         query = Path(directory) / "query.json"
-        query.write_text(json.dumps({"schema": 6, "snapshot": value["snapshot"], "operation": "symbols"}),
+        query.write_text(json.dumps({"schema": 7, "snapshot": value["snapshot"], "operation": "symbols"}),
                          encoding="utf-8")
         with redirect_stdout(output := StringIO()), redirect_stderr(errors := StringIO()):
             code = cli.main(["inspect", str(path), "--query", str(query)])
@@ -329,6 +351,7 @@ def cases() -> list[Case]:
             Case("malformed-structured-types-and-version-refusal", _malformed_type_refusal),
             Case("complete-callable-parameter-inventory-refusal", _parameter_inventory_refusal),
             Case("source-config-target-and-producer-invalidation", _binding_invalidation),
+            Case("Python executable and library invalidate compact editor identity", _interpreter_binding),
             Case("query-bounds-and-malformed-input-refusal", _bounded_and_malformed_queries),
             Case("unavailable-timeout-and-schema-refusal", _unavailable_status_and_schema),
             Case("bounded-export-without-partial-fact-publication", _export_bound),
