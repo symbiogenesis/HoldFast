@@ -2066,3 +2066,18 @@ The integrated default `python tools/run.py validate` handoff passes the full
 static gate and 612 behavioral cases for this four-increment batch. The runner
 separately reports one slow case and three unavailable-lane cases skipped; this
 is the default qualification profile, with no broader `--full` verdict.
+
+<a id="q25at-qualify-checked-synchronous-frontend-correspondence"></a>
+
+#### Q25at · Qualify checked synchronous frontend correspondence
+
+The [word-equation checker](../tooling/elaboration-prototype.md#commands-and-acceptance)
+replays guarded arithmetic over represented signed and unsigned words.
+Structural lemmas relate bit-level comparisons and overflow checks to binary
+integer arithmetic. The nine independent consumers include two-symbol `u64`
+subtraction, `usize` addition with multi-billion bounds, signed division and
+guarded shifts. Each applies the theorem for a particular source span to the
+emitted function under the source premises. Native qualification passed 225
+fixtures, including five refusal controls for the wider fragment. Rocq rejected
+a weakened `u32` increment bound admitting the maximum value. The kernel audit
+reported zero solver assumptions. Full source-package correspondence remains open.
