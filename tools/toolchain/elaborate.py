@@ -116,6 +116,7 @@ class _Elaborator(
         self.types: dict[int, _Term] = {}
         # Callable parameter labels are source metadata, never CIC constructors.
         self.parameter_names: dict[int, str] = {}
+        self.argument_labels: dict[int, str] = {}
         self.constructor_suggestions: dict[int, str] = {}
         self.nullary_parameters: set[int] = set()
         self.constant_parameters: set[int] = set()
@@ -1393,7 +1394,7 @@ class _Elaborator(
                     raise self.fail("type", "a zero-parameter callable accepts no explicit arguments", node)
                 if label is not None:
                     spelling = self.name(label)
-                    expected = self.parameter_names.get(param_var_id)
+                    expected = self.argument_labels.get(param_var_id, self.parameter_names.get(param_var_id))
                     if expected is None:
                         raise self.fail("name", "unnamed callable parameters do not accept argument labels", node)
                     if spelling != expected:
@@ -1702,6 +1703,7 @@ class _Elaborator(
                 self.ghost_parameters.add(cast("int", variable.value))
             variables.append(variable)
             self.bind_local(extended, self.name(node["name"]), _Binding(variable, domain))
+        used_labels: set[str] = set()
         for node in parameter_nodes:
             self.site = node
             if node["kind"] != "parameter":
@@ -1745,6 +1747,12 @@ class _Elaborator(
             if node["name"] is not None:
                 name = self.name(node["name"])
                 self.parameter_names[cast("int", variable.value)] = name
+                label = self.name(node.get("label", node["name"]))
+                if label in used_labels:
+                    raise self.fail("name", f"duplicate argument label '{label}'", node)
+                used_labels.add(label)
+                if "label" in node:
+                    self.argument_labels[cast("int", variable.value)] = label
                 if is_readonly_span:
                     self.readonly_in_params.add(name)
                 if is_ref_param or is_out_param:

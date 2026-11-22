@@ -382,6 +382,12 @@ types. Checking the binding's allowance, evaluation effects and subsequent uses
 remains subject to the [graded foundation](../extensions/graded-foundation.md#functions-and-application).
 In particular, zero demand does not erase an effectful initializer.
 
+A named function or method parameter may give callers a stable external label.
+In `Nat Read(Nat index as offset)`, the body and contracts refer to `index`
+and callers may write `Read(offset: 3)` or `Read(3)`. Without `as`, the local
+parameter name supplies the label. Labels in one telescope must be distinct.
+Renaming only the local name preserves existing positional and labeled calls.
+
 The domain roles `carrier`, `zero`, `one`, `add`, `mul`, `admits`, `interpret`
 and `laws` introduce entries inside a domain. In value positions they are ordinary
 identifiers, including parameter names and member names after a dot. Ordinary paths, type paths

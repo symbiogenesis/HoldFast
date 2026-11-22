@@ -328,6 +328,8 @@ public definition Vec<Nat, 10> HeaderTag() =>
     [vela-hdr]
     """;
 public const Nat HeaderBytes = ByteLength(HeaderTag());
+public definition Nat Count(Nat internalCount as count) => internalCount;
+public lemma NamedCount() ensures Count(count: 3) == 3 proof { assert Count(count: 3) == 3; }
 public definition TextBuilder<5> FormatComparison() =>
     Format.Write(ref EmptyBuilder<5>(), $"{1u8 & 1u8 == 0u8}");
 public lemma ComparisonWritesFalse() ensures Written(FormatComparison()) == 5
@@ -926,6 +928,8 @@ public Nat RoundTripOwned()
         ("unrestored-fallible-write", "Result<byte, Unit> Bad(ref Span<byte> dst, byte value) "
          "effects writes(dst) requires dst.CanRead && dst.CanWrite && dst.Length >= 1usize "
          "ensures (result is Err(_)) ==> dst[0] == old(dst[0]) { dst[0] = value; return Err(()); }", "type"),
+        ("private-binder-used-as-label", "Nat F(Nat local as count) => local; Nat G() => F(local: 2);", "name"),
+        ("duplicate-external-label", "Nat F(Nat local as size, Nat size) => local;", "name"),
         ("overlapping-symbolic-suffix",
          "Unit FillPrefix(ref Span<byte> dst, usize count) effects writes(dst) "
          "requires dst.CanRead && dst.CanWrite && dst.Length >= 6usize requires count <= 4usize "

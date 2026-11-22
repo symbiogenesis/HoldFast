@@ -370,7 +370,7 @@ s_decl:
 /* Declarations share the telescope; each owner retains its contract/body tail. */
 %inline s_callable_header:
   result=s_type callable_name=s_identifier generics=s_generics s_parameter_open
-  parameters=comma_list(s_parameter) RPAREN
+  parameters=comma_list(s_callable_parameter) RPAREN
     { result, callable_name, generics, parameters }
 %inline s_parameter_open:
   LPAREN { () } | LAMBDA_OPEN { () }
@@ -546,6 +546,12 @@ s_generic_type_atom:
   value=s_named_type(s_qualified_name(s_type_identifier)) { value }
 | value=s_computed_type { value }
 | value=s_function_type { value }
+s_callable_parameter:
+  value=s_parameter { value }
+| constant=option(CONST) value_type=s_type binder=s_identifier AS label=s_identifier grade=option(s_grade)
+    { make "parameter" $symbolstartpos $endpos
+        ([("name", binder); ("label", label); ("type", value_type.syntax); ("grade", optional grade)] @ const_fields constant)
+        (value_type :: children grade) }
 s_parameter:
   constant=option(CONST) value_type=s_type parameter_name=option(s_identifier) grade=option(s_grade)
     { make "parameter" $symbolstartpos $endpos

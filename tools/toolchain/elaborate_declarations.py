@@ -568,7 +568,7 @@ class _DeclarationsMixin:
                 if pname == "this":
                     raise self.fail("name", "duplicate or invalid local binding 'this'", p_node)
                 m_param_names.add(pname)
-                m_param_labels.append(pname)
+                m_param_labels.append(self.name(p_node.get("label", p_node["name"])))
             else:
                 m_param_labels.append(None)
         for g_node in m_generics:
@@ -1034,6 +1034,7 @@ class _DeclarationsMixin:
         self.interfaces_by_identity.update(mod.interfaces_by_identity)
         self.types.update(mod.types)
         self.parameter_names.update(mod.parameter_names)
+        self.argument_labels.update(mod.argument_labels)
         self.nullary_parameters.update(mod.nullary_parameters)
         self.constant_parameters.update(mod.constant_parameters)
         self.readonly_span_vars.update(mod.readonly_span_vars)
@@ -1327,7 +1328,7 @@ class _DeclarationsMixin:
                     m_gen_vars = m_vars[: len(m_generics)]
                     m_param_vars = m_vars[len(m_generics) :]
                     m_param_labels = [
-                        self.name(p["name"]) if p["name"] is not None else None for p in m_params
+                        self.name(p.get("label", p["name"])) if p["name"] is not None else None for p in m_params
                     ]
                     m_param_mods: list[str | None] = []
                     for p in m_params:
@@ -1387,7 +1388,7 @@ class _DeclarationsMixin:
                         param_labels=tuple(m_param_labels),
                         param_modifiers=tuple(m_param_mods),
                         returns_receiver_loan=loans._returns_borrow_from(
-                            mnode["result"], m_param_labels[0] if m_param_labels else None
+                            mnode["result"], self.name(m_params[0]["name"]) if m_params and m_params[0]["name"] is not None else None
                         ),
                         return_type=m_res_type,
                         signature=m_sig,

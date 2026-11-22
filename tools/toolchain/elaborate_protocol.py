@@ -377,6 +377,11 @@ class _Protocol:
                     cursor = self._child(node, span, cursor, node["type"])
                 if node["name"] is not None:
                     cursor = self._child(node, span, cursor, node["name"])
+                if kind == "parameter" and "label" in node:
+                    if node["name"] is None:
+                        raise self.error("protocol", "an argument label needs a local parameter", node)
+                    cursor = self._token(node, cursor, b"as")
+                    cursor = self._child(node, span, cursor, node["label"])
                 if kind in {"let", "var", "typed_local"}:
                     cursor = self._token(node, cursor, b"=")
                     cursor = self._child(node, span, cursor, node["value"])
@@ -940,6 +945,8 @@ class _Protocol:
                 else ({"modifiers", "alias", "items"} if kind == "import" else set())
             )
         )
+        if kind == "parameter":
+            optional = optional | {"label"}
         if (set(node) - optional != {"kind", "span", *fields}
                 or ("const" in node and type(node["const"]) is not bool)):
             raise self.error("protocol", f"invalid fields for '{kind}'", node)
