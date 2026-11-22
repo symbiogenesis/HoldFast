@@ -99,12 +99,15 @@ class Session:
         if any(_digest(path) != self.identities[key] for key, path in self.files.items()):
             raise ValueError("stale Sail executable, profile or control image")
 
-    def _execute(self, limit: int) -> tuple[list[Retirement], int | None]:
+    def _execute(self, limit: int, *, stop_pc: int | None = None) -> tuple[list[Retirement], int | None]:
         self._check_files()
         trace_file = self.elf.with_suffix(".trace")
         trace_file.unlink(missing_ok=True)
         args = [str(self.simulator), "--config", str(self.profile), "--trace-commit",
-                "--trace-output", str(trace_file), "--inst-limit", str(limit), str(self.elf)]
+                "--trace-output", str(trace_file), "--inst-limit", str(limit)]
+        if stop_pc is not None:
+            args.extend(("--stop-at-pc", hex(stop_pc)))
+        args.append(str(self.elf))
         process = subprocess.run(args, stdin=subprocess.DEVNULL, capture_output=True, timeout=10,
                                  cwd=self.elf.parent, check=False)
         if trace_file.stat().st_size > TRACE_LIMIT or len(process.stdout) + len(process.stderr) > TRACE_LIMIT:
@@ -116,7 +119,7 @@ class Session:
         terminal = None
         if any(row.lstrip().startswith(("SUCCESS", "FAILURE")) for row in said.splitlines()):
             _, terminal, _ = first_slice._simulator_transcript(data.decode("ascii") + said, process.returncode)
-        elif process.returncode != 0 or len(records) != limit:
+        elif process.returncode != 0 or (stop_pc is None and len(records) != limit):
             raise ValueError("Sail execution ended before the requested stop")
         return records, terminal
 
@@ -128,7 +131,14 @@ class Session:
     def _stop(self, position: int) -> dict[str, object]:
         self.handle = None
         if position:
-            records, terminal = self._execute(position)
+            if position == len(self.execution):
+                records, terminal = self._execute(position)
+            else:
+                pc = self.execution[position].pc
+                if any(record.pc == pc for record in self.execution[:position]):
+                    raise ValueError("repeated PC is outside the packet control stop map")
+                # One instruction of headroom distinguishes a PC stop from a missed breakpoint.
+                records, terminal = self._execute(position + 1, stop_pc=pc)
             expected = self.terminal if position == len(self.execution) else None
             if records != self.execution[:position] or terminal != expected:
                 raise ValueError("Sail replay diverged from the selected control execution")
