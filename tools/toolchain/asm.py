@@ -7,9 +7,11 @@ expands pseudo-instructions, encodes canonical 32-bit words via
 [image.py](image.py).
 """
 
+import operator
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Final, Protocol
+from typing import Final
 
 from . import dialect, image
 from .dialect import AsmError
@@ -381,8 +383,14 @@ class Assembler:
 # Expressions: a precedence climber over the token list, with no assignment, no
 # call, and no comparison, because an operand is an address or a constant.
 
-_PRECEDENCE = {"|": 1, "^": 2, "&": 3, "<<": 4, ">>": 4,
-               "+": 5, "-": 5, "*": 6, "/": 6, "%": 6}
+_BINARY_OPERATORS: dict[str, tuple[int, Callable[[int, int], int]]] = {
+    "|": (1, operator.or_),
+    "^": (2, operator.xor),
+    "&": (3, operator.and_),
+    "<<": (4, operator.lshift), ">>": (4, operator.rshift),
+    "+": (5, operator.add), "-": (5, operator.sub),
+    "*": (6, operator.mul), "/": (6, operator.floordiv), "%": (6, operator.mod),
+}
 
 
 def _tokenize(text: str, asm: Assembler, line: int) -> list[Token]:
@@ -439,37 +447,13 @@ def _expr(tokens: list[Token], at: int, asm: Assembler, item: Item, here: int,
           min_precedence: int = 1) -> tuple[int, int]:
     left, at = _atom(tokens, at, asm, item, here)
     while at < len(tokens):
-        op = tokens[at][1]
-        precedence = _PRECEDENCE.get(op, 0)
-        if precedence < min_precedence:
+        operation = _BINARY_OPERATORS.get(tokens[at][1])
+        if operation is None or operation[0] < min_precedence:
             break
+        precedence, apply = operation
         right, at = _expr(tokens, at + 1, asm, item, here, precedence + 1)
-        left = _apply(op, left, right)
+        left = apply(left, right)
     return left, at
-
-
-def _apply(op: str, left: int, right: int) -> int:
-    if op == "+":
-        return left + right
-    if op == "-":
-        return left - right
-    if op == "*":
-        return left * right
-    if op == "/":
-        return left // right
-    if op == "%":
-        return left % right
-    if op == "<<":
-        return left << right
-    if op == ">>":
-        return left >> right
-    if op == "&":
-        return left & right
-    if op == "|":
-        return left | right
-    if op == "^":
-        return left ^ right
-    raise AsmError(f"no operator {op}")
 
 
 def _split_operands(text: str) -> list[str]:
@@ -521,10 +505,7 @@ def _string(text: str, line: int, asm: Assembler) -> bytes:
 # Pseudo-instructions
 
 
-class Pseudo(Protocol):
-    """Callable signature for a pseudo-instruction expander in `PSEUDOS`."""
-
-    def __call__(self, asm: Assembler, item: Item, pc: int, /) -> list[Instr]: ...
+type Pseudo = Callable[[Assembler, Item, int], list[Instr]]
 
 
 def _sign12(value: int) -> int:
