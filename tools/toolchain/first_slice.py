@@ -2577,6 +2577,17 @@ def _check_trace(root: Path, receipt: dict[str, object], timeline: dict[str, obj
     workers = {packet_trace.PROOF_STEPS[log][1]: cast("int", step.get("observed_pid")) for step in steps
                if (log := Path(str(step.get("log"))).name) in packet_trace.PROOF_STEPS}
     packet_trace.validate(timeline, packet_trace.subjects(receipt), (root / EXAMPLE).stat().st_size, workers)
+    durations = {event["name"]: event["dur"] for event in cast("list[dict[str, object]]", timeline["traceEvents"])
+                 if event["ph"] == "X"}
+    proof_steps = [step for step in steps if Path(str(step.get("log"))).name in packet_trace.PROOF_STEPS]
+    if len(proof_steps) != len(packet_trace.PROOF_STEPS):
+        raise ValueError("packet trace proof step inventory is incomplete or duplicated")
+    for step in proof_steps:
+        phase, child = packet_trace.PROOF_STEPS[Path(str(step["log"])).name]
+        elapsed = step.get("elapsed_ns")
+        if type(elapsed) is not int or elapsed < 0 or any(
+                cast("int", durations[name]) > (elapsed + 999) // 1000 for name in (phase, child)):
+            raise ValueError("packet proof interval exceeds its observed command lifetime")
 
 
 def verify_bindings(root: Path, receipt_path: Path) -> dict[str, object]:

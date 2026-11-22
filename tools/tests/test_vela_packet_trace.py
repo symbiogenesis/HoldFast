@@ -6,6 +6,7 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import cast
+from unittest.mock import patch
 
 from tests.harness import Case, ensure
 from toolchain import first_slice, packet_trace
@@ -62,6 +63,29 @@ def _partial_and_process() -> None:
                "observed worker track differs from the child's own process identity")
 
 
+def _command_duration_bound() -> None:
+    recording = packet_trace.fixture()
+    with tempfile.TemporaryDirectory() as temporary, patch.object(packet_trace, "subjects", return_value="a" * 64):
+        root = Path(temporary)
+        source = root / first_slice.EXAMPLE
+        source.parent.mkdir(parents=True)
+        source.write_bytes(b" " * 17)
+        steps: list[dict[str, object]] = [
+            {"log": name, "observed_pid": _PIDS[child], "elapsed_ns": 29_001}
+            for name, (_phase, child) in packet_trace.PROOF_STEPS.items()]
+        first_slice._check_trace(root, {}, recording, steps)
+        for index in range(len(steps)):
+            changed = copy.deepcopy(steps)
+            changed[index]["elapsed_ns"] = 29_000
+            try:
+                first_slice._check_trace(root, {}, recording, changed)
+            except ValueError as error:
+                ensure("lifetime" in str(error), "proof duration failed at another predicate")
+            else:
+                raise AssertionError("proof trace survived a shorter independent process measurement")
+
+
 def cases() -> list[Case]:
     return [Case("packet timeline inventory, source and proof worker bindings", _inventory_and_rebinding),
-            Case("packet trace cancellation, truncation, clock fault and real process", _partial_and_process)]
+            Case("packet trace cancellation, truncation, clock fault and real process", _partial_and_process),
+            Case("proof trace bounded by each command's elapsed time", _command_duration_bound)]
