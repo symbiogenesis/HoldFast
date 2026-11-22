@@ -327,6 +327,10 @@ public Nat CountTo(Nat limit)
 | Returned loan `Result<ref<'table> V, E>` | A loan leaving with a result, with a `restores` contract for its end | S |
 | `*p`, `&place`, `p + n`, `p[i]` | Typed pointer and place operations under access contracts | S |
 
+Executable calls that take or return potentially affine values require a
+constructor or a function body checked for executable ownership. A mathematical
+definition that manipulates such values remains available to specifications.
+
 Each ordinary loan argument repeats its mode at the call site; inference never
 inserts `in`, `ref`, `out` or `move`. A loan ends at its last use, branch by
 branch, and restoration is inferred rather than written. A receiver loan starts
