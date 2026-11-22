@@ -85,7 +85,8 @@ an older later update cannot restore synchronization.
 Close clears diagnostics. Save rechecks the overlay. Configuration and watched-file
 changes invalidate and recheck all open snapshots conservatively. There are no
 import or interactive-proof providers. The [local rename preview](#local-rename-previews)
-uses the existing pure producer and versioned client edits. The separately
+and [Boolean comparison action](authoring-tools.md#checked-boolean-comparison-previews)
+use the existing pure producers and return edits for a specific document version. The separately
 commissioned pure navigation increment below consumes existing resolution facts;
 it supplies no wider-language qualification.
 
@@ -529,8 +530,9 @@ edit. Pinned Neovim and Vim sessions request both operations explicitly; their
 observations and exact wire responses join to the expected source and cursor.
 Missing traffic, changed suggestions/signatures, mismatched observations and
 stale source positions refuse qualification. This qualifies the bounded pure
-increment; the wider [editor contract](tooling-protocols.md#language-server-protocol)
-and second successful versioned-rename client remain open.
+increment. The [rename qualification](#local-rename-previews) covers both
+version-capable clients. Wider language services remain open under the
+[editor contract](tooling-protocols.md#language-server-protocol).
 
 ## Local rename previews
 

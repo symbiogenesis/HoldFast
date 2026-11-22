@@ -442,7 +442,7 @@ unblock the codec. [Protocol contracts](docs/tooling/tooling-protocols.md) ·
   - [x] **Q25do · Qualify compiler-backed completion at checked literals**
     - The pure resolver supplies type- and scope-compatible whole-literal edits, narrows nested static arguments and shares bounded source-bound completion inventories; independent controls and an unsaved Unicode/CRLF stdio session pass. [Landing evidence](docs/assurance/completion-log.md#q25do-qualify-compiler-backed-completion-at-checked-literals).
   - [ ] **Q25dp · Complete the remaining semantic editor qualification**
-    - Retain Q25ci's full wider-producer, workspace, proof/action, incomplete-source and two-successful-client acceptance duties; reuse completed pure discovery, deltas and rename without duplicate credit.
+    - Retain Q25ci's wider-producer, workspace, proof/action, incomplete-source and client acceptance duties. Reuse the qualified pure discovery, deltas and two-client local rename.
     - [x] **Q25du · Qualify completion at incomplete pure expression sites**
       - At a single empty or unfinished scalar expression, bounded compiler repairs recover current typed/static choices while preserving original diagnostics and source; ambiguous or unrelated failures refuse. [Landing evidence](docs/assurance/completion-log.md#q25du-qualify-completion-at-incomplete-pure-expression-sites).
     - [ ] **Q25dv · Complete the wider semantic editor and client qualification**
