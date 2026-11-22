@@ -7,7 +7,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from tests.harness import Case, ensure
-from toolchain import packages
+from toolchain import packages, parser
 
 
 def _write(workspace: Path, name: str, revision: str, deps: dict[str, str], module: str) -> Path:
@@ -36,7 +36,7 @@ def _locked_inputs() -> None:
         workspace = Path(temporary)
         leaf = _write(workspace, "lib", "v1", {}, "Lib")
         top = _write(workspace, "main", "v1", {"lib": "v1"}, "Main")
-        producer = {"frontend": "fixed"}
+        producer: packages.Object = {"frontend": "fixed"}
         first = packages.resolve(workspace, "main", "v1", producer)
         ensure(list(first.sources) == ["Lib", "Main"], "unexpected source dependency order")
         ensure(first.scopes["Lib"].modules == {"Lib"} and first.scopes["Main"].modules == {"Lib", "Main"},
@@ -102,7 +102,26 @@ def _declared_files_and_module_owners() -> None:
         _refuses(workspace, "edition or target")
 
 
+def _bound_producer() -> None:
+    with TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        tools = root / "tools"
+        for name in packages.PRODUCER_INPUTS:
+            path = tools / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(name.encode())
+        binary = root / "parser"
+        binary.write_bytes(b"fixture")
+        compiled = parser.Build(root, binary, {"inputs": {}, "toolchain": {}})
+        original = packages._producer(root, compiled)
+        (tools / "toolchain" / "scratch.py").write_bytes(b"undeclared editor scratch file")
+        ensure(packages._producer(root, compiled) == original, "unrelated helper invalidated the package lock")
+        (tools / "toolchain" / "elaborate_solver.py").write_bytes(b"new arithmetic")
+        ensure(packages._producer(root, compiled) != original, "changed semantic implementation retained the lock")
+
+
 def cases() -> list[Case]:
     return [Case("bound-relocatable-closure-and-file-invalidation", _locked_inputs),
             Case("package-diamonds-and-cycle-paths", _diamond_and_cycle),
-            Case("distinct-module-owners-and-explicit-build-files", _declared_files_and_module_owners)]
+            Case("distinct-module-owners-and-explicit-build-files", _declared_files_and_module_owners),
+            Case("explicit-producer-file-closure", _bound_producer)]
