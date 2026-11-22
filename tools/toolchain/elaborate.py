@@ -76,13 +76,14 @@ from toolchain.elaborate_types import (
     _UnionInfo,
 )
 from toolchain.elaborate_whnf import _WhnfMixin
+from toolchain.package_navigation import Navigation
 
 FRONTEND_SOURCES = (
     "__init__.py", "ast.py", "authoring.py", "compiler_trace.py", "documentation.py", "facts.py",
     "jsonutil.py", "loans.py", "source.py", "trace_runtime.py", "elaborate.py", "elaborate_types.py",
     "elaborate_protocol.py", "elaborate_whnf.py", "elaborate_patterns.py", "elaborate_proofs.py",
     "elaborate_statements.py", "elaborate_strings.py", "elaborate_solver.py", "elaborate_intrinsics.py",
-    "elaborate_declarations.py",
+    "elaborate_declarations.py", "package_navigation.py",
 )
 
 __all__ = [
@@ -118,6 +119,7 @@ class _Elaborator(
 ):
     def __init__(self, protocol: _Protocol) -> None:
         self.protocol = protocol
+        self.navigation: Navigation | None = None
         self.checked_receivers: dict[tuple[int, ...], loans._Receiver | None] = {}
         self.require_word_proofs = False
         self.word_proofs: dict[tuple[int, int, str], str] = {}
@@ -1936,6 +1938,8 @@ class _Elaborator(
                     self.out_param_names.add(name)
                     self.uninitialized_out_params.add(name)
                 self.bind_local(extended, name, _Binding(variable, domain, constant=static))
+                if self.navigation is not None and "span" in cast("Node", node["name"]):
+                    self.navigation.declare(self.module_name, node["name"], "parameter", binding=variable.value)
             elif is_out_param:
                 raise self.fail("type", "'out' parameter requires a parameter name", node)
         if unit and not parameter_nodes:
@@ -2275,6 +2279,7 @@ def _checked_elaboration(
     *,
     available_modules: dict[str, _Elaborator] | None = None,
     package_scope: PackageScope | None = None,
+    navigation: Navigation | None = None,
     require_word_proofs: bool = False,
     phase: Callable[[str], AbstractContextManager[object]] = nullcontext,
     origins: list[GallinaOrigin] | None = None,
@@ -2287,6 +2292,7 @@ def _checked_elaboration(
         elaborator.require_word_proofs = require_word_proofs
         module = elaborator.name(root["name"])
         elaborator.module_name = module
+        elaborator.navigation = navigation
         generated_module = gallina_module_name(module)
         if available_modules is not None:
             module_key = module.encode("ascii").hex()
@@ -2372,7 +2378,8 @@ def elaborate(
 
 
 def elaborate_package(modules: Sequence[tuple[bytes, object]], *, require_word_proofs: bool = False,
-                      scopes: dict[str, PackageScope] | None = None, output_limit: int | None = None) -> dict[str, CheckedElaboration]:
+                      scopes: dict[str, PackageScope] | None = None, output_limit: int | None = None,
+                      navigation: Navigation | None = None) -> dict[str, CheckedElaboration]:
     """Check a linked module graph in dependency order, with one owner per import path."""
     decoded: dict[str, tuple[bytes, object, _Protocol, Node, list[tuple[str, Node]]]] = {}
     order_names: list[str] = []
@@ -2429,7 +2436,8 @@ def elaborate_package(modules: Sequence[tuple[bytes, object]], *, require_word_p
         src, parsed, _, _, _ = decoded[mname]
         try:
             elab, elaborator = _checked_elaboration(src, parsed, available_modules=available, require_word_proofs=require_word_proofs,
-                                                    package_scope=scopes[mname] if scopes is not None else None)
+                                                    package_scope=scopes[mname] if scopes is not None else None,
+                                                    navigation=navigation)
             if scopes is not None:
                 # Compare instances from siblings even when no module imports them together.
                 elaborator.types.update(instance_variable_types)

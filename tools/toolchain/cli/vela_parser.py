@@ -23,10 +23,14 @@ from toolchain import (
     gallina_source_map,
     mathematical_preview,
     packages,
+    scip,
+    scip_reader,
     simulator_debug,
     simulator_debug_check,
     solver_ledger,
     source_map_check,
+    web_output,
+    web_output_check,
 )
 from toolchain import (
     elaboration_check as vela_elaboration_check,
@@ -221,6 +225,11 @@ def _debug_simulator(args: argparse.Namespace) -> dict[str, object]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(suggest_on_error=True, description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
+    web = commands.add_parser("emit-web", help="export one exhaustively checked pure Boolean function to JavaScript")
+    web.add_argument("source", type=Path)
+    web.add_argument("function", help="public Vela function to export as the default ES module function")
+    web.add_argument("--output", required=True, type=Path, help="destination .mjs file")
+    commands.add_parser("qualify-web", help="check independent Boolean client tables and corrupted outputs")
     debugger = commands.add_parser("debug-simulator", help="inspect a packet assembly control on Sail")
     debugger.add_argument("--control", choices=simulator_debug.CONTROLS, default="pass")
     debugger.add_argument("--simulator", type=Path, help="local Sail executable (defaults to the current lane)")
@@ -253,11 +262,22 @@ def main(argv: list[str] | None = None) -> int:
     lock.add_argument("name")
     lock.add_argument("revision")
     lock.add_argument("--output", required=True, type=Path, help="destination lockfile")
+    index = commands.add_parser("scip", help="index a locked mathematical package for offline navigation")
+    index.add_argument("workspace", type=Path)
+    index.add_argument("lock", type=Path)
+    index.add_argument("--output", required=True, type=Path, help="new bundle directory")
+    verify = commands.add_parser("scip-check", help="verify a SCIP bundle against the current package")
+    verify.add_argument("workspace", type=Path)
+    verify.add_argument("lock", type=Path)
+    verify.add_argument("directory", type=Path)
+    verify.add_argument("--require-complete", action="store_true", help="require coverage for authored reference absence")
     build = commands.add_parser("build-package", help="check a locked module graph and optionally publish its Gallina bundle")
     build.add_argument("workspace", type=Path)
     build.add_argument("lock", type=Path)
     build.add_argument("--output", type=Path, help="atomically publish the generated module bundle")
     commands.add_parser("qualify-bsp-client", help="check the locked build graph in the pinned Neovim BSP client")
+    reader = commands.add_parser("qualify-scip-reader", help="query two locked package revisions in the pinned offline SCIP reader")
+    reader.add_argument("reader", type=Path, help="upstream v0.10.0 Linux ARM64 scip executable")
     server = commands.add_parser("bsp", help="serve the locked package graph over BSP 2.1.1 stdio")
     server.add_argument("workspace", type=Path)
     server.add_argument("locks", type=Path, nargs="+", metavar="LOCK")
@@ -347,7 +367,11 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 _publish(args.source, args.output, translation.gallina)
             return 0
-        if args.command == "debug-simulator":
+        if args.command == "emit-web":
+            output = web_output.publish(args.source, args.function, args.output)
+        elif args.command == "qualify-web":
+            output = web_output_check.qualify(root)
+        elif args.command == "debug-simulator":
             output = _debug_simulator(args)
         elif args.command == "qualify-compile-commands":
             output = _qualify_compilation_database(root, args.scanner)
@@ -374,8 +398,14 @@ def main(argv: list[str] | None = None) -> int:
                                               [load_module(path) for path in args.dependency])
         elif args.command == "qualify-bsp-client":
             output = bsp_client.qualify(root)
+        elif args.command == "qualify-scip-reader":
+            output = scip_reader.qualify(root, args.reader)
         elif args.command == "lock-package":
             output = packages.lock_package(root, args.workspace, args.name, args.revision, args.output)
+        elif args.command == "scip":
+            output = scip.export(root, args.workspace, args.lock, args.output)
+        elif args.command == "scip-check":
+            output = scip.check(root, args.workspace, args.lock, args.directory, require_complete=args.require_complete)
         elif args.command == "build-package":
             output = packages.build_package(root, args.workspace, args.lock, args.output)
         elif args.command == "elaborate-qualify":

@@ -26,10 +26,15 @@
 | `python tools/run.py vela-parser` | guest (`[wsl]`) | Menhir parser build/qualification, syntax campaigns, dependent elaboration, first-slice harness, and Rocq kernel replay |
 | `python tools/run.py vela-parser lock-package WORKSPACE NAME REVISION --output LOCK` | guest | Resolve and bind the explicit local dependency closure for the [mathematical batch target](../docs/tooling/elaboration-prototype.md#locked-mathematical-packages) |
 | `python tools/run.py vela-parser build-package WORKSPACE LOCK [--output BUNDLE]` | guest | Check the lock and module graph, elaborate in dependency order and optionally publish the bound Gallina bundle |
+| `python tools/run.py vela-parser scip WORKSPACE LOCK --output DIRECTORY` | guest | Export the [offline mathematical package index](../docs/tooling/tooling-protocols.md#locked-mathematical-package-index) and its exact source and generated files |
+| `python tools/run.py vela-parser scip-check WORKSPACE LOCK DIRECTORY [--require-complete]` | guest | Recheck all SCIP bundle bytes and optionally require full authored-reference coverage |
+| `python tools/run.py vela-parser qualify-scip-reader READER` | guest | Exercise imported definitions, references, implementations and freshness in the pinned independent SCIP reader |
 | `python tools/run.py vela-parser bsp WORKSPACE LOCK [LOCK ...]` | guest | Serve the [locked package graph](../docs/tooling/tooling-protocols.md#locked-mathematical-package-builds) over BSP 2.1.1 stdio |
 | `python tools/run.py vela-parser qualify-bsp-client` | guest | Run the pinned Neovim build client against successful, failed, cancelled and stale builds |
 | `python tools/run.py vela-parser debug-simulator --qualify` | guest | Check the [packet assembly simulator](../docs/tooling/tooling-protocols.md#packet-assembly-simulator) against expected stops, registers, capability observations and fault paths |
 | `python tools/run.py vela-parser check-arithmetic SOURCE` | guest | Replay [partial word-operation equations](../docs/tooling/elaboration-prototype.md) and audit their kernel assumptions |
+| `python tools/run.py vela-parser emit-web SOURCE FUNCTION --output MODULE.mjs` | guest | Export one [Boolean function](../docs/tooling/pure-prototype.md#boolean-web-output) after exhaustive Node execution and kernel replay |
+| `python tools/run.py vela-parser qualify-web` | guest | Check four independent Boolean web-client tables and two corrupted output modules |
 | `python tools/run.py vela-parser source-map SOURCE --output NEW_DIRECTORY` | guest | Export mathematical Gallina and its [generated-source map](../docs/tooling/tooling-protocols.md#generated-source-maps) for source and proof lookup |
 | `python tools/run.py vela-parser packet-example HEX` | guest | Execute the [packet walkthrough](../docs/tooling/packet-walkthrough.md) on up to eight input bytes using the lowered C and a local C11 compiler |
 

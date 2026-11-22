@@ -1372,6 +1372,8 @@ class _DeclarationsMixin:
                     or "." in mname
                 ):
                     raise self.fail("name", f"duplicate or reserved interface member '{mname}'", mnode)
+                if self.navigation is not None:
+                    self.navigation.methods[identity, mname] = self.navigation.declare(self.module_name, mnode["name"], "method")
                 m_generics = self.nodes(mnode["generics"])
                 m_params = self.nodes(mnode["parameters"])
                 if mkind in {"function", "definition"}:
@@ -1929,6 +1931,9 @@ class _DeclarationsMixin:
                 if mkind == "function":
                     self.sealed_bodies.add(m_emitted)
                 emitted_methods[mname] = m_binding
+                if self.navigation is not None:
+                    self.navigation.declare(self.module_name, mnode["name"], "implementation", binding=m_emitted,
+                                            emitted=m_emitted, implements=self.navigation.methods[iface.name, mname])
 
                 if ref_param_names:
                     all_m_ids = tuple(cast("int", v.value) for v in full_m_vars)
@@ -3243,6 +3248,8 @@ class _DeclarationsMixin:
                 self.output.append(f"Definition {emitted} : {self.render(signature)} :=\n  {self.render(definition)}.")
             binding = _Binding(_constant(emitted), signature, len(generics), constant=kind == "constant")
             self.globals[name] = binding
+            if self.navigation is not None:
+                self.navigation.declare(self.module_name, node["name"], str(kind), binding=emitted, emitted=emitted)
             # Generated references never become names in the source namespace.
             self.constants[emitted] = binding
             self.definitions[emitted] = definition

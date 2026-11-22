@@ -34,6 +34,7 @@ from toolchain.elaborate_types import (
     _Term,
     _term,
 )
+from toolchain.package_navigation import Site
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -1850,6 +1851,13 @@ class _IntrinsicsMixin:
             iface.name, resolved_targs, environment, node
         )
         fn_term = witness_dict[mspec.name].term
+        if self.navigation is not None:
+            callee = self._unwrap_group(self.node(node["callee"]))
+            if callee["kind"] == "generic_application":
+                callee = self._unwrap_group(self.node(callee["value"]))
+            if callee["kind"] in {"name", "member"}:
+                self.navigation.references.add((Site.at(self.module_name, cast("Node", callee["name"])),
+                                                self.navigation.methods[iface.name, mspec.name]))
         all_spec_vars = [*iface.generic_vars, *mspec.generic_vars, *mspec.param_vars]
         all_call_vals = [*resolved_targs, *m_gen_args, *arg_terms]
         for _, req_t in mspec.preconditions:
@@ -2211,7 +2219,11 @@ class _IntrinsicsMixin:
             ):
                 if full_path in self.union_ctors and not self.union_ctors[full_path][1].fields:
                     return self.apply(self.lookup(full_path, environment), [], environment)
-                return self.lookup(full_path, environment)
+                qualified = self.lookup(full_path, environment)
+                if self.navigation is not None:
+                    head, _ = self.spine(self.resolve(qualified.term))
+                    self.navigation.reference(self.module_name, node["name"], head.value)
+                return qualified
             receiver = self.expression(recv_node, environment)
             if self.in_executable_function and self._dotted_member_path(self._unwrap_group(recv_node)) is None:
                 paths = self._result_paths("", receiver.type)
@@ -2237,6 +2249,10 @@ class _IntrinsicsMixin:
             if kind == "name" and name not in environment and name in self.union_ctors and not self.union_ctors[name][1].fields:
                 return self.apply(self.lookup(name, environment), [], environment)
             found = self.lookup(name, environment)
+            if self.navigation is not None:
+                head, _ = self.spine(self.resolve(found.term))
+                if head.kind in {"var", "const"}:
+                    self.navigation.reference(self.module_name, node["name"], head.value)
             if found.term.kind == "var" and cast("int", found.term.value) in self.ghost_parameters:
                 self.phase_uses.append((node, f"erased parameter '{name}' cannot determine an executable value"))
             if kind == "name" and name in environment and name in self.local_borrows:
@@ -2270,6 +2286,9 @@ class _IntrinsicsMixin:
             else:
                 binding = self.lookup(target_name, environment, raw=True)
             instantiated = self.instantiate(binding, environment, self.nodes(node["arguments"]))
+            if self.navigation is not None:
+                head, _ = self.spine(self.resolve(binding.term))
+                self.navigation.reference(self.module_name, target["name"], head.value)
             if target_name not in environment and target_name in self.union_ctors and not self.union_ctors[target_name][1].fields:
                 return self.apply(instantiated, [], environment)
             return instantiated
@@ -2601,7 +2620,13 @@ class _IntrinsicsMixin:
                     return self._elaborate_int_intrinsic(cname, call_args, environment, node)
             target = self._expression(self._unwrap_group(callee), environment)
             application = self.apply(target, call_args, environment)
-            target_head, _ = self.spine(self.resolve(target.term))
+            target_head, type_arguments = self.spine(self.resolve(target.term))
+            if (self.navigation is not None and target_head.kind == "const" and type_arguments
+                    and target_head.value in self.navigation.bindings):
+                resolved = [self.resolve(arg) for arg in type_arguments]
+                if all(arg.kind == "const" and arg.value in {"Nat", "bool"} for arg in resolved):
+                    self.navigation.instances[Site.at(self.module_name, node)] = (
+                        self.navigation.bindings[target_head.value], tuple(str(arg.value) for arg in resolved))
             if target_head.kind == "const" and str(target_head.value) in self.declaration_sites:
                 self.call_declarations[cast("list[int]", node["span"])[0]] = self.declaration_sites[str(target_head.value)]
             return application

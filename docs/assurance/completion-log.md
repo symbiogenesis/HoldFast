@@ -2190,6 +2190,27 @@ translation unit and output. The pinned [Clang database reader](../../THIRD-PART
 recovered the packet compilation and a separately cross-compiled RISC-V object
 with an explicit target, definition, and include directory containing spaces.
 
+<a id="q25cm-export-a-qualified-offline-scip-index"></a>
+
+#### Q25cm · Export a qualified offline SCIP index
+
+The [locked mathematical package index](../tooling/tooling-protocols.md#locked-mathematical-package-index)
+records source ranges at compiler resolution, including package-qualified
+callables, method implementation edges and specialized calls. The upstream
+SCIP v0.10.0 reader opened both locked revisions offline. The queries followed
+the client's call of `Make` to its provider, found the implementation of
+`Measured.Measure`, distinguished a parameter from a same-spelled global, and
+linked the concrete `Identity::<Nat>` application to its generic declaration.
+The generated Gallina definition led back to its authored origin.
+
+Deleting the provider, renaming `Make` to `Create` and replacing the lock all
+invalidated the retained bundle. After reindexing, queries found `Create` and
+the previous provider symbol had no occurrences. Requesting a complete absence
+verdict on the wider package failed. A scalar package passed the completeness
+check, and the upstream reader found zero authored references to `Unused` and
+one to `Used`. The [behavioral controls](../../tools/tests/test_vela_scip.py)
+detected changes to the retained index, manifest, generated file and source.
+
 <a id="q25cr-qualify-a-simulator-execution-and-inspection-backend"></a>
 
 #### Q25cr · Qualify a simulator execution and inspection backend
@@ -2208,6 +2229,26 @@ binds the assembly source, ELF, simulator and profile, and reports unobserved
 capability fields as unavailable. The [refusal cases](../../tools/tests/test_simulator_debug.py)
 exercise altered instructions, divergent effects and a changed target.
 This qualifies assembly inspection on the four development controls.
+
+<a id="q25cu-qualify-a-bounded-web-output-producer"></a>
+
+#### Q25cu · Qualify a bounded web-output producer
+
+The [Boolean web producer](../tooling/pure-prototype.md#boolean-web-output)
+exported `Changed` from the exact playground expression module. Node.js
+22.22.1 returned false, true, true, false in input order. Rocq 9.3.0 checked
+each observation against the selected pure Gallina function by conversion and
+`rocqchk` replayed the resulting library. The exported function checks its
+arity and parameter types before evaluating its bounded Boolean expression.
+
+The [independent qualification](../../tools/toolchain/web_output_check.py)
+checked 265 input tuples across the playground example, a nullary function,
+an asymmetric two-input function and an eight-input function. Changing an
+operand or replacing a conjunction by a disjunction in the generated module
+failed at the kernel equation. The [boundary controls](../../tools/tests/test_web_output.py)
+exercise whole-file checking, unsupported expressions and declarations,
+numeric budgets, malformed observation inventories, output aliases and
+source changes during qualification.
 
 <a id="q25cv-export-qualified-generated-output-source-maps"></a>
 
