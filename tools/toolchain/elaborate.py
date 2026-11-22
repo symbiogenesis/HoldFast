@@ -106,6 +106,8 @@ class _Elaborator(
     def __init__(self, protocol: _Protocol) -> None:
         self.protocol = protocol
         self.checked_receivers: dict[tuple[int, ...], loans._Receiver | None] = {}
+        self.require_word_proofs = False
+        self.word_proofs: dict[tuple[int, int, str], str] = {}
         self.contextual_literal_types: dict[int, str] = {}
         self.serial = 0
         self.work = MAX_WORK
@@ -2087,12 +2089,14 @@ def _checked_elaboration(
     parsed: object,
     *,
     available_modules: dict[str, _Elaborator] | None = None,
+    require_word_proofs: bool = False,
 ) -> tuple[CheckedElaboration, _Elaborator]:
     protocol = _Protocol(source)
     try:
         snapshot = copy.deepcopy(parsed)
         root = protocol.decode(snapshot)
         elaborator = _Elaborator(protocol)
+        elaborator.require_word_proofs = require_word_proofs
         module = elaborator.name(root["name"])
         elaborator.module_name = module
         if available_modules is not None:
@@ -2102,6 +2106,7 @@ def _checked_elaboration(
             elaborator.serial = max((mod.serial for mod in available_modules.values()), default=elaborator.serial)
         for declaration in elaborator.nodes(root["declarations"]):
             elaborator.declaration(declaration)
+        elaborator.output.extend(elaborator.word_proofs.values())
         generated_module = (
             "VelaPackage_" + module.encode("ascii").hex() if available_modules is not None else gallina_module_name(module)
         )
@@ -2127,16 +2132,17 @@ def elaborate(
     parsed: object,
     *,
     imports: Sequence[tuple[bytes, object]] | None = None,
+    require_word_proofs: bool = False,
 ) -> CheckedElaboration:
     """Check an exact-source schema-2 AST and propose a complete bounded CIC file."""
     available: dict[str, _Elaborator] = {}
     if imports is not None:
         for imp_source, imp_parsed in imports:
             imp_elab, imp_elaborator = _checked_elaboration(
-                imp_source, imp_parsed, available_modules=available
+                imp_source, imp_parsed, available_modules=available, require_word_proofs=require_word_proofs
             )
             available[imp_elab.module] = imp_elaborator
-    return _checked_elaboration(source, parsed, available_modules=available or None)[0]
+    return _checked_elaboration(source, parsed, available_modules=available or None, require_word_proofs=require_word_proofs)[0]
 
 
 def elaborate_package(modules: Sequence[tuple[bytes, object]]) -> dict[str, Elaboration]:

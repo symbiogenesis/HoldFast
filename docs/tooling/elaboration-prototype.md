@@ -203,6 +203,16 @@ The supported increment includes:
   width of its tag. Every inhabitant of the emitted character carrier carries
   a proof that its code satisfies the Unicode scalar test. These restrictions
   also apply to open parameters and quantified variables.
+- `python tools/run.py vela-parser check-arithmetic SOURCE` emits and replays a
+  theorem at each elaborated partial word operation. The theorem states that
+  the checked primitive returns `Ok` of the ordinary primitive's result.
+  Wrapping left shift checks its count and permits discarded high bits.
+  Closed operands support every represented width. With one symbolic byte,
+  signed or unsigned, Rocq checks all 256 words under the comparison premises
+  printed in the theorem. The command refuses operands outside that fragment,
+  rejects solver assumptions and runs `rocqchk` on the compiled library.
+  Ordinary development elaboration also accepts wider symbolic bounds using the
+  frontend solver. Its output carries no word-operation replay verdict.
 - Suffix framing over byte stores follows writes, fills and restored sliced
   copies through conditional branches. For a symbolic count bounded by a source
   fact, the checker can reconstruct an extent proof at constant offsets by

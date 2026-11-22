@@ -843,6 +843,52 @@ class _IntrinsicsMixin:
                 )
         return False
 
+    def _certify_word_operation(
+        self: _Elaborator, operation: str, spec: _IntSpec, operands: tuple[_Term, ...],
+        environment: dict[str, _Binding], node: Node,
+    ) -> _Binding:
+        ordinary = _apps(_constant(f"int_{operation}_{spec.name}"), *operands)
+        result = _Binding(ordinary, spec.const)
+        if not self.require_word_proofs:
+            return result
+        start, end = cast("list[int]", node["span"])
+        variables = set().union(*(self.free(operand) for operand in operands))
+        variable = next(iter(variables)) if len(variables) == 1 else None
+        var_spec = self._int_spec(self.types[variable]) if variable is not None else None
+        if variables and (var_spec is None or var_spec.bits > 8):
+            raise self.fail("unsupported", "arithmetic replay requires closed operands or one symbolic byte", node)
+        raw = self.render(ordinary)
+        args = " ".join(self.render(arg) for arg in operands)
+        checked_op = "vela_checked_wrap_shl" if operation == "wrap_shl" else f"vela_int_chk_{operation}"
+        checked = f"({checked_op} {spec.tag} {args})"
+        equality = f"{checked} = vela_Result_Ok (vela_int {spec.tag}) vela_ArithmeticError {raw}"
+        if variable is None or var_spec is None:
+            statement = equality
+            script = "reflexivity."
+        else:
+            bound = f"vela_v{variable}"
+            # Retain comparisons on the symbolic byte as hypotheses in the checked statement.
+            guard = _term("bool", value=1)
+            for fact in dict.fromkeys([*self.active_facts, *self._fact_bool_terms((), environment)]):
+                comparison = self._parse_cmp_fact(fact)
+                if comparison is not None and self.free(fact) <= variables and all(
+                    arg.kind == "int" or (arg.kind == "var" and arg.value == variable)
+                    for arg in comparison[2:]
+                ):
+                    guard = _apps(_constant("&&"), fact, guard)
+            guard_text = self.render(guard)
+            test = f"(fun {bound} : vela_int {var_spec.tag} => if {guard_text} then vela_int_agrees {spec.tag} {checked} {raw} else true)"
+            statement = f"forall {bound} : vela_int {var_spec.tag}, {guard_text} = true -> {equality}"
+            script = (f"intros {bound} Hguard. apply vela_int_agrees_sound. "
+                      f"pose proof (vela_every_word_sound {var_spec.tag} {test} eq_refl {bound}) as H. "
+                      f"change ((if {guard_text} then vela_int_agrees {spec.tag} {checked} {raw} else true) = true) in H. "
+                      "now rewrite Hguard in H.")
+        key = (start, end, statement)
+        if key not in self.word_proofs:
+            name = f"{self.emission_prefix}_word_{start}_{end}_{len(self.word_proofs)}"
+            self.word_proofs[key] = f"Lemma {name} : {statement}.\nProof. {script} Qed."
+        return result
+
     def _check_int_arith_precondition(
         self: _Elaborator,
         operator: str,
@@ -1135,7 +1181,7 @@ class _IntrinsicsMixin:
                     f"prove operand != {spec.name}.Min or use WrappingNeg, SaturatingNeg or CheckedNeg",
                     node,
                 )
-            return _Binding(_app(_constant(f"int_neg_{spec.name}"), operand.term), spec.const)
+            return self._certify_word_operation("neg", spec, (operand.term,), environment, node)
         raise self.fail("unsupported", f"prefix '{operator}' is unsupported")
 
     def _elaborate_binary(
@@ -1223,9 +1269,7 @@ class _IntrinsicsMixin:
             if operator in {"+", "-", "*", "/", "%"}:
                 self._check_int_arith_precondition(operator, spec, left.term, right.term, environment, node)
                 arith_map = {"+": "add", "-": "sub", "*": "mul", "/": "div", "%": "rem"}
-                return _Binding(
-                    _apps(_constant(f"int_{arith_map[operator]}_{spec.name}"), left.term, right.term), spec.const
-                )
+                return self._certify_word_operation(arith_map[operator], spec, (left.term, right.term), environment, node)
             raise self.fail("type", f"operator '{operator}' is not defined on integer type '{spec.name}'", node)
         if operator in {"&", "|", "^"}:
             raise self.fail(
@@ -1913,10 +1957,9 @@ class _IntrinsicsMixin:
                                 "prove the range or use WrappingShiftLeft or CheckedShiftLeft",
                                 node,
                             )
-            ret_type = _apps(res_const, spec.const, ae_const) if is_checked else spec.const
-            return _Binding(
-                _apps(_constant(f"int_{shift_ops[name]}_{spec.name}"), lhs_binding.term, count_term), ret_type
-            )
+                return self._certify_word_operation(shift_ops[name], spec, (lhs_binding.term, count_term), environment, node)
+            ret_type = _apps(res_const, spec.const, ae_const)
+            return _Binding(_apps(_constant(f"int_{shift_ops[name]}_{spec.name}"), lhs_binding.term, count_term), ret_type)
         # Binary total/checked arithmetic
         if receiver is not None:
             if len(val_nodes) != 1:
