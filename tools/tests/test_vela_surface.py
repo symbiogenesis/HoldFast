@@ -6,11 +6,12 @@ import json
 import subprocess
 import tempfile
 from contextlib import nullcontext, redirect_stderr, redirect_stdout
+from functools import partial
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
-from tests.harness import Case, ensure
+from tests.harness import Case, ensure, raises
 from toolchain import parser, surface
 from toolchain.cli import vela_parser as cli
 
@@ -41,12 +42,9 @@ def _entry_protocol() -> None:
             payload = {"schema": schema, "ast": {**tree, "kind": kind}}
             response = subprocess.CompletedProcess([], 0, json.dumps(payload).encode(), b"")
             with patch.object(parser.subprocess, "run", return_value=response):
-                try:
+                with raises(ValueError, msg="cross-entry or boolean schema accepted") as raised:
                     parser.parse_source(compiled, source, surface=surface)
-                except ValueError as error:
-                    ensure("schema" in str(error), "entry mismatch has no schema refusal")
-                else:
-                    raise AssertionError("cross-entry or boolean schema accepted")
+                ensure("schema" in str(raised.exception), "entry mismatch has no schema refusal")
 
 
 def _entry_cli() -> None:
@@ -106,184 +104,53 @@ def _failed_surface_qualification() -> None:
                 patch.object(parser, "build", return_value=compiled), \
                 patch.object(parser, "_fixtures", return_value=["pure-passed"]), \
                 patch.object(parser.vela_surface, "qualify", side_effect=ValueError("surface oracle differs")):
-            try:
+            with raises(ValueError, msg="failed surface oracle produced passing qualification") as raised:
                 parser.qualify(root)
-            except ValueError as error:
-                ensure(str(error) == "surface oracle differs", "surface qualification failure was replaced")
-            else:
-                raise AssertionError("failed surface oracle produced passing qualification")
+            ensure(str(raised.exception) == "surface oracle differs", "surface qualification failure was replaced")
         ensure(not latest.exists(), "failed surface oracle preserved stale passing evidence")
 
 
-def _shared_primitive_oracle_required() -> None:
-    fixture = next(value for value in surface.POSITIVE if value.name == "shared-syntax-primitives")
-    result: dict[str, parser.Json] = {
-        "ast": [{"kind": kind} for kind in fixture.kinds],
-    }
-    with patch.object(surface, "POSITIVE", (fixture,)), \
-            patch.object(surface, "_precedence_and_spans"), \
-            patch.object(surface, "_literal_and_comment_boundaries"), \
-            patch.object(surface, "_numeric_separator_limits"), \
-            patch.object(surface, "_argument_roles"), \
-            patch.object(surface, "_shared_primitive_roles", side_effect=ValueError("primitive role changed")) as oracle:
-        try:
-            surface.qualify(lambda _source: result)
-        except ValueError as error:
-            ensure(str(error) == "primitive role changed", "shared primitive oracle failure was replaced")
-        else:
-            raise AssertionError("shared primitive oracle was bypassed during qualification")
-    oracle.assert_called_once_with(fixture.source.encode("utf-8"), result)
-
-
-def _expression_binding_oracle_required() -> None:
-    fixture = next(value for value in surface.POSITIVE if value.name == "expression-local-bindings")
+def _fixture_oracle(name: str, oracle_name: str, *, source_bound: bool = True) -> None:
+    fixture = next(value for value in surface.POSITIVE if value.name == name)
     result: dict[str, parser.Json] = {"ast": [{"kind": kind} for kind in fixture.kinds]}
-    with patch.object(surface, "POSITIVE", (fixture,)), \
-            patch.object(surface, "_precedence_and_spans"), \
-            patch.object(surface, "_literal_and_comment_boundaries"), \
-            patch.object(surface, "_numeric_separator_limits"), \
-            patch.object(surface, "_argument_roles"), \
-            patch.object(surface, "_expression_binding_roles", side_effect=ValueError("binding scope changed")) as oracle:
-        try:
-            surface.qualify(lambda _source: result)
-        except ValueError as error:
-            ensure(str(error) == "binding scope changed", "binding oracle failure was replaced")
-        else:
-            raise AssertionError("expression-binding oracle was bypassed during qualification")
-    oracle.assert_called_once_with(fixture.source.encode("utf-8"), result)
+    fault = ValueError(f"{oracle_name} rejected {name}")
+    with (
+        patch.object(surface, "POSITIVE", (fixture,)),
+        patch.object(surface, "_precedence_and_spans"),
+        patch.object(surface, "_literal_and_comment_boundaries"),
+        patch.object(surface, "_numeric_separator_limits"),
+        patch.object(surface, "_argument_roles"),
+        patch.object(surface, oracle_name, side_effect=fault) as oracle,
+        raises(ValueError, msg=f"qualification bypassed {oracle_name}") as raised,
+    ):
+        surface.qualify(lambda _source: result)
+    ensure(raised.exception is fault, f"qualification replaced the {oracle_name} failure")
+    if source_bound:
+        oracle.assert_called_once_with(fixture.source.encode(), result)
+    else:
+        oracle.assert_called_once_with(result)
 
 
 def _binder_initializer_oracles_required() -> None:
-    for name, oracle_name in (("generic-binders-and-typed-initializers", "_binder_initializer_roles"),
-                              ("binder-initializer-errors-remain-syntax", "_binder_initializer_error_roles")):
-        fixture = next(value for value in surface.POSITIVE if value.name == name)
-        result: dict[str, parser.Json] = {"ast": [{"kind": kind} for kind in fixture.kinds]}
-        with patch.object(surface, "POSITIVE", (fixture,)), \
-                patch.object(surface, "_precedence_and_spans"), \
-                patch.object(surface, "_literal_and_comment_boundaries"), \
-            patch.object(surface, "_numeric_separator_limits"), \
-            patch.object(surface, "_argument_roles"), \
-                patch.object(surface, oracle_name, side_effect=ValueError("binder/initializer role changed")) as oracle:
-            try:
-                surface.qualify(lambda _source, result=result: result)
-            except ValueError as error:
-                ensure(str(error) == "binder/initializer role changed", "binder/initializer oracle failure was replaced")
-            else:
-                raise AssertionError("binder/initializer oracle was bypassed during qualification")
-        if name == "generic-binders-and-typed-initializers":
-            oracle.assert_called_once_with(fixture.source.encode("utf-8"), result)
-        else:
-            oracle.assert_called_once_with(result)
+    _fixture_oracle("generic-binders-and-typed-initializers", "_binder_initializer_roles")
+    _fixture_oracle("binder-initializer-errors-remain-syntax", "_binder_initializer_error_roles",
+                    source_bound=False)
 
 
 def _explicit_value_oracles_required() -> None:
-    for name, oracle_name in (("explicit-values-loans-and-options", "_explicit_value_roles"),
-                              ("explicit-pointer-operators", "_pointer_roles"),
-                              ("explicit-values-errors-remain-syntax", "_explicit_error_roles"),
-                              ("expressions-and-closures", "_propagation_member_role")):
-        fixture = next(value for value in surface.POSITIVE if value.name == name)
-        result: dict[str, parser.Json] = {"ast": [{"kind": kind} for kind in fixture.kinds]}
-        with patch.object(surface, "POSITIVE", (fixture,)), \
-                patch.object(surface, "_precedence_and_spans"), \
-                patch.object(surface, "_literal_and_comment_boundaries"), \
-            patch.object(surface, "_numeric_separator_limits"), \
-            patch.object(surface, "_argument_roles"), \
-                patch.object(surface, oracle_name, side_effect=ValueError("explicit role changed")) as oracle:
-            try:
-                surface.qualify(lambda _source, result=result: result)
-            except ValueError as error:
-                ensure(str(error) == "explicit role changed", "explicit-value oracle failure was replaced")
-            else:
-                raise AssertionError("explicit-value oracle was bypassed during qualification")
-        if name in {"explicit-values-errors-remain-syntax", "expressions-and-closures"}:
-            oracle.assert_called_once_with(result)
-        else:
-            oracle.assert_called_once_with(fixture.source.encode("utf-8"), result)
-
-
-def _concise_authoring_oracle_required() -> None:
-    fixture = next(value for value in surface.POSITIVE if value.name == "concise-authoring-syntax")
-    result: dict[str, parser.Json] = {"ast": [{"kind": kind} for kind in fixture.kinds]}
-    with patch.object(surface, "POSITIVE", (fixture,)), \
-            patch.object(surface, "_precedence_and_spans"), \
-            patch.object(surface, "_literal_and_comment_boundaries"), \
-            patch.object(surface, "_numeric_separator_limits"), \
-            patch.object(surface, "_argument_roles"), \
-            patch.object(surface, "_concise_authoring_roles", side_effect=ValueError("concise role changed")) as oracle:
-        try:
-            surface.qualify(lambda _source: result)
-        except ValueError as error:
-            ensure(str(error) == "concise role changed", "concise oracle failure was replaced")
-        else:
-            raise AssertionError("concise authoring oracle was bypassed during qualification")
-    oracle.assert_called_once_with(fixture.source.encode("utf-8"), result)
-
-
-def _constant_oracle_required() -> None:
-    fixture = next(value for value in surface.POSITIVE if value.name == "required-static-constants")
-    result: dict[str, parser.Json] = {"ast": [{"kind": kind} for kind in fixture.kinds]}
-    with patch.object(surface, "POSITIVE", (fixture,)), \
-            patch.object(surface, "_precedence_and_spans"), \
-            patch.object(surface, "_literal_and_comment_boundaries"), \
-            patch.object(surface, "_numeric_separator_limits"), \
-            patch.object(surface, "_argument_roles"), \
-            patch.object(surface, "_required_static_roles", side_effect=ValueError("constant role changed")) as oracle:
-        try:
-            surface.qualify(lambda _source: result)
-        except ValueError as error:
-            ensure(str(error) == "constant role changed", "constant role oracle failure was replaced")
-        else:
-            raise AssertionError("required-static syntax oracle was bypassed")
-    oracle.assert_called_once_with(fixture.source.encode("utf-8"), result)
-
-
-def _constant_callable_oracle_required() -> None:
-    fixture = next(value for value in surface.POSITIVE if value.name == "compositional-constant-callables")
-    result: dict[str, parser.Json] = {"ast": [{"kind": kind} for kind in fixture.kinds]}
-    with patch.object(surface, "POSITIVE", (fixture,)), \
-            patch.object(surface, "_precedence_and_spans"), \
-            patch.object(surface, "_literal_and_comment_boundaries"), \
-            patch.object(surface, "_numeric_separator_limits"), \
-            patch.object(surface, "_argument_roles"), \
-            patch.object(surface, "_compositional_constant_roles", side_effect=ValueError("static callable changed")) as oracle:
-        try:
-            surface.qualify(lambda _source: result)
-        except ValueError as error:
-            ensure(str(error) == "static callable changed", "static callable oracle failure was replaced")
-        else:
-            raise AssertionError("static callable syntax oracle was bypassed")
-    oracle.assert_called_once_with(fixture.source.encode("utf-8"), result)
-
-
-def _numeric_separator_oracle_required() -> None:
-    fixture = next(value for value in surface.POSITIVE
-                   if value.name == "numeric-separator-values-patterns-and-indices")
-    result: dict[str, parser.Json] = {"ast": [{"kind": kind} for kind in fixture.kinds]}
-    with patch.object(surface, "POSITIVE", (fixture,)), \
-            patch.object(surface, "_precedence_and_spans"), \
-            patch.object(surface, "_literal_and_comment_boundaries"), \
-            patch.object(surface, "_numeric_separator_limits"), \
-            patch.object(surface, "_argument_roles"), \
-            patch.object(surface, "_numeric_separator_roles", side_effect=ValueError("separator role changed")) as oracle:
-        try:
-            surface.qualify(lambda _source: result)
-        except ValueError as error:
-            ensure(str(error) == "separator role changed", "numeric separator oracle failure was replaced")
-        else:
-            raise AssertionError("numeric separator syntax oracle was bypassed")
-    oracle.assert_called_once_with(fixture.source.encode("utf-8"), result)
+    _fixture_oracle("explicit-values-loans-and-options", "_explicit_value_roles")
+    _fixture_oracle("explicit-pointer-operators", "_pointer_roles")
+    _fixture_oracle("explicit-values-errors-remain-syntax", "_explicit_error_roles", source_bound=False)
+    _fixture_oracle("expressions-and-closures", "_propagation_member_role", source_bound=False)
 
 
 def _numeric_separator_limits_required() -> None:
     with patch.object(surface, "_precedence_and_spans"), \
             patch.object(surface, "_literal_and_comment_boundaries"), \
             patch.object(surface, "_numeric_separator_limits", side_effect=ValueError("separator limit changed")) as oracle:
-        try:
+        with raises(ValueError, msg="numeric separator limit oracle was bypassed") as raised:
             surface.qualify(lambda _source: {})
-        except ValueError as error:
-            ensure(str(error) == "separator limit changed", "numeric limit oracle failure was replaced")
-        else:
-            raise AssertionError("numeric separator limit oracle was bypassed")
+        ensure(str(raised.exception) == "separator limit changed", "numeric limit oracle failure was replaced")
     oracle.assert_called_once()
 
 
@@ -294,21 +161,7 @@ def _familiar_authoring_oracles_required() -> None:
                               ("raw-strings-and-checked-formatting", "_raw_string_and_format_roles"),
                               ("container-resource-contracts", "_container_resource_roles"),
                               ("mathematical-definitions-and-proofs", "_indexed_constructor_roles")):
-        fixture = next(value for value in surface.POSITIVE if value.name == name)
-        result: dict[str, parser.Json] = {"ast": [{"kind": kind} for kind in fixture.kinds]}
-        with patch.object(surface, "POSITIVE", (fixture,)), \
-                patch.object(surface, "_precedence_and_spans"), \
-                patch.object(surface, "_literal_and_comment_boundaries"), \
-                patch.object(surface, "_numeric_separator_limits"), \
-                patch.object(surface, "_argument_roles"), \
-                patch.object(surface, oracle_name, side_effect=ValueError("authoring role changed")) as oracle:
-            try:
-                surface.qualify(lambda _source, expected=result: expected)
-            except ValueError as error:
-                ensure(str(error) == "authoring role changed", "authoring oracle failure was replaced")
-            else:
-                raise AssertionError("familiar authoring or collection oracle was bypassed")
-        oracle.assert_called_once_with(fixture.source.encode("utf-8"), result)
+        _fixture_oracle(name, oracle_name)
 
 
 def _generic_probe_limits_required() -> None:
@@ -317,28 +170,31 @@ def _generic_probe_limits_required() -> None:
             patch.object(surface, "_literal_and_comment_boundaries"), \
             patch.object(surface, "_numeric_separator_limits"), \
             patch.object(surface, "_generic_probe_limits", side_effect=ValueError("probe budget changed")) as oracle:
-        try:
+        with raises(ValueError, msg="generic probe inspection controls were bypassed") as raised:
             surface.qualify(lambda _source: {})
-        except ValueError as error:
-            ensure(str(error) == "probe budget changed", "probe budget refusal was replaced")
-        else:
-            raise AssertionError("generic probe inspection controls were bypassed")
+        ensure(str(raised.exception) == "probe budget changed", "probe budget refusal was replaced")
     oracle.assert_called_once()
 
 
 def cases() -> list[Case]:
     return [Case("familiar-authoring-oracles-are-required", _familiar_authoring_oracles_required),
             Case("generic-probe-limits-are-required", _generic_probe_limits_required),
-            Case("constant-callable-oracle-is-required", _constant_callable_oracle_required),
-            Case("concise-authoring-oracle-is-required", _concise_authoring_oracle_required),
-            Case("constant-declaration-order-and-span-oracle-is-required", _constant_oracle_required),
+            Case("constant-callable-oracle-is-required",
+                 partial(_fixture_oracle, "compositional-constant-callables", "_compositional_constant_roles")),
+            Case("concise-authoring-oracle-is-required",
+                 partial(_fixture_oracle, "concise-authoring-syntax", "_concise_authoring_roles")),
+            Case("constant-declaration-order-and-span-oracle-is-required",
+                 partial(_fixture_oracle, "required-static-constants", "_required_static_roles")),
             Case("surface-entry-schema-and-source-binding", _entry_protocol),
             Case("surface-cli-and-no-fallback", _entry_cli),
             Case("surface-fixture-input-identities", _qualification_input_binding),
             Case("surface-oracle-failure-without-receipt", _failed_surface_qualification),
-            Case("shared-primitive-oracle-is-required", _shared_primitive_oracle_required),
-            Case("expression-binding-oracle-is-required", _expression_binding_oracle_required),
+            Case("shared-primitive-oracle-is-required",
+                 partial(_fixture_oracle, "shared-syntax-primitives", "_shared_primitive_roles")),
+            Case("expression-binding-oracle-is-required",
+                 partial(_fixture_oracle, "expression-local-bindings", "_expression_binding_roles")),
             Case("binder-initializer-oracles-are-required", _binder_initializer_oracles_required),
             Case("explicit-value-oracles-are-required", _explicit_value_oracles_required),
-            Case("numeric-separator-oracle-is-required", _numeric_separator_oracle_required),
+            Case("numeric-separator-oracle-is-required",
+                 partial(_fixture_oracle, "numeric-separator-values-patterns-and-indices", "_numeric_separator_roles")),
             Case("numeric-separator-limits-are-required", _numeric_separator_limits_required)]
