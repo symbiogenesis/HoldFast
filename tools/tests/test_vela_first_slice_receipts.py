@@ -310,7 +310,7 @@ def _publication_freshness() -> None:
             stack.enter_context(patch.object(slice_harness.replay, "_parser_outputs", return_value={"parser": "old"}))
 
             def run(_root: Path, directory: Path, _steps: list[dict[str, object]],
-                    _compiler: Path | None, _compiled: object, *, case: str = mutation,
+                    _compiler: Path | None, _compiled: object, _timing: object = None, *, case: str = mutation,
                     receipt: dict[str, object] = parser_receipt,
                     paths: dict[str, Path] = produced) -> dict[str, object]:
                 paths.update(source=directory / "source.vela", gallina=directory / "FirstSlice.v",
