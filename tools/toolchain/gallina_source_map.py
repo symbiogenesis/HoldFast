@@ -127,7 +127,7 @@ def export(root: Path, source: Path, destination: Path) -> dict[str, str]:
 
 def _current(files: dict[str, bytes], compiled: parser.Build, source: Path) -> None:
     manifest = json.loads(files[MANIFEST])
-    if _digest(parser.read_source(source)) != manifest["source_sha256"] or _producer(compiled) != manifest["producer"]:
+    if _producer(compiled) != manifest["producer"] or _digest(parser.read_source(source)) != manifest["source_sha256"]:
         raise ValueError("source map inputs changed before handoff")
 
 
@@ -141,7 +141,7 @@ def _verified(files: dict[str, bytes], directory: Path) -> None:
                 raise ValueError(f"stale or changed source map input: {name}")
 
 
-def read_positions(files: dict[str, bytes], directory: Path, node: Path,
+def read_positions(compiled: parser.Build, source: Path, files: dict[str, bytes], directory: Path, node: Path,
                    positions: list[tuple[int, int]]) -> list[list[str | int] | None]:
     _verified(files, directory)
     lines = files[GALLINA].decode().split("\n")
@@ -153,6 +153,8 @@ def read_positions(files: dict[str, bytes], directory: Path, node: Path,
     if _file_digest(node) != NODE_SHA256:
         raise ValueError("source map reader differs from the pinned Node.js executable")
     packet = _encode({"map": json.loads(files[MAP]), "positions": positions})
+    _verified(files, directory)
+    _current(files, compiled, source)
     run = subprocess.run([str(node.resolve()), "-e", _QUERY], input=packet, capture_output=True, timeout=20,
                          env={}, check=False)
     if run.returncode:
@@ -172,7 +174,7 @@ def read_positions(files: dict[str, bytes], directory: Path, node: Path,
 def query(root: Path, path: Path, directory: Path, node: Path, line: int, column: int) -> dict[str, object]:
     with parser.cached_build(root) as compiled:
         files = _compile(compiled, path)
-        site, = read_positions(files, directory, node, [(line - 1, column - 1)])
+        site, = read_positions(compiled, path, files, directory, node, [(line - 1, column - 1)])
         _verified(files, directory)
         manifest = json.loads(files[MANIFEST])
         _current(files, compiled, path)

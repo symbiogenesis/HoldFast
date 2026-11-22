@@ -43,7 +43,7 @@ def qualify(root: Path, node: Path) -> dict[str, object]:
         uri = "arithmetic%20map.vela"
         expected = [None, None, [uri, 1, 9], [uri, 1, 49], [uri, 1, 49],
                     None, None, [uri, 2, 32], None]
-        observed = maps.read_positions(files, directory, node, positions)
+        observed = maps.read_positions(compiled, path, files, directory, node, positions)
         if observed != expected:
             raise ValueError(f"source map reader disagrees at generated controls: {observed}")
         manifest = json.loads(files[maps.MANIFEST])
@@ -57,7 +57,7 @@ def qualify(root: Path, node: Path) -> dict[str, object]:
         for name in (maps.MAP, maps.GALLINA, maps.MANIFEST):
             (directory / name).write_bytes(files[name] + b" ")
             try:
-                maps.read_positions(files, directory, directory / "absent-reader", positions)
+                maps.read_positions(compiled, path, files, directory, directory / "absent-reader", positions)
             except ValueError as error:
                 if f"stale or changed source map input: {name}" != str(error):
                     raise
@@ -68,7 +68,7 @@ def qualify(root: Path, node: Path) -> dict[str, object]:
         path.write_bytes(source.replace(b"7u32 - 4u32", b"7u32 - 3u32"))
         changed = maps._compile(compiled, path)
         try:
-            maps.read_positions(changed, directory, directory / "absent-reader", positions)
+            maps.read_positions(compiled, path, changed, directory, directory / "absent-reader", positions)
         except ValueError as error:
             if "stale or changed source map input" not in str(error):
                 raise
