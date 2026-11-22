@@ -107,7 +107,7 @@ class Workspace:
         if not isinstance(identifiers, list) or not 1 <= len(identifiers) <= MAX_CONFIGS * packages.MAX_PACKAGES:
             raise ValueError("expected a bounded, nonempty target selection")
         available = {config.target(name): (config, name) for config in self.configs
-                     for name in _object(config.lock["packages"])}
+                     for name in _object(config.lock.get("packages"))}
         selected = []
         seen: set[str] = set()
         for target in identifiers:

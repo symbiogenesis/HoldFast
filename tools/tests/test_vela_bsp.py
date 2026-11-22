@@ -118,7 +118,23 @@ def _cancel_and_join() -> None:
                and not graph.outputs, "cancelled worker published artifacts or succeeded")
 
 
+def _malformed_lock() -> None:
+    with TemporaryDirectory() as temporary:
+        graph = _graph(Path(temporary))
+        del graph.configs[0].lock["packages"]
+        replies: list[bsp.Object] = []
+        server = bsp.Server(graph, replies.append)
+        server.phase = "ready"
+        for method in ("buildTarget/sources", "buildTarget/compile"):
+            server.handle({"jsonrpc": "2.0", "id": 1, "method": method,
+                           "params": {"targets": [{"uri": graph.configs[0].target("scale")}]}})
+            ensure("error" in replies[-1] and server.active is None, "invalid lock escaped request handling")
+        server.handle({"jsonrpc": "2.0", "id": 2, "method": "build/shutdown"})
+        ensure(replies[-1] == {"jsonrpc": "2.0", "id": 2, "result": None}, "malformed lock stopped BSP")
+
+
 def cases() -> list[Case]:
     return [Case("BSP graphs and sources bind exact package configurations", _targets_and_changes),
+            Case("BSP refuses a malformed graph on the first target request", _malformed_lock),
             Case("BSP artifact handoff checks the exact batch module inventory", _publication),
             Case("BSP cancellation wins before artifact publication", _cancel_and_join)]
