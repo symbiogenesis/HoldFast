@@ -12,6 +12,7 @@ import hashlib
 import re
 from collections import Counter
 from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager, nullcontext
 from types import MappingProxyType
 from typing import cast
 
@@ -2259,6 +2260,7 @@ def _checked_elaboration(
     *,
     available_modules: dict[str, _Elaborator] | None = None,
     require_word_proofs: bool = False,
+    phase: Callable[[str], AbstractContextManager[object]] = nullcontext,
 ) -> tuple[CheckedElaboration, _Elaborator]:
     protocol = _Protocol(source)
     try:
@@ -2273,22 +2275,24 @@ def _checked_elaboration(
             elaborator.emission_prefix = f"vela_m{module_key}"
             elaborator.available_modules = dict(available_modules)
             elaborator.serial = max((mod.serial for mod in available_modules.values()), default=elaborator.serial)
-        for declaration in elaborator.nodes(root["declarations"]):
-            elaborator.declaration(declaration)
-        if elaborator.word_proofs:
-            elaborator.output.append(_WORD_REPLAY_PRELUDE)
-            elaborator.output.extend(elaborator.word_proofs.values())
+        with phase("resolve-and-elaborate"):
+            for declaration in elaborator.nodes(root["declarations"]):
+                elaborator.declaration(declaration)
+            if elaborator.word_proofs:
+                elaborator.output.append(_WORD_REPLAY_PRELUDE)
+                elaborator.output.extend(elaborator.word_proofs.values())
         generated_module = (
             "VelaPackage_" + module.encode("ascii").hex() if available_modules is not None else gallina_module_name(module)
         )
         source_digest = hashlib.sha256(source).hexdigest()
-        # REUSE-IgnoreStart
-        gallina = ("(* SPDX-License-Identifier: Apache-2.0 *)\n"
-                   # REUSE-IgnoreEnd
-                   "(* Vela mathematical elaboration: unqualified kernel proposal. "
-                   f"Source SHA256: {source_digest} *)\n"
-                   f"Module {generated_module}.\n\n" + _PRELUDE + "\n"
-                   + _proof_module_body(elaborator.output) + f"\n\nEnd {generated_module}.\n")
+        with phase("generate-gallina"):
+            # REUSE-IgnoreStart
+            gallina = ("(* SPDX-License-Identifier: Apache-2.0 *)\n"
+                       # REUSE-IgnoreEnd
+                       "(* Vela mathematical elaboration: unqualified kernel proposal. "
+                       f"Source SHA256: {source_digest} *)\n"
+                       f"Module {generated_module}.\n\n" + _PRELUDE + "\n"
+                       + _proof_module_body(elaborator.output) + f"\n\nEnd {generated_module}.\n")
         if len(gallina.encode("utf-8")) > MAX_OUTPUT_BYTES:
             raise protocol.error("limit", "generated Gallina exceeds the output bound")
         return CheckedElaboration(module, gallina, source_digest, CheckedElaboration.encode_syntax(snapshot),
