@@ -32,6 +32,7 @@ import copy
 import hashlib
 import json
 import re
+import struct
 import subprocess
 import sys
 import tempfile
@@ -46,8 +47,10 @@ from filelock import FileLock
 from toolchain import (
     VelaError,
     corpus,
+    dialect,
     env,
     gallina_module_name,
+    image,
     proofenv,
     solver_ledger,
     trace,
@@ -77,6 +80,13 @@ ARTIFACT_BYTES: Final = 256 * 1024 * 1024
 PURECAP_CASES: Final = (("pass", "pass", 0), ("bounds-trap", "trap", cd.TRAP_BASE + 28),
                        ("tag-trap", "trap", cd.TRAP_BASE + 28),
                        ("perm-trap", "trap", cd.TRAP_BASE + 28))
+# Canonical instruction families for the handwritten capability controls and their
+# startup and trap code. The assembler's table also covers the vector configuration.
+PURECAP_CONTROL_ROWS: Final = tuple(dialect.TABLE[name] for name in (
+    "addi", "addiw", "andi", "auipcc", "beq", "bne", "candperm", "cgetlen", "cgettag",
+    "cincoffsetimm", "cjal", "cjalr", "cmove", "csetaddr", "csetbounds", "cspecialrw",
+    "csrrs", "lbu", "lc", "lui", "ori", "sb", "sc", "sd", "slli",
+))
 PERTURBED_CASES: Final = ((7, "perturbed-wrong-payload-byte"), (12, "perturbed-stale-trailing-byte"),
                         (16, "perturbed-checksum-error-code"), (17, "perturbed-unscrubbed-checksum-dst"))
 
@@ -651,7 +661,9 @@ def _retained_execution(report: dict[str, object], directory: Path,
             observed_verdict, observed_code, records = _simulator_transcript(said, process["returncode"])
             regenerated = Path(temporary) / elf.name
             refused, image_bytes = cd.assemble(_purecap_cheri_asm_stream(mode), elf.stem, regenerated)
-            if (refused or regenerated.read_bytes() != elf.read_bytes()
+            retained_image = elf.read_bytes()
+            _check_purecap_control_image(retained_image)
+            if (refused or regenerated.read_bytes() != retained_image
                     or (observed_verdict, observed_code) != (verdict, code) or not records
                     or row.get("verdict") != verdict or type(row.get("code")) is not int or row["code"] != code
                     or type(row.get("records")) is not int or row["records"] != len(records)
@@ -1876,6 +1888,33 @@ int main(void)
     return c_source, 19
 
 
+def _check_purecap_control_image(raw: bytes) -> None:
+    """Check the loaded instruction words of the local control ELF, including untaken branches."""
+    if (len(raw) < image.EHDR_SIZE or raw[:7] != b"\x7fELF\x02\x01\x01"
+            or struct.unpack_from("<HH", raw, 16) != (image.ET_EXEC, image.EM_RISCV)):
+        raise ValueError("purecap control requires a little-endian ELF64 RISC-V executable")
+    table, = struct.unpack_from("<Q", raw, 32)
+    stride, count = struct.unpack_from("<HH", raw, 54)
+    if (table != image.EHDR_SIZE or stride != image.PHDR_SIZE or count != 2
+            or table + stride * count > len(raw)):
+        raise ValueError("purecap control requires the text and data load headers")
+    for index, (flags, base) in enumerate(((image.PF_R | image.PF_X, cd.asm.TEXT_BASE),
+                                           (image.PF_R | image.PF_W, cd.asm.DATA_BASE))):
+        kind, perms, offset, virtual, physical, size, memory, _ = struct.unpack_from(
+            "<IIQQQQQQ", raw, table + stride * index)
+        if (kind != image.PT_LOAD or perms != flags or virtual != base or physical != base
+                or size != memory or not size or offset < table + stride * count or offset + size > len(raw)):
+            raise ValueError(f"purecap control has an invalid load segment at {base:#x}")
+        if flags & image.PF_X:
+            if size % 4 or base + size > cd.asm.DATA_BASE:
+                raise ValueError("purecap control text exceeds its slot or ends within an instruction")
+            for displacement in range(0, size, 4):
+                word, = struct.unpack_from("<I", raw, offset + displacement)
+                if not any(dialect.matches_encoding(row, word) for row in PURECAP_CONTROL_ROWS):
+                    raise ValueError(f"purecap control instruction {word:#010x} at PC {base + displacement:#x}"
+                                     " is outside its scalar instruction profile")
+
+
 def _purecap_cheri_asm_stream(mode: str) -> str:
     """Emit a purecap CHERI-RISC-V assembly stream exercising hardware capability bounds/tags.
 
@@ -1991,6 +2030,47 @@ __slice_ret:
         cincoffsetimm c2, c2, 32
         cjalr   cnull, cra, 0
 """
+
+
+def _cold_branch_image(original: bytes, word: int) -> tuple[bytes, int]:
+    """Replace the passing control's error return instruction, preserving its layout."""
+    stream = cd.compose(_purecap_cheri_asm_stream("pass"))
+    _, symbols, _ = cd.asm.Assembler(stream).assemble()
+    _, pc = symbols["__slice_fail"]
+    start, = struct.unpack_from("<Q", original, image.EHDR_SIZE + 8)
+    site = start + pc - cd.asm.TEXT_BASE
+    if original[site:site + 4] != bytes.fromhex("1b051000"):  # addiw a0, zero, 1
+        raise ValueError("purecap error-branch control did not find the one-word failure return")
+    return original[:site] + word.to_bytes(4, "little") + original[site + 4:], pc
+
+
+def _check_cold_branch_on_sail(simulator: list[str], profile: Path,
+                               directory: Path, passing_process: dict[str, object]) -> None:
+    """Execute the deliberately refused control in isolation and compare full commit records."""
+    original = (directory / "purecap_pass.elf").read_bytes()
+    word = 0x022180D7  # vadd.vv v1,v2,v3
+    mutant, pc = _cold_branch_image(original, word)
+    try:
+        _check_purecap_control_image(mutant)
+    except ValueError as error:
+        if f"instruction {word:#010x} at PC {pc:#x}" not in str(error):
+            raise
+    else:
+        raise ValueError("purecap error-branch control unexpectedly passed the scalar profile")
+    with tempfile.TemporaryDirectory(prefix="cold-branch-", dir=directory) as temporary:
+        work = Path(temporary)
+        elf = work / "vector-error-branch.elf"
+        elf.write_bytes(mutant)
+        observations: list[dict[str, object]] = []
+        ran = cd.run_image(simulator, profile, elf, work, observations=observations)
+        if ran.verdict != "pass" or not observations:
+            raise ValueError(f"purecap error-branch control lost its passing execution: {ran.detail}")
+        original_trace, changed_trace = (
+            _simulator_transcript(Path(str(process["log"])).read_text(encoding="utf-8"),
+                                  int(str(process["returncode"])))
+            for process in (passing_process, observations[0]))
+        if original_trace != changed_trace:
+            raise ValueError("purecap error-branch control changed the passing Sail trace")
 
 
 def _resolve_ccomp(ccomp_path: Path | None) -> Path | None:
@@ -2211,6 +2291,7 @@ def _qualify_attempt(
         refusals, img_bytes = cd.assemble(asm_stream, f"purecap_{mode}", asm_elf)
         if refusals:
             raise ValueError(f"purecap_{mode} assembly refused: {refusals}")
+        _check_purecap_control_image(asm_elf.read_bytes())
         processes: list[dict[str, object]] = []
         ran = cd.run_image(simulator, profile, asm_elf, directory, observations=processes)
         if ran.verdict != expected_verdict or ran.code != expected_code:
@@ -2227,6 +2308,8 @@ def _qualify_attempt(
             "image_bytes": img_bytes,
             "process": processes[0],
         }
+        if mode == "pass":
+            _check_cold_branch_on_sail(simulator, profile, directory, processes[0])
 
     # 5b. CompCert Clight (-dclight), -interp, and purecap C-to-Sail execution
     resolved_ccomp = _resolve_ccomp(ccomp_path)

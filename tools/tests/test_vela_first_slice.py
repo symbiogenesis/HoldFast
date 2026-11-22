@@ -540,6 +540,25 @@ def _clight_lowering_and_purecap_assembly() -> None:
             ensure(not refusals and size > 0 and elf.is_file(), f"purecap_{mode} failed assembly: {refusals}")
 
 
+def _purecap_error_branch_profile() -> None:
+    stream = vela_first_slice._purecap_cheri_asm_stream("pass")
+    with tempfile.TemporaryDirectory(prefix="vela-control-profile-") as temporary:
+        elf = Path(temporary) / "control.elf"
+        refusals, _ = cd.assemble(stream, "control", elf)
+        ensure(not refusals, f"control refused: {refusals}")
+        original = elf.read_bytes()
+        vela_first_slice._check_purecap_control_image(original)
+        for word in (0x022180D7, 0x0000200F):  # vadd.vv v1,v2,v3; lc with a forbidden zero destination
+            mutation, pc = vela_first_slice._cold_branch_image(original, word)
+            try:
+                vela_first_slice._check_purecap_control_image(mutation)
+            except ValueError as error:
+                ensure(f"instruction {word:#010x} at PC {pc:#x}" in str(error),
+                       f"control profile reported the wrong word or site: {error}")
+            else:
+                raise AssertionError(f"out-of-profile word {word:#010x} at the error exit was accepted")
+
+
 def _ordered_scalar_calls() -> None:
     def call(name: str, *values: Node) -> Node:
         return {"kind": "call", "callee": {"kind": "name", "name": {"text": name}},
@@ -787,6 +806,7 @@ def cases() -> list[Case]:
         Case("semantic-negative-span-refusals", _negative_span_refusals),
         Case("ordered-scalar-calls-under-short-circuit", _ordered_scalar_calls),
         Case("clight-lowering-and-purecap-cheri-assembly", _clight_lowering_and_purecap_assembly),
+        Case("purecap-profile-checks-the-untaken-error-branch", _purecap_error_branch_profile),
         Case("first-slice-constructive-source-proofs-with-fixed-budgets", _first_slice_source_proofs, lane="guest"),
         Case("first-slice-mathematical-and-executable-recursion", _first_slice_recursion_boundary, lane="guest"),
         Case("execute-generated-packet-c-and-perturbed-scenarios", _execute_generated_packet_c, lane="guest"),

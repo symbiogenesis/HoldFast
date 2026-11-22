@@ -114,6 +114,7 @@ open until the parent's acceptance conditions are met.
   - **Owner** `artifact-admission`
   - **Start** Use the [compiler](#q25ao) and [contextual preservation](#q25ap) theorem interfaces and the existing TAL and image-validation producers.
   - **Check** For each client, compose the TAL/checker soundness proofs with assembly, link and image validation and applicable binary constant-time and resource evidence. Reject stale, changed and malformed artifacts. Publish the validator's independently checked admission receipt as soon as it passes. Close after both clients have exact-source-to-final-byte admission.
+  - On the release image, exercise an out-of-profile instruction in a reachable error branch that the passing input skips. Require the image checker to identify its address and encoding even when the passing trace agrees with the original. The [local control regression](docs/assurance/compiler-route-contract.md#equivalent-artifact-endpoint) exercises this case on the handwritten scalar controls.
 
 <a id="q25ar"></a>
 
