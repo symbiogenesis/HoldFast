@@ -298,20 +298,24 @@ def _runtime_executable_identity() -> None:
         parser.write_bytes(b"native parser")
         digest = hashlib.sha256(parser.read_bytes()).hexdigest()
         compiled = vela_parser.Build(Path(directory), parser, {"generated_sha256": {"vela-parser": digest}})
-        with patch.object(parser_checked, "ensure_checked_build", return_value=compiled):
-            native = trace._native_runtime_identity()
+        with patch.object(parser_checked, "ensure_checked_build", return_value=compiled), \
+                patch.object(trace, "_parser_images_identity", return_value="e" * 64):
+            native = trace._native_runtime_identity(123)
             ensure(native["parser_sha256"] == digest, "native executable bytes omitted")
             parser.write_bytes(b"changed after build observation")
             try:
-                trace._native_runtime_identity()
+                trace._native_runtime_identity(123)
             except ValueError:
                 pass
             else:
                 raise AssertionError("late native executable mutation accepted")
-        with patch.object(trace.sys, "platform", "win32"):
+        with patch.object(trace.sys, "platform", "win32"), \
+                patch.object(parser_checked, "trace_worker_pids", return_value=(42, 123)), \
+                patch.object(trace.trace_runtime, "process_images", return_value={"wsl": executable}):
             result = subprocess.CompletedProcess(["wsl"], 0, json.dumps(native).encode(), b"")
             with patch.object(trace.subprocess, "run", return_value=result) as launch:
-                ensure(trace._runtime_identity(Path(directory)) == native, "guest runtime identity differs")
+                expected = {**native, "transport_images_sha256": trace.trace_runtime.file_identity({"wsl": executable})}
+                ensure(trace._runtime_identity(Path(directory)) == expected, "guest runtime identity differs")
                 ensure(launch.call_args.kwargs["cwd"] == Path(directory), "guest identity uses another checkout")
             bad_runtime = copy.deepcopy(native)
             cast("trace.Object", bad_runtime["python"])["runtime_sha256"] = "invalid"
@@ -329,6 +333,9 @@ def _runtime_executable_identity() -> None:
 
 
 def _compiler_and_command() -> None:
+    transport, worker = parser_checked.trace_worker_pids()
+    ensure(transport > 0 and worker > 0 and (transport, worker) == parser_checked.trace_worker_pids(),
+           "runtime identity query lost the persistent parser worker")
     expected = vela.translate(SOURCE)
     recorder = trace.Recorder()
     ensure(vela.translate(SOURCE, trace=recorder) == expected, "tracing changed emitted terms")

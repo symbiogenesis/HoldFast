@@ -184,6 +184,10 @@ def _command_publication() -> None:
                    "benchmark validation command failed")
             previous = output.read_bytes()
             ensure(source.read_bytes() == SOURCE, "benchmark command changed source")
+            ensure(run(*arguments, "--max-overhead-ppm", "0") == 1 and output.read_bytes() == previous,
+                   "unqualified measurement replaced the old output")
+            ensure(run("trace-benchmark-validate", str(output), "--source", str(source),
+                       "--max-overhead-ppm", "0") == 1, "validator ignored the external budget")
             ensure(run("trace-benchmark", str(source), "--output", str(source)) == 1,
                    "benchmark overwrote its input")
             with patch.object(compiler_trace, "producer_identity", side_effect=[PRODUCER, PRODUCER, "b" * 64]):
@@ -203,6 +207,26 @@ def _command_publication() -> None:
                    "stale source measurement validated")
 
 
+def _overhead_budget() -> None:
+    def comparison(plain: int, traced: int) -> benchmark.Object:
+        return _fixture((plain, traced, traced, plain) * 4)
+
+    # One extra nanosecond in a 3,000 ns baseline lies strictly between 333 and 334 ppm.
+    boundary = comparison(3000, 3001)
+    benchmark.validate(boundary, SOURCE, PRODUCER, max_overhead_ppm=334)
+    benchmark.validate(comparison(4, 5), SOURCE, PRODUCER, max_overhead_ppm=250_000)
+    benchmark.validate(comparison(2, 1), SOURCE, PRODUCER, max_overhead_ppm=0)
+    for report, limit, message in (
+            (boundary, 333, "exceeds"), (comparison(0, 0), 100, "baseline"),
+            (_fixture(), 100, "seven"), (boundary, -1, "invalid")):
+        try:
+            benchmark.validate(report, SOURCE, PRODUCER, max_overhead_ppm=limit)
+        except ValueError as error:
+            ensure(message in str(error), "wrong overhead budget refusal")
+        else:
+            raise AssertionError("accepted an out-of-budget or unqualified timing comparison")
+
+
 def _real_compiler() -> None:
     report = benchmark.measure(SOURCE, PRODUCER, samples=2, warmups=0)
     benchmark.validate(report, SOURCE, PRODUCER)
@@ -211,6 +235,7 @@ def _real_compiler() -> None:
 
 def cases() -> list[Case]:
     return [Case("alternating-pairs-warmups-and-independent-arithmetic", _paired_timings),
+            Case("workload-overhead-budget-and-unrounded-boundary", _overhead_budget),
             Case("bound-raw-samples-and-recomputed-summaries", _report_integrity),
             Case("bounded-work-clocks-and-output-equivalence", _limits_and_failures),
             Case("atomic-read-only-publication-and-cancellation", _command_publication),

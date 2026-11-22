@@ -112,7 +112,8 @@ def measure(source: bytes, producer: str, *, samples: int = DEFAULT_SAMPLES,
     return report
 
 
-def validate(document: object, source: bytes, producer: str) -> Object:
+def validate(document: object, source: bytes, producer: str, *,
+             max_overhead_ppm: int | None = None) -> Object:
     """Check report freshness, bounded samples, order and independently derived totals."""
     _require(isinstance(document, dict), "benchmark report must be an object")
     report = cast("Object", document)
@@ -149,6 +150,16 @@ def validate(document: object, source: bytes, producer: str) -> Object:
     _require(_digest(report["summary"]) == _digest(_summary(pairs)), "benchmark summary mismatch")
     _require(len(json.dumps(report).encode("utf-8")) <= MAX_REPORT_BYTES,
              "benchmark report exceeds byte limit")
+    if max_overhead_ppm is not None:
+        _require(_natural(max_overhead_ppm), "invalid recording overhead budget")
+        _require(cast("int", report["samples"]) >= DEFAULT_SAMPLES
+                 and cast("int", report["warmups"]) >= DEFAULT_WARMUPS,
+                 "overhead qualification requires at least seven measured pairs and one warmup pair")
+        plain = sum(cast("int", pair["plain_ns"]) for pair in pairs)
+        traced = sum(cast("int", pair["traced_ns"]) for pair in pairs)
+        _require(plain > 0, "overhead qualification requires a positive plain baseline")
+        _require((traced - plain) * 1_000_000 <= max_overhead_ppm * plain,
+                 f"measured recording overhead exceeds {max_overhead_ppm} ppm budget")
     return report
 
 
