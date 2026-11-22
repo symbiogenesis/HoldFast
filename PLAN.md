@@ -2,118 +2,67 @@
 
 ## Current execution
 
-**The next milestone is acceptance of the packet validator's exact executable.** The local
-kernel replay covers the validator's public byte and view guarantees with zero solver-trusted obligations.
-Checked source correspondence, machine laws, compiler refinement, security
-preservation and final-image admission are still open. Start with the blocking
-dependency inventory from `vela-parser first-slice`. Check the machine-logic
-owner's canonical Sail term and Q35 compatibility evidence against the inputs
-required by [Q25am](#q25am). Record any missing input with its owner.
-[First-slice qualification](docs/language/first-release.md#first-slice-qualification)
-identifies the outstanding upstream inputs and the limits of the local replay.
+**The next milestone is acceptance of the packet validator's exact executable.**
+Its source proofs already cover byte values and the returned view with zero
+solver-trusted obligations. [Authored validator](examples/first_slice.vela) · [Artifact acceptance](#q25ba)
 
-| When the input is ready | Work it unlocks |
+Start with the `machine-logic` owner. Check whether it can supply the canonical
+Sail term (`rv64d.v`) and Q35 compatibility evidence for [Q25am](#q25am).
+The retained `vela-parser first-slice` result names the blocking producers in
+`inventory.blocking_dependencies`. [First-slice qualification](docs/language/first-release.md#first-slice-qualification)
+
+### Vela first-release delivery
+
+Take the smallest checked result a release client can use. A consumer can start as soon
+as the part of an interface it needs passes its checks. If an input is missing, record
+the owner and the evidence needed to resume, then take another row whose inputs exist.
+
+| Available input | Work it unlocks |
 | --- | --- |
-| The canonical machine term and its compatibility evidence are available | Establish the validator's machine interpretation in [Q25am](#q25am), then prove the concrete byte and loan laws it uses in [Q25an](#q25an). |
-| The required machine and resource interfaces are checked | Work on two paths in parallel as their own inputs arrive. On the source side, connect the core laws to checked frontend correspondence ([Q25as](#q25as), [Q25at](#q25at)). On the target side, connect Clight to Sail, prove contextual security and compose exact-image admission ([Q25ao](#q25ao), [Q25ap](#q25ap), [Q25aq](#q25aq)). |
-| Checked frontend derivations or module interfaces are available | Diagnostics can consume the derivations in [Q25au](#q25au). Locked packages can start in [Q25ax](#q25ax) once first-release module and instance semantics are frozen. The composed [repair trial](#q25av) also needs concrete resources, the core laws and its own inhabited fixture. |
-| A producer publishes an independently checked result for this validator | Bind it to the exact source, target, tools and assumptions in [Q25ar](#q25ar). Join the first-client receipts to the existing narrow lowering and check the expected bytes and failure cases in [Q25ba](#q25ba). The second client's receipts are due with its own trial. |
-| The validator's exact artifact is accepted | Publish scalar/text and sequence/ownership representations and laws as each is ready ([Q25aw](#q25aw), [Q25ay](#q25ay)). General lowering consumes them and returns a checked runtime receipt per operation for library acceptance ([Q25az](#q25az)). |
-| Packages, represented libraries and general lowering support the independent client | Freeze the baseline and benefit thresholds, run the second client and obtain its own admission receipt ([Q25bb](#q25bb)). Close shared admission and receipt integration at their declared coverage. Publish the reproducible release with all required evidence, then rehearse one upgrade ([Q25bc](#q25bc), [Q25bd](#q25bd)). |
+| Canonical term and compatibility evidence | Establish the machine interpretation ([Q25am](#q25am)), then the concrete byte and scoped-loan laws ([Q25an](#q25an)). |
+| Machine and resource laws for the validator | Two paths can proceed in parallel as their inputs arrive. Prove the core laws and publish checked frontend correspondence ([Q25as](#q25as), [Q25at](#q25at)). Connect the retained compiler to Sail, prove contextual security, then obtain first-client image admission ([Q25ao](#q25ao), [Q25ap](#q25ap), [Q25aq](#q25aq)). |
+| A producer publishes a checked result | Bind it to the exact inputs as it arrives ([Q25ar](#q25ar)). Join the first-client receipts to the existing narrow lowering to accept the validator ([Q25ba](#q25ba)). Wider frontend, admission and receipt coverage can stay open. |
+| Checked frontend results | Diagnostics can consume checked derivations ([Q25au](#q25au)). The repair trial constructs its fixture from the core laws, checked frontend and concrete resources ([Q25av](#q25av)). Locked packages can start when module and instance semantics are also frozen ([Q25ax](#q25ax)). |
+| Accepted validator | Publish the scalar and text representations ([Q25aw](#q25aw)). Use the required primitive laws to build the ownership libraries ([Q25ay](#q25ay)). General lowering consumes published representation laws and returns a checked receipt for each operation, so each library can finish qualification ([Q25az](#q25az)). |
+| Locked packages, qualified libraries and general lowering | Freeze the independent second client's baseline and thresholds, run its trial and obtain its own admission receipt ([Q25bb](#q25bb)). Close shared coverage across both clients, publish the reproducible release, then rehearse one upgrade ([Q25bc](#q25bc), [Q25bd](#q25bd)). |
 
-Choose the smallest change that gives the next consumer a usable, checked
-result. The checklist's **Start** and **Check** specify the inputs and the
-evidence for each item. A consumer can use a checked subset while the producer's
-wider work stays open. If an input is missing, continue on a ready, independent
-path. Existing parser, math and editor work can finish its frozen qualification.
-Defer broader surface and adapter work until the synchronous component works
-and a named consumer meets the option's entry conditions.
+Use each item's **Start** and **Check** for the precise inputs and acceptance decision.
+Existing parser, math and editor work can finish its frozen qualification. Broader
+language and adapter work needs the synchronous component and a named consumer that
+meets the option's entry conditions. The [release boundary](docs/language/first-release.md#release-boundary)
+and [qualification criteria](docs/language/first-release.md#qualification) define the supported endpoint.
 
 ### Feedback while implementing a slice
 
-- Exercise the affected entry point with an independently expected result. For
-  a bug, reproduce it before the fix and keep the smallest case that catches it.
-  For a changed contract, check a valid case, the nearest meaningful refusal
-  and the downstream consumer that relies on the distinction. During iteration,
-  `python tools/run.py test --only <module-substring>` selects matching test modules.
-- Match the tool to the failure. The [generated development tests](docs/tooling/tooling-protocols.md#generated-development-tests)
-  shrink failing editor-state sequences. The [Menhir campaigns](docs/tooling/parser.md#generated-syntax-campaigns)
-  exercise syntax against independently expected trees. For changed proof
-  obligations, run the [kernel replay](docs/tooling/elaboration-prototype.md#commands-and-acceptance).
-  A first-slice binding check answers whether retained evidence still matches
-  its inputs. A changed proof or artifact needs fresh evidence from its producer.
-- Reach for a generator, profiler, solver or existing library when it removes
-  repeated work or exposes a class of defects. Try it on the blocked or slow
-  case. Compare feedback time, manual effort or defects caught at the same
-  acceptance boundary. Reuse a qualified tool when it fits. For a new
-  dependency, weigh setup, review and upkeep, then pin and qualify the version
-  if adopted. [Tool reuse criteria](docs/assurance/verification-strategy.md#where-time-might-be-saved)
-  and [dependency policy](tools/README.md#dependency-and-version-policy) cover the tradeoffs.
-- Before merging, run `python tools/run.py validate` on the combined change.
-  It runs the static gate and behavioral suite. Use the owning native or
-  independent-client qualification for changes that affect those guarantees.
-  `validate --full` groups the broader local development checks. Review skips
-  against the claim being made. [Validation profiles](tools/README.md#validation-profiles)
-  and the [local handoff](AGENTS.md#tool-execution-and-validation) give commands and scope.
+Start a bug fix with the smallest case that fails through the affected entry point.
+For a contract change, establish an independently expected success and a nearby case
+that reaches the intended refusal. Exercise the consumer that depends on the distinction.
+Keep a minimized generated failure as an ordinary replayable fixture.
 
-## Current Summary
+Use `python tools/run.py` (`python3 tools/run.py` on Linux) with the command that answers
+the question at hand.
 
-The estimate covers the supported release, shared prerequisites and conditional
-options. Its percentage measures completed effort across that portfolio. Use
-the [release milestones](#current-execution) to judge readiness.
-
-<!-- estimate-summary:start -->
-| Measure | Value |
+| Question | Command and evidence |
 | --- | --- |
-| Total estimate midpoint h | 21,457.9 |
-| Total estimate range h | 11,251.9–31,663.9 |
-| Completed scope h | 571.9 |
-| Complete by estimate % | 2.7 |
-| Remaining h | 20,886 |
-| Open class I h | 2,802 |
-| Open class X h | 18,084 |
-| Retained completion estimate h | 568.5 |
-| Unmeasured completed items | 37 |
-<!-- estimate-summary:end -->
+| Does the changed behavior pass its regression cases? | `test --only <module-substring>` runs matching modules, for example `test --only first_slice`. |
+| Which inputs or edit sequences break the parser or editor? | `vela-parser syntax-campaigns` compares generated pure syntax with independent expected trees. `vela generated-tests` shrinks editor-state and formatter failures. Use `vela-lsp --qualify-clients` for a change to real-client behavior. [Parser campaigns](docs/tooling/parser.md#generated-syntax-campaigns) · [Generated tests](docs/tooling/tooling-protocols.md#generated-development-tests) · [LSP clients](docs/tooling/lsp-prototype.md#acceptance-and-remaining-qualification) |
+| Do the proofs still hold? | `vela-parser elaborate-qualify` replays the elaboration fixtures in Rocq. For the validator itself, `vela-parser first-slice` produces fresh local proof and execution evidence. [Elaboration replay](docs/tooling/elaboration-prototype.md#commands-and-acceptance) · [First-slice qualification](docs/language/first-release.md#first-slice-qualification) |
+| Does a retained validator receipt still match? | `vela-parser first-slice-bindings <receipt.json>` checks identities. A changed proof, compiler or artifact needs fresh evidence from the producer responsible for that claim. [Receipt checks](docs/language/first-release.md#first-slice-qualification) |
 
-The table counts each checklist leaf once. Completed work contributes actual
-hours where known and its retained estimate otherwise. Open estimates and their
-bounds determine the remaining hours and total range. After a status or estimate
-changes, refresh the table with `python tools/run.py check --fix`.
+Before writing a proof, test or adapter, look for a reusable library law, generator
+or compiler fact. Profile a slow check before optimizing it. Try candidate tools on
+the actual case, such as a solver that can generate a term for kernel replay. Prefer
+the tool that shortens feedback, removes repeated work or catches more defects at the
+same acceptance boundary. Include setup, review and upkeep when adopting a dependency,
+then pin and qualify the selected version. [Tool reuse criteria](docs/assurance/verification-strategy.md#where-time-might-be-saved) ·
+[Dependency policy](tools/README.md#dependency-and-version-policy)
 
-## Planning basis and scope
-
-- **Effort.** Estimates and ranges are judgments in attended engineering hours,
-  including design, implementation, proofs, review preparation, tests,
-  documentation and initial qualification. The four core estimates and 27
-  extension ranges are allocated once. Keep human effort, summed agent-session
-  wall time and machine time separate. Research estimates use no multiplier
-  from historical actuals or person-month comparisons.
-- **Release scope.** One canonical CHERI-RISC-V profile/ABI, one retained
-  compiler route, the packet validator and a second independently selected
-  client. Windows and Linux host tools are in scope. Resident protocol
-  endpoints and resident compiler rebuilding have separate scopes.
-- **Shared work.** VerifiedOS retains its machine-logic, byte-instance,
-  scoped-resource, compiler, security and admission owners. The
-  [foundation cells](#shared-foundation-and-retained-route) price only residual
-  Vela needs beyond the booked Q35/M1/TAL slices. Summing both projects'
-  estimates would double count shared work. OS algorithms, device design and
-  other whole-system proofs remain with their owners.
-- **Conditional scope.** Optional migrations use the first-party software,
-  proofs, configuration and authored hardware at
-  [VerifiedOS revision 3529ecd](https://github.com/symbiogenesis/VerifiedOS/tree/3529ecd08b8288b004d71766066b0c3367b9cb40)
-  and the Vela implementation at `0354004` as the reuse baseline. Freeze the
-  selected paths, theorem subjects, target features and permitted generated or
-  imported artifacts at entry. Reprice additions. The estimates exclude a new
-  processor, open-ended language growth, a public package registry, interactive
-  proof admission and fabrication or laboratory work.
-- **Stopping and maintenance.** A missing law or exhausted investigation
-  budget stops the dependent slice. Record the result and reprice any remaining
-  work. Proof acceptance requires checked terms and independent review of the
-  intended behavior. Review an upstream's licence at the milestone that would
-  incorporate it under the [licensing rules](COPYRIGHT.md#terms-this-tree-does-not-carry).
-  Release and optional-portfolio maintenance each price one requalification
-  cycle. Record its actual cost and estimate each later cycle separately.
+Before merging the combined change, run `python tools/run.py validate` for the static
+gate and behavioral suite. Check reported skips against the affected guarantee. Run the
+owning native or independent-client qualification when that guarantee changes.
+`validate --full` groups broader local development checks. Each client still needs its
+own artifact evidence. [Validation profiles](tools/README.md#validation-profiles) ·
+[Local handoff](AGENTS.md#tool-execution-and-validation)
 
 <a id="checklist-conventions"></a>
 
@@ -134,98 +83,157 @@ open until the parent's acceptance conditions are met.
 <a id="q25am"></a>
 
 - [ ] **Q25am · Establish the selected machine-logic interpretation and adequacy**
-  - **Owner:** `machine-logic`. **Start:** Canonical Sail term and Q35 compatibility evidence; retain the external machine-logic owner. **Check:** Supply the selected synchronous subset's checked operational/resource interpretation, adequacy and observation interfaces over that exact term; replay inhabited byte and invalid-operation cases. This is residual logic work beyond already booked Q35 slices.
+  - **Owner** `machine-logic`
+  - **Start** Use the canonical Sail term and Q35 compatibility evidence supplied by the external producers.
+  - **Check** Provide a checked operational and resource interpretation, adequacy and observation interfaces for the selected synchronous subset over that exact term. Replay inhabited byte and invalid-operation cases. The budget covers residual work beyond the booked Q35 slices.
 
 <a id="q25an"></a>
 
 - [ ] **Q25an · Establish concrete byte and scoped-resource laws**
-  - **Owner:** `concrete-resources`. **Start:** machine-logic and the existing byte-instance/scoped-resources owners. **Check:** Prove CHERI read/write/frame, initialization, split/join, nested loan/restoration and returned-view laws over the admitted carrier. Reuse the source-level Span/Slots laws from Q25af/ag/ak/al; no abstract dictionary substitutes for the machine connection.
+  - **Owner** `concrete-resources`
+  - **Start** Use the [machine interpretation](#q25am) and the existing byte-instance and scoped-resource producers.
+  - **Check** Prove CHERI read, write, frame, initialization, split/join, nested loan, restoration and returned-view laws over the admitted machine carrier. Reuse the source-level `Span` and `Slots` laws from Q25af, Q25ag, Q25ak and Q25al.
 
 <a id="q25ao"></a>
 
 - [ ] **Q25ao · Close the retained source-to-target compiler refinement**
-  - **Owner:** `retained-compiler`. **Start:** machine-logic, concrete-resources and the retained Q35d/M1.2g/Q35j compiler producers. **Check:** Connect the selected Clight representation and purecap ABI through the retained compiler to canonical Sail execution, including calls, loops, failure exits and composition. Budget only residual proof/compatibility work beyond those producers' booked slices.
+  - **Owner** `retained-compiler`
+  - **Start** Use the [machine interpretation](#q25am), [concrete resource laws](#q25an) and retained Q35d, M1.2g and Q35j compiler producers.
+  - **Check** Prove refinement from the selected Clight representation and purecap ABI through the retained compiler to canonical Sail execution. Cover calls, loops, failure exits and composition. The budget covers residual proof and compatibility work beyond the booked compiler slices.
 
 <a id="q25ap"></a>
 
 - [ ] **Q25ap · Establish contextual security preservation for the release closure**
-  - **Owner:** `context-preservation`. **Start:** machine-logic, retained-compiler and an independently reviewed observation/adversarial-context contract. **Check:** Prove the required authority/confidentiality and contextual-preservation statement at the selected endpoint, including linking, callbacks, leakage and resource assumptions; finite generated-code tests and source effect annotations supply no substitute.
+  - **Owner** `context-preservation`
+  - **Start** Use the [machine interpretation](#q25am), [retained compiler theorem](#q25ao) and an independently reviewed contract for observations and adversarial contexts.
+  - **Check** Prove authority, confidentiality and contextual preservation at the selected endpoint, including linking, callbacks, leakage and resource assumptions.
 
 <a id="q25aq"></a>
 
 - [ ] **Q25aq · Close TAL and exact-artifact admission for the release closure**
-  - **Owner:** `artifact-admission`. **Start:** Supplied retained-compiler/context-preservation theorem interfaces and existing TAL/image-validation owners. **Check:** Supply the required TAL/checker soundness joins, post-compiler assembly/link/image validation, theorem composition and applicable binary constant-time/resource evidence progressively for each release client. Publish the independently checked first-client receipt before the second-client trial; close this cell only after both clients have exact-source-to-final-byte admission. Reject stale, changed and malformed artifacts; source kernel replay alone cannot admit bytes.
+  - **Owner** `artifact-admission`
+  - **Start** Use the [compiler](#q25ao) and [contextual preservation](#q25ap) theorem interfaces and the existing TAL and image-validation producers.
+  - **Check** For each client, compose the TAL/checker soundness proofs with assembly, link and image validation and applicable binary constant-time and resource evidence. Reject stale, changed and malformed artifacts. Publish the validator's independently checked admission receipt as soon as it passes. Close after both clients have exact-source-to-final-byte admission.
 
 <a id="q25ar"></a>
 
 - [ ] **Q25ar · Integrate and recheck prerequisite producer receipts**
-  - **Owner:** `producer-receipts`. **Start:** Named local and externally supplied producer revisions. **Check:** Bind each independently checked subset receipt to source closure, canonical model, assumptions, tool versions and target, including review of user-supplied hosted verdicts. Publish first-client receipts before the second trial and close this cell after complete declared coverage. Missing/skipped receipts remain blockers. This task performs local replay and review; hosted execution remains user-managed.
-  - Local first-slice identities, exact retained capacity/control sources and proof-corruption subject/refusal checks, Sail capability image/transcript rechecks with unambiguous terminal and complete trace-record checks, and optional CompCert process/effective-input/image bindings are implemented; [partial evidence](docs/assurance/completion-log.md#q25ar-integrate-and-recheck-prerequisite-producer-receipts) carries no external-producer or artifact-admission verdict.
+  - **Owner** `producer-receipts`
+  - **Start** Identify the revisions of the local and externally supplied producers.
+  - **Check** Bind each independently checked receipt to its source closure, canonical model, assumptions, tool versions and target. Replay locally and review applicable user-supplied Host CI and Guest CI verdicts. Missing receipts and skipped or canceled runs leave their guarantees pending. Publish the validator's receipts before the second-client trial. Close when every declared producer and client is covered.
+  - Local bindings check the capacity and control sources, proof-corruption refusal, Sail capability images and complete simulator traces, and optional CompCert processes, effective inputs and images. External producer receipts and artifact admission remain open. [Partial evidence](docs/assurance/completion-log.md#q25ar-integrate-and-recheck-prerequisite-producer-receipts).
+
+<a id="language-core-proposals"></a>
 
 ### Supported-release implementation
 
 <a id="q25as"></a>
 
 - [ ] **Q25as · Prove the synchronous core interpretation and composition laws**
-  - **Owner:** `core-soundness`. **Start:** concrete-resources and the admitted elaboration-image interpretation. **Check:** Discharge the existing core-soundness package in the [core obligation matrix](docs/language/core-design.md#proof-obligations-and-proposed-work-packages), including substitution, preservation, phase separation and borrow/exit restoration. Carry forward its existing estimate once.
+  - **Owner** `core-soundness`
+  - **Start** Use the [concrete resource laws](#q25an) and the admitted interpretation of the elaborated image.
+  - **Check** Prove substitution, preservation, phase separation, authority and effect composition, and loan restoration on every exit. Show which facts survive a write. [Core obligation matrix](docs/language/core-design.md#proof-obligations-and-proposed-work-packages) and [borrow-analysis rules](docs/language/core-design.md#borrow-analysis-promotion).
 
 <a id="q25at"></a>
 
 - [ ] **Q25at · Qualify checked synchronous frontend correspondence**
-  - **Owner:** `core-frontend`. **Start:** core-soundness interfaces and the existing checked parser/elaborator. **Check:** Implement and independently qualify source-to-interpreted-core SourcePackage correspondence, resolution, derivations, reconstruction and frontend erasure. Publish the checked first-client subset before completing wider release coverage. Reuse landed parsing, mathematical elaboration, owned loans and effects; represented-core-to-Clight lowering belongs to runtime-lowering.
+  - **Owner** `core-frontend`
+  - **Start** Use the [core-law interfaces](#q25as) and existing checked parser and elaborator, including mathematical elaboration, owned loans and effects.
+  - **Check** Implement and independently qualify correspondence between the exact `SourcePackage`, its interpreted core and frontend erasure. Check resolution, reconstruction and arithmetic, loan, capture and effect derivations. Report unknown facts and exhausted analysis budgets. Publish the checked validator subset as soon as it passes. For release qualification, compare inferred and explicit clients at the same interpretation and artifact endpoint, covering literal boundaries, ambiguous instances and unstable indices. [Contextual inference](docs/language/first-release.md#contextual-inference).
 
 <a id="q25au"></a>
 
 - [ ] **Q25au · Qualify contextual diagnostics and invalidation**
-  - **Owner:** `core-diagnostics`. **Start:** core-frontend's checked derivations. **Check:** Complete the existing core-diagnostics producer for typed holes, exact residual propositions, locations, status and dependency invalidation; invalid edits withdraw stale evidence. This does not buy the wider LSP server.
+  - **Owner** `core-diagnostics`
+  - **Start** Use [checked frontend derivations](#q25at) as they become available.
+  - **Check** In the existing interaction path, show each typed hole's location, exact outstanding proposition and status. A dependency change or invalid edit withdraws stale evidence, including late results from the previous generation. [Typed holes and invalidation](docs/language/core-design.md#typed-holes-and-invalidation).
 
 <a id="q25av"></a>
 
 - [ ] **Q25av · Qualify the composed synchronous fixture and repair protocol**
-  - **Owner:** `core-repair-trial`. **Start:** core-soundness, core-frontend and concrete-resources. **Check:** Construct the inhabited PreparationOpen/finish fixture and run its independently reviewed negative neighbors, semantic/refactor/representation edits and repair measurements under the [core fixture contract](docs/language/core-design.md#composed-qualification-fixture). Reuse supplied primitive laws.
+  - **Owner** `core-repair-trial`
+  - **Start** Use the [core laws](#q25as), [checked frontend](#q25at) and [concrete resources](#q25an).
+  - **Check** Use the supplied primitive laws to construct an inhabited `PreparationOpen` fixture and its total `finish` transition. Run the independently reviewed invalid neighbors. Measure replay, review and repair after a semantic change, a preserving refactor and a representation change. [Composed fixture](docs/language/core-design.md#composed-qualification-fixture).
 
 <a id="q25aw"></a>
 
 - [ ] **Q25aw · Qualify represented scalar and text library behavior**
-  - **Owner:** `runtime-primitives`. **Start:** Accepted narrow first slice, core-frontend/concrete-resource interfaces and fixed target/ABI. **Check:** Connect existing mathematical integer/UTF-8/raw-string/TextBuilder/Format support to represented runtime definitions; deliver source representation/law interfaces before general lowering and join its per-operation receipts for final runtime acceptance. Qualify aliases, arithmetic/conversions, malformed text, exact-fit/exhaustion and static/runtime agreement under [primitive and text semantics](docs/language/first-release.md#primitive-semantics).
+  - **Owner** `runtime-primitives`
+  - **Start** Use the [accepted validator](#q25ba), [checked frontend](#q25at), [concrete resource interfaces](#q25an) and fixed target and ABI.
+  - **Check** Publish representations and laws for the existing integer, UTF-8, raw-string, `TextBuilder` and `Format` definitions for [general lowering](#q25az). Join its per-operation receipts for runtime acceptance. Verify alias identity, arithmetic and conversions, malformed text, exact fit and exhaustion, instance selection, receiver-loan conflicts and static/runtime agreement. [Primitive semantics](docs/language/first-release.md#primitive-semantics) and [bytes and text](docs/language/first-release.md#bytes-and-text).
 
 <a id="q25ax"></a>
 
 - [ ] **Q25ax · Implement locked package and build closure**
-  - **Owner:** `packages`. **Start:** core-frontend and frozen first-release module/instance semantics. **Check:** Deliver manifests, lockfiles, reproducible dependency/target closure and a batch build graph; qualify nominal identity, coherent instances, import order, cycles, missing dependencies and stale configurations across two independently authored packages. No public registry service is required.
+  - **Owner** `packages`
+  - **Start** Use the [checked frontend](#q25at) once the first-release module and instance semantics are frozen.
+  - **Check** Build two independently authored packages with manifests, lockfiles and a reproducible batch graph of dependencies and target inputs. Check nominal identity, instance coherence and import-order independence. Exercise cycles, missing dependencies and stale configurations. [Module and package contract](docs/language/first-release.md#modules-and-packages).
 
 <a id="q25ay"></a>
 
 - [ ] **Q25ay · Qualify represented sequence and ownership libraries**
-  - **Owner:** `runtime-ownership`. **Start:** Accepted narrow first slice and primitive/concrete-resource/core-law interfaces. **Check:** Reuse existing mathematical Seq/Slots/iterator/invariant-lifting support and supply represented library laws and generic clients for initialized/vacant ranges, selective lifting, bounded iteration and bulk relocation under [ownership libraries](docs/language/first-release.md#ownership-libraries). Publish source/law interfaces before general lowering, then join its per-operation receipts for runtime acceptance. Tiny and billion-element capacities retain the same obligation/proof complexity.
+  - **Owner** `runtime-ownership`
+  - **Start** Use the [accepted validator](#q25ba) and published [primitive](#q25aw), [concrete resource](#q25an) and [core-law](#q25as) interfaces.
+  - **Check** Reuse `Seq`, `Slots`, iterators and selective invariant lifting. Publish represented laws and generic clients covering initialized and vacant ranges, restoration on every exit, bounded iteration and tag-preserving copy into vacant slots followed by ownership transfer. At capacities 4 and 10⁹, require equal obligation counts and the same proof and certificate structure after substituting the capacity literal. Reject per-element unfolding or certificates. Replay both within the declared time and output budgets. Join [general lowering](#q25az) receipts per operation for runtime acceptance. [Ownership libraries](docs/language/first-release.md#ownership-libraries) and [capacity qualification](docs/language/first-release.md#qualification).
 
 <a id="q25az"></a>
 
 - [ ] **Q25az · Qualify general synchronous lowering through the retained route**
-  - **Owner:** `runtime-lowering`. **Start:** Accepted narrow first slice, core-frontend correspondence, published primitive/ownership representation-law interfaces and retained-compiler theorem interface. **Check:** Extend the existing validator-specific lowering to the declared synchronous release subset with checked represented-core-to-Clight mapping and source maps for calls, branches, loops, errors and resource exits. Publish per-operation runtime receipts for library acceptance, reusing frontend/source and retained-backend theorems; refuse unsupported constructs explicitly.
+  - **Owner** `runtime-lowering`
+  - **Start** Use the [accepted validator](#q25ba), [frontend correspondence](#q25at), published [primitive](#q25aw) and [ownership](#q25ay) representation laws and the [retained compiler theorem interface](#q25ao).
+  - **Check** Extend validator-specific lowering to the declared synchronous release subset. Check the represented-core-to-Clight mapping and source maps for calls, branches, loops, errors and resource exits against independent outputs. Reuse frontend and backend theorems, refuse unsupported constructs explicitly and publish a runtime receipt for each library operation.
 
 <a id="q25ba"></a>
 
 - [ ] **Q25ba · Accept the synchronous component at the exact-artifact endpoint**
-  - **Owner:** `vela-first-slice`. **Start:** Existing validator-specific source/lowering and independently checked first-client core, machine, compiler, security and admission receipts. **Check:** Retain the closed source proof in [first-slice qualification](docs/language/first-release.md#first-slice-qualification), then bind the authored slice to those exact receipts and bytes; independent output, alias/restoration, wrong-operation, stale-input and corruption controls pass. Broader library/general lowering and the second client's receipts are subsequent work. Existing closed source proofs and Sail/C execution receive no second completion credit.
-  - All three source residuals now kernel-replay within unchanged budgets; [partial evidence](docs/assurance/completion-log.md#q25ba-accept-the-synchronous-component-at-the-exact-artifact-endpoint) closes no source-correspondence or artifact-admission join.
+  - **Owner** `vela-first-slice`
+  - **Start** Use the [authored validator](examples/first_slice.vela), its existing narrow lowering and independently checked first-client core, machine, compiler, security and admission receipts.
+  - **Check** Bind the exact source, existing proof and emitted bytes to those receipts. Check independent expected outputs, aliasing and restoration, wrong operations, stale inputs and corruption. [First-slice qualification](docs/language/first-release.md#first-slice-qualification).
+  - All three source obligations replay in the kernel within their budgets. The closed source proofs and existing Sail/C runs have already been credited. Source correspondence and artifact admission remain open. [Partial evidence](docs/assurance/completion-log.md#q25ba-accept-the-synchronous-component-at-the-exact-artifact-endpoint).
 
 <a id="q25bb"></a>
 
 - [ ] **Q25bb · Run the independent package and developer-value trial**
-  - **Owner:** `vela-package-trial`. **Start:** Accepted first slice, packages, represented-library runtime receipts and general lowering. **Check:** Freeze a genuinely independent second client, baseline and thresholds under the [adoption protocol](docs/assurance/workflow-contract.md#first-release-qualification-and-adoption); qualify real errors/exits, contract/representation/refactor changes, explicit native proof transfer, annotation/review/repair costs and target resources at the same endpoint. Obtain this client's own admission receipt before acceptance; its selection/authorship precedes that receipt.
+  - **Owner** `vela-package-trial`
+  - **Start** Select the second client and its intended behavior independently of the first API design. Freeze the baseline, target envelope and benefit thresholds before observing results. Run the trial once the [validator](#q25ba), [packages](#q25ax), represented-library runtime receipts and [general lowering](#q25az) are ready.
+  - **Check** Exercise imports, instances, receiver snapshots, partial initialization, exhaustion and resource-returning success and error exits. At the same endpoint, measure annotations, first useful diagnostic, checking latency, review, repair and target costs for a contract change, a preserving refactor and a representation change using explicit Rocq relations. Obtain this client's own admission receipt before acceptance. [Adoption protocol](docs/assurance/workflow-contract.md#first-release-qualification-and-adoption).
+  - Measured friction can open the [borrow-checker comparison](docs/language/loan-analysis.md#conditional-borrowing-comparison) or [proof-transfer experiment](docs/assurance/workflow-contract.md#representation-transfer-comparison).
 
 <a id="q25bc"></a>
 
 - [ ] **Q25bc · Publish a supported and reproducible release closure**
-  - **Owner:** `vela-release`. **Start:** Accepted first slice and package trial, all required producer receipts. **Check:** Version the supported language/libraries, conformance and refusal corpus, compatibility policy, installation/tutorial/reference material, dependency notices and reproducible Windows/Linux artifacts. Cold install/build/proof replay and independent release review pass; every published guarantee names its endpoint.
+  - **Owner** `vela-release`
+  - **Start** Use the [accepted validator](#q25ba), [independent package trial](#q25bb) and all required [producer receipts](#q25ar).
+  - **Check** Publish the versioned language and libraries, conformance and refusal corpus, compatibility policy, installation guide, tutorial, reference, dependency notices and reproducible Windows and Linux artifacts. Verify cold installation, build and proof replay, and obtain independent release review. Name each published guarantee's endpoint. Assess feasibility, recurring developer value and adoption separately, including setup, maintenance and per-case target tradeoffs within hard limits. [Adoption protocol](docs/assurance/workflow-contract.md#first-release-qualification-and-adoption).
 
 <a id="q25bd"></a>
 
 - [ ] **Q25bd · Rehearse one supported-release maintenance cycle**
-  - **Owner:** `release-maintenance`. **Start:** vela-release and pinned compiler/kernel/dependency closure. **Check:** Perform one coordinated dependency/tool upgrade, semantic cache invalidation, compatibility/migration, security-response and rollback rehearsal with proof/conformance replay. Record actual human/agent/machine costs separately; this finite cycle does not fund indefinite support.
+  - **Owner** `release-maintenance`
+  - **Start** Use the [supported release](#q25bc) and its pinned compiler, kernel and dependencies.
+  - **Check** Rehearse one coordinated tool and dependency upgrade, including semantic cache invalidation, compatibility and migration, security response, rollback and proof and conformance replay. Record actual human effort, agent time and machine time separately.
+
+### Remaining Vela ergonomics
+
+Qualify the [authoring surface](docs/language/surface-grammar.md#ergonomic-authoring-and-bounded-collection-iteration)
+on its actual clients. Checked inference belongs to [Q25as](#q25as) and [Q25at](#q25at),
+represented scalars and formatting to [Q25aw](#q25aw), and iteration and relocation
+to [Q25ay](#q25ay) and [Q25az](#q25az).
+For borrow diagnostics, show both conflicting accesses and check that versioned suggestions
+preserve evaluation order, effects, lifetimes and exit obligations. Formatting and lint
+previews must preserve tokens and comments, reparse equivalently, be idempotent where
+applicable and refuse stale edits. [Diagnostics](#q25au) · [Inspection](#q25ch) ·
+[LSP clients](#q25ci) · [Authoring checks](docs/tooling/authoring-tools.md#qualification) ·
+[Formatting and previews](#q25ck)
 
 ### Language extensions
+
+Commission an extension for a named client when its own inputs are ready. After the
+synchronous release, the first bounded async service needs its R-08-046 inventory,
+prose and manifests before runtime implementation. Teach the fixed modes first and
+compare them and checked trace libraries with a grading increment on the selected
+client. [Async service qualification](docs/extensions/handlers-async.md#first-async-service-qualification) ·
+[Grading trial](#q25by)
 
 <a id="q25be"></a>
 
@@ -372,7 +380,42 @@ open until the parent's acceptance conditions are met.
 - [ ] **Q25cg · Trial representation-proof transfer automation**
   - **Owner:** `proof-transfer`. **Start:** Package-trial explicit-relation baseline exposes repeated work. **Check:** Run a bounded [CoqEAL/Trocq comparison](docs/assurance/workflow-contract.md#representation-transfer-comparison), including exact version/licence/assumption closure and maintenance measurement. Preserve the same client laws, preconditions and locked prover; the native baseline remains in the package trial.
 
-### Tooling and metaprogramming
+### Deferred numerical workload selection
+
+The e-means candidate is outside the priced portfolio. Revisit it when an independent
+search-index or quantization-codebook consumer has a frozen contract and the required
+arithmetic, sequence libraries and compiler joins are qualified. The
+`numerical-client-selection` owner can then price one bounded assignment-and-update
+pilot and any additional numerical semantics. Acceptance requires an independent oracle,
+checked source, artifact and resource evidence, and separate measurements of numerical
+quality and target cost. [Bounded pilot contract](docs/extensions/numerical-workloads.md#bounded-pilot-acceptance)
+
+<a id="owner-to-budget-allocation"></a>
+
+### Vela whole-system authoring proposal
+
+Whole-system authorship is conditional on the selected inventory. Vela sources define
+the software, contracts, proofs, ISA and authored hardware. Software and its proofs
+share one implementation. Generated Clight, Rocq terms, binaries, simulators and RTL
+remain valid outputs. [Authoring contract](docs/extensions/unified-source-contract.md#authoring-end-state)
+
+Select proof, compiler and hardware work independently as their inputs arrive. Reuse the
+qualified Menhir grammar and extracted pure parser. Wider source correspondence belongs
+to the checked frontend, Vela-authored parsing to the native compiler, and seed
+retirement to bootstrap. Claim toolchain authorship once the native compiler and its
+bootstrap qualify. Adopt a replacement machine model in one generation across its
+consumers, including both sides of hardware refinement.
+[Parser qualification](docs/tooling/parser.md) · [Frontend](#q25at) · [Bootstrap](#q25dk) ·
+[Migration gate](docs/extensions/unified-source-contract.md#migration-and-retirement)
+
+#### Tooling and metaprogramming
+
+Start with the existing compiler facts and a named consumer. Indexing takes resolved
+package identities, BSP takes the locked build graph, and native DAP takes exact-image
+debug information and a qualified simulator. For code generation, the reviewed descriptor protocol lets
+hygienic construction start before the codec is finished. Its checked constructors then
+unblock the codec. [Protocol contracts](docs/tooling/tooling-protocols.md) ·
+[Descriptor protocol](#q25cx) · [Construction](#q25cy)
 
 <a id="q25ch"></a>
 
@@ -505,7 +548,7 @@ open until the parent's acceptance conditions are met.
 - [ ] **Q25da · Rehearse one coordinated optional-portfolio refresh**
   - **Owner:** `tool-maintenance`. **Start:** The adopted tool/meta/native/model/hardware subset and pinned dependency/consumer closure. **Check:** Perform one finite coordinated schema/client/dependency or model-interface refresh, compatibility and security triage, regression/proof/consumer requalification and rollback across adopted options. Reuse release infrastructure and record actual recurring costs; stop and reprice an exhausted cycle, and budget each later cycle separately.
 
-### Whole-system delivery
+#### Whole-system delivery
 
 <a id="q25db"></a>
 
@@ -616,6 +659,65 @@ open until the parent's acceptance conditions are met.
 - [x] **Q25aj · Unify Vela playground assets, single-source grammar sync, and single-pass worker execution** [Evidence](docs/assurance/completion-log.md#q25aj-unify-vela-playground-assets-single-source-grammar-sync-and-single-pass-worker-execution)
 - [x] **Q25ak · Close remaining elaboration solver axioms and promote source-bound borrow and mutation-invalidation checking** [Evidence](docs/assurance/completion-log.md#q25ak-close-remaining-elaboration-solver-axioms-and-promote-source-bound-borrow-and-mutation-invalidation-checking)
 - [x] **Q25al · Elaborate consuming ownership (`owned` parameters and `move` transfers), general `in`/`ref` runtime value loans, and closed `effects` footprints (`reads`/`writes`/`calls`)** [Evidence](docs/assurance/completion-log.md#q25al-elaborate-consuming-ownership-owned-parameters-and-move-transfers-general-in-ref-runtime-value-loans-and-closed-effects-footprints-reads-writes-calls)
+
+## Planning basis and scope
+
+- **Effort.** Estimates and ranges are judgments in attended engineering hours,
+  including design, implementation, proofs, review preparation, tests,
+  documentation and initial qualification. The four core estimates and 27
+  extension ranges are allocated once. Keep human effort, summed agent-session
+  wall time and machine time separate. Research estimates use no multiplier
+  from historical actuals or person-month comparisons.
+- **Release scope.** One canonical CHERI-RISC-V profile/ABI, one retained
+  compiler route, the packet validator and a second independently selected
+  client. Windows and Linux host tools are in scope. Resident protocol
+  endpoints and resident compiler rebuilding have separate scopes.
+- **Shared work.** VerifiedOS retains its machine-logic, byte-instance,
+  scoped-resource, compiler, security and admission owners. The
+  [foundation cells](#shared-foundation-and-retained-route) price only residual
+  Vela needs beyond the booked Q35/M1/TAL slices. Summing both projects'
+  estimates would double count shared work. OS algorithms, device design and
+  other whole-system proofs remain with their owners.
+- **Conditional scope.** Optional migrations use the first-party software,
+  proofs, configuration and authored hardware at
+  [VerifiedOS revision 3529ecd](https://github.com/symbiogenesis/VerifiedOS/tree/3529ecd08b8288b004d71766066b0c3367b9cb40)
+  and the Vela implementation at `0354004` as the reuse baseline. Freeze the
+  selected paths, theorem subjects, target features and permitted generated or
+  imported artifacts at entry. Reprice additions. The estimates exclude a new
+  processor, open-ended language growth, a public package registry, interactive
+  proof admission and fabrication or laboratory work.
+- **Stopping and maintenance.** A missing law or exhausted investigation
+  budget stops the dependent slice. Record the result and reprice any remaining
+  work. Proof acceptance requires checked terms and independent review of the
+  intended behavior. Review an upstream's licence at the milestone that would
+  incorporate it under the [licensing rules](COPYRIGHT.md#terms-this-tree-does-not-carry).
+  Release and optional-portfolio maintenance each price one requalification
+  cycle. Record its actual cost and estimate each later cycle separately.
+
+## Current Summary
+
+The estimate covers the supported release, shared prerequisites and conditional
+options. Its percentage measures completed effort across that portfolio. Use
+the [release milestones](#current-execution) to judge readiness.
+
+<!-- estimate-summary:start -->
+| Measure | Value |
+| --- | --- |
+| Total estimate midpoint h | 21,457.9 |
+| Total estimate range h | 11,251.9–31,663.9 |
+| Completed scope h | 571.9 |
+| Complete by estimate % | 2.7 |
+| Remaining h | 20,886 |
+| Open class I h | 2,802 |
+| Open class X h | 18,084 |
+| Retained completion estimate h | 568.5 |
+| Unmeasured completed items | 37 |
+<!-- estimate-summary:end -->
+
+The table counts each checklist leaf once. Completed work contributes actual
+hours where known and its retained estimate otherwise. Open estimates and their
+bounds determine the remaining hours and total range. After a status or estimate
+changes, refresh the table with `python tools/run.py check --fix`.
 
 ## Calibration record (Q25 series)
 
@@ -745,88 +847,3 @@ open until the parent's acceptance conditions are met.
 | Q25dl | X | 1,280 | 640–1,920 | n/a | n/a |
 | Q25dm | X | 1,920 | 960–2,880 | n/a | n/a |
 | Q25dn | X | 640 | 320–960 | n/a | n/a |
-
-## Language core proposals
-
-The [core obligation matrix](docs/language/core-design.md#proof-obligations-and-proposed-work-packages) assigns four deliverables to the synchronous fragment.
-
-| Deliverable | Acceptance |
-| --- | --- |
-| Core interpretation · [Q25as](#q25as) | Prove substitution, preservation, phase separation, authority/effect composition and loan restoration over the supplied machine-resource laws. Check which facts survive a write under the [borrow-analysis rules](docs/language/core-design.md#borrow-analysis-promotion). |
-| Checked frontend · [Q25at](#q25at) | Relate the exact SourcePackage to its interpreted core and erasure. Emit checked arithmetic, loan, capture and effect derivations. Report unknown facts and exhausted analysis budgets explicitly. |
-| Diagnostics · [Q25au](#q25au) | Project those derivations through the existing interaction path. Show a typed hole's exact outstanding proposition and withdraw its status when an input changes. |
-| Repair trial · [Q25av](#q25av) | Interpret `PreparationOpen` and total `finish` on an inhabited carrier. Measure replay and review after semantic, refactor and representation changes using the [composed fixture and its invalid neighbors](docs/language/core-design.md#composed-qualification-fixture). |
-
-### Vela first-release delivery
-
-Use [current execution](#current-execution) to select the next deliverable. Apply the [release boundary](docs/language/first-release.md#release-boundary) and [qualification criteria](docs/language/first-release.md#qualification) at each client's declared endpoint.
-
-- **Packet validator** ([Q25ba](#q25ba)). Reuse the [authored validator](examples/first_slice.vela), source proofs and narrow lowering. Admit its exact bytes once its checked first-client receipts agree with independently expected outputs, restoration and rejection cases. The [first-slice contract](docs/language/first-release.md#first-slice-qualification) identifies the remaining machine and artifact joins.
-- **Independent package trial** ([Q25bb](#q25bb)). Select the second client independently of the first API design. Freeze its behavior, baseline, target envelope and benefit threshold before observing results. Exercise real imports, instances, partial initialization, exhaustion and resource-returning exits. Measure annotations, diagnosis, review, repair, latency and target costs at the same endpoint. Test receiver snapshots on the real client and use explicit Rocq relations for representation changes. Measured friction can justify a [borrow-checker comparison](docs/language/loan-analysis.md#conditional-borrowing-comparison) or [proof-transfer experiment](docs/assurance/workflow-contract.md#representation-transfer-comparison).
-- **Supported release** ([Q25bc](#q25bc)). Reproduce the versioned closure and meet every published contract. Assess feasibility, recurring developer value and adoption separately, charging setup and maintenance and reporting per-case target tradeoffs within hard limits. The [adoption protocol](docs/assurance/workflow-contract.md#first-release-qualification-and-adoption) defines those decisions.
-
-After release, the [bounded async service](docs/extensions/handlers-async.md#first-async-service-qualification) requires its R-08-046 inventory, prose and manifests before runtime implementation. Teach common modes first. The [grading trial](docs/extensions/graded-foundation.md#extension-selection-and-qualification) compares fixed modes and checked trace libraries with a bounded grading increment on its selected client. Other language, tooling and [whole-system options](#vela-whole-system-authoring-proposal) retain their own selection decisions. The release can consume retained Rocq proofs.
-
-#### Remaining Vela ergonomics
-
-Use these contracts to qualify the [selected authoring surface](docs/language/surface-grammar.md#ergonomic-authoring-and-bounded-collection-iteration) on actual clients.
-
-| Behavior to qualify | Owners and checks |
-| --- | --- |
-| Numeric aliases, UTF-8 and bounded formatting | Locked package work can start when checked frontend inputs and frozen module semantics are available ([Q25ax](#q25ax)). After the first slice, qualify [alias identity](docs/language/first-release.md#primitive-semantics) and [raw-string decoding and formatting](docs/language/first-release.md#bytes-and-text) on represented types. Cover exact fit, exhaustion, instance selection and receiver-loan conflicts ([Q25aw](#q25aw)). |
-| Contextual inference | Compare explicit and inferred clients at the same artifact endpoint. Exercise literal boundaries, ambiguous instances and unstable indices under the [inference contract](docs/language/first-release.md#contextual-inference) ([Q25as](#q25as), [Q25at](#q25at)). |
-| Iteration, invariants and bulk relocation | Prove the [represented ownership laws](docs/language/first-release.md#ownership-libraries) for bounded iteration, restoration on every exit, selective invariant lifting and tag-preserving copying into vacant slots followed by ownership transfer. Compare capacities 4 and 10⁹ for equal obligation count and structure after substituting the encoded capacity literal. Forbid per-element unfolding or certificates. Replay both within the predeclared time and output budgets in the [qualification contract](docs/language/first-release.md#qualification). Qualify lowering against independent outputs ([Q25ay](#q25ay), [Q25az](#q25az)). |
-| Borrow-aware editor assistance | Show both conflicting accesses. Check that versioned suggestions preserve evaluation, effects, lifetimes and exit obligations in the [LSP clients](docs/tooling/tooling-protocols.md#language-server-protocol) ([Q25au](#q25au), [Q25ch](#q25ch), [Q25ci](#q25ci)). |
-| Formatting, lints and edit previews | Check idempotence, token/comment preservation, reparse equivalence and refusal of stale edits against the [authoring contract](docs/tooling/authoring-tools.md#qualification) ([Q25ck](#q25ck), [Q25ci](#q25ci)). |
-
-Hosted syntax and consumer qualification uses user-supplied Host CI and applicable Guest CI verdicts for the selected revision. Missing, skipped or canceled runs remain pending.
-
-### Deferred numerical workload selection
-
-`numerical-client-selection` retains the [e-means research candidate](docs/extensions/numerical-workloads.md)
-for a later bounded numerical verification workload. It is outside the priced
-Q25 portfolio and supplies no first-release client or implementation commission.
-
-Revisit when an independently named search-index or quantization-codebook
-consumer has a frozen behavior contract and the required represented arithmetic,
-sequence libraries and compiler joins are qualified. Select and price one bounded
-assignment-and-update pilot, including any separately justified numerical
-semantics work, before dispatch. Accept only under the dossier's
-[bounded pilot contract](docs/extensions/numerical-workloads.md#bounded-pilot-acceptance),
-with independent oracle results, checked source/artifact and resource evidence,
-and separately measured numerical quality and target costs. Missing inputs leave
-this deferred; the synchronous release and its independent package trial retain
-their existing order and scope.
-
-### Vela whole-system authoring proposal
-
-Whole-system authorship is a conditional extension of the supported release.
-For the selected inventory, Vela sources define the operational software,
-reviewed contracts, proofs, ISA and authored hardware. Generated Clight,
-Rocq terms, binaries, simulators and RTL remain valid outputs. Production
-software and its proofs must refer to the same implementation.
-[Whole-system authoring contract](docs/extensions/unified-source-contract.md#authoring-end-state).
-
-Reuse the qualified `vela-parser` baseline. Q25g and Q25i cover the Menhir
-development grammar, and Q25h retired the handwritten pure parser in favor
-of the Rocq-extracted parser. Broader source correspondence belongs to
-`core-frontend`. Vela-authored parsing belongs to the native compiler and
-retirement of its seed dependencies belongs to bootstrap.
-[Parser qualification](docs/tooling/parser.md) and [frontend correspondence](#q25at).
-
-<a id="owner-to-budget-allocation"></a>
-
-| Select an option when | Implementation order and evidence |
-| --- | --- |
-| A named tooling consumer needs more than the qualified host features | Reuse the compiler's source identities and judgments. Indexing needs package resolution, BSP needs a locked build graph, and optimization remarks need actual pass decisions. Native DAP consumes exact-image DWARF and a qualified simulator. Add RSP or GDB/MI only for an engine that needs it. Generated-source maps require a compatible output producer. Each adapter qualifies with its own consumer. [Tooling cells](#tooling-and-metaprogramming) and [protocol contracts](docs/tooling/tooling-protocols.md). |
-| A client needs static evaluation or generated code | Qualify target-aware evaluation, then publish the reviewed descriptor protocol so hygienic construction can start. The codec can finish once it consumes the checked construction interface. Cross-feature clients also need their selected laws and backend. [Metaprogramming cells](#q25cw) and [qualification](docs/extensions/metaprogramming.md#qualification). |
-| A proof package or software component is selected for migration | Proof authorship can start with a checked frontend and reviewed theorem subjects. Software migration needs the accepted release, retained compiler route and component contracts. Qualify each additional component through its final bytes. [Proof authorship](#q25db) and [software migration](#q25dc). |
-| A selected target needs a Vela-authored native compiler | Admit its IR interpretations, then qualify implementation, representation and erasure, optimizations, target construction and composed preservation through exact bytes. Independent held-out consumers and distribution rights qualify the closure. Self-hosting subsequently connects the proved compiler and reviewed seed to its own binaries. [Native compiler](#q25dd) and [bootstrap](#q25dk). |
-| A replacement ISA model or hardware block is selected | Model agreement consumes the pinned Sail term. Block migration can proceed independently with reviewed cycle semantics and a canonical machine interface. Adopt the replacement model atomically across all consumers, including both sides of hardware refinement, and retain historical evidence. [Machine model](#q25dl), [hardware](#q25dm) and [migration gate](docs/extensions/unified-source-contract.md#migration-and-retirement). |
-
-The proof, native compiler and hardware options can progress in parallel once
-their own inputs exist. The current toolchain and model serve each consumer
-until its replacement has the required evidence and amendments. A claim of
-complete single-language authorship covers every in-scope implementation and
-proof. Including the toolchain also requires qualified native compilation and
-bootstrap.
