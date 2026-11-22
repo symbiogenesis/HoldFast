@@ -35,7 +35,7 @@ let generic_call next state lexbuf =
       let inspect input =
         incr state.probe_tokens;
         if !(state.probe_tokens) > Ast.max_generic_probe_tokens then
-          raise (Ast.Refusal ("limit", offset, "generic-call probes exceed 200000 inspected tokens"));
+          raise (Ast.Refusal ("limit", offset, "generic-call probes exceed 200000 inspected tokens. Use F::<T>(...) for explicit generic calls."));
         next probe_state input
       in
       let decision =

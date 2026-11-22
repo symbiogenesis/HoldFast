@@ -820,7 +820,8 @@ bounds, plus a declared aggregate token-inspection budget covering unsuccessful
 and nested probes. Exhaustion is a resource refusal for the whole parse, never
 permission to reinterpret the source as comparisons. No speculative AST or
 token rewrite may leak into a failed probe. The implementation freezes the
-aggregate bound at 200,000 inspected tokens per parse and shares it across
+aggregate bound at 200,000 inspected tokens per parse. Use `F::<T>(...)` to
+bypass the prefix probe at that application. The budget is shared across
 recursive probes, with boundary fixtures before qualification, retaining the
 current source-consumption and diagnostic bounds.
 
