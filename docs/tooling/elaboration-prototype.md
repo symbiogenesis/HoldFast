@@ -235,11 +235,14 @@ The supported increment includes:
   signed or unsigned, Rocq checks all 256 words under the comparison premises
   printed in the theorem. For wider words or two symbolic operands, structural
   lemmas connect the actual bits, comparisons and overflow checks to binary
-  integer arithmetic. These lemmas cover unsigned addition and subtraction,
+  integer arithmetic. These lemmas cover signed and unsigned addition and subtraction,
   signed negation, signed and unsigned division and remainder, right shift and
   wrapping left shift. Operands can be word variables or literals. Guards can
-  compare unsigned operands for order or equality and signed operands for
-  equality or inequality. Signed division checks both a nonzero divisor and
+  compare unsigned operands for order or equality. Signed addition and subtraction
+  also use signed order, equality and inequality guards. Their proofs interpret
+  the sign bit and rule out overflow in the emitted two's-complement operation.
+  Other signed operations can use equality and inequality guards.
+  Signed division checks both a nonzero divisor and
   the minimum-value divided by minus-one case.
   The native qualification applies each source-span theorem to an independent
   statement about the emitted function under its source guards, audits its

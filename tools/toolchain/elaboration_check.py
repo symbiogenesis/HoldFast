@@ -48,6 +48,7 @@ class Fixture:
     observations: tuple[tuple[str, str], ...] = ()
     word_proofs: bool = False
     word_expectations: tuple[tuple[bytes, str], ...] = ()
+    refusal_contains: str = ""
 
 
 def fixtures(example: bytes, word_count: bytes) -> tuple[Fixture, ...]:
@@ -1519,6 +1520,33 @@ definition u16 Left(u16 x, usize c) requires c < 16usize => WrappingShiftLeft(x,
         (b"WrappingShiftLeft(x, c)", f"forall x c, vela_int_lt 4 c {word(4, '0000000000000010')} = true -> "
          "vela_checked_wrap_shl 1 x c = vela_Result_Ok _ _ (vela_d8_Left x c)"),
     ))
+    signed_sums = Fixture("guarded-signed-word-sums", b"""module SignedSums;
+definition i32 Increment(i32 x) requires x < i32.Max => x + 1i32;
+definition i16 Decrement(i16 x) requires x > i16.Min => x - 1i16;
+definition i64 Add(i64 a, i64 b)
+    requires a >= -4000000000i64 requires a <= 4000000000i64
+    requires b >= -6000000000i64 requires b <= 6000000000i64 => a + b;
+definition i32 Difference(i32 x, i32 y) requires x >= 0i32 requires y >= 0i32 => x - y;
+definition i16 Offset(i16 x) requires x == -1i16 => x + -32767i16;
+definition i32 Previous(i32 value) requires value != i32.Min => value + -1i32;
+""", word_proofs=True, word_expectations=(
+        (b"x + 1i32", f"forall x, vela_int_lt 7 x {word(7, '7fffffff')} = true -> "
+         f"vela_int_chk_add 7 x {word(7, '00000001')} = vela_Result_Ok _ _ (vela_d0_Increment x)"),
+        (b"x - 1i16", f"forall x, vela_int_gt 6 x {word(6, '8000')} = true -> "
+         f"vela_int_chk_sub 6 x {word(6, '0001')} = vela_Result_Ok _ _ (vela_d1_Decrement x)"),
+        (b"a + b", f"forall a b, vela_int_ge 8 a {word(8, 'ffffffff1194d800')} = true -> "
+         f"vela_int_le 8 a {word(8, '00000000ee6b2800')} = true -> "
+         f"vela_int_ge 8 b {word(8, 'fffffffe9a5f4400')} = true -> "
+         f"vela_int_le 8 b {word(8, '0000000165a0bc00')} = true -> "
+         "vela_int_chk_add 8 a b = vela_Result_Ok _ _ (vela_d2_Add a b)"),
+        (b"x - y", f"forall x y, vela_int_ge 7 x {word(7, '00000000')} = true -> "
+         f"vela_int_ge 7 y {word(7, '00000000')} = true -> "
+         "vela_int_chk_sub 7 x y = vela_Result_Ok _ _ (vela_d3_Difference x y)"),
+        (b"x + -32767i16", f"forall x, vela_int_eq 6 x {word(6, 'ffff')} = true -> "
+         f"vela_int_chk_add 6 x {word(6, '8001')} = vela_Result_Ok _ _ (vela_d4_Offset x)"),
+        (b"value + -1i32", f"forall x, vela_int_ne 7 x {word(7, '80000000')} = true -> "
+         f"vela_int_chk_add 7 x {word(7, 'ffffffff')} = vela_Result_Ok _ _ (vela_d5_Previous x)"),
+    ))
     wide_refusals = (
         ("wide-add-overflow", "definition u32 Next(u32 x) requires x <= u32.Max => x + 1u32;", "type"),
         ("wide-zero-divisor", "definition i64 Rem(i64 x, i64 d) => x % d;", "type"),
@@ -1526,9 +1554,17 @@ definition u16 Left(u16 x, usize c) requires c < 16usize => WrappingShiftLeft(x,
         ("wide-invalid-count", "definition u64 Right(u64 x, usize c) requires c <= 64usize => ShiftRight(x, c);", "type"),
         ("unreplayed-symbolic-product", "definition u64 Product(u64 x) requires x <= 100u64 => x * 2u64;", "unsupported"),
     )
-    return (arithmetic, symbolic_wide,
+    signed_refusals = (
+        ("signed-increment-at-max", "definition i32 Inc(i32 x) requires x <= i32.Max => x + 1i32;", "addition on 'i32'"),
+        ("signed-decrement-at-min", "definition i16 Dec(i16 x) requires x >= i16.Min => x - 1i16;", "subtraction on 'i16'"),
+        ("signed-negative-add-underflow", "definition i64 Add(i64 x) requires x <= 0i64 => x + -1i64;", "addition on 'i64'"),
+        ("signed-negative-sub-overflow", "definition i32 Sub(i32 x) requires x >= 0i32 => x - -1i32;", "subtraction on 'i32'"),
+    )
+    return (arithmetic, symbolic_wide, signed_sums,
             *(Fixture(name, ("module WordNegative; " + source).encode(), expected, word_proofs=True)
               for name, source, expected in wide_refusals),
+            *(Fixture(name, ("module SignedNegative; " + source).encode(), "type", word_proofs=True,
+                      refusal_contains=f"integer {operation} may overflow") for name, source, operation in signed_refusals),
             Fixture("authored-example", example), Fixture("borrowed-word-count", word_count),
             pure, division, dependent_playground, intervals, span_model, slots, capacity, widths,
             *(Fixture(name, ("module PureNegativeReplay; " + source).encode(), expected, pure=True)
@@ -1747,7 +1783,7 @@ def _case(compiled: vela_parser.Build, case: Fixture, directory: Path, index: in
     except VelaError as error:
         row.update({"category": error.kind, "line": error.line, "column": error.column,
                     "message": error.message})
-        if error.kind != case.expected or case.expected == "accepted":
+        if error.kind != case.expected or case.expected == "accepted" or case.refusal_contains not in error.message:
             raise ValueError(
                 f"Vela replay {case.name}: expected {case.expected}, got {error.kind} "
                 f"at {error.line}:{error.column}: {error.message}"
