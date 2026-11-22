@@ -631,8 +631,9 @@ and an instruction limit one beyond the expected stop. The complete prefix
 of instruction and effect records must agree. The selected controls have unique
 PCs along their execution paths. Calls, returns and trap entries determine
 the available stack frames. Disconnect expires the stop handle. Reconnect
-repeats the stop and issues a fresh handle. Each run has a ten-second deadline
-and a 128 KiB trace limit. Sessions inspect development assembly. Source-level
+repeats the stop and issues a fresh handle. Each run has a ten-second deadline.
+After execution, the backend rejects traces larger than 128 KiB before reading
+them. Sessions inspect development assembly. Source-level
 Vela debugging additionally requires [exact-image debug information](#dwarf-native-debug-information).
 
 Run `python tools/run.py vela-parser debug-simulator --qualify` in a lane with
