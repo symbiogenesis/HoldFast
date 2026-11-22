@@ -75,8 +75,10 @@ The supported increment includes:
   parameters are instantiated in declaration order before their arguments are
   checked, preserving complete telescope substitution. Recursive and direct calls
   check every declared precondition, including quantified propositions. A
-  callable with outstanding preconditions can be passed as an ordinary function
-  through a wrapper that establishes those preconditions for its own domain.
+  callable can be passed as a plain `Fn` when its preconditions hold for fresh,
+  arbitrary arguments of the destination signature. An explicit wrapper can
+  establish a remaining precondition. The signature preserves each parameter's
+  ownership and loan mode. A caller may discard a stronger return guarantee.
 - Mathematical `Nat`, `bool`, `char`, `Unit`, products, decidable structural
   Boolean equality (`==`, `!=`) over `Nat`, `bool`, `char`, `Unit`, fixed-width
   integers, tuples, `Vec<T, n>`, `Seq<T>` and non-dependent nominal `record` and
@@ -131,7 +133,11 @@ The supported increment includes:
   early-exit `let Pattern = expr else { return ...; }` (`let_else`) guards in
   blocks and `assert ... by { ... }` proof blocks, and postfix `expr?`
   early-return propagation over 2-variant `Option<T>` (`None`, `Some(v)`) and
-  `Result<T, E>` (`Err(e)`, `Ok(v)`) unions. Propagation inside the right
+  `Result<T, E>` (`Err(e)`, `Ok(v)`) unions. The elaborator records the
+  success and failure cases on the resolved type declaration. An alias retains
+  this capability. A differently named union with similar constructors has its
+  own identity. Checked arithmetic always produces the built-in result type.
+  Propagation inside the right
   operand of `&&` or `||` remains under that operand's Boolean guard:
   `Some(false && absent?)` returns `Some(false)` and
   `Some(true || absent?)` returns `Some(true)` when `absent` is `None`.
@@ -153,7 +159,8 @@ The supported increment includes:
   another definition. A fully applied call can discharge those positions with
   a named function checked to have empty effects, or with a capture-free
   lambda over its parameters, literals and built-in operators. An explicit
-  caller bound can instead name the actual callback parameter. Unresolved
+  caller bound can name the actual callback parameter. Naming a higher-order
+  helper also requires accounting for each callback supplied to it. Unresolved
   indirect calls, record or interface dispatch, and invocation of a returned
   callable require a separate checked bound. Exported functions, including
   `const` functions callable at runtime, keep their published bounds.
@@ -162,9 +169,10 @@ The supported increment includes:
   and inferred or annotated locals through aliases, overwrites, branches, early
   `?` exits and returns. A constructor test or match examines a result; a return
   or by-value call forwards it. Proof-only assertions give no runtime handling
-  credit. Represented nested result fields, generic ability constraints and
-  complete resource accounting across separately compiled interfaces remain
-  release obligations.
+  credit. Record fields and tuple components carry separate obligations. An
+  exhaustive union match transfers obligations to the selected payload
+  bindings. Generic ability constraints and complete resource accounting
+  across separately compiled interfaces remain release obligations.
 - Nominal `record Name(T1 Field1, ...)` and `union Name { Case1(...); ... }`
   declarations with primary-constructor fields and tagged sum variants (lowering
   non-dependent field telescopes to `@Corelib.Init.Datatypes.prod` and dependent

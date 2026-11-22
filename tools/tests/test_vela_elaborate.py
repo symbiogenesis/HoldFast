@@ -1587,6 +1587,7 @@ def _holes_unsupported_and_hygiene() -> None:
     fixture.definition("Use", _NAT, (), _call("vela_d1_Later"))
     source, response = fixture.response()
     elaborate(source, response)
+
     wrong = _Fixture()
     wrong.definition("Value", _NAT, (), _natural(1))
     wrong.definition("Hidden", _NAT, (), _call("vela_d0_Value"))
@@ -3087,6 +3088,19 @@ def _early_return_propagation() -> None:
     bad_ret.definition("Wrong", _NAT, (("x", _type("Option", _NAT)),), _propagate(_variable("x")))
     _refuses(bad_ret, "type", "enclosing callable")
 
+    foreign = _Fixture("ForeignPropagation")
+    foreign.union("Widget", (("Err", (("Error", _NAT),)), ("Ok", (("Value", _NAT),))))
+    foreign.definition("Wrong", _type("Widget"), (("w", _type("Widget")),),
+                       _call("Ok", _propagate(_variable("w"))))
+    _refuses(foreign, "type", "standard Option or Result")
+
+    shadow = _Fixture("ShadowedArithmeticResult")
+    shadow.alias("SumResult", _type("Result", _type("u32"), _type("ArithmeticError")))
+    shadow.record("Result", (("Code", _NAT),))
+    shadow.function("Probe", _type("SumResult"), (),
+                    _call(_member(_variable("u32"), "CheckedAdd"), _int_lit("1", "u32"), _int_lit("2", "u32")))
+    elaborate(*shadow.response())
+
 
 def _short_circuit_propagation() -> None:
     fixture = _Fixture("ShortCircuitPropagation")
@@ -4312,6 +4326,19 @@ def _record_invariants_and_selective_lifting() -> None:
     )
     _refuses(unknown_clause, "name", "Missing")
 
+    immutable = _Fixture("ImmutableInvariantOwner")
+    immutable.record("Cell", (("Value", _NAT),), contracts=(
+        _invariant_contract(_binary("<=", _variable("Value"), _natural(10)), "Bounded"),
+    ))
+    immutable.function("Change", _NAT, (), _block_stmts(
+        _let_stmt("cell", _call("Cell", _natural(1))),
+        _open_lifts((_ref_arg(_variable("cell")),), ("Bounded",), (
+            _assign_stmt(_member(_variable("cell"), "Value"), "=", _natural(9)),
+        )),
+        _return_stmt(_member(_variable("cell"), "Value")),
+    ), block=True)
+    _refuses(immutable, "type", "immutable binding 'cell'")
+
     # Structured task scopes keep the `scope` keyword; they are design-only syntax.
     task_scope = _Fixture("TaskScopeIsNotInvariantLifting")
     task_scope.record(
@@ -4361,6 +4388,49 @@ def _mandatory_result_use() -> None:
                      block=True)
     source, response = fixture.response()
     elaborate(source, response)
+
+    generic = _Fixture("GenericVerdictDiscard")
+    generic.function("Lose", _NAT, (("item", _type("T")),), _natural(0), generics=(("type", "T", None),))
+    generic.function("Bad", _NAT, (("outcome", result),), _call("Lose", outcome))
+    _refuses(generic, "type", "without a checked verdict parameter")
+
+    for discards in (True, False):
+        wrapped = _Fixture("WrappedVerdict")
+        wrapped.union("Message", (("Pending", (("Value", result),)), ("Done", ())))
+        wrapped.function("Inspect", _BOOL, (("message", _type("Message")),), _match_expr(_variable("message"), (
+            (_pat_ctor("Pending", _pat_wild() if discards else _pat_bind("stored")),
+             _boolean(True) if discards else _is_expr(_variable("stored"), _pat_ctor("Ok", _pat_wild()))),
+            (_pat_ctor("Done"), _boolean(False)),
+        )))
+        if discards:
+            _refuses(wrapped, "type", "unexamined Result in wildcard pattern")
+        else:
+            elaborate(*wrapped.response())
+
+    for ignores_second in (True, False):
+        fields = _Fixture("VerdictFields")
+        fields.record("Envelope", (("First", result), ("Second", result)))
+        fields.function("Inspect", _BOOL, (("e", _type("Envelope")),), _block_stmts(
+            _let_stmt("first", _is_expr(_member(_variable("e"), "First"), _pat_ctor("Ok", _pat_wild()))),
+            _return_stmt(_variable("first") if ignores_second else
+                         _is_expr(_member(_variable("e"), "Second"), _pat_ctor("Ok", _pat_wild()))),
+        ), block=True)
+        if ignores_second:
+            _refuses(fields, "type", "unexamined Result 'e.Second'")
+        else:
+            elaborate(*fields.response())
+
+    for discards in (True, False):
+        pair = _Fixture("TupleVerdict")
+        pair.function("Inspect", _BOOL, (("pair", _tuple(result, _NAT, types=True)),),
+                      _let_pattern(_pat_tuple(_pat_wild() if discards else _pat_bind("verdict"), _pat_wild()),
+                                   _variable("pair"), _boolean(True) if discards else
+                                   _is_expr(_variable("verdict"), _pat_ctor("Ok", _pat_wild())), block=True),
+                      block=True)
+        if discards:
+            _refuses(pair, "type", "unexamined Result in wildcard binding")
+        else:
+            elaborate(*pair.response())
 
 
 def _slot_predicates_preserve_authority() -> None:
@@ -6528,6 +6598,19 @@ def _call_modes_and_field_writeback() -> None:
 
 
 def _owned_aggregate_copy() -> None:
+    generic = (("type", "T", None),)
+    abstract = _type("T")
+    duplicate = _Fixture("GenericDuplicate")
+    duplicate.record("Both", (("First", abstract), ("Second", abstract)), generics=generic)
+    duplicate.function("Dup", _type("Both", abstract), (("x", _modified("owned", abstract)),),
+                       _call("Both", _variable("x"), _variable("x"), generics=(abstract,)), generics=generic)
+    _refuses(duplicate, "type", "owned fields")
+
+    transfer = _Fixture("GenericTransfer")
+    transfer.function("Relay", abstract, (("x", _modified("owned", abstract)),),
+                      _move_arg(_variable("x")), generics=generic)
+    elaborate(*transfer.response())
+
     for moved in (False, True):
         f = _Fixture("OwnedAggregate")
         f.record("Asset", (("Id", _modified("owned", _type("u32"))),))
@@ -6918,6 +7001,36 @@ def _consuming_ownership_general_loans_and_closed_effects() -> None:
         contracts=(_effects_clause(_variable("none")),),
     )
     _refuses(missing_call_effect, "type", "not declared in effects calls(...)")
+
+    callback = _function_type((("n", _NAT),), _NAT)
+    calls_apply = _call("calls", _variable("Apply"))
+    for declares_callback in (False, True):
+        adaptation = _Fixture("CallbackEffectSubstitution")
+        adaptation.definition("Apply", _type("T"), (
+            ("f", _function_type((("value", _type("T")),), _type("T"))), ("value", _type("T")),
+        ), _call("f", _variable("value")), (("type", "T", None),))
+        allowed = (calls_apply, _call("calls", _variable("cb"))) if declares_callback else (calls_apply,)
+        adaptation.function("Forward", _NAT, (("cb", callback),),
+                            _call("Apply", _variable("cb"), _natural(1)), contracts=(_effects_clause(*allowed),))
+        if declares_callback:
+            elaborate(*adaptation.response())
+        else:
+            _refuses(adaptation, "type", "transitively invokes 'cb'")
+
+    for universal in (False, True):
+        adapter = _Fixture("CallbackRequires")
+        adapter.function("Checked", _NAT, (("x", _NAT),), _variable("x"),
+                         contracts=(_contract("requires", _binary("==" if universal else "<", _variable("x"), _variable("x"))),))
+        adapter.function("AsFn", callback, (), _variable("Checked"))
+        if universal:
+            elaborate(*adapter.response())
+        else:
+            _refuses(adapter, "type", "callback precondition is stronger")
+
+    mode = _Fixture("CallbackMode")
+    mode.function("Consume", _NAT, (("n", _modified("owned", _NAT)),), _variable("n"))
+    mode.function("AsFn", callback, (), _variable("Consume"))
+    _refuses(mode, "type", "ownership or loan modes differ")
 
 
 def _unbounded_naturals() -> None:

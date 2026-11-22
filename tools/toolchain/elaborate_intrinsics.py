@@ -4,6 +4,7 @@
 from typing import TYPE_CHECKING, cast
 
 from toolchain import loans
+from toolchain.ast import VelaError
 from toolchain.elaborate_types import (
     _BOOL,
     _CHAR,
@@ -1882,8 +1883,8 @@ class _IntrinsicsMixin:
             "CheckedRem": "chk_rem",
         }
         is_checked = name.startswith("Checked")
-        ae_const = _constant(self.unions["ArithmeticError"].type_const)
-        res_const = _constant(self.unions["Result"].type_const)
+        ae_const = _constant("vela_ArithmeticError")
+        res_const = _constant("vela_Result")
         if name in unary_ops:
             if receiver is not None:
                 if val_nodes:
@@ -2010,8 +2011,26 @@ class _IntrinsicsMixin:
             requirements = self.var_preconditions.get(cast("int", head.value), [])
         else:
             return binding
-        if any(len(supplied) < len(parameters) for parameters, _ in requirements):
-            raise self.fail("type", "a callable with pending preconditions requires a direct call or a checked wrapper", node)
+        for parameters, requirement in requirements:
+            if len(supplied) >= len(parameters):
+                continue
+            remaining = self.whnf(binding.type)
+            values = list(supplied)
+            for _ in parameters[len(supplied):]:
+                if remaining.kind != "pi":
+                    raise self.fail("type", "callable adaptation requires a complete parameter telescope", node)
+                fresh = self.fresh(remaining.args[0])
+                values.append(fresh)
+                remaining = self.whnf(self.substitute(remaining.args[1], cast("int", remaining.value), fresh))
+            instantiated = requirement
+            for parameter, argument in zip(parameters, values, strict=True):
+                instantiated = self.substitute(instantiated, parameter, argument)
+            try:
+                self._check_precondition_term(instantiated, environment, node)
+            except VelaError as error:
+                if error.kind != "type":
+                    raise
+                raise self.fail("type", "callback precondition is stronger than the Fn signature: use a checked wrapper", node) from error
         return binding
 
     def _expression(
@@ -2094,11 +2113,13 @@ class _IntrinsicsMixin:
                 if full_path in self.union_ctors and not self.union_ctors[full_path][1].fields:
                     return self.apply(self.lookup(full_path, environment), [], environment)
                 return self.lookup(full_path, environment)
-            return self._project_member(
-                self.expression(recv_node, environment),
-                member_name,
-                node,
-            )
+            receiver = self.expression(recv_node, environment)
+            if self.in_executable_function and self._dotted_member_path(self._unwrap_group(recv_node)) is None:
+                paths = self._result_paths("", receiver.type)
+                selected = f".{member_name}"
+                if any(path != selected and not path.startswith(selected + ".") for path in paths):
+                    raise self.fail("type", "unexamined Result in temporary receiver: bind it before selecting a field", recv_node)
+            return self._project_member(receiver, member_name, node)
         if kind in {"name", "operator"}:
             name = self.operator(node["name"]) if kind == "operator" else self.name(node["name"])
             if kind == "name" and name in self.uninitialized_out_params:
@@ -2238,8 +2259,8 @@ class _IntrinsicsMixin:
                                     "'char.From' requires a byte/u8 or char operand; use 'char.TryFrom' for u32 or Nat",
                                     node,
                                 )
-                            res_const = _constant(self.unions["Result"].type_const)
-                            ce_const = _constant(self.unions["ConversionError"].type_const)
+                            res_const = _constant("vela_Result")
+                            ce_const = _constant("vela_ConversionError")
                             ret_type = _apps(res_const, _CHAR, ce_const)
                             src_spec = self._int_spec(src_w)
                             if src_spec is not None and src_spec.name == "u32":
@@ -2282,8 +2303,8 @@ class _IntrinsicsMixin:
                                     _app(_constant(f"int_from_{src_spec.name}_{dst_spec.name}"), src_b.term),
                                     dst_spec.const,
                                 )
-                            res_const = _constant(self.unions["Result"].type_const)
-                            ce_const = _constant(self.unions["ConversionError"].type_const)
+                            res_const = _constant("vela_Result")
+                            ce_const = _constant("vela_ConversionError")
                             ret_type = _apps(res_const, dst_spec.const, ce_const)
                             if src_spec is not None:
                                 return _Binding(

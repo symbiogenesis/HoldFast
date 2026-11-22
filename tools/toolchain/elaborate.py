@@ -145,7 +145,8 @@ class _Elaborator(
         self.inferred_effect_calls: set[str] | None = None
         self.runtime_reads: set[str] = set()
         self.runtime_writes: set[str] = set()
-        self.result_bindings: dict[int, str] = {}
+        self.result_bindings: dict[int, set[str]] = {}
+        self.checked_result_consumers: set[str] = set()
         self.untracked_effect_functions: set[str] = set()
         self.active_effect_calls: set[str] | None = None
         self.callable_ensures: dict[
@@ -690,6 +691,7 @@ class _Elaborator(
             (tv_var, te_var),
             (err_ctor, ok_ctor),
             (res_rep, tv_var),
+            propagation=(1, 0),
         )
         self.unions["Result"] = res_info
         self.unions_by_type[res_type_const] = res_info
@@ -699,9 +701,9 @@ class _Elaborator(
         self.unions_by_ctor[ok_const] = (res_info, ok_ctor)
 
     def _register_int_constants(self) -> None:
-        ae_const = _constant(self.unions["ArithmeticError"].type_const)
-        ce_const = _constant(self.unions["ConversionError"].type_const)
-        res_const = _constant(self.unions["Result"].type_const)
+        ae_const = _constant("vela_ArithmeticError")
+        ce_const = _constant("vela_ConversionError")
+        res_const = _constant("vela_Result")
         res_char_conv = _apps(res_const, _CHAR, ce_const)
         byte_sequence = _app(_constant("Seq"), _NAT)
         self.constants["char_try_from_u32"] = _Binding(
@@ -878,6 +880,11 @@ class _Elaborator(
                 and (cast("int", left.value) in self.constant_parameters)
                 != (cast("int", right.value) in self.constant_parameters)):
             raise self.fail("type", "callable constant-parameter requirements differ")
+        if left.kind == right.kind == "pi" and any(
+            (cast("int", left.value) in mode) != (cast("int", right.value) in mode)
+            for mode in (self.readonly_span_vars, self.ref_parameters, self.out_parameters, self.owned_parameters)
+        ):
+            raise self.fail("type", "callable parameter ownership or loan modes differ")
         if left == right:
             return
         # Decimal literals abbreviate constructor chains; expose one successor
@@ -1193,6 +1200,31 @@ class _Elaborator(
     def _is_result(self, value_type: _Term) -> bool:
         return self.spine(self.whnf(value_type))[0] == _constant("vela_Result")
 
+    def _result_paths(self, name: str, value_type: _Term) -> set[str]:
+        """Return the verdict obligations transferred by a whole-value use."""
+        self.tick()
+        value_type = self.whnf(value_type)
+        head, args = self.spine(value_type)
+        if head == _constant("vela_Result"):
+            nested = any(self._result_paths("", arg) for arg in args)
+            return {name, f"{name}.*"} if nested else {name}
+        if value_type.kind == "prod":
+            return {path for i, part in enumerate(value_type.args)
+                    for path in self._result_paths(f"{name}.{i + 1}", part)}
+        if head.kind != "const":
+            return set()
+        if record := self.records_by_type.get(str(head.value)):
+            return {path for field in record.fields for path in self._result_paths(
+                f"{name}.{field.name}", self._instantiate_generic_type(record.generic_vars, args, field.type),
+            )}
+        if union := self.unions_by_type.get(str(head.value)):
+            carries = any(self._result_paths(name, self._instantiate_generic_type(union.generic_vars, args, field.type))
+                          for ctor in union.constructors for field in ctor.fields)
+            return {f"{name}.*"} if carries else set()
+        if head.value in {"Vec", "Seq"} and args and self._result_paths(name, args[0]):
+            return {f"{name}.*"}
+        return set()
+
     def _owns_fields(self, value_type: _Term) -> bool:
         self.tick()
         value_type = self.whnf(value_type)
@@ -1200,7 +1232,8 @@ class _Elaborator(
             return any(self._owns_fields(t) for t in value_type.args)
         head, args = self.spine(value_type)
         if head.kind != "const":
-            return False
+            # An abstract type can be instantiated with an affine aggregate.
+            return head.kind in {"var", "meta"}
         name = str(head.value)
         record = self.records_by_type.get(name)
         union = self.unions_by_type.get(name)
@@ -1318,7 +1351,7 @@ class _Elaborator(
         named_in_bound = bound is not None and (name in bound or name.split(".")[-1] in bound)
         if bound is not None and callee in self.untracked_effect_functions and not named_in_bound:
             raise self.fail("type", f"callable invokes function '{name}' not declared in effects calls(...)", site)
-        required = set(self.callable_effect_calls.get(callee, ()))
+        required = set() if named_in_bound else set(self.callable_effect_calls.get(callee, ()))
         for index in self.callable_callback_effects.get(callee, set()):
             if self._pure_callback(arguments[index], terms[index]):
                 continue
@@ -1337,7 +1370,7 @@ class _Elaborator(
                 raise self.fail("unsupported", "callback effects require a known callable or a checked pure lambda", site)
         if collecting is not None:
             collecting.update(required)
-        if bound is not None and not named_in_bound and (missing := sorted(required - bound)):
+        if bound is not None and (missing := sorted(required - bound)):
             raise self.fail("type", f"callable transitively invokes '{missing[0]}' via '{name}' not declared in effects calls(...)", site)
 
     def apply(self, binding: _Binding, arguments: list[Node], environment: dict[str, _Binding]) -> _Binding:
@@ -1366,6 +1399,7 @@ class _Elaborator(
         loan_targets: dict[int, tuple[Node, _Term]] = {}
         indices: dict[int, _Term] = {}
         by_value: list[tuple[Node, _Term]] = []
+        transferred: list[tuple[Node, _Term]] = []
         seen_loan_names: set[str] = set()
         all_arg_var_names: set[str] = set()
         out_loan_names: set[str] = set()
@@ -1429,6 +1463,8 @@ class _Elaborator(
                 self._check_argument_mode(mode, arg_mod, node)
                 if mode is None and self.in_executable_function:
                     by_value.append((node, value_type.args[0]))
+                if mode in {None, "owned"} and self.in_executable_function:
+                    transferred.append((node, value_type.args[0]))
                 if arg_val_node["kind"] == "out_variable":
                     argument = self.fresh(value_type.args[0])
                     loan_targets[idx] = (arg_val_node, value_type.args[0])
@@ -1536,6 +1572,14 @@ class _Elaborator(
         for arg_node, arg_type in by_value:
             if self._owns_fields(arg_type):
                 raise self.fail("type", "passing a value with owned fields requires an owned parameter and explicit move", arg_node)
+        if transferred:
+            callee = str(callee_head.value)
+            constructor = callee_head.kind == "const" and (callee in self.records_by_ctor or callee in self.unions_by_ctor)
+            if not constructor:
+                for site, domain in transferred:
+                    if self._result_paths("", domain) and (callee not in self.checked_result_consumers
+                            or any(self._result_paths("", arg) for arg in callee_gen_args)):
+                        raise self.fail("type", "unexamined Result passed to a callable without a checked verdict parameter", site)
         if (
             callee_head.kind == "const"
             and isinstance(callee_head.value, str)

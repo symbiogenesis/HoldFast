@@ -262,6 +262,7 @@ class _PatternsMixin:
         *,
         smaller_roots: frozenset[int] = frozenset(),
         destruct_roots: frozenset[int] = frozenset(),
+        track_verdicts: bool = False,
     ) -> _Term:
         self.tick()
         self.site = pat.node
@@ -285,6 +286,8 @@ class _PatternsMixin:
                         start = cast("list[int]", pat.node["span"])[0]
                         self.constructor_suggestions[start] = spelling
                         break
+            if track_verdicts and not pat.names and self._result_paths("", expected_type):
+                raise self.fail("type", "unexamined Result in wildcard pattern", pat.node)
             if bound_var is not None:
                 return bound_var
             fresh_w = self.fresh(expected_type)
@@ -364,7 +367,7 @@ class _PatternsMixin:
                 for j in range(idx):
                     ftype = self.substitute(ftype, cast("int", record_info.fields[j].var.value), sub_terms[j])
                 sub_terms.append(
-                    self._typecheck_pattern(sub_pat, ftype, environment, pattern_bindings)
+                    self._typecheck_pattern(sub_pat, ftype, environment, pattern_bindings, track_verdicts=track_verdicts)
                 )
             if not sub_terms:
                 return _apps(_constant(record_info.ctor_const), *type_args, _term("unit"))
@@ -380,7 +383,7 @@ class _PatternsMixin:
                 for j in range(idx):
                     ftype = self.substitute(ftype, cast("int", ctor_info.fields[j].var.value), sub_terms[j])
                 sub_terms.append(
-                    self._typecheck_pattern(sub_pat, ftype, environment, pattern_bindings)
+                    self._typecheck_pattern(sub_pat, ftype, environment, pattern_bindings, track_verdicts=track_verdicts)
                 )
             if not sub_terms:
                 return _apps(_constant(ctor_info.ctor_const), *type_args, _term("unit"))
@@ -394,8 +397,8 @@ class _PatternsMixin:
                 resolved = self.whnf(expected_type)
             if resolved.kind != "prod":
                 raise self.fail("type", "tuple pattern requires a product scrutinee", pat.node)
-            left_t = self._typecheck_pattern(pat.args[0], resolved.args[0], environment, pattern_bindings)
-            right_t = self._typecheck_pattern(pat.args[1], resolved.args[1], environment, pattern_bindings)
+            left_t = self._typecheck_pattern(pat.args[0], resolved.args[0], environment, pattern_bindings, track_verdicts=track_verdicts)
+            right_t = self._typecheck_pattern(pat.args[1], resolved.args[1], environment, pattern_bindings, track_verdicts=track_verdicts)
             return _term("pair", resolved.args[0], resolved.args[1], left_t, right_t)
         raise self.fail("protocol", f"unexpected internal pattern '{pat.kind}'", pat.node)
 
@@ -405,10 +408,16 @@ class _PatternsMixin:
         for child in pat.args:
             self._require_irrefutable(child)
 
-    def _bind_irrefutable(self: _Elaborator, pat: _Pat, current: _Binding, extended: dict[str, _Binding]) -> None:
+    def _bind_irrefutable(self: _Elaborator, pat: _Pat, current: _Binding, extended: dict[str, _Binding],
+                          result_paths: set[str] | None = None) -> None:
         self.site = pat.node
+        if (result_paths is not None and pat.kind == "wild" and not pat.names
+                and self._result_paths("", current.type)):
+            raise self.fail("type", "unexamined Result in wildcard binding", pat.node)
         for name in pat.names:
             self.bind_local(extended, name, current)
+            if result_paths is not None:
+                result_paths.update(self._result_paths(name, current.type))
         if pat.kind == "record":
             rec_type = self.whnf(current.type)
             _, type_args = self.spine(rec_type)
@@ -416,14 +425,14 @@ class _PatternsMixin:
             for idx, (sub_pat, rf) in enumerate(zip(pat.args, record_info.fields, strict=True)):
                 ftype = self._instantiate_record_field_type(record_info, type_args, idx, current.term)
                 fterm = _apps(_constant(rf.proj_const), *type_args, current.term)
-                self._bind_irrefutable(sub_pat, _Binding(fterm, ftype), extended)
+                self._bind_irrefutable(sub_pat, _Binding(fterm, ftype), extended, result_paths)
         elif pat.kind == "pair":
             prod_type = self.whnf(current.type)
             left_type, right_type = prod_type.args
             left_term = _apps(_constant("Fst"), left_type, right_type, current.term)
             right_term = _apps(_constant("Snd"), left_type, right_type, current.term)
-            self._bind_irrefutable(pat.args[0], _Binding(left_term, left_type), extended)
-            self._bind_irrefutable(pat.args[1], _Binding(right_term, right_type), extended)
+            self._bind_irrefutable(pat.args[0], _Binding(left_term, left_type), extended, result_paths)
+            self._bind_irrefutable(pat.args[1], _Binding(right_term, right_type), extended, result_paths)
 
     def _collect_pat_names(self: _Elaborator, pat: _Pat, out: set[str]) -> None:
         for name in pat.names:
@@ -600,14 +609,13 @@ class _PatternsMixin:
             self._check_value_copy(self.node(node["value"]), binding.type)
             pat = self._parse_pattern(self.node(node["pattern"]), set())
             self._require_irrefutable(pat)
-            if self.in_executable_function and self._is_result(binding.type):
-                if not pat.names:
-                    raise self.fail("type", "unexamined Result in wildcard binding", node)
-                self.result_bindings[id(node)] = pat.names[0]
             self._typecheck_pattern(pat, binding.type, environment)
             extended = dict(environment)
             self._consume_call_updates(extended, node)
-            self._bind_irrefutable(pat, binding, extended)
+            result_paths: set[str] | None = set() if self.in_executable_function else None
+            self._bind_irrefutable(pat, binding, extended, result_paths)
+            if result_paths is not None and result_paths:
+                self.result_bindings[id(node)] = result_paths
             bound_names: set[str] = set()
             self._collect_pat_names(pat, bound_names)
             for bname in bound_names:
@@ -678,8 +686,8 @@ class _PatternsMixin:
         extended = dict(environment)
         self._consume_call_updates(extended, node)
         bname = self.name(node["name"])
-        if self.in_executable_function and self._is_result(binding.type):
-            self.result_bindings[id(node)] = bname
+        if self.in_executable_function and (paths := self._result_paths(bname, binding.type)):
+            self.result_bindings[id(node)] = paths
         if bname in self.frozen_collections:
             raise self.fail("type", f"cannot rebind collection '{bname}' while iterating over it", node)
         self.local_borrows.pop(bname, None)
@@ -745,6 +753,11 @@ class _PatternsMixin:
                 ]
             )
         cases = self.nodes(node["cases"])
+        nested_verdicts = self.in_executable_function and bool(self._result_paths("", scrutinee.type) - {""})
+        if nested_verdicts and synthetic:
+            raise self.fail("type", "unexamined Result in a pattern test: use an exhaustive match to handle each payload", value_node)
+        if nested_verdicts:
+            self.result_bindings[id(node)] = set()
         rows: list[_Row] = []
         arm_pattern_bindings: list[dict[str, _Binding]] = []
         for arm_index, arm in enumerate(cases):
@@ -758,7 +771,12 @@ class _PatternsMixin:
                 bindings_for_arm,
                 smaller_roots=scrut_smaller_roots,
                 destruct_roots=scrut_destruct_roots,
+                track_verdicts=nested_verdicts,
             )
+            if nested_verdicts:
+                self.result_bindings[id(arm["pattern"])] = {
+                    path for name, binding in bindings_for_arm.items() for path in self._result_paths(name, binding.type)
+                }
             arm_pattern_bindings.append(bindings_for_arm)
             rows.append(_Row((pat,), (), arm, arm_index))
         if (self.in_executable_function and not synthetic and self._is_result(scrutinee.type)
