@@ -28,6 +28,7 @@ from toolchain import (
 )
 from toolchain.ast import MAX_SOURCE_BYTES, MAX_SYNTAX_DEPTH, VelaError
 from toolchain.atomic import atomic_path
+from toolchain.hashing import file_sha256 as _digest
 from toolchain.jsonutil import exceeds_nesting, finite_float, unique_object
 
 type Json = bool | int | float | str | list[Json] | dict[str, Json] | None
@@ -50,10 +51,6 @@ class Build:
     directory: Path
     executable: Path
     receipt: dict[str, object]
-
-
-def _digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def bytecode_interpreter(executable: Path) -> Path:
@@ -123,6 +120,7 @@ def _toolchain(root: Path) -> dict[str, object]:
 def _inputs(root: Path) -> dict[str, str]:
     paths = [f"tools/toolchain/parser/{name}" for name in SOURCES]
     paths.extend(("tools/opam/sail.lock", "tools/toolchain/parser.py", "tools/toolchain/surface.py",
+                  "tools/toolchain/hashing.py", "tools/toolchain/jsonutil.py",
                   "examples/pure.vela", "examples/surface.vela",
                   "examples/constants.vela", "examples/expressions.vela"))
     return {name: _digest(root / name) for name in paths}

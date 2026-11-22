@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """ECMA-426 export and independent lookup for generated mathematical Gallina."""
 
-import hashlib
 import json
 import subprocess
 import sys
@@ -13,6 +12,8 @@ from urllib.parse import quote
 
 from toolchain import elaborate, parser
 from toolchain.elaborate_types import GallinaOrigin
+from toolchain.hashing import file_sha256 as _file_digest
+from toolchain.hashing import sha256_bytes
 from toolchain.inspection import compiler_dependency_hashes
 
 GALLINA = "module.v"
@@ -36,15 +37,6 @@ process.stdout.write(JSON.stringify({ version: process.version, sites }));
 
 def _encode(value: object) -> bytes:
     return (json.dumps(value, ensure_ascii=True, separators=(",", ":"), sort_keys=True) + "\n").encode("ascii")
-
-
-def _digest(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
-
-
-def _file_digest(path: Path) -> str:
-    with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
 def _vlq(delta: int) -> str:
@@ -84,13 +76,13 @@ def _source_map(name: str, source: bytes, gallina: str, origins: list[GallinaOri
                 end = len(content.encode("utf-16-le")) // 2
                 mappings[i] = "AA" + _vlq(line - previous_line) + _vlq(column - previous_column) + "," + _vlq(end)
                 previous_line, previous_column = line, column
-    embedded_uri = f"vela-source://sha256/{_digest(source)}/{quote(name, safe='')}"
+    embedded_uri = f"vela-source://sha256/{sha256_bytes(source)}/{quote(name, safe='')}"
     return _encode({"version": 3, "file": GALLINA, "sources": [embedded_uri], "names": [],
                     "sourcesContent": [source.decode()], "mappings": ";".join(mappings)})
 
 
 def _producer(compiled: parser.Build) -> dict[str, str]:
-    return {"compiler_sha256": _digest(_encode(compiler_dependency_hashes())),
+    return {"compiler_sha256": sha256_bytes(_encode(compiler_dependency_hashes())),
             "python": sys.version, "python_sha256": _file_digest(Path(sys.executable)),
             "parser_sha256": _file_digest(compiled.executable), "ocamlrun_sha256": parser.interpreter_digest(compiled)}
 
@@ -105,8 +97,8 @@ def _compile(compiled: parser.Build, path: Path) -> dict[str, bytes]:
     source_map = _source_map(path.name, source, result.gallina, origins)
     manifest = _encode({"schema": 1, "target": "rocq-gallina", "edition": "ECMA-426:2024",
                         "options": {"require_word_proofs": True}, "producer": producer,
-                        "source": path.name, "source_sha256": _digest(source), "gallina_sha256": _digest(gallina),
-                        "map_sha256": _digest(source_map), "origins": [asdict(origin) for origin in origins]})
+                        "source": path.name, "source_sha256": sha256_bytes(source), "gallina_sha256": sha256_bytes(gallina),
+                        "map_sha256": sha256_bytes(source_map), "origins": [asdict(origin) for origin in origins]})
     if producer != _producer(compiled) or source != parser.read_source(path):
         raise ValueError("inputs changed during source map generation")
     return {GALLINA: gallina, MAP: source_map, MANIFEST: manifest}
@@ -123,12 +115,12 @@ def export(root: Path, source: Path, destination: Path) -> dict[str, str]:
             raise ValueError("source map export requires a new directory")
         _current(files, compiled, source)
         pending.rename(destination)
-    return {"status": "mapped", "directory": str(destination), "manifest_sha256": _digest(files[MANIFEST])}
+    return {"status": "mapped", "directory": str(destination), "manifest_sha256": sha256_bytes(files[MANIFEST])}
 
 
 def _current(files: dict[str, bytes], compiled: parser.Build, source: Path) -> None:
     manifest = json.loads(files[MANIFEST])
-    if _producer(compiled) != manifest["producer"] or _digest(parser.read_source(source)) != manifest["source_sha256"]:
+    if _producer(compiled) != manifest["producer"] or sha256_bytes(parser.read_source(source)) != manifest["source_sha256"]:
         raise ValueError("source map inputs changed before handoff")
 
 

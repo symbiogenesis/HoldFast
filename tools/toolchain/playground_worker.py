@@ -16,6 +16,7 @@ from toolchain import (
     mathematical as vela_mathematical,
 )
 from toolchain.authoring import lint_source, preview_bindings
+from toolchain.hashing import file_sha256
 from toolchain.protocol_json import MAX_BODY_BYTES, decode_message, encode_body
 
 
@@ -72,7 +73,7 @@ def compile_request(request: dict[str, object], *, mathematical_parser: Path) ->
 
 
 def require_parser(parser: Path, digest: str) -> None:
-    if hashlib.sha256(parser.read_bytes()).hexdigest() != digest:
+    if file_sha256(parser) != digest:
         raise ValueError("prepared mathematical parser is unavailable or changed")
 
 

@@ -15,6 +15,7 @@ from typing import cast
 import toolchain as vela
 from toolchain import parser as vela_parser
 from toolchain.atomic import atomic_path
+from toolchain.hashing import file_sha256
 
 
 @dataclass(frozen=True)
@@ -299,7 +300,7 @@ def _inputs(root: Path) -> dict[str, str]:
     paths = ("tools/toolchain/__init__.py", "tools/toolchain/ast.py", "tools/toolchain/migration.py",
              "examples/pure.vela")
     return {**vela_parser._inputs(root),
-            **{path: hashlib.sha256((root / path).read_bytes()).hexdigest() for path in paths}}
+            **{path: file_sha256(root / path) for path in paths}}
 
 
 def qualify(root: Path) -> dict[str, object]:

@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import cast
 
 from toolchain import trace_runtime
+from toolchain.hashing import file_sha256
 from toolchain.jsonutil import canonical_bytes, exceeds_nesting, json_digest, unique_object
 
 MAX_EVENTS = 4096
@@ -28,7 +29,7 @@ type Object = dict[str, object]
 
 
 def _python_identity() -> Object:
-    descriptor = {"executable_sha256": hashlib.sha256(Path(sys.executable).read_bytes()).hexdigest(),
+    descriptor = {"executable_sha256": file_sha256(Path(sys.executable)),
                   "version": sys.version, "implementation": platform.python_implementation(),
                   "platform": platform.system(), "machine": platform.machine()}
     descriptor["runtime_sha256"] = json_digest({"files": trace_runtime.identity(), "flags": str(sys.flags),
@@ -56,7 +57,7 @@ def _native_runtime_identity(pid: int) -> Object:
     """Observe the checked parser's validated executable outside measured intervals."""
     checked = import_module("toolchain.parser_checked")
     compiled = checked.ensure_checked_build()
-    parser_digest = hashlib.sha256(compiled.executable.read_bytes()).hexdigest()
+    parser_digest = file_sha256(compiled.executable)
     outputs = cast("dict[str, str]", compiled.receipt["generated_sha256"])
     if parser_digest != outputs["vela-parser"]:
         raise ValueError("checked parser executable changed during runtime observation")
@@ -109,9 +110,9 @@ def producer_identity() -> str:
     paths = sorted((root / "toolchain").rglob("*.py"))
     paths.extend(sorted((root / "toolchain" / "parser").glob("*")))
     owners = ("run.py", "pyproject.toml", "uv.lock", "opam/rocq.lock", "opam/sail.lock")
-    inputs = {path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+    inputs = {path.relative_to(root).as_posix(): file_sha256(path)
               for path in paths if path.is_file()}
-    inputs.update({name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in owners})
+    inputs.update({name: file_sha256(root / name) for name in owners})
     native = _runtime_identity(root.parent)
     return json_digest({"files": inputs, "host": _python_identity(), "native": native})
 

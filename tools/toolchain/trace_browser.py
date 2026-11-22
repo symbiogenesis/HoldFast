@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import cast, override
 
 from toolchain import compiler_trace, trace_html, trace_viewer
+from toolchain.hashing import file_sha256
 from toolchain.jsonutil import unique_object
 
 MAX_EXECUTABLE_BYTES = 512 * 1024 * 1024
@@ -126,8 +127,9 @@ def _fixture() -> str:
 
 def harness_identity() -> str:
     modules = (Path(__file__), Path(trace_html.__file__), Path(trace_viewer.__file__),
-               Path(compiler_trace.__file__), Path(__file__).with_name("jsonutil.py"), Path(__file__).parent / "cli" / "vela.py")
-    return hashlib.sha256(json.dumps({path.name: hashlib.sha256(path.read_bytes()).hexdigest()
+               Path(compiler_trace.__file__), Path(__file__).with_name("jsonutil.py"),
+               Path(__file__).with_name("hashing.py"), Path(__file__).parent / "cli" / "vela.py")
+    return hashlib.sha256(json.dumps({path.name: file_sha256(path)
                                      for path in modules}, sort_keys=True).encode()).hexdigest()
 
 

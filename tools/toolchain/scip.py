@@ -11,6 +11,7 @@ from typing import cast
 
 from toolchain import packages, parser
 from toolchain.elaborate_types import CheckedElaboration
+from toolchain.hashing import file_sha256
 from toolchain.package_navigation import Navigation, Site
 
 SCHEMA = "b38021b65ef90cbbf6af9c829ff75192859ad9b5da05439ef154bea4ceb2bf03"
@@ -143,7 +144,7 @@ def _documents(closure: packages.Closure, outputs: dict[str, CheckedElaboration]
 
 
 def _bundle(root: Path, workspace: Path, lock: Path, destination: Path) -> tuple[dict[str, bytes], packages.Object]:
-    exporter_digest = packages._sha(Path(__file__).read_bytes())
+    exporter_digest = file_sha256(Path(__file__))
     nav = Navigation()
     raw, closure, outputs = packages.checked_modules(root, workspace, lock, navigation=nav)
     docs = _documents(closure, outputs, nav)
@@ -175,7 +176,7 @@ def _current_inputs(root: Path, workspace: Path, lock: Path, manifest: packages.
     with parser.cached_build(root) as compiled:
         packages._recheck_parser(root, compiled)
         packages.resolve(workspace, name, revision, packages._producer(root, compiled), locked=locked)
-    if packages._sha(Path(__file__).read_bytes()) != manifest["exporter_sha256"]:
+    if file_sha256(Path(__file__)) != manifest["exporter_sha256"]:
         raise ValueError("SCIP exporter changed during the handoff")
 
 

@@ -11,6 +11,7 @@ from pathlib import Path
 
 from toolchain import _translate, ast, gallina_module_name, parse_module, proofenv
 from toolchain.atomic import atomic_path
+from toolchain.hashing import file_sha256
 from toolchain.parser import read_source
 
 MAX_PARAMETERS = 8
@@ -42,11 +43,6 @@ for (let i = 0; i < arity; i++) {
 }
 process.stdout.write(JSON.stringify(rows));
 """
-
-
-def _digest(path: Path) -> str:
-    with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
 def _refuse(site: ast.Site, message: str) -> ast.VelaError:
@@ -125,7 +121,7 @@ def _equations(observations: bytes, subject: str, arity: int) -> tuple[str, list
 
 def _qualify(code: bytes, gallina: str, subject: str, arity: int) -> list[bool]:
     found = shutil.which("node")
-    if found is None or _digest(Path(found)) != NODE_SHA256:
+    if found is None or file_sha256(Path(found)) != NODE_SHA256:
         raise ValueError("web qualification needs the pinned Node.js 22.22.1 Ubuntu ARM64 executable")
     node = str(Path(found).resolve())
     prover_bin = proofenv.opam_root() / proofenv.ROCQ_SWITCH / "bin"
@@ -139,7 +135,7 @@ def _qualify(code: bytes, gallina: str, subject: str, arity: int) -> list[bool]:
         _run([str(prover_bin / "rocq"), "c", "-q", "-Q", ".", "VelaWeb", "Web.v"], directory, timeout=30)
         _run([str(prover_bin / "rocqchk"), "-silent", "-Q", ".", "VelaWeb", "VelaWeb.Web"],
              directory, timeout=30)
-        if (directory / "output.mjs").read_bytes() != code or _digest(Path(node)) != NODE_SHA256:
+        if (directory / "output.mjs").read_bytes() != code or file_sha256(Path(node)) != NODE_SHA256:
             raise ValueError("web output or execution engine changed during replay")
     return results
 

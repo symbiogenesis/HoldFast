@@ -7,7 +7,6 @@ native sources, syntax, generated libraries, process logs and exact identities.
 """
 
 import copy
-import hashlib
 import json
 import re
 import subprocess
@@ -33,6 +32,8 @@ from toolchain import (
     parser as vela_parser,
 )
 from toolchain.atomic import atomic_path
+from toolchain.hashing import file_sha256
+from toolchain.hashing import sha256_bytes as _sha256
 
 TIMEOUT = 120
 EXAMPLE = "examples/dependent.vela"
@@ -1574,10 +1575,6 @@ definition i32 Previous(i32 value) requires value != i32.Min => value + -1i32;
               for name, source, expected in negatives))
 
 
-def _sha256(source: bytes) -> str:
-    return hashlib.sha256(source).hexdigest()
-
-
 def _require(condition: bool, message: str) -> None:
     if not condition:
         raise ValueError(message)
@@ -1642,7 +1639,7 @@ def _inputs(root: Path) -> dict[str, str]:
         "tools/toolchain/atomic.py",
     )
     return {**vela_parser._inputs(root),
-            **{name: _sha256((root / name).read_bytes()) for name in paths}}
+            **{name: file_sha256(root / name) for name in paths}}
 
 
 def _toolchain(root: Path, directory: Path, steps: list[dict[str, object]]) -> dict[str, object]:
@@ -1664,7 +1661,7 @@ def _toolchain(root: Path, directory: Path, steps: list[dict[str, object]]) -> d
     if not binary_dir.is_absolute():
         raise ValueError("Vela replay tool directory must be absolute")
     return {"switch": proofenv.ROCQ_SWITCH, "rocq": version, "ocamlc": compiler,
-            "binary_sha256": {name: _sha256((binary_dir / name).read_bytes())
+            "binary_sha256": {name: file_sha256(binary_dir / name)
                               for name in ("rocq", "rocqchk", "ocamlc")}}
 
 
@@ -1716,7 +1713,7 @@ def _runtime(directory: Path, steps: list[dict[str, object]]) -> dict[str, objec
             if path.is_symlink() and path.is_dir():
                 raise ValueError("Vela replay library has a directory alias")
             if path.is_file():
-                files[str(path)] = _sha256(path.read_bytes())
+                files[str(path)] = file_sha256(path)
     if not files:
         raise ValueError("Vela replay runtime inventory is empty")
     return {"config": config, "load_path": identity, "files_sha256": files}
@@ -1733,7 +1730,7 @@ def _work_root(root: Path) -> Path:
 
 def _parser_outputs(compiled: vela_parser.Build) -> dict[str, str]:
     outputs = cast("dict[str, str]", compiled.receipt["generated_sha256"])
-    current = {name: _sha256((compiled.directory / name).read_bytes())
+    current = {name: file_sha256(compiled.directory / name)
                for name in (*vela_parser.GENERATED, "vela-parser")}
     if current != outputs:
         raise ValueError("Vela replay parser output changed after its build")
@@ -1752,7 +1749,7 @@ def _case(compiled: vela_parser.Build, case: Fixture, directory: Path, index: in
     row: dict[str, object] = {"name": case.name, "source": str(source_path),
                               "source_sha256": _sha256(case.source), "expected": case.expected,
                               "consumer": "pure" if case.pure else "mathematical",
-                              "syntax": str(syntax_path), "syntax_sha256": _sha256(syntax_path.read_bytes())}
+                              "syntax": str(syntax_path), "syntax_sha256": file_sha256(syntax_path)}
     def consume(source: bytes, syntax: object) -> vela_elaborate.Elaboration | vela.Translation:
         if case.pure:
             return vela.translate_ast(source, syntax)
@@ -1816,13 +1813,13 @@ def _case(compiled: vela_parser.Build, case: Fixture, directory: Path, index: in
         raise ValueError(f"Vela replay {case.name}: translation emitted solver-trust axioms")
     artifact = directory / f"{stem}.vo"
     row.update({"category": "accepted", "module": translated.module,
-                "gallina": str(target), "gallina_sha256": _sha256(target.read_bytes()),
-                "assumptions": str(query), "assumptions_sha256": _sha256(query.read_bytes()),
+                "gallina": str(target), "gallina_sha256": file_sha256(target),
+                "assumptions": str(query), "assumptions_sha256": file_sha256(query),
                 "assumption_exports": exports,
                 "solver_trusted": [entry.as_json() for entry in trusted],
                 "observations": [list(value) for value in case.observations],
                 "library": f"VelaElaboration.{stem}", "vo": str(artifact),
-                "vo_sha256": _sha256(artifact.read_bytes())})
+                "vo_sha256": file_sha256(artifact)})
     return row
 
 
@@ -1844,14 +1841,14 @@ def _observations(rows: list[dict[str, object]], steps: list[dict[str, object]])
         for field in ("source", "syntax", "gallina", "assumptions", "vo"):
             if field in row:
                 path = Path(str(row[field]))
-                digest = _sha256(path.read_bytes())
+                digest = file_sha256(path)
                 expected = str(row[f"{field}_sha256"])
                 if digest != expected:
                     raise ValueError("Vela replay artifact changed during qualification")
                 files[str(path)] = digest
     for step in steps:
         path = Path(str(step["log"]))
-        digest = _sha256(path.read_bytes())
+        digest = file_sha256(path)
         if digest != step["log_sha256"]:
             raise ValueError("Vela replay process transcript changed during qualification")
         files[str(path)] = digest

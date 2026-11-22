@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Qualify versioned local rename application in Neovim and Emacs Eglot."""
 
-import hashlib
 import os
 import subprocess
 import sys
@@ -11,6 +10,7 @@ from pathlib import Path
 from filelock import FileLock
 
 from toolchain import lsp_clients as clients
+from toolchain.hashing import file_sha256
 from toolchain.protocol_json import decode_message
 
 DISK = """// 😀 independent scopes
@@ -244,9 +244,7 @@ def qualify() -> dict[str, object]:
     if sys.platform != "linux" or clients._platform_key()[1] != "aarch64":
         raise ValueError("the Emacs rename client requires Ubuntu 26.04 ARM64")
     for path, expected in EMACS_PINS.items():
-        with path.open("rb") as stream:
-            clients._require(hashlib.file_digest(stream, "sha256").hexdigest() == expected,
-                             f"unexpected Emacs qualification file: {path}")
+        clients._require(file_sha256(path) == expected, f"unexpected Emacs qualification file: {path}")
     cache = clients._default_cache_root()
     cache.mkdir(parents=True, exist_ok=True)
     with (FileLock(cache / "clients.lock", timeout=clients.TIMEOUT_SECONDS),

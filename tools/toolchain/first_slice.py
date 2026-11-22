@@ -29,7 +29,6 @@ or replace user-managed hosted CI.
 """
 
 import copy
-import hashlib
 import json
 import re
 import struct
@@ -73,6 +72,8 @@ from toolchain.elaborate_types import (
     _int_term,
     _parse_numeric_magnitude,
 )
+from toolchain.hashing import file_sha256
+from toolchain.hashing import sha256_bytes as _sha256
 from toolchain.jsonutil import unique_object
 
 TIMEOUT: Final = 120
@@ -384,10 +385,6 @@ proof {
 )
 
 
-def _sha256(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
-
-
 def _require(condition: bool, message: str) -> None:
     if not condition:
         raise ValueError(message)
@@ -401,7 +398,7 @@ def _inputs(root: Path) -> dict[str, str]:
     paths.update(f"tools/toolchain/parser/{name}" for name in vela_parser.SOURCES)
     paths.update(path.relative_to(root).as_posix()
                  for path in (root / "tools/toolchain").rglob("*.py"))
-    return {name: _sha256((root / name).read_bytes()) for name in sorted(paths)}
+    return {name: file_sha256(root / name) for name in sorted(paths)}
 
 
 def _revision(root: Path) -> str:
@@ -418,7 +415,7 @@ def _execution_inputs(ccomp_path: Path | None) -> dict[str, object]:
              "python": Path(sys.executable)}
     if compiler is not None:
         files["ccomp"] = compiler
-    return {"files": {name: {"path": str(path.resolve()), "sha256": _sha256(path.read_bytes())}
+    return {"files": {name: {"path": str(path.resolve()), "sha256": file_sha256(path)}
                       for name, path in files.items()},
             "compcert_available": compiler is not None, "python_version": sys.version}
 
@@ -460,7 +457,7 @@ def _reported_outputs(report: dict[str, object]) -> dict[str, str]:
         name, digest = report.get(field), report.get(f"{field}_sha256")
         if not isinstance(name, str) or not isinstance(digest, str):
             raise TypeError(f"first-slice {field} identity is missing or malformed")
-        _require(_sha256(Path(name).read_bytes()) == digest,
+        _require(file_sha256(Path(name)) == digest,
                  f"first-slice {field} changed after its producer observation")
         outputs[name] = digest
     return outputs
@@ -914,7 +911,7 @@ def _run(command: list[str], cwd: Path, log_path: Path,
         **child,
         "timeout_seconds": TIMEOUT,
         "log": str(log_path),
-        "log_sha256": _sha256(log_path.read_bytes()),
+        "log_sha256": file_sha256(log_path),
         **_stream_identity(completed.stdout, completed.stderr),
     })
     if completed.returncode != 0:
@@ -2344,7 +2341,7 @@ def _qualify_attempt(
     corruption_log.write_text(corrupt_proc.stdout + corrupt_proc.stderr, encoding="utf-8", newline="")
     steps.append({"command": corrupt_proc.args, "cwd": str(directory),
                   "returncode": corrupt_proc.returncode, "expected_refusal": True,
-                  "log": str(corruption_log), "log_sha256": _sha256(corruption_log.read_bytes()),
+                  "log": str(corruption_log), "log_sha256": file_sha256(corruption_log),
                   **_stream_identity(corrupt_proc.stdout, corrupt_proc.stderr)})
     _check_corruption_refusal(translated.gallina, corrupt_proc.returncode,
                               corrupt_proc.stdout + corrupt_proc.stderr)
@@ -2450,9 +2447,9 @@ def _qualify_attempt(
 
         ccomp_evidence.update({
             "ccomp_path": str(resolved_ccomp),
-            "ccomp_sha256": _sha256(resolved_ccomp.read_bytes()),
+            "ccomp_sha256": file_sha256(resolved_ccomp),
             "clight_path": str(clight_file),
-            "clight_sha256": _sha256(clight_file.read_bytes()),
+            "clight_sha256": file_sha256(clight_file),
             "asm_sha256": main_rep.compiled.stream_sha256,
             "asm_lines": main_rep.compiled.lines,
             "interp_exit_code": main_rep.interpreted.code,
@@ -2479,7 +2476,7 @@ def _qualify_attempt(
         "source": str(source_path),
         "source_sha256": _sha256(source),
         "gallina": str(gallina_path),
-        "gallina_sha256": _sha256(gallina_path.read_bytes()),
+        "gallina_sha256": file_sha256(gallina_path),
         "kernel_checked": not trusted,
         "solver_trusted_count": len(trusted),
         "solver_trusted_axioms": reported_trust,
@@ -2490,7 +2487,7 @@ def _qualify_attempt(
         "negative_controls": neg_controls,
         "lowering_provenance": _lowering_provenance(translated, c_source, operations),
         "lowered_c": str(c_path),
-        "lowered_c_sha256": _sha256(c_path.read_bytes()),
+        "lowered_c_sha256": file_sha256(c_path),
         "purecap_cheri_runs": purecap_runs,
         "compcert_sail": ccomp_evidence,
         "inventory": inventory,

@@ -9,15 +9,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from toolchain import asm, compiler_diff, dialect, first_slice, image, trace
+from toolchain.hashing import file_sha256
 
 CONTROLS = ("pass", "bounds-trap", "tag-trap", "perm-trap")
 INSTRUCTION_LIMIT = 256
 TRACE_LIMIT = 128 * 1024
-
-
-def _digest(path: Path) -> str:
-    with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
 @dataclass(frozen=True)
@@ -77,7 +73,7 @@ class Session:
         first_slice._check_purecap_control_image(self.elf.read_bytes())
         self.simulator, self.profile = simulator.resolve(strict=True), profile.resolve(strict=True)
         self.files = {"image": self.elf, "simulator": self.simulator, "profile": self.profile}
-        self.identities = {key: _digest(path) for key, path in self.files.items()}
+        self.identities = {key: file_sha256(path) for key, path in self.files.items()}
         self.identities["source"] = hashlib.sha256(self.source.encode()).hexdigest()
         code = sections[0]
         self.sites: dict[int, Site] = {}
@@ -97,7 +93,7 @@ class Session:
 
     def _check_files(self) -> None:
         try:
-            changed = any(_digest(path) != self.identities[key] for key, path in self.files.items())
+            changed = any(file_sha256(path) != self.identities[key] for key, path in self.files.items())
         except OSError:
             self.disconnect()
             raise

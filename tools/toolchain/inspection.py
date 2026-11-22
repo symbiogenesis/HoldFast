@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Versioned read-only snapshots of the existing bounded pure compiler facts."""
 
-import hashlib
 import json
 import sys
 from dataclasses import dataclass
@@ -16,6 +15,7 @@ from toolchain import (
     inspection_types,
     trace_runtime,
 )
+from toolchain.hashing import file_sha256, sha256_bytes
 from toolchain.lsp_services import (
     Inspection,
     InspectionError,
@@ -36,10 +36,6 @@ def _encoded(value: object) -> bytes:
     return json.dumps(value, sort_keys=True, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
 
 
-def _digest(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
-
-
 def compiler_dependency_hashes() -> dict[str, str]:
     """Conservatively bind all local compiler sources and locked tool dependencies."""
     root = Path(__file__).resolve().parents[2]
@@ -48,7 +44,7 @@ def compiler_dependency_hashes() -> dict[str, str]:
     paths.extend(root / name for name in (
         "tools/opam/rocq.lock", "tools/opam/sail.lock", "tools/pyproject.toml", "tools/uv.lock"))
     paths.append(SCHEMA_PATH)
-    return {path.relative_to(root).as_posix(): _digest(path.read_bytes())
+    return {path.relative_to(root).as_posix(): file_sha256(path)
             for path in paths if path.is_file()}
 
 
@@ -59,11 +55,11 @@ def producer_identity() -> dict[str, object]:
     producer = {"name": "vela-pure-development", "stage": "pure-resolution",
                 "dependencies": compiler_dependency_hashes(), "python": sys.version,
                 "implementation": sys.implementation.name, "interpreter_sha256": trace_runtime.file_identity(images)}
-    return {**producer, "version": _digest(_encoded(producer))}
+    return {**producer, "version": sha256_bytes(_encoded(producer))}
 
 
 def _binding(document: SourceSnapshot, configuration: str, target: str) -> dict[str, object]:
-    return {"uri": document.uri, "source_sha256": _digest(document.source),
+    return {"uri": document.uri, "source_sha256": sha256_bytes(document.source),
             "producer": producer_identity(), "configuration": configuration, "target": target,
             "coordinate_unit": "utf8-byte", "symbol_lifetime": "snapshot"}
 
@@ -233,7 +229,7 @@ def inspect(source: bytes, *, uri: str = "memory:vela", configuration: str = CON
     """
     document = SourceSnapshot(uri, 1, source.decode("utf-8"), 1)
     binding = _binding(document, configuration, target)
-    identity = _digest(_encoded(binding))
+    identity = sha256_bytes(_encoded(binding))
     publication: dict[str, object] = {
         "schema": SCHEMA_VERSION, "scope": "vela-pure-inspection",
         "snapshot": identity, "binding": binding, "status": "unavailable", "complete": False,

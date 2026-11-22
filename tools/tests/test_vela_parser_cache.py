@@ -48,6 +48,7 @@ def _fixture() -> Generator[_Fixture]:
         root = Path(temporary)
         files = [*(f"tools/toolchain/parser/{name}" for name in parser.SOURCES),
                  "tools/opam/sail.lock", "tools/toolchain/parser.py", "tools/toolchain/surface.py",
+                 "tools/toolchain/hashing.py", "tools/toolchain/jsonutil.py",
                  *(f"examples/{name}.vela" for name in ("pure", "surface", "constants", "expressions"))]
         for name in files:
             path = root / name

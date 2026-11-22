@@ -37,6 +37,8 @@ from toolchain import (
 )
 from toolchain.ast import source_text
 from toolchain.atomic import atomic_path
+from toolchain.hashing import file_sha256
+from toolchain.hashing import sha256_bytes as _sha256
 
 RELEASE = "20260209"
 ARCHIVE_SHA512 = (
@@ -1049,10 +1051,6 @@ let () =
 """
 
 
-def _sha256(source: bytes) -> str:
-    return hashlib.sha256(source).hexdigest()
-
-
 def _require(condition: bool, message: str) -> None:
     if not condition:
         raise ValueError(message)
@@ -1291,8 +1289,8 @@ def _run(arguments: list[str], directory: Path, log: Path,
 
 
 def _inputs(root: Path) -> dict[str, str]:
-    return {name: _sha256((root / name).read_bytes()) for name in (
-        "tools/opam/rocq.lock", "tools/opam/sail.lock", "tools/toolchain/parser_checked.py",
+    return {name: file_sha256(root / name) for name in (
+        "tools/opam/rocq.lock", "tools/opam/sail.lock", "tools/toolchain/parser_checked.py", "tools/toolchain/hashing.py",
         "tools/toolchain/parser/ast.ml", "tools/toolchain/parser/parser.mly",
         "tools/toolchain/parser/lexer.mll", "examples/pure.vela",
         "examples/constants.vela", "examples/expressions.vela")}
@@ -1336,9 +1334,9 @@ def _toolchain(root: Path, directory: Path, steps: list[dict[str, object]]) -> d
         "ocamlc": compiler,
         "menhir": generator,
         "binary_sha256": {
-            **{name: _sha256((binary_dir / name).read_bytes())
+            **{name: file_sha256(binary_dir / name)
                for name in ("rocq", "rocqchk", "ocamlc", "ocamllex")},
-            "menhir": _sha256((sail_bin_dir / "menhir").read_bytes()),
+            "menhir": file_sha256(sail_bin_dir / "menhir"),
         },
     }
 
@@ -1380,7 +1378,7 @@ def _runtime(directory: Path, steps: list[dict[str, object]]) -> dict[str, objec
             if path.is_symlink() and path.is_dir():
                 raise ValueError("Menhir support installed library has a directory alias")
             if path.is_file():
-                files[str(path)] = _sha256(path.read_bytes())
+                files[str(path)] = file_sha256(path)
     if not files:
         raise ValueError("Menhir support installed library inventory is empty")
     return {"config": config, "load_path": paths, "files_sha256": files}
@@ -1443,14 +1441,8 @@ def _runtime_root() -> Path:
 
 
 def _read_file_bytes(path: Path) -> bytes:
-    fd = os.open(path, os.O_RDONLY | getattr(os, "O_BINARY", 0))
-    try:
-        chunks: list[bytes] = []
-        while chunk := os.read(fd, 65_536):
-            chunks.append(chunk)
-        return b"".join(chunks)
-    finally:
-        os.close(fd)
+    with path.open("rb") as stream:
+        return stream.read()
 
 
 RUNTIME_INPUT_PATHS = (
@@ -1463,7 +1455,7 @@ RUNTIME_INPUT_PATHS = (
 
 
 def _runtime_inputs(root: Path) -> dict[str, str]:
-    files = {path: _sha256(_read_file_bytes(root / path)) for path in RUNTIME_INPUT_PATHS}
+    files = {path: file_sha256(root / path) for path in RUNTIME_INPUT_PATHS}
     return {
         **files,
         "archive_sha512": ARCHIVE_SHA512,
@@ -1513,9 +1505,9 @@ def _publish_runtime_build(runtime_dir: Path, source_tree: Path, wanted: dict[st
         "inputs": wanted,
         "generated_sha256": {
             "vela-parser": _sha256(exe_bytes),
-            "vela_checked_parser.ml": _sha256(_read_file_bytes(source_tree / "vela_checked_parser.ml")),
-            "vela_checked_parser.mli": _sha256(_read_file_bytes(source_tree / "vela_checked_parser.mli")),
-            "VelaPureGrammar.v": _sha256(_read_file_bytes(source_tree / "VelaPureGrammar.v")),
+            "vela_checked_parser.ml": file_sha256(source_tree / "vela_checked_parser.ml"),
+            "vela_checked_parser.mli": file_sha256(source_tree / "vela_checked_parser.mli"),
+            "VelaPureGrammar.v": file_sha256(source_tree / "VelaPureGrammar.v"),
         },
     }
     _write_json(receipt_path, receipt)
@@ -1543,7 +1535,7 @@ def _read_runtime(directory: Path, wanted: dict[str, str], *, legacy: bool = Fal
         return None
     outputs = receipt.get("generated_sha256")
     exe = directory / "vela-checked-parser"
-    if not isinstance(outputs, dict) or not exe.is_file() or _sha256(_read_file_bytes(exe)) != outputs.get("vela-parser"):
+    if not isinstance(outputs, dict) or not exe.is_file() or file_sha256(exe) != outputs.get("vela-parser"):
         raise ValueError("checked parser executable changed after its build")
     return vela_parser.Build(directory, exe, receipt)
 
@@ -1606,10 +1598,8 @@ def _build_runtime(repo: Path, cache: Path, directory: Path,
     if not reuse_menhirlib:
         shutil.rmtree(stage_dir, ignore_errors=True)
         cached_tar = cache / "menhir.tar.gz"
-        if (archive is None and cached_tar.is_file()
-                and hashlib.sha512(_read_file_bytes(cached_tar)).hexdigest() == ARCHIVE_SHA512):
-            contents = _read_file_bytes(cached_tar)
-        else:
+        contents = _read_file_bytes(cached_tar) if archive is None and cached_tar.is_file() else None
+        if contents is None or hashlib.sha512(contents).hexdigest() != ARCHIVE_SHA512:
             contents = _archive(archive, cache)
         sources = _release_sources(contents)
         _stage(sources, stage_dir, reference=False)
@@ -1736,7 +1726,7 @@ def parse_checked(source: bytes, *, root: Path | None = None,
     if compiled is not None:
         outputs = cast("dict[str, str]", compiled.receipt["generated_sha256"])
         if (not compiled.executable.is_file()
-                or _sha256(_read_file_bytes(compiled.executable)) != outputs.get("vela-parser")):
+                or file_sha256(compiled.executable) != outputs.get("vela-parser")):
             raise ValueError("checked parser executable changed after its build")
         return vela_parser.parse_source(compiled, source, surface=False)
     repo = Path(__file__).resolve().parents[2] if root is None else root
@@ -1810,7 +1800,7 @@ def _observations(candidate: Path, reference: Path, guard: str,
         _require(path.read_bytes() == text.encode(), "Menhir support probe changed during qualification")
     for step in steps:
         for stream in ("stdout", "stderr"):
-            _require(_sha256(Path(str(step[stream])).read_bytes()) == step[f"{stream}_sha256"],
+            _require(file_sha256(Path(str(step[stream]))) == step[f"{stream}_sha256"],
                      "Menhir support transcript changed during qualification")
     return {str(path): _sha256(text.encode()) for path, text in probes.items()}
 
@@ -1854,7 +1844,7 @@ def qualify(root: Path, *, archive: Path | None = None) -> dict[str, object]:
             _require(bool(extracted_ml) and extracted_ml == (reference / "vela_checked_parser.ml").read_bytes()
                      and bool(extracted_mli) and extracted_mli == (reference / "vela_checked_parser.mli").read_bytes(),
                      "fresh Rocq extraction changed vela_checked_parser.ml/.mli bytes")
-            outputs = {str(tree.name): {f"{name}.vo": _sha256((tree / f"{name}.vo").read_bytes())
+            outputs = {str(tree.name): {f"{name}.vo": file_sha256(tree / f"{name}.vo")
                                        for name in ALL_MODULES} for tree in (candidate, reference)}
             frozen = (candidate / "frozen.stdout").read_bytes()
             _require(bool(frozen) and frozen == (reference / "frozen.stdout").read_bytes(),
@@ -1881,7 +1871,7 @@ def qualify(root: Path, *, archive: Path | None = None) -> dict[str, object]:
             checked_build = vela_parser.Build(
                 directory=candidate,
                 executable=checked_exe,
-                receipt={"generated_sha256": {"vela-parser": _sha256(checked_exe.read_bytes())}},
+                receipt={"generated_sha256": {"vela-parser": file_sha256(checked_exe)}},
             )
             passed_fixtures = vela_parser._fixtures(checked_build)
             if (root / "tools/toolchain/parser/parser.mly").is_file():
@@ -1918,10 +1908,10 @@ def qualify(root: Path, *, archive: Path | None = None) -> dict[str, object]:
                         digest = vc_wanted
                     else:
                         digest = _sha256(source)
-                    _require(_sha256((tree / name).read_bytes()) == digest,
+                    _require(file_sha256(tree / name) == digest,
                              "Menhir support source changed during qualification")
                 for name, digest in outputs[tree.name].items():
-                    _require(_sha256((tree / name).read_bytes()) == digest,
+                    _require(file_sha256(tree / name) == digest,
                              "Menhir support compiled output changed during qualification")
             probes = _observations(candidate, reference, guard, steps)
             report: dict[str, object] = {
@@ -1955,7 +1945,7 @@ def qualify(root: Path, *, archive: Path | None = None) -> dict[str, object]:
                     "vela_pure_extraction_v_sha256": _sha256(VELA_PURE_EXTRACTION_V.encode()),
                     "vela_checked_parser_ml_sha256": _sha256(extracted_ml),
                     "vela_checked_parser_mli_sha256": _sha256(extracted_mli),
-                    "vela_checked_parser_exe_sha256": _sha256(checked_exe.read_bytes()),
+                    "vela_checked_parser_exe_sha256": file_sha256(checked_exe),
                     "deterministic_extraction": True,
                     "pure_fixtures_passed": len(passed_fixtures),
                     "examples_verified_sha256": examples_verified,
@@ -1974,7 +1964,7 @@ def qualify(root: Path, *, archive: Path | None = None) -> dict[str, object]:
                                     "parse_correct", "parse_complete", "unambiguity")],
                                 "query_sha256": _sha256(ASSUMPTIONS_QUERY.encode()),
                                 "reading": (candidate / "assumptions.stdout").read_text(encoding="utf-8"),
-                                "reading_sha256": _sha256((candidate / "assumptions.stdout").read_bytes())},
+                                "reading_sha256": file_sha256(candidate / "assumptions.stdout")},
                 "deferred": [],
             }
             _write_json(directory / "qualification.json", report)

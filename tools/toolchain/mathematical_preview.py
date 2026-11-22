@@ -7,13 +7,14 @@ import sys
 from typing import cast
 
 from toolchain import mathematical, parser
+from toolchain.hashing import file_sha256
 from toolchain.inspection import compiler_dependency_hashes
 
 
 def _producer(compiled: parser.Build) -> dict[str, str]:
     sources = json.dumps(compiler_dependency_hashes(), sort_keys=True).encode("ascii")
     return {"compiler_sha256": hashlib.sha256(sources).hexdigest(),
-            "parser_sha256": hashlib.sha256(compiled.executable.read_bytes()).hexdigest(),
+            "parser_sha256": file_sha256(compiled.executable),
             "ocamlrun_sha256": parser.interpreter_digest(compiled),
             "python": sys.version, "implementation": sys.implementation.name}
 

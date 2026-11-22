@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Independent Perfetto import of a deterministic packet compiler trace."""
 
-import hashlib
 from pathlib import Path
 from typing import cast
 
 from toolchain import packet_trace, trace_viewer
+from toolchain.hashing import file_sha256
 
 type Object = dict[str, object]
 
@@ -34,8 +34,8 @@ QUERIES = {
 
 def _harness() -> str:
     root = Path(__file__).resolve().parent
-    return packet_trace.digest({name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in (
-        "packet_trace_reader.py", "packet_trace.py", "trace_viewer.py", "compiler_trace.py", "jsonutil.py", "cli/vela.py")})
+    return packet_trace.digest({name: file_sha256(root / name) for name in (
+        "packet_trace_reader.py", "packet_trace.py", "trace_viewer.py", "compiler_trace.py", "hashing.py", "jsonutil.py", "cli/vela.py")})
 
 
 def _fixture() -> Object:

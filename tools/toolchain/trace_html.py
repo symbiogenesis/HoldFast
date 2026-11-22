@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import cast
 
 from toolchain import compiler_trace
+from toolchain.hashing import file_sha256
 
 MAX_HTML_BYTES = 4_194_304
 WIDTH = 1000
@@ -37,7 +38,7 @@ query.addEventListener('input', () => {
 
 
 def identity() -> str:
-    return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    return file_sha256(Path(__file__))
 
 
 def render(document: object, source: bytes, producer: str) -> str:

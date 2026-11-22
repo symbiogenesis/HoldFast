@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import cast
 
 from toolchain import compiler_trace as trace
+from toolchain.hashing import file_sha256
 from toolchain.jsonutil import json_digest
 
 RELEASE = "v58.2"
@@ -71,8 +72,8 @@ def reader_identity(executable: Path) -> Object:
 
 def harness_identity() -> str:
     root = Path(__file__).resolve().parent
-    modules = ("compiler_trace.py", "jsonutil.py", "trace_viewer.py", "cli/vela.py")
-    return json_digest({name: hashlib.sha256((root / name).read_bytes()).hexdigest() for name in modules})
+    modules = ("compiler_trace.py", "hashing.py", "jsonutil.py", "trace_viewer.py", "cli/vela.py")
+    return json_digest({name: file_sha256(root / name) for name in modules})
 
 
 def check_current(executable: Path, report: Object) -> None:

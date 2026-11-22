@@ -13,6 +13,7 @@ from typing import cast, override
 from toolchain import highlight, surface
 from toolchain import parser as canonical
 from toolchain.ast import VelaError
+from toolchain.hashing import file_sha256 as digest
 
 MAX_SOURCE_BYTES = 65_536
 PROCESS_SECONDS = 60
@@ -31,10 +32,6 @@ ONIGURUMA_PINS = {
     "LICENSE.txt": "ddde8aba8fe72b4830e27901fc78733eb6db7b6c653161075de213a6adeda3fd",
     "NOTICES.txt": "615d94d89eacc046241518c247f6650a5df80d1adf4b284a756f500867620b35",
 }
-
-
-def digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def check_generated(root: Path) -> list[str]:

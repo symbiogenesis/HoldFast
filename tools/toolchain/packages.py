@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Resolve and build the declared, offline mathematical package closure."""
 
-import hashlib
 import json
 import re
 import sys
@@ -15,6 +14,8 @@ from toolchain.ast import MAX_SOURCE_BYTES
 from toolchain.atomic import atomic_path
 from toolchain.elaborate import FRONTEND_SOURCES, elaborate_package
 from toolchain.elaborate_types import CheckedElaboration, PackageScope
+from toolchain.hashing import file_sha256
+from toolchain.hashing import sha256_bytes as _sha
 from toolchain.jsonutil import unique_object
 from toolchain.package_navigation import Navigation
 
@@ -37,10 +38,6 @@ PRODUCER_INPUTS = (
     "toolchain/cli/vela_parser.py", "toolchain/packages.py", "toolchain/commands.py", "toolchain/pyversion.py",
     "toolchain/toolenv.py", "toolchain/corpus.py", "toolchain/env.py", "toolchain/proofenv.py",
 )
-
-
-def _sha(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
 
 
 def _encode(value: object) -> bytes:
@@ -80,17 +77,17 @@ def _path(base: Path, name: object) -> Path:
 
 def _producer(root: Path, compiled: parser.Build) -> Object:
     tools = root / "tools"
-    sources = {name: _sha((tools / name).read_bytes()) for name in PRODUCER_INPUTS}
-    return {"python": sys.version, "python_sha256": _sha(Path(sys.executable).read_bytes()),
+    sources = {name: file_sha256(tools / name) for name in PRODUCER_INPUTS}
+    return {"python": sys.version, "python_sha256": file_sha256(Path(sys.executable)),
             "frontend_sha256": _sha(_encode(sources)), "parser_inputs": compiled.receipt["inputs"],
-            "parser_toolchain": compiled.receipt["toolchain"], "parser_sha256": _sha(compiled.executable.read_bytes()),
+            "parser_toolchain": compiled.receipt["toolchain"], "parser_sha256": file_sha256(compiled.executable),
             "ocamlrun_sha256": parser.interpreter_digest(compiled)}
 
 
 def _recheck_parser(root: Path, compiled: parser.Build) -> None:
     outputs = _object(compiled.receipt["generated_sha256"], "parser outputs")
     if (parser._inputs(root) != compiled.receipt["inputs"] or parser._toolchain(root) != compiled.receipt["toolchain"]
-            or _sha(compiled.executable.read_bytes()) != outputs["vela-parser"]):
+            or file_sha256(compiled.executable) != outputs["vela-parser"]):
         raise ValueError("stale package inputs: parser sources, tools or generated executable changed")
 
 

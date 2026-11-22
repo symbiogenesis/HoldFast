@@ -11,6 +11,7 @@ import tempfile
 from pathlib import Path
 
 from toolchain import lsp_clients, packages
+from toolchain.hashing import file_sha256
 
 REVISION = "42f77554d1242b71174da0216e1d29705da7b9d0"
 PLUGIN = lsp_clients.ArchivePin(
@@ -117,7 +118,7 @@ def qualify(root: Path) -> dict[str, object]:
         targets = []
         for lock, (name, revision) in zip(locks, (("scale", "v1"), ("weights", "v1"), ("scale", "broken")), strict=True):
             packages.lock_package(root, workspace, name, revision, lock)
-            targets.append(f"vela-build:{hashlib.sha256(lock.read_bytes()).hexdigest()}/{name}")
+            targets.append(f"vela-build:{file_sha256(lock)}/{name}")
         batch_file = stage / "batch.json"
         batch = packages.build_package(root, workspace, locks[0], batch_file)
         observations = stage / "observations.json"
@@ -140,7 +141,7 @@ def qualify(root: Path) -> dict[str, object]:
         actual = json.loads(observations.read_bytes())
         delivered = json.loads(batch_file.read_bytes())
         generated = sorted(hashlib.sha256(unit.encode()).hexdigest() for unit in delivered["modules"].values())
-        if (actual["batch"] != batch or actual["bundle"] != hashlib.sha256(batch_file.read_bytes()).hexdigest()
+        if (actual["batch"] != batch or actual["bundle"] != file_sha256(batch_file)
                 or sorted(actual["generated"]) != generated or actual["failed"] != 2 or actual["cancelled"] != 3
                 or "UnknownScale" not in actual["diagnostic"] or "stale" not in actual["stale"].lower()):
             raise ValueError(f"editor verdict, generated files or bundle differ from batch: {actual}")

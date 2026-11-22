@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Purecap compiler differential harness, assembly composer, and simulator runner."""
 
-import hashlib
 import re
 import subprocess
 from dataclasses import dataclass
@@ -10,6 +9,7 @@ from typing import Final
 
 from toolchain import asm, dialect, image, trace
 from toolchain.dialect import AsmError
+from toolchain.hashing import file_sha256, sha256_bytes
 
 # Harness stack size in bytes in `.data`.
 STACK_BYTES: Final = 16384
@@ -22,10 +22,6 @@ COMPILE_TIMEOUT: Final = 120
 RUN_TIMEOUT: Final = 60
 
 
-def _sha256(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
-
-
 def _observe_process(command: list[str], done: subprocess.CompletedProcess[str], log: Path,
                      observations: list[dict[str, object]] | None, cwd: Path | None = None) -> None:
     """Retain complete decoded streams only when an evidence consumer requests them."""
@@ -36,9 +32,9 @@ def _observe_process(command: list[str], done: subprocess.CompletedProcess[str],
     log.write_bytes(raw)
     observation: dict[str, object] = {
         "command": command, "returncode": done.returncode,
-        "log": str(log), "log_sha256": _sha256(raw),
-        "stdout_bytes": len(stdout), "stdout_sha256": _sha256(stdout),
-        "stderr_bytes": len(stderr), "stderr_sha256": _sha256(stderr),
+        "log": str(log), "log_sha256": sha256_bytes(raw),
+        "stdout_bytes": len(stdout), "stdout_sha256": sha256_bytes(stdout),
+        "stderr_bytes": len(stderr), "stderr_sha256": sha256_bytes(stderr),
     }
     if cwd is not None:
         observation["cwd"] = str(cwd)
@@ -321,7 +317,7 @@ def preprocess_c(ccomp: list[str], source: Path, fresh: Path,
     digest = ""
     try:
         raw = source.read_bytes()
-        digest = _sha256(raw)
+        digest = sha256_bytes(raw)
         unit.unlink(missing_ok=True)
         done = subprocess.run(argv, cwd=source.parent, capture_output=True, encoding="utf-8",
                               errors="replace", timeout=timeout, check=False)
@@ -335,7 +331,7 @@ def preprocess_c(ccomp: list[str], source: Path, fresh: Path,
             return Preprocessed(argv, str(source.parent), -1,
                                 "source changed during preprocessing", unit, digest, "")
         return Preprocessed(argv, str(source.parent), 0, said, unit, digest,
-                            _sha256(unit.read_bytes()))
+                            file_sha256(unit))
     except subprocess.TimeoutExpired:
         said = f"preprocessor had no exit within {timeout}s"
     except (OSError, ValueError) as err:
@@ -391,7 +387,7 @@ def compile_c(ccomp: list[str], source: Path, fresh: Path,
         exit_code = done.returncode
         said = (done.stderr + done.stdout).strip()[:600]
     try:
-        if _sha256(prepared.path.read_bytes()) != prepared.sha256:
+        if file_sha256(prepared.path) != prepared.sha256:
             return Compiled(tuple(argv), -1, "preprocessed input changed during compilation",
                             None, "", 0, prepared)
     except (OSError, ValueError) as err:
@@ -400,7 +396,7 @@ def compile_c(ccomp: list[str], source: Path, fresh: Path,
         return Compiled(tuple(argv), exit_code, said or "(wrote nothing)", None, "", 0, prepared)
     raw = out.read_bytes()
     stream = raw.decode("utf-8", errors="replace")
-    return Compiled(tuple(argv), 0, said, stream, _sha256(raw), len(stream.splitlines()), prepared)
+    return Compiled(tuple(argv), 0, said, stream, sha256_bytes(raw), len(stream.splitlines()), prepared)
 
 
 @dataclass(frozen=True)
@@ -565,7 +561,7 @@ def interpret_c(ccomp: list[str], source: Path, fresh: Path,
     _observe_process(argv, done, fresh / f"{source.stem}.interpret.log", observations, fresh)
     said = done.stdout + done.stderr
     if (not prepared.path.is_file()
-            or _sha256(prepared.path.read_bytes()) != prepared.sha256):
+            or file_sha256(prepared.path) != prepared.sha256):
         return Interpreted(tuple(argv), -1, None, "preprocessed input changed during interpretation")
     ended = _TERMINATED_RE.findall(done.stdout)
     code = int(ended[0]) if done.returncode == 0 and len(ended) == 1 else None

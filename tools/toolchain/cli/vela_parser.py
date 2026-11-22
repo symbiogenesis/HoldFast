@@ -3,7 +3,6 @@
 
 import argparse
 import contextlib
-import hashlib
 import json
 import shutil
 import subprocess
@@ -57,6 +56,7 @@ from toolchain.atomic import atomic_path
 from toolchain.authoring import MATHEMATICAL_LINT_CODES, Finding
 from toolchain.elaborate import check_client_upgrade
 from toolchain.elaborate import elaborate as elaborate_source
+from toolchain.hashing import file_sha256
 
 
 def _packet_bytes(argument: str) -> bytes:
@@ -135,7 +135,7 @@ def _publish(source: Path, destination: Path, gallina: str) -> None:
 
 def _qualify_compilation_database(root: Path, scanner: Path) -> dict[str, object]:
     scanner = scanner.resolve(strict=True)
-    reader_hash = hashlib.sha256(scanner.read_bytes()).hexdigest()
+    reader_hash = file_sha256(scanner)
     if reader_hash != "268678d396d51830acbe20f958005cecc9ac155de5822807e3390c0ed3cde995":
         raise ValueError("expected the qualified Ubuntu ARM64 clang-scan-deps 21.1.8 reader")
 

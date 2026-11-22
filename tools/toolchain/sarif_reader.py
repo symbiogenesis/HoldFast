@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Offline qualification of an exact-pinned independent SARIF importer."""
 
-import hashlib
 import json
 import subprocess
 import sys
@@ -10,6 +9,7 @@ from pathlib import Path
 from typing import cast
 
 from toolchain import compiler_trace, sarif
+from toolchain.hashing import file_sha256, sha256_bytes
 
 WHEEL_PINS = {
     "sarif_tools-3.0.5-py3-none-any.whl": "682d22559095ca4a210a401e21f0585fdb8015e826c0d160ab3cbadee326952f",
@@ -32,29 +32,25 @@ UNSUPPORTED = sarif.Input("file:///sarif%20fixture/unfinished.vela",
 EXPECTED_FORMATTED = "module Fixture;\n\n// \U0001f600 \u03bb\npublic Nat First() => 1;\n"
 
 
-def _digest(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
-
-
 def reader_identity(directory: Path) -> sarif.Object:
     """Verify every imported external wheel before any reader code executes."""
     hashes: dict[str, str] = {}
     for name, expected in WHEEL_PINS.items():
         with (directory / name).open("rb") as stream:
             raw = stream.read(MAX_WHEEL_BYTES + 1)
-        if len(raw) > MAX_WHEEL_BYTES or _digest(raw) != expected:
+        if len(raw) > MAX_WHEEL_BYTES or sha256_bytes(raw) != expected:
             raise ValueError(f"SARIF reader wheel does not match its reviewed pin: {name}")
         hashes[name] = expected
     return {"name": "sarif-tools", "version": "3.0.5", "wheels": hashes,
-            "python_executable_sha256": _digest(Path(sys.executable).read_bytes()),
+            "python_executable_sha256": file_sha256(Path(sys.executable)),
             "python": sys.version, "mode": "isolated-wheel-zip-import-pure-python"}
 
 
 def harness_identity() -> str:
     root = Path(__file__).resolve().parent
-    identities = {name: _digest((root / name).read_bytes())
-                  for name in ("sarif.py", "sarif_reader.py", "jsonutil.py", "cli/vela.py")}
-    return _digest(json.dumps(identities, sort_keys=True).encode())
+    identities = {name: file_sha256(root / name)
+                  for name in ("sarif.py", "sarif_reader.py", "hashing.py", "jsonutil.py", "cli/vela.py")}
+    return sha256_bytes(json.dumps(identities, sort_keys=True).encode())
 
 
 def check_current(directory: Path, report: sarif.Object) -> None:
@@ -92,7 +88,7 @@ def _read(directory: Path, document: sarif.Object) -> sarif.Object:
 def _rebind(document: sarif.Object) -> None:
     manifest = cast("sarif.Object", cast("sarif.Object", cast("list[sarif.Object]", document["runs"])[0]["properties"])["vela"])
     manifest.pop("binding_sha256", None)
-    manifest["binding_sha256"] = _digest(json.dumps(
+    manifest["binding_sha256"] = sha256_bytes(json.dumps(
         document, sort_keys=True, separators=(",", ":"), ensure_ascii=True,
         allow_nan=False).encode("ascii"))
 
@@ -177,9 +173,9 @@ def qualify(directory: Path, schema: Path) -> sarif.Object:
         "reader": reader, "harness_sha256": harness, "producer_sha256": producer,
         "schema_sha256": sarif.SCHEMA_SHA256, "observed": observed,
         "observed_unfinished": observed_unfinished, "expected_records": expected,
-        "expected_formatted_sha256": _digest(EXPECTED_FORMATTED.encode()),
+        "expected_formatted_sha256": sha256_bytes(EXPECTED_FORMATTED.encode()),
         "negative_controls": [*_controls(document, producer, schema), "unfinished-status-corruption"],
-        "fixture_inputs": [{"uri": item.uri, "sha256": _digest(item.source)}
+        "fixture_inputs": [{"uri": item.uri, "sha256": sha256_bytes(item.source)}
                            for item in (FIRST, SECOND, UNSUPPORTED)]}
     check_current(directory, report)
     sarif.check_schema_current(schema)

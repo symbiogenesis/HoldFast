@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
 from toolchain import packages, scip
+from toolchain.hashing import file_sha256
 
 READER_SHA256 = "2e808bcfc73711f1ab598412ac6ec6f7c68c2c3c07e02f63b05221a2250a357e"
 READER_SIZE = 25_384_521
@@ -208,6 +209,6 @@ def qualify(root: Path, reader: Path) -> dict[str, object]:
         counts = _qualify_absence(root, executable, workspace, directory)
         return {"status": "qualified", "reader_sha256": READER_SHA256, "before": before, "after": after,
                 "complete_package_references": counts,
-                "indices_sha256": [hashlib.sha256((item / "index.scip").read_bytes()).hexdigest()
+                "indices_sha256": [file_sha256(item / "index.scip")
                                    for item in (bundle, renamed)],
                 "refusals": ["incomplete-absence", "deleted-dependency", "renamed-dependency", "replaced-lock"]}

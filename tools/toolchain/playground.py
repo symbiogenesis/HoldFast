@@ -17,6 +17,7 @@ from typing import cast, override
 
 from toolchain.ast import IDENTIFIER, MAX_SOURCE_BYTES
 from toolchain.authoring import LINT_CODES, MATHEMATICAL_LINT_CODES, is_pascal_case
+from toolchain.hashing import file_sha256
 from toolchain.lsp import Server
 from toolchain.playground_worker import require_parser
 from toolchain.protocol_json import MAX_BODY_BYTES, decode_message, encode_body
@@ -176,7 +177,7 @@ class PlaygroundServer(HTTPServer):
     def __init__(self, port: int = 8765, *, mathematical_parser: Path, assets: Path | None = None) -> None:
         self.token = secrets.token_urlsafe(32)
         self.mathematical_parser = mathematical_parser
-        self.parser_sha256 = hashlib.sha256(mathematical_parser.read_bytes()).hexdigest()
+        self.parser_sha256 = file_sha256(mathematical_parser)
         self.sessions: dict[str, Session] = {}
         self.assets = (Path(__file__).resolve().parents[2] / "docs"
                        if assets is None else assets)

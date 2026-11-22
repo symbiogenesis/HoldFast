@@ -3,8 +3,6 @@
 
 import codecs
 import copy
-import hashlib
-import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from itertools import islice
@@ -12,8 +10,9 @@ from pathlib import Path
 from typing import cast
 
 from toolchain import MAX_SOURCE_BYTES
-from toolchain.lsp import diagnose
+from toolchain.hashing import sha256_bytes
 from toolchain.jsonutil import canonical_bytes, json_digest
+from toolchain.lsp import diagnose
 from toolchain.lsp_format import format_document, formatting_edits
 from toolchain.lsp_services import InspectionError
 from toolchain.protocol_json import decode_message
@@ -33,10 +32,6 @@ RULE_IDS = tuple(sorted({f"VELA-{kind.upper()}" for kind in KINDS}
 type Object = dict[str, object]
 type Checker = Callable[[bytes], Object | None]
 type Formatter = Callable[[bytes], Object]
-
-
-def _digest(value: bytes) -> str:
-    return hashlib.sha256(value).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -124,7 +119,7 @@ def export(inputs: tuple[Input, ...], producer: str, *, format_fixes: bool = Fal
                                                                    "byteLength": len(item.source)},
                                                  "insertedContent": {"text": edits[0]["newText"]}}]}]}]
                     results.append(result)
-        bindings.append({"uri": item.uri, "sha256": _digest(item.source), "status": status})
+        bindings.append({"uri": item.uri, "sha256": sha256_bytes(item.source), "status": status})
         if status in INCOMPLETE:
             notifications.append({"level": "error", "message": {
                 "text": f"{item.uri}: {status}; no completed analysis verdict"}})
@@ -140,7 +135,7 @@ def export(inputs: tuple[Input, ...], producer: str, *, format_fixes: bool = Fal
                                         for rule in RULE_IDS]}},
         "columnKind": "utf16CodeUnits", "artifacts": [
             {"location": {"uri": item.uri}, "length": len(item.source),
-             "hashes": {"sha-256": _digest(item.source)}, "roles": ["analysisTarget"]}
+             "hashes": {"sha-256": sha256_bytes(item.source)}, "roles": ["analysisTarget"]}
             for item in inputs],
         "results": results, "invocations": [{"executionSuccessful": complete,
                                                "toolExecutionNotifications": notifications}],
@@ -154,7 +149,7 @@ def export(inputs: tuple[Input, ...], producer: str, *, format_fixes: bool = Fal
 def _schema_bytes(schema_path: Path) -> bytes:
     with schema_path.open("rb") as stream:
         raw = stream.read(MAX_SCHEMA_BYTES + 1)
-    if _digest(raw) != SCHEMA_SHA256:
+    if sha256_bytes(raw) != SCHEMA_SHA256:
         raise ValueError("SARIF schema does not match the pinned OASIS 2.1.0 bytes")
     return raw
 
@@ -275,9 +270,9 @@ def validate(document: Object, inputs: tuple[Input, ...], producer: str,
             by_input[index].append(rule)
         for index, (item, binding, artifact) in enumerate(zip(inputs, bindings, artifacts, strict=True)):
             status = binding["status"]
-            if (binding["uri"] != item.uri or binding["sha256"] != _digest(item.source)
+            if (binding["uri"] != item.uri or binding["sha256"] != sha256_bytes(item.source)
                     or canonical_bytes(artifact) != canonical_bytes({"location": {"uri": item.uri}, "length": len(item.source),
-                                                      "hashes": {"sha-256": _digest(item.source)},
+                                                      "hashes": {"sha-256": sha256_bytes(item.source)},
                                                       "roles": ["analysisTarget"]})):
                 raise ValueError("SARIF stale input closure")
             expected = by_input[index]

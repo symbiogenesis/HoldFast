@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Native syntax adapter for bounded mathematical compilation and observation."""
 
-import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -19,6 +18,7 @@ from toolchain import (
 from toolchain.ast import Name, position
 from toolchain.authoring import Finding, generic_type_findings
 from toolchain.elaborate import Elaboration
+from toolchain.hashing import file_sha256
 from toolchain.surface import nodes
 
 _BUILD_CACHE: tuple[tuple[Path, int, int, int], vela_parser.Build] | None = None
@@ -32,7 +32,7 @@ def _build(parser: Path) -> vela_parser.Build:
     key = (parser, stat.st_mtime_ns, stat.st_size, stat.st_ino)
     if _BUILD_CACHE is not None and _BUILD_CACHE[0] == key:
         return _BUILD_CACHE[1]
-    digest = hashlib.sha256(parser.read_bytes()).hexdigest()
+    digest = file_sha256(parser)
     built = vela_parser.Build(parser.parent, parser, {"generated_sha256": {"vela-parser": digest}})
     _BUILD_CACHE = (key, built)
     return built

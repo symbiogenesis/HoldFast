@@ -2,7 +2,6 @@
 """Build Server Protocol projection of the offline mathematical package graph."""
 
 import contextlib
-import hashlib
 import json
 import os
 import signal
@@ -17,6 +16,7 @@ from pathlib import Path
 from typing import BinaryIO, cast
 
 from toolchain import packages, parser
+from toolchain.hashing import sha256_bytes
 from toolchain.jsonutil import unique_object
 from toolchain.protocol_json import MAX_BODY_BYTES, decode_message, encode_message, read_frame
 
@@ -27,10 +27,6 @@ MAX_CONFIGS = 8
 BUILD_SECONDS = 180
 # A JSON string can encode each input byte using a six-byte Unicode escape.
 MAX_BUNDLE = 6 * packages.MAX_GENERATED_BYTES + MAX_BODY_BYTES
-
-
-def _sha(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
 
 
 def _object(value: object) -> Object:
@@ -56,7 +52,7 @@ class Config:
         return f"vela-build:{self.digest}/{name}"
 
     def check(self, workspace: Path, producer: Object) -> None:
-        if _sha(packages._read(self.path, packages.MAX_INPUT_BYTES)) != self.digest:
+        if sha256_bytes(packages._read(self.path, packages.MAX_INPUT_BYTES)) != self.digest:
             raise ValueError("package lock changed; reopen the workspace")
         packages.resolve(workspace, self.name, self.revision, producer, locked=self.lock)
 
@@ -72,7 +68,7 @@ class Workspace:
             raise ValueError("supply one to eight package locks")
         for path in locks:
             raw, lock, name, revision = packages.read_lock(path)
-            config = Config(path.resolve(strict=True), _sha(raw), name, revision, lock)
+            config = Config(path.resolve(strict=True), sha256_bytes(raw), name, revision, lock)
             if any(config.digest == prior.digest for prior in self.configs):
                 raise ValueError("duplicate package configuration")
             self.configs.append(config)
@@ -131,7 +127,7 @@ class Workspace:
                 files.append({"uri": (base / str(relative)).as_uri(), "kind": 1, "generated": False})
                 if module in generated:
                     path = self.store / config.digest / f"{module}.v"
-                    if _sha(packages._read(path, packages.MAX_GENERATED_BYTES)) != generated[module]:
+                    if sha256_bytes(packages._read(path, packages.MAX_GENERATED_BYTES)) != generated[module]:
                         raise ValueError("generated source changed after compilation")
                     files.append({"uri": path.as_uri(), "kind": 1, "generated": True})
             items.append({"target": {"uri": config.target(name)}, "sources": files, "roots": [base.as_uri()]})
@@ -162,7 +158,7 @@ class Workspace:
             if not isinstance(gallina, str):
                 raise TypeError("invalid Gallina output")
             data = gallina.encode("utf-8")
-            digest = _sha(data)
+            digest = sha256_bytes(data)
             if receipts[module] != {"instance": instance, "source_sha256": source_hash, "gallina_sha256": digest}:
                 raise ValueError("batch output does not match the locked module and artifact identities")
             (directory / f"{module}.v").write_bytes(data)
@@ -173,7 +169,7 @@ class Workspace:
                 if path.read_bytes() != packages._read(destination / path.name, MAX_BUNDLE):
                     raise ValueError("previously published build output changed")
         return {"batch": batch, "bundleUri": (destination / "bundle.json").as_uri(),
-                "bundleSha256": _sha(raw)}, digests
+                "bundleSha256": sha256_bytes(raw)}, digests
 
 
 def _run_batch(graph: Workspace, config: Config, directory: Path, cancel: threading.Event) -> tuple[int, Object]:
