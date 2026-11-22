@@ -96,7 +96,13 @@ class Session:
         self.connected = True
 
     def _check_files(self) -> None:
-        if any(_digest(path) != self.identities[key] for key, path in self.files.items()):
+        try:
+            changed = any(_digest(path) != self.identities[key] for key, path in self.files.items())
+        except OSError:
+            self.disconnect()
+            raise
+        if changed:
+            self.disconnect()
             raise ValueError("stale Sail executable, profile or control image")
 
     def _execute(self, limit: int, *, stop_pc: int | None = None) -> tuple[list[Retirement], int | None]:
