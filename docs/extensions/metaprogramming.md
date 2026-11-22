@@ -175,6 +175,15 @@ cross stages only through admitted representations and provenance checks.
 | Security and resources | Preserve requested relational observations, cost and storage bounds as well as functional results; specialization is not permission to declassify or drop failure paths. |
 | Machine and hardware authorship | Generated state, schedules and RTL retain their admitted architectural/cycle interpretations, finite representations and independent refinement subjects. Shared generation supplies no hardware theorem. |
 
+When a generator accepts an effectful argument, emit a binding at the
+argument's original evaluation point. Splice a reference to the bound value at
+each use. For example, generating zero or two references to the value of
+`ReadAndAdvance(ref cursor)` must advance the cursor once on either successful
+path. If the read fails, both generated programs propagate or examine that
+failure before subsequent work. Two uses of an owned value require its
+duplication evidence. Test the trace, the final cursor, and each returned owner
+for both generated programs under the [call-by-value application rule](graded-foundation.md#functions-and-application).
+
 Qualification must state these obligations over the admitted interpretation chosen
 under the [frontend disposition](full-language-review.md#r-05-009-r-05-020-and-what-holds-the-frontend-rows).
 The selected extension must prove its laws about the checked elaboration image

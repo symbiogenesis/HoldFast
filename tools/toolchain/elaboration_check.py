@@ -136,6 +136,20 @@ bool WithHeadroom(Nat a, Nat b, Nat k) requires b <= k requires a <= k - b => Gu
 bool Quotient(i8 x, i8 d) requires d >= 2i8 requires x / d <= x => true;
 bool Safe(i8 x, i8 d) requires x >= 0i8 requires d >= 2i8 => Quotient(x, d);
 """),
+        ("evaluate-unused-and-repeated-arguments-once", """module ArgumentOrder;
+Nat ReadAndAdvance(ref Nat cursor) effects writes(cursor) { cursor = cursor + 1; return cursor; }
+definition Nat Ignore(Nat value) => 0;
+definition Nat Twice(Nat value) => value + value;
+Nat Observe() {
+    var cursor = 0;
+    let unused = Ignore(ReadAndAdvance(ref cursor));
+    assert cursor == 1;
+    let doubled = Twice(ReadAndAdvance(ref cursor));
+    assert cursor == 2;
+    return doubled + cursor;
+}
+lemma Once() ensures Observe() == 6 proof { assert Observe() == 6; }
+"""),
         ("symbolic-accumulator-execution", """module FoldReplay;
 public Nat Twice(Nat n) {
     var total = 0;
