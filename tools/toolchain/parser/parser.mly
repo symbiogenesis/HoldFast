@@ -91,7 +91,9 @@ let build_pattern first last target values =
 %token GENERIC_OPEN CALL_GENERIC_OPEN
 %token ANNOTATION_OPEN LAMBDA_OPEN
 %token <string * string> NUMBER
-%token <string> LIFETIME STRING INTERPOLATED_STRING CHARACTER HOLE ANNOTATION_NAME
+%token <string> LIFETIME STRING CHARACTER HOLE ANNOTATION_NAME
+%token <string * Ast.node list> INTERPOLATED_STRING
+%start <Ast.node> format_expression
 %start <Ast.node> file
 %start <Ast.node> surface_file
 %start <unit> generic_call_prefix
@@ -99,6 +101,9 @@ let build_pattern first last target values =
 %%
 
 /* Internal token-only prefix probe; the public entries still own complete files. */
+format_expression:
+  value=s_expression EOF { value }
+
 generic_call_prefix:
   comma_nonempty_list(s_type_argument) GT s_open_paren { () }
 
@@ -893,7 +898,8 @@ s_argument_value:
 s_atom_with(opening):
   value=s_literal { value }
 | value=INTERPOLATED_STRING
-    { make "interpolated_string" $startpos $endpos [("value", String value)] [] }
+    { let spelling, holes = value in
+      make "interpolated_string" $startpos $endpos [("value", String spelling); ("holes", array holes)] holes }
 | value=s_operator_value_with(opening) { value }
 | value=s_hole { value }
 | value=s_value_identifier { make "name" $startpos $endpos [("name", value)] [] }

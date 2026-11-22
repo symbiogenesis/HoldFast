@@ -1699,6 +1699,7 @@ NEGATIVE: tuple[tuple[str, bytes, str], ...] = (
     ("raw-string-underindented-content", b'module M; public void F() { let text = """\n  short\n    """; }', "syntax"),
     ("unterminated-interpolated-string", b'module M; public void F() { Format.Write(ref b, $"unterminated); }', "syntax"),
     ("interpolated-empty-hole", b'module M; public void F() { Format.Write(ref b, $"empty {}"); }', "syntax"),
+    ("interpolated-chained-comparison", b'module M; public void F() { Format.Write(ref b, $"{true == false == false}"); }', "syntax"),
     ("interpolated-whitespace-hole", b'module M; public void F() { Format.Write(ref b, $"empty {   }"); }', "syntax"),
     ("interpolated-empty-specifier", b'module M; public void F() { Format.Write(ref b, $"spec {x:}"); }', "syntax"),
     ("interpolated-whitespace-specifier", b'module M; public void F() { Format.Write(ref b, $"spec {x: x2}"); }', "syntax"),
@@ -4528,7 +4529,7 @@ def _raw_string_and_format_roles(source: bytes, result: dict[str, Json]) -> None
     if len(interpolated) != len(expected):
         raise ValueError("interpolated format templates were omitted or conflated with ordinary strings")
     for node, spelling in zip(interpolated, expected, strict=True):
-        if node.get("value") != spelling.decode("utf-8") or set(node) != {"kind", "span", "value"}:
+        if node.get("value") != spelling.decode("utf-8") or set(node) != {"kind", "span", "value", "holes"}:
             raise ValueError("interpolated format template changed its AST fields or spelling")
         _exact_span(source, node, spelling)
     for binding_name, target_name in (("first", "builder"), ("second", "scratch")):

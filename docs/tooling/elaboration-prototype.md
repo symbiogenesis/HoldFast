@@ -88,10 +88,12 @@ The supported increment includes:
   UTF-8 byte vectors `Vec<Nat, n>` (bounded by 256 bytes) with `ByteLength`
   and `At` lookup, and `TextBuilder<capacity>` / `EmptyBuilder` /
   `Format.Write(ref builder, $"...")` / `Fits` / `Written` modeling allocation-free
-  checked formatting with AST-checked hole expressions (`Nat`, `bool`, `char`
-  when proved ASCII `<= '\u{7F}'`, `Vec<Nat, n>`,
-  and `:x2`/`:x4`/`:x8`/`:d`/`:b` specifiers), structural target-buffer aliasing
-  refusal and fail-closed capacity bounds.
+  checked formatting. Menhir parses each interpolation hole with the ordinary
+  expression production and retains its original byte span. A trailing format
+  specifier is separate from the expression. Holes support `Nat`, `bool`, `char`
+  when concrete or proved ASCII, and `Vec<Nat, n>`. Numeric holes accept
+  specifiers including `:x2`, `:x4`, `:x8`, `:d` and `:b`. The checker
+  enforces target-buffer aliasing and capacity limits.
 - Structural recursion over `Nat` parameters on `definition`, `function`,
   `lemma` and `theorem` declarations, elaborated to Gallina `fix` terms with
   optional explicit `decreases parameter` contracts on `definition` and

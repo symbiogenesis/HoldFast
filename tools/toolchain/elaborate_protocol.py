@@ -39,7 +39,7 @@ _FIELDS: dict[str, set[str]] = {
     "group_type": {"type"}, "computed_type": {"value"}, "type_argument": {"type"},
     "tuple_type": {"types"}, "modified_type": {"modifier", "lifetime", "type"},
     "name": {"name"}, "nat": {"value", "suffix"}, "bool": {"value"},
-    "character": {"value"}, "string": {"value"}, "interpolated_string": {"value"},
+    "character": {"value"}, "string": {"value"}, "interpolated_string": {"value", "holes"},
     "member": {"value", "name"}, "index": {"value", "index"},
     "unit": set(), "tuple": {"values"}, "group": {"value"},
     "call": {"callee", "arguments"}, "generic_application": {"value", "arguments"},

@@ -328,6 +328,10 @@ public definition Vec<Nat, 10> HeaderTag() =>
     [vela-hdr]
     """;
 public const Nat HeaderBytes = ByteLength(HeaderTag());
+public definition TextBuilder<5> FormatComparison() =>
+    Format.Write(ref EmptyBuilder<5>(), $"{1u8 & 1u8 == 0u8}");
+public lemma ComparisonWritesFalse() ensures Written(FormatComparison()) == 5
+    proof { assert Written(FormatComparison()) == 5; }
 public TextBuilder<36> FormatPacket(Nat id, bool ok) {
     let TextBuilder<36> builder = EmptyBuilder();
     let TextBuilder<36> withHeader = Format.Write(ref builder, $"hdr={HeaderTag()} ");

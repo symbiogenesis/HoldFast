@@ -2005,11 +2005,16 @@ def _string_literal(spelling: str) -> Form:
     return form
 
 
-def _interpolated_literal(spelling: str) -> Form:
+def _interpolated_literal(*parts: str | Form) -> Form:
     def form(fixture: _Fixture) -> Node:
         start = fixture.offset
-        fixture.write(spelling)
-        return fixture.node("interpolated_string", start, value=spelling)
+        holes = []
+        for part in parts:
+            if isinstance(part, str):
+                fixture.write(part)
+            else:
+                holes.append(part(fixture))
+        return fixture.node("interpolated_string", start, value=fixture.text.encode()[start:].decode(), holes=holes)
     return form
 
 
@@ -2048,10 +2053,10 @@ def _raw_strings_and_checked_formatting() -> None:
                 _call(
                     _member(_variable("Format"), "Write"),
                     _ref_arg(_call("EmptyBuilder", generics=(_natural(36),))),
-                    _interpolated_literal('$"hdr={HeaderTag()} "'),
+                    _interpolated_literal('$"hdr={', _call("HeaderTag"), '} "'),
                 )
             ),
-            _interpolated_literal('$"id=0x{id:x4} ok={ok}"'),
+            _interpolated_literal('$"id=0x{', _variable("id"), ':x4} ok={', _variable("ok"), '}"'),
         ),
     )
     fixture.theorem(
@@ -2081,7 +2086,9 @@ def _raw_strings_and_checked_formatting() -> None:
             _member(_variable("Format"), "Write"),
             _ref_arg(_variable("b")),
             _interpolated_literal(
-                '$"next=0x{id + 1:x4} scaled=0x{Scale(factor: 2, value: holder.b):x4} cond={if (ok) true else false}"'
+                '$"next=0x{', _binary("+", _variable("id"), _natural(1)), ':x4} scaled=0x{',
+                _call("Scale", _natural(2), _member(_variable("holder"), "b"), labels=("factor", "value")),
+                ':x4} cond={', _if_expr(_variable("ok"), _boolean(True), _boolean(False)), '}"'
             ),
         ),
     )
@@ -2111,7 +2118,7 @@ def _raw_strings_and_checked_formatting() -> None:
         _call(
             _member(_variable("Format"), "Write"),
             _ref_arg(_variable("b")),
-            _interpolated_literal('$"n={Written(b) + 1:x4}"'),
+            _interpolated_literal('$"n={', _binary("+", _call("Written", _variable("b")), _natural(1)), ':x4}"'),
         ),
     )
     _refuses(alias_read, "type", "alias")
@@ -2127,7 +2134,7 @@ def _raw_strings_and_checked_formatting() -> None:
             _return_stmt(_call(
                 _member(_variable("Format"), "Write"),
                 _ref_arg(_variable("b")),
-                _interpolated_literal('$"n={writtenBeforeFormat:x4}"'),
+                _interpolated_literal('$"n={', _variable("writtenBeforeFormat"), ':x4}"'),
             )),
         ),
         block=True,
@@ -2140,7 +2147,7 @@ def _raw_strings_and_checked_formatting() -> None:
         "WriteLength",
         _type("TextBuilder", _natural(16)),
         (("b", _type("TextBuilder", _natural(16))),),
-        _call(_member(_variable("Format"), "Write"), _ref_arg(_variable("b")), _interpolated_literal('$"n={Written(b):x4}"')),
+        _call(_member(_variable("Format"), "Write"), _ref_arg(_variable("b")), _interpolated_literal('$"n={', _call("Written", _variable("b")), ':x4}"')),
     )
     _refuses(count_conflict, "type", "exclusive 'ref' target loan starts at line")
     _refuses(count_conflict, "type", 'let writtenBeforeFormat = Written(b) in Format.Write(ref b, $"n={writtenBeforeFormat:x4}")')
@@ -2156,7 +2163,7 @@ def _raw_strings_and_checked_formatting() -> None:
             _interpolated_literal('$"n={id + :x4}"'),
         ),
     )
-    _refuses(bad_hole_syntax, "unsupported", "hole")
+    _refuses(bad_hole_syntax, "protocol", "hole")
 
 
 def _if_expr(condition: Form, yes: Form, no: Form) -> Form:
@@ -4856,7 +4863,7 @@ def _characters_conversions_patterns_and_formatting() -> None:
         _call(
             _member(_variable("Format"), "Write"),
             _ref_arg(_variable("b")),
-            _interpolated_literal('$"[{c}]"'),
+            _interpolated_literal('$"[{', _variable("c"), '}]"'),
         ),
         contracts=(_contract("requires", _binary("<=", _variable("c"), _char_lit("'Z'"))),),
     )
