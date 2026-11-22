@@ -325,6 +325,15 @@ loaded Eglot bytecode, the shipped GNU GPL version 3 text and the distribution's
 copyright file. Only the test harness and Vela source fixture are distributed
 here. [Emacs 30.2 Eglot source and license](https://github.com/emacs-mirror/emacs/blob/emacs-30.2/lisp/progmodes/eglot.el)
 
+The [BSP interoperability qualifier](tools/toolchain/bsp_client.py) runs the
+same pinned Neovim editor with bsp.nvim revision
+`42f77554d1242b71174da0216e1d29705da7b9d0` as an external build client.
+Its root license is Apache-2.0 (SHA-256
+`c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4`).
+The qualifier verifies the archive, stages the license and Lua modules in a
+temporary directory and exercises the client's project loader and build requests.
+The repository distributes the Vela harness. [Pinned client and license](https://github.com/616b2f/bsp.nvim/blob/42f77554d1242b71174da0216e1d29705da7b9d0/LICENSE)
+
 [CoqEAL and Trocq](docs/assurance/verification-strategy.md#existing-tooling-and-implementation-owners)
 remain conditional proof-transfer references. A concrete consumer and separately
 priced qualification must select the revision and read its own complete licence
