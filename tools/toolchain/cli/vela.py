@@ -186,14 +186,18 @@ def _trace_benchmark(args: argparse.Namespace) -> int:
         if args.command == "trace-benchmark-validate":
             with args.report.open("rb") as stream:
                 data = stream.read(trace_benchmark.MAX_REPORT_BYTES + 1)
-            trace_benchmark.validate(trace_benchmark.decode(data), source.data, producer)
+            trace_benchmark.validate(trace_benchmark.decode(data), source.data, producer,
+                                     max_overhead_ppm=args.max_overhead_ppm)
             _unchanged(source)
             _producer_unchanged(producer, "during benchmark validation")
-            print("ok vela: bound tracing comparison; no overhead bound or program timing verdict")
+            print("ok vela: bound tracing comparison" if args.max_overhead_ppm is None
+                  else f"ok vela: measured recording overhead within {args.max_overhead_ppm} ppm")
             return 0
         _destination(source_path, args.output)
         report = trace_benchmark.measure(source.data, producer, samples=args.samples,
                                          warmups=args.warmups)
+        if args.max_overhead_ppm is not None:
+            trace_benchmark.validate(report, source.data, producer, max_overhead_ppm=args.max_overhead_ppm)
         _unchanged(source)
         _producer_unchanged(producer, "during benchmark")
         _destination(source_path, args.output)
@@ -386,6 +390,9 @@ def main(argv: list[str] | None = None) -> int:
         "trace-benchmark-validate", help="refuse stale or inconsistent tracing comparisons")
     benchmark_validation.add_argument("report", type=Path)
     benchmark_validation.add_argument("--source", type=Path, required=True)
+    for command in (benchmark, benchmark_validation):
+        command.add_argument("--max-overhead-ppm", type=int,
+                             help="require the measured elapsed overhead to fit this parts-per-million budget")
     viewer = commands.add_parser("trace-qualify-viewer", help="qualify a pinned offline Perfetto importer")
     viewer.add_argument("--trace-processor", type=Path, required=True)
     viewer.add_argument("--output", type=Path, required=True)

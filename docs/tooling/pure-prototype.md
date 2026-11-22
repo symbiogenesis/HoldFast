@@ -432,6 +432,16 @@ Refused, cancelled or stale measurements preserve an existing report. A hash-bou
 report detects changed data and supplies no authentication of the measurement or
 its environment.
 
+Both benchmark commands accept `--max-overhead-ppm N`. Supply the workload and
+budget before measuring. Qualification requires at least one warmup and seven
+measured pairs with a positive total plain time. It compares the exact totals,
+so an overrun smaller than one part per million still fails. A failed comparison
+preserves the previous output. Pass the same budget to the independent validation
+invocation. The qualification workloads are [pure functions](../../examples/pure.vela)
+and [expressions](../../examples/expressions.vela), each with one warmup,
+seven measured pairs and a 250,000 ppm (25%) aggregate elapsed overhead budget.
+The verdict applies to those recorded runs.
+
 [Independent timeline fixtures](../../tools/tests/test_vela_compiler_trace.py)
 recover expected order, durations, nesting and counters with a separate JSON reader
 and exercise corruption, overflow, clock and refusal controls.
