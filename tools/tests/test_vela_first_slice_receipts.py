@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 from tests.harness import TOOLS, Case, ensure, raises
 from toolchain import first_slice as slice_harness
+from toolchain.ast import VelaError
 from toolchain.cli import vela_parser as cli
 
 INDEPENDENT_CASES = True
@@ -224,7 +225,8 @@ def _proof_fixture(root: Path, outputs: Path, *, trusted: bool = False,
         "negative_controls_count": len(slice_harness.NEGATIVE_CONTROLS),
         "negative_controls": [
             {"name": control.name, "parsed_surface": True, "category": control.expected_kind,
-             "line": 2, "column": 1, "message": control.expected_substring}
+             "line": control.expected_location[0], "column": control.expected_location[1],
+             "message": control.expected_substring}
             for control in slice_harness.NEGATIVE_CONTROLS],
         "proof_corruption_refused": True, "assumption_exports_count": len(names),
         "solver_trusted_count": int(trusted),
@@ -660,8 +662,9 @@ def _control_coverage() -> None:
                          "missing-capacity-object", "missing-capacity-source", "changed-capacity-source",
                          "missing-capacity-input", "changed-capacity-input", "swapped-capacity-inputs",
                          "missing-controls", "count", "boolean-count", "duplicate", "unknown",
-                         "unparsed", "syntax-refusal", "wrong-reason", "bad-line", "bad-column",
-                         "missing-control-source", "changed-control-source", "out-of-range-line", "out-of-range-column"):
+                         "unparsed", "syntax-refusal", "wrong-reason", "bad-line", "bad-column", "wrong-line",
+                         "wrong-column", "missing-control-source", "changed-control-source", "out-of-range-line",
+                         "out-of-range-column"):
             report = _proof_fixture(root, outputs)
             capacity = cast("dict[str, object]", report["capacity_invariance"])
             rows = cast("list[dict[str, object]]", report["negative_controls"])
@@ -707,6 +710,10 @@ def _control_coverage() -> None:
                 rows[0]["line"] = True
             elif mutation == "bad-column":
                 rows[0]["column"] = 0
+            elif mutation == "wrong-line":
+                rows[0]["line"] = cast("int", rows[0]["line"]) - 1
+            elif mutation == "wrong-column":
+                rows[0]["column"] = cast("int", rows[0]["column"]) + 1
             elif mutation == "missing-control-source":
                 (outputs / "negative-controls/oob-read.vela").unlink()
             elif mutation == "changed-control-source":
@@ -730,6 +737,29 @@ def _control_coverage() -> None:
             damaged["steps"] = [step for step in steps if Path(str(step["log"])).name != name]
             with raises(ValueError, msg=f"omitted capacity process {name} was accepted"):
                 slice_harness._retained_proof(root, damaged, outputs, dict(slice_harness._artifacts(outputs)))
+
+
+def _live_control_location() -> None:
+    control = next(control for control in slice_harness.NEGATIVE_CONTROLS if control.name == "oob-read")
+    call = "Span.Read(s, 8usize)"
+    line, source_line = next((i, text) for i, text in enumerate(control.source.splitlines(), 1) if call in text)
+    column = source_line.index(call) + 1
+    for reported_line, reported_column in ((line, column), (line - 1, column), (line, column + 1)):
+        with tempfile.TemporaryDirectory(prefix="vela-live-control-location-") as temporary:
+            directory = Path(temporary)
+            compiled = slice_harness.vela_parser.Build(directory, directory / "parser", {})
+            refusal = VelaError(control.expected_kind, reported_line, reported_column, control.expected_substring)
+            with patch.object(slice_harness, "NEGATIVE_CONTROLS", (control,)), \
+                    patch.object(slice_harness.vela_parser, "parse_source", return_value={}), \
+                    patch.object(slice_harness.vela_elaborate, "elaborate", side_effect=refusal):
+                correct = (reported_line, reported_column) == (line, column)
+                try:
+                    row, = slice_harness._run_negative_controls(compiled, directory)
+                except ValueError as error:
+                    ensure(not correct and control.name in str(error), f"unexpected live control refusal: {error}")
+                else:
+                    ensure(correct, "live control accepted the right reason at the wrong source site")
+                    ensure((row["line"], row["column"]) == (line, column), "live control lost the failing call site")
 
 
 def _execution_coverage() -> None:
@@ -1148,6 +1178,7 @@ def cases() -> list[Case]:
             Case("stdout audit provenance preserves stderr diagnostics", _process_streams),
             Case("proof corruption binds the intended source and type refusal", _corruption_control_subjects),
             Case("retained capacity and semantic refusal coverage", _control_coverage),
+            Case("live semantic refusal requires the failing call site", _live_control_location),
             Case("retained capability execution transcripts and images", _execution_coverage),
             Case("explicit compiler replay requires the requested file", _explicit_compiler_path),
             Case("retained optional compiler availability and controls", _compiler_coverage),

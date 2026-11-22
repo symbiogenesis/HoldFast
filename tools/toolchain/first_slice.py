@@ -120,70 +120,85 @@ class NegativeControl:
     source: str
     expected_kind: str
     expected_substring: str
+    expected_location: tuple[int, int]
+
+    @classmethod
+    def marked(cls, name: str, source: str, kind: str, message: str) -> NegativeControl:
+        """Strip the single fixture marker and retain its one-based diagnostic location."""
+        before, after = source.split("/*error*/")
+        prefix = before.replace("\r\n", "\n").replace("\r", "\n")
+        location = (prefix.count("\n") + 1, len(prefix.rpartition("\n")[2]) + 1)
+        return cls(name, before + after, kind, message, location)
+
+    def check_location(self, line: object, column: object) -> None:
+        if type(line) is not int or type(column) is not int or (line, column) != self.expected_location:
+            expected_line, expected_column = self.expected_location
+            raise ValueError(f"negative control {self.name}: expected diagnostic at "
+                             f"{expected_line}:{expected_column}, got {line}:{column}")
 
 
 NEGATIVE_CONTROLS: Final[tuple[NegativeControl, ...]] = (
-    NegativeControl(
+    NegativeControl.marked(
         "oob-read",
         """module Vela.FirstSlice.NegOobRead;
 public definition u8 BadRead() =>
     let s = Span.AllocZeroed(64usize, 8usize) in
-    Span.Read(s, 8usize);
+    /*error*/Span.Read(s, 8usize);
 """,
         "type",
         "cannot prove Span.Read index is within Span.Length bounds",
     ),
-    NegativeControl(
+    NegativeControl.marked(
         "oob-write",
         """module Vela.FirstSlice.NegOobWrite;
 public definition Span<byte> BadWrite() =>
     let s = Span.AllocZeroed(64usize, 8usize) in
-    Span.Write(s, 8usize, 0x01u8);
+    /*error*/Span.Write(s, 8usize, 0x01u8);
 """,
         "type",
         "cannot prove Span.Write index is within Span.Length bounds",
     ),
-    NegativeControl(
+    NegativeControl.marked(
         "oob-slice",
         """module Vela.FirstSlice.NegOobSlice;
 public definition Span<byte> BadSlice() =>
     let s = Span.AllocZeroed(64usize, 8usize) in
-    Span.Slice(s, 5usize, 4usize);
+    /*error*/Span.Slice(s, 5usize, 4usize);
 """,
         "type",
         "cannot prove Span.Slice subrange (offset + count <= Span.Length) is in bounds",
     ),
-    NegativeControl(
+    NegativeControl.marked(
         "oob-fill",
         """module Vela.FirstSlice.NegOobFill;
 public definition Span<byte> BadFill() =>
     let s = Span.AllocZeroed(64usize, 8usize) in
-    Span.Fill(s, 5usize, 4usize, 0x00u8);
+    /*error*/Span.Fill(s, 5usize, 4usize, 0x00u8);
 """,
         "type",
         "cannot prove Span.Fill subrange (offset + count <= Span.Length) is in bounds",
     ),
-    NegativeControl(
+    NegativeControl.marked(
         "overflow-slice-extent",
         """module Vela.FirstSlice.NegSliceExtent;
 public definition Span<byte> SliceAt(Span<byte> s)
     requires s.CanRead
-    => Span.Slice(s, usize.Max, 1usize);
+    => /*error*/Span.Slice(s, usize.Max, 1usize);
 """,
         "type",
         "integer addition on 'usize' may overflow",
     ),
-    NegativeControl(
+    NegativeControl.marked(
         "overflow-fill-extent",
         """module Vela.FirstSlice.NegFillExtent;
 public definition Span<byte> FillAt(Span<byte> s)
     requires s.CanWrite
-    => Span.Fill(s, 1usize, usize.Max, 0u8);
+    => /*error*/Span.Fill(s, 1usize, usize.Max, 0u8);
 """,
         "type",
         "integer addition on 'usize' may overflow",
     ),
-    NegativeControl(
+    NegativeControl.marked(
         "mutate-in-borrow",
         """module Vela.FirstSlice.NegMutateInBorrow;
 public definition Span<byte> BadBorrowWrite(in Span<byte> pkt)
@@ -191,23 +206,23 @@ public definition Span<byte> BadBorrowWrite(in Span<byte> pkt)
     requires pkt.CanWrite
     requires pkt.Length >= 4usize
 =>
-    Span.Write(pkt, 0usize, 0xAAu8);
+    /*error*/Span.Write(pkt, 0usize, 0xAAu8);
 """,
         "type",
         "cannot mutate a read-only 'in Span<byte>' borrow",
     ),
-    NegativeControl(
+    NegativeControl.marked(
         "mutate-readonly-view",
         """module Vela.FirstSlice.NegMutateReadOnly;
 public definition Span<byte> BadViewWrite() =>
     let s = Span.AllocZeroed(64usize, 8usize) in
     let ro = Span.ReadOnly(s) in
-    Span.Write(ro, 0usize, 0xAAu8);
+    /*error*/Span.Write(ro, 0usize, 0xAAu8);
 """,
         "type",
         "cannot prove Span has valid tag and write permission (Span.CanWrite)",
     ),
-    NegativeControl(
+    NegativeControl.marked(
         "mutate-readonly-record-view",
         """module Vela.FirstSlice.NegMutateRecordView;
 public record ValidatedPacket<region 'dst>(usize CopiedBytes, in<'dst> Span<byte> PayloadView);
@@ -215,50 +230,50 @@ public Span<byte> BadRecordViewWrite<region 'dst>(ValidatedPacket<'dst> pkt)
     requires pkt.PayloadView.CanRead && pkt.PayloadView.Length >= 1usize
 {
     var v = pkt.PayloadView;
-    v[0usize] = 0xAAu8;
+    /*error*/v[0usize] = 0xAAu8;
     return v;
 }
 """,
         "type",
         "cannot mutate a read-only 'in' parameter",
     ),
-    NegativeControl(
+    NegativeControl.marked(
         "read-invalidated-view",
         """module Vela.FirstSlice.NegReadInvalidated;
 public definition u8 BadInvalidRead() =>
     let s = Span.AllocZeroed(64usize, 8usize) in
     let inv = Span.Invalidate(s) in
-    Span.Read(inv, 0usize);
+    /*error*/Span.Read(inv, 0usize);
 """,
         "type",
         "cannot prove Span has valid tag and read permission (Span.CanRead)",
     ),
-    NegativeControl(
+    NegativeControl.marked(
         "overlapping-copyprefix",
         """module Vela.FirstSlice.NegOverlapCopy;
 public definition Span<byte> BadOverlapCopy() =>
     let s = Span.AllocZeroed(64usize, 8usize) in
     let sub = Span.Slice(s, 2usize, 4usize) in
-    Span.CopyPrefix(s, sub, 4usize);
+    /*error*/Span.CopyPrefix(s, sub, 4usize);
 """,
         "type",
         "cannot prove Span.CopyPrefix source and destination extents are disjoint",
     ),
-    NegativeControl(
+    NegativeControl.marked(
         "foreign-restore",
         """module Vela.FirstSlice.NegForeignRestore;
 public definition Span<byte> BadRestore() =>
     let dst = Span.AllocZeroed(64usize, 8usize) in
     let other = Span.Slice(Span.AllocZeroed(64usize, 4usize), 0usize, 4usize) in
-    Span.Restore(dst, other);
+    /*error*/Span.Restore(dst, other);
 """,
         "type",
         "Span.Restore requires a slice derived from its parent",
     ),
-    NegativeControl(
+    NegativeControl.marked(
         "broken-restores-contract",
         """module Vela.FirstSlice.NegBrokenRestores;
-public definition Span<byte> BadRestores(ref Span<byte> dst)
+public definition Span<byte> BadRestores(/*error*/ref Span<byte> dst)
     requires dst.CanRead
     requires dst.CanWrite
     requires dst.Length >= 8usize
@@ -268,7 +283,7 @@ public definition Span<byte> BadRestores(ref Span<byte> dst)
         "type",
         "assertion could not be established",
     ),
-    NegativeControl(
+    NegativeControl.marked(
         "restore-then-return-view",
         """module Vela.FirstSlice.NegRestoreThenReturnView;
 public Span<byte> BadReturnRestoredView(ref Span<byte> dst)
@@ -277,28 +292,28 @@ public Span<byte> BadReturnRestoredView(ref Span<byte> dst)
 {
     let roView = Span.ReadOnly(Span.Slice(dst, 0usize, 4usize));
     Span.Restore(ref dst, roView);
-    return roView;
+    /*error*/return roView;
 }
 """,
         "type",
         "cannot return a view borrowed from a span that was already restored",
     ),
-    NegativeControl(
+    NegativeControl.marked(
         "capability-fabrication",
         """module Vela.FirstSlice.NegCapabilityFabrication;
 public Span<byte> BadFabricate(usize addr)
 {
-    return Span.AllocZeroed(addr, 8usize);
+    return /*error*/Span.AllocZeroed(addr, 8usize);
 }
 """,
         "type",
         "Span.AllocZeroed(base, length) is a specification constructor",
     ),
-    NegativeControl(
+    NegativeControl.marked(
         "missing-write-effect",
         """module Vela.FirstSlice.NegMissingWriteEffect;
 public Unit BadWriteEffect(ref Span<byte> dst, in Span<byte> pkt)
-    effects reads(dst), reads(pkt)
+    /*error*/effects reads(dst), reads(pkt)
     requires dst.CanRead && dst.CanWrite && dst.Length >= 1usize
 {
     dst[0usize] = 0x00u8;
@@ -307,7 +322,7 @@ public Unit BadWriteEffect(ref Span<byte> dst, in Span<byte> pkt)
         "type",
         "callable mutates parameter 'dst' not declared in effects writes(...)",
     ),
-    NegativeControl(
+    NegativeControl.marked(
         "wrong-expected-byte",
         """module Vela.FirstSlice.NegWrongByte;
 theorem BadByte()
@@ -316,13 +331,13 @@ theorem BadByte()
         Span.Read(s, 0usize) == 0x99u8
 proof {
     let s = Span.Write(Span.AllocZeroed(64usize, 8usize), 0usize, 0x10u8);
-    assert Span.Read(s, 0usize) == 0x99u8;
+    /*error*/assert Span.Read(s, 0usize) == 0x99u8;
 }
 """,
         "type",
         "assertion could not be established",
     ),
-    NegativeControl(
+    NegativeControl.marked(
         "stale-input-leak",
         """module Vela.FirstSlice.NegStaleLeak;
 theorem BadStale()
@@ -333,13 +348,13 @@ theorem BadStale()
 proof {
     let dirty = Span.Fill(Span.AllocZeroed(64usize, 8usize), 0usize, 8usize, 0xEEu8);
     let cleaned = Span.Fill(dirty, 0usize, 8usize, 0x00u8);
-    assert Span.Read(cleaned, 6usize) == 0xEEu8;
+    /*error*/assert Span.Read(cleaned, 6usize) == 0xEEu8;
 }
 """,
         "type",
         "assertion could not be established",
     ),
-    NegativeControl(
+    NegativeControl.marked(
         "loop-frame-overlap",
         """module Vela.FirstSlice.NegLoopFrameOverlap;
 public theorem BadLoopFrame(ref Span<byte> s, usize bound, usize frameIdx)
@@ -351,7 +366,7 @@ proof {
     foreach (let i in 0usize..bound)
         invariant i <= bound
         invariant s.CanRead && s.CanWrite && s.Length == old(s.Length)
-        invariant s[frameIdx] == old(s[frameIdx])
+        /*error*/invariant s[frameIdx] == old(s[frameIdx])
         decreases bound - i
     {
         s[i] = 0xAAu8;
@@ -615,16 +630,12 @@ def _retained_controls(report: dict[str, object], directory: Path,
         if (control is None or name in seen or row.get("parsed_surface") is not True
                 or row.get("category") != control.expected_kind
                 or not isinstance(row.get("message"), str)
-                or control.expected_substring not in row["message"]
-                or type(row.get("line")) is not int or row["line"] < 1
-                or type(row.get("column")) is not int or row["column"] < 1):
+                or control.expected_substring not in row["message"]):
             raise ValueError("first-slice receipt semantic-refusal subject or verdict changed")
+        control.check_location(row.get("line"), row.get("column"))
         path = directory / "negative-controls" / f"{name}.vela"
         if str(path) not in artifacts or path.read_bytes() != control.source.encode("utf-8"):
             raise ValueError("first-slice receipt semantic-refusal source differs from its declared subject")
-        lines = control.source.splitlines()
-        if row["line"] > len(lines) or row["column"] > len(lines[row["line"] - 1]) + 1:
-            raise ValueError("first-slice receipt semantic refusal is outside its source")
         seen.add(name)
 
 
@@ -2122,6 +2133,7 @@ def _run_negative_controls(compiled: vela_parser.Build, directory: Path) -> list
                     f"negative control {ctrl.name}: expected {ctrl.expected_kind} containing "
                     f"'{ctrl.expected_substring}', got {error.kind}: {error.message}"
                 ) from error
+            ctrl.check_location(error.line, error.column)
             results.append({
                 "name": ctrl.name,
                 "parsed_surface": True,

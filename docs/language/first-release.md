@@ -488,7 +488,7 @@ input fixtures, commands and report fields.
 | Check | Evidence |
 | --- | --- |
 | Source proof | Parse with Menhir, elaborate to Gallina, compile with `rocq c`, audit exported assumptions and replay with `rocqchk`. The `accepted` verdict requires an empty `solver_trust` ledger. The appended false equality must fail at the expected definition. |
-| Capacity and refusals | Compare proof structure and inference/reduction work at capacities 8 and 10⁹, replay both proofs, and exercise schema-2 cases that parse successfully and fail at their intended semantic checks. |
+| Capacity and refusals | Compare proof structure and inference/reduction work at capacities 8 and 10⁹ and replay both proofs. Each negative fixture must parse after its `/*error*/` marker is removed. Elaboration must report the expected category and message fragment at the marked line and column. |
 | Capability execution | Run one passing purecap CHERI-RISC-V capability program and the bounds, permission and tag trap controls under Sail. |
 | Optional CompCert execution | Lower the validator and scenario drivers to Clight/C, execute under CompCert's interpreter and run purecap images in Sail. Check the passing paths and altered payload, padding, checksum-code and clearing controls. Use `--ccomp /absolute/path/to/ccomp` to require this run. Automatic discovery records `compcert_sail.available: false` when the compiler is missing. [Compiler build contract](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/implementation/contracts/contained-compiler-reuse.md) |
 | Guest C11 regression | Compile the generated validator with the system C compiler at `-O0` and `-O2` and check all five exits. |
@@ -498,9 +498,10 @@ check a retained schema-2 receipt against the checkout and installed tools.
 A match binds the exact source, toolchain, target profile, generated artifacts
 and check transcripts. The checker regenerates the source-derived Gallina and C,
 reassembles the control images, and derives verdicts from the retained process
-output. It requires the full export audit, kernel replay, type-error and
-execution observations, including the optional CompCert effective inputs if
-that run is present. Missing or substituted artifacts, malformed or contradictory
+output. It checks each retained type error against its fixture's marked location.
+It requires the full export audit, kernel replay and execution observations,
+including the effective CompCert inputs when that run is present.
+Missing or substituted artifacts, malformed or contradictory
 transcripts, and changes during verification refuse a match. Inventories are
 limited to 4,096 entries and 256 MiB in the checkout's local output lane.
 `status: matched` is a binding verdict with `proof_replayed: false`.
