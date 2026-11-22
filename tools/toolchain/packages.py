@@ -82,7 +82,8 @@ def _producer(root: Path, compiled: parser.Build) -> Object:
     sources = {name: _sha((tools / name).read_bytes()) for name in PRODUCER_INPUTS}
     return {"python": sys.version, "python_sha256": _sha(Path(sys.executable).read_bytes()),
             "frontend_sha256": _sha(_encode(sources)), "parser_inputs": compiled.receipt["inputs"],
-            "parser_toolchain": compiled.receipt["toolchain"], "parser_sha256": _sha(compiled.executable.read_bytes())}
+            "parser_toolchain": compiled.receipt["toolchain"], "parser_sha256": _sha(compiled.executable.read_bytes()),
+            "ocamlrun_sha256": parser.interpreter_digest(compiled)}
 
 
 def _recheck_parser(root: Path, compiled: parser.Build) -> None:

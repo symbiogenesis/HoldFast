@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tests.harness import Case, ensure
-from toolchain import packet_runtime, trace_runtime
+from toolchain import packet_runtime, parser, trace_runtime
 
 INDEPENDENT_CASES = True
 
@@ -44,9 +44,9 @@ def _elf_contract() -> None:
             target.write_bytes(invalid)
             _refuses(lambda: packet_runtime._elf(target))
         target.write_bytes(b"#!/switch/ocamlrun\ncompiled bytecode")
-        ensure(packet_runtime._parser_interpreter(target) == Path("/switch/ocamlrun"), "bytecode interpreter omitted")
+        ensure(parser.bytecode_interpreter(target) == Path("/switch/ocamlrun"), "bytecode interpreter omitted")
         target.write_bytes(b"#!ocamlrun\n")
-        _refuses(lambda: packet_runtime._parser_interpreter(target))
+        _refuses(lambda: parser.bytecode_interpreter(target))
 
 
 def _transitive_bindings() -> None:

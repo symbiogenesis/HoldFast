@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 from toolchain import packet_trace, proofenv, trace_runtime
+from toolchain.parser import bytecode_interpreter
 
 MAX_ROOTS = 512
 MAX_OUTPUT = 256 * 1024
@@ -77,14 +78,6 @@ def _linked(output: bytes) -> list[Path]:
     return paths
 
 
-def _parser_interpreter(parser: Path) -> Path:
-    with parser.open("rb") as stream:
-        line = stream.readline(4096)
-    if not line.startswith(b"#!/") or not line.endswith(b"\n"):
-        raise ValueError("missing packet parser bytecode interpreter")
-    return Path(os.fsdecode(line[2:-1]))
-
-
 def _resolve_images(roots: set[Path], loader: Path, environment: dict[str, str],
                     files: dict[str, Path], *, directory: Path | None = None) -> dict[str, list[str]]:
     if environment.get("LD_PRELOAD", "") or environment.get("LD_AUDIT", ""):
@@ -129,7 +122,7 @@ def identity(parser: Path, prover_files: dict[str, str], proof_directory: Path) 
     worker_dir = prefix / "lib/rocq-runtime"
     bytecode = {parser, worker_dir / "rocqworker_with_drop", worker_dir / "rocqworker.byte"}
     roots = {rocq, checker, worker_dir / "rocqworker"}
-    roots.update(_parser_interpreter(path) for path in bytecode if path != parser)
+    roots.update(bytecode_interpreter(path) for path in bytecode if path != parser)
     libraries = {prefix / "lib"}
     libraries.update(Path(entry) for entry in environment.get("CAML_LD_LIBRARY_PATH", "").split(":") if entry)
     for library_root in libraries:
@@ -148,7 +141,7 @@ def identity(parser: Path, prover_files: dict[str, str], proof_directory: Path) 
         raise ValueError("packet prover has no selected native loader")
     files = {str(path): path for path in bytecode}
     files["/etc/ld.so.cache"] = Path("/etc/ld.so.cache")
-    host = _resolve_images({_parser_interpreter(parser)}, default_loader, dict(os.environ), files)
+    host = _resolve_images({bytecode_interpreter(parser)}, default_loader, dict(os.environ), files)
     dispatch = _resolve_images({Path(opam)}, default_loader, dict(os.environ), files, directory=proof_directory)
     switch = _resolve_images(roots, default_loader, environment, files, directory=proof_directory)
     lookup_inputs = {key: value for key, value in environment.items()
