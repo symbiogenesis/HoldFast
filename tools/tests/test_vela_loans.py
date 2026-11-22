@@ -529,6 +529,13 @@ def _malformed_records_and_edges() -> None:
 
 
 def _selective_invariant_lifting() -> None:
+    paired = tuple(Owner(name, fields=(("value",),), invariants=("Sorted",)) for name in ("a", "b"))
+    cross_owner = analyze(paired, _graph(
+        OpenInvariant("a", ("Sorted",)),
+        Borrow(Loan("guard", "b", Place("b", ("value",)), invariant="Sorted")),
+        Use("guard"), CloseInvariant("a", ("Sorted",)), Return(),
+    )).paths[0]
+    ensure("loan-invariant-not-open" in _kinds(cross_owner), "a.Sorted granted access to b.Sorted")
     buffer_owners = (
         Owner(
             "this",

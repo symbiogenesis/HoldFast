@@ -4313,6 +4313,19 @@ def _record_invariants_and_selective_lifting() -> None:
     )
     _refuses(unknown_clause, "name", "Missing")
 
+    immutable = _Fixture("ImmutableInvariantOwner")
+    immutable.record("Cell", (("Value", _NAT),), contracts=(
+        _invariant_contract(_binary("<=", _variable("Value"), _natural(10)), "Bounded"),
+    ))
+    immutable.function("Change", _NAT, (), _block_stmts(
+        _let_stmt("cell", _call("Cell", _natural(1))),
+        _open_lifts((_ref_arg(_variable("cell")),), ("Bounded",), (
+            _assign_stmt(_member(_variable("cell"), "Value"), "=", _natural(9)),
+        )),
+        _return_stmt(_member(_variable("cell"), "Value")),
+    ), block=True)
+    _refuses(immutable, "type", "immutable binding 'cell'")
+
     # Structured task scopes keep the `scope` keyword; they are design-only syntax.
     task_scope = _Fixture("TaskScopeIsNotInvariantLifting")
     task_scope.record(

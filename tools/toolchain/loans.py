@@ -758,10 +758,14 @@ class _State:
             return pair
         return (pair[0],)
 
-    def _is_invariant_open(self, place_owner: str, invariant: str) -> bool:
-        if (place_owner, invariant) in self.opened or (invariant, invariant) in self.opened:
-            return True
-        return any(invariant in {owner, clause} for owner, clause in self.opened)
+    def _loan_invariant(self, loan: Loan) -> tuple[str, str] | None:
+        clause = loan.invariant
+        if clause is None:
+            return None
+        if clause in self.owners[loan.place.owner].invariants:
+            return loan.place.owner, clause
+        # A standalone invariant has its own identity and can guard a separate place.
+        return clause, clause
 
     def ancestors(self, names: frozenset[str] | set[str]) -> frozenset[str]:
         result = set(names)
@@ -816,7 +820,7 @@ class _State:
                 self.issue(node, "exclusive-from-shared", name, parent)
         if self.containment(node, loan.place, parent_place, parent) == "no":
             self.issue(node, "reborrow-outside-parent", name, parent)
-        if loan.invariant is not None and not self._is_invariant_open(loan.place.owner, loan.invariant):
+        if loan.invariant is not None and self._loan_invariant(loan) not in self.opened:
             self.issue(node, "loan-invariant-not-open", name, loan.invariant)
         ancestors = self.ancestors({name}) - {name}
         for other in sorted(self.active - ancestors):
@@ -1016,10 +1020,7 @@ class _State:
                     if pair not in self.opened:
                         self.issue(node, "invariant-not-open", *res)
                     for loan in sorted(self.active):
-                        inv = self.loans[loan].invariant
-                        if (inv is not None
-                                and loan in live_after
-                                and inv in (pair[0], pair[1], f"{pair[0]}.{pair[1]}")):
+                        if loan in live_after and self._loan_invariant(self.loans[loan]) == pair:
                             self.issue(node, "invariant-closed-with-live-loan", *res, loan)
                     self.opened.discard(pair)
                     owner = self.owners.get(pair[0])

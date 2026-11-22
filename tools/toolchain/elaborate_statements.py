@@ -359,9 +359,11 @@ class _StatementsMixin:
                 prop_node, environment, target_return_type, continuation
             )
         if self.active_lift_scopes > 0:
+            debts = sorted(f"{owner}.{clause}" for owner, clauses in self.lifted_invariants.items() for clause in clauses)
             raise self.fail(
                 "type",
-                "cannot propagate '?' early exit while a record invariant is lifted in an enclosing scope",
+                "cannot propagate '?' early exit while a record invariant is lifted in an enclosing scope: "
+                + ", ".join(debts),
                 prop_node,
             )
         if self.uninitialized_out_params:
@@ -1196,6 +1198,9 @@ class _StatementsMixin:
                 )
             if tname in self.frozen_collections:
                 raise self.fail("type", f"cannot mutably loan frozen collection '{tname}'", loan_node)
+            if tname not in self.mutable_locals:
+                raise self.fail("type", f"cannot open an invariant through immutable binding '{tname}'; "
+                                "a mutable place or exclusive loan is required", loan_node)
             cur_b = extended[tname]
             if self._is_readonly_span(cur_b.term):
                 raise self.fail(
@@ -1230,7 +1235,6 @@ class _StatementsMixin:
         lifted_fact_terms: set[_Term] = set()
         pre_scope_slot_facts: list[_Term] = []
         for tname, rinfo, type_args in loaned_records:
-            self.mutable_locals.add(tname)
             clauses_for_t = {
                 inv.name
                 for inv in rinfo.invariants
