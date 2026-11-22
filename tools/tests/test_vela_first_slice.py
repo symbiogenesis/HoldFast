@@ -512,7 +512,7 @@ def _negative_span_refusals() -> None:
 def _clight_lowering_and_purecap_assembly() -> None:
     source = (TOOLS.parent / "examples/first_slice.vela").read_bytes()
     inv = vela_first_slice.build_foundation_inventory()
-    ensure(len(cast("list[str]", inv["carrier_laws"])) == 11, "expected 11 carrier laws in foundation inventory")
+    ensure(len(cast("list[str]", inv["carrier_laws"])) == 12, "expected 12 carrier laws in foundation inventory")
     ensure(
         len(cast("list[str]", inv["validator_contract_obligations"])) == 8,
         "expected 8 validator contract obligations in foundation inventory",
@@ -554,7 +554,8 @@ def _ordered_scalar_calls() -> None:
                          "parameters": [{"name": {"text": "vela_eval_0"}, "type": bool_type}],
                          "body": {"kind": "block", "statements": [{"kind": "return", "value": condition}]}}
     code = vela_first_slice._lower_function_to_c(declaration, {}, {}, lambda _: "usize", results,
-                                                lambda node: vela_first_slice._node_text(node["callee"]))
+                                                lambda node: vela_first_slice._node_text(node["callee"]),
+                                                lambda _: ("&&", "bool"))
     expected = """    vela_eval_3 = vela_eval_0;
     if (vela_eval_3) {
         vela_eval_1 = First();
@@ -644,6 +645,55 @@ def _execute_generated_packet_c() -> None:
                                check=True, timeout=30)
                 observed = subprocess.run([str(executable)], check=False, timeout=5).returncode
                 ensure(observed == expected, f"packet C {optimization} returned {observed}, expected {expected}")
+
+
+def _check_packet_statements(statements: str, start: bytes = b"    var u8 acc = 0x5A ^ rawLen;",
+                             *, replace: bool = False) -> None:
+    root = TOOLS.parent
+    original = (root / vela_first_slice.EXAMPLE).read_bytes()
+    ensure(original.count(start) == 1, "checksum regression fixture lost its insertion point")
+    source = original.replace(start, statements.encode() if replace else statements.encode() + start)
+    with parser.cached_build(root) as compiled:
+        parsed = parser.parse_source(compiled, source, surface=True)
+    checked = vela_elaborate.elaborate(source, parsed)
+    ensure(not solver_ledger.ledger(checked.gallina), "inserted checksum statements changed the proved contract")
+    generated, _ = vela_first_slice.lower_to_c(source, parsed, checked=checked)
+    with tempfile.TemporaryDirectory() as temporary:
+        executable = Path(temporary) / "packet"
+        for optimization in ("-O0", "-O2"):
+            subprocess.run(["cc", "-std=c11", optimization, "-x", "c", "-", "-o", str(executable)],
+                           input=generated.encode(), check=True, timeout=30)
+            ensure(subprocess.run([str(executable)], check=False, timeout=5).returncode == 0,
+                   f"lowered checksum statements changed the packet verdict at {optimization}")
+
+
+def _packet_word_xor() -> None:
+    _check_packet_statements(
+        "    let high = 256usize ^ 0usize;\n"
+        "    if (high == 0usize) { return 0u8; }\n"
+    )
+
+
+def _packet_compound_updates() -> None:
+    _check_packet_statements(
+        "    var u8 probe = 1u8;\n"
+        "    probe += 1u8;\n"
+        "    if (probe == 1u8) { return 0u8; }\n"
+    )
+    _check_packet_statements(
+        "    pkt[0usize] = 1u8;\n"
+        "    pkt[0usize] += 1u8;\n"
+        "    if (pkt[0usize] != 2u8) { return; }\n",
+        b"    pkt[0usize] = b0;",
+    )
+
+
+def _packet_affine_index_and_neutral_update() -> None:
+    _check_packet_statements(
+        "            acc = acc ^ pkt[i + 4usize];\n            acc += 0u8;",
+        b"            acc = acc ^ pkt[4usize + i];",
+        replace=True,
+    )
 
 
 def _packet_contextual_literals() -> None:
@@ -740,5 +790,8 @@ def cases() -> list[Case]:
         Case("first-slice-constructive-source-proofs-with-fixed-budgets", _first_slice_source_proofs, lane="guest"),
         Case("first-slice-mathematical-and-executable-recursion", _first_slice_recursion_boundary, lane="guest"),
         Case("execute-generated-packet-c-and-perturbed-scenarios", _execute_generated_packet_c, lane="guest"),
+        Case("packet-word-xor-retains-high-bits", _packet_word_xor, lane="guest"),
+        Case("packet-compound-updates-read-before-writing", _packet_compound_updates, lane="guest"),
+        Case("packet-affine-index-and-neutral-accumulator", _packet_affine_index_and_neutral_update, lane="guest"),
         Case("packet-contextual-literals-match-explicit-representations", _packet_contextual_literals, lane="guest"),
     ]

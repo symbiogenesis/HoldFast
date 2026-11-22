@@ -134,6 +134,17 @@ public theorem LawFillAndFrame(ref Span<byte> s, usize frameIdx, byte fillVal)
             && s[frameIdx] == old(s[frameIdx])) == true;
     }
 
+public theorem LawSymbolicFillFrame(ref Span<byte> s, usize count, usize i)
+    requires s.CanRead && s.CanWrite
+    requires count <= 1_000_000_000usize && 4usize + count <= s.Length
+    requires i >= 1_000_000_004usize && i < s.Length
+    ensures s[i] == old(s)[i]
+    proof
+    {
+        Span.Fill(ref s, 4usize, count, 0u8);
+        assert s[i] == old(s)[i];
+    }
+
 public theorem LawSliceMetadataAndRead(in Span<byte> s, usize idx)
     requires s.CanRead && s.Base <= 0xFFFF_0000usize && s.Length >= 8usize && idx < 3usize
     ensures
@@ -323,46 +334,18 @@ public Result<ValidatedPacket<'dst>, ValidationError> PrepareAndValidatePacket<r
     ensures ((result is Ok(_)) && dst.Length >= 8 && pkt.Length >= 4 && usize.From(pkt[1]) <= 4
         && 4 + usize.From(pkt[1]) <= dst.Length) ==> result == Ok(ValidatedPacket(
             usize.From(pkt[1]), in Span.ReadOnly(Span.Slice(dst, 4, usize.From(pkt[1])))))
-    ensures match (result)
+    ensures (forall (usize i) => match (result)
     {
         Ok(ValidatedPacket(copied, _)) =>
-            if (copied == 0 && dst.Length >= 8 && pkt.Length >= 4)
-                dst[4] == 0x00u8 && dst[5] == 0x00u8 && dst[6] == 0x00u8 && dst[7] == 0x00u8
-            else true,
+            if (copied <= 4 && i >= 4 && i < 4 + copied && i < dst.Length && i < pkt.Length) dst[i] == pkt[i] else true,
         Err(_) => true
-    }
-    ensures match (result)
+    })
+    ensures (forall (usize i) => match (result)
     {
         Ok(ValidatedPacket(copied, _)) =>
-            if (copied == 1 && dst.Length >= 8 && pkt.Length >= 5)
-                dst[4] == pkt[4] && dst[5] == 0x00u8 && dst[6] == 0x00u8 && dst[7] == 0x00u8
-            else true,
+            if (copied <= 4 && i >= 4 + copied && i >= 4 && i < 8 && i < dst.Length) dst[i] == 0x00u8 else true,
         Err(_) => true
-    }
-    ensures match (result)
-    {
-        Ok(ValidatedPacket(copied, _)) =>
-            if (copied == 2 && dst.Length >= 8 && pkt.Length >= 6)
-                dst[4] == pkt[4] && dst[5] == pkt[5] && dst[6] == 0x00u8 && dst[7] == 0x00u8
-            else true,
-        Err(_) => true
-    }
-    ensures match (result)
-    {
-        Ok(ValidatedPacket(copied, _)) =>
-            if (copied == 3 && dst.Length >= 8 && pkt.Length >= 7)
-                dst[4] == pkt[4] && dst[5] == pkt[5] && dst[6] == pkt[6] && dst[7] == 0x00u8
-            else true,
-        Err(_) => true
-    }
-    ensures match (result)
-    {
-        Ok(ValidatedPacket(copied, _)) =>
-            if (copied == 4 && dst.Length >= 8 && pkt.Length >= 8)
-                dst[4] == pkt[4] && dst[5] == pkt[5] && dst[6] == pkt[6] && dst[7] == pkt[7]
-            else true,
-        Err(_) => true
-    }
+    })
     ensures (forall (usize i) => (i >= 8 && i < dst.Length && i < old(dst.Length)) ==> dst[i] == old(dst)[i])
 {
     if (dst.Length < 8 || pkt.Length < 4 || !Span.Disjoint(dst, pkt))

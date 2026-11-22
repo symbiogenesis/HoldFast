@@ -109,6 +109,7 @@ class _Elaborator(
         self.require_word_proofs = False
         self.word_proofs: dict[tuple[int, int, str], str] = {}
         self.contextual_literal_types: dict[int, str] = {}
+        self.integer_operations: dict[int, tuple[str, str]] = {}
         self.serial = 0
         self.work = MAX_WORK
         self.reductions = MAX_REDUCTIONS
@@ -2186,7 +2187,8 @@ def _checked_elaboration(
                                   MappingProxyType(elaborator.contextual_literal_types.copy()),
                                   MappingProxyType(elaborator.call_declarations.copy()),
                                   recursive_declarations=frozenset(elaborator.recursive_declarations),
-                                  constructor_suggestions=MappingProxyType(elaborator.constructor_suggestions.copy())), elaborator
+                                  constructor_suggestions=MappingProxyType(elaborator.constructor_suggestions.copy()),
+                                  integer_operations=MappingProxyType(elaborator.integer_operations.copy())), elaborator
     except RecursionError as error:
         raise protocol.error("limit", "elaboration nesting exceeds the host stack bound") from error
 

@@ -92,6 +92,7 @@ EXPECTED_LAWS: Final[tuple[str, ...]] = (
     "LawReadOverWriteOther",
     "LawLoopFramePreservesDisjointSuffix",
     "LawFillAndFrame",
+    "LawSymbolicFillFrame",
     "LawSliceMetadataAndRead",
     "LawReadOnlyAndInvalidate",
     "LawDisjointCopyAndFrame",
@@ -105,7 +106,7 @@ EXPECTED_CONTRACT_OBLIGATIONS: Final[tuple[str, ...]] = (
     "PrepareAndValidatePacket_restores_0_Tag",
     "PrepareAndValidatePacket_restores_0_PermRead",
     "PrepareAndValidatePacket_restores_0_PermWrite",
-    *(f"PrepareAndValidatePacket_ensures_{index}" for index in range(12)),
+    *(f"PrepareAndValidatePacket_ensures_{index}" for index in range(9)),
 )
 
 EXPECTED_SCENARIO_THEOREMS: Final[tuple[str, ...]] = (
@@ -925,6 +926,7 @@ def build_foundation_inventory() -> dict[str, object]:
             "LawReadOverWriteOther",
             "LawLoopFramePreservesDisjointSuffix",
             "LawFillAndFrame",
+    "LawSymbolicFillFrame",
             "LawSliceMetadataAndRead",
             "LawReadOnlyAndInvalidate",
             "LawDisjointCopyAndFrame",
@@ -1098,6 +1100,7 @@ def _lower_function_to_c(
     literal_type: Callable[[dict[str, object]], str],
     function_results: dict[str, str],
     resolve_call: Callable[[dict[str, object]], str],
+    integer_operation: Callable[[dict[str, object]], tuple[str, str]],
 ) -> str:
     fname = _node_text(decl.get("name"))
     params = cast("list[dict[str, object]]", decl.get("parameters", []))
@@ -1165,8 +1168,8 @@ def _lower_function_to_c(
                 return False, "unsigned long"
             if isinstance(callee, dict) and callee.get("kind") == "name":
                 return False, _c_scalar_type(function_results[resolve_call(val)])
-        if vkind == "binary" and _node_text(val.get("operator")) == "^":
-            return False, "unsigned char"
+        if vkind == "binary" and _node_text(val.get("operator")) in {"+", "-", "*", "/", "%", "&", "|", "^"}:
+            return False, _c_scalar_type(integer_operation(val)[1])
         raise ValueError(f"cannot infer local C type for statement in {fname}: {stmt!r}")
 
     def collect_locals(stmts: list[dict[str, object]]) -> None:
@@ -1245,7 +1248,7 @@ def _lower_function_to_c(
         if kind == "binary":
             if _node_text(node["operator"]) in ("==", "!=", "<", "<=", ">", ">=", "&&", "||"):
                 return "int"
-            return scalar_type(_unwrap_arg(node["left"]))
+            return _c_scalar_type(integer_operation(node)[1])
         if kind == "call":
             callee = _unwrap_arg(node["callee"])
             if callee.get("kind") == "member":
@@ -1318,8 +1321,11 @@ def _lower_function_to_c(
                 prefix.extend((f"    {result} = {right};", "}"))
                 return result
             lhs, rhs = ordered([_unwrap_arg(node["left"]), _unwrap_arg(node["right"])], prefix)
-            if op == "^":
-                return f"(unsigned char)((unsigned int){lhs} ^ (unsigned int){rhs})"
+            if op in {"&", "|", "^"}:
+                bit_op, width = integer_operation(node)
+                c_type = _c_scalar_type(width)
+                promoted = "unsigned int" if c_type == "unsigned char" else c_type
+                return f"({c_type})(({promoted}){lhs} {bit_op} ({promoted}){rhs})"
             return f"({lhs} {op} {rhs})"
         if ekind == "call":
             callee = cast("dict[str, object]", node.get("callee", {}))
@@ -1355,6 +1361,12 @@ def _lower_function_to_c(
             return [f"{c_fn}({dst_ptr}, {span_ptr_expr(inner)});"]
         raise ValueError(f"unsupported Span initializer {mname!r} in {fname}")
 
+    def compound_rhs(st: dict[str, object], read: str, prefix: list[str]) -> str:
+        op, width = integer_operation(st)
+        old = temp(_c_scalar_type(width))
+        prefix.append(f"{old} = {read};")
+        return f"({old} {op} {lower_expr(st['value'], prefix)})"
+
     def lower_stmts(stmts: list[dict[str, object]], indent: str) -> list[str]:
         out_lines: list[str] = []
         for st in stmts:
@@ -1371,13 +1383,23 @@ def _lower_function_to_c(
             elif skind == "assignment":
                 target = cast("dict[str, object]", st.get("target", {}))
                 val = cast("dict[str, object]", st.get("value", {}))
+                compound = _node_text(st["operator"]) != "="
                 if target.get("kind") == "index":
                     s_ptr = span_ptr_expr(cast("dict[str, object]", target.get("value")))
-                    idx_c, rhs = ordered([_unwrap_arg(target["index"]), val], prefix)
+                    if compound:
+                        idx_c = temp("unsigned long")
+                        index_value = lower_expr(target["index"], prefix)
+                        prefix.append(f"{idx_c} = {index_value};")
+                        rhs = compound_rhs(st, f"vela_span_read({s_ptr}, {idx_c})", prefix)
+                    else:
+                        idx_c, rhs = ordered([_unwrap_arg(target["index"]), val], prefix)
                     out_lines.append(f"{indent}vela_span_write({s_ptr}, {s_ptr}, {idx_c}, {rhs});")
-                else:
+                elif target.get("kind") == "name":
                     tname = _node_text(target)
-                    out_lines.append(f"{indent}{tname} = {lower_expr(val, prefix)};")
+                    rhs = compound_rhs(st, tname, prefix) if compound else lower_expr(val, prefix)
+                    out_lines.append(f"{indent}{tname} = {rhs};")
+                else:
+                    raise ValueError(f"unsupported assignment target in {fname}: {target!r}")
             elif skind == "expression_statement":
                 val = cast("dict[str, object]", st.get("value", {}))
                 mname = _is_span_call(val)
@@ -1570,8 +1592,17 @@ def lower_to_c(
             raise ValueError("packet call requires a resolved declaration in the executable subset")
         return functions_by_site[site]
 
+    def integer_operation(node: dict[str, object]) -> tuple[str, str]:
+        operator = _unwrap_arg(node["operator"])
+        start = cast("list[int]", operator["span"])[0]
+        fact = checked.integer_operations.get(start)
+        if fact is None or fact[0] != _node_text(operator).removesuffix("="):
+            raise ValueError("packet integer operation lacks a checked representation")
+        return fact
+
     fn_c_blocks = [
-        _lower_function_to_c(decl_map[fn_name], ctor_map, record_fields, literal_type, function_results, resolve_call)
+        _lower_function_to_c(decl_map[fn_name], ctor_map, record_fields, literal_type, function_results,
+                             resolve_call, integer_operation)
         for fn_name in (
             "WritePacket8",
             "CopyPacketToDst",
@@ -1625,9 +1656,9 @@ static void vela_span_alloc_zeroed(
 {{
     unsigned long i;
     for (i = 0UL; i < length; i++) {{
-        backing[i] = 0U;
+        backing[base + i] = 0U;
     }}
-    out->ptr = backing;
+    out->ptr = backing + base;
     out->base = base;
     out->length = length;
     out->tag = 1;
@@ -1729,16 +1760,17 @@ static void vela_span_restore(
 
 int main(void)
 {{
-    unsigned char dst_buf[10];
-    unsigned char pkt_buf[8];
+    unsigned char arena[136];
+    unsigned char before[8];
+    unsigned long i;
     struct vela_span_byte dst;
     struct vela_span_byte pkt;
     struct vela_Result_ValidatedPacket_ValidationError out;
 
     /* 1. ValidateEmptyPacketOk: valid 0-byte payload + live frame preservation at index 8 */
-    vela_span_alloc_zeroed(&dst, dst_buf, 64UL, 10UL);
+    vela_span_alloc_zeroed(&dst, arena, 64UL, 10UL);
     vela_span_write(&dst, &dst, 8UL, 0xC3U);
-    vela_span_alloc_zeroed(&pkt, pkt_buf, 128UL, 8UL);
+    vela_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
     WritePacket8(&pkt, 0x56U, 0x00U, 0x5AU, 0x01U, 0x00U, 0x00U, 0x00U, 0x00U);
     PrepareAndValidatePacket(&out, &dst, &pkt);
     if (out.is_ok != {exp(1, 1)})
@@ -1753,8 +1785,8 @@ int main(void)
         return 5;
 
     /* 2. ValidateFullPacketOk: valid 4-byte payload [0x10, 0x20, 0x30, 0x40] */
-    vela_span_alloc_zeroed(&dst, dst_buf, 64UL, 8UL);
-    vela_span_alloc_zeroed(&pkt, pkt_buf, 128UL, 8UL);
+    vela_span_alloc_zeroed(&dst, arena, 64UL, 8UL);
+    vela_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
     WritePacket8(&pkt, 0x56U, 0x04U, 0x1EU, 0x01U, 0x10U, 0x20U, 0x30U, 0x40U);
     PrepareAndValidatePacket(&out, &dst, &pkt);
     if (out.is_ok != 1 || out.err != 0 || out.ok.CopiedBytes != 4UL)
@@ -1769,9 +1801,9 @@ int main(void)
         return 9;
 
     /* 3. ValidatePartialPacketScrubsStaleAndTrailingBytes: 2-byte payload scrubs [6..8) and preserves frame [8..10) */
-    vela_span_alloc_zeroed(&dst, dst_buf, 64UL, 10UL);
+    vela_span_alloc_zeroed(&dst, arena, 64UL, 10UL);
     vela_span_fill(&dst, &dst, 0UL, 10UL, 0xAAU);
-    vela_span_alloc_zeroed(&pkt, pkt_buf, 128UL, 8UL);
+    vela_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
     WritePacket8(&pkt, 0x56U, 0x02U, 0x6BU, 0x01U, 0x11U, 0x22U, 0xDEU, 0xADU);
     PrepareAndValidatePacket(&out, &dst, &pkt);
     if (out.is_ok != 1 || out.ok.CopiedBytes != 2UL || out.ok.PayloadView.length != 2UL)
@@ -1782,32 +1814,32 @@ int main(void)
         return 12;
 
     /* 4. RejectFramingShort: pkt.length < 4 */
-    vela_span_alloc_zeroed(&dst, dst_buf, 64UL, 8UL);
-    vela_span_alloc_zeroed(&pkt, pkt_buf, 128UL, 3UL);
+    vela_span_alloc_zeroed(&dst, arena, 64UL, 8UL);
+    vela_span_alloc_zeroed(&pkt, arena, 128UL, 3UL);
     PrepareAndValidatePacket(&out, &dst, &pkt);
     if (out.is_ok != 0 || out.err != {exp(13, 1)} || out.ok.PayloadView.tag != 0)
         return 13;
 
     /* 5. RejectBadMagic: header magic != 0x56 */
-    vela_span_alloc_zeroed(&dst, dst_buf, 64UL, 8UL);
-    vela_span_alloc_zeroed(&pkt, pkt_buf, 128UL, 8UL);
+    vela_span_alloc_zeroed(&dst, arena, 64UL, 8UL);
+    vela_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
     WritePacket8(&pkt, 0x00U, 0x02U, 0x3AU, 0x01U, 0xAAU, 0xCCU, 0x00U, 0x00U);
     PrepareAndValidatePacket(&out, &dst, &pkt);
     if (out.is_ok != 0 || out.err != {exp(14, 2)} || out.ok.PayloadView.tag != 0)
         return 14;
 
     /* 6. RejectLengthOutOfBounds: rawLen == 5 > 4 */
-    vela_span_alloc_zeroed(&dst, dst_buf, 64UL, 8UL);
-    vela_span_alloc_zeroed(&pkt, pkt_buf, 128UL, 8UL);
+    vela_span_alloc_zeroed(&dst, arena, 64UL, 8UL);
+    vela_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
     WritePacket8(&pkt, 0x56U, 0x05U, 0x5FU, 0x01U, 0x10U, 0x20U, 0x30U, 0x40U);
     PrepareAndValidatePacket(&out, &dst, &pkt);
     if (out.is_ok != 0 || out.err != {exp(15, 3)} || out.ok.PayloadView.tag != 0)
         return 15;
 
     /* 7. RejectChecksumScrubsDestinationAndRestores: bad checksum scrubs [0..8), preserves frame at 8, restores dst */
-    vela_span_alloc_zeroed(&dst, dst_buf, 64UL, 10UL);
+    vela_span_alloc_zeroed(&dst, arena, 64UL, 10UL);
     vela_span_fill(&dst, &dst, 0UL, 10UL, 0x77U);
-    vela_span_alloc_zeroed(&pkt, pkt_buf, 128UL, 8UL);
+    vela_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
     WritePacket8(&pkt, 0x56U, 0x04U, 0xFFU, 0x01U, 0x10U, 0x20U, 0x30U, 0x40U);
     PrepareAndValidatePacket(&out, &dst, &pkt);
     if (out.is_ok != 0 || out.err != {exp(16, 4)} || out.ok.PayloadView.tag != 0)
@@ -1820,13 +1852,23 @@ int main(void)
     if (dst.base != 64UL || dst.length != 10UL || dst.perm_write != 1)
         return 18;
 
-    /* 8. Overlapping-span alias control at runtime: disjoint check rejects overlapping base ranges */
-    vela_span_alloc_zeroed(&dst, dst_buf, 64UL, 8UL);
-    vela_span_alloc_zeroed(&pkt, pkt_buf, 68UL, 8UL);
+    /* Overlapping byte views over the same allocation must be rejected before either view writes. */
+    vela_span_alloc_zeroed(&dst, arena, 64UL, 8UL);
+    vela_span_alloc_zeroed(&pkt, arena, 68UL, 8UL);
     WritePacket8(&pkt, 0x56U, 0x04U, 0x1EU, 0x01U, 0x10U, 0x20U, 0x30U, 0x40U);
+    vela_span_write(&dst, &dst, 0UL, 0xA3U);
+    for (i = 0UL; i < 8UL; i++) {{
+        before[i] = vela_span_read(&dst, i);
+    }}
+    if (before[4] != 0x56U || before[7] != 0x01U)
+        return 19;
     PrepareAndValidatePacket(&out, &dst, &pkt);
     if (out.is_ok != 0 || out.err != VOS_ERR_FramingShort || out.ok.PayloadView.tag != 0)
         return 19;
+    for (i = 0UL; i < 8UL; i++) {{
+        if (vela_span_read(&dst, i) != before[i])
+            return 19;
+    }}
 
     return 0;
 }}

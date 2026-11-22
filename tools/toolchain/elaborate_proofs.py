@@ -616,9 +616,9 @@ class _ProofsMixin:
             if operator != _constant("int_le_usize") or len(args) != 2 or not self._same_cond_term(args[0], count):
                 continue
             limit = self.whnf(args[1])
-            if (limit.kind == "int" and 0 <= cast("int", limit.value) <= 16
+            if (limit.kind == "int"
                     and cast("int", start.value) + cast("int", limit.value) <= cast("int", ceiling.value)):
-                return _apps(_constant("vela_extent_bound_cases"), base, count, limit, hi, fact.term, refl)
+                return _apps(_constant("vela_extent_bound"), base, count, limit, hi, fact.term, refl)
         return None
 
     def _vacant_prefix_proof(self: _Elaborator, goal: _Term, facts: tuple[_Binding, ...]) -> _Term | None:
@@ -712,6 +712,81 @@ class _ProofsMixin:
             proofs.append(proof)
         return _apps(_constant("vela_Slots_live_after_copy"), elem, source_cap, cap, source, dest, count, *proofs)
 
+    def _prove_store_byte(
+        self: _Elaborator, store: _Term, idx: _Term, rhs: _Term, facts: tuple[_Binding, ...]
+    ) -> _Term | None:
+        truth = _term("bool", value=1)
+        refl = _apps(_constant("Refl"), _BOOL, truth)
+        zero = _int_term(_INT_SPECS["usize"], 0)
+        lowers: list[tuple[_Term, _Term]] = []
+        uppers: list[tuple[_Term, _Term]] = []
+        for fact in facts:
+            equality = self._extract_equality(fact.type)
+            if equality is None or self.whnf(equality[2]) != truth:
+                continue
+            head, args = self.spine(self.resolve(equality[1]))
+            if len(args) == 2 and self._same_cond_term(args[0], idx):
+                if head == _constant("int_ge_usize"):
+                    lowers.append((args[1], fact.term))
+                elif head == _constant("int_lt_usize"):
+                    uppers.append((args[1], fact.term))
+
+        def bound(rows: list[tuple[_Term, _Term]], value: _Term) -> _Term | None:
+            return next((proof for term, proof in rows if self._same_cond_term(term, value)), None)
+
+        cur = store
+        steps: list[tuple[_Term, _Term]] = []
+        while True:
+            head, args = self.spine(cur)
+            if head == _constant("vela_bs_write") and len(args) == 3:
+                widx, val, tail = args
+                skip = next(((lo, p) for lo, p in lowers if
+                             self.whnf(_apps(_constant("int_lt_usize"), widx, lo)) == truth), None)
+                if skip is None:
+                    return None
+                step = _apps(_constant("vela_store_lookup_write_ge"), widx, skip[0], idx, val, tail, refl, skip[1])
+            elif head == _constant("vela_bs_copy") and len(args) == 5:
+                base, src_base, count, src, tail = args
+                if self.whnf(base).kind != "int":
+                    return None
+                end = count if self._same_cond_term(base, zero) else self.whnf(_apps(_constant("int_add_usize"), base, count))
+                lo, hi = bound(lowers, base), bound(uppers, end)
+                src_head, src_args = self.spine(src)
+                rhs_head, rhs_args = self.spine(rhs)
+                if (lo is not None and hi is not None and self._same_cond_term(src_base, zero)
+                        and src_head == _constant("vela_bs_slice") and len(src_args) == 3
+                        and self._same_cond_term(src_args[0], base) and self._same_cond_term(src_args[1], count)
+                        and rhs_head == _constant("Span_Read") and len(rhs_args) == 3
+                        and self._same_cond_term(idx, rhs_args[2])
+                        and self._coq_store_term(rhs_args[1]) == src_args[2]):
+                    proof = _apps(_constant("vela_store_read_aligned_copy"), base, count, idx, src_args[2], tail, lo, hi)
+                    break
+                after = bound(lowers, end)
+                if after is None:
+                    return None
+                step = _apps(_constant("vela_store_lookup_copy_ge"), base, src_base, count, end, idx,
+                             src, tail, _app(_constant("vela_usize_le_refl"), end), after)
+            elif head == _constant("vela_bs_fill") and len(args) == 4:
+                base, count, val, tail = args
+                if self.whnf(base).kind != "int":
+                    return None
+                end = count if self._same_cond_term(base, zero) else self.whnf(_apps(_constant("int_add_usize"), base, count))
+                hi = bound(uppers, end)
+                lo = _app(_constant("vela_usize_zero_le"), idx) if self._same_cond_term(base, zero) else bound(lowers, base)
+                if hi is None or lo is None or not self._same_cond_term(val, rhs):
+                    return None
+                proof = _apps(_constant("vela_store_fill_byte"), base, count, idx, val, tail, lo, hi)
+                break
+            else:
+                return None
+            steps.append((cur, step))
+            cur = tail
+        for previous, step in reversed(steps):
+            lookup = _constant("vela_store_lookup")
+            proof = _apps(_constant("Trans"), _U8, _apps(lookup, previous, idx), _apps(lookup, cur, idx), rhs, step, proof)
+            cur = previous
+        return proof
+
     def _prove_span_read_equality(
         self: _Elaborator, lhs: _Term, rhs: _Term, all_facts: tuple[_Binding, ...]
     ) -> _Term | None:
@@ -728,6 +803,10 @@ class _ProofsMixin:
             return None
         span_l_r = self.resolve(span_l)
         sl_head, sl_args = self.spine(span_l_r)
+        if sl_head in {_constant("Span_Restore"), _constant("Span_Fill")}:
+            direct = self._prove_store_byte(self._coq_store_term(span_l_r), idx_l, rhs_r, all_facts)
+            if direct is not None:
+                return direct
         if sl_head == _constant("Span_Write") and len(sl_args) == 4:
             base_s, widx, val = sl_args[1], sl_args[2], sl_args[3]
             if self._same_cond_term(widx, idx_l) and self._same_cond_term(val, rhs_r):

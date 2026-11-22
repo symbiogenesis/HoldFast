@@ -32,6 +32,7 @@ class CheckedElaboration(Elaboration):
     call_declarations: Mapping[int, int]
     recursive_declarations: frozenset[int]
     constructor_suggestions: Mapping[int, str]
+    integer_operations: Mapping[int, tuple[str, str]]
 
     @staticmethod
     def encode_syntax(parsed: object) -> bytes:
@@ -461,7 +462,10 @@ _GALLINA = {
     "vela_bs_shift": "vela_bs_shift",
     "vela_Span_Read_write_same": "vela_Span_Read_write_same",
     "vela_Span_Read_write_other_ne": "vela_Span_Read_write_other_ne",
-    "vela_extent_bound_cases": "vela_extent_bound_cases",
+    "vela_store_read_aligned_copy": "vela_store_read_aligned_copy",
+    "vela_store_fill_byte": "vela_store_fill_byte",
+    "vela_usize_zero_le": "vela_usize_zero_le",
+    "vela_extent_bound": "vela_extent_bound",
     "vela_store_lookup_write_ge": "vela_store_lookup_write_ge",
     "vela_usize_le_refl": "vela_usize_le_refl",
     "vela_store_lookup_fill_ge": "vela_store_lookup_fill_ge",
@@ -867,8 +871,12 @@ Definition vela_Result_Err (TValue TError : Type@{vela_u0}) (e : TError) : vela_
 Definition vela_Result_Ok (TValue TError : Type@{vela_u0}) (v : TValue) : vela_Result TValue TError :=
   @inr TError TValue v.
 
+Fixpoint vela_bits_zero (a : vela_bits) : bool :=
+  match a with vela_bnil => true | vela_bcons x rest => if x then false else vela_bits_zero rest end.
+
 Definition vela_int_add (tag : nat) (a b : vela_int tag) : vela_int tag :=
-  vela_mk_int tag (vela_bits_add (vela_int_bits tag a) (vela_int_bits tag b)).
+  if vela_bits_zero (vela_bits_rev (vela_int_bits tag b)) then a
+  else vela_mk_int tag (vela_bits_add (vela_int_bits tag a) (vela_int_bits tag b)).
 Definition vela_int_sub (tag : nat) (a b : vela_int tag) : vela_int tag :=
   vela_mk_int tag (vela_bits_sub (vela_int_bits tag a) (vela_int_bits tag b)).
 Definition vela_int_negative (tag : nat) (bs : vela_bits) : bool :=
@@ -1574,61 +1582,6 @@ Definition vela_store_lookup_write_ge (widx hi idx : vela_int (4 : nat)) (val : 
 Lemma vela_word_bits_length : forall n (w : vela_word n), vela_bits_len (vela_word_bits w) = n.
 Proof. intros n w; induction w; simpl; congruence. Qed.
 
-Fixpoint vela_bits_every (shape : vela_bits) (test : vela_bits -> bool) : bool :=
-  match shape with
-  | vela_bnil => test vela_bnil
-  | vela_bcons _ rest => vela_and
-       (vela_bits_every rest (fun xs => test (vela_bcons false xs)))
-       (vela_bits_every rest (fun xs => test (vela_bcons true xs)))
-  end.
-Fixpoint vela_bits_every_le (limit : vela_bits) (test : vela_bits -> bool) : bool :=
-  match limit with
-  | vela_bnil => test vela_bnil
-  | vela_bcons false rest => vela_bits_every_le rest (fun xs => test (vela_bcons false xs))
-  | vela_bcons true rest => vela_and
-       (vela_bits_every rest (fun xs => test (vela_bcons false xs)))
-       (vela_bits_every_le rest (fun xs => test (vela_bcons true xs)))
-  end.
-
-Lemma vela_bits_every_sound : forall shape bs test,
-  vela_bits_len bs = vela_bits_len shape -> vela_bits_every shape test = true -> test bs = true.
-Proof.
-  induction shape as [|a tail IH]; intros [|b bs] test Hlen H; simpl in *; try discriminate.
-  - exact H.
-  - injection Hlen as Hlen. destruct b.
-    + apply (IH bs (fun xs => test (vela_bcons true xs)) Hlen); exact (vela_and_right _ _ H).
-    + apply (IH bs (fun xs => test (vela_bcons false xs)) Hlen); exact (vela_and_left _ _ H).
-Qed.
-
-Lemma vela_bits_every_le_sound : forall limit bs test,
-  vela_bits_len bs = vela_bits_len limit -> vela_bits_ule bs limit = true ->
-  vela_bits_every_le limit test = true -> test bs = true.
-Proof.
-  induction limit as [|a tail IH]; intros [|b bs] test Hlen Hle H; simpl in *; try discriminate.
-  - exact H.
-  - injection Hlen as Hlen. destruct a, b; simpl in *; try discriminate.
-    + apply (IH bs (fun xs => test (vela_bcons true xs)) Hlen Hle); exact (vela_and_right _ _ H).
-    + apply (vela_bits_every_sound tail bs (fun xs => test (vela_bcons false xs)) Hlen); exact (vela_and_left _ _ H).
-    + exact (IH bs (fun xs => test (vela_bcons false xs)) Hlen Hle H).
-Qed.
-
-Definition vela_extent_cases (base limit hi : vela_int 4) : bool :=
-  vela_bits_every_le (vela_int_bits 4 limit) (fun xs =>
-    vela_int_le 4 (vela_extent_end base (vela_mk_int 4 xs)) hi).
-
-Lemma vela_extent_bound_cases : forall base count limit hi,
-  vela_int_le 4 count limit = true -> vela_extent_cases base limit hi = true ->
-  vela_int_le 4 (vela_extent_end base count) hi = true.
-Proof.
-  intros base [count] [limit] hi Hle Hcases.
-  unfold vela_extent_cases in Hcases.
-  pose (test := fun xs => vela_int_le 4 (vela_extent_end base (vela_mk_int 4 xs)) hi).
-  assert (Hlen : vela_bits_len (vela_word_bits count) = vela_bits_len (vela_word_bits limit))
-    by now rewrite !vela_word_bits_length.
-  pose proof (vela_bits_every_le_sound (vela_word_bits limit) (vela_word_bits count) test Hlen Hle Hcases) as H.
-  unfold test, vela_mk_int in H. now rewrite vela_word_roundtrip in H.
-Qed.
-
 Definition vela_in_extent_ge_elim (P : Type@{vela_u0}) (base len hi idx : vela_int (4 : nat))
     (hbound : @Corelib.Init.Logic.eq bool (vela_int_le (4 : nat) (vela_extent_end base len) hi) true)
     (hge : @Corelib.Init.Logic.eq bool (vela_int_ge (4 : nat) idx hi) true)
@@ -2227,14 +2180,171 @@ Lemma vela_bits_word_exact : forall n bs, vela_bits_len bs = n ->
   vela_word_bits (vela_bits_word n bs) = bs.
 Proof. intros n bs H; subst n; apply vela_bits_roundtrip. Qed.
 
+Lemma vela_bits_zero_right : forall a b, vela_bits_zero b = true ->
+  vela_bits_len a = vela_bits_len b -> vela_bits_add_lsb a b false = a.
+Proof.
+  induction a as [|x a IH]; intros [|y b] Hz H; try discriminate; try reflexivity.
+  injection H as H. destruct y; [discriminate |]. destruct x;
+    cbn [vela_bits_add_lsb vela_xorb vela_or vela_and vela_not]; f_equal; now apply IH.
+Qed.
 Lemma vela_int_add_bits : forall tag a b, vela_int_bits tag (vela_int_add tag a b) =
   vela_bits_add (vela_int_bits tag a) (vela_int_bits tag b).
 Proof.
-  intros tag [a] [b]; change (vela_word_bits (vela_bits_word (vela_tag_bits tag)
-    (vela_bits_add (vela_word_bits a) (vela_word_bits b))) = vela_bits_add (vela_word_bits a) (vela_word_bits b)).
-  apply vela_bits_word_exact. unfold vela_bits_add.
-  rewrite vela_bits_rev_length, vela_bits_add_lsb_length;
+  intros tag a b. unfold vela_int_add.
+  destruct (vela_bits_zero (vela_bits_rev (vela_int_bits tag b))) eqn:Hz.
+  - unfold vela_bits_add. rewrite vela_bits_zero_right by
+      (assumption || now rewrite !vela_bits_rev_length, !vela_int_width).
+    symmetry. apply vela_bits_rev_rev.
+  - apply vela_bits_word_exact. unfold vela_bits_add.
+    rewrite vela_bits_rev_length, vela_bits_add_lsb_length;
+      rewrite !vela_bits_rev_length, !vela_int_width; reflexivity.
+Qed.
+
+Lemma vela_bits_sub_lsb_length : forall a b borrow, vela_bits_len a = vela_bits_len b ->
+  vela_bits_len (vela_bits_sub_lsb a b borrow) = vela_bits_len a.
+Proof.
+  induction a as [|x a IH]; intros [|y b] c H; cbn in *; try discriminate; try reflexivity.
+  f_equal. apply IH. now injection H.
+Qed.
+Lemma vela_int_sub_bits : forall tag a b, vela_int_bits tag (vela_int_sub tag a b) =
+  vela_bits_sub (vela_int_bits tag a) (vela_int_bits tag b).
+Proof.
+  intros tag [a] [b]. change (vela_word_bits (vela_bits_word (vela_tag_bits tag)
+    (vela_bits_sub (vela_word_bits a) (vela_word_bits b))) = vela_bits_sub (vela_word_bits a) (vela_word_bits b)).
+  apply vela_bits_word_exact. unfold vela_bits_sub.
+  rewrite vela_bits_rev_length, vela_bits_sub_lsb_length;
     rewrite !vela_bits_rev_length, !vela_word_bits_length; reflexivity.
+Qed.
+Lemma vela_int_bits_inj : forall tag a b, vela_int_bits tag a = vela_int_bits tag b -> a = b.
+Proof.
+  intros tag [a] [b] H. change (vela_word_bits a = vela_word_bits b) in H.
+  apply (f_equal (vela_bits_word (vela_tag_bits tag))) in H.
+  rewrite !vela_word_roundtrip in H. now subst.
+Qed.
+Lemma vela_bits_sub_add_lsb : forall a b c, vela_bits_len a = vela_bits_len b ->
+  vela_bits_add_lsb b (vela_bits_sub_lsb a b c) c = a.
+Proof.
+  induction a as [|x a IH]; intros [|y b] c H; try discriminate; try reflexivity.
+  injection H as H. destruct x, y, c; cbn [vela_bits_sub_lsb vela_bits_add_lsb
+    vela_xorb vela_or vela_and vela_not]; f_equal; now apply IH.
+Qed.
+Lemma vela_int_sub_add : forall tag a b, vela_int_add tag b (vela_int_sub tag a b) = a.
+Proof.
+  intros tag a b. apply vela_int_bits_inj. rewrite vela_int_add_bits, vela_int_sub_bits.
+  unfold vela_bits_add, vela_bits_sub. rewrite vela_bits_rev_rev, vela_bits_sub_add_lsb.
+  - apply vela_bits_rev_rev.
+  - now rewrite !vela_bits_rev_length, !vela_int_width.
+Qed.
+Lemma vela_bits_zero_left : forall a b, vela_bits_zero a = true ->
+  vela_bits_len a = vela_bits_len b -> vela_bits_add_lsb a b false = b.
+Proof.
+  induction a as [|x a IH]; intros [|y b] Hz H; try discriminate; try reflexivity.
+  injection H as H. destruct x; [discriminate |]. destruct y;
+    cbn [vela_bits_add_lsb vela_xorb vela_or vela_and vela_not]; f_equal; now apply IH.
+Qed.
+Lemma vela_int_usize_zero_left : forall x, vela_int_add 4 vela_usize_zero x = x.
+Proof.
+  intro x. apply vela_int_bits_inj. rewrite vela_int_add_bits. unfold vela_bits_add.
+  rewrite vela_bits_zero_left. apply vela_bits_rev_rev. reflexivity.
+  now rewrite !vela_bits_rev_length, !vela_int_width.
+Qed.
+Lemma vela_store_read_aligned_copy : forall base count idx parent rest,
+  vela_int_ge 4 idx base = true -> vela_int_lt 4 idx (vela_extent_end base count) = true ->
+  vela_store_lookup (vela_bs_copy base vela_usize_zero count (vela_bs_slice base count parent) rest) idx =
+  vela_store_lookup parent idx.
+Proof.
+  intros base count idx parent rest Hlo Hhi. change (vela_int_le 4 base idx = true) in Hlo.
+  cbn [vela_store_lookup]. unfold vela_in_extent. rewrite Hlo, Hhi.
+  cbn [vela_and]. now rewrite vela_int_usize_zero_left, vela_int_sub_add.
+Qed.
+Lemma vela_store_fill_byte : forall base count idx val rest,
+  vela_int_le 4 base idx = true -> vela_int_lt 4 idx (vela_extent_end base count) = true ->
+  vela_store_lookup (vela_bs_fill base count val rest) idx = val.
+Proof.
+  intros base count idx val rest Hlo Hhi; cbn [vela_store_lookup]; unfold vela_in_extent.
+  now rewrite Hlo, Hhi.
+Qed.
+
+From Stdlib Require Import ZArith.BinInt.
+
+Module VelaUnsigned.
+Local Open Scope Z_scope.
+Definition digit (b : bool) : Z := if b then 1 else 0.
+Fixpoint big (xs : vela_bits) (prefix : Z) : Z :=
+  match xs with
+  | vela_bnil => prefix
+  | vela_bcons x rest => big rest (2 * prefix + digit x)
+  end.
+Fixpoint little (xs : vela_bits) : Z :=
+  match xs with
+  | vela_bnil => 0
+  | vela_bcons x rest => digit x + 2 * little rest
+  end.
+
+Lemma unsigned_order : forall a b, vela_bits_len a = vela_bits_len b ->
+  forall p q, big a p <= big b q <-> p < q \\/ (p = q /\\ vela_bits_ule a b = true).
+Proof.
+  induction a as [|x a IH]; intros [|y b] H p q; try discriminate.
+  - cbn. lia.
+  - injection H as H. cbn [big]. rewrite (IH b H).
+    destruct x, y; cbn [digit vela_bits_ule vela_eq_bool vela_not]; intuition (try congruence; lia).
+Qed.
+
+Lemma rev_value : forall xs acc, little (vela_bits_rev_acc xs acc) = big xs (little acc).
+Proof.
+  induction xs as [|x xs IH]; intro acc; [reflexivity |].
+  cbn [vela_bits_rev_acc big]. rewrite IH. cbn [little]. f_equal. lia.
+Qed.
+
+Lemma value_nonnegative : forall xs p, 0 <= p -> 0 <= big xs p.
+Proof.
+  induction xs as [|x xs IH]; intros p H; cbn [big]; [assumption |].
+  apply IH. destruct x; cbn [digit]; lia.
+Qed.
+
+Lemma little_sum_bound : forall a b c, vela_bits_len a = vela_bits_len b ->
+  little (vela_bits_add_lsb a b c) <= little a + little b + digit c.
+Proof.
+  induction a as [|x a IH]; intros [|y b] c H; try discriminate.
+  - destruct c; reflexivity || (cbn [little vela_bits_add_lsb digit]; lia).
+  - injection H as H. cbn [vela_bits_add_lsb little].
+    pose proof (IH b (vela_or (vela_and x y) (vela_and (vela_xorb x y) c)) H) as K.
+    destruct x, y, c; cbn [vela_xorb vela_or vela_and vela_not digit] in *; lia.
+Qed.
+
+Definition value (x : vela_int 4) : Z := big (vela_int_bits 4 x) 0.
+Lemma order : forall a b, vela_int_le 4 a b = true <-> value a <= value b.
+Proof.
+  intros a b. unfold value.
+  change (vela_bits_ule (vela_int_bits 4 a) (vela_int_bits 4 b) = true <->
+    big (vela_int_bits 4 a) 0 <= big (vela_int_bits 4 b) 0).
+  rewrite unsigned_order by now rewrite !vela_int_width.
+  intuition lia.
+Qed.
+Lemma sum_bound : forall a b, value (vela_int_add 4 a b) <= value a + value b.
+Proof.
+  intros a b. unfold value. rewrite vela_int_add_bits. unfold vela_bits_add.
+  change 0 with (little vela_bnil). rewrite <- !rev_value.
+  unfold vela_bits_rev. rewrite vela_bits_rev_acc_rev. cbn [vela_bits_rev_acc].
+  pose proof (little_sum_bound (vela_bits_rev (vela_int_bits 4 a))
+    (vela_bits_rev (vela_int_bits 4 b)) false) as H.
+  assert (Hlen : vela_bits_len (vela_bits_rev (vela_int_bits 4 a)) =
+    vela_bits_len (vela_bits_rev (vela_int_bits 4 b))) by now rewrite !vela_bits_rev_length, !vela_int_width.
+  specialize (H Hlen). cbn [digit] in H. unfold vela_bits_rev in *; lia.
+Qed.
+End VelaUnsigned.
+
+Lemma vela_extent_bound : forall base count limit hi,
+  vela_int_le 4 count limit = true ->
+  Z.leb (Z.add (VelaUnsigned.value base) (VelaUnsigned.value limit)) (VelaUnsigned.value hi) = true ->
+  vela_int_le 4 (vela_extent_end base count) hi = true.
+Proof.
+  intros base count limit hi Hcount Hmax.
+  apply VelaUnsigned.order in Hcount. apply Z.leb_le in Hmax. apply VelaUnsigned.order.
+  unfold vela_extent_end. destruct (vela_int_eq 4 base vela_usize_zero).
+  - pose proof (VelaUnsigned.value_nonnegative (vela_int_bits 4 base) 0%Z ltac:(lia)).
+    unfold VelaUnsigned.value in *; lia.
+  - pose proof (VelaUnsigned.sum_bound base count); lia.
 Qed.
 
 Definition vela_int_agrees (tag : nat) (checked : vela_Result (vela_int tag) vela_ArithmeticError)
@@ -2273,7 +2383,7 @@ Qed.
 Lemma vela_int_add_assoc : forall (tag : nat) (a b c : vela_int tag),
   vela_int_add tag (vela_int_add tag a b) c = vela_int_add tag a (vela_int_add tag b c).
 Proof.
-  intros tag a b c. unfold vela_int_add at 1 3. rewrite !vela_int_add_bits. f_equal.
+  intros tag a b c. apply vela_int_bits_inj. rewrite !vela_int_add_bits.
   unfold vela_bits_add. rewrite !vela_bits_rev_rev. f_equal.
   eapply vela_bits_add_lsb_assoc_gen. reflexivity.
 Qed.
