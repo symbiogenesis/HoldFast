@@ -1,13 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Two-client Neovim and Vim LSP interoperability qualification for pure Vela."""
 
-import hashlib
 import io
 import json
 import os
 import platform
 import re
-import shutil
 import stat
 import subprocess
 import sys
@@ -25,6 +23,7 @@ from filelock import FileLock
 from toolchain import inspect_source, translate
 from toolchain.atomic import atomic_path
 from toolchain.authoring import format_source
+from toolchain.hashing import file_sha256, sha256_bytes
 from toolchain.lsp import diagnose
 from toolchain.lsp_format import format_document, formatting_edits
 from toolchain.lsp_services import SEMANTIC_TOKEN_MODIFIERS, SEMANTIC_TOKEN_TYPES, project
@@ -887,10 +886,6 @@ endtry
 """
 
 
-def _sha256(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
-
-
 def _require(condition: bool, message: str) -> None:
     if not condition:
         raise ValueError(message)
@@ -923,13 +918,13 @@ def _download_bytes(url: str, expected_sha256: str, cache_dir: Path, filename: s
     cached = cache_dir / filename
     if cached.is_file():
         existing = cached.read_bytes()
-        if _sha256(existing) == expected_sha256:
+        if sha256_bytes(existing) == expected_sha256:
             return existing
         cached.unlink(missing_ok=True)
     with urllib.request.urlopen(url, timeout=TIMEOUT_SECONDS) as response:  # noqa: S310
         data = cast("bytes", response.read(MAX_DOWNLOAD_BYTES + 1))
     _require(len(data) <= MAX_DOWNLOAD_BYTES, f"downloaded artifact exceeds byte limit: {filename}")
-    actual = _sha256(data)
+    actual = sha256_bytes(data)
     _require(
         actual == expected_sha256,
         f"downloaded artifact digest mismatch for {filename}: expected {expected_sha256}, got {actual}",
@@ -945,13 +940,10 @@ def _validate_relative_member(name: str, prefix: str) -> str | None:
     path = PurePosixPath(name)
     if path.is_absolute() or ".." in path.parts:
         raise ValueError(f"unsafe archive member path: {name!r}")
-    prefix_parts = PurePosixPath(prefix).parts
-    if path.parts[: len(prefix_parts)] != prefix_parts:
+    if not path.is_relative_to(prefix):
         raise ValueError(f"archive member outside expected prefix {prefix!r}: {name!r}")
-    tail = path.parts[len(prefix_parts) :]
-    if not tail:
-        return None
-    return PurePosixPath(*tail).as_posix()
+    relative = path.relative_to(prefix)
+    return relative.as_posix() if relative.parts else None
 
 
 def extract_verified_archive(
@@ -962,19 +954,18 @@ def extract_verified_archive(
     allow_predicate: tuple[str, ...] = (),
 ) -> dict[str, str]:
     """Authenticate an archive's SHA-256 and extract only reviewed members."""
-    actual_archive = _sha256(archive_bytes)
+    actual_archive = sha256_bytes(archive_bytes)
     _require(
         actual_archive == pin.archive_sha256,
         f"archive SHA-256 mismatch for {pin.filename}: expected {pin.archive_sha256}, got {actual_archive}",
     )
     extracted_digests: dict[str, str] = {}
-    allowed_exact = set(pin.required_sha256)
 
     def _permitted(rel: str) -> bool:
-        return rel in allowed_exact or any(rel.startswith(prefix) for prefix in allow_predicate)
+        return rel in pin.required_sha256 or rel.startswith(allow_predicate)
 
     def _write_member(rel: str, payload: bytes) -> None:
-        extracted_digests[rel] = _sha256(payload)
+        extracted_digests[rel] = sha256_bytes(payload)
         target = destination / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(payload)
@@ -1064,7 +1055,7 @@ def _stage_neovim(cache_dir: Path, stage_dir: Path) -> tuple[Path, dict[str, obj
         "archive_url": pin.url,
         "archive_sha256": pin.archive_sha256,
         "license_url": NEOVIM_LICENSE_URL,
-        "license_sha256": _sha256(license_bytes),
+        "license_sha256": sha256_bytes(license_bytes),
         "executable_sha256": digests[pin.executable],
         "verified_files_sha256": {rel: digests[rel] for rel in sorted(pin.required_sha256)},
         "extracted_file_count": len(digests),
@@ -1117,8 +1108,8 @@ def _stage_vim_and_plugin(cache_dir: Path, stage_dir: Path) -> tuple[Path, Path,
         _require(VIM_LINUX_BINARY.is_file(), f"missing pinned Linux Vim binary at {VIM_LINUX_BINARY}")
         _require(VIM_LINUX_UGANDA.is_file(), f"missing Vim license file at {VIM_LINUX_UGANDA}")
         _require(VIM_LINUX_COPYRIGHT.is_file(), f"missing Vim copyright file at {VIM_LINUX_COPYRIGHT}")
-        uganda_sha = _sha256(VIM_LINUX_UGANDA.read_bytes())
-        copyright_sha = _sha256(VIM_LINUX_COPYRIGHT.read_bytes())
+        uganda_sha = file_sha256(VIM_LINUX_UGANDA)
+        copyright_sha = file_sha256(VIM_LINUX_COPYRIGHT)
         _require(
             uganda_sha == VIM_LINUX_UGANDA_SHA256,
             f"Linux Vim uganda.txt SHA-256 mismatch: {uganda_sha}",
@@ -1128,7 +1119,7 @@ def _stage_vim_and_plugin(cache_dir: Path, stage_dir: Path) -> tuple[Path, Path,
             f"Linux Vim copyright SHA-256 mismatch: {copyright_sha}",
         )
         resolved_vim = VIM_LINUX_BINARY.resolve()
-        exe_sha = _sha256(resolved_vim.read_bytes())
+        exe_sha = file_sha256(resolved_vim)
         if key[1] == "aarch64":
             _require(
                 exe_sha == VIM_LINUX_AARCH64_SHA256,
@@ -1887,10 +1878,10 @@ def _verify_editor_session_artifacts(
     transcript_file: Path,
     *,
     label: str,
-    sentinel_error: str,
     require_ranged_change: bool,
-) -> tuple[str, str, dict[str, object], str, str]:
-    _require(target_file.read_text(encoding="utf-8") == DISK_SENTINEL, sentinel_error)
+) -> dict[str, object]:
+    _require(target_file.read_text(encoding="utf-8") == DISK_SENTINEL,
+             f"{label} session modified or replaced the on-disk sentinel file")
     observation_raw = client_out_file.read_bytes()
     transcript_raw = transcript_file.read_bytes()
     observation = _object(json.loads(observation_raw), f"{label} observation")
@@ -1902,153 +1893,61 @@ def _verify_editor_session_artifacts(
                                      require_local_rename=True, rename_observation=observation["stage1"],
                                      discovery_observation=observation["stage1"],
                                      recovery_observation=observation["recovery_completion"])
-    return (_sha256(observation_raw), _sha256(transcript_raw), summary,
-            observation_raw.decode("utf-8"), transcript_raw.decode("utf-8"))
-
-
-def _run_neovim_session(
-    nvim_exe: Path,
-    run_py: Path,
-    session_dir: Path,
-) -> dict[str, object]:
-    workspace = session_dir / "workspace"
-    workspace.mkdir(parents=True, exist_ok=True)
-    target_file = workspace / "interop.vela"
-    target_file.write_text(DISK_SENTINEL, encoding="utf-8", newline="")
-
-    script_file = session_dir / "neovim_client.lua"
-    script_file.write_text(NEOVIM_SCRIPT, encoding="utf-8", newline="")
-    transcript_file = session_dir / "neovim-transcript.json"
-    client_out_file = session_dir / "neovim-observation.json"
-
-    env = os.environ.copy()
-    env.update(
-        VELA_TARGET_FILE=str(target_file),
-        VELA_PYTHON_EXE=sys.executable,
-        VELA_RUN_PY=str(run_py),
-        VELA_TRANSCRIPT_FILE=str(transcript_file),
-        VELA_CLIENT_OUT=str(client_out_file),
-    )
-    started = time.monotonic()
-    done = subprocess.run(
-        [str(nvim_exe), "--headless", "-u", "NONE", "-i", "NONE", "-n", "-l", str(script_file)],
-        cwd=workspace,
-        env=env,
-        capture_output=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=TIMEOUT_SECONDS,
-        check=False,
-    )
-    elapsed = round(time.monotonic() - started, 4)
-    _require(
-        done.returncode == 0,
-        f"Neovim headless session exited {done.returncode}: {done.stderr.strip() or done.stdout.strip()}",
-    )
-    obs_sha, tx_sha, summary, observation_json, transcript_json = _verify_editor_session_artifacts(
-        target_file,
-        client_out_file,
-        transcript_file,
-        label="neovim",
-        sentinel_error="Neovim session modified or replaced the on-disk sentinel file",
-        require_ranged_change=True,
-    )
     return {
-        "client": "neovim",
-        "version": NEOVIM_VERSION,
-        "seconds": elapsed,
-        "observation_sha256": obs_sha,
-        "transcript_sha256": tx_sha,
-        "observation_json": observation_json,
-        "transcript_json": transcript_json,
+        "observation_sha256": sha256_bytes(observation_raw), "transcript_sha256": sha256_bytes(transcript_raw),
+        "observation_json": observation_raw.decode("utf-8"), "transcript_json": transcript_raw.decode("utf-8"),
         "summary": summary,
     }
 
 
-def _run_vim_session(
-    vim_exe: Path,
-    plugin_root: Path,
-    run_py: Path,
-    session_dir: Path,
-    *,
-    incremental: bool,
-) -> dict[str, object]:
-    mode_tag = "incremental" if incremental else "full"
-    workspace = session_dir / f"workspace-{mode_tag}"
+def _run_editor_session(executable: Path, run_py: Path, session_dir: Path, *,
+                        plugin_root: Path | None = None, incremental: bool = True) -> dict[str, object]:
+    if plugin_root is None:
+        workspace = session_dir / "workspace"
+        script_file = session_dir / "neovim_client.lua"
+        script = NEOVIM_SCRIPT
+        stem, label = "neovim", "Neovim"
+        arguments = ["--headless", "-u", "NONE", "-i", "NONE", "-n", "-l", str(script_file)]
+        editor_env: dict[str, str] = {}
+        metadata = {"client": "neovim", "version": NEOVIM_VERSION}
+    else:
+        mode = "incremental" if incremental else "full"
+        workspace = session_dir / f"workspace-{mode}"
+        script_file = session_dir / f"vim_client_{mode}.vim"
+        script = VIM_SCRIPT
+        stem, label = f"vim-{mode}", f"Vim ({mode})"
+        arguments = ["-u", "NONE", "-U", "NONE", "-i", "NONE", "--noplugin", "-N", "--not-a-term",
+                     "--cmd", "set nomore | set debug=beep | set encoding=utf-8 | set noswapfile",
+                     "-S", str(script_file), "-c", "qall!"]
+        editor_env = {"VELA_YEGAPPAN_LSP_ROOT": plugin_root.as_posix(),
+                      "VELA_VIM_INCREMENTAL": "1" if incremental else "0"}
+        metadata = {"client": "vim-yegappan-lsp", "version": VIM_VERSION,
+                    "plugin_commit": YEGAPPAN_LSP_COMMIT, "sync_mode": mode}
+
     workspace.mkdir(parents=True, exist_ok=True)
     target_file = workspace / "interop.vela"
     target_file.write_text(DISK_SENTINEL, encoding="utf-8", newline="")
-
-    script_file = session_dir / f"vim_client_{mode_tag}.vim"
-    script_file.write_text(VIM_SCRIPT, encoding="utf-8", newline="")
-    transcript_file = session_dir / f"vim-{mode_tag}-transcript.json"
-    client_out_file = session_dir / f"vim-{mode_tag}-observation.json"
-
-    env = os.environ.copy()
-    env.update(
-        VELA_YEGAPPAN_LSP_ROOT=plugin_root.as_posix(),
-        VELA_TARGET_FILE=target_file.as_posix(),
-        VELA_PYTHON_EXE=Path(sys.executable).as_posix(),
-        VELA_RUN_PY=run_py.as_posix(),
-        VELA_TRANSCRIPT_FILE=transcript_file.as_posix(),
-        VELA_CLIENT_OUT=client_out_file.as_posix(),
-        VELA_VIM_INCREMENTAL="1" if incremental else "0",
-    )
-    started = time.monotonic()
-    done = subprocess.run(
-        [
-            str(vim_exe),
-            "-u",
-            "NONE",
-            "-U",
-            "NONE",
-            "-i",
-            "NONE",
-            "--noplugin",
-            "-N",
-            "--not-a-term",
-            "--cmd",
-            "set nomore | set debug=beep | set encoding=utf-8 | set noswapfile",
-            "-S",
-            str(script_file),
-            "-c",
-            "qall!",
-        ],
-        cwd=workspace,
-        env=env,
-        capture_output=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=TIMEOUT_SECONDS,
-        check=False,
-    )
-    elapsed = round(time.monotonic() - started, 4)
-    err_file = Path(f"{client_out_file}.err")
-    err_detail = err_file.read_text(encoding="utf-8").strip() if err_file.is_file() else ""
-    _require(
-        done.returncode == 0 and client_out_file.is_file(),
-        f"Vim ({mode_tag}) session exited {done.returncode}: {err_detail or done.stderr.strip() or done.stdout.strip()}",
-    )
-    obs_sha, tx_sha, summary, observation_json, transcript_json = _verify_editor_session_artifacts(
-        target_file,
-        client_out_file,
-        transcript_file,
-        label=f"vim ({mode_tag})",
-        sentinel_error=f"Vim ({mode_tag}) session modified or replaced the on-disk sentinel file",
-        require_ranged_change=incremental,
-    )
-    return {
-        "client": "vim-yegappan-lsp",
-        "version": VIM_VERSION,
-        "plugin_commit": YEGAPPAN_LSP_COMMIT,
-        "sync_mode": mode_tag,
-        "seconds": elapsed,
-        "observation_sha256": obs_sha,
-        "transcript_sha256": tx_sha,
-        "observation_json": observation_json,
-        "transcript_json": transcript_json,
-        "summary": summary,
+    script_file.write_text(script, encoding="utf-8", newline="")
+    transcript_file = session_dir / f"{stem}-transcript.json"
+    client_out_file = session_dir / f"{stem}-observation.json"
+    path_text = str if plugin_root is None else Path.as_posix
+    env = {
+        **os.environ, **editor_env,
+        "VELA_TARGET_FILE": path_text(target_file), "VELA_RUN_PY": path_text(run_py),
+        "VELA_PYTHON_EXE": path_text(Path(sys.executable)),
+        "VELA_TRANSCRIPT_FILE": path_text(transcript_file), "VELA_CLIENT_OUT": path_text(client_out_file),
     }
+    started = time.monotonic()
+    done = subprocess.run([str(executable), *arguments], cwd=workspace, env=env, capture_output=True,
+                          encoding="utf-8", errors="replace", timeout=TIMEOUT_SECONDS, check=False)
+    elapsed = round(time.monotonic() - started, 4)
+    if done.returncode or (plugin_root is not None and not client_out_file.is_file()):
+        err_file = Path(f"{client_out_file}.err")
+        detail = err_file.read_text(encoding="utf-8").strip() if plugin_root is not None and err_file.is_file() else ""
+        raise ValueError(f"{label} session exited {done.returncode}: {detail or done.stderr.strip() or done.stdout.strip()}")
+    evidence = _verify_editor_session_artifacts(target_file, client_out_file, transcript_file,
+                                                label=label, require_ranged_change=incremental)
+    return {**metadata, "seconds": elapsed, **evidence}
 
 
 def _default_cache_root() -> Path:
@@ -2063,42 +1962,18 @@ def qualify_clients(*, cache_root: Path | None = None) -> dict[str, object]:
     effective_cache.mkdir(parents=True, exist_ok=True)
     downloads_dir = effective_cache / "downloads"
 
-    with FileLock(effective_cache / "clients.lock", timeout=TIMEOUT_SECONDS):
-        stage_dir = Path(tempfile.mkdtemp(prefix="run-", dir=effective_cache))
-        try:
-            nvim_exe, nvim_meta = _stage_neovim(downloads_dir, stage_dir)
-            vim_exe, plugin_root, vim_meta = _stage_vim_and_plugin(downloads_dir, stage_dir)
-
-            neovim_run = _run_neovim_session(nvim_exe, run_py, stage_dir / "neovim-session")
-            vim_full_run = _run_vim_session(
-                vim_exe,
-                plugin_root,
-                run_py,
-                stage_dir / "vim-session",
-                incremental=False,
-            )
-            vim_inc_run = _run_vim_session(
-                vim_exe,
-                plugin_root,
-                run_py,
-                stage_dir / "vim-session",
-                incremental=True,
-            )
-            key = _platform_key()
-            return {
-                "schema": 2,
-                "scope": "vela-lsp-two-client-interoperability",
-                "status": "passed",
-                "platform": {"os": key[0], "arch": key[1]},
-                "clients": {
-                    "neovim": nvim_meta,
-                    "vim": vim_meta,
-                },
-                "sessions": {
-                    "neovim": neovim_run,
-                    "vim_full_sync": vim_full_run,
-                    "vim_incremental_sync": vim_inc_run,
-                },
-            }
-        finally:
-            shutil.rmtree(stage_dir, ignore_errors=True)
+    with (FileLock(effective_cache / "clients.lock", timeout=TIMEOUT_SECONDS),
+          tempfile.TemporaryDirectory(prefix="run-", dir=effective_cache, ignore_cleanup_errors=True) as temporary):
+        stage_dir = Path(temporary)
+        nvim_exe, nvim_meta = _stage_neovim(downloads_dir, stage_dir)
+        vim_exe, plugin_root, vim_meta = _stage_vim_and_plugin(downloads_dir, stage_dir)
+        sessions = {"neovim": _run_editor_session(nvim_exe, run_py, stage_dir / "neovim-session")}
+        for mode, incremental in (("full", False), ("incremental", True)):
+            sessions[f"vim_{mode}_sync"] = _run_editor_session(
+                vim_exe, run_py, stage_dir / "vim-session", plugin_root=plugin_root, incremental=incremental)
+        system, arch = _platform_key()
+        return {
+            "schema": 2, "scope": "vela-lsp-two-client-interoperability", "status": "passed",
+            "platform": {"os": system, "arch": arch}, "clients": {"neovim": nvim_meta, "vim": vim_meta},
+            "sessions": sessions,
+        }
