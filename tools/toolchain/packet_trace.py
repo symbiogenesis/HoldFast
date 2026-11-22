@@ -31,7 +31,7 @@ def digest(value: object) -> str:
 def subjects(receipt: Object) -> str:
     """Bind this development recording to the qualification's source, outputs and producers."""
     return digest({key: receipt[key] for key in (
-        "producer_revision", "inputs", "parser_outputs", "parser", "execution_inputs", "runtime",
+        "producer_revision", "inputs", "parser_outputs", "parser", "execution_inputs", "runtime", "trace_runtime_sha256",
         "toolchain", "source_sha256", "gallina_sha256", "lowered_c_sha256")})
 
 

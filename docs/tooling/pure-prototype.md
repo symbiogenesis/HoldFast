@@ -342,13 +342,22 @@ and records the path of a Chrome Trace Event file in the receipt's
 and elaboration, Gallina generation, proof compilation, assumption auditing,
 kernel checking and lowering to C. Three child tracks measure the time the
 parent spends waiting on the launched proof commands. Their event arguments
-record the actual process IDs. Gaps in the host timeline include the other
-qualification controls. Timestamps use recording-relative microseconds.
+record the actual process IDs. The packet interval ends at C lowering. The
+remaining qualification controls and simulator runs execute afterwards.
+Both parent and child proof spans must fit the independent command-step
+duration, allowing for rounding to recording-relative microseconds.
 
 The twelve-event inventory has a fixed size. A clock fault, cancellation,
 truncation or missing phase prevents complete-trace validation. Rechecking the
 first-slice receipt verifies the source, compiler outputs, parser and proof
 environment, then checks the trace digest, order, nesting and child identities.
+The packet runtime binding covers the Linux Python compiler, bytecode parser
+and its actual interpreter, opam, the selected Rocq dispatch and proof workers,
+native plugins and their transitive ELF libraries. The selected system loader
+resolves dependencies in the host and proof-switch environments. The recording
+and recheck require regular, readable inputs and refuse unresolved libraries and
+loader injection. Configured Rocq load roots and proof inputs have separate
+file-by-file bindings in the same receipt.
 These measurements describe compiler execution.
 
 Run `python tools/run.py vela trace-qualify-packet-viewer --trace-processor PATH --output out/packet-viewer.json`
