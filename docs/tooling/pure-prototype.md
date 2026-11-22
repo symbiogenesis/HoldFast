@@ -334,6 +334,23 @@ acceptance requires the separate replay.
 The pure development compiler supplies a scoped increment of
 [Q25cp](../../PLAN.md#q25cp) under the
 [performance trace contract](tooling-protocols.md#compiler-decisions-and-performance-traces).
+
+For the packet validator, `python tools/run.py vela-parser first-slice --trace`
+runs the [native qualification](../language/first-release.md#first-slice-qualification)
+and records the path of a Chrome Trace Event file in the receipt's
+`compiler_trace` field. The host track covers surface parsing, joint resolution
+and elaboration, Gallina generation, proof compilation, assumption auditing,
+kernel checking and lowering to C. Three child tracks measure the time the
+parent spends waiting on the launched proof commands. Their event arguments
+record the actual process IDs. Gaps in the host timeline include the other
+qualification controls. Timestamps use recording-relative microseconds.
+
+The twelve-event inventory has a fixed size. A clock fault, cancellation,
+truncation or missing phase prevents complete-trace validation. Rechecking the
+first-slice receipt verifies the source, compiler outputs, parser and proof
+environment, then checks the trace digest, order, nesting and child identities.
+These measurements describe compiler execution.
+
 Create the destination directory, then run:
 
 ```console

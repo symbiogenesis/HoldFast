@@ -138,6 +138,7 @@ def main(argv: list[str] | None = None) -> int:
         help="qualify the Q25w Span<byte> carrier and vela-first-slice validator across Rocq and Sail",
     )
     first_slice.add_argument("--ccomp", type=Path, help="require compiler replay with this VerifiedOS typed ccomp")
+    first_slice.add_argument("--trace", action="store_true", help="retain a bounded packet compiler timeline alongside the receipt")
     packet = commands.add_parser("packet-example", help="run a packet through the validator and display the destination bytes")
     packet.add_argument("packet", type=_packet_bytes, metavar="HEX", help="up to eight hexadecimal bytes")
     packet.add_argument("--source", type=Path, default=Path(vela_first_slice.EXAMPLE), help="validator source to elaborate and run")
@@ -200,7 +201,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "elaborate-qualify":
             output = vela_elaboration_check.qualify(root)
         elif args.command == "first-slice":
-            output = vela_first_slice.qualify(root, ccomp_path=getattr(args, "ccomp", None))
+            output = vela_first_slice.qualify(root, ccomp_path=getattr(args, "ccomp", None), trace_phases=args.trace)
         elif args.command == "first-slice-bindings":
             output = vela_first_slice.verify_bindings(root, args.receipt)
         elif args.command == "support":

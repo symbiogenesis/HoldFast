@@ -38,6 +38,7 @@ import sys
 import tempfile
 import time
 from collections.abc import Callable
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, cast
@@ -51,6 +52,7 @@ from toolchain import (
     env,
     gallina_module_name,
     image,
+    packet_trace,
     proofenv,
     solver_ledger,
     trace,
@@ -881,17 +883,25 @@ def _opam(arguments: list[str]) -> list[str]:
 
 
 def _run(command: list[str], cwd: Path, log_path: Path,
-         steps: list[dict[str, object]]) -> str:
+         steps: list[dict[str, object]], *, timing: packet_trace.Recorder | None = None) -> str:
     started = time.monotonic_ns()
-    completed = subprocess.run(
-        command,
-        cwd=cwd,
-        capture_output=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=TIMEOUT,
-        check=False,
-    )
+    child: dict[str, object] = {}
+    if timing is None:
+        completed = subprocess.run(command, cwd=cwd, capture_output=True, encoding="utf-8",
+                                   errors="replace", timeout=TIMEOUT, check=False)
+    else:
+        phase, worker = packet_trace.PROOF_STEPS[log_path.name]
+        with timing.span(phase), subprocess.Popen(command, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                encoding="utf-8", errors="replace") as process:
+            child["observed_pid"] = process.pid
+            with timing.span(worker, process.pid):
+                try:
+                    stdout, stderr = process.communicate(timeout=TIMEOUT)
+                except BaseException:
+                    process.kill()
+                    process.communicate()
+                    raise
+        completed = subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
     elapsed_ns = time.monotonic_ns() - started
     combined = completed.stdout + completed.stderr
     log_path.write_text(combined, encoding="utf-8", newline="")
@@ -900,6 +910,7 @@ def _run(command: list[str], cwd: Path, log_path: Path,
         "cwd": str(cwd),
         "returncode": completed.returncode,
         "elapsed_ns": elapsed_ns,
+        **child,
         "timeout_seconds": TIMEOUT,
         "log": str(log_path),
         "log_sha256": _sha256(log_path.read_bytes()),
@@ -2247,13 +2258,18 @@ def _qualify_attempt(
     steps: list[dict[str, object]],
     ccomp_path: Path | None,
     compiled: vela_parser.Build,
+    timing: packet_trace.Recorder | None = None,
 ) -> dict[str, object]:
     source_path = root / EXAMPLE
     source = vela_parser.read_source(source_path)
-    parsed = vela_parser.parse_source(compiled, source, surface=True)
+    phase = nullcontext if timing is None else timing.span
+    if timing is not None:
+        timing.source_size(len(source))
+    with phase("parse"):
+        parsed = vela_parser.parse_source(compiled, source, surface=True)
 
     # 1. Elaborate first_slice.vela and verify determinism + exported obligations
-    translated = vela_elaborate.elaborate(source, parsed)
+    translated = vela_elaborate._checked_elaboration(source, parsed, phase=phase)[0]
     repeated = vela_elaborate.elaborate(source, parsed)
     if translated != repeated:
         raise ValueError("first_slice.vela elaboration is nondeterministic")
@@ -2274,6 +2290,7 @@ def _qualify_attempt(
         directory,
         directory / "FirstSlice.compile.log",
         steps,
+        timing=timing,
     )
 
     module = gallina_module_name(translated.module)
@@ -2290,6 +2307,7 @@ def _qualify_attempt(
         directory,
         directory / "FirstSlice.assumptions.log",
         steps,
+        timing=timing,
     )
     trusted = solver_ledger.ledger(translated.gallina)
     reported_trust = solver_ledger.audit(assumptions_out, len(audited), module, trusted)
@@ -2299,6 +2317,7 @@ def _qualify_attempt(
         directory,
         directory / "FirstSlice.kernel.log",
         steps,
+        timing=timing,
     )
 
     # 2. Fail-closed proof-corruption control on FirstSlice.v
@@ -2331,7 +2350,8 @@ def _qualify_attempt(
 
     # 5. Lower executable AST to Clight/C and execute on CompCert + Sail emulator
     operations: list[dict[str, object]] = []
-    c_source, check_count = lower_to_c(source, parsed, checked=translated, observations=operations)
+    with phase("lower-to-c"):
+        c_source, check_count = lower_to_c(source, parsed, checked=translated, observations=operations)
     c_path = directory / "first_slice.c"
     c_path.write_text(c_source, encoding="utf-8", newline="\n")
 
@@ -2474,7 +2494,7 @@ def _qualify_attempt(
     }
 
 
-def qualify(root: Path, *, ccomp_path: Path | None = None) -> dict[str, object]:
+def qualify(root: Path, *, ccomp_path: Path | None = None, trace_phases: bool = False) -> dict[str, object]:
     """Qualify the development harness without a source or machine admission verdict."""
     work = _work_root(root)
     with FileLock(work / "qualification.lock", timeout=5):
@@ -2496,6 +2516,7 @@ def qualify(root: Path, *, ccomp_path: Path | None = None) -> dict[str, object]:
             "inventory": build_foundation_inventory(),
         }
         _write(directory / "attempt.json", attempt)
+        timing = packet_trace.Recorder() if trace_phases else None
         try:
             execution = _execution_inputs(ccomp_path)
             inputs = _inputs(root)
@@ -2510,7 +2531,13 @@ def qualify(root: Path, *, ccomp_path: Path | None = None) -> dict[str, object]:
                             "execution_inputs": execution, "parser": parser_receipt,
                             "parser_outputs": outputs})
             _write(directory / "attempt.json", attempt)
-            attempt.update(_qualify_attempt(root, directory, steps, ccomp_path, compiled))
+            with timing.span("packet") if timing is not None else nullcontext():
+                attempt.update(_qualify_attempt(root, directory, steps, ccomp_path, compiled, timing))
+            if timing is not None:
+                timeline = timing.export(packet_trace.subjects(attempt), "passed")
+                _check_trace(root, attempt, timeline, steps)
+                _write(directory / packet_trace.FILENAME, timeline)
+                attempt["compiler_trace"] = str(directory / packet_trace.FILENAME)
             reported_outputs = _reported_outputs(attempt)
             produced_outputs = _artifacts(directory)
             _require(_inputs(root) == inputs and _revision(root) == revision
@@ -2527,7 +2554,10 @@ def qualify(root: Path, *, ccomp_path: Path | None = None) -> dict[str, object]:
                      and all(final_outputs.get(name) == digest for name, digest in produced_outputs.items()),
                      "first-slice outputs changed during final identity checks")
             attempt["artifacts_sha256"] = final_outputs
-        except Exception as error:
+        except (Exception, KeyboardInterrupt) as error:
+            if timing is not None:
+                outcome = "cancelled" if isinstance(error, KeyboardInterrupt) else "refused"
+                _write(directory / packet_trace.FILENAME, timing.export(packet_trace.digest(attempt.get("inputs")), outcome))
             attempt.update({
                 "status": "failed",
                 "kernel_checked": False,
@@ -2540,6 +2570,13 @@ def qualify(root: Path, *, ccomp_path: Path | None = None) -> dict[str, object]:
             _write(directory / "attempt.json", attempt)
             _write(latest, attempt)
             return attempt
+
+
+def _check_trace(root: Path, receipt: dict[str, object], timeline: dict[str, object],
+                 steps: list[dict[str, object]]) -> None:
+    workers = {packet_trace.PROOF_STEPS[log][1]: cast("int", step.get("observed_pid")) for step in steps
+               if (log := Path(str(step.get("log"))).name) in packet_trace.PROOF_STEPS}
+    packet_trace.validate(timeline, packet_trace.subjects(receipt), (root / EXAMPLE).stat().st_size, workers)
 
 
 def verify_bindings(root: Path, receipt_path: Path) -> dict[str, object]:
@@ -2588,6 +2625,12 @@ def verify_bindings(root: Path, receipt_path: Path) -> dict[str, object]:
     if _artifacts(output_directory) != artifacts:
         raise ValueError("first-slice receipt outputs changed")
     _retained_proof(root, receipt, output_directory, artifacts)
+    timeline_path = output_directory / packet_trace.FILENAME
+    if "compiler_trace" in receipt or str(timeline_path) in artifacts:
+        if receipt.get("compiler_trace") != str(timeline_path) or timeline_path.stat().st_size > packet_trace.MAX_BYTES:
+            raise ValueError("packet compiler trace path or size changed")
+        timeline = json.loads(timeline_path.read_bytes(), object_pairs_hook=unique_object)
+        _check_trace(root, receipt, timeline, cast("list[dict[str, object]]", receipt["steps"]))
     provenance = _reconstruct_lowering(root)
     if (CheckedElaboration.encode_syntax(receipt.get("lowering_provenance")) != CheckedElaboration.encode_syntax(provenance)
             or any(receipt.get(key) != provenance[key] for key in ("source_sha256", "gallina_sha256", "lowered_c_sha256"))):
