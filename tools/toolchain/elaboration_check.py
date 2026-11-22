@@ -840,6 +840,13 @@ public lemma StepTwiceCheck()
     ensures StepTwice(5) == 7
     proof { assert StepTwice(5) == 7; }
 """),
+        ("interface-external-labels", """module InterfaceLabels;
+public interface I<T> { T Get(T local as published); }
+public impl I<Nat> { public definition Nat Get(Nat other) => other; }
+public impl I<bool> { public definition bool Get(bool other as published) => other; }
+lemma Labels() ensures I.Get(published: 3) == 3 ensures I.Get(published: true) == true
+    proof { assert I.Get(published: 3) == 3; assert I.Get(published: true) == true; }
+"""),
         ("interface-name-and-arity-resolution", """module InterfaceResolutionReplay;
 public interface Unary<T> { T Advance(T x); }
 public interface Binary<T> { T Advance(T x, T y); }
@@ -978,6 +985,8 @@ public Nat RoundTripOwned()
          + "{false}" * 52 + '");', "limit"),
         ("format-vector-byte-limit", 'definition Vec<Nat,5> Tag() => "hello"; '
          'definition TextBuilder<300> B() => Format.Write(ref EmptyBuilder<300>(), $"' + "{Tag()}" * 52 + '");', "limit"),
+        ("interface-impl-explicit-label-mismatch", "interface I<T> { T Get(T local as published); } "
+         "impl I<Nat> { public definition Nat Get(Nat other as typo) => other; }", "name"),
         ("private-binder-used-as-label", "Nat F(Nat local as count) => local; Nat G() => F(local: 2);", "name"),
         ("duplicate-external-label", "Nat F(Nat local as size, Nat size) => local;", "name"),
         ("overlapping-symbolic-suffix",
