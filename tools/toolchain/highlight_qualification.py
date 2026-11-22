@@ -181,11 +181,11 @@ def qualify(root: Path, engine: Path, textmate: Path, oniguruma: Path, node: Pat
     packages = {"textmate": _package(textmate, TEXTMATE_PINS, "9.2.0"),
                 "oniguruma": _package(oniguruma, ONIGURUMA_PINS, "2.0.1")}
     assets = root / highlight.ASSETS
-    inputs = [*assets.rglob("*")]
-    inputs = [p for p in inputs if p.is_file() and p.suffix in {".js", ".json", ".mjs", ".c", ".scm"}
+    inputs = [p for p in assets.rglob("*") if p.is_file() and p.suffix in {".js", ".json", ".mjs", ".c", ".scm"}
               and p.name not in {"parser.c", "grammar.json", "node-types.json"} and "tree_sitter" not in p.parts]
     inputs += [root / "tools/toolchain/parser" / name for name in ("parser.mly", "lexer.mll")]
-    inputs += [root / "tools/toolchain" / name for name in ("highlight.py", "highlight_qualification.py", "surface.py", "parser_checked.py")]
+    inputs += [root / "tools/toolchain" / name for name in (
+        "hashing.py", "highlight.py", "highlight_qualification.py", "surface.py", "parser_checked.py")]
     inputs += sorted((root / "examples").glob("*.vela"))
     bindings = {p.relative_to(root).as_posix(): digest(p) for p in inputs}
     fixtures = _fixtures(root)

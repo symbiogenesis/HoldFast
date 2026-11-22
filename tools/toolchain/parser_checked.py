@@ -1598,7 +1598,7 @@ def _build_runtime(repo: Path, cache: Path, directory: Path,
     if not reuse_menhirlib:
         shutil.rmtree(stage_dir, ignore_errors=True)
         cached_tar = cache / "menhir.tar.gz"
-        contents = _read_file_bytes(cached_tar) if archive is None and cached_tar.is_file() else None
+        contents = _archive(cached_tar, cache) if archive is None and cached_tar.is_file() else None
         if contents is None or hashlib.sha512(contents).hexdigest() != ARCHIVE_SHA512:
             contents = _archive(archive, cache)
         sources = _release_sources(contents)
