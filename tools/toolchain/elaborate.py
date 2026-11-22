@@ -76,6 +76,14 @@ from toolchain.elaborate_types import (
 )
 from toolchain.elaborate_whnf import _WhnfMixin
 
+FRONTEND_SOURCES = (
+    "__init__.py", "ast.py", "authoring.py", "compiler_trace.py", "documentation.py", "facts.py",
+    "jsonutil.py", "loans.py", "source.py", "trace_runtime.py", "elaborate.py", "elaborate_types.py",
+    "elaborate_protocol.py", "elaborate_whnf.py", "elaborate_patterns.py", "elaborate_proofs.py",
+    "elaborate_statements.py", "elaborate_strings.py", "elaborate_solver.py", "elaborate_intrinsics.py",
+    "elaborate_declarations.py",
+)
+
 __all__ = [
     "MAX_CONSTANT_NAT",
     "MAX_DEPTH",

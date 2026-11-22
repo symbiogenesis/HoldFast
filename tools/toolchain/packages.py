@@ -13,7 +13,7 @@ from typing import cast
 from toolchain import parser
 from toolchain.ast import MAX_SOURCE_BYTES
 from toolchain.atomic import atomic_path
-from toolchain.elaborate import elaborate_package
+from toolchain.elaborate import FRONTEND_SOURCES, elaborate_package
 from toolchain.elaborate_types import PackageScope
 from toolchain.jsonutil import unique_object
 
@@ -29,6 +29,13 @@ MAX_FILES = 256
 MAX_INPUT_BYTES = 1024 * 1024
 MAX_CLOSURE_BYTES = 16 * MAX_INPUT_BYTES
 MAX_GENERATED_BYTES = 32 * MAX_INPUT_BYTES
+
+PRODUCER_INPUTS = (
+    *(f"toolchain/{name}" for name in FRONTEND_SOURCES),
+    "run.py", "pyproject.toml", "uv.lock", "opam/rocq.lock", "opam/sail.lock", "toolchain/atomic.py",
+    "toolchain/cli/vela_parser.py", "toolchain/packages.py", "toolchain/commands.py", "toolchain/pyversion.py",
+    "toolchain/toolenv.py", "toolchain/corpus.py", "toolchain/env.py", "toolchain/proofenv.py",
+)
 
 
 def _sha(data: bytes) -> str:
@@ -47,7 +54,7 @@ def _token(raw: object, pattern: re.Pattern[str], what: str) -> str:
 
 def _object(raw: object, what: str) -> Object:
     if not isinstance(raw, dict):
-        raise ValueError(f"expected {what} table")
+        raise TypeError(f"expected {what} table")
     return cast("Object", raw)
 
 
@@ -72,9 +79,7 @@ def _path(base: Path, name: object) -> Path:
 
 def _producer(root: Path, compiled: parser.Build) -> Object:
     tools = root / "tools"
-    files = sorted((tools / "toolchain").rglob("*.py"))
-    files.extend(tools / name for name in ("run.py", "pyproject.toml", "uv.lock", "opam/rocq.lock", "opam/sail.lock"))
-    sources = {path.relative_to(tools).as_posix(): _sha(path.read_bytes()) for path in files}
+    sources = {name: _sha((tools / name).read_bytes()) for name in PRODUCER_INPUTS}
     return {"python": sys.version, "python_sha256": _sha(Path(sys.executable).read_bytes()),
             "frontend_sha256": _sha(_encode(sources)), "parser_inputs": compiled.receipt["inputs"],
             "parser_toolchain": compiled.receipt["toolchain"], "parser_sha256": _sha(compiled.executable.read_bytes())}
