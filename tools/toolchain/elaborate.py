@@ -2131,18 +2131,15 @@ def elaborate(
     imports: Sequence[tuple[bytes, object]] | None = None,
 ) -> CheckedElaboration:
     """Check an exact-source schema-2 AST and propose a complete bounded CIC file."""
-    available: dict[str, _Elaborator] = {}
-    if imports is not None:
-        for imp_source, imp_parsed in imports:
-            imp_elab, imp_elaborator = _checked_elaboration(
-                imp_source, imp_parsed, available_modules=available
-            )
-            available[imp_elab.module] = imp_elaborator
-    return _checked_elaboration(source, parsed, available_modules=available or None)[0]
+    if not imports:
+        return _checked_elaboration(source, parsed)[0]
+    protocol = _Protocol(source)
+    module = _Elaborator(protocol).name(protocol.decode(parsed)["name"])
+    return elaborate_package([*imports, (source, parsed)])[module]
 
 
-def elaborate_package(modules: Sequence[tuple[bytes, object]]) -> dict[str, Elaboration]:
-    """Elaborate a multi-module package in dependency order, enforcing module visibility."""
+def elaborate_package(modules: Sequence[tuple[bytes, object]]) -> dict[str, CheckedElaboration]:
+    """Check a linked module graph in dependency order, with one owner per import path."""
     decoded: dict[str, tuple[bytes, object, _Protocol, Node, list[tuple[str, Node]]]] = {}
     order_names: list[str] = []
     for src, parsed in modules:
@@ -2151,7 +2148,9 @@ def elaborate_package(modules: Sequence[tuple[bytes, object]]) -> dict[str, Elab
         probe = _Elaborator(protocol)
         mod_name = probe.name(root["name"])
         if mod_name in decoded:
-            raise protocol.error("name", f"duplicate module '{mod_name}' in package", root)
+            previous = hashlib.sha256(decoded[mod_name][0]).hexdigest()
+            current = hashlib.sha256(src).hexdigest()
+            raise protocol.error("name", f"duplicate module '{mod_name}' in package (source SHA256 {previous} and {current})", root)
         deps = [
             (probe.name(decl["name"]), decl)
             for decl in probe.nodes(root["declarations"])
@@ -2188,7 +2187,7 @@ def elaborate_package(modules: Sequence[tuple[bytes, object]]) -> dict[str, Elab
             visit(mname)
 
     available: dict[str, _Elaborator] = {}
-    elaborations: dict[str, Elaboration] = {}
+    elaborations: dict[str, CheckedElaboration] = {}
     for mname in topo:
         src, parsed, _, _, _ = decoded[mname]
         try:

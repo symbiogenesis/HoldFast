@@ -226,6 +226,8 @@ configuration. Locked builds neither resolve a different version nor read
 undeclared ambient inputs. Fetching dependencies is an explicit preparation
 operation; missing locked inputs produce an incomplete-build result.
 
+Each linked closure selects one revision per canonical package and one owner per module path. Incompatible dependency requirements fail resolution. Aliases change local spellings after resolution. Two revisions can be built in separate closures. The mathematical package checker enforces module-path uniqueness and reports both source digests on a collision.
+
 The initial import graph is acyclic and imports are explicit. Cycles report the
 cycle rather than depending on traversal order. Modules have no runtime
 initializers. Required-static initialization evaluates ordinary total pure

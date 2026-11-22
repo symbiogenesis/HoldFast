@@ -6166,6 +6166,22 @@ def _multi_module_imports_and_visibility() -> None:
         "elaborate_package did not topologically order dependencies",
     )
 
+    leaf = _Fixture("Leaf")
+    _import_decl(leaf, "ConsumerMod")
+    ensure(elaborate(*leaf.response(), imports=[consumer.response(), math_mod.response()]).module == "Leaf",
+           "the single-root entry point depended on supplied module order")
+    duplicate = _Fixture("MathMod")
+    duplicate.definition("Different", _NAT, (), _natural(1))
+    for root, imports in ((consumer, [math_mod, duplicate]), (math_mod, [duplicate])):
+        try:
+            elaborate(*root.response(), imports=[item.response() for item in imports])
+        except VelaError as error:
+            ensure(error.kind == "name" and "duplicate module 'MathMod'" in error.message
+                   and all(hashlib.sha256(item.response()[0]).hexdigest() in error.message for item in (math_mod, duplicate)),
+                   "conflicting module owners lack their source identities")
+        else:
+            raise AssertionError("one module silently replaced another in the linked graph")
+
     invalid_generic = _Fixture("InvalidQualifiedGeneric")
     _import_decl(invalid_generic, "MathMod")
     invalid_generic.definition("Wrong", _NAT, (),
