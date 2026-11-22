@@ -222,6 +222,13 @@ public Nat Inline(Nat x) effects none => Forward(n => n + 2, x);
 public Nat Allowed(Fn(Nat n) -> Nat cb, Nat x) effects calls(cb) => Forward(cb, x);
 lemma Value() ensures Named(2) == 3 proof { assert Named(2) == 3; }
 """),
+        ("scalar-callback-variance", """module ScalarCallback;
+Nat Apply(Fn(Nat x) -> Nat effects(none) with { requires x <= 5; ensures result == x; } f)
+    effects none => f(5);
+Nat Identity(Nat x) requires x <= 10 ensures result == x effects none => x;
+Nat Use() effects none => Apply(Identity);
+lemma Value() ensures Use() == 5 proof { assert Use() == 5; }
+"""),
         ("dependent-type-family", """module FamilyReplay;
 definition type[family(n)] Keep(Fn(Nat index) -> Type family, Nat n,
     type[family(n)] value) => value;
@@ -348,6 +355,22 @@ lemma PairEta<TLeft, TRight>((TLeft, TRight) pair)
         (left, right) => assert (left, right) == (Fst((left, right)), Snd((left, right)));
     }
 }
+"""),
+        ("sequenced-formatter-hole-effects", """module FormatEffects;
+public Nat Tick(ref Nat n) { n += 1; return n; }
+public bool Fit() {
+    var n = 0;
+    let b = Format.Write(ref EmptyBuilder<2>(), $"{Tick(ref n):x}{Tick(ref n):x}");
+    return n == 2 && WrittenBytes(b).At(0) == 49 && WrittenBytes(b).At(1) == 50;
+}
+public bool Exhausted() {
+    var n = 0;
+    let initial = Format.Write(ref EmptyBuilder<2>(), $"A");
+    let b = Format.Write(ref initial, $"{Tick(ref n):x}{Tick(ref n):x}");
+    return n == 2 && !Fits(b) && WrittenBytes(b) == WrittenBytes(initial);
+}
+lemma Observed() ensures Fit() == true ensures Exhausted() == true
+    proof { assert Fit() == true; assert Exhausted() == true; }
 """),
         ("raw-strings-and-checked-formatting", '''module CheckedFormattingReplay;
 public definition Vec<Nat, 10> HeaderTag() =>
@@ -824,6 +847,13 @@ public lemma StepTwiceCheck()
     ensures StepTwice(5) == 7
     proof { assert StepTwice(5) == 7; }
 """),
+        ("interface-external-labels", """module InterfaceLabels;
+public interface I<T> { T Get(T local as published); }
+public impl I<Nat> { public definition Nat Get(Nat other) => other; }
+public impl I<bool> { public definition bool Get(bool other as published) => other; }
+lemma Labels() ensures I.Get(published: 3) == 3 ensures I.Get(published: true) == true
+    proof { assert I.Get(published: 3) == 3; assert I.Get(published: true) == true; }
+"""),
         ("interface-name-and-arity-resolution", """module InterfaceResolutionReplay;
 public interface Unary<T> { T Advance(T x); }
 public interface Binary<T> { T Advance(T x, T y); }
@@ -958,6 +988,12 @@ public Nat RoundTripOwned()
         ("unrestored-fallible-write", "Result<byte, Unit> Bad(ref Span<byte> dst, byte value) "
          "effects writes(dst) requires dst.CanRead && dst.CanWrite && dst.Length >= 1usize "
          "ensures (result is Err(_)) ==> dst[0] == old(dst[0]) { dst[0] = value; return Err(()); }", "type"),
+        ("format-boolean-byte-limit", 'definition TextBuilder<300> B() => Format.Write(ref EmptyBuilder<300>(), $"'
+         + "{false}" * 52 + '");', "limit"),
+        ("format-vector-byte-limit", 'definition Vec<Nat,5> Tag() => "hello"; '
+         'definition TextBuilder<300> B() => Format.Write(ref EmptyBuilder<300>(), $"' + "{Tag()}" * 52 + '");', "limit"),
+        ("interface-impl-explicit-label-mismatch", "interface I<T> { T Get(T local as published); } "
+         "impl I<Nat> { public definition Nat Get(Nat other as typo) => other; }", "name"),
         ("private-binder-used-as-label", "Nat F(Nat local as count) => local; Nat G() => F(local: 2);", "name"),
         ("duplicate-external-label", "Nat F(Nat local as size, Nat size) => local;", "name"),
         ("overlapping-symbolic-suffix",

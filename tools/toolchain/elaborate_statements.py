@@ -364,10 +364,12 @@ class _StatementsMixin:
                 prop_node,
             )
         if self.uninitialized_out_params:
-            uninit_name = min(self.uninitialized_out_params)
+            names = ", ".join(repr(name) for name in sorted(self.uninitialized_out_params))
+            owed = (f"'out' parameter {names} is" if len(self.uninitialized_out_params) == 1
+                    else f"'out' parameters {names} are")
             raise self.fail(
                 "type",
-                f"cannot propagate '?' early exit before 'out' parameter '{uninit_name}' is initialized"
+                f"cannot propagate '?' early exit before {owed} initialized"
                 + self._fallible_out_hint(target_return_type),
                 prop_node,
             )
@@ -971,8 +973,14 @@ class _StatementsMixin:
     ) -> None:
         if not self.last_call_updates:
             return
-        pending = list(self.last_call_updates)
-        self.last_call_updates.clear()
+        pending = self.last_call_updates
+        self.last_call_updates = []
+        self._apply_call_updates(updated, site, pending)
+
+    def _apply_call_updates(
+        self: _Elaborator, updated: dict[str, _Binding], site: Node,
+        pending: list[tuple[Node, _Binding, _Term | None]],
+    ) -> None:
         for arg_node, new_b, position in pending:
             if position is not None:
                 owner = self._unwrap_group(self.node(arg_node["value"]))

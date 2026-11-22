@@ -178,6 +178,14 @@ class _Meta:
 
 
 @dataclass(frozen=True)
+class _FnContract:
+    argument: int
+    result: int
+    requires: tuple[_Term, ...]
+    ensures: tuple[_Term, ...]
+
+
+@dataclass(frozen=True)
 class _Binding:
     term: _Term
     type: _Term

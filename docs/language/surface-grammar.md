@@ -387,6 +387,9 @@ In `Nat Read(Nat index as offset)`, the body and contracts refer to `index`
 and callers may write `Read(offset: 3)` or `Read(3)`. Without `as`, the local
 parameter name supplies the label. Labels in one telescope must be distinct.
 Renaming only the local name preserves existing positional and labeled calls.
+An interface supplies the labels used by callers. An `impl` may choose its
+own local names and may repeat a published label with `as`. A conflicting
+explicit label is an error at that label.
 
 The domain roles `carrier`, `zero`, `one`, `add`, `mul`, `admits`, `interpret`
 and `laws` introduce entries inside a domain. In value positions they are ordinary
@@ -820,7 +823,8 @@ bounds, plus a declared aggregate token-inspection budget covering unsuccessful
 and nested probes. Exhaustion is a resource refusal for the whole parse, never
 permission to reinterpret the source as comparisons. No speculative AST or
 token rewrite may leak into a failed probe. The implementation freezes the
-aggregate bound at 200,000 inspected tokens per parse and shares it across
+aggregate bound at 200,000 inspected tokens per parse. Use `F::<T>(...)` to
+bypass the prefix probe at that application. The budget is shared across
 recursive probes, with boundary fixtures before qualification, retaining the
 current source-consumption and diagnostic bounds.
 

@@ -722,7 +722,7 @@ class _DeclarationsMixin:
         m_emitted = f"{self.emission_prefix}_d{len(self.output)}_{name}_{method_name}"
         self._classify_phase(m_emitted, body_node, executable=m_kind == "function")
         if m_kind == "function":
-            self.checked_result_consumers.add(m_emitted)
+            self.checked_resource_consumers.add(m_emitted)
         self.output.append(f"Definition {m_emitted} : {self.render(m_sig)} :=\n  {self.render(m_def)}.")
         m_binding = _Binding(_constant(m_emitted), m_sig, len(generics) + len(m_generics))
         self.constants[m_emitted] = m_binding
@@ -1107,6 +1107,7 @@ class _DeclarationsMixin:
         self.unions_by_type.update(mod.unions_by_type)
         self.unions_by_ctor.update(mod.unions_by_ctor)
         self.callable_preconditions.update(mod.callable_preconditions)
+        self.fn_contracts.update(mod.fn_contracts)
         self.callable_ensures.update(mod.callable_ensures)
         self.callable_ref_updates.update({key: value for key, value in mod.callable_ref_updates.items()
                                           if key not in mod.sealed_bodies})
@@ -1120,7 +1121,7 @@ class _DeclarationsMixin:
         self.callable_callback_effects.update(mod.callable_callback_effects)
         self.callable_effect_arities.update(mod.callable_effect_arities)
         self.untracked_effect_functions.update(mod.untracked_effect_functions)
-        self.checked_result_consumers.update(mod.checked_result_consumers)
+        self.checked_resource_consumers.update(mod.checked_resource_consumers)
         self.fix_names.update(mod.fix_names)
         existing_out = set(self.output)
         for line in mod.output:
@@ -1766,6 +1767,11 @@ class _DeclarationsMixin:
                         mnode,
                     )
                 for p_idx, p_node in enumerate(m_params):
+                    if "label" in p_node and self.name(p_node["label"]) != mspec.param_labels[p_idx]:
+                        raise self.fail(
+                            "name", f"explicit argument label of '{mname}' must match interface '{iface_name}'",
+                            cast("Node", p_node["label"]),
+                        )
                     pt = self.node(p_node["type"])
                     p_mod = (
                         cast("str | None", pt.get("modifier"))
@@ -1899,7 +1905,7 @@ class _DeclarationsMixin:
                 m_emitted = f"{self.emission_prefix}_d{len(self.output)}_impl_{iface_name.replace('.', '_')}_{mname}"
                 self._classify_phase(m_emitted, body_node, executable=True)
                 if mkind == "function":
-                    self.checked_result_consumers.add(m_emitted)
+                    self.checked_resource_consumers.add(m_emitted)
                 self.output.append(
                     f"Definition {m_emitted} : {self.render(m_sig)} :=\n  {self.render(m_def)}."
                 )
@@ -2788,7 +2794,8 @@ class _DeclarationsMixin:
         self.active_regions = set(decl_regions)
         parameters = [] if kind in {"alias", "constant", "property"} else self.nodes(node["parameters"])
         variables, environment = self.telescope(
-            generics, parameters, {}, unit=kind not in {"alias", "constant", "property"}
+            generics, parameters, {}, unit=kind not in {"alias", "constant", "property"},
+            callback_contracts=kind in {"function", "definition"},
         )
         if kind in {"theorem", "lemma"} and self.out_param_names:
             raise self.fail("type", "proof declarations do not accept 'out' initialization parameters", node)
@@ -3146,7 +3153,7 @@ class _DeclarationsMixin:
                     self.current_return_type = None
             emitted = f"{self.emission_prefix}_d{len(self.output)}_{name}"
             if kind == "function":
-                self.checked_result_consumers.add(emitted)
+                self.checked_resource_consumers.add(emitted)
             if kind in {"function", "definition", "property"}:
                 phase_body = self.node(node["value"]) if kind == "property" else body_node
                 self._classify_phase(emitted, phase_body, executable=kind == "function")

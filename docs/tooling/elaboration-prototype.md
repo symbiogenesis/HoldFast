@@ -79,6 +79,15 @@ The supported increment includes:
   arbitrary arguments of the destination signature. An explicit wrapper can
   establish a remaining precondition. The signature preserves each parameter's
   ownership and loan mode. A caller may discard a stronger return guarantee.
+  Top-level functions and definitions can take a named, unary scalar callback
+  such as `Fn(Nat x) -> Nat effects(none) with { requires x <= 5; ensures result == x; } f`.
+  Its argument must be a named function with checked empty effects or another
+  contracted parameter. The required input domain must imply the argument's
+  preconditions. Its guarantees under that domain must establish the promised
+  result. Invocation checks the input obligation and records the result fact.
+  This increment supports Boolean predicates over the callback's scalar
+  argument, result and literals. Contracted callable aliases, captures and
+  nonempty effect bounds require the broader callable-type checker.
 - Mathematical `Nat`, `bool`, `char`, `Unit`, products, decidable structural
   Boolean equality (`==`, `!=`) over `Nat`, `bool`, `char`, `Unit`, fixed-width
   integers, tuples, `Vec<T, n>`, `Seq<T>` and non-dependent nominal `record` and
@@ -101,7 +110,7 @@ The supported increment includes:
   specifier is separate from the expression. Holes support `Nat`, `bool`, `char`
   when concrete or proved ASCII, and `Vec<Nat, n>`. Numeric holes accept
   specifiers including `:x2`, `:x4`, `:x8`, `:d` and `:b`. The checker
-  checks target-buffer aliasing and requires `ValidUtf8(bytes.Model)` for a byte-vector hole. `WrittenBytes(builder)` exposes the exact committed byte sequence and `Written(builder)` counts it. A write appends the whole formatted sequence on success. Exhaustion sets `Fits` to false and preserves the previous bytes. Later writes to that failed builder preserve the same bytes.
+  checks target-buffer aliasing and requires `ValidUtf8(bytes.Model)` for a byte-vector hole. `WrittenBytes(builder)` exposes the exact committed byte sequence and `Written(builder)` counts it. Holes evaluate once from left to right. Their effects on other places occur before the capacity check. A write appends the whole formatted sequence on success. Exhaustion sets `Fits` to false and preserves the previous bytes. Later writes to that failed builder preserve the same bytes.
 - Structural recursion over `Nat` parameters on `definition`, `function`,
   `lemma` and `theorem` declarations, elaborated to Gallina `fix` terms with
   optional explicit `decreases parameter` contracts on `definition` and

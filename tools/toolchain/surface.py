@@ -4568,6 +4568,9 @@ def _generic_probe_limits(parse: Callable[[bytes], dict[str, Json]]) -> None:
         except VelaError as error:
             if count <= 200_000 or error.kind != "limit" or "200000 inspected tokens" not in error.message:
                 raise ValueError("generic probe inspection boundary has the wrong refusal") from error
+            if "F::<T>" not in error.message:
+                raise ValueError("generic probe refusal lacks the explicit application spelling") from error
+            parse(source.replace(b"F<T>()", b"F::<T>()", 1))
         else:
             if count > 200_000:
                 raise ValueError("generic probe inspection exhaustion reinterpreted source or published syntax")

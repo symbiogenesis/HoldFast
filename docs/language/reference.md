@@ -237,7 +237,7 @@ See [natural division and remainder](../tooling/pure-prototype.md#natural-divisi
 
 | Form | Meaning | Status |
 | --- | --- | --- |
-| Labeled call `Copy(in source, target: ref dst)` | A positional prefix, then labels naming the next declared parameters in order; no reordering or defaults | P |
+| Labeled call `Copy(in source, target: ref dst)` | A positional prefix followed by labels in declaration order. Named functions and methods may give a parameter a stable external label with `Nat local as label`. | M (named functions and methods) |
 | Member call `x.Method(a)` | Supplies the declaration's receiver loan; other arguments repeat their modes | M |
 | Conditional `if (c) a else b` | Mandatory `else`; the same join as a two-arm match | M |
 | Match expression | `match (e) { Pattern => value, ... }`, exhaustive, optional final comma | M |
@@ -326,6 +326,10 @@ public Nat CountTo(Nat limit)
 | Place-named loan `'input`, `'this.text`; `region 'r` | A loan tied to one parameter or field; a region parameter only where no place can be named | S |
 | Returned loan `Result<ref<'table> V, E>` | A loan leaving with a result, with a `restores` contract for its end | S |
 | `*p`, `&place`, `p + n`, `p[i]` | Typed pointer and place operations under access contracts | S |
+
+Executable calls that take or return potentially affine values require a
+constructor or a function body checked for executable ownership. A mathematical
+definition that manipulates such values remains available to specifications.
 
 Each ordinary loan argument repeats its mode at the call site; inference never
 inserts `in`, `ref`, `out` or `move`. A loan ends at its last use, branch by
