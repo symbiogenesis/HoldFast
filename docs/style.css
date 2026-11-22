@@ -25,7 +25,6 @@ html {
 
 body {
     margin: 0;
-    min-width: 340px;
     background: var(--page);
     color: var(--text);
     font-family: var(--sans);
@@ -224,10 +223,11 @@ a:hover {
 .topbar-right {
     display: flex;
     align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
     gap: 18px;
     font: 10px var(--mono);
     letter-spacing: 1.1px;
-    flex-shrink: 0;
 }
 
 .local-label {
@@ -1858,7 +1858,7 @@ kbd {
     .ref-tables-grid,
     .pipeline-strip,
     .specs-compact-grid {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr);
     }
 }
 
@@ -1907,6 +1907,12 @@ kbd {
 }
 
 @media (max-width: 480px) {
+    .topbar-nav {
+        flex-wrap: wrap;
+    }
+    .nav-item {
+        padding-inline: 6px;
+    }
     .brand {
         font-size: 18px;
         gap: 10px;
@@ -1917,7 +1923,7 @@ kbd {
     .brand-context {
         font-size: 13px;
     }
-    .prototype-badge {
+    .topbar-right {
         display: none;
     }
     .pane-toolbar {
