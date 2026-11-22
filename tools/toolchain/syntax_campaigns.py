@@ -7,8 +7,6 @@ for the frozen entry point, resource bounds, renderer qualification, independent
 AST/span oracle, seeded-defect controls, sentence shrinking, and replay contract.
 """
 
-from __future__ import annotations
-
 import copy
 import hashlib
 import json
@@ -927,99 +925,34 @@ class IndependentPureAstOracle:
         return self._parse_disjunction()
 
     def _parse_disjunction(self) -> _OracleNode:
-        left = self._parse_conjunction()
-        while (cur := self._current()) is not None and cur.terminal == "OR":
-            op = self._expect("OR")
-            right = self._parse_conjunction()
-            left = self._make(
-                "binary",
-                self._token_at(left.start_byte),
-                right.end_byte,
-                [
-                    ("operator", self._name_obj(op)),
-                    ("left", left.syntax),
-                    ("right", right.syntax),
-                ],
-                [left, right],
-            )
-        return left
+        return self._parse_binary(self._parse_conjunction, {"OR"})
 
     def _parse_conjunction(self) -> _OracleNode:
-        left = self._parse_comparison()
-        while (cur := self._current()) is not None and cur.terminal == "AND":
-            op = self._expect("AND")
-            right = self._parse_comparison()
-            left = self._make(
-                "binary",
-                self._token_at(left.start_byte),
-                right.end_byte,
-                [
-                    ("operator", self._name_obj(op)),
-                    ("left", left.syntax),
-                    ("right", right.syntax),
-                ],
-                [left, right],
-            )
-        return left
+        return self._parse_binary(self._parse_comparison, {"AND"})
 
     def _parse_comparison(self) -> _OracleNode:
-        left = self._parse_sum()
-        cur = self._current()
-        if cur is not None and cur.terminal in {"EQ", "LE", "NE", "LT", "GT", "GE"}:
-            op = self._expect(cur.terminal)
-            right = self._parse_sum()
-            nxt = self._current()
-            if nxt is not None and nxt.terminal in {"EQ", "LE", "NE", "LT", "GT", "GE"}:
-                raise self._syntax_error()
-            return self._make(
-                "binary",
-                self._token_at(left.start_byte),
-                right.end_byte,
-                [
-                    ("operator", self._name_obj(op)),
-                    ("left", left.syntax),
-                    ("right", right.syntax),
-                ],
-                [left, right],
-            )
-        return left
+        return self._parse_binary(
+            self._parse_sum, {"EQ", "LE", "NE", "LT", "GT", "GE"}, allow_chain=False
+        )
 
     def _parse_sum(self) -> _OracleNode:
-        left = self._parse_product()
-        while (cur := self._current()) is not None and cur.terminal in {"PLUS", "MINUS"}:
-            op = self._expect(cur.terminal)
-            right = self._parse_product()
-            left = self._make(
-                "binary",
-                self._token_at(left.start_byte),
-                right.end_byte,
-                [
-                    ("operator", self._name_obj(op)),
-                    ("left", left.syntax),
-                    ("right", right.syntax),
-                ],
-                [left, right],
-            )
-        return left
+        return self._parse_binary(self._parse_product, {"PLUS", "MINUS"})
 
     def _parse_product(self) -> _OracleNode:
-        left = self._parse_unary()
-        while (cur := self._current()) is not None and cur.terminal in {
-            "STAR",
-            "SLASH",
-            "PERCENT",
-        }:
-            op = self._expect(cur.terminal)
-            right = self._parse_unary()
+        return self._parse_binary(self._parse_unary, {"STAR", "SLASH", "PERCENT"})
+
+    def _parse_binary(
+        self, operand: Callable[[], _OracleNode], operators: set[str], *, allow_chain: bool = True,
+    ) -> _OracleNode:
+        left = operand()
+        while (token := self._current()) is not None and token.terminal in operators:
+            operator = self._expect(token.terminal)
+            right = operand()
+            if not allow_chain and (following := self._current()) is not None and following.terminal in operators:
+                raise self._syntax_error()
             left = self._make(
-                "binary",
-                self._token_at(left.start_byte),
-                right.end_byte,
-                [
-                    ("operator", self._name_obj(op)),
-                    ("left", left.syntax),
-                    ("right", right.syntax),
-                ],
+                "binary", self._token_at(left.start_byte), right.end_byte,
+                [("operator", self._name_obj(operator)), ("left", left.syntax), ("right", right.syntax)],
                 [left, right],
             )
         return left

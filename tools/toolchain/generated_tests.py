@@ -5,8 +5,6 @@ See [Generated development tests](../../docs/tooling/tooling-protocols.md#genera
 for the campaign bounds, independent oracle rules, seeded defect controls, and adoption disposition.
 """
 
-from __future__ import annotations
-
 import contextlib
 import hashlib
 import importlib
@@ -27,8 +25,9 @@ from typing import cast
 from unittest.mock import patch
 
 import toolchain as vela
-from toolchain import authoring
+from toolchain import authoring, pyversion
 from toolchain.ast import MAX_SOURCE_BYTES
+from toolchain.hashing import file_sha256
 from toolchain.lsp import MAX_CHANGES, MAX_DOCUMENTS, Server
 from toolchain.lsp_format import formatting_edits
 from toolchain.source import MAX_URI_BYTES, SourceSnapshot
@@ -1274,7 +1273,9 @@ def seeded_fault_context(fault_name: str) -> Generator[None]:
             yield
         return
 
-    if fault_name == "edit-against-original-document":
+    if fault_name in {"edit-against-original-document", "publish-early-edit-before-rollback"}:
+        use_original = fault_name == "edit-against-original-document"
+
         def _buggy_changed_snapshot(
             self: Server, old: SourceSnapshot, version: int, changes: object
         ) -> SourceSnapshot:
@@ -1307,62 +1308,20 @@ def seeded_fault_context(fault_name: str) -> Generator[None]:
                         or (s_line, s_char) > (e_line, e_char)
                     ):
                         raise ValueError("invalid or reversed range")
-                    # Defect: resolves offsets and slices against `old` instead of `candidate`.
-                    first = old.position_byte_offset(s_line, s_char)
-                    last = old.position_byte_offset(e_line, e_char)
-                    source = old.source
+                    snapshot = old if use_original else candidate
+                    first = snapshot.position_byte_offset(s_line, s_char)
+                    last = snapshot.position_byte_offset(e_line, e_char)
+                    source = snapshot.source
                     text = (source[:first] + text.encode("utf-8") + source[last:]).decode("utf-8")
-                candidate = SourceSnapshot(old.uri, version, text, self.generation + 1)
-            return self._snapshot(old.uri, version, candidate.text)
+                if use_original:
+                    candidate = SourceSnapshot(old.uri, version, text, self.generation + 1)
+                else:
+                    # The early-publication mutant exposes an edit before later changes can fail.
+                    candidate = self._snapshot(old.uri, version, text)
+                    self.documents[old.uri] = candidate
+            return self._snapshot(old.uri, version, candidate.text) if use_original else candidate
 
         with patch.object(Server, "_changed_snapshot", _buggy_changed_snapshot):
-            yield
-        return
-
-    if fault_name == "publish-early-edit-before-rollback":
-        def _buggy_early_publish_snapshot(
-            self: Server, old: SourceSnapshot, version: int, changes: object
-        ) -> SourceSnapshot:
-            if not isinstance(changes, list) or len(changes) > MAX_CHANGES:
-                raise ValueError("expected at most 64 ordered content changes")
-            if old.uri in self.desynchronized and (
-                not changes or not isinstance(changes[0], dict) or "range" in changes[0]
-            ):
-                raise ValueError("a complete replacement is required to restore synchronization")
-            candidate = old
-            for value in changes:
-                if type(value) is not dict or type(value.get("text")) is not str:
-                    raise ValueError("invalid change")
-                text = cast("str", value["text"])
-                if "range" in value:
-                    span = value.get("range")
-                    if not isinstance(span, dict):
-                        raise ValueError("invalid range")
-                    start = span.get("start")
-                    end = span.get("end")
-                    if not isinstance(start, dict) or not isinstance(end, dict):
-                        raise ValueError("invalid positions")
-                    s_line, s_char = start.get("line"), start.get("character")
-                    e_line, e_char = end.get("line"), end.get("character")
-                    if (
-                        type(s_line) is not int
-                        or type(s_char) is not int
-                        or type(e_line) is not int
-                        or type(e_char) is not int
-                        or (s_line, s_char) > (e_line, e_char)
-                    ):
-                        raise ValueError("invalid or reversed range")
-                    first = candidate.position_byte_offset(s_line, s_char)
-                    last = candidate.position_byte_offset(e_line, e_char)
-                    source = candidate.source
-                    text = (source[:first] + text.encode("utf-8") + source[last:]).decode("utf-8")
-                # Held-out defect: publishes each intermediate edit to `self.documents` and
-                # increments `self.generation` before checking later edits in the batch.
-                candidate = self._snapshot(old.uri, version, text)
-                self.documents[old.uri] = candidate
-            return candidate
-
-        with patch.object(Server, "_changed_snapshot", _buggy_early_publish_snapshot):
             yield
         return
 
@@ -1636,8 +1595,7 @@ def evaluate_seeded_fault(
 
 def verify_installed_closure() -> dict[str, object]:
     """Verify the isolated environment's Python minor version, package versions, and license/native hashes."""
-    if sys.version_info[:2] != (3, 14):
-        raise ValueError(f"expected Python 3.14, got {sys.version.split()[0]}")
+    pyversion.require_supported(Path(__file__).resolve().parents[2])
     packages: dict[str, dict[str, object]] = {}
     native_sha256: str | None = None
     for pkg_name, expected_version in CANDIDATE_VERSIONS.items():
@@ -1646,7 +1604,7 @@ def verify_installed_closure() -> dict[str, object]:
             raise ValueError(f"expected {pkg_name}=={expected_version}, got {dist.version}")
         lic_rel, expected_lic_sha = EXPECTED_LICENSE_SHA256[pkg_name]
         lic_path = Path(str(dist.locate_file(lic_rel)))
-        actual_lic_sha = hashlib.sha256(lic_path.read_bytes()).hexdigest()
+        actual_lic_sha = file_sha256(lic_path)
         if actual_lic_sha != expected_lic_sha:
             raise ValueError(
                 f"license SHA-256 mismatch for {pkg_name} ({lic_rel}): "
@@ -1657,7 +1615,7 @@ def verify_installed_closure() -> dict[str, object]:
                 rel = str(entry).replace("\\", "/")
                 if rel.startswith("hypothesis/_native") and rel.endswith((".pyd", ".so")):
                     bin_path = Path(str(dist.locate_file(entry)))
-                    native_sha256 = hashlib.sha256(bin_path.read_bytes()).hexdigest()
+                    native_sha256 = file_sha256(bin_path)
                     if native_sha256 not in EXPECTED_NATIVE_SHA256:
                         raise ValueError(
                             f"unrecognized hypothesis/_native binary SHA-256 on {platform.platform()}: "
@@ -2109,8 +2067,7 @@ def qualify_isolated_campaign(
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
 ) -> dict[str, object]:
     """Provision `hypothesis==6.170.14` in a disposable venv and run the bounded campaign."""
-    if sys.version_info[:2] != (3, 14):
-        raise ValueError(f"Q25x requires Python 3.14, got {sys.version.split()[0]}")
+    pyversion.require_supported(root)
     uv_bin = shutil.which("uv")
     if uv_bin is None:
         raise RuntimeError("uv executable not found on PATH")
