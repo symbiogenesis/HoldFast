@@ -84,7 +84,8 @@ def _source_map(name: str, source: bytes, gallina: str, origins: list[GallinaOri
                 end = len(content.encode("utf-16-le")) // 2
                 mappings[i] = "AA" + _vlq(line - previous_line) + _vlq(column - previous_column) + "," + _vlq(end)
                 previous_line, previous_column = line, column
-    return _encode({"version": 3, "file": GALLINA, "sources": [quote(name, safe="")], "names": [],
+    embedded_uri = f"vela-source://sha256/{_digest(source)}/{quote(name, safe='')}"
+    return _encode({"version": 3, "file": GALLINA, "sources": [embedded_uri], "names": [],
                     "sourcesContent": [source.decode()], "mappings": ";".join(mappings)})
 
 
@@ -181,5 +182,6 @@ def query(root: Path, path: Path, directory: Path, node: Path, line: int, column
     if site is None:
         return {"status": "unmapped"}
     origin = next(row for row in manifest["origins"] if row["first_line"] <= line - 1 < row["first_line"] + row["line_count"])
-    return {"status": "mapped", "source": site[0], "line": int(site[1]) + 1, "column": int(site[2]) + 1,
+    return {"status": "mapped", "source": path.resolve().as_uri(), "embedded_source": site[0],
+            "line": int(site[1]) + 1, "column": int(site[2]) + 1,
             "origin": origin}

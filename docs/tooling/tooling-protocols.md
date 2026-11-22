@@ -765,7 +765,10 @@ Run `python tools/run.py vela-parser source-map-query SOURCE DIRECTORY --node /u
 at a position in that Gallina file. The command accepts and returns one-based
 UTF-16 coordinates. A declaration maps to its authored start. A generated
 arithmetic statement and its proof map to the operation that required the
-equation. The manifest preserves both the operation and its enclosing
+equation. Each map embeds the original text under a `vela-source:` URI
+containing its SHA-256 and escaped filename. Offline readers can open the
+embedded source after the bundle moves. The lookup command also returns the
+verified local file URI. The manifest preserves both the operation and its enclosing
 declaration as half-open UTF-8 byte ranges, together with the generation stage.
 The source map gives the same location throughout each nonempty emitted line.
 Compiler preludes, hoisted shared literals, separators, line ends and module

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Independent ECMA-426 coordinate and retained-file controls."""
 
+import hashlib
 import json
 import tempfile
 from contextlib import nullcontext
@@ -19,9 +20,12 @@ def _coordinates() -> None:
     origins = [GallinaOrigin(1, 1, (10, 11), (10, 11), "declaration"),
                GallinaOrigin(3, 1, (8, 9), (8, 9), "word-equation")]
     record = json.loads(maps._source_map("in #1.vela", source, "stub\n🗺\n\nabc\n", origins))
-    ensure(record["version"] == 3 and record["sources"] == ["in%20%231.vela"]
+    expected_uri = "vela-source://sha256/" + hashlib.sha256(source).hexdigest() + "/in%20%231.vela"
+    ensure(record["version"] == 3 and record["sources"] == [expected_uri]
            and record["sourcesContent"] == [source.decode()] and record["mappings"] == "A;AAEA,E;A;AADG,G;A",
            f"unexpected standard map coordinate deltas: {record}")
+    other = json.loads(maps._source_map("in #1.vela", source + b" ", "", []))
+    ensure(other["sources"] != record["sources"], "distinct source snapshots with one basename have the same URI")
 
 
 def _freshness() -> None:

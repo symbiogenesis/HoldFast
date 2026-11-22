@@ -40,7 +40,8 @@ def qualify(root: Path, node: Path) -> dict[str, object]:
         helper = find("Local Definition vela_word_literal_")
         positions = [(0, 0), (helper, 3), (first, 11), (proof, 0), (proof + 1, 5),
                      (proof + 1, len(lines[proof + 1])), (proof + 2, 0), (second, 8), (len(lines) - 2, 2)]
-        uri = "arithmetic%20map.vela"
+        uri = ("vela-source://sha256/89063eadeb30b5ddeccc2824965e4148e6ccce98a9a80afab5fe01a26fcf2fed/"
+               "arithmetic%20map.vela")
         expected = [None, None, [uri, 1, 9], [uri, 1, 49], [uri, 1, 49],
                     None, None, [uri, 2, 32], None]
         observed = maps.read_positions(compiled, path, files, directory, node, positions)
