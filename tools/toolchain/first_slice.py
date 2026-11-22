@@ -1359,6 +1359,12 @@ def _lower_function_to_c(
             return [f"{c_fn}({dst_ptr}, {span_ptr_expr(inner)});"]
         raise ValueError(f"unsupported Span initializer {mname!r} in {fname}")
 
+    def compound_rhs(st: dict[str, object], read: str, prefix: list[str]) -> str:
+        op, width = integer_operation(st)
+        old = temp(_c_scalar_type(width))
+        prefix.append(f"{old} = {read};")
+        return f"({old} {op} {lower_expr(st['value'], prefix)})"
+
     def lower_stmts(stmts: list[dict[str, object]], indent: str) -> list[str]:
         out_lines: list[str] = []
         for st in stmts:
@@ -1375,13 +1381,23 @@ def _lower_function_to_c(
             elif skind == "assignment":
                 target = cast("dict[str, object]", st.get("target", {}))
                 val = cast("dict[str, object]", st.get("value", {}))
+                compound = _node_text(st["operator"]) != "="
                 if target.get("kind") == "index":
                     s_ptr = span_ptr_expr(cast("dict[str, object]", target.get("value")))
-                    idx_c, rhs = ordered([_unwrap_arg(target["index"]), val], prefix)
+                    if compound:
+                        idx_c = temp("unsigned long")
+                        index_value = lower_expr(target["index"], prefix)
+                        prefix.append(f"{idx_c} = {index_value};")
+                        rhs = compound_rhs(st, f"vela_span_read({s_ptr}, {idx_c})", prefix)
+                    else:
+                        idx_c, rhs = ordered([_unwrap_arg(target["index"]), val], prefix)
                     out_lines.append(f"{indent}vela_span_write({s_ptr}, {s_ptr}, {idx_c}, {rhs});")
-                else:
+                elif target.get("kind") == "name":
                     tname = _node_text(target)
-                    out_lines.append(f"{indent}{tname} = {lower_expr(val, prefix)};")
+                    rhs = compound_rhs(st, tname, prefix) if compound else lower_expr(val, prefix)
+                    out_lines.append(f"{indent}{tname} = {rhs};")
+                else:
+                    raise ValueError(f"unsupported assignment target in {fname}: {target!r}")
             elif skind == "expression_statement":
                 val = cast("dict[str, object]", st.get("value", {}))
                 mname = _is_span_call(val)
