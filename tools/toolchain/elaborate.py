@@ -123,6 +123,7 @@ class _Elaborator(
         self.contextual_literal_types: dict[int, str] = {}
         self.integer_operations: dict[int, tuple[str, str]] = {}
         self.serial = 0
+        self.binder_stride = 1
         self.work = MAX_WORK
         self.reductions = MAX_REDUCTIONS
         self.metas: list[_Meta] = []
@@ -256,7 +257,7 @@ class _Elaborator(
 
     def fresh(self, value_type: _Term) -> _Term:
         index = self.serial
-        self.serial += 1
+        self.serial += self.binder_stride
         self.types[index] = value_type
         return _term("var", value=index)
 
@@ -2289,10 +2290,18 @@ def _checked_elaboration(
             if package_scope is not None:
                 elaborator.package_instance = package_scope.instance
                 module_key = f"{package_scope.instance}_{module_key}"
+                # Keep prelude binders shared. User binders from each locked module
+                # occupy a disjoint sequence independent of graph traversal order.
+                namespace = int.from_bytes(hashlib.sha256(module_key.encode("ascii")).digest())
+                elaborator.binder_stride = 1 << 256
+                if any(mod.serial % elaborator.binder_stride == namespace for mod in available_modules.values()):
+                    raise protocol.error("name", "locked modules have a conflicting binder namespace")
+                elaborator.serial = elaborator.binder_stride + namespace
+            else:
+                elaborator.serial = max((mod.serial for mod in available_modules.values()), default=elaborator.serial)
             elaborator.emission_prefix = f"vela_m{module_key}"
             generated_module = "VelaPackage_" + module_key
             elaborator.available_modules = dict(available_modules)
-            elaborator.serial = max((mod.serial for mod in available_modules.values()), default=elaborator.serial)
         with phase("resolve-and-elaborate"):
             for declaration in elaborator.nodes(root["declarations"]):
                 elaborator.declaration(declaration)

@@ -1083,7 +1083,8 @@ class _DeclarationsMixin:
             raise self.fail("unsupported", f"import '{imp_name}' requires the full frontend", node)
         self.imported_modules.add(imp_name)
         mod = self.available_modules[imp_name]
-        self.serial = max(self.serial, mod.serial)
+        if self.package_instance is None:
+            self.serial = max(self.serial, mod.serial)
         self.interfaces_by_identity.update(mod.interfaces_by_identity)
         self.nominal_owners.update(mod.nominal_owners)
         self.types.update(mod.types)
