@@ -948,6 +948,11 @@ const connLabel = elementsById.get("connection-label").textContent;
 if (connLabel !== "In-browser engine ready") {
   throw new Error(`Expected connection-label 'In-browser engine ready', got '${connLabel}'`);
 }
+if (elementsById.get("compile-summary").textContent.includes("Connection changed")
+    || elementsById.get("authoring-summary").textContent.includes("Connection changed")
+    || elementsById.get("console-result").children[0]?.children.some((child) => child.textContent.includes("Connection changed"))) {
+  throw new Error("First connection showed a reconnect notice in an output panel");
+}
 if (elementsById.get("editor-notice").hidden !== true || elementsById.get("editor").hidden !== false) {
   throw new Error("Expected Monaco editor to finish loading and hide #editor-notice");
 }
@@ -974,7 +979,20 @@ await elementsById.get("compile-button").dispatchEvent("click");
 if (!elementsById.get("gallina-output").textContent.includes("Module Vela_Playground.")) {
   throw new Error(`UI compile failed: ${elementsById.get("gallina-output").textContent}`);
 }
+await elementsById.get("check-authoring").dispatchEvent("click");
+if (!elementsById.get("binding-preview").textContent.includes("module Playground;")) {
+  throw new Error("Style check did not produce a preview of the current source");
+}
 await expectConsoleValue(indexedSquare, "49");
+
+await elementsById.get("reconnect-button").dispatchEvent("click");
+if (!elementsById.get("download-output").disabled || elementsById.get("console-result").children[0].className !== "empty-console") {
+  throw new Error("Reconnecting retained a result from the previous connection");
+}
+
+if (elementsById.get("binding-preview").textContent !== "No current preview.") {
+  throw new Error("Reconnecting retained an authoring preview from the previous connection");
+}
 
 const invalid = "module Invalid; public Nat Wrong() => true;";
 const refusal = await mod.browserApi("/api/compile", { source: invalid });

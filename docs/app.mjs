@@ -6988,12 +6988,14 @@ function initPlaygroundUi() {
     const generation = ++state.generation;
     state.connected = false;
     clearTimeout(state.checkTimer);
-    invalidateServices();
-    clearCompilation("Connection changed. Compile again for current output.");
-    clearEvaluation("Connection changed. Evaluate again for a current result.");
-    clearDiagnostics("Checking the current buffer\u2026");
-    clearAuthoring("Connection changed. Check style again for the current buffer.");
-    clearInspection("Connecting to the language server\u2026");
+    if (generation > 1) {
+      invalidateServices();
+      clearCompilation("Connection changed. Compile again for current output.");
+      clearEvaluation("Connection changed. Evaluate again for a current result.");
+      clearDiagnostics("Checking the current buffer\u2026");
+      clearAuthoring("Connection changed. Check style again for the current buffer.");
+      clearInspection("Connecting to the language server\u2026");
+    }
     state.session = null;
     state.opened = false;
     state.syncedVersion = 0;
