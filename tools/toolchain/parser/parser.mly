@@ -93,7 +93,7 @@ let build_pattern first last target values =
 %token <string * string> NUMBER
 %token <string> LIFETIME STRING CHARACTER HOLE ANNOTATION_NAME
 %token <string * Ast.node list> INTERPOLATED_STRING
-%start <Ast.node> format_expression
+%start <Ast.node * int * bool> format_expression
 %start <Ast.node> file
 %start <Ast.node> surface_file
 %start <unit> generic_call_prefix
@@ -102,7 +102,8 @@ let build_pattern first last target values =
 
 /* Internal token-only prefix probe; the public entries still own complete files. */
 format_expression:
-  value=s_expression EOF { value }
+  value=s_expression RBRACE { value, $endpos.Lexing.pos_cnum, false }
+| value=s_expression COLON { value, $endpos.Lexing.pos_cnum, true }
 
 generic_call_prefix:
   comma_nonempty_list(s_type_argument) GT s_open_paren { () }

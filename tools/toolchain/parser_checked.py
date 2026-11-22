@@ -1126,7 +1126,7 @@ type token =
 
 exception Error
 let generic_call_prefix _ _ : unit = raise Error
-let format_expression _ _ : Ast.node = raise Error
+let format_expression _ _ : Ast.node * int * bool = raise Error
 """
     return VELA_PURE_GRAMMAR_MLY, token_stub
 

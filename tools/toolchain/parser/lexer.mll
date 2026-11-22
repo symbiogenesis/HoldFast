@@ -491,84 +491,34 @@ let interpolated_string next state lexbuf =
   let source = lexbuf.Lexing.lex_buffer in
   let length = lexbuf.Lexing.lex_buffer_len in
   let at index = Bytes.get source index in
-  let rec skip_inner_quoted quote index =
-    if index >= length || is_newline (at index) then
-      raise (Ast.Refusal ("syntax", start, "unterminated literal in interpolation hole"))
-    else if at index = '\\' then
-      match valid_escape source length (index + 1) with
-      | Some next -> skip_inner_quoted quote next
-      | None -> raise (Ast.Refusal ("syntax", start, "invalid escape in interpolation hole"))
-    else if at index = quote then index + 1
-    else skip_inner_quoted quote (index + 1)
+  let rec line_end index =
+    if index >= length || is_newline (at index) then index else line_end (index + 1)
   in
+  let limit = line_end after_open in
   let holes = ref [] in
-  let expression_start = ref after_open in
-  let format_start = ref None in
-  let parse_expression last =
-    let first = !expression_start in
+  let rec scan_spec first index =
+    if index >= limit then raise (Ast.Refusal ("syntax", first, "unterminated interpolation format specifier"));
+    match at index with
+    | '}' when index > first -> index + 1
+    | '}' -> raise (Ast.Refusal ("syntax", first, "empty interpolation format specifier"))
+    | ' ' | '\t' | '"' | '\'' | '(' | ')' | '[' | ']' | '{' | ':' ->
+        raise (Ast.Refusal ("syntax", index, "invalid interpolation format specifier"))
+    | _ -> scan_spec first (index + 1)
+  in
+  let parse_hole first =
     let position = { lexbuf.Lexing.lex_curr_p with pos_cnum = first } in
     let input = { lexbuf with Lexing.lex_curr_pos = first; lex_start_pos = first;
-      lex_last_pos = first; lex_buffer_len = last; lex_eof_reached = true;
+      lex_last_pos = first; lex_buffer_len = limit; lex_eof_reached = true;
       lex_curr_p = position; lex_start_p = position; lex_mem = Array.copy lexbuf.Lexing.lex_mem } in
     let nested = { state with delimiters = state.delimiters + 1 } in
-    try holes := Parser.format_expression (next nested) input :: !holes
+    if nested.delimiters > Ast.max_delimiter_depth then
+      raise (Ast.Refusal ("limit", first, "delimiter nesting exceeds 256"));
+    try
+      let expression, after, has_spec = Parser.format_expression (next nested) input in
+      holes := expression :: !holes;
+      if has_spec then scan_spec after after else after
     with Parser.Error ->
       raise (Ast.Refusal ("syntax", Lexing.lexeme_start input, "invalid expression in interpolation hole"))
-  in
-  let rec scan_hole stack depth has_expr in_spec has_spec index =
-    if depth > Ast.max_delimiter_depth then
-      raise (Ast.Refusal ("limit", start, "delimiter nesting exceeds 256"));
-    if index >= length || is_newline (at index) then
-      raise (Ast.Refusal ("syntax", start, "unterminated interpolation hole"));
-    match at index with
-    | ' ' | '\t' ->
-        if in_spec then
-          raise (Ast.Refusal ("syntax", start, "whitespace is not permitted in an interpolation format specifier"));
-        scan_hole stack depth has_expr in_spec has_spec (index + 1)
-    | '"' ->
-        if in_spec then
-          raise (Ast.Refusal ("syntax", start, "quotes are not permitted in an interpolation format specifier"));
-        scan_hole stack depth true in_spec has_spec (skip_inner_quoted '"' (index + 1))
-    | '\'' ->
-        if in_spec then
-          raise (Ast.Refusal ("syntax", start, "quotes are not permitted in an interpolation format specifier"));
-        if index + 1 < length && (at (index + 1) = '\\' || (index + 2 < length && at (index + 2) = '\'')) then
-          scan_hole stack depth true in_spec has_spec (skip_inner_quoted '\'' (index + 1))
-        else
-          scan_hole stack depth true in_spec has_spec (index + 1)
-    | '(' when not in_spec -> scan_hole (')' :: stack) (depth + 1) true in_spec has_spec (index + 1)
-    | '[' when not in_spec -> scan_hole (']' :: stack) (depth + 1) true in_spec has_spec (index + 1)
-    | '{' when not in_spec -> scan_hole ('}' :: stack) (depth + 1) true in_spec has_spec (index + 1)
-    | (')' | ']') as closing when not in_spec ->
-        (match stack with
-         | expected :: rest when expected = closing ->
-             scan_hole rest (depth - 1) has_expr in_spec has_spec (index + 1)
-         | _ -> raise (Ast.Refusal ("syntax", start, "mismatched delimiter in interpolation hole")))
-    | '}' ->
-        (match stack with
-         | '}' :: rest -> scan_hole rest (depth - 1) has_expr in_spec has_spec (index + 1)
-         | _ :: _ -> raise (Ast.Refusal ("syntax", start, "mismatched delimiter in interpolation hole"))
-         | [] ->
-             if not has_expr then
-               raise (Ast.Refusal ("syntax", start, "empty interpolation hole"));
-             if in_spec && not has_spec then
-               raise (Ast.Refusal ("syntax", start, "empty interpolation format specifier"));
-             parse_expression (Option.value !format_start ~default:index);
-             index + 1)
-    | ':' when stack = [] && not in_spec ->
-        if index + 1 < length && at (index + 1) = ':' then
-          scan_hole stack depth has_expr false false (index + 2)
-        else if not has_expr then
-          raise (Ast.Refusal ("syntax", start, "empty interpolation hole"))
-        else
-          (format_start := Some index; scan_hole stack depth has_expr true false (index + 1))
-    | ':' when in_spec ->
-        raise (Ast.Refusal ("syntax", start, "multiple colons in interpolation format specifier"))
-    | ('(' | ')' | '[' | ']' | '{') when in_spec ->
-        raise (Ast.Refusal ("syntax", start, "delimiters are not permitted in an interpolation format specifier"))
-    | _ ->
-        if in_spec then scan_hole stack depth has_expr true true (index + 1)
-        else scan_hole stack depth true false false (index + 1)
   in
   let rec scan index =
     if index >= length || is_newline (at index) then
@@ -581,8 +531,7 @@ let interpolated_string next state lexbuf =
          | None -> raise (Ast.Refusal ("syntax", start, "invalid escape in interpolated format string")))
     | '{' ->
         if index + 1 < length && at (index + 1) = '{' then scan (index + 2)
-        else (expression_start := index + 1; format_start := None;
-              scan (scan_hole [] (state.delimiters + 1) false false false (index + 1)))
+        else scan (parse_hole (index + 1))
     | '}' ->
         if index + 1 < length && at (index + 1) = '}' then scan (index + 2)
         else raise (Ast.Refusal ("syntax", start, "unescaped closing brace in interpolated format string"))

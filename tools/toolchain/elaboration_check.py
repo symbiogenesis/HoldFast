@@ -345,7 +345,7 @@ public const Nat HeaderBytes = ByteLength(HeaderTag());
 public definition Nat Count(Nat internalCount as count) => internalCount;
 public lemma NamedCount() ensures Count(count: 3) == 3 proof { assert Count(count: 3) == 3; }
 public definition TextBuilder<5> FormatComparison() =>
-    Format.Write(ref EmptyBuilder<5>(), $"{1u8 & 1u8 == 0u8}");
+    Format.Write(ref EmptyBuilder<5>(), $"{1u8 /* } : */ & 1u8 == 0u8}");
 public lemma ComparisonWritesFalse() ensures Written(FormatComparison()) == 5
     proof { assert Written(FormatComparison()) == 5; }
 public TextBuilder<36> FormatPacket(Nat id, bool ok) {
