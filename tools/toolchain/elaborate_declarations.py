@@ -693,6 +693,8 @@ class _DeclarationsMixin:
         m_binding = _Binding(_constant(m_emitted), m_sig, len(generics) + len(m_generics))
         self.constants[m_emitted] = m_binding
         self.definitions[m_emitted] = m_def
+        if m_kind == "function":
+            self.sealed_bodies.add(m_emitted)
         self.callable_source_names[m_emitted] = f"{name}.{method_name}"
         if effects_clauses:
             self.callable_has_effects.add(m_emitted)
@@ -1041,7 +1043,15 @@ class _DeclarationsMixin:
         self.out_parameters.update(mod.out_parameters)
         self.owned_parameters.update(mod.owned_parameters)
         self.constants.update(mod.constants)
-        self.definitions.update(mod.definitions)
+        self.sealed_bodies.update(mod.sealed_bodies)
+        self.sealed_updates.update(mod.sealed_updates)
+        self.imported_postconditions.update(mod.imported_postconditions)
+        for name in mod.sealed_bodies:
+            prefix = f"{name}_ensures_"
+            contracts = tuple(key for key in mod.constants if key.startswith(prefix) and key[len(prefix):].isdecimal())
+            if contracts:
+                self.imported_postconditions[name] = contracts
+        self.definitions.update({key: value for key, value in mod.definitions.items() if key not in mod.sealed_bodies})
         self.specification_values.update(mod.specification_values)
         self.records_by_type.update(mod.records_by_type)
         self.records_by_ctor.update(mod.records_by_ctor)
@@ -1050,7 +1060,9 @@ class _DeclarationsMixin:
         self.unions_by_ctor.update(mod.unions_by_ctor)
         self.callable_preconditions.update(mod.callable_preconditions)
         self.callable_ensures.update(mod.callable_ensures)
-        self.callable_ref_updates.update(mod.callable_ref_updates)
+        self.callable_ref_updates.update({key: value for key, value in mod.callable_ref_updates.items()
+                                          if key not in mod.sealed_bodies})
+        self.callable_ref_updates.update(mod.sealed_updates)
         self.callable_where_constraints.update(mod.callable_where_constraints)
         self.callable_source_names.update(mod.callable_source_names)
         self.callable_has_effects.update(mod.callable_has_effects)
@@ -1066,6 +1078,11 @@ class _DeclarationsMixin:
             if line not in existing_out:
                 self.output.append(line)
                 existing_out.add(line)
+        # The supplier's proofs can unfold its own definitions until this import boundary.
+        for name in sorted(mod.sealed_bodies):
+            directive = f"Opaque {name}."
+            if directive not in existing_out:
+                self.output.append(directive)
         for priv_sym in mod.private_symbols:
             self.inaccessible_private_symbols[f"{namespace}.{priv_sym}"] = imp_name
             if not qualified_only and "items" not in node and priv_sym not in self.globals:
@@ -1840,6 +1857,8 @@ class _DeclarationsMixin:
                 )
                 self.constants[m_emitted] = m_binding
                 self.definitions[m_emitted] = m_def
+                if mkind == "function":
+                    self.sealed_bodies.add(m_emitted)
                 emitted_methods[mname] = m_binding
 
                 if ref_param_names:
@@ -3156,6 +3175,9 @@ class _DeclarationsMixin:
             # Generated references never become names in the source namespace.
             self.constants[emitted] = binding
             self.definitions[emitted] = definition
+            sealed = kind == "function" and "const" not in modifiers
+            if sealed:
+                self.sealed_bodies.add(emitted)
             for post_idx, (post_prop, post_proof, post_contract) in enumerate(post_env_obligations[1:], start=1):
                 self._emit_obligation(
                     f"{emitted}_ensures_{post_idx}",
@@ -3184,6 +3206,7 @@ class _DeclarationsMixin:
                             fin_t = self.final_ref_bindings[pname].term
                             if self.free(fin_t) <= all_var_ids:
                                 idx_to_term[p_idx] = fin_t
+                exported_updates: dict[int, _Term] = {}
                 for p_idx, fin_t in list(idx_to_term.items()):
                     pname = self.name(parameters[p_idx]["name"])
                     post_name = f"{emitted}_post_{pname}"
@@ -3198,12 +3221,18 @@ class _DeclarationsMixin:
                     self.definitions[post_name] = post_def
                     post_call = _apps(_constant(post_name), *variables)
                     post_state_images.append((fin_t, post_call))
+                    if sealed:
+                        self.sealed_bodies.add(post_name)
+                        if not witness_vars:
+                            exported_updates[p_idx] = post_call
                     if (
                         not witness_vars
                         and pname not in self.out_param_names
                         and self.whnf(post_type) == _app(_constant("Span"), _U8)
                     ):
                         idx_to_term[p_idx] = post_call
+                if sealed:
+                    self.sealed_updates[emitted] = (base_param_ids, exported_updates)
                 if idx_to_term:
                     self.callable_ref_updates[emitted] = (base_param_ids, idx_to_term)
             if kind in {"theorem", "lemma"} and len(ensures_clauses) > 1 and not is_post_env_theorem:

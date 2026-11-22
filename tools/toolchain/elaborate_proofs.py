@@ -841,6 +841,41 @@ class _ProofsMixin:
                 return acc_p
         return None
 
+    def _imported_postcondition(self: _Elaborator, goal: _Term, facts: tuple[_Binding, ...]) -> _Term | None:
+        """Use a supplier's exported theorem at the call appearing in the client's goal."""
+        pending = [goal]
+        seen: set[_Term] = set()
+        while pending:
+            expr = pending.pop()
+            if expr in seen:
+                continue
+            self.tick()
+            seen.add(expr)
+            head, args = self.spine(expr)
+            if head.kind == "const" and isinstance(head.value, str):
+                for name in self.imported_postconditions.get(head.value, ()):
+                    signature = self.constants[name].type
+                    proof = _constant(name)
+                    for arg in args:
+                        if signature.kind != "pi":
+                            break
+                        proof = _app(proof, arg)
+                        signature = self.substitute(signature.args[1], cast("int", signature.value), arg)
+                    while signature.kind == "pi" and self._is_prop_type(signature.args[0]):
+                        premise = signature.args[0]
+                        witness = next((f.term for f in facts if self.convertible(f.type, premise)), None)
+                        if witness is None:
+                            equality = self._extract_equality(premise)
+                            if equality is None or not self.convertible(equality[1], equality[2]):
+                                break
+                            witness = _apps(_constant("Refl"), equality[0], equality[1])
+                        proof = _app(proof, witness)
+                        signature = self.substitute(signature.args[1], cast("int", signature.value), witness)
+                    if self.convertible(signature, goal):
+                        return proof
+            pending.extend(args if expr.kind == "app" else expr.args)
+        return None
+
     def _prove_proposition(
         self: _Elaborator,
         goal: _Term,
@@ -868,6 +903,10 @@ class _ProofsMixin:
         for fact in reversed(all_facts):
             if fact.type == goal:
                 return fact.term
+        if self.imported_postconditions:
+            postcondition = self._imported_postcondition(goal, all_facts)
+            if postcondition is not None:
+                return postcondition
         if allow_refl:
             for fact in reversed(all_facts):
                 ext_f = self._extract_equality(fact.type)

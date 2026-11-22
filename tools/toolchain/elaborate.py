@@ -170,6 +170,9 @@ class _Elaborator(
         self.module_name: str = ""
         self.emission_prefix = "vela"
         self.public_symbols: set[str] = set()
+        self.sealed_bodies: set[str] = set()
+        self.imported_postconditions: dict[str, tuple[str, ...]] = {}
+        self.sealed_updates: dict[str, tuple[tuple[int, ...], dict[int, _Term]]] = {}
         self.private_symbols: set[str] = set()
         self.available_modules: dict[str, _Elaborator] = {}
         self.imported_modules: set[str] = set()

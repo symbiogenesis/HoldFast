@@ -30,6 +30,12 @@ compares two revisions of the same named module. Supply additional
 import the module under review. A successful replay records the SHA-256 of
 both revisions and every fixed source. An elaboration failure identifies the
 baseline or candidate, the affected module, and the source position.
+Imported executable function bodies and their post-state computations are opaque
+to clients. A public mathematical `definition` exports its defining equation;
+a `const` function also commits to its static computation. A client may rely
+on those computations or an exported proof without acquiring a dependency on
+the private body of an ordinary function.
+
 The result covers the supplied clients in this mathematical fragment. The
 [release contract](../language/first-release.md#public-api-evolution) also
 accounts for separately compiled consumers, ABI, and replayed kernel evidence.
