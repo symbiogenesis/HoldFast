@@ -6505,6 +6505,19 @@ def _call_modes_and_field_writeback() -> None:
 
 
 def _owned_aggregate_copy() -> None:
+    generic = (("type", "T", None),)
+    abstract = _type("T")
+    duplicate = _Fixture("GenericDuplicate")
+    duplicate.record("Both", (("First", abstract), ("Second", abstract)), generics=generic)
+    duplicate.function("Dup", _type("Both", abstract), (("x", _modified("owned", abstract)),),
+                       _call("Both", _variable("x"), _variable("x"), generics=(abstract,)), generics=generic)
+    _refuses(duplicate, "type", "owned fields")
+
+    transfer = _Fixture("GenericTransfer")
+    transfer.function("Relay", abstract, (("x", _modified("owned", abstract)),),
+                      _move_arg(_variable("x")), generics=generic)
+    elaborate(*transfer.response())
+
     for moved in (False, True):
         f = _Fixture("OwnedAggregate")
         f.record("Asset", (("Id", _modified("owned", _type("u32"))),))

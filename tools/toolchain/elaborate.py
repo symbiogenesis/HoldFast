@@ -1182,7 +1182,8 @@ class _Elaborator(
             return any(self._owns_fields(t) for t in value_type.args)
         head, args = self.spine(value_type)
         if head.kind != "const":
-            return False
+            # An abstract type can be instantiated with an affine aggregate.
+            return head.kind in {"var", "meta"}
         name = str(head.value)
         record = self.records_by_type.get(name)
         union = self.unions_by_type.get(name)

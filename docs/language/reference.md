@@ -315,7 +315,7 @@ public Nat CountTo(Nat limit)
 
 | Construct | Meaning | Status |
 | --- | --- | --- |
-| Value parameter `T x` | Passes a value; copying only where the value's resource rules permit | P |
+| Value parameter `T x` | Passes a value where its resource rules permit copying. An unconstrained type parameter may contain owned fields. Use `owned T` and an explicit `move` for a generic transfer. | P |
 | `owned T x` / `move x` | Consuming transfer; the moved-from binding is unusable | M |
 | `in T x` / `in place` | Shared-read loan | M |
 | `ref T x` / `ref place` | Initialized exclusive loan | M |
