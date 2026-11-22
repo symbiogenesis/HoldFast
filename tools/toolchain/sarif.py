@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Bounded SARIF projection of the existing pure diagnostic and format producers."""
 
+import codecs
 import copy
 import hashlib
 import json
@@ -167,17 +168,28 @@ def check_schema_current(schema_path: Path) -> None:
     _schema_bytes(schema_path)
 
 
-def validate_schema(document: object, schema_path: Path) -> None:
-    """Validate the exact external OASIS schema offline without incorporating its source."""
+def schema_validator(schema_path: Path) -> Callable[[object], None]:
+    """Load the offline schema and SARIF coordinate codec before sampling the producer."""
     from jsonschema import Draft4Validator  # noqa: PLC0415
     from referencing import Registry  # noqa: PLC0415
 
+    codecs.lookup("utf-16-le")
     raw = _schema_bytes(schema_path)
     schema = decode_message(raw)
     Draft4Validator.check_schema(schema)
-    errors = list(islice(Draft4Validator(schema, registry=Registry()).iter_errors(document), 8))
-    if errors:
-        raise ValueError("SARIF schema: " + "; ".join(error.message for error in errors[:8]))
+    validator = Draft4Validator(schema, registry=Registry())
+
+    def check(document: object) -> None:
+        errors = list(islice(validator.iter_errors(document), 8))
+        if errors:
+            raise ValueError("SARIF schema: " + "; ".join(error.message for error in errors[:8]))
+
+    return check
+
+
+def validate_schema(document: object, schema_path: Path) -> None:
+    """Check one document against the pinned external schema."""
+    schema_validator(schema_path)(document)
 
 
 def validate(document: Object, inputs: tuple[Input, ...], producer: str,

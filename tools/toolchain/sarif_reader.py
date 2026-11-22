@@ -134,9 +134,11 @@ def qualify(directory: Path, schema: Path) -> sarif.Object:
     """Run real producers and independently expected records, coordinates and fix application."""
     reader = reader_identity(directory)
     harness = harness_identity()
+    check_document = sarif.schema_validator(schema)
     producer = compiler_trace.producer_identity()
     document = sarif.export((FIRST, SECOND), producer, format_fixes=True)
-    sarif.validate(document, (FIRST, SECOND), producer, schema_path=schema)
+    check_document(document)
+    sarif.validate(document, (FIRST, SECOND), producer)
     observed = _read(directory, document)
     records = cast("list[sarif.Object]", observed["records"])
     projection = [[record["Code"], record["Severity"], record["Location"], record["Line"]]

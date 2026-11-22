@@ -291,13 +291,15 @@ def _sarif(args: argparse.Namespace) -> int:
     try:
         sources = _sarif_sources(args.sources)
         inputs = tuple(sarif.Input(source.path.resolve().as_uri(), source.data) for source in sources)
+        check_document = sarif.schema_validator(args.schema)
         producer = compiler_trace.producer_identity()
         if args.command == "sarif-validate":
             with args.report.open("rb") as stream:
                 document = sarif.decode(stream.read(sarif.MAX_REPORT_BYTES + 1))
         else:
             document = sarif.export(inputs, producer, format_fixes=args.format_fixes)
-        manifest = sarif.validate(document, inputs, producer, schema_path=args.schema)
+        check_document(document)
+        manifest = sarif.validate(document, inputs, producer)
         for source in sources:
             _unchanged(source)
         _producer_unchanged(producer, "during SARIF analysis")
