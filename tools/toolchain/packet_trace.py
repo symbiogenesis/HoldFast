@@ -31,7 +31,7 @@ def digest(value: object) -> str:
 def subjects(receipt: Object) -> str:
     """Bind this development recording to the qualification's source, outputs and producers."""
     return digest({key: receipt[key] for key in (
-        "producer_revision", "inputs", "parser_outputs", "parser", "execution_inputs", "runtime",
+        "producer_revision", "inputs", "parser_outputs", "parser", "execution_inputs", "runtime", "trace_runtime_sha256",
         "toolchain", "source_sha256", "gallina_sha256", "lowered_c_sha256")})
 
 
@@ -115,7 +115,7 @@ def validate(document: Object, binding: str, source_size: int, pids: dict[str, i
     previous = 0
     for name, event in zip(PHASES, events, strict=True):
         if not isinstance(event, dict):
-            raise ValueError("invalid packet trace event")
+            raise TypeError("invalid packet trace event")
         start, duration = event.get("ts"), event.get("dur", 0)
         if (type(start) is not int or type(duration) is not int or not previous <= start <= MAX_TIME
                 or not 0 <= duration <= MAX_TIME - start):

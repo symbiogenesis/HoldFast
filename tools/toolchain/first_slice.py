@@ -52,6 +52,7 @@ from toolchain import (
     env,
     gallina_module_name,
     image,
+    packet_runtime,
     packet_trace,
     proofenv,
     solver_ledger,
@@ -2263,62 +2264,68 @@ def _qualify_attempt(
     source_path = root / EXAMPLE
     source = vela_parser.read_source(source_path)
     phase = nullcontext if timing is None else timing.span
-    if timing is not None:
-        timing.source_size(len(source))
-    with phase("parse"):
-        parsed = vela_parser.parse_source(compiled, source, surface=True)
+    with phase("packet"):
+        if timing is not None:
+            timing.source_size(len(source))
+        with phase("parse"):
+            parsed = vela_parser.parse_source(compiled, source, surface=True)
 
-    # 1. Elaborate first_slice.vela and verify determinism + exported obligations
-    translated = vela_elaborate._checked_elaboration(source, parsed, phase=phase)[0]
-    repeated = vela_elaborate.elaborate(source, parsed)
-    if translated != repeated:
-        raise ValueError("first_slice.vela elaboration is nondeterministic")
+        # 1. Elaborate first_slice.vela and verify determinism + exported obligations
+        translated = vela_elaborate._checked_elaboration(source, parsed, phase=phase)[0]
+        repeated = vela_elaborate.elaborate(source, parsed)
+        if translated != repeated:
+            raise ValueError("first_slice.vela elaboration is nondeterministic")
 
-    exports = re.findall(
-        r"^Definition (vela_d[0-9]+_[A-Za-z_][A-Za-z0-9_]*)\s*(?:\(|:)",
-        translated.gallina,
-        flags=re.MULTILINE,
-    )
-    for required_suffix in (*EXPECTED_LAWS, *EXPECTED_CONTRACT_OBLIGATIONS, *EXPECTED_SCENARIO_THEOREMS):
-        if not any(exp.endswith(f"_{required_suffix}") for exp in exports):
-            raise ValueError(f"emitted Gallina is missing required obligation '{required_suffix}'")
+        exports = re.findall(
+            r"^Definition (vela_d[0-9]+_[A-Za-z_][A-Za-z0-9_]*)\s*(?:\(|:)",
+            translated.gallina,
+            flags=re.MULTILINE,
+        )
+        for required_suffix in (*EXPECTED_LAWS, *EXPECTED_CONTRACT_OBLIGATIONS, *EXPECTED_SCENARIO_THEOREMS):
+            if not any(exp.endswith(f"_{required_suffix}") for exp in exports):
+                raise ValueError(f"emitted Gallina is missing required obligation '{required_suffix}'")
 
-    gallina_path = directory / "FirstSlice.v"
-    gallina_path.write_text(translated.gallina, encoding="utf-8", newline="")
-    _run(
-        _opam(["rocq", "c", "-q", "-R", str(directory), "VelaFirstSlice", gallina_path.name]),
-        directory,
-        directory / "FirstSlice.compile.log",
-        steps,
-        timing=timing,
-    )
+        gallina_path = directory / "FirstSlice.v"
+        gallina_path.write_text(translated.gallina, encoding="utf-8", newline="")
+        _run(
+            _opam(["rocq", "c", "-q", "-R", str(directory), "VelaFirstSlice", gallina_path.name]),
+            directory,
+            directory / "FirstSlice.compile.log",
+            steps,
+            timing=timing,
+        )
 
-    module = gallina_module_name(translated.module)
-    audited = [f"{module}.{name}" for name in exports]
-    assumptions_path = directory / "FirstSliceAssumptions.v"
-    assumptions_path.write_text(
-        "From VelaFirstSlice Require Import FirstSlice.\n"
-        + "".join(f"Print Assumptions FirstSlice.{name}.\n" for name in audited),
-        encoding="utf-8",
-        newline="",
-    )
-    assumptions_out = _run(
-        _opam(["rocq", "c", "-q", "-R", str(directory), "VelaFirstSlice", assumptions_path.name]),
-        directory,
-        directory / "FirstSlice.assumptions.log",
-        steps,
-        timing=timing,
-    )
-    trusted = solver_ledger.ledger(translated.gallina)
-    reported_trust = solver_ledger.audit(assumptions_out, len(audited), module, trusted)
+        module = gallina_module_name(translated.module)
+        audited = [f"{module}.{name}" for name in exports]
+        assumptions_path = directory / "FirstSliceAssumptions.v"
+        assumptions_path.write_text(
+            "From VelaFirstSlice Require Import FirstSlice.\n"
+            + "".join(f"Print Assumptions FirstSlice.{name}.\n" for name in audited),
+            encoding="utf-8",
+            newline="",
+        )
+        assumptions_out = _run(
+            _opam(["rocq", "c", "-q", "-R", str(directory), "VelaFirstSlice", assumptions_path.name]),
+            directory,
+            directory / "FirstSlice.assumptions.log",
+            steps,
+            timing=timing,
+        )
+        trusted = solver_ledger.ledger(translated.gallina)
+        reported_trust = solver_ledger.audit(assumptions_out, len(audited), module, trusted)
 
-    _run(
-        _opam(["rocqchk", "-R", str(directory), "VelaFirstSlice", "VelaFirstSlice.FirstSlice"]),
-        directory,
-        directory / "FirstSlice.kernel.log",
-        steps,
-        timing=timing,
-    )
+        _run(
+            _opam(["rocqchk", "-R", str(directory), "VelaFirstSlice", "VelaFirstSlice.FirstSlice"]),
+            directory,
+            directory / "FirstSlice.kernel.log",
+            steps,
+            timing=timing,
+        )
+
+        # Finish the compiler recording as soon as the C translation is available.
+        operations: list[dict[str, object]] = []
+        with phase("lower-to-c"):
+            c_source, check_count = lower_to_c(source, parsed, checked=translated, observations=operations)
 
     # 2. Fail-closed proof-corruption control on FirstSlice.v
     corrupted_v = directory / "FirstSliceCorrupted.v"
@@ -2348,10 +2355,6 @@ def _qualify_attempt(
     # 4. Semantic negative controls
     neg_controls = _run_negative_controls(compiled, directory)
 
-    # 5. Lower executable AST to Clight/C and execute on CompCert + Sail emulator
-    operations: list[dict[str, object]] = []
-    with phase("lower-to-c"):
-        c_source, check_count = lower_to_c(source, parsed, checked=translated, observations=operations)
     c_path = directory / "first_slice.c"
     c_path.write_text(c_source, encoding="utf-8", newline="\n")
 
@@ -2531,9 +2534,14 @@ def qualify(root: Path, *, ccomp_path: Path | None = None, trace_phases: bool = 
                             "execution_inputs": execution, "parser": parser_receipt,
                             "parser_outputs": outputs})
             _write(directory / "attempt.json", attempt)
-            with timing.span("packet") if timing is not None else nullcontext():
-                attempt.update(_qualify_attempt(root, directory, steps, ccomp_path, compiled, timing))
             if timing is not None:
+                prover_files = cast("dict[str, str]", runtime["files_sha256"])
+                attempt["trace_runtime_sha256"] = packet_runtime.identity(compiled.executable, prover_files, directory)
+            attempt.update(_qualify_attempt(root, directory, steps, ccomp_path, compiled, timing))
+            if timing is not None:
+                _require(packet_runtime.identity(compiled.executable, cast("dict[str, str]", runtime["files_sha256"]),
+                                                 directory) == attempt["trace_runtime_sha256"],
+                         "packet compiler runtime changed during measurement")
                 timeline = timing.export(packet_trace.subjects(attempt), "passed")
                 _check_trace(root, attempt, timeline, steps)
                 _write(directory / packet_trace.FILENAME, timeline)
@@ -2650,9 +2658,14 @@ def verify_bindings(root: Path, receipt_path: Path) -> dict[str, object]:
     _retained_execution(receipt, output_directory, artifacts)
     with tempfile.TemporaryDirectory(prefix="bindings-", dir=_work_root(root)) as temporary:
         steps: list[dict[str, object]] = []
+        runtime = replay._runtime(Path(temporary), steps)
         if (replay._toolchain(root, Path(temporary), steps) != receipt.get("toolchain")
-                or replay._runtime(Path(temporary), steps) != receipt.get("runtime")):
+                or runtime != receipt.get("runtime")):
             raise ValueError("first-slice receipt prover or runtime changed")
+        if "compiler_trace" in receipt and packet_runtime.identity(
+                compiled.executable, cast("dict[str, str]", runtime["files_sha256"]),
+                output_directory) != receipt.get("trace_runtime_sha256"):
+            raise ValueError("packet compiler trace runtime changed")
     if (receipt.get("inputs") != _inputs(root) or receipt.get("producer_revision") != _revision(root)
             or _execution_inputs(compiler) != execution
             or parser_receipt.get("inputs") != vela_parser._inputs(root)
