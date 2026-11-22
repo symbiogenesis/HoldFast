@@ -152,6 +152,10 @@ class Workspace:
                 modules[module] = (row["instance"], _object(row["files"])[str(rel)])
         if receipts.keys() != modules.keys() or outputs.keys() != modules.keys():
             raise ValueError("incomplete batch module inventory")
+        order = batch.get("build_order")
+        if (not isinstance(order, list) or len(order) != len(modules)
+                or not all(isinstance(name, str) for name in order) or set(order) != modules.keys()):
+            raise ValueError("incomplete batch module order")
         digests = {}
         for module, (instance, source_hash) in modules.items():
             gallina = outputs[module]

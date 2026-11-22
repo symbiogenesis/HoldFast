@@ -2,10 +2,15 @@
 """Parse Vela, elaborate mathematical terms, or qualify development tooling."""
 
 import argparse
+import contextlib
+import hashlib
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Generator
+from itertools import pairwise
 from pathlib import Path
 
 from filelock import Timeout
@@ -58,7 +63,38 @@ def _packet_bytes(argument: str) -> bytes:
     return packet
 
 
-def _packet_example(root: Path, source_path: Path, packet: bytes) -> str:
+def _compile_bridge(directory: Path, compiler: str, options: list[str],
+                    source: Path, executable: Path, *, export: bool) -> None:
+    arguments = [compiler, *options, str(source), "-o", str(executable)]
+    build = subprocess.run(arguments, cwd=directory, capture_output=True, text=True, check=False, timeout=30)
+    if build.returncode:
+        raise RuntimeError(f"packet example C build failed: {build.stderr.strip()}")
+    if export:
+        row = {"directory": str(directory), "arguments": arguments, "file": str(source), "output": str(executable)}
+        with atomic_path(directory / "compile_commands.json") as pending:
+            pending.write_text(json.dumps([row], indent=2) + "\n", encoding="utf-8")
+
+
+@contextlib.contextmanager
+def _packet_directory(destination: Path | None) -> Generator[Path]:
+    if destination is None:
+        with tempfile.TemporaryDirectory() as tmp:
+            yield Path(tmp).resolve()
+        return
+    destination.mkdir(mode=0o700)
+    directory = destination.resolve()
+    try:
+        yield directory
+    except BaseException:
+        for name in ("compile_commands.json", "packet-example", "packet.c"):
+            with contextlib.suppress(OSError):
+                (directory / name).unlink(missing_ok=True)
+        with contextlib.suppress(OSError):
+            directory.rmdir()
+        raise
+
+
+def _packet_example(root: Path, source_path: Path, packet: bytes, *, bridge_dir: Path | None = None) -> str:
     source = vela_parser.read_source(source_path)
     with vela_parser.cached_build(root) as compiled:
         parsed = vela_parser.parse_source(compiled, source, surface=True)
@@ -68,15 +104,15 @@ def _packet_example(root: Path, source_path: Path, packet: bytes) -> str:
         first = obligations[0]
         raise VelaError("proof", first.line, first.column, f"unproved packet contract: {first.export}")
     generated, _ = vela_first_slice.lower_to_c(source, parsed, checked=checked)
-    with tempfile.TemporaryDirectory() as tmp:
-        directory = Path(tmp)
+    compiler = shutil.which("cc")
+    if compiler is None:
+        raise RuntimeError("packet example requires the C11 compiler cc")
+    with _packet_directory(bridge_dir) as directory:
         (directory / "packet.c").write_text(generated, encoding="utf-8")
         driver = root / "tools/toolchain/packet_example.c"
         executable = directory / "packet-example"
-        build = subprocess.run(["cc", "-std=c11", "-I", tmp, str(driver), "-o", str(executable)],
-                               capture_output=True, text=True, check=False, timeout=30)
-        if build.returncode:
-            raise RuntimeError(f"packet example C build failed: {build.stderr.strip()}")
+        _compile_bridge(directory, compiler, ["-std=c11", "-I", str(directory)], driver, executable,
+                        export=bridge_dir is not None)
         run = subprocess.run([str(executable)], input=packet, capture_output=True, check=False, timeout=5)
         if run.returncode:
             raise RuntimeError(f"packet example exited {run.returncode}: {run.stderr.decode(errors='replace').strip()}")
@@ -89,6 +125,55 @@ def _publish(source: Path, destination: Path, gallina: str) -> None:
         raise VelaError("io", 1, 1, "output aliases the input")
     with atomic_path(destination) as pending:
         pending.write_text(gallina, encoding="utf-8", newline="")
+
+
+def _qualify_compilation_database(root: Path, scanner: Path) -> dict[str, object]:
+    scanner = scanner.resolve(strict=True)
+    reader_hash = hashlib.sha256(scanner.read_bytes()).hexdigest()
+    if reader_hash != "268678d396d51830acbe20f958005cecc9ac155de5822807e3390c0ed3cde995":
+        raise ValueError("expected the qualified Ubuntu ARM64 clang-scan-deps 21.1.8 reader")
+
+    def inspect(directory: Path, source: Path, expected_output: Path,
+                dependency: Path, flags: list[tuple[str, str]]) -> None:
+        argv = [str(scanner), "-compilation-database", str(directory / "compile_commands.json"),
+                "-format", "experimental-full", "-j", "1"]
+        result = subprocess.run(argv, capture_output=True, check=True, timeout=30)
+        if len(result.stdout) > 1024 * 1024:
+            raise ValueError("compilation database reader exceeded its output budget")
+        [unit] = json.loads(result.stdout)["translation-units"]
+        commands = unit["commands"]
+        frontend = commands[0]
+        if frontend["input-file"] != str(source) or str(dependency) not in frontend["file-deps"]:
+            raise ValueError("reader lost the translation unit or its included source")
+        arguments = frontend["command-line"]
+        pairs = set(pairwise(arguments))
+        if ("-I", str(directory)) not in pairs or any(flag not in pairs for flag in flags):
+            raise ValueError("reader lost the include, definition or target flags")
+        if f"-fdebug-compilation-dir={directory}" not in arguments or not any(
+            ("-o", str(expected_output)) in pairwise(command["command-line"]) for command in commands
+        ):
+            raise ValueError("reader lost the working directory or output association")
+
+    with tempfile.TemporaryDirectory() as temporary:
+        workspace = Path(temporary)
+        packet = workspace / "packet build with spaces"
+        output = _packet_example(root, root / vela_first_slice.EXAMPLE, bytes.fromhex("56026b011122"), bridge_dir=packet)
+        if "payload 11 22" not in output:
+            raise ValueError("compiled packet bridge returned unexpected bytes")
+        inspect(packet, root / "tools/toolchain/packet_example.c", packet / "packet-example", packet / "packet.c", [])
+        control = workspace / "target and define"
+        control.mkdir()
+        header = control / "measured.h"
+        header.write_text("#if WIDTH != 42 || !defined(__riscv)\n#error wrong configuration\n#endif\n")
+        source = workspace / "target control.c"
+        source.write_text("#include <measured.h>\nint width(void) { return WIDTH; }\n")
+        target = "riscv64-unknown-unknown-elf"
+        obj = control / "target.o"
+        _compile_bridge(control, "clang", ["--target=" + target, "-DWIDTH=42", "-I", str(control), "-c"],
+                        source, obj, export=True)
+        inspect(control, source, obj, header, [("-triple", target), ("-D", "WIDTH=42")])
+    return {"status": "qualified", "reader_sha256": reader_hash, "packet_payload": [17, 34],
+            "control_target": target, "control_define": "WIDTH=42"}
 
 
 def _lint_preview(root: Path, path: Path, line: int, column: int) -> dict[str, object]:
@@ -196,6 +281,10 @@ def main(argv: list[str] | None = None) -> int:
     packet = commands.add_parser("packet-example", help="run a packet through the validator and display the destination bytes")
     packet.add_argument("packet", type=_packet_bytes, metavar="HEX", help="up to eight hexadecimal bytes")
     packet.add_argument("--source", type=Path, default=Path(vela_first_slice.EXAMPLE), help="validator source to elaborate and run")
+    packet.add_argument("--compile-commands", type=Path, metavar="NEW_DIRECTORY",
+                        help="retain the actual C build and compilation database in a new directory")
+    database = commands.add_parser("qualify-compile-commands", help="check actual C bridge commands in pinned clang-scan-deps")
+    database.add_argument("scanner", type=Path)
     bindings = commands.add_parser(
         "first-slice-bindings", help="check retained first-slice identities without proof replay or admission",
     )
@@ -231,7 +320,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "bsp":
             return bsp.serve(root, args.workspace, args.locks, sys.stdin.buffer, sys.stdout.buffer)
         if args.command == "packet-example":
-            print(_packet_example(root, args.source, args.packet), end="")
+            print(_packet_example(root, args.source, args.packet, bridge_dir=args.compile_commands), end="")
             return 0
         if args.command == "elaborate":
             source = vela_parser.read_source(args.source)
@@ -247,6 +336,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "debug-simulator":
             output = _debug_simulator(args)
+        elif args.command == "qualify-compile-commands":
+            output = _qualify_compilation_database(root, args.scanner)
         elif args.command == "lint-preview":
             output = _lint_preview(root, args.source, args.line, args.column)
         elif args.command == "check-arithmetic":

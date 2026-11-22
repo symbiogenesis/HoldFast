@@ -2,12 +2,18 @@
 """Run the packet walkthrough's examples and check the three documented edits."""
 
 import re
+import sys
 import tempfile
 from pathlib import Path
 
 from tests.harness import TOOLS, Case, ensure
 from toolchain import VelaError
-from toolchain.cli.vela_parser import _packet_bytes, _packet_example
+from toolchain.cli.vela_parser import (
+    _compile_bridge,
+    _packet_bytes,
+    _packet_directory,
+    _packet_example,
+)
 from toolchain.first_slice import EXAMPLE
 
 
@@ -48,5 +54,26 @@ def _walkthrough_edits() -> None:
 
 
 def cases() -> list[Case]:
-    return [Case("three packet walkthrough results", _walkthrough_outputs, lane="toolchain"),
+    return [Case("failed bridge output cleans its files and can be retried", _bridge_retry),
+            Case("three packet walkthrough results", _walkthrough_outputs, lane="toolchain"),
             Case("three packet walkthrough source edits", _walkthrough_edits, lane="toolchain")]
+
+
+def _bridge_retry() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        destination = Path(temporary) / "packet build"
+        try:
+            with _packet_directory(destination) as output:
+                (output / "packet.c").write_bytes(b"failed input")
+                _compile_bridge(output, sys.executable, ["-c", "raise SystemExit(7)"],
+                                output / "packet.c", output / "packet-example", export=True)
+        except RuntimeError as error:
+            ensure("C build failed" in str(error), "lost compilation failure")
+        ensure(not destination.exists(), "partial destination survived failed build")
+        with _packet_directory(destination) as output:
+            (output / "packet.c").write_bytes(b"accepted")
+        try:
+            with _packet_directory(destination):
+                raise AssertionError("overwrote an existing build directory")
+        except FileExistsError:
+            ensure((destination / "packet.c").read_bytes() == b"accepted", "disturbed previous output")
