@@ -170,6 +170,26 @@ public definition Span<byte> BadFill() =>
         "cannot prove Span.Fill subrange (offset + count <= Span.Length) is in bounds",
     ),
     NegativeControl(
+        "overflow-slice-extent",
+        """module Vela.FirstSlice.NegSliceExtent;
+public definition Span<byte> SliceAt(Span<byte> s)
+    requires s.CanRead
+    => Span.Slice(s, usize.Max, 1usize);
+""",
+        "type",
+        "integer addition on 'usize' may overflow",
+    ),
+    NegativeControl(
+        "overflow-fill-extent",
+        """module Vela.FirstSlice.NegFillExtent;
+public definition Span<byte> FillAt(Span<byte> s)
+    requires s.CanWrite
+    => Span.Fill(s, 1usize, usize.Max, 0u8);
+""",
+        "type",
+        "integer addition on 'usize' may overflow",
+    ),
+    NegativeControl(
         "mutate-in-borrow",
         """module Vela.FirstSlice.NegMutateInBorrow;
 public definition Span<byte> BadBorrowWrite(in Span<byte> pkt)
@@ -235,11 +255,11 @@ public definition Span<byte> BadOverlapCopy() =>
         """module Vela.FirstSlice.NegForeignRestore;
 public definition Span<byte> BadRestore() =>
     let dst = Span.AllocZeroed(64usize, 8usize) in
-    let other = Span.AllocZeroed(256usize, 8usize) in
+    let other = Span.Slice(Span.AllocZeroed(64usize, 4usize), 0usize, 4usize) in
     Span.Restore(dst, other);
 """,
         "type",
-        "cannot prove Span.Restore view extent is contained within parent extent",
+        "Span.Restore requires a slice derived from its parent",
     ),
     NegativeControl(
         "broken-restores-contract",
