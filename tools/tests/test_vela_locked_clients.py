@@ -84,6 +84,12 @@ def _client_upgrade() -> None:
         modules = json.loads(before)["modules"]
         ensure(set(modules) == {"Scale.Calibration", "Weights.Measure"}, "wrong package closure")
         _replay(directory, modules)
+        library_lock = directory / "weights.lock"
+        library_bundle = directory / "weights.json"
+        _command("lock-package", workspace, "weights", "v1", "--output", library_lock)
+        _command("build-package", workspace, library_lock, "--output", library_bundle)
+        ensure(json.loads(library_bundle.read_bytes())["modules"] == {"Weights.Measure": modules["Weights.Measure"]},
+               "standalone library and importing client built different provider outputs")
         _command("build-package", workspace, lock, "--output", bundle)
         ensure(bundle.read_bytes() == before, "rebuilding the same lock changed the bundle")
 
