@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: Apache-2.0
+name = "weights"
+revision = "v1"
+edition = "math-1"
+target = "rocq-gallina"
+inputs = []
+
+[modules]
+"Weights.Measure" = "Measure.vela"
+
+[dependencies]

@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: Apache-2.0
+name = "scale"
+revision = "v1"
+edition = "math-1"
+target = "rocq-gallina"
+inputs = []
+
+[modules]
+"Scale.Calibration" = "Calibration.vela"
+
+[dependencies]
+weights = "v1"

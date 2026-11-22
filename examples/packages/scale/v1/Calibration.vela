@@ -1,0 +1,15 @@
+// SPDX-License-Identifier: Apache-2.0
+module Scale.Calibration;
+
+import Weights.Measure;
+
+public definition Nat ReadScale(Nat units) => Measured.Measure(Make(units: units));
+
+public lemma ScaleReadings()
+    ensures ReadScale(0) == 2
+    ensures ReadScale(7) == 9
+    proof
+    {
+        assert ReadScale(0) == 2;
+        assert ReadScale(7) == 9;
+    }
