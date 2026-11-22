@@ -12,6 +12,7 @@ from filelock import Timeout
 
 from toolchain import (
     VelaError,
+    bsp,
     mathematical_preview,
     packages,
     solver_ledger,
@@ -129,6 +130,9 @@ def main(argv: list[str] | None = None) -> int:
     build.add_argument("workspace", type=Path)
     build.add_argument("lock", type=Path)
     build.add_argument("--output", type=Path, help="atomically publish the generated module bundle")
+    server = commands.add_parser("bsp", help="serve the locked package graph over BSP 2.1.1 stdio")
+    server.add_argument("workspace", type=Path)
+    server.add_argument("locks", type=Path, nargs="+", metavar="LOCK")
     commands.add_parser("migration", help="compare generated AST translation with the retained prototype")
     syntax_campaigns = commands.add_parser(
         "syntax-campaigns",
@@ -194,6 +198,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("a lint cannot be both allowed and denied")
     root = Path(__file__).resolve().parents[3]
     try:
+        if args.command == "bsp":
+            return bsp.serve(root, args.workspace, args.locks, sys.stdin.buffer, sys.stdout.buffer)
         if args.command == "packet-example":
             print(_packet_example(root, args.source, args.packet), end="")
             return 0
