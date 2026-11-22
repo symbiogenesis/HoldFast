@@ -61,9 +61,9 @@ class _IntrinsicsMixin:
         if not candidates:
             raise self.fail("type", f"no interface method '{method}' accepts this argument count", node)
         if len(candidates) > 1:
-            raise self.fail(
-                "type", f"ambiguous interface method '{method}'; qualify the call as Interface.{method}(...)", node
-            )
+            owners = {id(iface) for iface in candidates}
+            spellings = sorted(f"{name}.{method}(...)" for name, iface in self.interfaces.items() if id(iface) in owners)
+            raise self.fail("type", f"ambiguous interface method '{method}'; qualify the call as " + " or ".join(spellings), node)
         iface = candidates[0]
         return self._elaborate_interface_method_call(
             node, iface, iface.methods[method], gen_args, receiver, call_args, environment

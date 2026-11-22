@@ -5883,7 +5883,7 @@ def _interface_dispatch_ambiguity() -> None:
                 fixture.definition("Wrong", _NAT, (("x", _NAT),), called)
                 with patch.object(language._Elaborator, "_elaborate_interface_method_call",
                                   side_effect=AssertionError("tried a candidate before resolving its interface name")):
-                    _refuses(fixture, "type", "ambiguous interface method 'Step'; qualify")
+                    _refuses(fixture, "type", "qualify the call as First.Step(...) or Second.Step(...)")
 
 
 def _interface_dispatch_qualification_and_arities() -> None:
