@@ -26,7 +26,7 @@ def _rows() -> None:
     ensure(results == [False, True, False, False] and
            "Example.f_Select false true = true := eq_refl." in equations and
            "Example.f_Select true false = false := eq_refl." in equations, "swapped inputs or observations")
-    for rows, reason in ((correct[:-1], "incomplete"), (correct + [correct[0]], "oversized"),
+    for rows, reason in ((correct[:-1], "incomplete"), ([*correct, correct[0]], "oversized"),
                          (correct[::-1], "input tuple"), ([correct[1], *correct[1:]], "input tuple"),
                          ([["00", 0], *correct[1:]], "invalid observation"),
                          ([["00", None], *correct[1:]], "invalid observation")):
