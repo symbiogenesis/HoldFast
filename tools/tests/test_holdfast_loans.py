@@ -1259,6 +1259,40 @@ public Unit Hold(ref Buffer buf) { let in Nat loan = buf.BorrowData(); buf.Updat
                    "the source-declared receiver return loan was discarded at the call")
 
 
+def _receiver_view_representation_change() -> None:
+    client = "public Unit Client(ref Buffer buf) { buf.WriteData(buf.ReadCount()); }"
+    with parser.cached_build(Path(__file__).resolve().parents[2]) as compiled:
+        for count_field, data_field, overlap in (
+            ("length", "payload", False),
+            ("used", "storage", False),
+            ("used", "storage", True),
+        ):
+            count_view = data_field if overlap else count_field
+            source = f"""module ViewClient;
+public struct Buffer {{
+    private Nat {count_field};
+    private Nat {data_field};
+    public view Count = {count_view};
+    public view Data = {data_field};
+    public Nat ReadCount(in this.Count);
+    public Unit WriteData(ref this.Data, Nat n);
+}}
+{client}
+""".encode()
+            tree = parser.parse_source(compiled, source, surface=True)
+            lowered = lower_function(tree, "Client")
+            report = analyze(lowered.owners, lowered.graph).paths[0]
+            if overlap:
+                issues = [issue for issue in report.issues if issue.kind == "competing-loans"]
+                ensure(len(issues) == 1, f"overlapping public views need a borrow conflict: {report.issues}")
+                span = cast("list[int]", lowered.node_sites[issues[0].node]["span"])
+                ensure(source[span[0]:span[1]] == b"buf.ReadCount", "conflict missed the nested receiver")
+            else:
+                ensure(not report.issues, f"disjoint public views conflicted: {report.issues}")
+                ensure(all(obligation.kind != "overlap" for obligation in report.obligations),
+                       "disjoint private fields left a residual overlap obligation")
+
+
 def _checked_receiver_snapshot() -> None:
     with parser.cached_build(Path(__file__).resolve().parents[2]) as compiled:
         for snapshot in (False, True):
@@ -1329,6 +1363,7 @@ public u32 Client(ref Slots<u32, 4> src, ref Slots<u32, 4> dst)
 def cases() -> list[Case]:
     return [
         Case("located receiver order, snapshots, views and retained loans", _located_receiver_timing, lane="toolchain"),
+        Case("public receiver views across private field renaming", _receiver_view_representation_change, lane="toolchain"),
         Case("checked receiver snapshot on actual slots", _checked_receiver_snapshot, lane="toolchain"),
         Case("element loan and value snapshot across slot relocation", _element_loan_during_relocation, lane="toolchain"),
             Case("last-use restoration and unresolved facts", _last_use_and_residuals),
