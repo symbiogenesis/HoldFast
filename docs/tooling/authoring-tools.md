@@ -1,9 +1,8 @@
 # Vela formatting, documentation and lints
 
-The formatter and advisory lints cover the [pure compiler](pure-prototype.md).
-The mathematical compiler also reports generic type parameter, bitwise precedence
-and constructor-pattern lints. The [surface grammar](../language/surface-grammar.md)
-defines valid syntax. Lints report findings on checked source.
+The [pure compiler](pure-prototype.md) and [mathematical compiler](elaboration-prototype.md)
+format source and report advisory lints after checking the whole file. The
+[surface grammar](../language/surface-grammar.md) defines valid syntax.
 
 ## Common style
 
@@ -164,6 +163,31 @@ If bounded compiler inspection cannot supply complete lint facts, normal advisor
 compilation reports lints unavailable and continues. Explicit `vela lint` and a
 command with denied lints require complete findings and refuse without writes.
 
+## Formatting and linting mathematical source
+
+Run `python tools/run.py vela-parser fmt FILE --check` to check a standalone
+mathematical module's layout. A style difference yields a failing exit code.
+`vela-parser fmt FILE` writes the checked layout. Ordinary `vela-parser elaborate FILE`
+reads the authored bytes. Its explicit `--format check` and `--format write` modes
+check the requested layout before emitting Gallina. A denied elaboration lint or
+invalid program preserves both source and existing output. Emission after a
+formatting write identifies the formatted source.
+
+The formatter works from Menhir's complete original token ranges. It preserves
+literal spellings, nested block comments, line comments and the groups of
+`///` comments attached to declarations. Raw and interpolated string tokens
+retain their contents. It elaborates the candidate, compares the complete
+location-independent syntax and ordered spellings, and checks that a second
+formatting pass yields identical bytes. Both compilers use the same source
+identity checks and atomic file replacement. [Formatter](../../tools/toolchain/mathematical_authoring.py)
+
+`vela-parser lint FILE` reports the mathematical expression and pattern rules
+alongside public member naming, local and parameter naming, and missing
+documentation on public functions, definitions and constants. Use `--allow ID`
+to suppress a rule or `--deny ID` to fail on its findings. The locations identify
+the original source. The [bitwise grouping preview](#lint-policy) consumes the
+reported operator coordinates.
+
 ## Checked Boolean comparison previews
 
 `python tools/run.py vela lint-preview SOURCE --line LINE --column COLUMN`
@@ -252,3 +276,8 @@ policy and publication failures. The
 [editor fixtures](../../tools/tests/test_vela_lsp_editor.py) check edit ranges,
 worker refusal and recovery and stdio. Independent client qualification follows
 the [LSP contract](lsp-prototype.md#acceptance-and-remaining-qualification).
+
+The [mathematical authoring fixtures](../../tools/tests/test_vela_mathematical_authoring.py)
+compare independently specified canonical bytes, preserve attached and orphan
+Unicode documentation, reject detached token ranges and stale writes, and
+replay the original and formatted bitmask lemma in Rocq.

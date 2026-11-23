@@ -14,7 +14,7 @@ import shutil
 import subprocess
 import tempfile
 import uuid
-from collections.abc import Generator
+from collections.abc import Generator, Sequence
 from dataclasses import dataclass
 from importlib import import_module
 from pathlib import Path
@@ -388,7 +388,7 @@ def _validate_tree(value: Json, source: bytes) -> None:
 def _layout_ranges(source: bytes, tokens: Json) -> list[Json]:
     """Interleave the surface lexer's exact token ranges and all original comments."""
     if not isinstance(tokens, list):
-        raise ValueError("native parser omitted its token ranges")
+        raise TypeError("native parser omitted its token ranges")
     parts: list[Json] = []
     def comment(start: int, end: int) -> None:
         parts.append([start, end])
@@ -714,7 +714,7 @@ def _fixtures(compiled: Build) -> list[str]:
                b"Text", b"F", b"(", b")", b"=>", b'""" a // b """', b";", "// π".encode()]
     source = b"  ".join(lexemes) + b"\r\n"
     layout = parse_source(compiled, source, layout=True)
-    if [source[a:b] for a, b in cast("list[list[int]]", layout.pop("layout"))] != lexemes:
+    if [source[a:b] for a, b in cast("Sequence[Sequence[int]]", layout.pop("layout"))] != lexemes:
         raise ValueError("layout splits literal or comment content, or loses original token spelling")
     if layout != parse_source(compiled, source, surface=True):
         raise ValueError("formatting and ordinary surface parsing differ")
