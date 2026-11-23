@@ -706,6 +706,9 @@ class _DeclarationsMixin:
                     body_term,
                     self_var=self_var,
                 )
+            elif m_kind == "function":
+                m_effect_reads, m_effect_writes = self._memory_footprint(
+                    m_params, m_ref_param_names, body_node, body_term, self_var=self_var)
             self._check_callable_loans(member_node, enclosing_type=name)
         finally:
             self.active_effect_calls = prev_effect_calls
@@ -723,6 +726,8 @@ class _DeclarationsMixin:
             self.complete(self.metas[index].type)
         m_emitted = f"{self.emission_prefix}_d{len(self.output)}_{name}_{method_name}"
         self._classify_phase(m_emitted, body_node, executable=m_kind == "function")
+        if m_effect_reads or m_effect_writes:
+            self.nonstatic_callables.add(m_emitted)
         if m_kind == "function":
             self.checked_resource_consumers.add(m_emitted)
         self.output.append(f"Definition {m_emitted} : {self.render(m_sig)} :=\n  {self.render(m_def)}.")
@@ -1107,6 +1112,7 @@ class _DeclarationsMixin:
                 self.imported_postconditions[name] = contracts
         self.definitions.update({key: value for key, value in mod.definitions.items() if key not in mod.sealed_bodies})
         self.specification_values.update(mod.specification_values)
+        self.nonstatic_callables.update(mod.nonstatic_callables)
         self.records_by_type.update(mod.records_by_type)
         self.records_by_ctor.update(mod.records_by_ctor)
         self.record_projections.update(mod.record_projections)
@@ -2519,10 +2525,13 @@ class _DeclarationsMixin:
 
     def _classify_phase(self: _Elaborator, emitted: str, body: Node, *, executable: bool) -> None:
         """Carry resolved specification dependencies across definitions, calls and package imports."""
-        if not self.phase_uses:
+        if not self.phase_uses and not self.static_effect_sites:
             return
         start, end = cast("list[int]", body["span"])
-        uses = [(use, reason) for use, reason in self.phase_uses
+        uses = [(use, reason, False) for use, reason in self.phase_uses]
+        uses.extend((use, "static evaluation requires a call with an empty effect footprint", True)
+                    for use in self.static_effect_sites)
+        uses = [(use, reason, static_only) for use, reason, static_only in uses
                 if start <= cast("list[int]", use["span"])[0] and cast("list[int]", use["span"])[1] <= end]
         if not uses:
             return
@@ -2542,14 +2551,16 @@ class _DeclarationsMixin:
                         erased.append((lo, hi))
                     else:
                         pending.append(child)
-        for use, reason in uses:
+        for use, reason, static_only in uses:
             lo, hi = cast("list[int]", use["span"])
             if any(a <= lo and hi <= b for a, b in erased):
                 continue
-            if executable:
+            if static_only and emitted:
+                self.nonstatic_callables.add(emitted)
+            elif executable:
                 raise self.fail("type", reason, use)
-            self.specification_values[emitted] = reason
-            return
+            else:
+                self.specification_values.setdefault(emitted, reason)
 
     def _collect_runtime_read_names(
         self: _Elaborator,
@@ -2717,6 +2728,7 @@ class _DeclarationsMixin:
         self.in_loop_depth = 0
         self.active_regions.clear()
         self.phase_uses.clear()
+        self.static_effect_sites.clear()
         self.slice_views.clear()
         self.restored_view_terms.clear()
         kind = node["kind"]
@@ -3139,6 +3151,10 @@ class _DeclarationsMixin:
                                 body_node,
                                 body,
                             )
+                        elif kind == "function" and (ref_param_names or self.readonly_in_params):
+                            reads, writes = self._memory_footprint(parameters, ref_param_names, body_node, body)
+                            if reads or writes:
+                                self.static_effect_sites.append(body_node)
                         for pname in ref_param_names:
                             if pname in self.final_ref_bindings:
                                 fin_b = self.final_ref_bindings[pname]

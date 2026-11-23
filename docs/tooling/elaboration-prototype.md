@@ -422,7 +422,11 @@ bytes 195 and 169. Word elements retain their declared signedness and width.
 The mathematical target gives `usize` 64 bits.
 
 The compiler checks the initializer and layout under the static dependency
-rules. Closed demands reduce every element to its declared scalar or vector
+rules. A call in a static initializer needs an empty effect footprint across
+its callees, including operations behind helper functions and method receivers.
+For a conditional choice of functions, both alternatives must qualify. A
+higher-order helper can call a supplied callback with checked empty effects.
+Closed demands reduce every element to its declared scalar or vector
 value. A symbolic static binder can defer the calculation until a closed
 specialization. Each frozen value has a budget of 64 vector slots, summed
 across all dimensions. An empty vector consumes zero slots. A table with
