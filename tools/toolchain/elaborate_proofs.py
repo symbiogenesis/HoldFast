@@ -1900,11 +1900,60 @@ class _ProofsMixin:
         if self._prove_extracted_equality_with_domain_solver(
             goal, environment, facts
         ) or self._prove_bool_expr_with_domain_solver(self.node(node["value"]), environment):
+            if self.in_inline_proof:
+                if witness := self._inline_nat_bound(goal, (*facts, *environment.values())):
+                    return _Binding(witness, goal)
+                raise self.fail("type", "inline assertion needs a proof that can be replayed by the kernel", node)
             self.used_domain_solver_in_proof = True
             return _Binding(_apps(_constant("Refl"), _BOOL, _term("bool", value=1)), goal)
         return None
 
+    def _inline_nat_bound(self: _Elaborator, goal: _Term, facts: tuple[_Binding, ...]) -> _Term | None:
+        def bounds(prop: _Term) -> tuple[_Term, _Term] | None:
+            equality = self._extract_equality(prop)
+            if equality is not None and equality[0] == _BOOL and equality[2] == _term("bool", value=1):
+                head, args = self.spine(equality[1])
+                if head == _constant("<=") and len(args) == 2:
+                    return args[0], args[1]
+            return None
+
+        target = bounds(goal)
+        if target is not None:
+            for fact in self._expand_fact_bindings(facts):
+                source = bounds(fact.type)
+                if source is not None and self.convertible(source[0], target[0]):
+                    upper = _apps(_constant("<="), source[1], target[1])
+                    if self.whnf(upper) == _term("bool", value=1):
+                        return _apps(_constant("vela_nat_leb_trans"), target[0], source[1], target[1],
+                                     fact.term, _apps(_constant("Refl"), _BOOL, upper))
+        return None
+
     def _elaborate_assert(
+        self: _Elaborator, node: Node, environment: dict[str, _Binding], facts: tuple[_Binding, ...]
+    ) -> _Binding:
+        result = self._assertion_proof(node, environment, facts)
+        if self.in_inline_proof:
+            free = self.free(result.type) | self.free(result.term)
+            if free:
+                context = set().union(*(self.free(binding.term) | self.free(binding.type)
+                                        for binding in (*facts, *environment.values())))
+                if not free <= context:
+                    raise self.fail("type", "inline assertion proof refers to a variable outside its context", node)
+            pending = list(free)
+            while pending:
+                more = self.free(self.types[pending.pop()]) - free
+                free.update(more)
+                pending.extend(more)
+            variables = [_term("var", value=index) for index in sorted(free)]
+            signature = self.wrap("pi", variables, result.type)
+            definition = self.wrap("lam", variables, result.term)
+            start, end = cast("list[int]", node["span"])
+            name = f"{self.emission_prefix}_assert_{start}_{end}_{len(self.inline_assertions)}"
+            witness = f"Definition {name} : {self.render(signature)} :=\n  {self.render(definition)}."
+            self.inline_assertions.append(((start, end), witness))
+        return result
+
+    def _assertion_proof(
         self: _Elaborator, node: Node, environment: dict[str, _Binding], facts: tuple[_Binding, ...]
     ) -> _Binding:
         self.site = node

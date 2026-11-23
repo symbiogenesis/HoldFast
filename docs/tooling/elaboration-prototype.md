@@ -477,6 +477,15 @@ parse failure and unavailable tooling supply no semantic rejection evidence.
 Kernel replay covers generated terms. Checked parsing and source correspondence
 require their own evidence.
 
+Each `assert` in an executable proof, including a step within `calc` or a
+justification block, emits a separate Gallina definition indexed by its source
+byte span. Its type exposes the values and local proofs on which the
+assertion depends. The assumption audit includes that definition even when
+the next instruction does not use it. For example, a requirement
+`n <= 4` supplies a witness for the weaker natural-number bound `n <= 5`.
+An inline assertion that only the prototype's domain solver can discharge
+requires an explicit proof unless the checker can reconstruct a kernel term.
+
 Independent focused host tests exercise fresh polymorphic instantiations,
 explicit/inferred arguments, dependent substitution, vector lengths and finite
 lookup, higher-order constraints, proof composition, definitional conversion,

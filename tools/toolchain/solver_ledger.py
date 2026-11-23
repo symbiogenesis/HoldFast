@@ -20,6 +20,13 @@ _AXIOM = re.compile(r"^Axiom (\S+)", flags=re.MULTILINE)
 _ASSUMPTION_NAME = re.compile(r"^(?P<name>[A-Za-z_][A-Za-z0-9_'.]*) :")
 
 
+def math_exports(gallina: str) -> list[str]:
+    """List mathematical declarations and erased assertion witnesses for the kernel audit."""
+    pattern = (r"^Definition (vela(?:_m[0-9a-f]+(?:_[0-9a-f]+)?)?_"
+               r"(?:d[0-9]+_[A-Za-z_][A-Za-z0-9_]*|assert_\d+_\d+_\d+))\s*(?:\(|:)")
+    return [match[1] for match in re.finditer(pattern, gallina, flags=re.MULTILINE)]
+
+
 @dataclass(frozen=True)
 class TrustedObligation:
     """One obligation the kernel sees only as an assumption."""

@@ -499,6 +499,7 @@ _GALLINA = {
     "vela_store_lookup_fill_ge": "vela_store_lookup_fill_ge",
     "vela_store_lookup_copy_ge": "vela_store_lookup_copy_ge",
     "vela_nat_add_assoc": "vela_nat_add_assoc",
+    "vela_nat_leb_trans": "vela_nat_leb_trans",
     "vela_gt_add_pos": "vela_gt_add_pos",
     "vela_int_add_assoc": "vela_int_add_assoc",
     **{
@@ -2035,6 +2036,10 @@ Proof.
 Qed.
 
 From Stdlib Require Import Arith.PeanoNat Lia.
+
+Lemma vela_nat_leb_trans (a b c : nat) :
+  Nat.leb a b = true -> Nat.leb b c = true -> Nat.leb a c = true.
+Proof. rewrite !Nat.leb_le. apply Nat.le_trans. Qed.
 Unset Lia Cache.
 
 Lemma vela_bits_value_order : forall xs ys p q,

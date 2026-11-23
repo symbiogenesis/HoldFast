@@ -1838,9 +1838,8 @@ def _case(compiled: vela_parser.Build, case: Fixture, directory: Path, index: in
     target.write_text(translated.gallina + checks, encoding="utf-8", newline="")
     _run(_opam(["rocq", "c", "-q", "-R", str(directory), "VelaElaboration", target.name]),
          directory, directory / f"{stem}.compile.log", steps)
-    export_pattern = r"[fc]_[A-Za-z_][A-Za-z0-9_]*" if case.pure else r"vela_d[0-9]+_[A-Za-z_][A-Za-z0-9_]*"
-    exports = re.findall(r"^Definition (" + export_pattern + r")\s*(?:\(|:)",
-                         translated.gallina, flags=re.MULTILINE)
+    exports = (re.findall(r"^Definition ([fc]_[A-Za-z_][A-Za-z0-9_]*)\s*(?:\(|:)", translated.gallina, re.MULTILINE)
+               if case.pure else solver_ledger.math_exports(translated.gallina))
     exports.extend(word_checks)
     row["word_operation_checks"] = len(word_checks)
     if not exports:

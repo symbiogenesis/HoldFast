@@ -125,6 +125,7 @@ class _Elaborator(
         self.checked_receivers: dict[tuple[int, ...], loans._Receiver | None] = {}
         self.require_word_proofs = False
         self.word_proofs: dict[tuple[int, int, str], str] = {}
+        self.inline_assertions: list[tuple[tuple[int, int], str]] = []
         self.contextual_literal_types: dict[int, str] = {}
         self.integer_operations: dict[int, tuple[str, str]] = {}
         self.serial = 0
@@ -2380,6 +2381,13 @@ def _checked_elaboration(
                     declarations.append((start, end))
                     for index in range(first, len(elaborator.output)):
                         chunk_origins[index] = ((start, end), (start, end), "declaration")
+            owner = 0
+            for assertion_span, witness in elaborator.inline_assertions:
+                if origins is not None:
+                    while declarations[owner][1] <= assertion_span[0]:
+                        owner += 1
+                    chunk_origins[len(elaborator.output)] = (assertion_span, declarations[owner], "inline-assertion")
+                elaborator.output.append(witness)
             if elaborator.word_proofs:
                 elaborator.output.append(_WORD_REPLAY_PRELUDE)
                 if origins is not None:

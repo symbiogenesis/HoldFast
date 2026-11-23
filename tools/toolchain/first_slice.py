@@ -845,8 +845,7 @@ def _retained_proof(root: Path, report: dict[str, object], directory: Path,
     if (directory / "FirstSliceCorrupted.v").read_bytes() != _corrupted_proof(gallina).encode("utf-8"):
         raise ValueError("first-slice receipt corrupted proof differs from its declared subject")
     modules = re.findall(r"^Module ((?:Vela_|VelaEncoded_)[A-Za-z0-9_]+)\.$", gallina, flags=re.MULTILINE)
-    exports = re.findall(r"^Definition (vela_d[0-9]+_[A-Za-z_][A-Za-z0-9_]*)\s*(?:\(|:)",
-                         gallina, flags=re.MULTILINE)
+    exports = solver_ledger.math_exports(gallina)
     if modules != [gallina_module_name("Vela.FirstSlice")] or len(set(exports)) != len(exports):
         raise ValueError("first-slice receipt Gallina module or exports are malformed")
     for suffix in (*EXPECTED_LAWS, *EXPECTED_CONTRACT_OBLIGATIONS, *EXPECTED_SCENARIO_THEOREMS):
@@ -2284,11 +2283,7 @@ def _qualify_attempt(
         if translated != repeated:
             raise ValueError("first_slice.vela elaboration is nondeterministic")
 
-        exports = re.findall(
-            r"^Definition (vela_d[0-9]+_[A-Za-z_][A-Za-z0-9_]*)\s*(?:\(|:)",
-            translated.gallina,
-            flags=re.MULTILINE,
-        )
+        exports = solver_ledger.math_exports(translated.gallina)
         for required_suffix in (*EXPECTED_LAWS, *EXPECTED_CONTRACT_OBLIGATIONS, *EXPECTED_SCENARIO_THEOREMS):
             if not any(exp.endswith(f"_{required_suffix}") for exp in exports):
                 raise ValueError(f"emitted Gallina is missing required obligation '{required_suffix}'")
