@@ -2153,7 +2153,7 @@ through Rocq. Already grouped operands yield no edit. Changed source, a replaced
 OCaml bytecode interpreter or an altered preview record invalidates the edit.
 
 The [native authoring tests](../../tools/tests/test_vela_mathematical_authoring.py)
-exercise all 50 accepted mathematical programs in the kernel replay corpus.
+exercise every accepted mathematical program in the kernel replay corpus.
 Every formatted candidate reparses to the same syntax, rechecks, preserves
 token and comment bytes and declaration documentation, and formats identically
 on a second pass. Independent expected bytes cover a nested comment, an orphan
@@ -2337,7 +2337,10 @@ equalities at a computed vector type and a two-entry `usize` table containing
 4,294,967,297. Rocq 9.3.0 checks both equations, transport of an indexed
 observation, and the specialized function at two runtime inputs. The assumption
 audit and `rocqchk` pass. A runtime element, a runtime extent and a 65-slot
-text initializer each reach their own refusal.
+text initializer each reach their own refusal. Static calls also check
+indirect and transitive effects. Qualification exercises an effectful branch
+of a function choice, an effect hidden by a wrapper, and a generic application
+of a pure callback that computes the first table entry.
 
 The [locked-package consumer](../../tools/tests/test_vela_package_binders.py)
 reads the second UTF-8 byte of an imported constant. Rebuilding the same lock
