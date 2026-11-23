@@ -41,6 +41,26 @@ subset and existing qualified implementation before adding language machinery.
 The [selection plan](../../PLAN.md#deferred-numerical-workload-selection) owns
 the pilot budget and prerequisites.
 
+## Portability and numerical guarantees
+
+Select an arithmetic contract independently of the execution profile and the
+[assurance preset](assurance-profiles.md#scope-and-the-governing-rule).
+Every implementation fixes its formats, conversions, rounding mode,
+subnormal and exceptional values, and any floating-point environment it reads
+or changes. For fixed-point semantics, include scale and saturation, wrapping
+or failure behavior. Required-static computations and runtime execution use the
+same contract for the same target and flags.
+
+A reproducible result fixes the evaluation order and allowed operation set,
+including whether a multiply and add are fused. A SIMD or GPU reduction that
+changes grouping needs evidence for that result contract. An error-bounded
+variant states its admitted input domain, reference computation, error metric
+and bound. Each enabled dispatch path establishes that bound under its actual
+operations. Qualify NaNs, infinities, signed zero, subnormals and near-boundary
+inputs where the selected format admits them. Encode the effective rounding,
+contraction and reassociation choices in the artifact evidence. Compiler options
+and host settings cannot silently weaken the public result guarantee.
+
 ## Bounded pilot acceptance
 
 Start with one assignment-and-update kernel and an independently authored oracle.
