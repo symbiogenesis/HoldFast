@@ -131,6 +131,25 @@ distinguishing original Polonius from Polonius Alpha. Pin the selected
 and identify its implemented subset; a design example supplies no compiler
 verdict. Supplied graph diagnostics and source checking have different endpoints.
 
+If a client must restructure a loop whose last use of a view precedes a write
+to its owner, keep the original loop. Move one use past that write to produce
+the conflicting case. Freeze the accessed place, last use and expected
+restoration point on each path.
+Two 2026 results supply candidate analyses for the parts their models cover.
+
+- MoveLight uses regular expressions to summarize paths rooted in local
+  variables across calls and loops. For a structured path, check whether its
+  summary preserves the distinction between the two live ranges.
+  [OOPSLA paper](https://2026.splashcon.org/details/oopsla-2026/147/Tracking-Borrows-with-Regular-Expressions) · [Lean artifact](https://zenodo.org/records/21850968)
+- Wu, Wang and Chen verify a forward abstract interpretation of Polonius for a
+  Rust core. On the common fragment, compare its alias decision at the write
+  with Vela's. Record which source places and control-flow edges the translation
+  preserves. [November 2026 preprint](https://arxiv.org/abs/2611.06319v1)
+
+Record any feature a model cannot express, such as an exit that returns a
+Vela-specific resource. To qualify an analysis for Vela, replay its restoration
+obligations on each exit and measure its work against the same budgets.
+
 Record accepted, semantically rejected, unsupported and incomplete cases
 separately. A diagnostic with no detected conflict still carries its unresolved
 proof obligations and supplies no source acceptance. Compare matching behavior

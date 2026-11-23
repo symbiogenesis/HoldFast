@@ -214,6 +214,7 @@ open until the parent's acceptance conditions are met.
   - Run the [public-contract trial](docs/assurance/workflow-contract.md#what-a-caller-can-prove-from-the-public-contract) on the independent client. Check what the caller loses when a required law is weakened and whether its original proof survives a private representation change. Trace [proof erasure and remaining runtime costs](docs/assurance/workflow-contract.md#cost-of-the-verified-abstraction) through the admitted image and compare with the matched baseline on success and error paths.
   - Keep a previously legal boundary input when testing a tightened provider precondition. A compatible version must cover the frozen caller domain and return its promised resources on every reachable exit. Replay both the unchanged caller and the input that distinguishes the two contracts.
   - Measured friction can open the [borrow-checker comparison](docs/language/loan-analysis.md#conditional-borrowing-comparison) or [proof-transfer experiment](docs/assurance/workflow-contract.md#representation-transfer-comparison).
+    For a loop rewrite forced by borrowing, replay the client's original loop and a neighbor with a live conflicting view. Compare the alias decision, remaining restoration duties and author edits on that pair.
 
 <a id="q25bc"></a>
 
