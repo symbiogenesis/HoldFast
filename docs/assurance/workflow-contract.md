@@ -273,6 +273,39 @@ Diagnostic latency runs from submission of the completed edit to source-bound fe
 
 Use C#/Dafny and Rust/Verus comparators only where their qualified subsets express the same bounded algorithm and behavior. Record unsupported features, manual restoration and proof endpoint. Weaker endpoints permit navigation, error-location and latency comparisons, but no authoring-productivity claim against stronger CHERI evidence. This contract commissions no installation, port or language server.
 
+### Proof search and replay under change
+
+For each client trial, freeze separate limits for interactive inference,
+batch search and kernel replay before the first edit. Identify the enabled
+[checking tiers](verification-strategy.md#layered-proof-and-staging), their
+solver settings and their work or time limits. An exhausted search returns
+the residual proposition at its source operation, the relevant local facts
+and the limit reached. The author can supply a lemma for that same goal.
+Record time to first useful feedback, remaining goals, handwritten proof
+changes and fresh replay time. A hosted application trial sets its own
+limits on its selected workload and dependency graph. The copying pilot uses
+its [existing thresholds](#accounting-and-decision-thresholds).
+
+For the packet and the independent package trial, record how each selected
+goal was discharged, which definitions, instances and assumptions it consumed,
+and where to find its replayable term or certificate. Retain the exact source,
+target and checker bindings used for acceptance. Exercise these changes on
+the frozen clients.
+
+1. Replay its saved evidence in a clean checker with search disabled. Record
+   certificate replay separately from the cost of discovering the proof.
+2. Change a semantic dependency while keeping the source spelling of the goal.
+   Show which claim is stale before replay. Substituting an old certificate
+   that proves a different proposition must fail at that obligation. A cached
+   success flag alone supplies no evidence.
+3. Exhaust the automatic search allowance on a selected provable goal. Supply
+   the missing lemma at the reported site and replay under the same limit.
+4. Reprove a private provider representation under the same published laws.
+   Recheck the unchanged caller with the renewed dependency closure. Report
+   rediscovered proofs, replayed proofs and the author's repair effort on
+   each side. Observable behavior and the caller's obligations stay fixed for
+   this comparison. [Invalidation rules](../language/core-design.md#typed-holes-and-invalidation)
+
 ## Accounting and decision thresholds
 
 Freeze these selection thresholds before running the workflow and artifact comparisons. A protocol change requires a new identity and a fresh run of the affected cases.
