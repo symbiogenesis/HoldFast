@@ -44,6 +44,14 @@ successful Gallina output. Editing invalidates output and downloads along with
 old diagnostics and inspection. Asynchronous replies bind the source and
 connection, and console replies also bind the expression and result type.
 
+The local Problems panel highlights each [named goal](elaboration-prototype.md#named-goals)
+and shows its status, expected type and available context. The native service
+checks its prepared parser, bytecode interpreter, Python executable and
+mathematical frontend inputs around each compile or evaluation. The connected
+page checks that generation every three seconds. A dependency change clears
+the diagnostics and output and expires pending replies. Restart the local
+service to prepare a changed compiler.
+
 Lexical highlighting uses a syntax-only Monarch projection. For sources with
 pure editor support, the page synchronizes versioned overlays with a separate
 LSP session. Formatting returns an edit for the requested buffer version.
@@ -65,6 +73,7 @@ Send API requests as JSON POSTs with `Authorization: Bearer TOKEN`.
 | Path | Request | Successful response |
 | --- | --- | --- |
 | `/api/session` | `{}` | `{ "session": "opaque-id" }` |
+| `/api/compiler-generation` | `{}` | Prepared compiler input digest `generation` and Boolean `current` |
 | `/api/close` | `{ "session": "opaque-id" }` | `{ "closed": true }` (idempotent) |
 | `/api/lsp` | `{ "session": "opaque-id", "message": LSP_OBJECT }` | `{ "messages": [LSP_OBJECT] }` |
 | `/api/compile` | `{ "source": "UTF-8 text" }` | `ok`, `sourceHash`, `module`, `gallina`, `editorServices`, `findings` |
@@ -74,6 +83,10 @@ Send API requests as JSON POSTs with `Authorization: Bearer TOKEN`.
 Compiler refusals return `ok: false`, the source hash, and an `error` object
 with `kind`, `message`, `line` and `column`. Compile refusals also return
 `editorServices`. Position fields use one-based compiler coordinates.
+Named-goal refusals carry an ordered `goals` array. Its entries have
+`name`, `line`, `column`, `status`, nullable `expected` and `context`.
+Compile and evaluation replies carry the prepared input digest in the
+`X-Vela-Compiler-Generation` header.
 Expression diagnostics identify expression context. Transport refusals use
 an unsuccessful HTTP status and an `error` string.
 
