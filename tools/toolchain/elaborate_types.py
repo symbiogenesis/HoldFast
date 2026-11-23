@@ -342,10 +342,11 @@ class _ImplInstance:
 
 @dataclass(frozen=True)
 class PackageScope:
-    """Exact package instance and the modules its direct dependencies expose."""
+    """Exact package instance, available modules and importing source edition."""
 
     instance: str
     modules: frozenset[str]
+    edition: str = "math-1"
 
 
 

@@ -6294,6 +6294,42 @@ def _qualified_imports() -> None:
     ensure(raised.exception.kind == "name", "wrong qualified-only dispatch diagnosis")
 
 
+def _package_edition_imports() -> None:
+    first, second = _Fixture("Base.Catalog"), _Fixture("Other.Catalog")
+    first.definition("Lookup", _NAT, (), _natural(3))
+    second.definition("Lookup", _NAT, (), _natural(5))
+    scopes = {"Base.Catalog": terms.PackageScope("1" * 64, frozenset({"Base.Catalog"})),
+              "Other.Catalog": terms.PackageScope("2" * 64, frozenset({"Other.Catalog"})),
+              "App": terms.PackageScope("3" * 64, frozenset({"App", "Base.Catalog", "Other.Catalog"}), "math-2")}
+    imports = (("Base.Catalog", None), ("Other.Catalog", "Other"))
+    for order in (imports, imports[::-1]):
+        app = _Fixture("App")
+        for path, alias in order:
+            _import_decl(app, path, alias=alias)
+        _import_decl(app, "HoldFast.Numerics", items=(("int", None),))
+        app.definition("Lookup", _NAT, (), _natural(7))
+        app.definition("Keep", _type("int"), (("x", _type("int")),), _variable("x"))
+        for name, receiver, expected in (("First", "Catalog", 3), ("Second", "Other", 5)):
+            law = _binary("==", _call(_member(_variable(receiver), "Lookup")), _natural(expected))
+            app.theorem(name, (), law, _assert(law))
+        own = _binary("==", _call("Lookup"), _natural(7))
+        app.theorem("Own", (), own, _assert(own))
+        elaborate_package([app.response(), second.response(), first.response()], scopes=scopes)
+
+    collision = _Fixture("App")
+    _import_decl(collision, "Base.Catalog")
+    _import_decl(collision, "Other.Catalog")
+    with raises(HoldFastError, msg="two imports introduced the same namespace") as raised:
+        elaborate_package([collision.response(), first.response(), second.response()], scopes=scopes)
+    ensure("namespace 'Catalog' conflicts" in raised.exception.message, "wrong duplicate namespace diagnostic")
+    missing = _Fixture("App")
+    _import_decl(missing, "Base.Catalog")
+    missing.definition("Read", _NAT, (), _call("Lookup"))
+    with raises(HoldFastError, msg="math-2 exposed a bare export") as raised:
+        elaborate_package([missing.response(), first.response(), second.response()], scopes=scopes)
+    ensure(raised.exception.kind == "name" and "Lookup" in raised.exception.message, "wrong missing export diagnostic")
+
+
 def _upgrade_client_replay() -> None:
     old, compatible, expanded = (_Fixture("States") for _ in range(3))
     for module in (old, compatible):
@@ -7266,6 +7302,7 @@ def _package_scope_and_identity() -> None:
 
 def cases() -> list[Case]:
     return [Case("locked-package-import-scope-and-nominal-identity", _package_scope_and_identity),
+            Case("qualified-import-default-in-mathematical-package-edition", _package_edition_imports),
             Case("upgrade-replay-against-unchanged-dependent-clients", _upgrade_client_replay),
             Case("selective-imports-and-renamed-constructors", _selective_imports),
             Case("constructor-case-and-redundant-patterns", _constructor_spelling_and_shadowed_patterns),

@@ -213,10 +213,17 @@ value when its use is specialized, or the build reports a located obligation or
 refusal with no runtime fallback. [`const` declarations](surface-grammar.md#required-static-constants)
 spell the interface, and [the core's staging rules](core-design.md#refinement-effects-and-staging)
 bound conversion and erasure.
-A plain `import Module.Path;` opens its public names. `import Module.Path as M;`
-imports them solely under `M`, so two libraries can export the same name.
+In a locked `math-2` package, a plain `import Module.Path;` introduces the
+namespace `Path`. Use `Path.Operation(...)` to call an export. Imports in a
+`math-1` package or a stand-alone mathematical source retain their open scope.
+`import Module.Path as M;` introduces only the namespace `M` in either edition.
 `import Module.Path { State, Busy as Occupied };` brings just those declarations
 into scope. Constructors retain their nominal identity under an uppercase alias.
+The importing package selects its own edition independently of each dependency.
+Before migrating an open import, identify its consumed exports and select them
+explicitly, or qualify uses with a namespace. If two module paths end with the
+same name, give at least one an explicit namespace alias. Replay callers'
+contracts and check imported instance selection across the migration.
 Qualified names resolve independently of import order. Duplicate local/imported
 bindings are errors unless an explicit alias distinguishes them. A public nominal
 identity comprises the resolved package instance, module path and declaration

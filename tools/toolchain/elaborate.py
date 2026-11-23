@@ -198,6 +198,7 @@ class _Elaborator(
         self.expected_call_type: _Term | None = None
         self.module_name: str = ""
         self.package_instance: str | None = None
+        self.package_edition = "math-1"
         self.nominal_owners: dict[str, str] = {}
         self.local_instances: list[tuple[str, _ImplInstance]] = []
         self.emission_prefix = "holdfast"
@@ -2347,6 +2348,7 @@ def _checked_elaboration(
             module_key = module.encode("ascii").hex()
             if package_scope is not None:
                 elaborator.package_instance = package_scope.instance
+                elaborator.package_edition = package_scope.edition
                 module_key = f"{package_scope.instance}_{module_key}"
                 # Keep prelude binders shared. User binders from each locked module
                 # occupy a disjoint sequence independent of graph traversal order.

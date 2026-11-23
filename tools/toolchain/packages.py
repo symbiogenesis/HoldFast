@@ -137,7 +137,7 @@ def resolve(workspace: Path, root_name: str, root_revision: str, producer: Objec
         manifest = tomllib.loads(raw.decode("utf-8"))
         if (set(manifest) != {"name", "revision", "edition", "target", "modules", "dependencies", "inputs"}
                 or (manifest["name"], manifest["revision"]) != (name, revision)
-                or (manifest["edition"], manifest["target"]) != ("math-1", "rocq-gallina")):
+                or manifest["edition"] not in ("math-1", "math-2") or manifest["target"] != "rocq-gallina"):
             raise ValueError(f"unsupported manifest identity, fields, edition or target in {path}")
         dependencies = {key: _token(val, REVISION, "dependency revision")
                         for key, val in _object(manifest["dependencies"], "dependencies").items()}
@@ -174,7 +174,7 @@ def resolve(workspace: Path, root_name: str, root_revision: str, producer: Objec
             if declared_module is not None:
                 sources[declared_module] = body
         entry: Object = {"revision": revision, "manifest_sha256": manifest_digest, "files": digests,
-                         "dependencies": dependencies, "modules": declared, "edition": "math-1", "target": "rocq-gallina"}
+                         "dependencies": dependencies, "modules": declared, "edition": manifest["edition"], "target": "rocq-gallina"}
         instance = _sha(_encode([name, entry, {dep: packages[dep]["instance"] for dep in dependencies}]))
         entry["instance"] = instance
         if locked is not None and _encode(row) != _encode(entry):
@@ -184,7 +184,7 @@ def resolve(workspace: Path, root_name: str, root_revision: str, producer: Objec
         for dep in dependencies:
             visible.update(_object(packages[dep]["modules"], "dependency modules"))
         for module in declared:
-            scopes[module] = PackageScope(instance, frozenset(visible))
+            scopes[module] = PackageScope(instance, frozenset(visible), manifest["edition"])
 
     visit(root_name, root_revision, "workspace root")
     lock: Object = {"schema": 1, "root": [root_name, root_revision], "packages": packages, "producer": producer}
