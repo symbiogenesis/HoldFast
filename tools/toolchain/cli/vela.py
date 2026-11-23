@@ -3,15 +3,11 @@
 
 import argparse
 import json
-import os
-import stat
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
 from toolchain import (
-    MAX_SOURCE_BYTES,
     VelaError,
     authoring_preview,
     compiler_trace,
@@ -38,23 +34,16 @@ from toolchain.generated_tests import (
 from toolchain.inspection import MAX_EXPORT_BYTES, current_binding, inspect
 from toolchain.inspection import producer_identity as inspection_producer_identity
 from toolchain.protocol_json import decode_message
+from toolchain.source_file import (
+    SourceFile,
+    check_destination,
+    ensure_unchanged,
+    read_source,
+    rewrite_source,
+)
 
 
-@dataclass(frozen=True)
-class _Source:
-    path: Path
-    data: bytes
-    identity: tuple[int, int, int, int]
-    mode: int
-
-
-def _identity(value: os.stat_result) -> tuple[int, int, int, int]:
-    # Compare identity, size, mtime and bytes. Windows path and descriptor
-    # stats can report different ctime values for the same file.
-    return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns
-
-
-def _inspection_unchanged(source: _Source, binding: dict[str, object]) -> None:
+def _inspection_unchanged(source: SourceFile, binding: dict[str, object]) -> None:
     if current_binding(source.data, uri=source.path.resolve().as_uri()) != binding:
         raise ValueError("inspection producer changed during export handoff")
 
@@ -62,49 +51,6 @@ def _inspection_unchanged(source: _Source, binding: dict[str, object]) -> None:
 def _preview_unchanged(preview: dict[str, object]) -> None:
     if inspection_producer_identity() != cast("dict[str, object]", preview["binding"])["producer"]:
         raise ValueError("compiler producer changed before lint preview publication")
-
-
-def _read_source(path: Path, *, max_bytes: int = MAX_SOURCE_BYTES) -> _Source:
-    before = path.lstat()
-    if not stat.S_ISREG(before.st_mode):
-        raise OSError("source must be a regular file, not a symbolic link or special file")
-    with path.open("rb") as stream:
-        if _identity(os.fstat(stream.fileno())) != _identity(before):
-            raise OSError("source changed while it was opened")
-        data = stream.read(max_bytes + 1)
-    if _identity(path.lstat()) != _identity(before):
-        raise OSError("source changed while it was read")
-    return _Source(path, data, _identity(before), stat.S_IMODE(before.st_mode))
-
-
-def _unchanged(source: _Source) -> None:
-    current = _read_source(source.path, max_bytes=max(MAX_SOURCE_BYTES, len(source.data)))
-    if current.identity != source.identity or current.data != source.data:
-        raise OSError("source changed during compilation; no pending source rewrite was applied")
-
-
-def _destination(source: Path, destination: Path) -> None:
-    if (source.resolve() == destination.resolve()
-            or (destination.exists() and source.samefile(destination))):
-        raise OSError("output aliases the input")
-    if not destination.parent.is_dir():
-        raise OSError("output parent directory does not exist")
-    if destination.is_symlink() or (destination.exists() and not destination.is_file()):
-        raise OSError("output must be a regular file, not a symbolic link or special file")
-
-
-def _rewrite(source: _Source, formatted: bytes) -> _Source:
-    _unchanged(source)
-    if formatted == source.data:
-        return source
-    with atomic_path(source.path) as pending:
-        pending.write_bytes(formatted)
-        pending.chmod(source.mode)
-        _unchanged(source)
-    current = _read_source(source.path)
-    if current.data != formatted:
-        raise OSError("source changed after formatting; generated output was not published")
-    return current
 
 
 def _lint(path: Path, source: bytes, allowed: set[str], denied: set[str], *,
@@ -124,17 +70,17 @@ def _lint(path: Path, source: bytes, allowed: set[str], denied: set[str], *,
 def _trace(args: argparse.Namespace) -> int:
     source_path = args.source
     try:
-        source = _read_source(source_path)
+        source = read_source(source_path)
         producer = compiler_trace.producer_identity()
         if args.command == "trace-validate":
             with args.trace.open("rb") as stream:
                 data = stream.read(compiler_trace.MAX_TRACE_BYTES + 1)
             compiler_trace.validate(compiler_trace.decode(data), source.data, producer)
-            _unchanged(source)
+            ensure_unchanged(source)
             _producer_unchanged(producer, "during trace validation")
             print("ok vela: complete pure compiler recording; no program timing verdict")
             return 0
-        _destination(source_path, args.output)
+        check_destination(source_path, args.output)
         recorder = compiler_trace.Recorder(max_events=args.max_events)
         outcome = "success"
         result = 0
@@ -149,13 +95,13 @@ def _trace(args: argparse.Namespace) -> int:
         finally:
             document = recorder.export(source.data, producer, outcome=outcome)
             manifest = compiler_trace.validate(document, source.data, producer, require_complete=False)
-            _unchanged(source)
+            ensure_unchanged(source)
             if compiler_trace.producer_identity() != producer:
                 raise OSError("compiler inputs changed during recording")
-            _destination(source_path, args.output)
+            check_destination(source_path, args.output)
             with atomic_path(args.output) as pending:
                 write_report(pending, document)
-                _unchanged(source)
+                ensure_unchanged(source)
                 if compiler_trace.producer_identity() != producer:
                     raise OSError("compiler inputs changed before trace publication")
     except (OSError, ValueError) as error:
@@ -174,29 +120,29 @@ def _producer_unchanged(producer: str, when: str) -> None:
 def _trace_benchmark(args: argparse.Namespace) -> int:
     source_path = args.source
     try:
-        source = _read_source(source_path)
+        source = read_source(source_path)
         producer = compiler_trace.producer_identity()
         if args.command == "trace-benchmark-validate":
             with args.report.open("rb") as stream:
                 data = stream.read(trace_benchmark.MAX_REPORT_BYTES + 1)
             trace_benchmark.validate(trace_benchmark.decode(data), source.data, producer,
                                      max_overhead_ppm=args.max_overhead_ppm)
-            _unchanged(source)
+            ensure_unchanged(source)
             _producer_unchanged(producer, "during benchmark validation")
             print("ok vela: bound tracing comparison" if args.max_overhead_ppm is None
                   else f"ok vela: measured recording overhead within {args.max_overhead_ppm} ppm")
             return 0
-        _destination(source_path, args.output)
+        check_destination(source_path, args.output)
         report = trace_benchmark.measure(source.data, producer, samples=args.samples,
                                          warmups=args.warmups)
         if args.max_overhead_ppm is not None:
             trace_benchmark.validate(report, source.data, producer, max_overhead_ppm=args.max_overhead_ppm)
-        _unchanged(source)
+        ensure_unchanged(source)
         _producer_unchanged(producer, "during benchmark")
-        _destination(source_path, args.output)
+        check_destination(source_path, args.output)
         with atomic_path(args.output) as pending:
             write_report(pending, report)
-            _unchanged(source)
+            ensure_unchanged(source)
             _producer_unchanged(producer, "before benchmark publication")
     except VelaError as error:
         print(f"{source_path}:{error.line}:{error.column}: {error.kind}: {error.message}", file=sys.stderr)
@@ -218,9 +164,9 @@ def _trace_viewer(args: argparse.Namespace) -> int:
             service.validate(trace_viewer.decode(data), args.trace_processor)
             print(f"vela: {args.report}: current pinned Perfetto importer evidence")
             return 0
-        _destination(args.trace_processor, args.output)
+        check_destination(args.trace_processor, args.output)
         report = service.qualify(args.trace_processor)
-        _destination(args.trace_processor, args.output)
+        check_destination(args.trace_processor, args.output)
         with atomic_path(args.output) as pending:
             write_report(pending, report)
             service.check_current(args.trace_processor, report)
@@ -234,21 +180,21 @@ def _trace_viewer(args: argparse.Namespace) -> int:
 
 def _trace_render(args: argparse.Namespace) -> int:
     try:
-        source = _read_source(args.source)
-        recording = _read_source(args.trace, max_bytes=compiler_trace.MAX_TRACE_BYTES)
+        source = read_source(args.source)
+        recording = read_source(args.trace, max_bytes=compiler_trace.MAX_TRACE_BYTES)
         producer = compiler_trace.producer_identity()
-        _destination(source.path, args.output)
-        _destination(recording.path, args.output)
+        check_destination(source.path, args.output)
+        check_destination(recording.path, args.output)
         artifact = trace_html.render(compiler_trace.decode(recording.data), source.data, producer)
-        _unchanged(source)
-        _unchanged(recording)
+        ensure_unchanged(source)
+        ensure_unchanged(recording)
         _producer_unchanged(producer, "during trace rendering")
-        _destination(source.path, args.output)
-        _destination(recording.path, args.output)
+        check_destination(source.path, args.output)
+        check_destination(recording.path, args.output)
         with atomic_path(args.output) as pending:
             pending.write_text(artifact, encoding="utf-8", newline="")
-            _unchanged(source)
-            _unchanged(recording)
+            ensure_unchanged(source)
+            ensure_unchanged(recording)
             _producer_unchanged(producer, "before trace HTML publication")
     except (OSError, ValueError) as error:
         print(f"trace-render:1:1: rendering: {error}", file=sys.stderr)
@@ -259,9 +205,9 @@ def _trace_render(args: argparse.Namespace) -> int:
 
 def _trace_browser(args: argparse.Namespace) -> int:
     try:
-        _destination(args.browser, args.output)
+        check_destination(args.browser, args.output)
         report = trace_browser.qualify(args.browser, args.browser_sha256)
-        _destination(args.browser, args.output)
+        check_destination(args.browser, args.output)
         with atomic_path(args.output) as pending:
             write_report(pending, report)
             trace_browser.check_current(args.browser, args.browser_sha256, report)
@@ -272,10 +218,10 @@ def _trace_browser(args: argparse.Namespace) -> int:
     return 0
 
 
-def _sarif_sources(paths: list[Path]) -> tuple[_Source, ...]:
+def _sarif_sources(paths: list[Path]) -> tuple[SourceFile, ...]:
     if not 1 <= len(paths) <= sarif.MAX_FILES:
         raise ValueError("SARIF requires 1 to 16 source files")
-    return tuple(_read_source(path) for path in paths)
+    return tuple(read_source(path) for path in paths)
 
 
 def _sarif(args: argparse.Namespace) -> int:
@@ -292,17 +238,17 @@ def _sarif(args: argparse.Namespace) -> int:
         check_document(document)
         manifest = sarif.validate(document, inputs, producer)
         for source in sources:
-            _unchanged(source)
+            ensure_unchanged(source)
         _producer_unchanged(producer, "during SARIF analysis")
         sarif.check_schema_current(args.schema)
         if args.command == "sarif":
-            _destination(args.schema, args.output)
+            check_destination(args.schema, args.output)
             for source in sources:
-                _destination(source.path, args.output)
+                check_destination(source.path, args.output)
             with atomic_path(args.output) as pending:
                 pending.write_bytes(sarif.encode(document))
                 for source in sources:
-                    _unchanged(source)
+                    ensure_unchanged(source)
                 _producer_unchanged(producer, "before SARIF publication")
                 sarif.check_schema_current(args.schema)
         print(f"vela: SARIF analysis complete: {manifest['complete']}; pure development scope; unqualified")
@@ -315,9 +261,9 @@ def _sarif(args: argparse.Namespace) -> int:
 
 def _sarif_reader(args: argparse.Namespace) -> int:
     try:
-        _destination(args.schema, args.output)
+        check_destination(args.schema, args.output)
         for name in sarif_reader.WHEEL_PINS:
-            _destination(args.reader_directory / name, args.output)
+            check_destination(args.reader_directory / name, args.output)
         report = sarif_reader.qualify(args.reader_directory, args.schema)
         with atomic_path(args.output) as pending:
             write_report(pending, report)
@@ -459,10 +405,10 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--no-lint cannot be combined with --allow or --deny")
     path = Path(args.source)
     try:
-        source = _read_source(path)
+        source = read_source(path)
         if args.command == "lint-preview":
             result = authoring_preview.preview(source.data, args.line, args.column)
-            _unchanged(source)
+            ensure_unchanged(source)
             _preview_unchanged(result)
             print(json.dumps(result, ensure_ascii=True, sort_keys=True))
             return 0
@@ -486,7 +432,7 @@ def main(argv: list[str] | None = None) -> int:
                 elif snapshot is not None:
                     result = snapshot.query(source.data, decode_message(request))
             _inspection_unchanged(source, binding)
-            _unchanged(source)
+            ensure_unchanged(source)
             encoded = json.dumps(result, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
             print(encoded)
             return 0 if result["status"] == "checked" else 1
@@ -522,16 +468,16 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
         destination = args.output if args.command == "emit" else None
         if destination is not None:
-            _destination(path, destination)
+            check_destination(path, destination)
             # Stage output before changing source, so a preparation failure writes neither.
             with atomic_path(destination) as pending:
                 pending.write_text(translation.gallina, encoding="utf-8", newline="")
-                _destination(path, destination)
-                current = _rewrite(source, candidate)
-                _unchanged(current)
+                check_destination(path, destination)
+                current = rewrite_source(source, candidate)
+                ensure_unchanged(current)
         else:
-            current = _rewrite(source, candidate)
-            _unchanged(current)
+            current = rewrite_source(source, candidate)
+            ensure_unchanged(current)
         if (args.command != "fmt" and not args.no_lint
                 and not _lint(path, candidate, allowed, denied, require_complete=bool(denied))):
             return 1
