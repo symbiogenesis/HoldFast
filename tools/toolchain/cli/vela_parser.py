@@ -22,6 +22,7 @@ from toolchain import (
     gallina_source_map,
     mathematical_preview,
     packages,
+    remarks_reader,
     scip,
     scip_reader,
     simulator_debug,
@@ -240,6 +241,8 @@ def main(argv: list[str] | None = None) -> int:
     lookup.add_argument("--column", type=int, required=True, help="one-based generated UTF-16 column")
     map_check = commands.add_parser("qualify-source-maps", help="exercise the independent source-map reader and stale refusals")
     map_check.add_argument("--node", type=Path, required=True)
+    remark_check = commands.add_parser("qualify-remarks", help="read specialization decisions with independent LLVM tools")
+    remark_check.add_argument("reader", type=Path, help="pinned Ubuntu ARM64 LLVM 21.1.8 llvm-remarkutil")
     upgrade = commands.add_parser("check-upgrade", help="re-elaborate the same clients against two module revisions")
     upgrade.add_argument("baseline", type=Path)
     upgrade.add_argument("candidate", type=Path)
@@ -369,6 +372,8 @@ def main(argv: list[str] | None = None) -> int:
             output = vela_elaboration_check.check_arithmetic(root, args.source)
         elif args.command == "source-map":
             output = gallina_source_map.export(root, args.source, args.output)
+        elif args.command == "qualify-remarks":
+            output = remarks_reader.qualify(args.reader)
         elif args.command == "source-map-query":
             output = gallina_source_map.query(root, args.source, args.directory, args.node, args.line, args.column)
         elif args.command == "qualify-source-maps":
