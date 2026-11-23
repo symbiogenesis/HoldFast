@@ -477,7 +477,8 @@ def _retained_stdout(step: dict[str, object]) -> bytes:
     return stdout
 
 
-def _simulator_transcript(said: str, returncode: int) -> tuple[str, int | None, list[str]]:
+def _simulator_transcript(said: str, returncode: int, *,
+                          text: memoryview | None = None) -> tuple[str, int | None, list[str]]:
     """Require one unambiguous terminal verdict and validate each declared trace row."""
     terminals: list[str] = []
     instruction_order = -1
@@ -499,9 +500,20 @@ def _simulator_transcript(said: str, returncode: int) -> tuple[str, int | None, 
             raise ValueError("first-slice simulator commit record is malformed")
         if parts[0] == "I":
             order = int(parts[1])
-            if order <= instruction_order:
-                raise ValueError("first-slice simulator instruction order repeats or regresses")
+            if order != instruction_order + 1:
+                raise ValueError("first-slice simulator retirement sequence is incomplete or out of order")
             instruction_order = order
+            if text is not None:
+                pc, word = int(parts[2], 16), int(parts[3], 16)
+                at = pc - cd.asm.TEXT_BASE
+                if order == 0 and at != 0:
+                    raise ValueError(f"first-slice simulator initial PC {pc:#x} differs from image entry"
+                                     f" {cd.asm.TEXT_BASE:#x}")
+                if at < 0 or at % 4 or at + 4 > len(text) or struct.unpack_from("<I", text, at)[0] != word:
+                    raise ValueError(f"first-slice simulator instruction {word:#010x} at PC {pc:#x}"
+                                     " disagrees with the linked executable text")
+        elif instruction_order < 0:
+            raise ValueError("first-slice simulator effect precedes its first instruction")
         elif parts[0] in {"R", "W"}:
             width = int(parts[2])
             if width < 1 or len(parts[4]) != width * 2:
@@ -669,11 +681,12 @@ def _retained_execution(report: dict[str, object], directory: Path,
             stdout = _retained_stdout(process).decode("utf-8")
             raw = log.read_bytes()
             said = stdout + raw[len(stdout.encode("utf-8")):].decode("utf-8")
-            observed_verdict, observed_code, records = _simulator_transcript(said, process["returncode"])
+            retained_image = elf.read_bytes()
+            control_text = _check_purecap_control_image(retained_image)
+            observed_verdict, observed_code, records = _simulator_transcript(said, process["returncode"],
+                                                                             text=control_text)
             regenerated = Path(temporary) / elf.name
             refused, image_bytes = cd.assemble(_purecap_cheri_asm_stream(mode), elf.stem, regenerated)
-            retained_image = elf.read_bytes()
-            _check_purecap_control_image(retained_image)
             if (refused or regenerated.read_bytes() != retained_image
                     or (observed_verdict, observed_code) != (verdict, code) or not records
                     or row.get("verdict") != verdict or type(row.get("code")) is not int or row["code"] != code
@@ -781,7 +794,8 @@ def _retained_compiler(compiler: dict[str, object], files: dict[str, object], di
                         raise ValueError("first-slice receipt interpreter transcript contradicts its verdict")
                 elif log.endswith(".sail.log"):
                     said = Path(log).read_bytes().decode("utf-8")
-                    verdict, code, records = _simulator_transcript(said, process["returncode"])
+                    verdict, code, records = _simulator_transcript(said, process["returncode"],
+                                                                   text=_linked_text(elf.read_bytes()))
                     if ((verdict, code) != ("pass" if expected[name] == 0 else "fail", expected[name])
                             or not records):
                         raise ValueError("first-slice receipt compiler target transcript contradicts its verdict")
@@ -1928,31 +1942,44 @@ int main(void)
     return c_source, 19
 
 
-def _check_purecap_control_image(raw: bytes) -> None:
-    """Check the loaded instruction words of the local control ELF, including untaken branches."""
+def _linked_text(raw: bytes) -> memoryview:
+    """Read the executable PT_LOAD bytes of the fixed-address differential harness."""
     if (len(raw) < image.EHDR_SIZE or raw[:7] != b"\x7fELF\x02\x01\x01"
             or struct.unpack_from("<HH", raw, 16) != (image.ET_EXEC, image.EM_RISCV)):
-        raise ValueError("purecap control requires a little-endian ELF64 RISC-V executable")
-    table, = struct.unpack_from("<Q", raw, 32)
+        raise ValueError("linked image requires a little-endian ELF64 RISC-V executable")
+    entry, table = struct.unpack_from("<QQ", raw, 24)
+    if entry != cd.asm.TEXT_BASE:
+        raise ValueError(f"linked image entry {entry:#x} differs from the harness entry {cd.asm.TEXT_BASE:#x}")
     stride, count = struct.unpack_from("<HH", raw, 54)
     if (table != image.EHDR_SIZE or stride != image.PHDR_SIZE or count != 2
             or table + stride * count > len(raw)):
-        raise ValueError("purecap control requires the text and data load headers")
+        raise ValueError("linked image requires the text and data load headers")
+    text = memoryview(raw)[:0]
     for index, (flags, base) in enumerate(((image.PF_R | image.PF_X, cd.asm.TEXT_BASE),
                                            (image.PF_R | image.PF_W, cd.asm.DATA_BASE))):
         kind, perms, offset, virtual, physical, size, memory, _ = struct.unpack_from(
             "<IIQQQQQQ", raw, table + stride * index)
         if (kind != image.PT_LOAD or perms != flags or virtual != base or physical != base
                 or size != memory or not size or offset < table + stride * count or offset + size > len(raw)):
-            raise ValueError(f"purecap control has an invalid load segment at {base:#x}")
+            raise ValueError(f"linked image has an invalid load segment at {base:#x}")
         if flags & image.PF_X:
-            if size % 4 or base + size > cd.asm.DATA_BASE:
-                raise ValueError("purecap control text exceeds its slot or ends within an instruction")
-            for displacement in range(0, size, 4):
-                word, = struct.unpack_from("<I", raw, offset + displacement)
-                if not any(dialect.matches_encoding(row, word) for row in PURECAP_CONTROL_ROWS):
-                    raise ValueError(f"purecap control instruction {word:#010x} at PC {base + displacement:#x}"
-                                     " is outside its scalar instruction profile")
+            if base + size > cd.asm.DATA_BASE:
+                raise ValueError("linked executable text exceeds its slot")
+            text = memoryview(raw)[offset:offset + size]
+    return text
+
+
+def _check_purecap_control_image(raw: bytes) -> memoryview:
+    """Check all loaded instructions of the local control ELF, including untaken branches."""
+    text = _linked_text(raw)
+    if len(text) % 4:
+        raise ValueError("purecap control text ends within an instruction")
+    for at in range(0, len(text), 4):
+        word, = struct.unpack_from("<I", text, at)
+        if not any(dialect.matches_encoding(row, word) for row in PURECAP_CONTROL_ROWS):
+            raise ValueError(f"purecap control instruction {word:#010x} at PC {cd.asm.TEXT_BASE + at:#x}"
+                             " is outside its scalar instruction profile")
+    return text
 
 
 def _purecap_cheri_asm_stream(mode: str) -> str:
@@ -2107,8 +2134,8 @@ def _check_cold_branch_on_sail(simulator: list[str], profile: Path,
             raise ValueError(f"purecap error-branch control lost its passing execution: {ran.detail}")
         original_trace, changed_trace = (
             _simulator_transcript(Path(str(process["log"])).read_text(encoding="utf-8"),
-                                  int(str(process["returncode"])))
-            for process in (passing_process, observations[0]))
+                                  int(str(process["returncode"])), text=_linked_text(subject))
+            for process, subject in ((passing_process, original), (observations[0], mutant)))
         if original_trace != changed_trace:
             raise ValueError("purecap error-branch control changed the passing Sail trace")
 

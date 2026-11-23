@@ -44,6 +44,10 @@ links the program and its harness in one label namespace. A duplicate label,
 including a collision with the harness's trap handler or exit mailbox, refuses
 assembly. The differential runner also checks that `main` identifies a complete
 aligned word in the executable segment before it writes the image.
+For each retained handwritten or compiler-produced Sail run, the receipt
+checker starts at the harness entry and requires consecutive retirement
+numbers. Each recorded PC must address the recorded word in the linked
+executable segment, including startup and trap-handler PCs.
 The harness checks each handwritten control's executable ELF segment against its scalar
 instruction family. The native regression inserts a vector instruction in an
 untaken failure branch. The checker must report the offending word and

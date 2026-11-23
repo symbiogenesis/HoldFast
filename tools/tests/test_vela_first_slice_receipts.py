@@ -28,9 +28,9 @@ def _execution_fixture(outputs: Path, *, available: bool = False) -> dict[str, o
         "profile": {"path": str(outputs.parent / "profile.json"), "sha256": "2" * 64},
     }
     runs: dict[str, object] = {}
-    trace_lines = ["I 1 0000000080000000 00000013", "W 80008000 8 1 0000000000000042",
+    trace_lines = ["I 0 0000000080000000 FEA0825B", "W 80008000 8 1 0000000000000042",
                    "R 80008000 8 1 0000000000000042"]
-    normalized = ["I 0000000080000000 00000013", *trace_lines[1:]]
+    normalized = ["I 0000000080000000 FEA0825B", *trace_lines[1:]]
     digest = hashlib.sha256("\n".join(normalized).encode()).hexdigest()[:16]
     for mode in ("pass", "bounds-trap", "tag-trap", "perm-trap"):
         elf = outputs / f"purecap_{mode}.elf"
@@ -809,7 +809,7 @@ def _execution_coverage() -> None:
                 elf.write_bytes(b"substitute image")
             elif mutation in {"rehashed-trace", "rehashed-verdict", "no-trace"}:
                 raw = log.read_bytes()
-                raw = (raw.replace(b"00000013", b"00000093") if mutation == "rehashed-trace"
+                raw = (raw.replace(b"FEA0825B", b"00000093") if mutation == "rehashed-trace"
                        else raw.replace(b"SUCCESS", b"FAILURE: 7") if mutation == "rehashed-verdict"
                        else b"SUCCESS\n")
                 log.write_bytes(raw)
@@ -939,7 +939,7 @@ def _compiler_process_coverage() -> None:
                 elif mutation == "target-verdict":
                     stdout = stdout.replace("SUCCESS", "FAILURE: 7")
                 elif mutation == "target-trace":
-                    stdout = stdout.replace("00000013", "00000093")
+                    stdout = stdout.replace("FEA0825B", "00000093")
                 else:
                     stdout = "SUCCESS\n"
                 raw = (stdout + stderr).encode()
@@ -957,13 +957,21 @@ def _compiler_process_coverage() -> None:
 
 def _simulator_transcript_integrity() -> None:
     """Rehashed logs cannot conceal contradictory outcomes or discarded trace rows."""
+    retired_mutations = {
+        "changed-word": ("I 1 0000000080000004 00000013", "linked executable text"),
+        "misaligned-pc": ("I 1 0000000080000002 FEA0825B", "linked executable text"),
+        "writable-data-pc": ("I 1 0000000080008000 00000000", "linked executable text"),
+        "non-entry-start": ("I 0 0000000080000004 00000497", "differs from image entry"),
+        "missing-retirement": ("I 2 0000000080000004 00000497", "retirement sequence"),
+        "effect-first": ("X 4 1 C800000000000000", "effect precedes"),
+    }
     valid = {"none", "diagnostic-stderr", "plain-decimal-verdict"}
     mutations = ("none", "diagnostic-stderr", "plain-decimal-verdict", "contradictory-hex", "malformed-hex",
                  "duplicate-verdict", "indented-verdict", "conflicting-verdict",
                  "embedded-verdict", "malformed-verdict", "malformed-instruction", "malformed-write",
                  "wrong-memory-width", "zero-memory-width", "odd-memory-value", "duplicate-order",
                  "decreasing-order", "memory-without-instruction", "trap-loop", "terminal-before-trace",
-                 "trace-after-terminal")
+                 "trace-after-terminal", *retired_mutations)
     with tempfile.TemporaryDirectory(prefix="vela-slice-simulator-integrity-") as temporary:
         directory = Path(temporary) / "slice-fixture"
         directory.mkdir()
@@ -985,9 +993,13 @@ def _simulator_transcript_integrity() -> None:
                     programs = cast("list[dict[str, object]]", compiler["programs"])
                     program = programs[0 if subject == "compiler" else 1]
                     process = cast("list[dict[str, object]]", program["processes"])[-1]
+                    summary = compiler if subject == "compiler" else None
+                    count_field, digest_field = "sail_records", "sail_trace_digest"
                 else:
                     runs = cast("dict[str, dict[str, object]]", report["purecap_cheri_runs"])
                     process = cast("dict[str, object]", runs[subject]["process"])
+                    summary = runs[subject]
+                    count_field, digest_field = "records", "trace_digest"
                 stdout = original_stdout
                 lines = stdout.splitlines()
                 terminal = lines[-1]
@@ -1032,6 +1044,19 @@ def _simulator_transcript_integrity() -> None:
                     stdout = terminal + "\n" + "\n".join(lines[:-1]) + "\n"
                 elif mutation == "trace-after-terminal":
                     stdout += "I 2 0000000080000004 00000013\n"
+                elif mutation in retired_mutations:
+                    record = retired_mutations[mutation][0]
+                    if mutation == "effect-first":
+                        lines.insert(0, record)
+                    elif mutation == "non-entry-start":
+                        lines[0] = record
+                    else:
+                        lines.insert(1, record)
+                    stdout = "\n".join(lines) + "\n"
+                    normalized = [re.sub(r"^I [0-9]+ ", "I ", row) for row in lines[:-1]]
+                    digest = hashlib.sha256("\n".join(normalized).encode()).hexdigest()[:16]
+                    if summary is not None:
+                        summary[count_field], summary[digest_field] = len(normalized), digest
                 raw = (stdout + stderr).encode("utf-8")
                 Path(str(process["log"])).write_bytes(raw)
                 process.update(log_sha256=hashlib.sha256(raw).hexdigest(),
@@ -1041,6 +1066,9 @@ def _simulator_transcript_integrity() -> None:
                 except (ValueError, TypeError, OSError) as error:
                     ensure(mutation not in valid,
                            f"valid {subject} simulator transcript refused: {error}")
+                    if mutation in retired_mutations:
+                        ensure(retired_mutations[mutation][1] in str(error),
+                               f"{subject}/{mutation} reached the wrong refusal: {error}")
                 else:
                     ensure(mutation in valid,
                            f"rehashed {subject}/{mutation} concealed an invalid simulator transcript")
