@@ -115,18 +115,26 @@ a:hover {
     height: 34px;
     background: #c0cbff;
     border-radius: 10px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    font: italic 600 30px Georgia, serif;
+    display: inline-grid;
+    place-items: center;
     color: #242a41;
-    padding-bottom: 3px;
 }
 
-.brand-mark span {
-    font-style: normal;
-    margin-left: -1px;
-    color: #545f8b;
+.brand-mark::before,
+.brand-mark::after {
+    content: "";
+    grid-area: 1 / 1;
+    width: 13px;
+    height: 10px;
+    box-sizing: border-box;
+    border: 2px solid currentColor;
+    border-right: 0;
+    border-radius: 4px 0 0 4px;
+    transform: rotate(-45deg) translate(-3px, -2px);
+}
+
+.brand-mark::after {
+    transform: rotate(135deg) translate(-3px, -2px);
 }
 
 .brand-divider {
