@@ -202,7 +202,12 @@ def _authoring(root: Path, args: argparse.Namespace, allowed: set[str], denied: 
             findings = mathematical_authoring.lint_source(compiled, snapshot.data)
             ensure_unchanged(snapshot)
             return 0 if report_findings(args.source, findings, allowed, denied) else 1
-        candidate, original, checked = mathematical_authoring.format_checked(compiled, snapshot.data)
+        if args.command == "fmt" and args.syntax_only:
+            candidate = mathematical_authoring.format_syntax(compiled, snapshot.data)
+            compilations = None
+        else:
+            candidate, original, checked = mathematical_authoring.format_checked(compiled, snapshot.data)
+            compilations = original, checked
     ensure_unchanged(snapshot)
     check_only = args.check if args.command == "fmt" else args.format == "check"
     if check_only and candidate != snapshot.data:
@@ -210,6 +215,9 @@ def _authoring(root: Path, args: argparse.Namespace, allowed: set[str], denied: 
     if args.command == "fmt":
         rewrite_source(snapshot, candidate)
         return 0
+    if compilations is None:
+        raise RuntimeError("elaboration requires checked mathematical formatting")
+    original, checked = compilations
     if any(finding.code in denied for finding in original.findings):
         report_findings(args.source, original.findings, allowed, denied)
         return 1
@@ -366,6 +374,7 @@ def main(argv: list[str] | None = None) -> int:
     fmt = commands.add_parser("fmt", help="check and format a mathematically elaborated source")
     fmt.add_argument("source", type=Path)
     fmt.add_argument("--check", action="store_true", help="report a style difference without writing")
+    fmt.add_argument("--syntax-only", action="store_true", help="check syntax and preservation without elaborating")
     lint = commands.add_parser("lint", help="check mathematical declarations, documentation and expression lints")
     lint.add_argument("source", type=Path)
     codes = ("HOLDFAST100", "HOLDFAST101", "HOLDFAST102", *MATHEMATICAL_LINT_CODES)

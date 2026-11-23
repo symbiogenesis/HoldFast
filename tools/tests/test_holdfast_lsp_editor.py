@@ -58,7 +58,7 @@ def _inspect(source: bytes) -> dict[str, object]:
 def _format(source: bytes) -> dict[str, object]:
     result: dict[str, object] = {"source_sha256": hashlib.sha256(source).hexdigest()}
     try:
-        result.update(status="ok", formatted=format_source(source).decode())
+        result.update(status="ok", formatted=format_source(source, syntax_only=True).decode())
     except HoldFastError as error:
         result.update(status="unavailable", reason=error.kind)
     return result
@@ -154,11 +154,21 @@ def _parameters_lifecycle_and_recovery() -> None:
     for method in ("textDocument/semanticTokens/range", "textDocument/rangeFormatting"):
         _error(server, method, _params(), -32601)
     _error(server, "textDocument/semanticTokens/full/delta", _params(), -32602)
-    for text in ("module M; public Nat F()=>true;", "module M; public Nat F()=>;",
+    for text in ("module M; public Nat F()=>;",
                  "module M; public Nat F(ref Nat x)=>x;"):
         server = _server(text)
         ensure(_result(server, methods[0], _params(True)) == [], "refused source received a format edit")
         ensure(_result(server, methods[1], _params()) == {"data": []}, "refused source retained tokens")
+    text = "module M; public Nat F()=>true;"
+    server = Server(checker=lambda _: None, inspector=_inspect)
+    server.handle(_request("initialize"))
+    server.handle(_notice("initialized"))
+    server.handle(_notice("textDocument/didOpen", {"textDocument": {
+        "uri": _URI, "languageId": "holdfast", "version": 1, "text": text}}))
+    ensure(_result(server, methods[0], _params(True))
+           == _edits((0, len(text)), "module M;\n\npublic Nat F() => true;\n"),
+           "type errors prevented syntax-safe formatting through the real worker")
+    ensure(_result(server, methods[1], _params()) == {"data": []}, "formatting promoted invalid semantic facts")
 
 
 def _formatter_transport_and_limits() -> None:

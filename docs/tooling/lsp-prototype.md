@@ -243,7 +243,9 @@ and idempotence checks and uses the layout in the
 must contain a positive integer `tabSize` and Boolean `insertSpaces`; canonical
 compiler style determines the resulting layout regardless of those preferences.
 The server never applies an edit, writes a file or runs the compiler command's
-automatic publication. Invalid or unsupported source returns no edits. A bounded
+automatic publication. A complete pure syntax tree is enough for formatting,
+even when semantic checking reports an error. Malformed or unsupported syntax
+returns no edits. A bounded
 formatter failure returns RequestFailed, including expansion beyond the source
 bound; never return a partial edit. Run formatting in the existing isolated
 five-second worker and validate its complete, bounded transport result.

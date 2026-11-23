@@ -74,7 +74,7 @@ comments carry no semantic or proof authority.
 | `--format off` on check/emission | Explicitly select the ordinary source-preserving default. |
 | `--format write` on check/emission | Explicitly opt into formatting this invocation; this mode is never inherited as a hidden build or dependency setting. |
 | `holdfast lint SOURCE` | Report the supported lint set without rewriting. |
-| Editor formatting | Return a proposed edit; only the editor's explicit edit/save policy applies it. |
+| Editor formatting | Offer layout for a complete supported syntax tree, including buffers with semantic errors. The editor applies the proposed edit. |
 
 `--no-lint` disables optional lints, never parser, type, constant-evaluation or
 proof obligations. A style difference alone does not reject ordinary check or
@@ -83,7 +83,7 @@ files remain usable by source-preserving commands when their requested output
 locations are writable. Unsaved editor snapshots are checked at their own identity
 and never published into the source file by the compiler.
 
-For an explicit formatting write, validate the complete source, reparse and
+For a checked formatting write, validate the complete source, reparse and
 recheck the formatted candidate, establish token/comment preservation and
 idempotence, and publish atomically only to the same unchanged regular source
 file. Refuse symbolic links and changed inputs rather than overwriting another
@@ -171,13 +171,16 @@ mathematical module's layout. A style difference yields a failing exit code.
 reads the authored bytes. Its explicit `--format check` and `--format write` modes
 check the requested layout before emitting Gallina. A denied elaboration lint or
 invalid program preserves both source and existing output. Emission after a
-formatting write identifies the formatted source.
+formatting write identifies the formatted source. `holdfast-parser fmt FILE
+--syntax-only` applies layout to a complete mathematical syntax tree, including
+one with an unresolved name, type error or broken proof. Add `--check` for a
+read-only style verdict. This mode gives no elaboration or proof verdict.
 
 The formatter works from Menhir's complete original token ranges. It preserves
 literal spellings, nested block comments, line comments and the groups of
 `///` comments attached to declarations. Raw and interpolated string tokens
-retain their contents. It elaborates the candidate, compares the complete
-location-independent syntax and ordered spellings, and checks that a second
+retain their contents. It compares the complete location-independent syntax and
+ordered spellings, and checks that a second
 formatting pass yields identical bytes. Both compilers use the same source
 identity checks and atomic file replacement. [Formatter](../../tools/toolchain/mathematical_authoring.py)
 

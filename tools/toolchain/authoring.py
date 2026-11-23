@@ -213,15 +213,17 @@ def _render(parts: list[_Part]) -> bytes:
     return ("\n".join(lines) + "\n").encode("utf-8")
 
 
-def format_source(source: bytes) -> bytes:
-    """Return checked canonical bytes without mutating source or filesystem state."""
+def format_source(source: bytes, *, syntax_only: bool = False) -> bytes:
+    """Return canonical bytes, with semantic checks unless only layout was requested."""
     original = holdfast.parse_module(source)
-    holdfast._translate(source, original)
+    if not syntax_only:
+        holdfast._translate(source, original)
     parts = _parts(source)
     result = _render(parts)
     # Checking the candidate also enforces its expanded byte and syntax bounds.
     candidate = holdfast.parse_module(result)
-    holdfast._translate(result, candidate)
+    if not syntax_only:
+        holdfast._translate(result, candidate)
     rendered = _parts(result)
     if _fingerprint(parts) != _fingerprint(rendered) or _shape(original) != _shape(candidate):
         raise syntax.HoldFastError("format", 1, 1, "formatting changed tokens, comments or syntax")

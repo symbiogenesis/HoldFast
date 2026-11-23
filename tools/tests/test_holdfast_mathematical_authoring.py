@@ -110,6 +110,20 @@ def _native() -> None:
             path.write_bytes(bad)
             code, out, err = _invoke(["fmt", str(path)])
             ensure(code == 1 and not out and bool(err) and path.read_bytes() == bad, "invalid mathematical input was rewritten")
+        bad_proof = b"module M; public lemma Bad() ensures true==true proof{assert true==false;}"
+        path.write_bytes(bad_proof)
+        code, _, _ = _invoke(["fmt", str(path), "--syntax-only", "--check"])
+        ensure(code == 1 and path.read_bytes() == bad_proof, "syntax-only check rewrote the proof")
+        code, out, err = _invoke(["fmt", str(path), "--syntax-only"])
+        ensure(code == 0 and not out and not err and path.read_bytes() ==
+               b"module M;\n\npublic lemma Bad()\n    ensures true == true\nproof\n{\n    assert true == false;\n}\n",
+               f"syntax-only formatting lost the broken proof or refused it: {err}")
+        code, _, _ = _invoke(["elaborate", str(path)])
+        ensure(code == 1, "layout granted semantic acceptance to a broken proof")
+        bad_syntax = b"module M; definition Nat Broken("
+        path.write_bytes(bad_syntax)
+        code, _, _ = _invoke(["fmt", str(path), "--syntax-only"])
+        ensure(code == 1 and path.read_bytes() == bad_syntax, "syntax-only mode rewrote malformed input")
 
 
 def _proofs() -> None:

@@ -41,14 +41,13 @@ def _attached(parts: list[Part], index: int) -> tuple[bytes, ...]:
 class Document:
     ast: Node
     parts: list[Part]
-    checked: mathematical.Compilation
+    parsed: Node
     documentation: dict[int, tuple[bytes, ...]]
 
     @classmethod
     def read(cls, compiled: parser.Build, source: bytes) -> Document:
         parsed = parser.parse_source(compiled, source, layout=True)
         ranges = cast("Sequence[Sequence[int]]", parsed.pop("layout"))
-        checked = mathematical.inspect_source(source, parsed)
         ast = cast("Node", parsed["ast"])
         declarations = {_start(node) for node in nodes(ast) if "modifiers" in node}
         parts: list[Part] = []
@@ -62,7 +61,7 @@ class Document:
             if start in declarations:
                 documentation[start] = _attached(parts, len(parts) - 1)
             cursor = end
-        return cls(ast, parts, checked, documentation)
+        return cls(ast, parts, parsed, documentation)
 
     def render(self) -> bytes:
         roles: dict[int, str] = {}
@@ -135,8 +134,7 @@ def _space(left: Part, right: Part, roles: dict[int, str]) -> bool:
     return after != b"["
 
 
-def format_checked(compiled: parser.Build, source: bytes) -> tuple[bytes, mathematical.Compilation, mathematical.Compilation]:
-    original = Document.read(compiled, source)
+def _format(compiled: parser.Build, original: Document) -> tuple[bytes, Document]:
     candidate = original.render()
     checked = Document.read(compiled, candidate)
     if ([part.spelling for part in original.parts] != [part.spelling for part in checked.parts]
@@ -145,12 +143,23 @@ def format_checked(compiled: parser.Build, source: bytes) -> tuple[bytes, mathem
         raise HoldFastError("format", 1, 1, "formatting changed tokens, comments, documentation or syntax")
     if checked.render() != candidate:
         raise HoldFastError("format", 1, 1, "formatting did not reach a stable layout")
-    return candidate, original.checked, checked.checked
+    return candidate, checked
+
+
+def format_syntax(compiled: parser.Build, source: bytes) -> bytes:
+    return _format(compiled, Document.read(compiled, source))[0]
+
+
+def format_checked(compiled: parser.Build, source: bytes) -> tuple[bytes, mathematical.Compilation, mathematical.Compilation]:
+    original = Document.read(compiled, source)
+    checked_original = mathematical.inspect_source(source, original.parsed)
+    candidate, formatted = _format(compiled, original)
+    return candidate, checked_original, mathematical.inspect_source(candidate, formatted.parsed)
 
 
 def lint_source(compiled: parser.Build, source: bytes) -> tuple[Finding, ...]:
     document = Document.read(compiled, source)
-    findings = list(document.checked.findings)
+    findings = list(mathematical.inspect_source(source, document.parsed).findings)
     record_fields = {_start(field) for item in nodes(document.ast) if item["kind"] == "record"
                      for field in cast("Sequence[Node]", item["parameters"])}
     bindings = {"parameter", "let", "var", "constant_local", "binding_pattern", "foreach",

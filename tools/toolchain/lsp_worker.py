@@ -65,7 +65,7 @@ def main() -> int:
                 return 2
         case ["--format"]:
             try:
-                result = {"status": "ok", "formatted": format_source(source).decode("utf-8")}
+                result = {"status": "ok", "formatted": format_source(source, syntax_only=True).decode("utf-8")}
             except HoldFastError as error:
                 result = {"status": "unavailable", "reason": error.kind}
         case [("--inspect" | "--inspect-snapshot" | "--inspect-completion") as mode]:
