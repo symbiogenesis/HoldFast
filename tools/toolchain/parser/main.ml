@@ -102,10 +102,11 @@ let () =
     exit 1
   in
   try
-    let surface = match Array.to_list Sys.argv with
-      | [_] -> false
-      | [_; "--surface"] -> true
-      | _ -> raise (Ast.Refusal ("syntax", 0, "expected no arguments or --surface"))
+    let surface, layout = match Array.to_list Sys.argv with
+      | [_] -> false, false
+      | [_; "--surface"] -> true, false
+      | [_; "--surface-layout"] -> true, true
+      | _ -> raise (Ast.Refusal ("syntax", 0, "expected no arguments, --surface or --surface-layout"))
     in
     surface_ref := surface;
     source := read_source ();
@@ -114,16 +115,20 @@ let () =
     let state = Lexer.create ~surface () in
     state_ref := Some state;
     lexbuf_ref := Some lexbuf;
+    let tokens = ref [] in
     let next lexbuf =
       let token = Lexer.token state lexbuf in
       let start_pos = Lexing.lexeme_start lexbuf in
       current := start_pos;
+      if layout && token <> Parser.EOF then
+        tokens := Ast.offsets (Lexing.lexeme_start_p lexbuf) (Lexing.lexeme_end_p lexbuf) :: !tokens;
       if not surface then history := (start_pos, token) :: !history;
       token
     in
     let syntax = (if surface then Parser.surface_file else Parser.file) next lexbuf in
-    print_endline (Ast.encode (Ast.Object [("schema", Ast.Number (if surface then 2 else 1));
-                                          ("ast", syntax.syntax)]))
+    let fields = [("schema", Ast.Number (if surface then 2 else 1)); ("ast", syntax.syntax)] in
+    let fields = if layout then ("tokens", Ast.Array (List.rev !tokens)) :: fields else fields in
+    print_endline (Ast.encode (Ast.Object fields))
   with
   | Ast.Refusal (kind, offset, message) -> publish_failure kind offset message
   | Parser.Error ->

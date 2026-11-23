@@ -7,6 +7,7 @@ correctness or correspondence between source grammar and the returned tree.
 
 import hashlib
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal, cast
 
@@ -43,7 +44,8 @@ def unsupported_message(spelling: str) -> str:
             "ownership, borrowing or resource lifetimes")
 
 
-def trivia_end(source: bytes, offset: int, *, block_comments: bool = False) -> int:
+def trivia_end(source: bytes, offset: int, *, block_comments: bool = False,
+               comment: Callable[[int, int], None] | None = None) -> int:
     """Skip complete lexer trivia; never let a source span end inside a comment."""
     if not 0 <= offset <= len(source):
         return -1
@@ -51,10 +53,14 @@ def trivia_end(source: bytes, offset: int, *, block_comments: bool = False) -> i
         if source[offset] in b" \t\r\n":
             offset += 1
         elif source.startswith(b"//", offset):
+            start = offset
             offset += 2
             while offset < len(source) and source[offset] not in b"\r\n":
                 offset += 1
+            if comment:
+                comment(start, offset)
         elif block_comments and source.startswith(b"/*", offset):
+            start = offset
             level = 1
             offset += 2
             while level and offset < len(source):
@@ -70,6 +76,8 @@ def trivia_end(source: bytes, offset: int, *, block_comments: bool = False) -> i
                     offset += 1
             if level:
                 return -1
+            if comment:
+                comment(start, offset)
         else:
             break
     return offset
