@@ -2,7 +2,7 @@
 
 The [release contract](../language/first-release.md#release-boundary) defines
 the language and artifact endpoint. This document defines adoption criteria
-and a conditional protocol for comparing two bounded copying clients.
+and conditional trials for bounded copying and a private linked queue.
 [PLAN.md](../../PLAN.md) tracks which work is active.
 
 <a id="commissioning-disposition"></a>
@@ -289,3 +289,40 @@ through lowering and linkage to exact final bytes establishes
 **artifact-connected** evidence. **Production-qualified** also requires
 admission, resource, security and target evidence at the declared endpoint.
 Hardware refinement and silicon measurement have their own subjects.
+
+## Private linked queue trial
+
+The [post-release trial](../../PLAN.md#q25ea) selects an independent client
+that enqueues owned values, borrows the front element and dequeues in FIFO
+order. The public interface exposes capacity, the sequence of values and the
+ownership returned on success, empty or full. A full enqueue returns the
+offered value and preserves the queue. The provider uses address-stable pool
+nodes with private capability-valued links. Its head and tail may designate
+the same live node. Prove that the live chain represents the public sequence,
+the tail ends it, and each slot belongs either to the chain or to the free
+pool. A front view retains a loan on its live payload.
+
+Freeze independent outcomes for empty, singleton, multi-node and full queues.
+Drain a singleton, reuse its slot for a different value, then enqueue and
+drain several distinct values. Check FIFO order, the returned ownership and
+the unrelated frame. Keep a front view live across removal and use it
+afterwards. Require a diagnostic identifying the removal and the conflicting
+view. End the view before removal in the accepted case. Inside the provider,
+leave the tail pointing to the freed singleton and check that the invariant
+proof fails. Change the pool's slot order and reprove the provider laws. The
+importing client's code and FIFO proof must replay from the same public API.
+
+Use the same capacity, failure and progress guarantees, target and admission
+endpoint for the independent baseline. Compare loads, stores, branches and
+runtime calls per operation, along with code bytes and peak storage. Account
+for required capacity checks and extra work introduced by the abstraction.
+Record provider proof and repair costs separately from caller annotations and
+repair. Apply the [measurement protocol](#measurement-record-and-sampling)
+with the thresholds frozen for this client.
+
+A concurrent consumer requires a separate workload and estimate under the
+[sharing and reclamation rules](../extensions/interior-mutability.md#immutable-publication-and-reclamation).
+Include a delayed reader that still holds a published value when a writer
+requests reuse. Prove linearization, target ordering and quiescence before
+reuse. Compare synchronization and storage costs at the same progress
+guarantee. The sequential trial keeps its capability-valued links private.

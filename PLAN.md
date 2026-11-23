@@ -346,6 +346,13 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
   - **Owner:** `bounded-pool`. **Start:** Concrete ownership laws and the release or service client needing allocation. **Check:** Supply allocator/free-list representation, manifests, capacity/exhaustion, initialization, cancellation/quiescence and reuse proofs under the [bounded-pool boundary](docs/language/first-release.md#release-boundary). Reuse shared backing laws; no implicit allocation, retry or new OS allocator is assumed.
   - Reject reclamation while a surviving list points to backing acquired after the checkpoint. Accept the [owned-copy case](docs/language/first-release.md#ownership-libraries) and verify its retained bytes after the reclaimed storage is reused.
 
+<a id="q25ea"></a>
+
+- [ ] **Q25ea · Trial a private linked queue behind a safe package interface**
+  - **Owner** `linked-queue-trial`
+  - **Start** After the [supported release](#q25bc), select an independent consumer that needs a bounded FIFO with a borrowed front element. Use the [bounded pool](#q25bx) and checked private capability load/store and layout laws. Freeze the public behavior, manual baseline, target, evidence endpoint and acceptable caller and target costs before implementation.
+  - **Check** Run the [linked-queue trial](docs/assurance/workflow-contract.md#private-linked-queue-trial). Verify the private link and reclamation invariant, replay the importing client's FIFO proof, and obtain the queue client's own final-image receipt. Record every representation detail the caller had to supply and the measured cost per operation. If the released rules cannot express the queue, record the smallest missing law and price its implementation separately. The estimate covers the sequential trial using existing producers.
+
 <a id="q25by"></a>
 
 - [ ] **Q25by · Compare fixed modes with a bounded grading increment**
@@ -723,13 +730,13 @@ the [release milestones](#current-execution) to judge readiness.
 <!-- estimate-summary:start -->
 | Measure | Value |
 | --- | --- |
-| Total estimate midpoint h | 21,457.9 |
-| Total estimate range h | 11,657.9–31,257.9 |
+| Total estimate midpoint h | 21,553.9 |
+| Total estimate range h | 11,705.9–31,401.9 |
 | Completed scope h | 1,445.9 |
 | Complete by estimate % | 6.7 |
-| Remaining h | 20,012 |
+| Remaining h | 20,108 |
 | Open class I h | 1,928 |
-| Open class X h | 18,084 |
+| Open class X h | 18,180 |
 | Retained completion estimate h | 1,442.5 |
 | Unmeasured completed items | 48 |
 <!-- estimate-summary:end -->
@@ -828,6 +835,7 @@ changes, refresh the table with `python tools/run.py check --fix`.
 | Q25ce | X | 96 | 48–144 | n/a | n/a |
 | Q25cf | X | 96 | 48–144 | n/a | n/a |
 | Q25cg | X | 32 | 16–48 | n/a | n/a |
+| Q25ea | X | 96 | 48–144 | n/a | n/a |
 | Q25ds | I | 24 | 12–36 | n/a | n/a |
 | Q25dt | I | 88 | 52–124 | n/a | n/a |
 | Q25do | I | 8 | 4–12 | n/a | n/a |
