@@ -915,28 +915,42 @@ class _ProofsMixin:
         return None
 
     def _imported_postcondition(self: _Elaborator, goal: _Term, facts: tuple[_Binding, ...]) -> _Term | None:
-        """Use a supplier's exported theorem at the call appearing in the client's goal."""
-        pending = [goal]
+        """Instantiate public guarantees inside out, so nested calls can supply a premise."""
+        available = list(facts)
+        free_vars: dict[int, tuple[_Term, frozenset[int]]] = {}
+        visible = self.free(goal, free_vars)
+        pending = [(goal, False)]
         seen: set[_Term] = set()
         while pending:
-            expr = pending.pop()
+            expr, expanded = pending.pop()
             if expr in seen:
                 continue
             self.tick()
-            seen.add(expr)
             head, args = self.spine(expr)
+            if not expanded:
+                pending.append((expr, True))
+                pending.extend((child, False) for child in (args if expr.kind == "app" else expr.args))
+                continue
+            seen.add(expr)
             if head.kind == "const" and isinstance(head.value, str):
-                for name in self.imported_postconditions.get(head.value, ()):
+                contracts = self.imported_postconditions.get(head.value, ())
+                if not contracts or not self.free(expr, free_vars) <= visible:
+                    continue
+                for name in contracts:
                     signature = self.constants[name].type
+                    callable_type = self.constants[head.value].type
                     proof = _constant(name)
                     for arg in args:
-                        if signature.kind != "pi":
+                        # Only the declared callable's binders also belong to its guarantee.
+                        # Arguments to a returned function cannot discharge a proof premise.
+                        if signature.kind != "pi" or callable_type.kind != "pi" or signature.value != callable_type.value:
                             break
                         proof = _app(proof, arg)
                         signature = self.substitute(signature.args[1], cast("int", signature.value), arg)
+                        callable_type = callable_type.args[1]
                     while signature.kind == "pi" and self._is_prop_type(signature.args[0]):
                         premise = signature.args[0]
-                        witness = next((f.term for f in facts if self.convertible(f.type, premise)), None)
+                        witness = next((f.term for f in available if self.convertible(f.type, premise)), None)
                         if witness is None:
                             equality = self._extract_equality(premise)
                             if equality is None or not self.convertible(equality[1], equality[2]):
@@ -946,7 +960,7 @@ class _ProofsMixin:
                         signature = self.substitute(signature.args[1], cast("int", signature.value), witness)
                     if self.convertible(signature, goal):
                         return proof
-            pending.extend(args if expr.kind == "app" else expr.args)
+                    available.append(_Binding(proof, signature))
         return None
 
     def _prove_proposition(

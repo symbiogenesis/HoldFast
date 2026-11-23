@@ -26,6 +26,16 @@ a `const` function also commits to its static computation. A client may rely
 on those computations or an exported proof without acquiring a dependency on
 the private body of an ordinary function.
 
+For nested calls to imported functions, the checker can pass the proof of an
+inner call's public postcondition to the outer call's guarantee theorem. It
+matches instantiated premises against the client's proof context and the
+guarantees of calls in the goal, within the ordinary elaboration work budget.
+For example, a provider that promises a positive result can feed a function
+that requires and preserves positivity. The client proof uses both exported
+theorems and can replay with both function bodies opaque. For a function
+that returns another function, its contract applies to the original call.
+Each proof premise still needs a witness when the client applies the result.
+
 The result covers the supplied clients in this mathematical fragment. The
 [release contract](../language/first-release.md#public-api-evolution) also
 accounts for separately compiled consumers, ABI, and replayed kernel evidence.

@@ -12,7 +12,7 @@ from io import StringIO
 from pathlib import Path
 
 from tests.harness import TOOLS, Case, ensure
-from toolchain import parser, proofenv
+from toolchain import parser, proofenv, solver_ledger
 from toolchain.cli import vela_parser
 
 
@@ -57,10 +57,11 @@ def _replay(directory: Path, modules: dict[str, str]) -> None:
     _kernel(directory, ["rocqchk", "-silent", *libraries])
 
 
-def _kernel(directory: Path, arguments: list[str]) -> None:
+def _kernel(directory: Path, arguments: list[str]) -> str:
     process = subprocess.run(["opam", "exec", "--switch", proofenv.ROCQ_SWITCH, "--", *arguments],
                              cwd=directory, check=False, capture_output=True, timeout=180)
     ensure(process.returncode == 0, f"{arguments}: {(process.stdout + process.stderr)[-3000:]!r}")
+    return process.stdout.decode()
 
 
 def _upgrade(workspace: Path, old: str, new: str, source: str) -> None:
@@ -200,10 +201,53 @@ private definition Nat Chosen() => Limit(4).Available;""")
         ensure(bundle.read_bytes() == accepted, "missing public bound replaced the accepted client")
 
 
+def _composed_preconditions() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        directory = Path(temporary)
+        workspace = _workspace(directory)
+        provider = workspace / "weights" / "v1" / "Measure.vela"
+        source = provider.read_text() + """
+public Nat Seed() ensures result >= 1 => 3;
+public Nat Keep(Nat n) requires n >= 1 ensures result >= 1 => n;
+public Fn(Nat) -> Nat MakeReader(Nat seed)
+    requires seed >= 1 ensures result(7) >= 1 => arg => 6;
+"""
+        provider.write_text(source)
+        client = workspace / "scale" / "v1" / "Calibration.vela"
+        client.write_text(client.read_text() + """
+public lemma KeptBound()
+    ensures (Keep(Keep(Seed())) >= 1) == true
+    proof { assert (Keep(Keep(Seed())) >= 1) == true; }
+public lemma ReturnedReaderBound()
+    ensures (MakeReader(Seed())(7) >= 1) == true
+    proof { assert (MakeReader(Seed())(7) >= 1) == true; }
+""")
+        bundle = directory / "bundle.json"
+        _command("build-package", workspace, _lock(workspace), "--output", bundle)
+        accepted = bundle.read_bytes()
+        gallina = json.loads(accepted)["modules"]["Scale.Calibration"]
+        [subject] = re.findall(r"^Module (VelaPackage_[a-z0-9_]+)\.$", gallina, re.MULTILINE)
+        seed, keep, lemma, reader, reader_bound = (
+            re.findall(rf"^Definition (\w+_{name}) :", gallina, re.MULTILINE)[0]
+            for name in ("Seed", "Keep", "KeptBound", "MakeReader", "ReturnedReaderBound"))
+        check = (f"\nImport {subject}.\nExample observed : Nat.leb 1 ({keep} ({keep} ({seed} tt))) = true "
+                 f":= {lemma} tt.\nExample read_seven : Nat.leb 1 ({reader} ({seed} tt) 7) = true "
+                 f":= {reader_bound} tt.\nPrint Assumptions observed.\nPrint Assumptions read_seven.\n")
+        (directory / "Composed.v").write_text(gallina + check, encoding="utf-8")
+        report = _kernel(directory, ["rocq", "c", "-q", "Composed.v"])
+        solver_ledger.audit(report, 2, subject, ())
+        _kernel(directory, ["rocqchk", "-silent", "Composed"])
+        _upgrade(workspace, "v1", "v2", source.replace("Seed() ensures result >= 1", "Seed()"))
+        _command("build-package", workspace, _lock(workspace), "--output", bundle, refusal="precondition")
+        ensure(bundle.read_bytes() == accepted, "an unproved inner precondition replaced the checked bundle")
+
+
 def cases() -> list[Case]:
     return [
         Case("independent locked client, kernel readings and label evolution", _client_upgrade, lane="toolchain"),
         Case("sibling instance coherence, declaration ownership and import order", _closure_coherence, lane="toolchain"),
         Case("locked client proof across opaque implementation and public law changes",
              _opaque_provider_upgrade, lane="toolchain"),
+        Case("closed proof composes nested opaque calls across a locked boundary",
+             _composed_preconditions, lane="toolchain"),
     ]
