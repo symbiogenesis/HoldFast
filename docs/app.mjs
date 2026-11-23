@@ -6663,6 +6663,8 @@ function initPlaygroundUi() {
     session: null,
     connected: false,
     generation: 0,
+    compilerGeneration: null,
+    generationTimer: null,
     opened: false,
     syncedVersion: 0,
     connection: null,
@@ -6807,6 +6809,10 @@ function initPlaygroundUi() {
             : `Local service returned HTTP ${response.status}.`
         );
       }
+      if ((path === "/api/compile" || path === "/api/evaluate") &&
+          response.headers.get("X-Vela-Compiler-Generation") !== state.compilerGeneration) {
+        throw new Error("The compiler response belongs to another dependency generation.");
+      }
       return data;
     } catch (error) {
       if (error.name === "AbortError") {
@@ -6909,6 +6915,23 @@ function initPlaygroundUi() {
     if (!current(captured)) return;
     const error = result.error;
     const position = error ? compilerPosition(error.line, error.column) : null;
+    if (error && result.goals) {
+      const diagnostics = result.goals.map((goal) => ({
+        range: {
+          start: compilerPosition(goal.line, goal.column),
+          end: compilerPosition(goal.line, goal.column + goal.name.length),
+        },
+        severity: 1,
+        message: `${goal.name} (${goal.status}): ${goal.expected || "expected type unavailable"}. ${goal.context}`,
+        source: "Vela elaborator",
+      }));
+      if (error.kind !== "open-goals") {
+        diagnostics.unshift({ range: { start: position, end: position }, severity: 1,
+          message: errorText(error), source: "Vela compiler" });
+      }
+      publishDiagnostics(diagnostics, result);
+      return;
+    }
     const findings = result.ok ? result.findings : [];
     if (!Array.isArray(findings)) {
       throw new Error("The compiler returned incomplete lint findings.");
@@ -6971,8 +6994,12 @@ function initPlaygroundUi() {
 
   function disconnected(error, generation) {
     if (generation !== state.generation) return;
+    state.generation++;
+    clearTimeout(state.generationTimer);
     state.connected = false;
     invalidateServices();
+    clearCompilation("Connection unavailable. Compile again for current output.");
+    clearEvaluation("Connection unavailable. Evaluate again for a current result.");
     status(error.message || "Language services disconnected.", true);
     clearDiagnostics(
       "Language services are disconnected. Compile and expression evaluation remain available."
@@ -6981,11 +7008,33 @@ function initPlaygroundUi() {
     clearInspection("Language services are disconnected. Reconnect to inspect symbols.");
   }
 
+  async function compilerGeneration() {
+    const result = await api("/api/compiler-generation", {});
+    if (result.current !== true || !/^[a-f0-9]{64}$/.test(result.generation)) {
+      throw new Error("Compiler dependencies changed. Restart the local playground.");
+    }
+    return result.generation;
+  }
+
+  function watchCompiler(generation) {
+    state.generationTimer = setTimeout(async () => {
+      try {
+        const current = await compilerGeneration();
+        if (generation !== state.generation) return;
+        if (current !== state.compilerGeneration) throw new Error("Compiler dependencies changed.");
+        watchCompiler(generation);
+      } catch (error) {
+        disconnected(error, generation);
+      }
+    }, 3000);
+  }
+
   async function connect() {
     const oldSession = state.session;
     const generation = ++state.generation;
     state.connected = false;
     clearTimeout(state.checkTimer);
+    clearTimeout(state.generationTimer);
     if (generation > 1) {
       invalidateServices();
       clearCompilation("Connection changed. Compile again for current output.");
@@ -7000,6 +7049,12 @@ function initPlaygroundUi() {
     status(token ? "Connecting to the local language server\u2026" : "Starting in-browser engine\u2026");
     if (oldSession) closeSession(oldSession);
     const pending = (async () => {
+      if (token) {
+        const identity = await compilerGeneration();
+        if (generation !== state.generation) return;
+        state.compilerGeneration = identity;
+        watchCompiler(generation);
+      }
       const response = await api("/api/session", {});
       const session = response.session;
       let adopted = false;
@@ -8193,6 +8248,7 @@ function initPlaygroundUi() {
     }
   });
   window.addEventListener("pagehide", () => {
+    clearTimeout(state.generationTimer);
     if (state.session) closeSession(state.session, { keepalive: true });
   });
 

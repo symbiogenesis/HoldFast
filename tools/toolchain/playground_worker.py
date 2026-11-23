@@ -3,6 +3,7 @@
 
 import hashlib
 import sys
+from dataclasses import asdict
 from pathlib import Path
 from typing import cast
 
@@ -16,6 +17,7 @@ from toolchain import (
     mathematical as vela_mathematical,
 )
 from toolchain.authoring import lint_source, preview_bindings
+from toolchain.elaborate_holes import OpenGoalsError
 from toolchain.hashing import file_sha256
 from toolchain.protocol_json import MAX_BODY_BYTES, decode_message, encode_body
 
@@ -65,6 +67,14 @@ def compile_request(request: dict[str, object], *, mathematical_parser: Path) ->
             "error": {"kind": error.kind, "message": error.message,
                       "line": error.line, "column": error.column}}
         if request["action"] == "compile":
+            if isinstance(error, OpenGoalsError):
+                response["goals"] = [asdict(goal) for goal in error.goals]
+                primary = error.stopped
+                response["error"] = {"kind": primary.kind if primary else "open-goals",
+                                     "message": primary.message if primary else "Provide a term at each named hole",
+                                     "line": error.line, "column": error.column}
+                response["editorServices"] = False
+                return response
             editor = _editor_translation(source)
             response["editorServices"] = (isinstance(editor, VelaError)
                                           and editor.kind == error.kind and error.kind in {"name", "type"})

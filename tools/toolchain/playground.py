@@ -3,6 +3,7 @@
 
 import hashlib
 import hmac
+import re
 import secrets
 import socket
 import subprocess
@@ -17,8 +18,11 @@ from typing import cast, override
 
 from toolchain.ast import IDENTIFIER, MAX_SOURCE_BYTES
 from toolchain.authoring import LINT_CODES, MATHEMATICAL_LINT_CODES, is_pascal_case
+from toolchain.elaborate import FRONTEND_SOURCES
+from toolchain.elaborate_holes import MAX_GOAL_BYTES, MAX_HOLES
 from toolchain.hashing import file_sha256
 from toolchain.lsp import Server
+from toolchain.parser import bytecode_interpreter
 from toolchain.playground_worker import require_parser
 from toolchain.protocol_json import MAX_BODY_BYTES, decode_message, encode_body
 from toolchain.source import SourceSnapshot
@@ -67,6 +71,10 @@ def _validate_result(response: dict[str, object], request: dict[str, object], di
         if request["action"] == "authoring":
             kinds.update({"inspection-limit", "lint-preview", "format"})
         fields = {"ok", "sourceHash", "error"} | ({"editorServices"} if compilation else set())
+        if "goals" in response and compilation and response["editorServices"] is False:
+            _validate_goals(response["goals"], cast("str", request["source"]))
+            kinds.add("open-goals")
+            fields.add("goals")
         if (set(response) != fields or not isinstance(error, dict)
                 or set(error) != {"kind", "message", "line", "column"}
                 or not isinstance(error["kind"], str)
@@ -75,6 +83,34 @@ def _validate_result(response: dict[str, object], request: dict[str, object], di
                 or type(error["line"]) is not int or type(error["column"]) is not int
                 or error["line"] < 1 or error["column"] < 1):
             raise ValueError("compiler worker returned an invalid refusal")
+
+
+def _validate_goals(goals: object, source: str) -> None:
+    if not isinstance(goals, list) or not 1 <= len(goals) <= MAX_HOLES:
+        raise ValueError("invalid named-hole inventory")
+    lines = source.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    previous = (0, 0)
+    remaining = MAX_GOAL_BYTES
+    for goal in goals:
+        if (not isinstance(goal, dict) or set(goal) != {"name", "status", "expected", "context", "line", "column"}
+                or goal["status"] not in ("unresolved", "unsupported", "limit", "timeout")
+                or type(goal["line"]) is not int or type(goal["column"]) is not int
+                or not isinstance(goal["context"], str) or not goal["context"]
+                or (goal["expected"] is not None and (not isinstance(goal["expected"], str) or not goal["expected"]))
+                or not isinstance(goal["name"], str) or not re.fullmatch(r"\?[A-Za-z_][A-Za-z_0-9]*", goal["name"])):
+            raise ValueError("invalid named-hole diagnostic")
+        if goal["expected"] is not None and goal["status"] != "unresolved":
+            raise ValueError("unavailable named-hole judgment carries an expected type")
+        remaining -= len(goal["context"].encode()) + len((goal["expected"] or "").encode())
+        if remaining < 0:
+            raise ValueError("named-hole reply exceeds the context budget")
+        line, column = goal["line"], goal["column"]
+        if not 1 <= line <= len(lines) or not 1 <= column <= len(lines[line - 1]) or (line, column) <= previous:
+            raise ValueError("invalid named-hole location or order")
+        match = re.match(r"\?[A-Za-z_][A-Za-z_0-9]*", lines[line - 1][column - 1:])
+        if match is None or match.group() != goal["name"]:
+            raise ValueError("named-hole diagnostic differs from source")
+        previous = (line, column)
 
 
 def _validate_authoring(response: dict[str, object], source: str) -> None:
@@ -178,6 +214,14 @@ class PlaygroundServer(HTTPServer):
         self.token = secrets.token_urlsafe(32)
         self.mathematical_parser = mathematical_parser
         self.parser_sha256 = file_sha256(mathematical_parser)
+        tools = Path(__file__).resolve().parent
+        self.compiler_inputs = [tools / name for name in (*FRONTEND_SOURCES, "parser.py", "surface.py",
+                                                          "mathematical.py", "playground_worker.py")]
+        self.compiler_inputs.extend((mathematical_parser, Path(sys.executable)))
+        with mathematical_parser.open("rb") as stream:
+            if stream.read(3) == b"#!/":
+                self.compiler_inputs.append(bytecode_interpreter(mathematical_parser))
+        self.generation = self.compiler_generation()
         self.sessions: dict[str, Session] = {}
         self.assets = (Path(__file__).resolve().parents[2] / "docs"
                        if assets is None else assets)
@@ -188,6 +232,18 @@ class PlaygroundServer(HTTPServer):
     @property
     def launch_url(self) -> str:
         return f"{self.origin}/#token={self.token}"
+
+    def compiler_generation(self) -> str:
+        digest = hashlib.sha256()
+        for path in self.compiler_inputs:
+            digest.update(bytes.fromhex(file_sha256(path)))
+        return digest.hexdigest()
+
+    def compiler_current(self) -> bool:
+        try:
+            return self.generation == self.compiler_generation()
+        except OSError:
+            return False
 
     @override
     def get_request(self) -> tuple[socket.socket, tuple[str, int]]:
@@ -244,6 +300,8 @@ class PlaygroundHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        if status == 200 and self.path in {"/api/compile", "/api/evaluate"}:
+            self.send_header("X-Vela-Compiler-Generation", self.playground.generation)
         self.send_header("Cache-Control", "no-store")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("X-Content-Type-Options", "nosniff")
@@ -307,7 +365,7 @@ class PlaygroundHandler(BaseHTTPRequestHandler):
             self._error(401, "Missing or invalid playground token; reopen the printed launch URL")
             return
         if self.path not in {"/api/session", "/api/close", "/api/lsp", "/api/compile", "/api/evaluate",
-                             "/api/authoring"}:
+                             "/api/authoring", "/api/compiler-generation"}:
             self._error(404, "Unknown playground operation")
             return
         lengths = self.headers.get_all("Content-Length", [])
@@ -339,6 +397,10 @@ class PlaygroundHandler(BaseHTTPRequestHandler):
 
     def _dispatch(self, request: dict[str, object]) -> dict[str, object]:
         self.playground.expire_sessions()
+        if self.path == "/api/compiler-generation":
+            if request:
+                raise ValueError("Compiler generation requires an empty object")
+            return {"generation": self.playground.generation, "current": self.playground.compiler_current()}
         if self.path == "/api/close":
             if set(request) != {"session"} or not isinstance(request["session"], str):
                 raise ValueError("Expected a session identifier")
@@ -376,5 +438,15 @@ class PlaygroundHandler(BaseHTTPRequestHandler):
             if len(cast("str", request["expression"]).encode("utf-8")) > 4096:
                 raise ValueError("Expression exceeds 4096 UTF-8 bytes")
         operation = {**request, "action": self.path.rsplit("/", 1)[1]}
-        return run_compiler(operation, mathematical_parser=self.playground.mathematical_parser,
-                            parser_sha256=self.playground.parser_sha256)
+        authoring = self.path == "/api/authoring"
+        if authoring or self.playground.compiler_current():
+            result = run_compiler(operation, mathematical_parser=self.playground.mathematical_parser,
+                                  parser_sha256=self.playground.parser_sha256)
+            if authoring or self.playground.compiler_current():
+                return result
+        refusal: dict[str, object] = {"ok": False, "sourceHash": hashlib.sha256(source.encode()).hexdigest(),
+                                      "error": {"kind": "internal", "line": 1, "column": 1,
+                                                "message": "Compiler dependencies changed. Restart the local playground."}}
+        if self.path == "/api/compile":
+            refusal["editorServices"] = False
+        return refusal

@@ -411,7 +411,7 @@ public struct Buffer<ghost Nat capacity>
 | `assert P;`, `assert P by e;`, `assert P by { ... }` | Intermediate fact, optionally justified by a lemma call or a nested proof block | M |
 | `calc { assert a == b; assert b == c; }` | Calculational chain of transitive equalities | M |
 | `forall (T x) => P`, `exists (T x) => P` | Quantified propositions; a quantifier at the root of a clause is parenthesized | M |
-| Named hole `?name` | A typed hole keeping its expected proposition, locals and loans; the build reports it and nothing containing it is accepted | S |
+| Named hole `?name` | Each occurrence reports its available expected type or proposition and local context. An open goal blocks the build. [Mathematical diagnostics](../tooling/elaboration-prototype.md#named-goals) | M |
 
 Checking tries conversion, resource rules, linear arithmetic, domain lemmas and
 explicit proof in that order; a timeout or unsupported formula leaves the goal

@@ -13,7 +13,7 @@ from typing import cast
 from unittest.mock import patch
 
 from tests.harness import Case, ensure
-from tests.test_vela_playground import _http, _post, _running
+from tests.test_vela_playground import _http, _native_running, _post, _running
 from toolchain import StaticEvaluation, VelaError, authoring, parser, playground, translate
 from toolchain import ast as syntax
 from toolchain.authoring import Finding
@@ -124,6 +124,8 @@ def _worker_reply_binding() -> None:
 def _changed_parser_refuses() -> None:
     with _running() as server:
         parser = server.mathematical_parser
+        initial = _post(server, "/api/compiler-generation", {})
+        ensure(initial.get("current") is True, "prepared compiler generation unavailable")
 
         def replace_during_worker(*_args: object, **_kwargs: object) -> playground.subprocess.CompletedProcess[bytes]:
             parser.write_bytes(b"replaced parser with different executable bytes")
@@ -135,6 +137,8 @@ def _changed_parser_refuses() -> None:
             refused = _post(server, "/api/compile", request)
         ensure(worker.call_count == 1 and refused["ok"] is False and "gallina" not in refused,
                "parser changed during compilation retained its earlier successful result")
+        ensure(_post(server, "/api/compiler-generation", {}) == {**initial, "current": False},
+               "changed dependency retained the prepared diagnostic generation")
         with patch.object(playground.subprocess, "run") as worker:
             status, _, body = _http(server, "/api/compile", request)
         response = cast("dict[str, object]", json.loads(body))
@@ -1039,6 +1043,75 @@ await expectConsoleValue(indexedSquare, "49");
 if (discardPrompts !== 3 || !editedSource.hidden) {
   throw new Error("Loading an unedited example must clear the edited indicator and skip the prompt");
 }
+
+// Drive the native response through the same Monaco controller as an edit and
+// deliver a previous successful compilation after the new bound or dependency.
+for (const el of elementsById.values()) el.listeners.clear();
+let dependencyCurrent = true;
+let checkDependency;
+let holdNext = false;
+let releaseCompile;
+let notifySent;
+const nodeTimeout = globalThis.setTimeout;
+globalThis.setTimeout = (callback, delay, ...args) => {
+  if (delay === 3000) { checkDependency = callback; return 0; }
+  return nodeTimeout(callback, delay, ...args);
+};
+const currentHole = "module Hole; definition Nat Val() => ?value;";
+globalThis.fetch = async (path, options) => {
+  const body = JSON.parse(options.body);
+  let data;
+  if (path === "/api/compiler-generation") {
+    data = { current: dependencyCurrent, generation: "a".repeat(64) };
+  } else if (path === "/api/compile" && holdNext) {
+    holdNext = false;
+    const sourceHash = await mod.sha256Hex(body.source);
+    notifySent();
+    await new Promise((resolve) => { releaseCompile = resolve; });
+    data = { ok: true, sourceHash, module: "Old", editorServices: false, findings: [], gallina: "stale success" };
+  } else if (path === "/api/compile" && body.source === currentHole) {
+    data = { ok: false, sourceHash: await mod.sha256Hex(body.source), editorServices: false,
+      error: { kind: "open-goals", line: 1, column: 38, message: "Provide a term" },
+      goals: [{ name: "?value", status: "unresolved", expected: "Nat", context: "Empty local context",
+        line: 1, column: 38 }] };
+  } else {
+    data = await mod.browserApi(path, body);
+  }
+  return { ok: true, headers: { get: () => "a".repeat(64) }, json: async () => data };
+};
+location.hash = "#token=local";
+await import(`${appUrl}?ui=native`);
+await new Promise((resolve) => setTimeout(resolve, 80));
+const compileButton = elementsById.get("compile-button");
+const oldBound = "module Bound; public bool Small(Nat n) => n < 4;";
+async function pendingCompile() {
+  holdNext = true;
+  const sent = new Promise((resolve) => { notifySent = resolve; });
+  const finished = compileButton.dispatchEvent("click");
+  await sent;
+  return { finished };
+}
+mockModel.setValue(oldBound);
+const old = await pendingCompile();
+mockModel.setValue(oldBound.replace("4", ""));
+if (markers.length || !elementsById.get("download-output").disabled) throw new Error("Invalid edit kept evidence");
+await compileButton.dispatchEvent("click");
+releaseCompile();
+await old.finished;
+if (!markers.length || !elementsById.get("download-output").disabled) throw new Error("Late result survived bound edit");
+mockModel.setValue(currentHole);
+await compileButton.dispatchEvent("click");
+if (markers.length !== 1 || !markers[0].message.includes("?value (unresolved): Nat") ||
+    markers[0].startColumn !== 38 || markers[0].endColumn !== 44) throw new Error("Typed hole lost its text or range");
+const late = await pendingCompile();
+dependencyCurrent = false;
+await checkDependency();
+releaseCompile();
+await late.finished;
+if (markers.length || !elementsById.get("download-output").disabled ||
+    elementsById.get("gallina-output").textContent.includes("stale success")) {
+  throw new Error("A dependency change kept named goals or republished old output");
+}
 console.log(JSON.stringify(parity));
 """
 
@@ -1121,11 +1194,61 @@ def _catalog_native_parity() -> None:
                        f"example {key} differs on {observation['expression']}: {evaluated}")
 
 
+def _native_goal_diagnostics() -> None:
+    source = ("module Open;\r\nlemma Bound(Nat n) requires n == 4 ensures n == 4 proof {\r\n"
+              "    /* \U0001f680 */ assert n == 4 by ?bound;\r\n}\r\n"
+              "definition (Nat, bool) Pair() => (?item, ?item);\r\n")
+    with _native_running() as server:
+        for bound in ("4", "5"):
+            reply = _post(server, "/api/compile", {"source": source.replace("4", bound)})
+            goals = cast("list[dict[str, object]]", reply.get("goals"))
+            ensure(reply["ok"] is False and "gallina" not in reply and goals is not None
+                   and [(g["name"], g["expected"], g["status"], g["line"], g["column"]) for g in goals]
+                   == [("?bound", f"Eq(Nat, n, {bound})", "unresolved", 3, 30),
+                       ("?item", "Nat", "unresolved", 5, 35), ("?item", "bool", "unresolved", 5, 42)],
+                   f"native HTTP goal source, status or exact premise changed: {reply.get('error')}, {goals}")
+        repaired = source.replace(" by ?bound", "").replace("?item, ?item", "4, true")
+        reply = _post(server, "/api/compile", {"source": repaired})
+        ensure(reply.get("ok") is True and "goals" not in reply,
+               f"repair retained stale diagnostics: {reply.get('error')}")
+
+
+def _goal_reply_refusals() -> None:
+    source = "module D; definition Nat N() => ?item;"
+    digest = hashlib.sha256(source.encode()).hexdigest()
+    goal: dict[str, object] = {"line": 1, "column": 33, "name": "?item", "status": "unresolved",
+                              "expected": "Nat", "context": "Empty local context"}
+    reply: dict[str, object] = {"ok": False, "sourceHash": digest, "editorServices": False,
+                               "error": {"kind": "open-goals", "message": "Open goal", "line": 1, "column": 33}}
+    with _running() as server:
+        for invalid in ([{**goal, "name": "?it"}], [{**goal, "status": "checked"}], [{**goal, "line": True}],
+                        [{**goal, "status": "unsupported"}], [{**goal, "context": "x" * 65537}],
+                        [{**goal, "column": 32}], [goal, goal], []):
+            with patch.object(playground.subprocess, "run", return_value=_process({**reply, "goals": invalid})):
+                result = _post(server, "/api/compile", {"source": source})
+            ensure("goals" not in result and result["ok"] is False, "malformed goals reached the browser")
+        binding = server.mathematical_parser.with_suffix(".dependency")
+        binding.write_bytes(b"before")
+        server.compiler_inputs.append(binding)
+        server.generation = server.compiler_generation()
+
+        def replace_frontend(*_args: object, **_kwargs: object) -> playground.subprocess.CompletedProcess[bytes]:
+            binding.write_bytes(b"after")
+            return _process({**reply, "goals": [goal]})
+
+        with patch.object(playground.subprocess, "run", side_effect=replace_frontend):
+            changed = _post(server, "/api/compile", {"source": source})
+        ensure("goals" not in changed and _post(server, "/api/compiler-generation", {})["current"] is False,
+               "the old diagnostic survived a frontend dependency change")
+
+
 def cases() -> list[Case]:
     return [Case("whole-language-http-request-shape", _http_whole_language_request_shape),
             Case("unified-http-source-routing-and-request-field-refusals", _http_dispatch_and_strict_fields),
             Case("mathematical-worker-source-type-and-schema-refusals-with-recovery", _worker_reply_binding),
             Case("mathematical-changed-parser-identity-refuses-before-worker", _changed_parser_refuses),
+            Case("native-http-named-goals-bound-edit-and-repair", _native_goal_diagnostics, lane="toolchain"),
+            Case("malformed-goals-and-stale-frontend-dependency", _goal_reply_refusals),
             Case("mathematical-worker-reuses-elaborator-and-preserves-refusals", _worker_mathematical_routing),
             Case("full-language-compilation-and-evaluation-in-ordinary-modules", _full_language_in_ordinary_modules),
             Case("mathematical-naming-findings-source-shape-budget-and-recovery", _mathematical_naming_reply_validation),

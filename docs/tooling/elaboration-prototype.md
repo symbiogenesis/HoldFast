@@ -448,6 +448,25 @@ exercise atomic publication, input aliases and failure preservation. Native
 qualification replays source through the actual parser and kernel rather than
 only using hand-authored syntax fixtures.
 
+## Named goals
+
+The native checker reports each `?name` at its source occurrence. For example,
+`assert n == 4 by ?bound;` with `Nat n` reports the outstanding core
+proposition `Eq(Nat, n, 4)`. A diagnostic pass checks the surrounding terms
+with fresh variables for the missing values. Its report includes the expected
+type supplied by the enclosing rule, available locals, branch facts, local
+loans and the current return type. Two occurrences with the same spelling can
+have different expected types. A source with any named goal fails compilation,
+evaluation and package building.
+
+A site with no contextual type reports that the type is unavailable. If
+checking stops before a site, the report keeps the first blocking diagnostic
+and records which goals it could inspect. The inventory admits up to 128 sites
+and bounds all goal and context text to 65,536 UTF-8 bytes. Reports in the
+[local playground](playground.md#browser-behavior) follow the active buffer.
+The release fixture's copy, cleanup and returned-view judgments require their
+own [resource derivations](../language/core-design.md#typed-holes-and-invalidation).
+
 ## Locked mathematical packages
 
 The batch builder composes packages for edition `math-1` and target
