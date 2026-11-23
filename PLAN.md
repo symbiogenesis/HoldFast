@@ -457,13 +457,13 @@ unblock the codec. [Protocol contracts](docs/tooling/tooling-protocols.md) ·
 
 <a id="q25ck"></a>
 
-- [ ] **Q25ck · Extend canonical formatting, lints and checked previews**
+- [x] **Q25ck · Extend canonical formatting, lints and checked previews**
   - **Owner:** `vela-authoring`. **Start:** Qualified wider syntax and semantic fact producers. **Check:** Meet the [authoring contract](docs/tooling/authoring-tools.md) with token/comment/documentation preservation, reparse equivalence, idempotence and source-bound explicit previews. Reuse Q25t/z/ah; default commands preserve source bytes.
-  - The standalone pure preview uses existing checked syntax and types. Wider formatting requires its qualified producers.
+  - The pure and standalone mathematical authoring commands check canonical bytes, lints and explicit previews against their respective compilers. [Landing evidence](docs/assurance/completion-log.md#q25ck-extend-canonical-formatting-lints-and-checked-previews).
   - [x] **Q25dy · Qualify checked Boolean comparison lint previews**
     - Explicit single-comparison previews recheck source and candidate, preserve operand evaluation and outside bytes, bind exact source/producer identities and refuse comments, malformed or stale edits. [Landing evidence](docs/assurance/completion-log.md#q25dy-qualify-checked-boolean-comparison-lint-previews).
-  - [ ] **Q25dz · Complete the remaining authoring qualification**
-    - The mathematical CLI qualifies a [checked grouping preview](docs/assurance/completion-log.md#q25dz-complete-the-remaining-authoring-qualification) for bitwise comparison operands. Wider canonical formatting, lints and previews still need their qualified producers. The pure Boolean edit has separate [editor evidence](docs/assurance/completion-log.md#q25dv-complete-the-wider-semantic-editor-and-client-qualification).
+  - [x] **Q25dz · Complete the remaining authoring qualification**
+    - The mathematical CLI formats the checked replay corpus and preserves token spellings, comment attachment and syntax. Naming, documentation and expression lints use the current source, including the checked bitwise grouping preview. [Landing evidence](docs/assurance/completion-log.md#q25dz-complete-the-remaining-authoring-qualification).
 
 <a id="q25cl"></a>
 
@@ -718,14 +718,14 @@ the [release milestones](#current-execution) to judge readiness.
 | Measure | Value |
 | --- | --- |
 | Total estimate midpoint h | 21,457.9 |
-| Total estimate range h | 11,617.9–31,297.9 |
-| Completed scope h | 1,353.9 |
-| Complete by estimate % | 6.3 |
-| Remaining h | 20,104 |
-| Open class I h | 2,020 |
+| Total estimate range h | 11,645.9–31,269.9 |
+| Completed scope h | 1,417.9 |
+| Complete by estimate % | 6.6 |
+| Remaining h | 20,040 |
+| Open class I h | 1,956 |
 | Open class X h | 18,084 |
-| Retained completion estimate h | 1,350.5 |
-| Unmeasured completed items | 46 |
+| Retained completion estimate h | 1,414.5 |
+| Unmeasured completed items | 47 |
 <!-- estimate-summary:end -->
 
 The table counts each checklist leaf once. Completed work contributes actual

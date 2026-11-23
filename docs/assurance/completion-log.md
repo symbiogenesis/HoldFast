@@ -2128,6 +2128,17 @@ Each seven-pair pure benchmark passed the 25% elapsed-overhead budget on
 each report. That budget applies to these workloads and measured intervals.
 The retained estimate is 8 h (4–12), actual n/a for this parallel batch.
 
+<a id="q25ck-extend-canonical-formatting-lints-and-checked-previews"></a>
+
+#### Q25ck · Extend canonical formatting, lints and checked previews
+
+The pure and mathematical CLIs qualify formatting, checked lints and explicit
+edits against the source accepted by each compiler. [Q25dy](#q25dy-qualify-checked-boolean-comparison-lint-previews)
+records the pure Boolean edit and [Q25dz](#q25dz-complete-the-remaining-authoring-qualification)
+records mathematical formatting and the bitwise edit. Each command's
+[publication rules](../tooling/authoring-tools.md#compiler-commands-and-publication)
+specify when it may write source or output.
+
 <a id="q25dz-complete-the-remaining-authoring-qualification"></a>
 
 #### Q25dz · Complete the remaining authoring qualification
@@ -2140,7 +2151,17 @@ cover three bitwise operators, left and right operands, Unicode comments and
 CRLF. The original and edited modules replay four expected Boolean outcomes
 through Rocq. Already grouped operands yield no edit. Changed source, a replaced
 OCaml bytecode interpreter or an altered preview record invalidates the edit.
-Wider formatting and semantic lint coverage remain open.
+
+The [native authoring tests](../../tools/tests/test_vela_mathematical_authoring.py)
+exercise all 50 accepted mathematical programs in the kernel replay corpus.
+Every formatted candidate reparses to the same syntax, rechecks, preserves
+token and comment bytes and declaration documentation, and formats identically
+on a second pass. Independent expected bytes cover a nested comment, an orphan
+documentation line, Unicode and CRLF. Separate tests exercise `in`, `ref` and
+`move` occurrences through the corpus, naming findings on locals versus record
+fields, stale writes, denied lints and preservation of previously emitted output.
+The original and formatted proof fixture both pass Rocq and `rocqchk`.
+The retained estimate is 64 h (36–92), actual n/a for this parallel batch.
 
 <a id="q25ax-implement-locked-package-and-build-closure"></a>
 

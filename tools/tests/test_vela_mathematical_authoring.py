@@ -12,6 +12,7 @@ from unittest.mock import patch
 from tests.harness import Case, ensure, raises
 from tests.test_vela_elaboration_cli import _invoke
 from toolchain import elaboration_check, mathematical_authoring, mathematical_preview, parser
+from toolchain.ast import VelaError
 from toolchain.mathematical import Compilation
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -121,8 +122,22 @@ def _proofs() -> None:
                    "mask proof failed independent source-bound replay")
 
 
+def _accepted_corpus() -> None:
+    fixtures = elaboration_check.fixtures((ROOT / elaboration_check.EXAMPLE).read_bytes(),
+                                          (ROOT / elaboration_check.WORD_COUNT_EXAMPLE).read_bytes())
+    with parser.cached_build(ROOT) as compiled:
+        for fixture in fixtures:
+            if not fixture.pure and fixture.expected == "accepted":
+                try:
+                    mathematical_authoring.format_checked(compiled, fixture.source)
+                except (VelaError, ValueError, RuntimeError) as error:
+                    raise AssertionError(f"{fixture.name}: {error}") from error
+
+
 def cases() -> list[Case]:
     return [Case("reject detached mathematical lexical ranges", _protocol),
             Case("mathematical source rewrite refuses concurrent edit", _edit_race),
             Case("mathematical canonical bytes, diagnostics and preview lifecycle", _native, lane="toolchain"),
-            Case("mathematical canonical and original proofs replay", _proofs, slow=True, lane="toolchain")]
+            Case("mathematical canonical and original proofs replay", _proofs, slow=True, lane="toolchain"),
+            Case("format and recheck the accepted mathematical replay corpus", _accepted_corpus,
+                 slow=True, lane="toolchain")]
