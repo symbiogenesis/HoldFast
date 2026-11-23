@@ -54,6 +54,18 @@ guarantee. Restore the law and replay that same proof. The
 [copying trial's wrong-store case](#change-and-weakening-probes) illustrates
 the check for a byte-valued observation.
 
+Freeze the caller's entry domain, including resource permissions, independently
+of the provider's preconditions. For a compatible replacement, prove that
+every old legal call satisfies the new preconditions and that each reachable
+new exit gives the old caller its promised value, resources and effect bound.
+Preserve any promised termination under those same inputs. Exercise the rule
+by tightening one precondition just enough to exclude a previously legal
+witness while leaving other cases inhabited. For the validator, a readable
+three-byte packet and a disjoint writable eight-byte destination are such a
+witness. Requiring a four-byte packet on entry would remove the caller's
+framing-error guarantee. A provider proof obtained under that restriction
+cannot qualify the old interface.
+
 Give the caller the published interface, including its laws and any definitions
 it exposes for computation. Build and check the caller before and after the
 provider changes its private representation. Renew the lock and artifact

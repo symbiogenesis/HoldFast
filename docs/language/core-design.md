@@ -179,6 +179,35 @@ qualification. Compile-time constants may specialize layouts; runtime lengths
 cannot. Erasure must preserve results, effects, control and observations under the
 same representation, beyond merely type-checking the erased proof.
 
+### Inline proofs and runtime state
+
+At a program point, an inline proof may export a proposition about the
+values, authorized observations and snapshots available there. Its conclusion
+can justify the next instruction. Checking the proof must leave the runtime
+state at that point intact. In particular, the initialized places, outstanding
+loans, available owners, required verdicts and cleanup duties must agree before
+and after the proof. Reading a logical snapshot adds no target load. Taking
+the snapshot, when it requires a load, needs the ordinary read authority and
+appears in the executable footprint.
+
+Qualify this rule with an output parameter. A real store followed by a proof
+of its value establishes initialization. Moving the only initializer into an
+erased proof must fail even if its callee publishes a valid postcondition.
+Apply the same test to ownership transfer, closing a loan and consuming an
+error verdict. Exercise a method receiver and a nested helper as well as a
+direct call. A theorem about a modeled state transition can describe its
+post-state. Applying it to a running program requires evidence that the
+corresponding operation occurred on that path.
+
+For the core theorem, fix the representation, specialization, executable
+operations and optimization decisions. Replacing one checked proof with
+another of the same law must preserve results, exit resources and observable
+traces for every admitted input. The qualification also changes one
+represented branch condition and checks a case that distinguishes its two
+outputs. For a cost claim, compare the executable sections and calling
+convention at the [selected endpoint](../assurance/workflow-contract.md#cost-of-the-verified-abstraction)
+and retain the artifact identity of each build.
+
 ## Composed qualification fixture
 
 `PrepareAndInspect` exercises private copying, scoped inspection and a returned

@@ -8,6 +8,10 @@ solver-trusted obligations. [Authored validator](examples/first_slice.vela) · [
 
 Start with the `machine-logic` owner. Check whether it can supply the canonical
 Sail term (`rv64d.v`) and Q35 compatibility evidence for [Q25am](#q25am).
+At [VerifiedOS revision e0029a0](https://github.com/symbiogenesis/VerifiedOS/blob/e0029a009d1bc0d389a2949e7310da49d904cfb7/docs/assurance/sail-rocq-emission.md),
+the emitted-caller bridge covers bounded tag outcomes. Resume the machine
+interpretation when its producer supplies canonical-main replay with the
+selected bindings, the whole-term build and its assumption report.
 The retained `vela-parser first-slice` result names the blocking producers in
 `inventory.blocking_dependencies`. [First-slice qualification](docs/language/first-release.md#first-slice-qualification)
 
@@ -135,6 +139,7 @@ open until the parent's acceptance conditions are met.
   - **Owner** `core-soundness`
   - **Start** Use the [concrete resource laws](#q25an) and the admitted interpretation of the elaborated image.
   - **Check** Prove substitution, preservation, phase separation, authority and effect composition, and loan restoration on every exit. Show which facts survive a write. [Core obligation matrix](docs/language/core-design.md#proof-obligations-and-proposed-work-packages) and [borrow-analysis rules](docs/language/core-design.md#borrow-analysis-promotion).
+  - Prove [inline proof isolation](docs/language/core-design.md#inline-proofs-and-runtime-state) with initialization, ownership, loan and verdict duties in the judgment. Replay a caller with a real initializer and its proof-only neighbor. An independently checked postcondition of the initializer must confer no runtime write on the second caller.
 
 <a id="q25at"></a>
 
@@ -143,6 +148,8 @@ open until the parent's acceptance conditions are met.
   - **Start** Use the [core-law interfaces](#q25as) and existing checked parser and elaborator, including mathematical elaboration, owned loans and effects.
   - **Check** Implement and independently qualify correspondence between the exact `SourcePackage`, its interpreted core and frontend erasure. Check resolution, reconstruction and arithmetic, loan, capture and effect derivations. For every partial word operation in the qualified subset, bind the guard proof to its source span, checked operand representation and emitted primitive. Report unknown facts and exhausted analysis budgets. Publish the checked validator subset as soon as it passes. For release qualification, compare inferred and explicit clients at the same interpretation and artifact endpoint, covering literal boundaries, ambiguous instances and unstable indices. [Contextual inference](docs/language/first-release.md#contextual-inference).
   - The [word-equation replay](docs/tooling/elaboration-prototype.md#commands-and-acceptance) covers guarded operations on wider symbolic operands. Fifteen independent consumer equations replay against their source-span theorems, including signed addition and subtraction with symbolic bounds. Whole-frontend correspondence remains open. [Arithmetic evidence](docs/assurance/completion-log.md#q25at-qualify-checked-synchronous-frontend-correspondence).
+  - Across a locked interface, instantiate public guarantees at their declared arguments, discharge each premise with a proof in scope, and replay the resulting term with the implementation opaque. Cover a result that is itself callable. Changing an argument to that returned function cannot supply evidence for the producer's precondition. [Package proof composition](docs/tooling/elaboration-prototype.md#client-upgrade-replay)
+  - Extend inline proof reconstruction over the release arithmetic fragment. Replay a bound that follows from a branch guard and its negated neighbor against that exact path, including strict comparisons. When reconstruction runs out of evidence, report the outstanding proposition at the assertion and allow an explicit lemma to supply it. [Kernel boundary](docs/tooling/elaboration-prototype.md#commands-and-acceptance)
 
 <a id="q25au"></a>
 
@@ -205,6 +212,7 @@ open until the parent's acceptance conditions are met.
   - **Start** Select the second client and its intended behavior independently of the first API design. Freeze the baseline, target envelope and benefit thresholds before observing results. Run the trial once the [validator](#q25ba), [packages](#q25ax), represented-library runtime receipts and [general lowering](#q25az) are ready.
   - **Check** Exercise imports, instances, receiver snapshots, partial initialization, exhaustion and resource-returning success and error exits. At the same endpoint, measure annotations, first useful diagnostic, checking latency, review, repair and target costs for a contract change, a preserving refactor and a representation change using explicit Rocq relations. Obtain this client's own admission receipt before acceptance. [Adoption protocol](docs/assurance/workflow-contract.md#first-release-qualification-and-adoption).
   - Run the [public-contract trial](docs/assurance/workflow-contract.md#what-a-caller-can-prove-from-the-public-contract) on the independent client. Check what the caller loses when a required law is weakened and whether its original proof survives a private representation change. Trace [proof erasure and remaining runtime costs](docs/assurance/workflow-contract.md#cost-of-the-verified-abstraction) through the admitted image and compare with the matched baseline on success and error paths.
+  - Keep a previously legal boundary input when testing a tightened provider precondition. A compatible version must cover the frozen caller domain and return its promised resources on every reachable exit. Replay both the unchanged caller and the input that distinguishes the two contracts.
   - Measured friction can open the [borrow-checker comparison](docs/language/loan-analysis.md#conditional-borrowing-comparison) or [proof-transfer experiment](docs/assurance/workflow-contract.md#representation-transfer-comparison).
 
 <a id="q25bc"></a>
