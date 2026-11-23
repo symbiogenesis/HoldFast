@@ -42,8 +42,11 @@ Validate, execute and promote each route's exact final image. Bytes may differ a
 The [first-slice harness](../language/first-release.md#first-slice-qualification)
 links the program and its harness in one label namespace. A duplicate label,
 including a collision with the harness's trap handler or exit mailbox, refuses
-assembly. The differential runner also checks that `main` identifies a complete
-aligned word in the executable segment before it writes the image.
+assembly. Each constant use denotes its most recent preceding assignment or,
+for a forward reference, its first definition. Undefined names and cycles in
+constant definitions refuse assembly. The differential runner also checks
+that `main` identifies a complete aligned word in the executable segment before
+it writes the image.
 For each retained handwritten or compiler-produced Sail run, the receipt
 checker starts at the harness entry and requires consecutive retirement
 numbers. Each recorded PC must address the recorded word in the linked

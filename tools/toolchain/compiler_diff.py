@@ -224,8 +224,8 @@ def assemble(stream: str, name: str, elf: Path,
     main_line = next((line for line, raw in enumerate(stream.splitlines(), 1) if "main" in _split(raw)[0]), None)
     if main_line is None:
         return [Refusal("symbol", "main", 0, "the stream defines no `main`")], 0
-    assembler = asm.Assembler(compose(stream, prologue), name)
     try:
+        assembler = asm.Assembler(compose(stream, prologue), name)
         sections, symbols, entry = assembler.assemble()
     except AsmError as exc:
         return [_layout_refusal(exc, stream, prologue.count("\n"))], 0

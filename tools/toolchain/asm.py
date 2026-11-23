@@ -9,9 +9,11 @@ expands pseudo-instructions, encodes canonical 32-bit words via
 
 import operator
 import re
+from bisect import bisect_left
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Final
+from graphlib import CycleError, TopologicalSorter
+from typing import Final, cast
 
 from . import dialect, image
 from .dialect import AsmError
@@ -69,16 +71,20 @@ class Assembler:
         self.name = name
         self.text_base = text_base
         self.data_base = data_base
-        self.externals = dict(externals or {})
+        self.externals: dict[str, int] = dict(externals or {})
         self.items: list[Item] = []
         self.symbols: dict[str, int] = {}
         self.symbol_section: dict[str, str] = {}
-        self.constants: dict[str, tuple[int, str]] = {}   # .equ, with its section
+        self.constant_lines: dict[str, list[int]] = {}
+        self.constant_values: dict[int, int] = {}
         self.section = ".text"
         # During layout passes (`strict=False`), forward references evaluate to 0;
         # during final encoding (`strict=True`), undefined symbols raise `AsmError`.
         self.strict = False
         self._parse(source)
+        for item in self.items:
+            if item.kind == "equ":
+                self.constant_lines.setdefault(item.text, []).append(item.line)
 
     # -- parsing ------------------------------------------------------------
 
@@ -119,7 +125,7 @@ class Assembler:
         elif name in (".globl", ".global", ".type", ".size"):
             pass                                   # every label is exported
         elif name in (".equ", ".set"):
-            if len(args) < 2:
+            if len(args) != 2:
                 raise self._error(lineno, f"{name} takes a name and a value")
             self.items.append(Item("equ", lineno, self.section, text=args[0],
                                    args=args[1:]))
@@ -176,16 +182,20 @@ class Assembler:
                                              f"(first defined on line {first.line})")
             definitions[item.text] = item
 
-        previous: dict[str, int] = {}
+        constants = self._ordered_constants()
+        self.strict = False
         for _ in range(8):
+            previous = self.symbols.copy(), [item.address for item in constants]
+            self._evaluate_constants(constants)
             self._layout()
-            if self.symbols == previous:
+            if previous == (self.symbols, [item.address for item in constants]):
                 break
-            previous = dict(self.symbols)
         else:
             raise AsmError(f"{self.name}: layout did not settle in eight rounds")
 
         self.strict = True
+        self._evaluate_constants(constants)
+        self._layout()
         text = image.Section(".text", self.text_base, executable=True)
         data = image.Section(".data", self.data_base, writable=True)
         sections = {".text": text, ".data": data}
@@ -210,19 +220,39 @@ class Assembler:
         entry = self.symbols.get("_start", self.text_base)
         return [text, data], symbols, entry
 
+    def _constant_line(self, name: str, use_line: int) -> int | None:
+        """Bind a use to its preceding assignment, or the first forward definition."""
+        lines = self.constant_lines.get(name)
+        if lines is None:
+            return None
+        return lines[max(0, bisect_left(lines, use_line) - 1)]
+
+    def _ordered_constants(self) -> list[Item]:
+        definitions = {item.line: item for item in self.items if item.kind == "equ"}
+        order = TopologicalSorter[int]()
+        for line, item in definitions.items():
+            dependencies = [self._constant_line(name, line) for kind, name in
+                            _tokenize(item.args[0], self, line) if kind == "name"]
+            order.add(line, *(dependency for dependency in dependencies if dependency is not None))
+        try:
+            return [definitions[line] for line in order.static_order()]
+        except CycleError as error:
+            cycle = cast("list[int]", error.args[1])
+            names = " -> ".join(definitions[line].text for line in cycle)
+            raise self._error(cycle[0], f"cyclic constant definition: {names}") from None
+
+    def _evaluate_constants(self, definitions: list[Item]) -> None:
+        for item in definitions:
+            self.constant_values[item.line] = self._eval(item.args[0], item, item.address)
+
     def _layout(self) -> None:
         cursor = {".text": self.text_base, ".data": self.data_base}
-        # Imports name addresses outside this unit and belong to no local section.
-        self.constants = {name: (value, "") for name, value in self.externals.items()}
         for item in self.items:
             here = cursor[item.section]
             item.address = here
             if item.kind == "label":
                 self.symbols[item.text] = here
                 self.symbol_section[item.text] = item.section
-            elif item.kind == "equ":
-                self.constants[item.text] = (self._eval(item.args[0], item, here),
-                                             item.section)
             elif item.kind == "insn":
                 item.size = 4 * len(self._expand(item, here))
             elif item.kind == "space":
@@ -380,8 +410,11 @@ class Assembler:
             return here
         if name in self.symbols:
             return self.symbols[name]
-        if name in self.constants:
-            return self.constants[name][0]
+        if name in self.externals:
+            return self.externals[name]
+        definition = self._constant_line(name, item.line)
+        if definition is not None:
+            return self.constant_values[definition]
         if self.strict:
             raise self._error(item.line, f"no symbol {name}")
         return 0
@@ -460,7 +493,13 @@ def _expr(tokens: list[Token], at: int, asm: Assembler, item: Item, here: int,
             break
         precedence, apply = operation
         right, at = _expr(tokens, at + 1, asm, item, here, precedence + 1)
-        left = apply(left, right)
+        try:
+            left = apply(left, right)
+        except (ValueError, ZeroDivisionError) as error:
+            if asm.strict:
+                raise asm._error(item.line, f"invalid constant expression: {error}") from None
+            # Layout may provisionally read zero for a forward label.
+            left = 0
     return left, at
 
 
