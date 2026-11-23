@@ -135,10 +135,6 @@ def refusals(stream: str) -> list[Refusal]:
     return found
 
 
-def _defines_main(stream: str) -> bool:
-    return any("main" in _split(raw)[0] for raw in stream.splitlines())
-
-
 # =====================================================================================
 # The harness, and assembling a stream under it
 # =====================================================================================
@@ -225,17 +221,23 @@ def assemble(stream: str, name: str, elf: Path,
     found = refusals(stream)
     if found:
         return found, 0
-    if not _defines_main(stream):
+    main_line = next((line for line, raw in enumerate(stream.splitlines(), 1) if "main" in _split(raw)[0]), None)
+    if main_line is None:
         return [Refusal("symbol", "main", 0, "the stream defines no `main`")], 0
     assembler = asm.Assembler(compose(stream, prologue), name)
     try:
         sections, symbols, entry = assembler.assemble()
     except AsmError as exc:
         return [_layout_refusal(exc, stream, prologue.count("\n"))], 0
-    text = sum(len(s.data) for s in sections if s.name == ".text")
-    if text > asm.DATA_BASE - asm.TEXT_BASE:
+    text = next(s for s in sections if s.name == ".text")
+    section, address = symbols["main"]
+    if (section != text.name or address % 4 or address < text.addr
+            or address + 4 > text.addr + len(text.data)):
+        return [Refusal("symbol", "main", main_line,
+                        "main must identify a complete aligned word in the executable text")], 0
+    if len(text.data) > asm.DATA_BASE - asm.TEXT_BASE:
         return [Refusal("layout", ".text", 0,
-                        f"{text} bytes of text reach the data section at "
+                        f"{len(text.data)} bytes of text reach the data section at "
                         f"{asm.DATA_BASE:#x}")], 0
     image.write_elf(elf, sections, symbols, entry)
     return [], sum(len(s.data) for s in sections)

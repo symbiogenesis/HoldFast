@@ -40,7 +40,11 @@ R-05-023a requires CIC-checked decompilation into R-13-017's Iris-over-Sail logi
 Validate, execute and promote each route's exact final image. Bytes may differ across routes; their source contract, assumptions and observation model may not. Changed bytes, relocations, certificates, source bindings or configuration invalidate dependent evidence; recompilation requires a new package.
 
 The [first-slice harness](../language/first-release.md#first-slice-qualification)
-checks each handwritten control's executable ELF segment against its scalar
+links the program and its harness in one label namespace. A duplicate label,
+including a collision with the harness's trap handler or exit mailbox, refuses
+assembly. The differential runner also checks that `main` identifies a complete
+aligned word in the executable segment before it writes the image.
+The harness checks each handwritten control's executable ELF segment against its scalar
 instruction family. The native regression inserts a vector instruction in an
 untaken failure branch. The checker must report the offending word and
 address even when the passing Sail trace matches. This covers the control

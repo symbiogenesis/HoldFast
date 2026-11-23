@@ -163,6 +163,19 @@ class Assembler:
         source alone, so the iteration moves only where a `li` crosses a
         materialization boundary and it settles in two rounds.
         """
+        definitions: dict[str, Item] = {}
+        for item in self.items:
+            if item.kind not in ("label", "equ"):
+                continue
+            if item.text in self.externals:
+                raise self._error(item.line, f"{item.text} is imported from another "
+                                             "unit and cannot be defined here")
+            first = definitions.get(item.text)
+            if first is not None and (first.kind == "label" or item.kind == "label"):
+                raise self._error(item.line, f"duplicate symbol {item.text} "
+                                             f"(first defined on line {first.line})")
+            definitions[item.text] = item
+
         previous: dict[str, int] = {}
         for _ in range(8):
             self._layout()
@@ -199,16 +212,11 @@ class Assembler:
 
     def _layout(self) -> None:
         cursor = {".text": self.text_base, ".data": self.data_base}
-        # An import is a constant the unit did not define, so it sits beside the
-        # `.equ`s rather than among the labels: it names an address in another unit
-        # and no section of this one, and a unit defining the same name refuses below.
+        # Imports name addresses outside this unit and belong to no local section.
         self.constants = {name: (value, "") for name, value in self.externals.items()}
         for item in self.items:
             here = cursor[item.section]
             item.address = here
-            if item.kind in ("label", "equ") and item.text in self.externals:
-                raise self._error(item.line, f"{item.text} is imported from another "
-                                             f"unit and cannot be defined here")
             if item.kind == "label":
                 self.symbols[item.text] = here
                 self.symbol_section[item.text] = item.section
