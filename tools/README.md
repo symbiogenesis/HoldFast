@@ -10,7 +10,7 @@ Run `python tools/run.py` on Windows and `python3 tools/run.py` on Linux. Guest-
 | `python tools/run.py validate --full` | host + guest | Run the complete local development qualification profile with native prerequisites required |
 | `python tools/run.py validate --static` | host / guest | Run Python and Markdown checks |
 | `python tools/run.py gate` | host / guest | Run `check`, `markdown`, and `typecheck` in one verdict |
-| `python tools/run.py check` | host / guest | Enforce REUSE v3.3, SPDX headers, EditorConfig, glyph hygiene, source-comment links, JavaScript/playground asset bindings, and plan-summary arithmetic |
+| `python tools/run.py check` | host / guest | Check [licensing](../COPYRIGHT.md#file-markings), EditorConfig, glyph hygiene, source-comment links, JavaScript/playground asset bindings, and plan-summary arithmetic |
 | `python tools/run.py check --fix` | host / guest | Refresh only the generated estimate table in [PLAN.md](../PLAN.md#current-summary), then run all `check` rules |
 | `python tools/run.py markdown` | host / guest | Validate `tools/rumdl.toml` and run closed-world `rumdl` Markdown linting across the corpus |
 | `python tools/run.py typecheck` | host / guest | Typecheck and lint `tools/` under pinned `ty` (`linux` + `win32`) and `ruff` |
@@ -79,7 +79,7 @@ Hosted execution remains user-managed under the
 ## Dependency and version policy
 
 - Use the Python minor version specified by `project.requires-python` in [tools/pyproject.toml](pyproject.toml).
-- **Exact checker pins**: `dependency-groups.dev` in [tools/pyproject.toml](pyproject.toml) pins exact versions of `ty`, `ruff`, `rumdl`, `reuse`, and `charset-normalizer`, resolved with `no-build = true`, `python-downloads = "never"`, and `exclude-newer = "3 days"` in [tools/uv.lock](uv.lock).
+- **Exact checker pins**: `dependency-groups.dev` in [tools/pyproject.toml](pyproject.toml) pins exact versions of `ty`, `ruff`, and `rumdl`, resolved with `no-build = true`, `python-downloads = "never"`, and `exclude-newer = "3 days"` in [tools/uv.lock](uv.lock).
 - **Reviewed checker schemas**: [tools/ty.toml](ty.toml), [tools/ruff.toml](ruff.toml), and [tools/rumdl.toml](rumdl.toml) are validated against [tools/ty-config.schema.json](ty-config.schema.json), [tools/ruff-config.schema.json](ruff-config.schema.json), and [tools/rumdl-config.schema.json](rumdl-config.schema.json) before any checker runs.
 
 <a id="checked-references-in-source-comments"></a>

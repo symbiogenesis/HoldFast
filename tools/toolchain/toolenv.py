@@ -16,7 +16,7 @@ from toolchain import env, pyversion
 READY = "_VOS_TOOL_ENV"
 PROJECT = "tools/pyproject.toml"
 LOCK = "tools/uv.lock"
-REQUIRED_DEV_PINS = frozenset({"charset-normalizer", "reuse", "ruff", "rumdl", "ty"})
+REQUIRED_DEV_PINS = frozenset({"ruff", "rumdl", "ty"})
 
 
 def checker_pins(root: Path) -> dict[str, str]:

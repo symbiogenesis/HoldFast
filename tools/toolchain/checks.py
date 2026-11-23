@@ -5,25 +5,16 @@ import ast
 import configparser
 import io
 import re
-import subprocess
-import sys
-import sysconfig
 import tokenize
 from collections.abc import Sequence
 from pathlib import Path, PurePosixPath
 
 import toolchain as holdfast
-from toolchain import authoring, corpus, estimates, highlight_qualification, markdown, toolenv
+from toolchain import authoring, corpus, estimates, highlight_qualification, licensing, markdown
 from toolchain.cli import typecheck
 from toolchain.report import Reporter
 
-TIMEOUT = 120
-
-_SPDX_TAG = "SPDX-License-" + "Identifier:"
-_SPDX_FENCE_RE = re.compile(rf"```(?:text)?\n(# {_SPDX_TAG} ([A-Za-z0-9.-]+))\n```")
 _LINK_RE = re.compile(r"(?<!!)\[([^\]\n]+)\]\(([^)\s]+)\)")
-_HASH_NAMES = frozenset({".editorconfig", ".gitattributes", ".gitignore", "REUSE.toml"})
-_NO_MARK_SUFFIXES = (".md", ".json", ".lock")
 _SOURCE_REF_SUFFIXES = (
     ".py",
     ".hf",
@@ -132,125 +123,6 @@ _HTML_EXAMPLES_SELECT_RE = re.compile(r'<select[^>]*\bid="examples"[^>]*>(.*?)</
 _HTML_OPTION_VALUE_RE = re.compile(r'<option[^>]*\bvalue="([^"]+)"')
 _JS_DOLLAR_ID_RE = re.compile(r'\$\(\s*"([A-Za-z0-9_-]+)"\s*\)')
 _JS_SELECT_TAB_RE = re.compile(r'\bselectTab\(\s*"([A-Za-z0-9_-]+)"\s*\)')
-
-
-def _reuse_executable() -> Path | None:
-    scripts = Path(sysconfig.get_path("scripts"))
-    candidate = scripts / ("reuse.exe" if sys.platform == "win32" else "reuse")
-    return candidate if candidate.is_file() else None
-
-
-def reuse_findings(root: Path) -> list[str]:
-    """Run the pinned FSFE REUSE v3.3 linter against REUSE.toml and LICENSES/."""
-    try:
-        pin = toolenv.checker_pins(root)["reuse"]
-    except (OSError, TypeError, ValueError, KeyError) as err:
-        return [f"cannot read pinned reuse version: {err}"]
-    executable = _reuse_executable()
-    if executable is None:
-        return [
-            f"reuse {pin} is not installed in the tools environment; "
-            "run a command through tools/run.py to synchronize tools/uv.lock"
-        ]
-    try:
-        ver = subprocess.run(
-            [str(executable), "--version"],
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-            timeout=30,
-        )
-    except (OSError, subprocess.SubprocessError) as err:
-        return [f"reuse --version failed: {err}"]
-    first_line = ver.stdout.splitlines()[0].strip() if ver.stdout else ""
-    if ver.returncode != 0 or first_line != f"reuse, version {pin}":
-        return [
-            f"reuse ({first_line or 'unknown'}) does not match pinned {pin}; "
-            "run a command through tools/run.py to synchronize tools/uv.lock"
-        ]
-    try:
-        done = subprocess.run(
-            [str(executable), "--root", str(root), "lint", "--lines"],
-            cwd=root,
-            env=corpus.git_environment(root),
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-            timeout=TIMEOUT,
-        )
-    except (OSError, RuntimeError, subprocess.SubprocessError) as err:
-        return [f"reuse lint failed: {err}"]
-    lines = [line.strip() for line in done.stdout.splitlines() if line.strip()]
-    if done.returncode == 0 and not lines:
-        return []
-    if lines:
-        return lines
-    detail = (done.stderr.strip() or done.stdout.strip())[-200:]
-    return [f"reuse lint exited {done.returncode}: {detail}"]
-
-
-def _expected_spdx_ident(loaded: corpus.Corpus) -> tuple[str | None, list[str]]:
-    doc = loaded.get("COPYRIGHT.md")
-    if doc is None:
-        return None, ["COPYRIGHT.md is missing from the indexed corpus"]
-    match = _SPDX_FENCE_RE.search(doc.raw)
-    if match is None:
-        return None, [f"COPYRIGHT.md does not declare a canonical `# {_SPDX_TAG}` block"]
-    return str(match.group(2)), []
-
-
-def marks_findings(root: Path, loaded: corpus.Corpus) -> list[str]:
-    """Hold every markable file to the SPDX header syntax for its file kind."""
-    ident, findings = _expected_spdx_ident(loaded)
-    if ident is None:
-        return findings
-    tag = f"{_SPDX_TAG} {ident}"
-    expected_by_suffix: dict[str, tuple[str, ...]] = {
-        ".py": (f"# {tag}",),
-        ".toml": (f"# {tag}",),
-        ".yml": (f"# {tag}",),
-        ".yaml": (f"# {tag}",),
-        ".ml": (f"(* {tag} *)",),
-        ".mli": (f"(* {tag} *)",),
-        ".mll": (f"(* {tag} *)",),
-        ".v": (f"(* {tag} *)",),
-        ".mly": (f"/* {tag} */",),
-        ".c": (f"/* {tag} */",),
-        ".scm": (f"; {tag}",),
-        ".css": (f"/* {tag} */",),
-        ".mjs": (f"// {tag}",),
-        ".js": (f"// {tag}",),
-        ".hf": (f"/* {tag} */", f"// {tag}"),
-        ".html": (f"<!-- {tag} -->",),
-    }
-    hash_mark = (f"# {tag}",)
-    for rel in loaded.tracked:
-        if rel.startswith("LICENSES/") and rel.endswith(".txt"):
-            continue
-        if rel.endswith(_NO_MARK_SUFFIXES):
-            continue
-        name = PurePosixPath(rel).name
-        suffix = PurePosixPath(rel).suffix
-        allowed = hash_mark if name in _HASH_NAMES else expected_by_suffix.get(suffix)
-        if allowed is None:
-            findings.append(f"{rel}: file kind has no SPDX comment syntax ruling")
-            continue
-        try:
-            lines = (root / rel).read_text(encoding="utf-8").splitlines()
-        except (OSError, UnicodeDecodeError) as err:
-            findings.append(f"{rel}: cannot read file for SPDX check: {err}")
-            continue
-        if not lines:
-            findings.append(f"{rel}: empty file is missing its opening SPDX mark")
-            continue
-        first = lines[1] if lines[0].startswith("#!") and len(lines) > 1 else lines[0]
-        if first not in allowed:
-            findings.append(f"{rel}: expected opening mark {allowed[0]!r}, found {first!r}")
-    return findings
 
 
 def editorconfig_findings(root: Path, tracked: Sequence[str]) -> list[str]:
@@ -1000,15 +872,15 @@ def run(root: Path, *, loaded: corpus.Corpus | RuntimeError | None = None) -> Re
         "the plan summary matches its priced checklist leaves and calibration record",
     )
     rep.report(
-        "reuse",
-        "REUSE v3.3 compliance finding(s):",
-        reuse_findings(root),
-        f"REUSE v3.3 linter accepts all {len(loaded.tracked)} tracked file(s)",
+        "licensing",
+        "license policy finding(s):",
+        licensing.findings(root, loaded),
+        "tracked files have the required path assignments, license texts, and inline MIT notice",
     )
     rep.report(
         "marks",
         "SPDX file-header finding(s):",
-        marks_findings(root, loaded),
+        licensing.marks_findings(root, loaded),
         "every markable tracked file opens with its canonical SPDX-License-Identifier header",
     )
     rep.report(

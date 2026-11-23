@@ -62,22 +62,19 @@ def _git_deadline() -> None:
            "the Git index probe must have a deadline and cannot wait for interactive input")
 
 
-def _reuse_worktree_environment() -> None:
+def _git_worktree_environment() -> None:
     root = Path("checkout")
     overlay = {"GIT_DIR": "git-admin", "GIT_WORK_TREE": str(root)}
-    version = subprocess.CompletedProcess(["reuse", "--version"], 0, "reuse, version fixture", "")
-    lint = subprocess.CompletedProcess(["reuse", "lint"], 0, "", "")
+    listed = subprocess.CompletedProcess(["git", "ls-files", "-z"], 0, b"some.md\x00", b"")
     for binding in ({}, overlay):
         with patch.dict(proofenv.os.environ, {"PATH": "checker-path"}, clear=True), \
                 patch.object(proofenv, "git_env", return_value=binding) as translate, \
-                patch.object(checks.toolenv, "checker_pins", return_value={"reuse": "fixture"}), \
-                patch.object(checks, "_reuse_executable", return_value=Path("reuse")), \
-                patch.object(checks.subprocess, "run", side_effect=(version, lint)) as run:
-            ensure(not checks.reuse_findings(root), "a clean REUSE invocation failed")
+                patch.object(corpus.subprocess, "run", return_value=listed) as run:
+            ensure(corpus._git(root, "ls-files", "-z") == ["some.md"], "Git lost a tracked path")
             translate.assert_called_once_with(root)
             expected = {"PATH": "checker-path", **binding} if binding else None
-            ensure(run.call_args.kwargs["env"] == expected, "REUSE used the wrong linked-worktree environment")
-            ensure("GIT_DIR" not in proofenv.os.environ, "REUSE redirected later Git subprocesses")
+            ensure(run.call_args.kwargs["env"] == expected, "Git used the wrong linked-worktree environment")
+            ensure("GIT_DIR" not in proofenv.os.environ, "the Git probe redirected later subprocesses")
 
 
 def _translation_deadline() -> None:
@@ -99,5 +96,5 @@ def cases() -> list[Case]:
     return [Case("static gate shares corpus and preserves verdicts", _shared_corpus_and_verdicts),
             Case("static gate shares load failure without hiding independent checks", _shared_load_failure),
             Case("Git index probe has a deadline", _git_deadline),
-            Case("REUSE discovers the tracked worktree without leaking Git overrides", _reuse_worktree_environment),
+            Case("Git discovers the tracked worktree without leaking environment overrides", _git_worktree_environment),
             Case("WSL worktree translation has a deadline", _translation_deadline)]

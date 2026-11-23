@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Behavioral controls for Markdown, REUSE/SPDX, EditorConfig, glyph, and source-reference gates."""
+"""Behavioral controls for Markdown, licensing, EditorConfig, glyph, and source-reference gates."""
 
 import tempfile
 from pathlib import Path
 
 from tests.harness import Case, ensure
-from toolchain import checks, corpus, markdown
+from toolchain import checks, corpus, licensing, markdown
 from toolchain.cli import prepare
 
 INDEPENDENT_CASES = True
@@ -65,29 +65,87 @@ def _spdx_marks_controls() -> None:
     tag = "SPDX-License-" + "Identifier: Apache-2.0"
     bad_tag = "SPDX-License-" + "Identifier: MIT"
     copyright_doc = corpus.from_text(
-        f"# Copyright\n\n```text\n# {tag}\n```\n",
+        (corpus.find_root() / "COPYRIGHT.md").read_text(encoding="utf-8"),
         "COPYRIGHT.md",
     )
     with tempfile.TemporaryDirectory(prefix="holdfast-marks-") as td:
         root = Path(td)
         (root / "ok.py").write_text(f"# {tag}\nx = 1\n", encoding="utf-8")
+        (root / "script.py").write_text(f"#!/usr/bin/env python3\n# {tag}\n", encoding="utf-8")
         (root / "ok.yml").write_text(f"# {tag}\nname: pages\n", encoding="utf-8")
         (root / "ok.ml").write_text(f"(* {tag} *)\n", encoding="utf-8")
         (root / "ok.hf").write_text(f"// {tag}\nmodule M;\n", encoding="utf-8")
         (root / "data.json").write_text("{}\n", encoding="utf-8")
         clean_corpus = corpus.Corpus(
-            root, [copyright_doc], {}, ["COPYRIGHT.md", "data.json", "ok.ml", "ok.py", "ok.hf", "ok.yml"]
+            root, [copyright_doc], {},
+            ["COPYRIGHT.md", "data.json", "ok.ml", "ok.py", "ok.hf", "ok.yml", "script.py"],
         )
-        ensure(checks.marks_findings(root, clean_corpus) == [],
+        ensure(licensing.marks_findings(root, clean_corpus) == [],
                "valid SPDX marks across file kinds must pass")
 
         (root / "bad.py").write_text(f"# {bad_tag}\n", encoding="utf-8")
         (root / "unknown.xyz").write_text(f"# {tag}\n", encoding="utf-8")
+        (root / "conflict.py").write_text(f"# {tag}\n# {bad_tag}\n", encoding="utf-8")
+        conflicting_prose = corpus.from_text(f"# Heading\n\n<!-- {tag} -->\n", "conflict.md")
         bad_corpus = corpus.Corpus(
-            root, [copyright_doc], {}, ["COPYRIGHT.md", "bad.py", "unknown.xyz"]
+            root, [copyright_doc, conflicting_prose], {},
+            ["COPYRIGHT.md", "bad.py", "unknown.xyz", "conflict.py", "conflict.md"],
         )
-        found = checks.marks_findings(root, bad_corpus)
-        ensure(len(found) == 2, f"wrong identifier and unknown suffix must both refuse: {found!r}")
+        found = licensing.marks_findings(root, bad_corpus)
+        ensure(len(found) == 4, f"wrong or conflicting identifiers and unknown suffix must refuse: {found!r}")
+        ensure(any("conflict.py:2: expected Apache-2.0" in item for item in found),
+               "a later conflicting code mark was accepted")
+        ensure(any("conflict.md:3: expected CC-BY-4.0" in item for item in found),
+               "a Markdown tag overriding its assigned license was accepted")
+
+
+def _license_policy_controls() -> None:
+    repo = corpus.find_root()
+    license_names = ["LICENSES/Apache-2.0.txt", "LICENSES/CC-BY-4.0.txt", "LICENSES/MIT.txt"]
+    files = ["REUSE.toml", "docs/index.html", *license_names]
+    with tempfile.TemporaryDirectory(prefix="holdfast-licensing-") as td:
+        root = Path(td)
+        for name in files:
+            target = root / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes((repo / name).read_bytes())
+        tracked = [*files, "README.md", "tools/README.md", "tools/uv.lock", "docs/evidence/sample.json"]
+        loaded = corpus.Corpus(root, [], {}, tracked)
+        ensure(licensing.findings(root, loaded) == [], "the existing annotations and MIT snippet must pass")
+
+        manifest = root / "REUSE.toml"
+        original = manifest.read_text(encoding="utf-8")
+        _, apache, prose = original.split("[[annotations]]")
+        for changed, expected in (
+            ("[broken", "REUSE.toml"),
+            (original.replace("2026 Edward Miller", ""), "requires nonempty copyright"),
+            (original.replace('"CC-BY-4.0"', '"False-License"'), "unsupported SPDX license"),
+            (original.replace('"tools/**",', ""), "tools/uv.lock: no copyright and license assignment"),
+            (original.split("[[annotations]]", 1)[0] + "[[annotations]]" + prose + "[[annotations]]" + apache,
+             "tools/README.md: expected CC-BY-4.0"),
+        ):
+            manifest.write_text(changed, encoding="utf-8")
+            found = licensing.findings(root, loaded)
+            ensure(any(expected in item for item in found), f"missing annotation finding {expected}: {found}")
+        manifest.write_text(original, encoding="utf-8")
+
+        index = set(tracked) - {"LICENSES/MIT.txt"}
+        found = licensing.findings(root, corpus.Corpus(root, [], {}, tracked, index))
+        ensure(any("MIT.txt: required license text must be tracked" in item for item in found),
+               "an untracked license text was accepted")
+        found = licensing.findings(root, corpus.Corpus(root, [], {}, [*tracked, "LICENSES/ISC.txt"]))
+        ensure(any("ISC.txt: license text is outside" in item for item in found),
+               "an extra license text outside the repository policy was accepted")
+
+        page = root / "docs/index.html"
+        html = page.read_text(encoding="utf-8")
+        for old, new, expected in (
+            ("SPDX-Snippet" + "End", "missing end", "expected SPDX snippet markers"),
+            ("Permission is hereby granted", "Permission is withheld", "must match LICENSES/MIT.txt"),
+        ):
+            page.write_text(html.replace(old, new), encoding="utf-8")
+            found = licensing.findings(root, loaded)
+            ensure(any(expected in item for item in found), f"missing MIT notice finding {expected}: {found}")
 
 
 def _editorconfig_and_glyph_controls() -> None:
@@ -281,6 +339,7 @@ def cases() -> list[Case]:
         Case("rumdl-settings-schema-and-policy", _rumdl_settings_policy),
         Case("markdown-suppression-and-closed-world-batch", _markdown_suppression_and_batch_controls),
         Case("spdx-marks-across-file-kinds", _spdx_marks_controls),
+        Case("license-policy-paths-texts-and-snippet", _license_policy_controls),
         Case("editorconfig-and-glyph-hygiene", _editorconfig_and_glyph_controls),
         Case("source-comment-and-docstring-references", _source_reference_controls),
         Case("prepare-python-and-markdown-selection", _prepare_selection_controls),
