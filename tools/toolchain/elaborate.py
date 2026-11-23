@@ -242,6 +242,8 @@ class _Elaborator(
         self.ghost_parameters: set[int] = set()
         self.specification_values: dict[str, str] = {}
         self.phase_uses: list[tuple[Node, str]] = []
+        self.static_effect_sites: list[Node] = []
+        self.nonstatic_callables: set[str] = set()
         self.slice_views: dict[str, str] = {}
         self.restored_view_terms: set[_Term] = set()
         self.local_borrows: dict[str, tuple[str, str, tuple[str, ...]]] = {}
@@ -1181,8 +1183,8 @@ class _Elaborator(
             dependencies = self.free(value)
             if vector is not None:
                 self._check_freezable_type(expected)
-                self._classify_phase("", node, executable=True)
                 dependencies.update(self.free(expected))
+            self._classify_phase("", node, executable=True)
             if not dependencies <= available:
                 raise self.fail("type", "constant parameter requires a static argument", node)
             expected_whnf = self.whnf(expected)
@@ -1356,6 +1358,10 @@ class _Elaborator(
 
     def _check_call_effects(self, head: _Term, supplied: int, arguments: list[Node],
                             terms: list[_Term], site: Node | None) -> None:
+        if site is not None and not self._static_call_permitted(head, arguments, terms):
+            if self.static_forbidden is not None:
+                raise self.fail("type", "static evaluation requires a call with an empty effect footprint", site)
+            self.static_effect_sites.append(site)
         collecting, bound = self.inferred_effect_calls, self.active_effect_calls
         if collecting is None and bound is None:
             return
@@ -1408,15 +1414,36 @@ class _Elaborator(
         if bound is not None and (missing := sorted(required - bound)):
             raise self.fail("type", f"callable transitively invokes '{missing[0]}' via '{name}' not declared in effects calls(...)", site)
 
+    def _has_static_effects(self, callee: str) -> bool:
+        return (callee in self.nonstatic_callables or bool(self.callable_effect_calls.get(callee))
+                or bool(self.callable_effect_reads.get(callee)) or bool(self.callable_effect_writes.get(callee)))
+
+    def _deferred_static_callback(self, value: _Term) -> bool:
+        if value.kind != "var":
+            return False
+        index = cast("int", value.value)
+        return (index in self.fn_contracts or
+                (self.definition_effect_parameters is not None and index in self.definition_effect_parameters) or
+                (self.active_effect_calls is not None and self.parameter_names.get(index) in self.active_effect_calls))
+
+    def _static_call_permitted(self, head: _Term, arguments: list[Node], terms: list[_Term]) -> bool:
+        if head.kind == "if":
+            self.tick()
+            return all(self._static_call_permitted(self.spine(self.resolve(arm))[0], arguments, terms)
+                       for arm in head.args[2:])
+        if head.kind != "const":
+            return head.kind == "lam" or head == self.current_rec_var or self._deferred_static_callback(head)
+        callee = str(head.value)
+        return (not self._has_static_effects(callee)
+                and all(index < min(len(arguments), len(terms)) and
+                        (self._pure_callback(arguments[index], terms[index])
+                         or self._deferred_static_callback(self.resolve(terms[index])))
+                        for index in self.callable_callback_effects.get(callee, ())))
+
     def apply(self, binding: _Binding, arguments: list[Node], environment: dict[str, _Binding]) -> _Binding:
         call_site = self.site
         term, value_type = binding.term, binding.type
         callee_head, callee_gen_args = self.spine(self.resolve(term))
-        if self.static_forbidden is not None and callee_head.kind == "const":
-            callee = str(callee_head.value)
-            if (self.callable_effect_writes.get(callee, set()) or self.callable_effect_reads.get(callee, set())
-                    or self.callable_effect_calls.get(callee, set()) or self.callable_callback_effects.get(callee, set())):
-                raise self.fail("type", "static evaluation requires a call with an empty effect footprint", call_site)
         if callee_head.kind == "const" and str(callee_head.value) in self.specification_values and call_site is not None:
             self.phase_uses.append((call_site, self.specification_values[str(callee_head.value)]))
         is_rec_call = (

@@ -2110,6 +2110,8 @@ class _IntrinsicsMixin:
             signature = self.whnf(signature.args[1])
         head, supplied = self.spine(self.resolve(binding.term))
         if head.kind == "const":
+            if self._has_static_effects(str(head.value)):
+                self.static_effect_sites.append(node)
             requirements = self.callable_preconditions.get(str(head.value), [])
             record = self.records_by_ctor.get(str(head.value))
             if record is not None and record.invariants:

@@ -2021,9 +2021,29 @@ def _frozen_static_tables() -> None:
     fixture = _Fixture()
     fixture.function("Other", _NAT, (), _natural(5))
     fixture.function("Dynamic", _NAT, (), _call("Other"), contracts=(_effects_clause(_call("calls", _variable("Other"))),))
-    fixture.constant("Table", _type("Vec", _NAT, _natural(1)),
-                     _call("VCons", _call("Dynamic"), _call("VNil", generics=(_NAT,))))
-    _refuses(fixture, "type", "empty effect footprint")
+    fixture.function("Wrapper", _NAT, (), _call("Dynamic"))
+    fixture.function("Plain", _NAT, (), _call("Other"))
+    fixture.definition("Apply", _T, (("f", _function_type((("v", _T),), _T)), ("x", _T)),
+                       _call("f", _variable("x")), _POLY)
+    fixture.function("Inc", _NAT, (("n", _NAT),), _binary("+", _variable("n"), _natural(1)),
+                     contracts=(_effects_clause(_variable("none")),))
+    for operand in (_call("Dynamic"), _call("Wrapper"),
+                    _call(_group(_if_expr(_boolean(True), _variable("Other"), _variable("Dynamic"))))):
+        bad = copy.deepcopy(fixture)
+        bad.constant("Table", _type("Vec", _NAT, _natural(1)),
+                     _call("VCons", operand, _call("VNil", generics=(_NAT,))))
+        _refuses(bad, "type", "empty effect footprint")
+    for contracts in ((), (_effects_clause(_call("reads", _variable("this"))),)):
+        method = _Fixture("ReceiverRead")
+        _record_with_members(method, "Counter", (("Value", _NAT),),
+                             (_record_fn_member("Read", _NAT, (), _variable("Value"), contracts=contracts),))
+        method.constant("Entry", _NAT, _call(_member(_call("Counter", _natural(3)), "Read")))
+        _refuses(method, "type", "empty effect footprint")
+    fixture.constant("Result", _NAT, _call("Apply", _variable("Inc"), _call("Plain")))
+    fixture.constant("Choice", _NAT, _call(_group(_if_expr(_boolean(True), _variable("Other"), _variable("Plain")))))
+    accepted = elaborate(*fixture.response()).gallina
+    ensure("(6 :" in accepted.split("_Result :", 1)[1] and "(5 :" in accepted.split("_Choice :", 1)[1],
+           "a pure higher-order specialization or public helper lost its static result")
 
 
 def _interpolated_literal(*parts: str | Form) -> Form:

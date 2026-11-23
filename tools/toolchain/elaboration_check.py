@@ -1560,7 +1560,21 @@ definition i32 Previous(i32 value) requires value != i32.Min => value + -1i32;
         ("signed-negative-add-underflow", "definition i64 Add(i64 x) requires x <= 0i64 => x + -1i64;", "addition on 'i64'"),
         ("signed-negative-sub-overflow", "definition i32 Sub(i32 x) requires x >= 0i32 => x - -1i32;", "subtraction on 'i32'"),
     )
+    static_effects = ("module StaticEffects; public Nat Base() => 5; "
+                      "public Nat Dynamic() effects calls(Base) => Base(); ")
     return (arithmetic, symbolic_wide, signed_sums,
+            Fixture("static-checked-generic-callback", b"""module StaticCallback;
+definition T Apply<T>(Fn(T v) -> T f, T x) => f(x);
+public Nat Inc(Nat x) effects none => x + 1;
+public const Vec<Nat,1> Table = VCons(Apply(Inc, 4), VNil<Nat>());
+lemma First() ensures At(Table, FZero<0>()) == 5 proof { assert At(Table, FZero<0>()) == 5; }
+"""),
+            Fixture("static-effectful-function-choice", (static_effects +
+                    "const Vec<Nat,1> Bad = VCons((if (true) Base else Dynamic)(), VNil<Nat>());").encode(),
+                    "type", refusal_contains="empty effect footprint"),
+            Fixture("static-effectful-public-helper", (static_effects +
+                    "public Nat Wrapper() => Dynamic(); const Vec<Nat,1> Bad = VCons(Wrapper(), VNil<Nat>());").encode(),
+                    "type", refusal_contains="empty effect footprint"),
             *(Fixture(name, ("module WordNegative; " + source).encode(), expected, word_proofs=True)
               for name, source, expected in wide_refusals),
             *(Fixture(name, ("module SignedNegative; " + source).encode(), "type", word_proofs=True,
