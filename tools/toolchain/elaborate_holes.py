@@ -10,21 +10,27 @@ from toolchain.elaborate_types import _SORT, Node, _Binding, _Term
 if TYPE_CHECKING:
     from toolchain.elaborate import _Elaborator
 
+MAX_HOLES = 128
+MAX_GOAL_BYTES = 65_536
+_UNREACHED = "Checking did not reach this site"
+_EMPTY = "Empty local context"
+
 
 @dataclass(frozen=True)
 class HoleGoal:
     name: str
     line: int
     column: int
+    status: str
     expected: str | None
     context: str
 
     def describe(self) -> str:
-        goal = f"expected {self.expected}" if self.expected else "expected type unavailable"
-        return f"{self.name} unresolved at {self.line}:{self.column}, {goal}. {self.context}"
+        goal = f"expected {self.expected}" if self.expected is not None else "expected type unavailable"
+        return f"{self.name} {self.status} at {self.line}:{self.column}, {goal}. {self.context}"
 
 
-class OpenGoals(VelaError):
+class OpenGoalsError(VelaError):
     def __init__(self, goals: tuple[HoleGoal, ...], stopped: VelaError | None) -> None:
         first = goals[0]
         message = "\n".join(goal.describe() for goal in goals)
@@ -42,50 +48,83 @@ class HoleInspection:
         self.elaborator = elaborator
         self.observations: dict[int, tuple[str | None, str]] = {}
         self.placeholders: dict[int, str] = {}
-        self.remaining = 65_536
+        self.remaining = MAX_GOAL_BYTES - len(elaborator.protocol.holes) * max(len(_EMPTY), len(_UNREACHED))
 
-    def _text(self, term: _Term, names: dict[int, str]) -> str:
+    def _write(self, chunks: list[str], text: str) -> None:
+        self.remaining -= len(text.encode("utf-8"))
+        if self.remaining < 0:
+            raise self.elaborator.fail("limit", "named-hole context exceeds the diagnostic budget")
+        chunks.append(text)
+
+    def _term(self, chunks: list[str], term: _Term, names: dict[int, str]) -> None:
         checker = self.elaborator
         term = checker.resolve(term)
         if term.kind == "var":
             index = cast("int", term.value)
-            return names.get(index, self.placeholders.get(index, f"#{index}"))
-        if term.kind in {"const", "nat"}:
-            return str(term.value)
-        if term.kind == "bool":
-            return "true" if term.value else "false"
-        if term.kind == "app":
+            self._write(chunks, names.get(index, self.placeholders.get(index, f"#{index}")))
+        elif term.kind in {"const", "nat"}:
+            self._write(chunks, str(term.value))
+        elif term.kind == "bool":
+            self._write(chunks, "true" if term.value else "false")
+        elif term.kind == "app":
             head, args = checker.spine(term)
-            return f"{self._text(head, names)}({', '.join(self._text(arg, names) for arg in args)})"
-        value = f"[{term.value}]" if term.value != "" else ""
-        args = ", ".join(self._text(arg, names) for arg in term.args)
-        return term.kind + value + (f"({args})" if args else "")
+            self._term(chunks, head, names)
+            self._args(chunks, args, names)
+        else:
+            self._write(chunks, term.kind)
+            if term.value != "":
+                self._write(chunks, f"[{term.value}]")
+            if term.args:
+                self._args(chunks, term.args, names)
+
+    def _args(self, chunks: list[str], args: list[_Term] | tuple[_Term, ...], names: dict[int, str]) -> None:
+        self._write(chunks, "(")
+        for index, argument in enumerate(args):
+            if index:
+                self._write(chunks, ", ")
+            self._term(chunks, argument, names)
+        self._write(chunks, ")")
 
     def observe(self, node: Node, expected: _Term | None, environment: dict[str, _Binding]) -> _Binding:
         checker = self.elaborator
         start, end = cast("list[int]", node["span"])
         names = {cast("int", binding.term.value): name for name, binding in environment.items()
                  if binding.term.kind == "var"}
-        goal = self._text(expected, names) if expected is not None else None
-        details = [f"{name}: {self._text(binding.type, names)}" for name, binding in environment.items()]
-        details.extend(f"branch fact {self._text(fact, names)}" for fact in checker.active_facts)
-        details.extend(f"{name}: {mode} loan of {'.'.join((owner, *fields))}"
-                       for name, (mode, owner, fields) in checker.local_borrows.items())
-        details.extend(f"{name}: view of {owner}" for name, owner in checker.slice_views.items())
-        details.extend(f"{name}: awaiting initialization" for name in sorted(checker.uninitialized_out_params))
+        chunks: list[str] = []
+        if expected is not None:
+            self._term(chunks, expected, names)
+        goal = "".join(chunks) or None
+        chunks.clear()
+
+        def entry(label: str, value: _Term | None = None) -> None:
+            self._write(chunks, ", " if chunks else "Context: ")
+            self._write(chunks, label)
+            if value is not None:
+                self._term(chunks, value, names)
+
+        for name, binding in environment.items():
+            entry(f"{name}: ", binding.type)
+            if binding.term.kind != "var":
+                self._write(chunks, " = ")
+                self._term(chunks, binding.term, names)
+        for fact in checker.active_facts:
+            entry("branch fact ", fact)
+        for name, (mode, owner, fields) in checker.local_borrows.items():
+            entry(f"{name}: {mode} loan of {'.'.join((owner, *fields))}")
+        for name, owner in checker.slice_views.items():
+            entry(f"{name}: view of {owner}")
+        for name in sorted(checker.uninitialized_out_params):
+            entry(f"{name}: awaiting initialization")
         if checker.current_return_type is not None:
-            details.append(f"return {self._text(checker.current_return_type, names)}")
-        context = "Context: " + ", ".join(details) if details else "Empty local context"
-        self.remaining -= len(context.encode()) + len((goal or "").encode())
-        if self.remaining < 0:
-            raise checker.fail("limit", "named-hole context exceeds the diagnostic budget", node)
+            entry("return ", checker.current_return_type)
+        context = "".join(chunks) or _EMPTY
         self.observations[start] = (goal, context)
         domain = expected if expected is not None else checker.meta(_SORT, environment)
         variable = checker.fresh(domain)
         self.placeholders[cast("int", variable.value)] = checker.protocol.source[start:end].decode("ascii")
         return _Binding(variable, domain)
 
-    def refusal(self, declarations: list[Node]) -> OpenGoals:
+    def refusal(self, declarations: list[Node]) -> OpenGoalsError:
         checker = self.elaborator
         stopped: VelaError | None = None
         try:
@@ -98,6 +137,12 @@ class HoleInspection:
         for start, node in sorted(checker.protocol.holes.items()):
             end = cast("list[int]", node["span"])[1]
             site = position(source[:start].decode("utf-8"))
-            expected, context = self.observations.get(start, (None, "Checking did not reach this site"))
-            goals.append(HoleGoal(source[start:end].decode("ascii"), site.line, site.column, expected, context))
-        return OpenGoals(tuple(goals), stopped)
+            status = "unresolved"
+            if start in self.observations:
+                expected, context = self.observations[start]
+            else:
+                expected, context = None, _UNREACHED
+                if stopped is not None and stopped.kind in {"unsupported", "limit", "timeout"}:
+                    status = stopped.kind
+            goals.append(HoleGoal(source[start:end].decode("ascii"), site.line, site.column, status, expected, context))
+        return OpenGoalsError(tuple(goals), stopped)

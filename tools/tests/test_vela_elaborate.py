@@ -16,7 +16,7 @@ from toolchain import elaborate as language
 from toolchain import elaborate_types as terms
 from toolchain.ast import VelaError
 from toolchain.elaborate import elaborate, elaborate_package
-from toolchain.elaborate_holes import OpenGoals
+from toolchain.elaborate_holes import OpenGoalsError
 from toolchain.mathematical import inspect_source
 
 type Node = dict[str, object]
@@ -1548,8 +1548,8 @@ def _contextual_holes() -> None:
     fixture.theorem("Bound", (("n", _NAT),), prop, _assert(prop, _hole("?bound")))
     source, tree = fixture.response()
     error = _refuses(fixture, "inference")
-    ensure(isinstance(error, OpenGoals), "named holes lost the contextual refusal")
-    goals = cast("OpenGoals", error).goals
+    ensure(isinstance(error, OpenGoalsError), "named holes lost the contextual refusal")
+    goals = cast("OpenGoalsError", error).goals
     ensure([(goal.name, goal.expected) for goal in goals] == [
         ("?item", "Nat"), ("?item", "bool"), ("?bound", "Eq(Nat, n, 4)")],
         f"repeated names, product components or proof premise lost their own type: {goals}")
@@ -1567,8 +1567,16 @@ def _contextual_holes() -> None:
     wrong.definition("Invalid", _NAT, (), _variable("missing"))
     wrong.definition("Later", _NAT, (), _hole("?later"))
     refused = _refuses(wrong, "name", "missing")
-    ensure(isinstance(refused, OpenGoals) and refused.goals[0].expected is None,
+    ensure(isinstance(refused, OpenGoalsError) and refused.goals[0].expected is None,
            "a goal after a blocking error acquired an invented expected type")
+    with patch("toolchain.elaborate_holes.MAX_GOAL_BYTES", 128):
+        exhausted = _refuses(fixture, "limit", "diagnostic budget")
+    ensure(isinstance(exhausted, OpenGoalsError) and exhausted.goals[-1].status == "limit"
+           and exhausted.goals[-1].expected is None, "exhausted diagnostic rendering invented a judgment")
+    many = _Fixture()
+    for index in range(129):
+        many.definition(f"Unknown{index}", _NAT, (), _hole())
+    _refuses(many, "limit", "128 named-hole")
 
 
 def _holes_unsupported_and_hygiene() -> None:

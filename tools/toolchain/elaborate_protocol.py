@@ -15,6 +15,7 @@ from toolchain.ast import (
     source_text,
     trivia_end,
 )
+from toolchain.elaborate_holes import MAX_HOLES
 from toolchain.elaborate_types import MAX_DEPTH, Node
 
 _FIELDS: dict[str, set[str]] = {
@@ -946,8 +947,8 @@ class _Protocol:
                     or not isinstance(name, dict) or name.get("span") != node["span"]
                     or name.get("text") != spelling.decode("ascii")):
                 raise self.error("protocol", "named hole differs from its source", node)
-            if len(self.holes) >= 128:
-                raise self.error("limit", "source exceeds the 128 named-hole diagnostic budget", node)
+            if len(self.holes) >= MAX_HOLES:
+                raise self.error("limit", f"source exceeds the {MAX_HOLES} named-hole diagnostic budget", node)
             self.holes[span[0]] = node
         if kind in {"nat", "nat_pattern"}:
             value, suffix = node["value"], node["suffix"]
