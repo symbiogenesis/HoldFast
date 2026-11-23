@@ -5,48 +5,40 @@ let optional = function None -> Null | Some value -> value.syntax
 let children = function None -> [] | Some value -> [value]
 let strings values = Array (List.map (fun value -> String value) values)
 let const_fields = function None -> [] | Some _ -> [("const", Boolean true)]
+let refuse_syntax first message = raise (Refusal ("syntax", first.Lexing.pos_cnum, message))
+let refuse_bare_local first =
+  refuse_syntax first "local declaration requires 'let' or 'var' before its type (write 'let T x = e;' or 'var T x = e;')"
 let with_declaration_modifiers first last modifiers value =
   match value.syntax with
-  | Object fields ->
-      let is_const = List.mem "const" modifiers in
-      let occurrences = List.length (List.filter ((=) "const") modifiers) in
-      let refuse message = raise (Refusal ("syntax", first.Lexing.pos_cnum, message)) in
-      if occurrences > 1 then refuse "repeated const declaration modifier";
-      let kind = List.assoc "kind" fields in
-      if List.mem "async" modifiers && kind = String "property" then
-        refuse "expression properties are total and synchronous";
-      let kind, fields, modifiers =
-        if is_const && kind = String "field" then begin
+  | Object ((("kind", String kind) as tag) :: ("span", _) :: fields) ->
+      let constant = match List.filter ((=) "const") modifiers with
+        | [] -> false
+        | [_] -> true
+        | _ -> refuse_syntax first "repeated const declaration modifier" in
+      if kind = "property" && List.mem "async" modifiers then
+        refuse_syntax first "expression properties are total and synchronous";
+      let tag, fields, modifiers =
+        if not constant then tag, fields, modifiers else match kind with
+        | "field" ->
           if List.assoc "value" fields = Null || List.assoc "grade" fields <> Null then
-            refuse "a constant value requires an initializer and has no use grade";
+            refuse_syntax first "a constant value requires an initializer and has no use grade";
           if List.hd (List.rev modifiers) <> "const" then
-            refuse "a constant value places const immediately before its type";
-          String "constant", List.remove_assoc "grade" fields,
-          List.filter ((<>) "const") modifiers
-        end else begin
-          if is_const && not (List.mem kind [String "function"; String "definition"]) then
-            refuse "const modifies a function or an initialized value";
-          kind, fields, modifiers
-        end in
+            refuse_syntax first "a constant value places const immediately before its type";
+          ("kind", String "constant"), List.remove_assoc "grade" fields, List.filter ((<>) "const") modifiers
+        | "function" | "definition" -> tag, fields, modifiers
+        | _ -> refuse_syntax first "const modifies a function or an initialized value" in
       { value with syntax = Object
-          (List.map (fun (key, data) ->
-             if key = "span" then key, offsets first last
-             else if key = "kind" then key, kind else key, data) fields
-           @ [("modifiers", strings modifiers)]) }
+          (tag :: ("span", offsets first last) :: (fields @ [("modifiers", strings modifiers)])) }
   | _ -> value
 let binary first last operator left right =
   make "binary" first last [("operator", operator); ("left", left.syntax);
                             ("right", right.syntax)] [left; right]
 let name_text = function
-  | Object fields -> (match List.assoc_opt "text" fields with Some (String text) -> text | _ -> "")
+  | Object (("text", String text) :: _) -> text
   | _ -> ""
-let last_segment text =
-  match List.rev (String.split_on_char '.' text) with
-  | head :: _ -> head
-  | [] -> text
 let is_constructor_spelling text =
-  let last = last_segment text in
-  String.length last > 0 && last.[0] >= 'A' && last.[0] <= 'Z'
+  let start = match String.rindex_opt text '.' with None -> 0 | Some dot -> dot + 1 in
+  start < String.length text && text.[start] >= 'A' && text.[start] <= 'Z'
 let is_binder_spelling text =
   not (String.contains text '.') && String.length text > 0
   && (text.[0] = '_' || (text.[0] >= 'a' && text.[0] <= 'z'))
@@ -60,17 +52,20 @@ let build_pattern first last target values =
       else if is_binder_spelling spelling then
         make "binding_pattern" first last [("name", target)] []
       else
-        raise (Refusal ("syntax", first.Lexing.pos_cnum,
-                        "pattern binder must be an unqualified lowercase or '_' identifier; constructor patterns require an uppercase constructor name"))
+        refuse_syntax first
+          "pattern binder must be an unqualified lowercase or '_' identifier; constructor patterns require an uppercase constructor name"
   | Some [] ->
-      raise (Refusal ("syntax", first.Lexing.pos_cnum,
-                      "nullary constructor pattern '" ^ spelling ^ "()' must be written bare without '()' (write '" ^ spelling ^ "')"))
+      refuse_syntax first
+        ("nullary constructor pattern '" ^ spelling ^ "()' must be written bare without '()' (write '" ^ spelling ^ "')")
   | Some args ->
       if not (is_constructor_spelling spelling) then
-        raise (Refusal ("syntax", first.Lexing.pos_cnum,
-                        "constructor pattern '" ^ spelling ^ "' requires an uppercase constructor name"))
+        refuse_syntax first ("constructor pattern '" ^ spelling ^ "' requires an uppercase constructor name")
       else
         make "constructor_pattern" first last [("name", target); ("arguments", array args)] args
+let rec is_range = function
+  | Object (("kind", String "range") :: _) -> true
+  | Object (("kind", String "group") :: ("span", _) :: ("value", value) :: _) -> is_range value
+  | _ -> false
 %}
 
 %token MODULE PUBLIC NAT BOOL LET CONST RETURN IF ELSE TRUE FALSE
@@ -159,10 +154,7 @@ binding:
 | LET annotation=value_type binding_name=name EQUAL value=expression SEMICOLON
     { make "let" $startpos $endpos
         [("name", binding_name); ("type", annotation.syntax); ("value", value.syntax)] [annotation; value] }
-| annotation=value_type binding_name=name EQUAL value=expression SEMICOLON
-    { let _ = annotation, binding_name, value in
-      raise (Refusal ("syntax", $startpos.Lexing.pos_cnum,
-                      "local declaration requires 'let' or 'var' before its type (write 'let T x = e;' or 'var T x = e;')")) }
+| value_type name EQUAL expression SEMICOLON { refuse_bare_local $startpos }
 | binding_name=name EQUAL value=expression SEMICOLON
     { make "reassignment" $startpos $endpos
         [("name", binding_name); ("value", value.syntax)] [value] }
@@ -266,9 +258,7 @@ s_path:
   value=s_qualified_name(s_identifier) { value }
 s_qualified_name(head):
   first=head rest=list(s_path_segment)
-    { let text = match first with Object fields ->
-          (match List.assoc "text" fields with String value -> value | _ -> "") | _ -> "" in
-      name $startpos $endpos (String.concat "." (text :: rest)) }
+    { name $startpos $endpos (String.concat "." (name_text first :: rest)) }
 
 s_modifier:
   PUBLIC { "public" } | PRIVATE { "private" } | INTERNAL { "internal" }
@@ -374,7 +364,7 @@ s_decl:
   parameters=comma_list(s_callable_parameter) RPAREN
     { result, callable_name, generics, parameters }
 %inline s_parameter_open:
-  LPAREN { () } | LAMBDA_OPEN { () }
+  LPAREN | LAMBDA_OPEN { () }
 
 s_import_item:
   exported=s_identifier
@@ -424,15 +414,14 @@ s_constructor:
   tail=s_constructor_tail SEMICOLON
     { let result, contracts = tail in
       if not (is_constructor_spelling (name_text constructor_name)) then
-        raise (Refusal ("syntax", $startpos(constructor_name).Lexing.pos_cnum,
-                        "constructor declaration requires an uppercase initial"));
+        refuse_syntax $startpos(constructor_name) "constructor declaration requires an uppercase initial";
       make "constructor" $startpos $endpos [("name", constructor_name); ("parameters", array parameters);
         ("result", optional result); ("contracts", array contracts)] (parameters @ children result @ contracts) }
-s_constructor_tail:
-  contracts=list(s_contract) { None, contracts }
-| COLON result=s_nonfunction_type contracts=list(s_contract) { Some result, contracts }
 /* Retain bare callable results: their effects belong to the callable. Group the
    result when a constructor itself needs an effects contract. */
+s_constructor_tail:
+  contracts=list(s_contract) { None, contracts }
+| COLON result=s_nonfunction_type contracts=list(s_contract)
 | COLON result=s_qualified_function_type contracts=list(s_obligation) { Some result, contracts }
 s_view_part:
   value=s_expression grows=option(GROWS)
@@ -457,7 +446,7 @@ s_resumes:
 s_generics:
   { [] } | s_generic_open values=comma_nonempty_list(s_generic_parameter) GT { values }
 %inline s_generic_open:
-  LT { () } | CALL_GENERIC_OPEN { () }
+  LT | CALL_GENERIC_OPEN { () }
 s_generic_parameter:
   binder=s_generic_binder
     { let mode, generic_name, value_type = binder in
@@ -507,12 +496,12 @@ s_type_atom:
 s_parenthesized_type(opening):
   opening value=s_type RPAREN { make "group_type" $startpos $endpos [("type", value.syntax)] [value] }
 | opening first=s_type COMMA rest=separated_nonempty_list(COMMA, s_type) RPAREN
-    { make "tuple_type" $startpos $endpos [("types", array (first :: rest))] (first :: rest) }
+    { let types = first :: rest in make "tuple_type" $startpos $endpos [("types", array types)] types }
 s_computed_type:
   TYPE LBRACKET value=s_expression RBRACKET
     { make "computed_type" $startpos $endpos [("value", value.syntax)] [value] }
 s_open_paren:
-  LPAREN { () } | ANNOTATION_OPEN { () } | LAMBDA_OPEN { () }
+  LPAREN | ANNOTATION_OPEN | LAMBDA_OPEN { () }
 s_function_type:
   mode=s_function_mode generics=s_generics LPAREN parameters=comma_list(s_parameter) RPAREN ARROW result=s_nonfunction_type
   captures=option(s_capture_type) effects=loption(s_type_effects) contracts=loption(s_callable_contracts)
@@ -611,14 +600,7 @@ s_nonempty_simple_statement:
 | FOREACH LPAREN mode=s_iteration_mode binding=s_iteration_binding IN collection=s_expression RPAREN
   contracts=list(s_contract) body=s_block
     { let binding_name, annotation = binding in
-      let rec range = function
-        | Object fields -> (match List.assoc_opt "kind" fields with
-            | Some (String "range") -> true
-            | Some (String "group") -> (match List.assoc_opt "value" fields with
-                | Some value -> range value | None -> false)
-            | _ -> false)
-        | _ -> false in
-      if mode = "value" && annotation = None && range collection.syntax then
+      if mode = "value" && annotation = None && is_range collection.syntax then
         make "foreach" $startpos $endpos [("name", binding_name); ("range", collection.syntax);
           ("contracts", array contracts); ("body", body.syntax)] (collection :: body :: contracts)
       else make "foreach_collection" $startpos $endpos [("name", binding_name);
@@ -633,10 +615,7 @@ s_nonempty_simple_statement:
     { make (kind ^ "_else") $startpos $endpos
         [("pattern", pattern.syntax); ("value", value.syntax); ("else", otherwise.syntax)]
         [pattern; value; otherwise] }
-| binding=s_typed_initializer SEMICOLON
-    { let _ = binding in
-      raise (Refusal ("syntax", $startpos.Lexing.pos_cnum,
-                      "local declaration requires 'let' or 'var' before its type (write 'let T x = e;' or 'var T x = e;')")) }
+| s_typed_initializer SEMICOLON { refuse_bare_local $startpos }
 | RETURN value=option(s_expression) SEMICOLON
     { make "return" $startpos $endpos [("value", optional value)] (children value) }
 | BREAK SEMICOLON { make "break" $startpos $endpos [] [] }
@@ -675,16 +654,15 @@ s_iteration_binding:
   PROOF { "proof" } | CALC { "calc" }
 s_assert_tail:
   SEMICOLON { Null, [] }
-| BY justification=s_expression SEMICOLON { justification.syntax, [justification] }
-| BY body=s_block { body.syntax, [body] }
+| BY justification=s_expression SEMICOLON
+| BY justification=s_block { justification.syntax, [justification] }
 s_lifts:
   LIFTS clauses=comma_nonempty_list(s_identifier) { clauses }
 s_annotation_path:
   first=ANNOTATION_NAME rest=list(s_path_segment)
     { name $startpos $endpos (String.concat "." (first :: rest)) }
 s_path_segment:
-  DOT value=s_identifier
-    { match value with Object fields -> (match List.assoc "text" fields with String text -> text | _ -> "") | _ -> "" }
+  DOT value=s_identifier { name_text value }
 %inline s_local_kind:
   LET { "let" } | VAR { "var" }
 /* Statements and expression-local bindings share the complete initializer.
@@ -746,7 +724,7 @@ s_product_pattern:
 | s_parameter_open value=s_pattern RPAREN
     { make "group_pattern" $startpos $endpos [("pattern", value.syntax)] [value] }
 | s_parameter_open first=s_pattern COMMA rest=separated_nonempty_list(COMMA, s_pattern) RPAREN
-    { make "tuple_pattern" $startpos $endpos [("patterns", array (first :: rest))] (first :: rest) }
+    { let patterns = first :: rest in make "tuple_pattern" $startpos $endpos [("patterns", array patterns)] patterns }
 
 s_expression:
   value=s_statement_expression { value }
@@ -896,7 +874,7 @@ s_argument_value:
 | OUT VAR binder=s_identifier
     { make "out_variable" $startpos $endpos [("name", binder)] [] }
 %inline s_expression_generic_open:
-  GENERIC_OPEN { () } | CALL_GENERIC_OPEN { () }
+  GENERIC_OPEN | CALL_GENERIC_OPEN { () }
 s_atom_with(opening):
   value=s_literal { value }
 | value=INTERPOLATED_STRING
@@ -908,7 +886,7 @@ s_atom_with(opening):
 | opening RPAREN { make "unit" $startpos $endpos [] [] }
 | opening value=s_expression RPAREN { make "group" $startpos $endpos [("value", value.syntax)] [value] }
 | opening first=s_expression COMMA rest=separated_nonempty_list(COMMA, s_expression) RPAREN
-    { make "tuple" $startpos $endpos [("values", array (first :: rest))] (first :: rest) }
+    { let values = first :: rest in make "tuple" $startpos $endpos [("values", array values)] values }
 | MATCH LPAREN value=s_expression RPAREN motive=option(s_match_motive)
   LBRACE cases=comma_nonempty_list(s_match_expression_case) RBRACE
     { make "match_expression" $startpos $endpos [("value", value.syntax); ("motive", optional motive);
