@@ -166,8 +166,44 @@ public impl Measured<Nat> { public definition Nat Measure(Nat value) => value; }
         _command("build-package", workspace, _lock(workspace), refusal="must own")
 
 
+def _opaque_provider_upgrade() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        directory = Path(temporary)
+        workspace = _workspace(directory)
+        provider = workspace / "weights" / "v1" / "Measure.vela"
+        source = provider.read_text() + """
+private definition Nat Chosen() => 3;
+public Nat Capacity() ensures result >= 1 => Chosen();
+"""
+        provider.write_text(source)
+        client = workspace / "scale" / "v1" / "Calibration.vela"
+        client.write_text(client.read_text() + """
+public lemma PublishedLowerBound()
+    ensures (Capacity() >= 1) == true
+    proof { assert (Capacity() >= 1) == true; }
+""")
+        bundle = directory / "bundle.json"
+        _command("build-package", workspace, _lock(workspace), "--output", bundle)
+        _replay(directory, json.loads(bundle.read_bytes())["modules"])
+
+        changed = source.replace("private definition Nat Chosen() => 3;", """
+private record Limit(Nat Available);
+private definition Nat Chosen() => Limit(4).Available;""")
+        _upgrade(workspace, "v1", "v2", changed)
+        _command("build-package", workspace, _lock(workspace), "--output", bundle)
+        accepted = bundle.read_bytes()
+        _replay(directory, json.loads(accepted)["modules"])
+
+        _upgrade(workspace, "v2", "v3", changed.replace(" ensures result >= 1", ""))
+        _command("build-package", workspace, _lock(workspace), "--output", bundle,
+                 refusal="module 'Scale.Calibration': assertion could not be established")
+        ensure(bundle.read_bytes() == accepted, "missing public bound replaced the accepted client")
+
+
 def cases() -> list[Case]:
     return [
         Case("independent locked client, kernel readings and label evolution", _client_upgrade, lane="toolchain"),
         Case("sibling instance coherence, declaration ownership and import order", _closure_coherence, lane="toolchain"),
+        Case("locked client proof across opaque implementation and public law changes",
+             _opaque_provider_upgrade, lane="toolchain"),
     ]

@@ -2191,8 +2191,11 @@ through a named argument and a nominal interface instance. The
 [native client cases](../../tools/tests/test_vela_locked_clients.py) compile
 the emitted Gallina and run `rocqchk`. They recover readings 2 and 9 before
 and after a local parameter rename. Renaming the external label rejects the
-unchanged client at its call site and preserves its previous bundle. Two
-import orders resolve the same instances. An instance on a foreign primitive
+unchanged client at its call site and preserves its previous bundle. A client
+proof uses an opaque function's public lower bound across a change from a
+private scalar value of three to a private record holding four. Removing the
+bound makes the same assertion fail even though the provider still returns four.
+Two import orders resolve the same instances. An instance on a foreign primitive
 fails the ownership rule. This qualification covers the mathematical package
 target. Synchronous frontend correspondence and executable admission retain
 their own milestones. Actual hours are n/a for this parallel batch.
