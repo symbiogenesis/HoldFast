@@ -76,6 +76,11 @@ comments carry no semantic or proof authority.
 
 ## Compiler commands and publication
 
+The [new-package authoring policy](../../PLAN.md#q25el) calls for a single
+canonical formatter in the default release checks, with a repair command
+alongside a layout finding. Builds check without writing authored source.
+Editors may use the same formatter on save according to their edit policy.
+
 | Command or mode | Source policy |
 | --- | --- |
 | `holdfast check SOURCE` and `holdfast emit SOURCE` | Read an immutable snapshot, run required checks and advisory lints, and preserve source bytes. Emission may publish its explicitly requested output only after successful checking. |
@@ -124,7 +129,7 @@ The compiler reports these advisory lint IDs.
 | `HOLDFAST103` | An equality comparison has a Boolean literal operand |
 | `HOLDFAST105` | A generic type parameter name does not use a capital initial and ASCII alphanumeric words |
 | `HOLDFAST107` | An unparenthesized bitwise expression is an operand of a comparison in checked mathematical source |
-| `HOLDFAST108` | A binding pattern differs only in its initial capitalization from a constructor of the scrutinee type |
+| `HOLDFAST108` | An otherwise legal binding pattern differs only in its initial capitalization from a constructor of the scrutinee type. A confusable whole match pattern is a [type error](../language/reference.md#lexical-structure). |
 
 The mathematical CLI and native playground report `HOLDFAST107` for accepted
 expressions such as `flags & mask == 0u8`. Write `(flags & mask) == 0u8` to

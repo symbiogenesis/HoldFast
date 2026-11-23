@@ -7,6 +7,17 @@ Functions state preconditions and postconditions with `requires` and
 `ensures`. Named invariants can be opened for an update and must hold again
 when the block exits.
 
+HoldFast aims to make strong guarantees practical to use and maintain across
+both systems and application code. Shared constructs keep their meaning across
+execution profiles. A profile defines the permitted runtime behavior, the
+assurance policy defines the required properties, and each result names the
+representation its evidence actually covers. [Assurance policy](docs/extensions/assurance-profiles.md#scope-and-the-governing-rule)
+
+The first release qualifies the exact packet executable and an independently
+authored systems package. The hosted application profile has its own runtime,
+foreign bindings and comparison against a host-native application.
+[Release delivery](PLAN.md#holdfast-first-release-delivery)
+
 Try the [interactive playground](https://symbiogenesis.github.io/HoldFast/) or
 browse the [authored examples](examples/). The
 [language reference](docs/language/reference.md) describes the surface syntax and

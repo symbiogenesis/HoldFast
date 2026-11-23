@@ -2386,3 +2386,44 @@ acceptance runs used 79.440 seconds of command wall time. Agent wall time
 was 10 minutes 15 seconds, with zero observed human intervention.
 [Interpreter identity control](../../tools/tests/test_holdfast_inspection.py) ·
 [Mixed-interpreter editor control](../../tools/tests/test_holdfast_lsp_actions.py)
+
+## Q25eb · Offer syntax-checked formatting during semantic repair
+
+The pure editor worker formats a complete tree with a type error and grants no
+semantic facts. The mathematical CLI formats an unresolved proof through
+`fmt --syntax-only`, preserving tokens, documentation attachment and the
+broken proof. Strict elaboration still refuses it. Both paths refuse malformed
+syntax. [Editor regression](../../tools/tests/test_holdfast_lsp_editor.py) ·
+[Mathematical formatter regression](../../tools/tests/test_holdfast_mathematical_authoring.py)
+
+## Q25ec · Compare authored public contracts and effect clauses
+
+The [contract comparison](../language/first-release.md#public-api-evolution)
+reports the two exact source digests and changes to exports, effect clauses,
+pre/postconditions, closed cases, transparent definitions and imports. The
+native regression keeps trivia and opaque executable bodies out of the contract
+delta and rejects unrelated modules. The report has an authored-syntax
+evidence endpoint. [Native regression](../../tools/tests/test_holdfast_contract_diff.py)
+
+## Q25ed · Check marked documentation examples in the repository gate
+
+The gate runs [marked complete pure modules](../tooling/pure-prototype.md#source-fragment).
+The regression distinguishes the expected type refusal from both a syntax error
+and unexpected success. Illustrations nested in an ordinary fenced block
+remain text. [Gate regression](../../tools/tests/test_gate_execution.py)
+
+## Q25ee · Reject confusable catch-all constructor patterns
+
+The mathematical checker rejects `none` as a whole binding pattern for an
+`Option`. The fixture checks nested payload bindings, parentheses and
+selectively aliased constructors alongside ordinary binding and constructor
+success cases. [Elaborator regression](../../tools/tests/test_holdfast_elaborate.py)
+
+## Q25ef · Default to qualified imports in the new mathematical edition
+
+The locked `math-2` edition binds an unadorned import under its final module
+segment. Explicit aliases and selected imports remain available. Mixed
+editions obtain their own import behavior from the importing package's lock
+entry. Tests exercise shadowing, reordered imports and same-tail collisions.
+[Module regression](../../tools/tests/test_holdfast_elaborate.py) ·
+[Locked-package regression](../../tools/tests/test_holdfast_packages.py)

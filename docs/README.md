@@ -6,6 +6,8 @@
 | --- | --- |
 | [language/reference.md](language/reference.md) | Language syntax, semantics, and tool support |
 | [language/first-release.md](language/first-release.md) | First-release boundary, primitive semantics, module/package rules, ownership libraries, and first-slice qualification |
+| [language/application-profile.md](language/application-profile.md) | Hosted application semantics, host bindings, cancellation, and durable recovery |
+| [language/systems-profile.md](language/systems-profile.md) | Device ownership, low-level target guarantees, artifact costs, and secret processing |
 | [language/core-design.md](language/core-design.md) | Core design, explicit loan and mutation rules, refinement/domain tier, and proof obligations |
 | [language/surface-grammar.md](language/surface-grammar.md) | Concrete grammar, precedence, and layout |
 | [language/loan-analysis.md](language/loan-analysis.md) | Path-sensitive loan-end inference over explicit flow facts |

@@ -29,6 +29,7 @@ the owner and the evidence needed to resume, then take another row whose inputs 
 | Checked frontend results | Diagnostics can consume checked derivations ([Q25au](#q25au)). The repair trial constructs its fixture from the core laws, checked frontend and concrete resources ([Q25av](#q25av)). The mathematical frontend builds locked packages against the frozen module and instance rules ([Q25ax](#q25ax)). |
 | Accepted validator | Publish the scalar and text representations ([Q25aw](#q25aw)). Use the required primitive laws to build the ownership libraries ([Q25ay](#q25ay)). General lowering consumes published representation laws and returns a checked receipt for each operation, so each library can finish qualification ([Q25az](#q25az)). |
 | Independent second client and baseline | Freeze the public observations, resource envelope and benefit thresholds before adapting the client. When its packages, libraries and lowering qualify, run the trial and obtain its own admission receipt ([Q25bb](#q25bb)). Close shared coverage across both clients, publish the reproducible release, then rehearse one upgrade ([Q25bc](#q25bc), [Q25bd](#q25bd)). |
+| Independent hosted application and pinned host | Freeze the application, ABI and baseline ([Q25eh](#q25eh)). Use the common language rules and qualify the hosted runtime and bindings through their own evidence endpoint. Exercise the actual application workflow and recovery once those interfaces qualify ([Q25ei](#q25ei)). |
 
 Use each item's **Start** and **Check** for the precise inputs and acceptance decision.
 Existing parser, math and editor work can finish its frozen qualification. Broader
@@ -127,6 +128,7 @@ open until the parent's acceptance conditions are met.
   - **Owner** `producer-receipts`
   - **Start** Identify the revisions of the local and externally supplied producers.
   - **Check** Bind each independently checked receipt to its source closure, canonical model, assumptions, tool versions and target. Replay locally and review applicable user-supplied Host CI and Guest CI verdicts. Missing receipts and skipped or canceled runs leave their guarantees pending. Publish the validator's receipts before the second-client trial. Close when every declared producer and client is covered.
+  - Apply the [deployed-claim evidence](docs/assurance/compiler-route-contract.md#evidence-for-each-deployed-claim) binding at both client endpoints. Substitute a host packet run for view-authority evidence on the deployed image and require the report to identify the missing target claim.
   - Local bindings check the capacity and control sources, proof-corruption refusal, Sail capability images and complete simulator traces, and optional CompCert processes, effective inputs and images. External producer receipts and artifact admission remain open. [Partial evidence](docs/assurance/completion-log.md#q25ar-integrate-and-recheck-prerequisite-producer-receipts).
 
 <a id="language-core-proposals"></a>
@@ -158,6 +160,7 @@ open until the parent's acceptance conditions are met.
   - **Start** Use [checked frontend derivations](#q25at) as they become available.
   - **Check** In the existing interaction path, show each typed hole's location, exact outstanding proposition and status. A dependency change or invalid edit withdraws stale evidence, including late results from the previous generation. [Typed holes and invalidation](docs/language/core-design.md#typed-holes-and-invalidation).
   - The local mathematical playground shows named goals from the elaborator and withdraws them after source or compiler changes. The copy guard, cleanup and post-match loan diagnostics still need the checked release fixture. [Partial evidence](docs/assurance/completion-log.md#q25au-qualify-contextual-diagnostics-and-invalidation).
+  - Replay a goal with sufficient and exhausted budgets. Preserve its pending status when exhaustion occurs and withdraw reused evidence after a consumed fact changes. [Proof search and replay](docs/assurance/workflow-contract.md#proof-search-and-replay-under-change)
 
 <a id="q25av"></a>
 
@@ -213,6 +216,8 @@ open until the parent's acceptance conditions are met.
   - **Check** Exercise imports, instances, receiver snapshots, partial initialization, exhaustion and resource-returning success and error exits. At the same endpoint, measure annotations, first useful diagnostic, checking latency, review, repair and target costs for a contract change, a preserving refactor and a representation change using explicit Rocq relations. Obtain this client's own admission receipt before acceptance. [Adoption protocol](docs/assurance/workflow-contract.md#first-release-qualification-and-adoption).
   - Run the [public-contract trial](docs/assurance/workflow-contract.md#what-a-caller-can-prove-from-the-public-contract) on the independent client. Check what the caller loses when a required law is weakened and whether its original proof survives a private representation change. Trace [proof erasure and remaining runtime costs](docs/assurance/workflow-contract.md#cost-of-the-verified-abstraction) through the admitted image and compare with the matched baseline on success and error paths.
   - Keep a previously legal boundary input when testing a tightened provider precondition. A compatible version must cover the frozen caller domain and return its promised resources on every reachable exit. Replay both the unchanged caller and the input that distinguishes the two contracts.
+  - Exercise two disjoint views retained through one public call sequence and an invalid sibling whose views overlap. Replay the same importing proof after a private layout change. Freeze and cost the equivalent Rust client where the ABI and checked claims allow direct comparison. [Systems costs](docs/language/systems-profile.md#runtime-costs-and-reproducibility)
+  - Apply the [contract and assumption review](docs/assurance/workflow-contract.md#reviewing-a-public-contract-change). Replace one discharged library law with a transitive foreign premise and require old-policy failure and the responsible dependency path. Compare cold and incremental proof checking for the preserving refactor and changed dependency.
   - Measured friction can open the [borrow-checker comparison](docs/language/loan-analysis.md#conditional-borrowing-comparison) or [proof-transfer experiment](docs/assurance/workflow-contract.md#representation-transfer-comparison).
     For a loop rewrite forced by borrowing, replay the client's original loop and a neighbor with a live conflicting view. Compare the alias decision, remaining restoration duties and author edits on that pair.
 
@@ -230,6 +235,7 @@ open until the parent's acceptance conditions are met.
   - **Owner** `release-maintenance`
   - **Start** Use the [supported release](#q25bc) and its pinned compiler, kernel and dependencies.
   - **Check** Rehearse one coordinated tool and dependency upgrade, including semantic cache invalidation, compatibility and migration, security response, rollback and proof and conformance replay. Record actual human effort, agent time and machine time separately.
+  - Use the [evidence-aware package comparison](#q25eg) at the maintenance boundary and measure [replay under change](docs/assurance/workflow-contract.md#proof-search-and-replay-under-change), including failed searches and the first useful diagnosis.
 
 ### Remaining HoldFast ergonomics
 
@@ -244,6 +250,45 @@ applicable and refuse stale edits. [Diagnostics](#q25au) · [Inspection](#q25ch)
 [LSP clients](#q25ci) · [Authoring checks](docs/tooling/authoring-tools.md#qualification) ·
 [Formatting and previews](#q25ck)
 
+<a id="q25eb"></a>
+
+- [x] **Q25eb · Offer syntax-checked formatting during semantic repair**
+  - [Landing evidence](docs/assurance/completion-log.md#q25eb-offer-syntax-checked-formatting-during-semantic-repair).
+
+<a id="q25ec"></a>
+
+- [x] **Q25ec · Compare authored public contracts and effect clauses**
+  - [Landing evidence](docs/assurance/completion-log.md#q25ec-compare-authored-public-contracts-and-effect-clauses).
+
+<a id="q25ed"></a>
+
+- [x] **Q25ed · Check marked documentation examples in the repository gate**
+  - [Landing evidence](docs/assurance/completion-log.md#q25ed-check-marked-documentation-examples-in-the-repository-gate).
+
+<a id="q25ee"></a>
+
+- [x] **Q25ee · Reject confusable catch-all constructor patterns**
+  - [Landing evidence](docs/assurance/completion-log.md#q25ee-reject-confusable-catch-all-constructor-patterns).
+
+<a id="q25ef"></a>
+
+- [x] **Q25ef · Default to qualified imports in the new mathematical edition**
+  - [Landing evidence](docs/assurance/completion-log.md#q25ef-default-to-qualified-imports-in-the-new-mathematical-edition).
+
+<a id="q25eg"></a>
+
+- [ ] **Q25eg · Compare locked package guarantees and transitive assumptions**
+  - **Owner** `package-evidence`
+  - **Start** Use the locked interfaces and checked evidence of the two release clients and the [authored contract comparison](#q25ec).
+  - **Check** Review public types, caller domains, outcomes, permissions, resource limits, progress and leakage to the extent each interface promises them. Show old and new assumption owners and dependency paths, including an unchanged signature with changed trust. Replay a frozen client against both releases and report the strongest compatibility verdict justified at the claimed endpoint. [Workflow contract](docs/assurance/workflow-contract.md#reviewing-a-public-contract-change)
+
+<a id="q25el"></a>
+
+- [ ] **Q25el · Publish canonical authoring defaults for new packages**
+  - **Owner** `package-authoring`
+  - **Start** Qualify canonical layout and relevant lints on an independent multi-module package in the selected edition.
+  - **Check** Use one canonical formatter in the package's default release checks and explicit editor formatting path. Report layout differences with a single repair command and keep build checks source-preserving. Exercise marked docs, the minimized fixture from a generated failure, and an upgrade that changes a public declaration. Apply the same checks on fresh Windows and Linux installations. [Authoring contract](docs/tooling/authoring-tools.md#qualification)
+
 ### Language extensions
 
 Commission an extension for a named client when its own inputs are ready. After the
@@ -252,6 +297,34 @@ prose and manifests before runtime implementation. Teach the fixed modes first a
 compare them and checked trace libraries with a grading increment on the selected
 client. [Async service qualification](docs/extensions/handlers-async.md#first-async-service-qualification) ·
 [Grading trial](#q25by)
+
+<a id="q25eh"></a>
+
+- [ ] **Q25eh · Qualify a hosted application runtime and foreign bindings**
+  - **Owner** `hosted-runtime`
+  - **Start** Select one independent application, pinned host and ABI, capability policy and executable semantics. Use checked shared language and resource rules as the relevant producers qualify.
+  - **Check** Qualify the shared operations on both profiles and the hosted collection, allocation and cleanup behavior. Exercise validation, retained or moving foreign state, reentry, expired handles, exhaustion and exception translation. State the runtime and binding trust base under the selected assurance policy. [Hosted profile](docs/language/application-profile.md#foreign-calls-and-callbacks)
+
+<a id="q25ei"></a>
+
+- [ ] **Q25ei · Trial hosted application usability and recovery**
+  - **Owner** `hosted-client`
+  - **Start** Use the [qualified hosted runtime](#q25eh), the independently chosen app, and the frozen workload, C# or TypeScript baseline and thresholds.
+  - **Check** Run and debug the real application across the host boundary. Replay helper extraction and a library upgrade, exercise late cancellation and durable commit with a lost acknowledgement, and retry after restart. Evaluate the specified progress assumptions and measure application repair, edit-to-run, binding and runtime costs. [Application acceptance](docs/language/application-profile.md#application-acceptance) · [Progress claims](docs/assurance/verification-strategy.md#progress-at-a-component-boundary)
+
+<a id="q25ej"></a>
+
+- [ ] **Q25ej · Qualify device ownership and portable low-level operations**
+  - **Owner** `system-device-client`
+  - **Start** Use the admitted first target and select one independent third-party driver, a second target, a frozen public interface and actual device, ordering, representation and compiler producers.
+  - **Check** Qualify buffer grants through completion, cancellation and reuse. Replay stale completion and stale backing, confirm publication ordering, and exercise device, atomic and vector operations used by the client. Report missing target laws or qualify the selected fallback; retain exact-image cost and rebuild evidence. [Systems profile](docs/language/systems-profile.md)
+
+<a id="q25ek"></a>
+
+- [ ] **Q25ek · Qualify functional and target leakage claims for tag verification**
+  - **Owner** `system-secret-client`
+  - **Start** Freeze the client, target, declassification and attacker observations. Use the relevant machine, compiler and exact-image producers.
+  - **Check** Replay independent equal and unequal tag cases and reject an early-exit implementation through its differing trace. Report every claimed observation at the target endpoint. If the interface promises erasure, qualify the covered storage and copies on every exit. [Secret-processing client](docs/language/systems-profile.md#secret-processing-client)
 
 <a id="q25be"></a>
 
@@ -384,12 +457,12 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
 <a id="q25cc"></a>
 
 - [ ] **Q25cc · Compare borrow-checking alternatives on held-out clients**
-  - **Owner:** `borrow-comparison`. **Start:** Package-trial friction measurements and pinned equivalent comparison modes. **Check:** Run the [borrow comparison boundary](docs/language/loan-analysis.md#conditional-borrowing-comparison) with fixed behavior/evidence endpoints, unsupported cases and analysis-budget refusals; this is a selection trial, not implementation of a competing checker.
+  - **Owner:** `borrow-comparison`. **Start:** Package-trial friction measurements and pinned equivalent comparison modes. **Check:** Run the [borrow comparison boundary](docs/language/loan-analysis.md#conditional-borrowing-comparison) with fixed behavior and evidence endpoints. Include conditional returned borrows, lending iteration and higher-ranked or associated-item composition, comparing pinned default and experimental Rust modes on identical positives and invalid neighbors. Report unsupported cases and budget exhaustion.
 
 <a id="q25cd"></a>
 
 - [ ] **Q25cd · Trial a selected two-phase receiver-borrow extension**
-  - **Owner:** `two-phase-borrow`. **Start:** Measured receiver friction and borrow-comparison selection. **Check:** Construct interpretation, checked analysis/lowering and invalid-neighbor cases for one selected two-phase receiver rule; preserve evaluation order, effects, alias safety and source/artifact evidence. Ordinary release receivers remain sufficient until this passes.
+  - **Owner:** `two-phase-borrow`. **Start:** Measured receiver friction and borrow-comparison selection. **Check:** Run the [two-phase receiver trial](docs/language/loan-analysis.md#two-phase-receiver-trial). Establish interpretation and checked lowering, preserve argument evaluation order and resource exits, and reject a live conflicting view or early mutation at the responsible rule.
 
 <a id="q25ce"></a>
 
@@ -415,6 +488,9 @@ arithmetic, sequence libraries and compiler joins are qualified. The
 pilot and any additional numerical semantics. Acceptance requires an independent oracle,
 checked source, artifact and resource evidence, and separate measurements of numerical
 quality and target cost. [Bounded pilot contract](docs/extensions/numerical-workloads.md#bounded-pilot-acceptance)
+Freeze the [numerical guarantee](docs/extensions/numerical-workloads.md#portability-and-numerical-guarantees)
+before target selection. Review reproducibility and qualified error bounds against the
+selected scalar, vector or device operations.
 
 <a id="owner-to-budget-allocation"></a>
 
@@ -738,15 +814,15 @@ the [release milestones](#current-execution) to judge readiness.
 <!-- estimate-summary:start -->
 | Measure | Value |
 | --- | --- |
-| Total estimate midpoint h | 21,553.9 |
-| Total estimate range h | 11,705.9–31,401.9 |
-| Completed scope h | 1,445.9 |
-| Complete by estimate % | 6.7 |
-| Remaining h | 20,108 |
-| Open class I h | 1,928 |
-| Open class X h | 18,180 |
-| Retained completion estimate h | 1,442.5 |
-| Unmeasured completed items | 48 |
+| Total estimate midpoint h | 23,745.9 |
+| Total estimate range h | 12,841.9–34,649.9 |
+| Completed scope h | 1,501.9 |
+| Complete by estimate % | 6.3 |
+| Remaining h | 22,244 |
+| Open class I h | 2,064 |
+| Open class X h | 20,180 |
+| Retained completion estimate h | 1,498.5 |
+| Unmeasured completed items | 53 |
 <!-- estimate-summary:end -->
 
 The table counts each checklist leaf once. Completed work contributes actual
@@ -883,3 +959,14 @@ changes, refresh the table with `python tools/run.py check --fix`.
 | Q25dl | X | 1,280 | 640–1,920 | n/a | n/a |
 | Q25dm | X | 1,920 | 960–2,880 | n/a | n/a |
 | Q25dn | X | 640 | 320–960 | n/a | n/a |
+| Q25eb | I | 12 | 8–16 | n/a | n/a |
+| Q25ec | I | 12 | 8–16 | n/a | n/a |
+| Q25ed | I | 8 | 4–12 | n/a | n/a |
+| Q25ee | I | 8 | 4–12 | n/a | n/a |
+| Q25ef | I | 16 | 8–24 | n/a | n/a |
+| Q25eg | I | 96 | 56–136 | n/a | n/a |
+| Q25eh | X | 960 | 480–1,440 | n/a | n/a |
+| Q25ei | X | 240 | 120–360 | n/a | n/a |
+| Q25ej | X | 480 | 240–720 | n/a | n/a |
+| Q25ek | X | 320 | 160–480 | n/a | n/a |
+| Q25el | I | 40 | 24–56 | n/a | n/a |
