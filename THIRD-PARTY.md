@@ -74,6 +74,21 @@ exceptions. The reader consumes local compilation databases as an external
 development tool. Its executable and upstream source remain outside the repository
 and release artifacts.
 
+## LLVM optimization remark reader
+
+The [remarks qualifier](docs/tooling/tooling-protocols.md#compiler-decisions-and-performance-traces)
+runs Ubuntu ARM64 `llvm-remarkutil` and `libLLVM.so.21.1` as external development
+tools. Both come from LLVM 21.1.8, Ubuntu package revision `1:21.1.8-6ubuntu1`.
+The executable SHA-256 is `18bdbf0d5d387911b585cd97786ffcb3dcdcc8a539784a2963e293afdec208a3`
+and the shared library SHA-256 is `a8d595321c634d717fe5d8a03396837c5631b389698125b93061b7638d5a6e7c`.
+The revision's [LLVM license](https://github.com/llvm/llvm-project/blob/llvmorg-21.1.8/llvm/LICENSE.TXT)
+specifies Apache-2.0 with LLVM Exceptions and identifies separately licensed
+third-party components. Ubuntu's `libllvm21` copyright record has SHA-256
+`b2ed2fd344e8ddbf2e0c83113bd40fa1853438be61a0ff20af5acd187c07cbf6`.
+The tracked tree distributes Vela's harness and authored fixture records. LLVM
+executables, shared libraries and upstream source stay with the external tool
+installation.
+
 <a id="independent-gallina-source-map-reader"></a>
 <a id="boolean-web-execution-engine"></a>
 

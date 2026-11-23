@@ -620,6 +620,16 @@ allows 256 decisions and one MiB per file. Exhaustion preserves the previous
 file. Run `python tools/run.py vela remarks-validate SOURCE REMARKS.yaml` to
 recompile and compare every byte, including the decision order and bindings.
 
+Run `python tools/run.py vela-parser qualify-remarks /usr/lib/llvm-21/bin/llvm-remarkutil`
+with the [pinned Ubuntu ARM64 reader](../../THIRD-PARTY.md#llvm-optimization-remark-reader).
+LLVM converts the exported YAML to its native bitstream, decodes it, and counts
+the decisions per function. The [qualification](../../tools/toolchain/remarks_reader.py)
+compares every decoded field, including callee and instantiation origins, with
+independently selected records and checks the calls present in the generated
+Gallina. A runtime value supplied to a static parameter produces a located
+failure with the original argument diagnostic. Controls cover malformed YAML,
+changed source and a valid LLVM record naming the wrong generating call.
+
 Export compiler phase and nested-work timings as Chrome Trace Event JSON or a
 native Perfetto trace, according to the selected consumer's
 [supported formats](https://perfetto.dev/docs/getting-started/other-formats).
