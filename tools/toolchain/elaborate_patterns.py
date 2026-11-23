@@ -630,7 +630,7 @@ class _PatternsMixin:
                     self.mutable_locals.discard(bname)
             return extended
         if node["kind"] == "constant_local":
-            binding = self.constant_value(node, environment)
+            binding, _ = self.constant_value(node, environment)
         elif node["kind"] not in {"let", "typed_local", "var"}:
             raise self.fail("unsupported", "only local let/var name bindings are supported")
         else:

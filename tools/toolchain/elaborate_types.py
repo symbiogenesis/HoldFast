@@ -16,6 +16,7 @@ MAX_NAT_BITS = 4096
 MAX_CONSTANT_NAT = 10 ** MAX_LITERAL_DIGITS - 1
 MAX_PATTERN_NAT = 64
 MAX_STRING_BYTES = 256
+MAX_STATIC_VECTOR_SLOTS = 64
 
 
 @dataclass(frozen=True)
@@ -1667,6 +1668,11 @@ Definition vela_store_lookup_copy_ge (dbase sbase count hi idx : vela_int (4 : n
 Definition vela_Congr (A B : Type@{vela_u0}) (x y : A) (f : A -> B)
     (p : @Corelib.Init.Logic.eq A x y) : @Corelib.Init.Logic.eq B (f x) (f y) :=
   @Corelib.Init.Logic.f_equal A B f x y p.
+
+Lemma vela_freeze_observe (A : Type@{vela_u0}) (initial frozen : A)
+    (same : initial = frozen) (P : A -> Type@{vela_u0}) (observe : forall a, P a) :
+    @eq_rect A initial P (observe initial) frozen same = observe frozen.
+Proof. destruct same. reflexivity. Qed.
 
 Fixpoint vela_Vec (A : Type@{vela_u0}) (n : nat) {struct n} : Type@{vela_u0} :=
   match n with

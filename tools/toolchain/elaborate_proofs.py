@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
 
 class _ProofsMixin:
-    def constant_value(self: _Elaborator, node: Node, environment: dict[str, _Binding]) -> _Binding:
+    def constant_value(self: _Elaborator, node: Node, environment: dict[str, _Binding]) -> tuple[_Binding, _Term]:
         previous = self.static_forbidden
         # Retain the surrounding bindings while checking the whole initializer.
         # Fresh lambda/function locals are distinct from its runtime inputs.
@@ -38,30 +38,24 @@ class _ProofsMixin:
             id(binding) for binding in environment.values() if not binding.constant}
         try:
             value_type = self.type(self.node(node["type"]), environment)
-            expected = self.whnf(value_type)
-            int_spec = self._int_spec(expected)
-            if expected not in {_NAT, _BOOL, _UNIT, _CHAR} and int_spec is None:
-                raise self.fail("unsupported", "mathematical constants require Nat, bool or Unit", node)
-            value = self.check(self.node(node["value"]), value_type, environment)
+            self._check_freezable_type(value_type)
+            initializer = self.node(node["value"])
+            value = self.check(initializer, value_type, environment)
+            self._classify_phase("", initializer, executable=True)
             self.complete(value)
             available = set().union(*(self.free(binding.term) for binding in environment.values()
                                       if binding.constant))
-            dependencies = self.free(value)
+            dependencies = self.free(value) | self.free(value_type)
             if not dependencies <= available:
                 raise self.fail("type", "constant initializer is not a closed static value", node)
+            marked = _term("static", value_type, value)
             if dependencies:
-                return _Binding(_term("static", value_type, value), value_type, constant=True)
-            normalized = self.whnf(value)
-            if int_spec is not None:
-                if normalized.kind != "int":
-                    raise self.fail("inference", "constant initializer did not evaluate to an admitted static value", node)
-                return _Binding(normalized, value_type, constant=True)
-            kind = {_NAT: "nat", _BOOL: "bool", _UNIT: "unit", _CHAR: "char"}[expected]
-            if normalized.kind != kind:
-                raise self.fail("inference", "constant initializer did not evaluate to an admitted static value", node)
-            if kind == "nat" and not 0 <= cast("int", normalized.value) <= self.natural_limit():
-                raise self.fail("limit", "constant natural exceeds elaborator evaluation limit", node)
-            return _Binding(normalized, value_type, constant=True)
+                result = marked
+            elif node["kind"] == "constant_local":
+                result = self.whnf(marked)
+            else:
+                result = self._freeze_static(value_type, value)
+            return _Binding(result, value_type, constant=True), value
         finally:
             self.static_forbidden = previous
 

@@ -172,6 +172,8 @@ class _Elaborator(
         self.last_call_updates: list[tuple[Node, _Binding, _Term | None]] = []
         self.guard_value = False
         self.static_forbidden: set[int] | None = None
+        self.freeze_checks: dict[tuple[str, str, str], None] = {}
+        self.freeze_check_bytes = 0
         self.globals: dict[str, _Binding] = {}
         self.constants: dict[str, _Binding] = {}
         self.definitions: dict[str, _Term] = {}
@@ -1175,11 +1177,16 @@ class _Elaborator(
             self.complete(value)
             available = set().union(*(self.free(binding.term) for binding in environment.values()
                                       if binding.constant))
+            vector = self._static_vector(expected)
             dependencies = self.free(value)
+            if vector is not None:
+                self._check_freezable_type(expected)
+                self._classify_phase("", node, executable=True)
+                dependencies.update(self.free(expected))
             if not dependencies <= available:
                 raise self.fail("type", "constant parameter requires a static argument", node)
             expected_whnf = self.whnf(expected)
-            if expected_whnf in {_NAT, _BOOL, _CHAR, _UNIT} or self._int_spec(expected_whnf) is not None:
+            if vector is not None or self._static_scalar_kind(expected_whnf) is not None:
                 marked = _term("static", expected, value)
                 return marked if dependencies else self.whnf(marked)
             return value
@@ -1197,9 +1204,11 @@ class _Elaborator(
         if term.kind == "let":
             return _term("let", term.args[0], term.args[1], self.specialize(term.args[2], depth + 1), value=term.value)
         if term.kind == "static":
+            if not self.free(term):
+                return self.whnf(term)
             value = self.specialize(term.args[1], depth + 1)
             marked = _term("static", term.args[0], value)
-            return marked if self.free(value) else self.whnf(marked)
+            return marked if self.free(marked) else self.whnf(marked)
         if term.kind == "const" and term.value in self.definitions:
             if self.definitions[term.value].kind == "fix":
                 return term
@@ -1403,6 +1412,11 @@ class _Elaborator(
         call_site = self.site
         term, value_type = binding.term, binding.type
         callee_head, callee_gen_args = self.spine(self.resolve(term))
+        if self.static_forbidden is not None and callee_head.kind == "const":
+            callee = str(callee_head.value)
+            if (self.callable_effect_writes.get(callee, set()) or self.callable_effect_reads.get(callee, set())
+                    or self.callable_effect_calls.get(callee, set()) or self.callable_callback_effects.get(callee, set())):
+                raise self.fail("type", "static evaluation requires a call with an empty effect footprint", call_site)
         if callee_head.kind == "const" and str(callee_head.value) in self.specification_values and call_site is not None:
             self.phase_uses.append((call_site, self.specification_values[str(callee_head.value)]))
         is_rec_call = (
@@ -2317,6 +2331,12 @@ def _checked_elaboration(
             for declaration in elaborator.nodes(root["declarations"]):
                 first = len(elaborator.output)
                 elaborator.declaration(declaration)
+                if elaborator.freeze_checks:
+                    elaborator.output.append("\n".join(
+                        f"Definition {elaborator.emission_prefix}_freeze_check_{first}_{index} : "
+                        f"@eq {domain} {original} {frozen} := eq_refl."
+                        for index, (domain, original, frozen) in enumerate(elaborator.freeze_checks)))
+                    elaborator.freeze_checks.clear()
                 if origins is not None:
                     start, end = cast("list[int]", declaration["span"])
                     declarations.append((start, end))
@@ -2531,7 +2551,7 @@ def _console_initializer(elaborator: _Elaborator, protocol: _Protocol, parsed: o
 
 def _console_value(elaborator: _Elaborator, declaration: Node,
                    value_type: ValueType) -> StaticEvaluation:
-    result = elaborator.constant_value(declaration, {})
+    result, _ = elaborator.constant_value(declaration, {})
     normalized = elaborator.whnf(result.term)
     expected = "nat" if value_type == "Nat" else "bool"
     if normalized.kind != expected or elaborator.free(normalized):

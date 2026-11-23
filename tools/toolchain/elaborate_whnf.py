@@ -10,6 +10,8 @@ from toolchain.elaborate_types import (
     _INT_SPECS,
     _NAT,
     _UNIT,
+    MAX_OUTPUT_BYTES,
+    MAX_STATIC_VECTOR_SLOTS,
     _app,
     _apps,
     _clamp_int,
@@ -28,6 +30,64 @@ if TYPE_CHECKING:
 
 
 class _WhnfMixin:
+    def _static_scalar_kind(self: _Elaborator, value_type: _Term) -> str | None:
+        if self._int_spec(value_type) is not None:
+            return "int"
+        return {_NAT: "nat", _BOOL: "bool", _CHAR: "char", _UNIT: "unit"}.get(value_type)
+
+    def _static_vector(self: _Elaborator, value_type: _Term) -> tuple[_Term, _Term] | None:
+        head, args = self.spine(self.whnf(value_type))
+        return (args[0], args[1]) if head == _constant("Vec") and len(args) == 2 else None
+
+    def _check_freezable_type(self: _Elaborator, value_type: _Term) -> None:
+        element = value_type
+        while (vector := self._static_vector(element)) is not None:
+            element = vector[0]
+        if self._static_scalar_kind(self.whnf(element)) is None:
+            raise self.fail("unsupported", "static values require a scalar or a length-indexed vector of static values")
+
+    def _freeze_static(self: _Elaborator, value_type: _Term, original: _Term) -> _Term:
+        remaining = MAX_STATIC_VECTOR_SLOTS
+
+        def freeze(expected: _Term, value: _Term) -> _Term:
+            nonlocal remaining
+            self.tick(True)
+            expected = self.whnf(expected)
+            value = self.whnf(value)
+            vector = self._static_vector(expected)
+            if vector is None:
+                if value.kind != self._static_scalar_kind(expected):
+                    raise self.fail("inference", "constant initializer did not evaluate to an admitted static value")
+                if value.kind == "int" and self.whnf(value.args[0]) != expected:
+                    raise self.fail("type", "static word differs from its declared target type")
+                if value.kind == "nat" and not 0 <= cast("int", value.value) <= self.natural_limit():
+                    raise self.fail("limit", "constant natural exceeds elaborator evaluation limit")
+                return value
+            element, extent = vector
+            length = self.whnf(extent)
+            if length.kind != "nat":
+                raise self.fail("inference", "static vector layout requires a closed length")
+            size = cast("int", length.value)
+            if size > remaining:
+                raise self.fail("limit", f"static aggregate exceeds {MAX_STATIC_VECTOR_SLOTS} vector slots")
+            remaining -= size
+            elements: list[_Term] = []
+            for _ in range(size):
+                head, fields = self.spine(value)
+                if head != _constant("VCons") or len(fields) != 4:
+                    raise self.fail("inference", "static vector did not reduce to its declared length")
+                elements.append(freeze(element, fields[2]))
+                value = self.whnf(fields[3])
+            head, fields = self.spine(value)
+            if head != _constant("VNil") or len(fields) != 2:
+                raise self.fail("inference", "static vector did not reduce to its declared length")
+            frozen = _apps(_constant("VNil"), element, _term("unit"))
+            for index, item in enumerate(reversed(elements)):
+                frozen = _apps(_constant("VCons"), element, _term("nat", value=index), item, frozen)
+            return frozen
+
+        return freeze(value_type, original)
+
     def _is_whnf_constructor(self: _Elaborator, term: _Term) -> bool:
         if term.kind in {"nat", "int", "bool", "char", "unit", "pair", "inl", "inr", "existT"}:
             return True
@@ -92,21 +152,20 @@ class _WhnfMixin:
             self.tick(True)
             return self.whnf(self.substitute(term.args[2], cast("int", term.value), term.args[1]))
         if term.kind == "static":
-            if self.free(term.args[1]):
+            if self.free(term):
                 return self.whnf(term.args[1])
             previous = self.static_forbidden
             self.static_forbidden = set() if previous is None else previous
             try:
-                normalized = self.whnf(term.args[1])
-                expected_whnf = self.whnf(term.args[0])
-                kind = (
-                    "int"
-                    if self._int_spec(expected_whnf) is not None
-                    else {_NAT: "nat", _BOOL: "bool", _CHAR: "char", _UNIT: "unit"}[expected_whnf]
-                )
-                if normalized.kind != kind:
-                    raise self.fail("inference", "constant initializer did not evaluate to an admitted static value")
-                return normalized
+                frozen = self._freeze_static(term.args[0], term.args[1])
+                if self._static_vector(term.args[0]) is not None:
+                    check = self.render(term.args[0]), self.render(term.args[1]), self.render(frozen)
+                    if check not in self.freeze_checks:
+                        self.freeze_check_bytes += sum(map(len, check))
+                        if self.freeze_check_bytes > MAX_OUTPUT_BYTES:
+                            raise self.fail("limit", "static conversion checks exceed the module output bound")
+                        self.freeze_checks[check] = None
+                return frozen
             finally:
                 self.static_forbidden = previous
         if term.kind == "nat" and not 0 <= cast("int", term.value) <= self.natural_limit():

@@ -2855,9 +2855,12 @@ class _DeclarationsMixin:
             variables = [*generic_vars, *param_vars, *witness_vars]
             entry_body_facts: list[_Term] = []
             body_node: Node = node
+            aggregate_initializer: _Term | None = None
             if kind == "constant":
-                evaluated = self.constant_value(node, environment)
+                evaluated, original = self.constant_value(node, environment)
                 body, result = evaluated.term, evaluated.type
+                if self._static_vector(result) is not None:
+                    aggregate_initializer = original
                 signature = self.wrap("pi", variables, result)
             elif kind == "property":
                 result = self.type(self.node(node["type"]), environment)
@@ -3246,6 +3249,9 @@ class _DeclarationsMixin:
                 self.output.append(f"Definition {emitted} :=\n  {self.render(definition)}.")
             else:
                 self.output.append(f"Definition {emitted} : {self.render(signature)} :=\n  {self.render(definition)}.")
+            if aggregate_initializer is not None:
+                self.output[-1] += (f"\nDefinition {emitted}_freeze : @eq {self.render(signature)} "
+                                    f"{self.render(aggregate_initializer)} {emitted} := eq_refl.")
             binding = _Binding(_constant(emitted), signature, len(generics), constant=kind == "constant")
             self.globals[name] = binding
             if self.navigation is not None:
@@ -3718,7 +3724,7 @@ class _DeclarationsMixin:
         if kind == "unit":
             return "Corelib.Init.Datatypes.tt"
         if kind == "static":
-            value = term.args[1] if self.free(term.args[1]) else self.whnf(term)
+            value = term.args[1] if self.free(term) else self.whnf(term)
             return self.render(value)
         if kind == "let":
             domain, value, body = term.args

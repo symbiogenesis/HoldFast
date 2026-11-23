@@ -848,7 +848,7 @@ def _static_dependency_refusals() -> None:
     _refuses(fixture, "type")
     fixture = _Fixture()
     fixture.constant("Pair", _tuple(_NAT, _BOOL, types=True), _tuple(_natural(1), _boolean(True)))
-    _refuses(fixture, "unsupported", "Nat, bool or Unit")
+    _refuses(fixture, "unsupported", "a scalar or a length-indexed vector")
     fixture = _Fixture()
     fixture.constant("Overflow", _NAT, _binary("*", _natural(10 ** 200), _natural(10 ** 200)))
     _refuses(fixture, "limit", "elaborator evaluation limit")
@@ -1978,6 +1978,52 @@ def _string_literal(spelling: str) -> Form:
         fixture.write(spelling)
         return fixture.node("string", start, value=spelling)
     return form
+
+
+def _frozen_static_tables() -> None:
+    fixture = _Fixture("FrozenTables")
+    row = _type("Vec", _NAT, _natural(2))
+    table = _type("Vec", row, _natural(1))
+    fixture.definition("Row", row, (), _string_literal('"é"'))
+    fixture.constant("Table", table, _call("VCons", _call("Row"), _call("VNil", generics=(row,))))
+    fixture.function("Local", row, (),
+                     _local_constant("Entry", row, _call("Row"), _variable("Entry")), block=True)
+    gallina = elaborate(*fixture.response()).gallina
+    value, witness = gallina.split("Definition vela_d1_Table :", 1)[1].split("Definition vela_d1_Table_freeze", 1)
+    ensure("vela_d0_Row" not in value and "(195 :" in value and "(169 :" in value,
+           "nested table retained a call or lost the UTF-8 octets")
+    ensure("vela_d0_Row" in witness.split(":= eq_refl.", 1)[0] and "vela_freeze_check_" in witness,
+           "conversion checks lost the originally interpreted row or the local freeze")
+
+    for size in (31, 32):
+        fixture = _Fixture()
+        row = _type("Vec", _NAT, _natural(size))
+        fixture.constant("Row", row, _string_literal('"' + "a" * size + '"'))
+        fixture.constant("Rows", _type("Vec", row, _natural(2)),
+                         _call("VCons", _variable("Row"),
+                               _call("VCons", _variable("Row"), _call("VNil", generics=(row,)))))
+        if size == 31:
+            elaborate(*fixture.response())
+        else:
+            _refuses(fixture, "limit", "exceeds 64 vector slots")
+
+    fixture = _Fixture()
+    unrepresented = _type("Span", _type("byte"))
+    fixture.constant("Empty", _type("Vec", unrepresented, _natural(0)), _call("VNil", generics=(unrepresented,)))
+    _refuses(fixture, "unsupported", "a scalar or a length-indexed vector")
+
+    fixture = _Fixture()
+    fixture.definition("Erased", _NAT, (), _variable("hidden"), (("ghost", "hidden", _NAT),))
+    fixture.constant("Table", _type("Vec", _NAT, _natural(1)),
+                     _call("VCons", _call("Erased", generics=(_natural(3),)), _call("VNil", generics=(_NAT,))))
+    _refuses(fixture, "type", "erased parameter")
+
+    fixture = _Fixture()
+    fixture.function("Other", _NAT, (), _natural(5))
+    fixture.function("Dynamic", _NAT, (), _call("Other"), contracts=(_effects_clause(_call("calls", _variable("Other"))),))
+    fixture.constant("Table", _type("Vec", _NAT, _natural(1)),
+                     _call("VCons", _call("Dynamic"), _call("VNil", generics=(_NAT,))))
+    _refuses(fixture, "type", "empty effect footprint")
 
 
 def _interpolated_literal(*parts: str | Form) -> Form:
@@ -7170,6 +7216,7 @@ def cases() -> list[Case]:
             Case("pattern-matching-and-product-destructuring", _pattern_matching_and_destructuring),
             Case("pattern-matching-refusals-and-protocol", _pattern_matching_refusals_and_protocol),
             Case("raw-strings-and-checked-formatting", _raw_strings_and_checked_formatting),
+            Case("frozen-static-vectors-text-and-nested-slot-budget", _frozen_static_tables),
             Case("records-properties-updates-guards-and-expressions", _records_properties_updates_guards_and_expressions),
             Case("tagged-union-declarations-and-elimination", _union_declarations_and_elimination),
             Case("structural-recursion-and-decreases-contracts", _structural_recursion_and_decreases),

@@ -62,10 +62,10 @@ public Nat Process(Nat sample) => ApplyGain(gain: Gain, sample: sample);
 
 `Process` uses the computed multiplier with runtime samples. Passing its runtime
 sample as `gain` is refused even if another helper would ignore that input.
-Ordinary admitted total pure helpers remain usable by constant initializers;
-the function modifier states an explicit checked capability. Qualification of
-the current scalar fragment supplies no implementation of text parsing,
-aggregate freezing or a production specialization backend.
+Ordinary admitted total pure helpers remain usable by constant initializers.
+The mathematical frontend freezes scalar and nested vector tables, including
+UTF-8 literal bytes, and emits a conversion proof for the declared
+interpretation. [Frozen static tables](../tooling/elaboration-prototype.md#frozen-static-tables)
 
 Required-static availability is independent of the
 [foundation's dimensions](graded-foundation.md#dimensions-and-lawful-domains):

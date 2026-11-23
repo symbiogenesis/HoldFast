@@ -1025,8 +1025,10 @@ public Nat Runtime(Nat value) => Scale(factor: Limit, value: value);
 `Square(value)` is also valid with an ordinary runtime input. `Scale` requires
 only its factor statically; its multiplication still processes runtime data.
 Passing an unmarked runtime factor is refused at that argument. These examples
-use the current mathematical scalar fragment. Text, format plans, aggregates,
-scratch mutation and target materialization retain their own frontend and
+use the current mathematical scalar fragment. Its
+[static table evaluator](../tooling/elaboration-prototype.md#frozen-static-tables)
+also freezes bounded vectors, including string literal bytes. Format plans,
+scratch mutation and target materialization retain their frontend and
 representation prerequisites. A static initializer value can seed mutable
 storage, but local initialization may still copy bytes on each invocation;
 placement in a composed image determines static storage initialization.
@@ -1056,9 +1058,9 @@ host widths and layouts supply no target constant semantics. Required-static
 availability grants no conversion, ownership, duplication, erasure, proof or
 unchecked optional extraction, and `ghost` alone supplies no static input.
 
-The pure prototype evaluates `Nat` and `bool` constants in both syntax routes;
-the mathematical consumer also admits `Unit`. Other represented types retain
-their existing frontend and selected-target prerequisites. Emit the evaluated
+The pure prototype evaluates `Nat` and `bool` constants in both syntax routes.
+The mathematical consumer also admits `Unit`, `char`, represented words and
+bounded vectors of static values. Emit the evaluated
 value with its declared type; retain source-bound resolution and diagnostics.
 Neither evaluator parses emitted Gallina or uses an unchecked host `eval`.
 

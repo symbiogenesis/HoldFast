@@ -238,7 +238,8 @@ and supports the following features.
   constant offset and maximum count fits below the suffix. A Rocq theorem
   relates unsigned word comparison and addition to binary integers. Its
   application takes the same form for every count bound, including a billion.
-- Typed `const` values of `Nat`, `bool`, `Unit` or fixed-width integers, at module or local scope,
+- Typed `const` values of `Nat`, `bool`, `char`, `Unit`, target words and
+  [bounded vectors](#frozen-static-tables), at module or local scope,
   under the [required-static contract](../language/surface-grammar.md#required-static-constants).
   Initializers use earlier constants and admitted total pure calls with static
   arguments and explicit static parameters; unmarked outer runtime parameters,
@@ -411,6 +412,31 @@ The consumer validates schema, source digest, fields, spans and identifier
 spellings before constructing terms. Hygienic generated names and a closed
 builtin mapping prevent Gallina injection. No raw Gallina, axiom, admission,
 unchecked hole or foreign proof escape is emitted.
+
+## Frozen static tables
+
+A mathematical `const` can hold a length-indexed vector of static scalars or
+other such vectors. A string literal supplies its UTF-8 bytes as a
+`Vec<Nat, n>`. For example, `const Vec<Nat, 2> Accent = "é";` freezes the two
+bytes 195 and 169. Word elements retain their declared signedness and width.
+The mathematical target gives `usize` 64 bits.
+
+The compiler checks the initializer and layout under the static dependency
+rules. Closed demands reduce every element to its declared scalar or vector
+value. A symbolic static binder can defer the calculation until a closed
+specialization. Each frozen value has a budget of 64 vector slots, summed
+across all dimensions. An empty vector consumes zero slots. A table with
+two 31-element rows consumes 64. The source, reduction and output limits
+also apply.
+
+For a module constant, the emitted `_freeze` equality compares the interpreted
+initializer with its frozen declaration. Closed local and argument freezes
+carry conversion checks in the containing module. Rocq checks each equality
+by conversion. The `vela_freeze_observe` lemma transports an observation
+whose result type depends on the table along that equality. Consumers can
+retain the frozen value at its declared type. The
+[locked mathematical package build](#locked-mathematical-packages) binds the
+frontend, parser, target and transitive source inputs used for specialization.
 
 ## Commands and acceptance
 
