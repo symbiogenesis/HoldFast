@@ -76,6 +76,40 @@ caller code and proof replay using the frozen interface. The
 [representation comparison](#representation-transfer-comparison) accounts for
 the provider's proof work.
 
+### Reviewing a public contract change
+
+For a release or package upgrade, generate a readable comparison from the
+two locked interfaces and their evidence. For each changed public claim,
+identify the caller and the premise, observable result or resource the caller
+gains or loses. Include authority, effects, permitted leakage, progress and
+resource bounds wherever the interface promises them. Track changes to the
+transitive assumptions separately, including the component responsible for
+establishing each premise. An unchanged signature can acquire a dependency on
+a trusted foreign implementation. Show the dependency path even when the
+caller's source and theorem statement are identical.
+
+Compatibility requires the [caller obligations](#what-a-caller-can-prove-from-the-public-contract)
+under the old assumptions at the claimed endpoint. A new premise can be
+discharged from those assumptions with checked evidence. An unresolved
+implication stays open. An intentional change in trust or behavior follows
+the [public API evolution policy](../language/first-release.md#public-api-evolution).
+Keep the independent review of intended behavior beside the compatibility
+result so a successful proof against a weaker specification stays visible.
+
+The packet and importing library clients exercise both kinds of change.
+
+- For the [packet validator](../language/first-release.md#first-slice-qualification),
+  keep the legal short packet alongside a successful input. Make the provider
+  require four readable bytes, then try contradictory entry bounds. Identify
+  the lost short-input witness in the first case and the empty entry domain in
+  the second. Neither version qualifies for the old contract.
+- For the importing client, retain a reachable example of each required exit
+  and a distinguishing wrong result for one weakened promise. Replay its proof
+  with the provider opaque. Then replace one discharged provider premise with
+  a declared external assumption in a trial dependency. The review must name
+  that assumption, the importing claim affected and the old policy that fails.
+  Restore the original proof and reproduce the original assumption set.
+
 ### Cost of the verified abstraction
 
 Compare the held-out client with a hand-written baseline that provides the
@@ -238,6 +272,39 @@ Observe authoring and the held-out adaptation once, retaining original logs; lea
 Diagnostic latency runs from submission of the completed edit to source-bound feedback on its first unsatisfied obligation. Record prompt stale/unfinished messages separately; they resolve no obligation. Timeouts retain their status, never cached success. Neither latency nor batch timing supplies batch proof acceptance or attended-authoring estimates.
 
 Use C#/Dafny and Rust/Verus comparators only where their qualified subsets express the same bounded algorithm and behavior. Record unsupported features, manual restoration and proof endpoint. Weaker endpoints permit navigation, error-location and latency comparisons, but no authoring-productivity claim against stronger CHERI evidence. This contract commissions no installation, port or language server.
+
+### Proof search and replay under change
+
+For each client trial, freeze separate limits for interactive inference,
+batch search and kernel replay before the first edit. Identify the enabled
+[checking tiers](verification-strategy.md#layered-proof-and-staging), their
+solver settings and their work or time limits. An exhausted search returns
+the residual proposition at its source operation, the relevant local facts
+and the limit reached. The author can supply a lemma for that same goal.
+Record time to first useful feedback, remaining goals, handwritten proof
+changes and fresh replay time. A hosted application trial sets its own
+limits on its selected workload and dependency graph. The copying pilot uses
+its [existing thresholds](#accounting-and-decision-thresholds).
+
+For the packet and the independent package trial, record how each selected
+goal was discharged, which definitions, instances and assumptions it consumed,
+and where to find its replayable term or certificate. Retain the exact source,
+target and checker bindings used for acceptance. Exercise these changes on
+the frozen clients.
+
+1. Replay its saved evidence in a clean checker with search disabled. Record
+   certificate replay separately from the cost of discovering the proof.
+2. Change a semantic dependency while keeping the source spelling of the goal.
+   Show which claim is stale before replay. Substituting an old certificate
+   that proves a different proposition must fail at that obligation. A cached
+   success flag alone supplies no evidence.
+3. Exhaust the automatic search allowance on a selected provable goal. Supply
+   the missing lemma at the reported site and replay under the same limit.
+4. Reprove a private provider representation under the same published laws.
+   Recheck the unchanged caller with the renewed dependency closure. Report
+   rediscovered proofs, replayed proofs and the author's repair effort on
+   each side. Observable behavior and the caller's obligations stay fixed for
+   this comparison. [Invalidation rules](../language/core-design.md#typed-holes-and-invalidation)
 
 ## Accounting and decision thresholds
 

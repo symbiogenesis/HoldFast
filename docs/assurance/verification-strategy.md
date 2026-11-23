@@ -34,6 +34,37 @@ The same semantic facts support batch diagnostics, editor navigation and
 interchange. The [tooling contracts](../tooling/tooling-protocols.md) define
 qualified subsets, result identities and independent-client checks.
 
+### Progress at a component boundary
+
+A public interface distinguishes safety throughout execution, partial
+correctness on return, termination of one call and progress of an ongoing
+service. A function that might wait forever can still preserve its caller's
+memory permissions. Two tasks can hold their own locks safely while each
+waits for the other. The [bounded release](../language/first-release.md#release-boundary)
+keeps its loop and termination obligations. A proposed runtime that admits
+divergence must keep potentially divergent calls out of logical conversion
+and account for resources held while they wait.
+
+For a reactive service, state which requests can enter, what counts as a
+terminal outcome and which scheduler, peer, device or clock assumptions
+ensure it occurs. A deadline additionally needs a time bound in the declared
+clock and a bound on each dependency. Name the owner of each premise. An
+implementation that withholds admission for every healthy request must fail
+an interface that promises admission under available capacity. For a selected
+service, qualify one such request through its terminal outcome and an execution
+in which its peer stops responding. Check the promised timeout or recovery
+if the declared premises still hold. If a required premise fails, withdraw
+that progress claim and check the independent safety and ownership claims
+that still apply. [Structured async bounds and progress](../extensions/handlers-async.md#bounds-and-progress-premises)
+
+A remote operation can commit and lose its acknowledgement before the caller
+retries. An interface promising one durable effect per logical request must
+state how request identity survives a restart, how durable state recognizes
+or absorbs duplicates, and how long that protection covers retries. Exercise
+that failure interval and redeliver the same request after recovery. An
+interface that cannot resolve the outcome exposes that uncertainty to its
+caller. This obligation applies when a service crosses such a boundary.
+
 ## Proposed architecture
 
 Under [R-05-020a](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-020a),
