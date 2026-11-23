@@ -1424,7 +1424,7 @@ class _Elaborator(
         if value.kind != "var":
             return False
         index = cast("int", value.value)
-        return (index in self.fn_contracts or
+        return (index in self.constant_parameters or index in self.fn_contracts or
                 (self.definition_effect_parameters is not None and index in self.definition_effect_parameters) or
                 (self.active_effect_calls is not None and self.parameter_names.get(index) in self.active_effect_calls))
 
