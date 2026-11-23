@@ -2387,6 +2387,8 @@ was 10 minutes 15 seconds, with zero observed human intervention.
 [Interpreter identity control](../../tools/tests/test_holdfast_inspection.py) ·
 [Mixed-interpreter editor control](../../tools/tests/test_holdfast_lsp_actions.py)
 
+<a id="q25eb-offer-syntax-checked-formatting-during-semantic-repair"></a>
+
 ## Q25eb · Offer syntax-checked formatting during semantic repair
 
 The pure editor worker formats a complete tree with a type error and grants no
@@ -2395,6 +2397,8 @@ semantic facts. The mathematical CLI formats an unresolved proof through
 broken proof. Strict elaboration still refuses it. Both paths refuse malformed
 syntax. [Editor regression](../../tools/tests/test_holdfast_lsp_editor.py) ·
 [Mathematical formatter regression](../../tools/tests/test_holdfast_mathematical_authoring.py)
+
+<a id="q25ec-compare-authored-public-contracts-and-effect-clauses"></a>
 
 ## Q25ec · Compare authored public contracts and effect clauses
 
@@ -2405,6 +2409,8 @@ native regression keeps trivia and opaque executable bodies out of the contract
 delta and rejects unrelated modules. The report has an authored-syntax
 evidence endpoint. [Native regression](../../tools/tests/test_holdfast_contract_diff.py)
 
+<a id="q25ed-check-marked-documentation-examples-in-the-repository-gate"></a>
+
 ## Q25ed · Check marked documentation examples in the repository gate
 
 The gate runs [marked complete pure modules](../tooling/pure-prototype.md#source-fragment).
@@ -2412,12 +2418,16 @@ The regression distinguishes the expected type refusal from both a syntax error
 and unexpected success. Illustrations nested in an ordinary fenced block
 remain text. [Gate regression](../../tools/tests/test_gate_execution.py)
 
+<a id="q25ee-reject-confusable-catch-all-constructor-patterns"></a>
+
 ## Q25ee · Reject confusable catch-all constructor patterns
 
 The mathematical checker rejects `none` as a whole binding pattern for an
 `Option`. The fixture checks nested payload bindings, parentheses and
 selectively aliased constructors alongside ordinary binding and constructor
 success cases. [Elaborator regression](../../tools/tests/test_holdfast_elaborate.py)
+
+<a id="q25ef-default-to-qualified-imports-in-the-new-mathematical-edition"></a>
 
 ## Q25ef · Default to qualified imports in the new mathematical edition
 
