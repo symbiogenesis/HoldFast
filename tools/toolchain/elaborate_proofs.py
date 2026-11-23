@@ -1676,6 +1676,8 @@ class _ProofsMixin:
         assert_node: Node,
     ) -> _Term:
         self.site = by_node
+        if self._unwrap_group(by_node)["kind"] == "hole":
+            return self.check(by_node, goal, environment)
         if by_node["kind"] in {"lambda", "typed_lambda", "match_expression", "if_expression"}:
             return self.check(by_node, goal, environment)
         goal_whnf = self.whnf(goal)

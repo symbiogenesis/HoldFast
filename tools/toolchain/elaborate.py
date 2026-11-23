@@ -19,6 +19,7 @@ from typing import cast
 from toolchain import StaticEvaluation, gallina_module_name, loans
 from toolchain.ast import MAX_SOURCE_BYTES, ValueType, VelaError
 from toolchain.elaborate_declarations import _DeclarationsMixin
+from toolchain.elaborate_holes import HoleInspection
 from toolchain.elaborate_intrinsics import _IntrinsicsMixin
 from toolchain.elaborate_patterns import _PatternsMixin
 from toolchain.elaborate_proofs import _ProofsMixin
@@ -81,7 +82,7 @@ from toolchain.package_navigation import Navigation
 FRONTEND_SOURCES = (
     "__init__.py", "ast.py", "authoring.py", "compiler_trace.py", "documentation.py", "facts.py",
     "hashing.py", "jsonutil.py", "loans.py", "source.py", "trace_runtime.py", "elaborate.py", "elaborate_types.py",
-    "elaborate_protocol.py", "elaborate_whnf.py", "elaborate_patterns.py", "elaborate_proofs.py",
+    "elaborate_protocol.py", "elaborate_whnf.py", "elaborate_patterns.py", "elaborate_proofs.py", "elaborate_holes.py",
     "elaborate_statements.py", "elaborate_strings.py", "elaborate_solver.py", "elaborate_intrinsics.py",
     "elaborate_declarations.py", "package_navigation.py",
 )
@@ -119,6 +120,7 @@ class _Elaborator(
 ):
     def __init__(self, protocol: _Protocol) -> None:
         self.protocol = protocol
+        self.hole_inspection: HoleInspection | None = None
         self.navigation: Navigation | None = None
         self.checked_receivers: dict[tuple[int, ...], loans._Receiver | None] = {}
         self.require_word_proofs = False
@@ -2108,6 +2110,8 @@ class _Elaborator(
 
     def check(self, node: Node, expected: _Term, environment: dict[str, _Binding]) -> _Term:
         self.site = node
+        if node["kind"] == "hole" and self.hole_inspection is not None:
+            return self.hole_inspection.observe(node, expected, environment).term
         if node["kind"] == "guard_scope":
             return self.check(self.node(node["value"]), expected, self._guard_environment(node, environment))
         if node["kind"] == "expression_body":
@@ -2325,6 +2329,10 @@ def _checked_elaboration(
             elaborator.emission_prefix = f"vela_m{module_key}"
             generated_module = "VelaPackage_" + module_key
             elaborator.available_modules = dict(available_modules)
+        if protocol.holes:
+            elaborator.navigation = None
+            elaborator.hole_inspection = HoleInspection(elaborator)
+            raise elaborator.hole_inspection.refusal(elaborator.nodes(root["declarations"]))
         chunk_origins: dict[int, tuple[tuple[int, int], tuple[int, int], str]] = {}
         declarations: list[tuple[int, int]] = []
         with phase("resolve-and-elaborate"):

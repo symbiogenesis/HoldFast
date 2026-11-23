@@ -15,6 +15,7 @@ from toolchain.ast import (
     source_text,
     trivia_end,
 )
+from toolchain.elaborate_holes import MAX_HOLES
 from toolchain.elaborate_types import MAX_DEPTH, Node
 
 _FIELDS: dict[str, set[str]] = {
@@ -145,6 +146,7 @@ class _Protocol:
         text = source_text(source)
         self.source = source
         self.remaining = MAX_SOURCE_BYTES
+        self.holes: dict[int, Node] = {}
         self.boundaries = set(accumulate((len(char.encode("utf-8")) for char in text), initial=0))
 
     def error(self, kind: str, message: str, node: Node | None = None) -> VelaError:
@@ -938,6 +940,16 @@ class _Protocol:
                 raise self.error("protocol", "optional grade must be null or a located syntax node", node)
             self._span(grade.get("span"), span)
         self._ordinary_envelope(node, span)
+        if kind == "hole":
+            name = node["name"]
+            spelling = self.source[span[0]:span[1]]
+            if (not re.fullmatch(rb"\?[A-Za-z_][A-Za-z_0-9]*", spelling)
+                    or not isinstance(name, dict) or name.get("span") != node["span"]
+                    or name.get("text") != spelling.decode("ascii")):
+                raise self.error("protocol", "named hole differs from its source", node)
+            if len(self.holes) >= MAX_HOLES:
+                raise self.error("limit", f"source exceeds the {MAX_HOLES} named-hole diagnostic budget", node)
+            self.holes[span[0]] = node
         if kind in {"nat", "nat_pattern"}:
             value, suffix = node["value"], node["suffix"]
             if not isinstance(value, str) or not isinstance(suffix, str):
