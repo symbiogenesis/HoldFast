@@ -51,6 +51,37 @@ def _shared_load_failure() -> None:
            "a failed corpus load prevented independent Python checking")
 
 
+def _documentation_examples() -> None:
+    document = corpus.from_text(
+        """````text
+```holdfast-check
+illustrative only
+```
+````
+```holdfast-check
+module M; public Nat One() => 1;
+```
+```holdfast-reject type
+module M; public Nat Wrong() => true;
+```
+```holdfast-reject type
+module M; public Nat Wrong() => ;
+```
+```holdfast-reject type
+module M; public Nat One() => 1;
+```
+```holdfast-reject
+module M; public Nat One() => 1;
+```
+""", "example.md",
+    )
+    findings = checks.holdfast_documentation_findings([document])
+    ensure(len(findings) == 3 and findings[0].startswith("example.md:12: expected type, got syntax")
+           and findings[1] == "example.md:15: expected type, but the example checked"
+           and findings[2] == "example.md:18: expected holdfast-check or holdfast-reject CATEGORY",
+           f"documentation did not discriminate accepted examples and intended refusals: {findings}")
+
+
 def _git_deadline() -> None:
     with patch.object(corpus, "git_environment", return_value=None), \
             patch.object(corpus.subprocess, "run", side_effect=subprocess.TimeoutExpired("git", 30)) as run:
@@ -95,6 +126,7 @@ def _translation_deadline() -> None:
 def cases() -> list[Case]:
     return [Case("static gate shares corpus and preserves verdicts", _shared_corpus_and_verdicts),
             Case("static gate shares load failure without hiding independent checks", _shared_load_failure),
+            Case("marked documentation examples retain their intended verdicts", _documentation_examples),
             Case("Git index probe has a deadline", _git_deadline),
             Case("Git discovers the tracked worktree without leaking environment overrides", _git_worktree_environment),
             Case("WSL worktree translation has a deadline", _translation_deadline)]

@@ -52,6 +52,16 @@ the value and counts digits against the literal limit.
 
 ## Documentation comments
 
+### Checked examples in Markdown
+
+Use a `holdfast-check` fence for a complete pure module intended to check.
+Use `holdfast-reject syntax`, `holdfast-reject name` or `holdfast-reject type`
+for a complete refusal example. The repository gate checks the marked source
+through the [pure compiler](pure-prototype.md#source-fragment) and reports the
+document location when it produces a different verdict. Reserve ordinary
+fences for fragments and illustrative syntax. Keep any minimized generated
+failure as a replayable regression in the owning tool's tests.
+
 Consecutive `///` lines directly preceding a declaration form its documentation.
 Strip the three slashes and at most one following space for presentation; retain
 original UTF-8 text and source positions. A blank line, ordinary comment or

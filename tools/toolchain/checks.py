@@ -302,6 +302,32 @@ def holdfast_example_findings(root: Path, tracked: Sequence[str]) -> list[str]:
     return findings
 
 
+def holdfast_documentation_findings(documents: Sequence[corpus.Document]) -> list[str]:
+    """Run the pure checker on complete source examples marked in Markdown."""
+    findings = []
+    for document in documents:
+        for example in document.holdfast_examples:
+            location = f"{document.name}:{example.line}"
+            marker = example.info.split()
+            if marker == ["holdfast-check"]:
+                expected = None
+            elif len(marker) == 2 and marker[0] == "holdfast-reject" and marker[1] in ("syntax", "name", "type"):
+                expected = marker[1]
+            else:
+                findings.append(f"{location}: expected holdfast-check or holdfast-reject CATEGORY")
+                continue
+            try:
+                holdfast.translate(example.source.encode("utf-8"))
+            except holdfast.HoldFastError as error:
+                if error.kind != expected:
+                    findings.append(f"{location}: expected {expected or 'acceptance'}, got {error.kind} "
+                                    f"at example line {error.line}: {error.message}")
+            else:
+                if expected is not None:
+                    findings.append(f"{location}: expected {expected}, but the example checked")
+    return findings
+
+
 def _tokenize_js(rel: str, src: str) -> tuple[list[tuple[str, str, int, int]], list[str]]:
     tokens: list[tuple[str, str, int, int]] = []
     findings: list[str] = []
@@ -906,6 +932,12 @@ def run(root: Path, *, loaded: corpus.Corpus | RuntimeError | None = None) -> Re
         "HoldFast example finding(s):",
         holdfast_example_findings(root, loaded.tracked),
         "all tracked pure HoldFast example files translate and hold to their canonical layout",
+    )
+    rep.report(
+        "holdfast-documentation",
+        "HoldFast documentation example finding(s):",
+        holdfast_documentation_findings(loaded.docs),
+        "all marked HoldFast examples check or reach the documented refusal",
     )
     rep.report(
         "javascript",

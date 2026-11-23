@@ -41,10 +41,18 @@ def _markdown() -> MarkdownIt:
     return MarkdownIt("commonmark", {"html": True}).enable("table").disable("inline")
 
 
-def _syntax(lines: list[str]) -> tuple[list[bool], list[tuple[int, str]]]:
+@dataclass(frozen=True)
+class HoldFastFence:
+    line: int
+    info: str
+    source: str
+
+
+def _syntax(lines: list[str]) -> tuple[list[bool], list[tuple[int, str]], list[HoldFastFence]]:
     """Read code regions and headings from maintained token source maps."""
     fenced = [False] * len(lines)
     headings: list[tuple[int, str]] = []
+    examples: list[HoldFastFence] = []
     tokens = _markdown().parse("\n".join(line.removesuffix("\r") for line in lines))
     for index, token in enumerate(tokens):
         if token.type not in {"fence", "code_block", "heading_open"}:
@@ -56,11 +64,13 @@ def _syntax(lines: list[str]) -> tuple[list[bool], list[tuple[int, str]]]:
             raise ValueError(f"Markdown {token.type} token has an invalid source map")
         if token.type in {"fence", "code_block"}:
             fenced[start:end] = [True] * (end - start)
+            if token.type == "fence" and token.info.split()[:1] in (["holdfast-check"], ["holdfast-reject"]):
+                examples.append(HoldFastFence(start + 1, token.info, token.content))
         else:
             if index + 1 == len(tokens) or tokens[index + 1].type != "inline":
                 raise ValueError("Markdown heading has no inline content token")
             headings.append((start, tokens[index + 1].content))
-    return fenced, headings
+    return fenced, headings, examples
 
 
 def slug(heading: str) -> str:
@@ -80,6 +90,7 @@ class Document:
     fenced: list[bool]
     targets: set[str] = field(default_factory=set)
     headings: list[tuple[int, str]] = field(default_factory=list)
+    holdfast_examples: list[HoldFastFence] = field(default_factory=list)
 
     def line_of(self, offset: int) -> int:
         """The 0-based line containing a raw-text offset."""
@@ -104,11 +115,11 @@ def from_text(raw: str, name: str) -> Document:
     lines = [part.removesuffix("\r") for part in body]
 
     try:
-        fenced, headings = _syntax(lines)
+        fenced, headings, examples = _syntax(lines)
     except ValueError as exc:
         raise RuntimeError(f"{name}: {exc}") from exc
     return Document(name=name, raw=raw, lines=lines, starts=starts, fenced=fenced,
-                    headings=headings)
+                    headings=headings, holdfast_examples=examples)
 
 
 # Directory prefix excluded from Markdown corpus loading.

@@ -28,7 +28,7 @@ Declarations are resolved in source order. Every parameter and return type is
 explicit. A function can call only earlier functions; recursion and forward calls
 are refused. Local bindings are immutable.
 
-```text
+```holdfast-check
 module Example;
 public const Nat Twice(Nat x) => x + x;
 public const Nat Limit = Twice(x: 8);
@@ -113,6 +113,14 @@ their original order. Forwarding a static parameter preserves its availability;
 neither a ghost binder nor a runtime local acquires that availability implicitly.
 Logical template definitions may retain symbolic static expressions; this host
 prototype establishes no target erasure or source-correspondence theorem.
+
+The return type is checked before Gallina emission. This complete example
+reaches a type error at the Boolean result.
+
+```holdfast-reject type
+module ReturnType;
+public Nat Count() => true;
+```
 
 Every user name is mapped to a generated identifier so Gallina keywords and
 library names cannot capture source references. There is no raw Gallina escape.
