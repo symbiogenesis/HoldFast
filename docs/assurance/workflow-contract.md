@@ -76,6 +76,40 @@ caller code and proof replay using the frozen interface. The
 [representation comparison](#representation-transfer-comparison) accounts for
 the provider's proof work.
 
+### Reviewing a public contract change
+
+For a release or package upgrade, generate a readable comparison from the
+two locked interfaces and their evidence. For each changed public claim,
+identify the caller and the premise, observable result or resource the caller
+gains or loses. Include authority, effects, permitted leakage, progress and
+resource bounds wherever the interface promises them. Track changes to the
+transitive assumptions separately, including the component responsible for
+establishing each premise. An unchanged signature can acquire a dependency on
+a trusted foreign implementation. Show the dependency path even when the
+caller's source and theorem statement are identical.
+
+Compatibility requires the [caller obligations](#what-a-caller-can-prove-from-the-public-contract)
+under the old assumptions at the claimed endpoint. A new premise can be
+discharged from those assumptions with checked evidence. An unresolved
+implication stays open. An intentional change in trust or behavior follows
+the [public API evolution policy](../language/first-release.md#public-api-evolution).
+Keep the independent review of intended behavior beside the compatibility
+result so a successful proof against a weaker specification stays visible.
+
+The packet and importing library clients exercise both kinds of change.
+
+- For the [packet validator](../language/first-release.md#first-slice-qualification),
+  keep the legal short packet alongside a successful input. Make the provider
+  require four readable bytes, then try contradictory entry bounds. Identify
+  the lost short-input witness in the first case and the empty entry domain in
+  the second. Neither version qualifies for the old contract.
+- For the importing client, retain a reachable example of each required exit
+  and a distinguishing wrong result for one weakened promise. Replay its proof
+  with the provider opaque. Then replace one discharged provider premise with
+  a declared external assumption in a trial dependency. The review must name
+  that assumption, the importing claim affected and the old policy that fails.
+  Restore the original proof and reproduce the original assumption set.
+
 ### Cost of the verified abstraction
 
 Compare the held-out client with a hand-written baseline that provides the
