@@ -115,25 +115,25 @@ def _trace(args: argparse.Namespace) -> int:
 
 def _remarks(args: argparse.Namespace) -> int:
     try:
-        source = _read_source(args.source)
+        source = read_source(args.source)
         producer = compiler_trace.producer_identity()
         report = remarks.compile_remarks(source.data, source.path.name, producer)
         if args.command == "remarks-validate":
-            retained = _read_source(args.report, max_bytes=remarks.MAX_REMARK_BYTES)
+            retained = read_source(args.report, max_bytes=remarks.MAX_REMARK_BYTES)
             if report.yaml != retained.data:
                 print(f"{args.report}: retained remarks differ from the current compiler decisions", file=sys.stderr)
                 return 1
-            _unchanged(retained)
-            _unchanged(source)
+            ensure_unchanged(retained)
+            ensure_unchanged(source)
             _producer_unchanged(producer, "during remarks validation")
             print("ok vela: current specialization remarks")
             return 0
-        _destination(source.path, args.output)
+        check_destination(source.path, args.output)
         with atomic_path(args.output) as pending:
             pending.write_bytes(report.yaml)
-            _unchanged(source)
+            ensure_unchanged(source)
             _producer_unchanged(producer, "during remarks export")
-            _destination(source.path, args.output)
+            check_destination(source.path, args.output)
     except (OSError, ValueError) as error:
         print(f"{args.source}:1:1: remarks: {error}", file=sys.stderr)
         return 1
