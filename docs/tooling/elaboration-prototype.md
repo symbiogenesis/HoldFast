@@ -459,7 +459,8 @@ loans and the current return type. Two occurrences with the same spelling can
 have different expected types. A source with any named goal fails compilation,
 evaluation and package building.
 
-A site with no contextual type reports that the type is unavailable. If
+A sibling operand can determine a hole's type through unification. A site
+without a contextual or inferred type reports that the type is unavailable. If
 checking stops before a site, the report keeps the first blocking diagnostic
 and records which goals it could inspect. The inventory admits up to 128 sites
 and bounds all goal and context text to 65,536 UTF-8 bytes. Reports in the

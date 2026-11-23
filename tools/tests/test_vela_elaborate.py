@@ -1546,12 +1546,13 @@ def _contextual_holes() -> None:
     x = _variable("n")
     prop = _binary("==", x, _natural(4))
     fixture.theorem("Bound", (("n", _NAT),), prop, _assert(prop, _hole("?bound")))
+    fixture.definition("KnownOperand", _BOOL, (), _binary("==", _hole("?operand"), _natural(0)))
     source, tree = fixture.response()
     error = _refuses(fixture, "inference")
     ensure(isinstance(error, OpenGoalsError), "named holes lost the contextual refusal")
     goals = cast("OpenGoalsError", error).goals
     ensure([(goal.name, goal.expected) for goal in goals] == [
-        ("?item", "Nat"), ("?item", "bool"), ("?bound", "Eq(Nat, n, 4)")],
+        ("?item", "Nat"), ("?item", "bool"), ("?bound", "Eq(Nat, n, 4)"), ("?operand", "Nat")],
         f"repeated names, product components or proof premise lost their own type: {goals}")
     lines = source.decode().splitlines()
     ensure(all(lines[goal.line - 1][goal.column - 1:].startswith(goal.name) for goal in goals)
