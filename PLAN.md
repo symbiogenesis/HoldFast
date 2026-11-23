@@ -537,8 +537,9 @@ unblock the codec. [Protocol contracts](docs/tooling/tooling-protocols.md) ·
 
 <a id="q25cw"></a>
 
-- [ ] **Q25cw · Qualify target-aware aggregate and text static evaluation**
+- [x] **Q25cw · Qualify target-aware aggregate and text static evaluation**
   - **Owner:** `meta-evaluation`. **Start:** Selected static interpretation subject, target types and sealed dependency closure. **Check:** Construct the incremental phase/evaluation preservation laws and meet the [phase/evaluation contract](docs/extensions/metaprogramming.md#evaluation-and-phase-boundaries) for aggregate/table freezing, deterministic inputs and budgets; refuse runtime layout fallback and host-width substitution. Reuse Q25q's scalar constant functions and the fixed core laws without expanding their budget.
+  - The mathematical compiler freezes bounded vectors and UTF-8 text using its declared integer widths. Rocq replays the initializer equations and a dependent consumer, and a locked importing package checks freshness. [Landing evidence](docs/assurance/completion-log.md#q25cw-qualify-target-aware-aggregate-and-text-static-evaluation).
 
 <a id="q25cx"></a>
 
@@ -717,14 +718,14 @@ the [release milestones](#current-execution) to judge readiness.
 | Measure | Value |
 | --- | --- |
 | Total estimate midpoint h | 21,457.9 |
-| Total estimate range h | 11,585.9–31,329.9 |
-| Completed scope h | 1,281.9 |
-| Complete by estimate % | 6.0 |
-| Remaining h | 20,176 |
-| Open class I h | 2,092 |
+| Total estimate range h | 11,617.9–31,297.9 |
+| Completed scope h | 1,353.9 |
+| Complete by estimate % | 6.3 |
+| Remaining h | 20,104 |
+| Open class I h | 2,020 |
 | Open class X h | 18,084 |
-| Retained completion estimate h | 1,278.5 |
-| Unmeasured completed items | 45 |
+| Retained completion estimate h | 1,350.5 |
+| Unmeasured completed items | 46 |
 <!-- estimate-summary:end -->
 
 The table counts each checklist leaf once. Completed work contributes actual

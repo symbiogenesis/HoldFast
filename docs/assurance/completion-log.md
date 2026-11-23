@@ -2268,6 +2268,27 @@ coordinate deltas, end-of-line boundaries and lookup limits. The mapped
 two-operation source also passed local Rocq compilation and `rocqchk`.
 The retained estimate is 38 h (20–56), actual n/a for this parallel batch.
 
+<a id="q25cw-qualify-target-aware-aggregate-and-text-static-evaluation"></a>
+
+#### Q25cw · Qualify target-aware aggregate and text static evaluation
+
+The [mathematical static evaluator](../tooling/elaboration-prototype.md#frozen-static-tables)
+freezes vectors and UTF-8 literals within a 64-slot budget shared across nested
+vectors. The emitted equality connects a module table to its checked initializer.
+The [native consumers](../../tools/toolchain/elaboration_check.py) use those
+equalities at a computed vector type and a two-entry `usize` table containing
+4,294,967,297. Rocq 9.3.0 checks both equations, transport of an indexed
+observation, and the specialized function at two runtime inputs. The assumption
+audit and `rocqchk` pass. A runtime element, a runtime extent and a 65-slot
+text initializer each reach their own refusal.
+
+The [locked-package consumer](../../tools/tests/test_vela_package_binders.py)
+reads the second UTF-8 byte of an imported constant. Rebuilding the same lock
+reproduces the bundle. Changing the provider from `é` to `Å` refuses the stale
+build and preserves its output. A fresh lock changes the kernel-checked reading
+from 169 to 133. A host-native target fails manifest validation.
+The retained estimate is 72 h (40–104), actual n/a for this parallel batch.
+
 <a id="q25da-rehearse-one-coordinated-optional-portfolio-refresh"></a>
 
 #### Q25da · Rehearse one coordinated optional-portfolio refresh
