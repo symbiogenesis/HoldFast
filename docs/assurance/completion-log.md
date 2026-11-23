@@ -2307,6 +2307,24 @@ repair, dependency replacement and a late success arriving after an invalid
 edit. Q25au remains open for the copy-prefix guard, cleanup token and suspended
 parent in the [composed release fixture](../language/core-design.md#typed-holes-and-invalidation).
 
+<a id="q25co-export-optimization-decisions-and-explanations"></a>
+
+#### Q25co · Export optimization decisions and explanations
+
+The [pure compiler's LLVM remarks](../tooling/tooling-protocols.md#compiler-decisions-and-performance-traces)
+identify a call kept in a generic definition, its specialization inside an
+inlined caller, and elimination of the outer call. The emitted Gallina retains
+the first call and contains the specialized arithmetic in the caller. Supplying
+a runtime value to a required-static parameter produces a fourth record with
+the compiler's exact refusal and offending argument location.
+
+The [independent reader qualification](../../tools/toolchain/remarks_reader.py)
+runs the pinned Ubuntu ARM64 LLVM 21.1.8 `llvm-remarkutil`. It converts YAML
+to LLVM bitstream and back, compares all four decoded records against an
+independent source-location oracle, and checks counts per function. Controls
+exercise a malformed record, an edited source and a replaced expansion origin.
+The retained estimate is 28 h (16–40), actual n/a for this parallel batch.
+
 <a id="q25cw-qualify-target-aware-aggregate-and-text-static-evaluation"></a>
 
 #### Q25cw · Qualify target-aware aggregate and text static evaluation

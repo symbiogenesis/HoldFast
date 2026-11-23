@@ -486,8 +486,9 @@ unblock the codec. [Protocol contracts](docs/tooling/tooling-protocols.md) ·
 
 <a id="q25co"></a>
 
-- [ ] **Q25co · Export optimization decisions and explanations**
+- [x] **Q25co · Export optimization decisions and explanations**
   - **Owner:** `vela-remarks`. **Start:** An actual qualified optimization producer. **Check:** Meet the [remarks contract](docs/tooling/tooling-protocols.md#compiler-decisions-and-performance-traces) in an independent reader for applied/missed/refused cases and source origins; this funds export, not transformations or a speedup claim.
+  - Stock LLVM reads the pure compiler's applied, deferred and refused static-call specializations and their authored and generated origins. [Landing evidence](docs/assurance/completion-log.md#q25co-export-optimization-decisions-and-explanations).
 
 <a id="q25cp"></a>
 
@@ -719,14 +720,14 @@ the [release milestones](#current-execution) to judge readiness.
 | Measure | Value |
 | --- | --- |
 | Total estimate midpoint h | 21,457.9 |
-| Total estimate range h | 11,645.9–31,269.9 |
-| Completed scope h | 1,417.9 |
-| Complete by estimate % | 6.6 |
-| Remaining h | 20,040 |
-| Open class I h | 1,956 |
+| Total estimate range h | 11,657.9–31,257.9 |
+| Completed scope h | 1,445.9 |
+| Complete by estimate % | 6.7 |
+| Remaining h | 20,012 |
+| Open class I h | 1,928 |
 | Open class X h | 18,084 |
-| Retained completion estimate h | 1,414.5 |
-| Unmeasured completed items | 47 |
+| Retained completion estimate h | 1,442.5 |
+| Unmeasured completed items | 48 |
 <!-- estimate-summary:end -->
 
 The table counts each checklist leaf once. Completed work contributes actual
