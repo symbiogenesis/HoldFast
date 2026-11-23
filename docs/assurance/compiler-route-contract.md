@@ -57,6 +57,38 @@ untaken failure branch. The checker must report the offending word and
 address even when the passing Sail trace matches. This covers the control
 images. [Compiler image admission](../../PLAN.md#q25ba)
 
+### Evidence for each deployed claim
+
+For each exported guarantee claimed of a shipped component, the release
+record identifies the public law, the exact linked image and entry point,
+the target and ABI, the permitted callers and observations, and the evidence
+at its [claimed endpoint](workflow-contract.md#review-and-evidence-endpoints).
+List the trusted computing base for that claim. Identify which checker accepts
+its evidence and which machine, hardware, runtime or foreign-interface
+premises the argument relies on. Identify checked transformations and untrusted
+search or generation tools by their actual roles. Follow the dependency path
+from a premise to the public claim so reviewers can see the effect of an
+[assumption change](workflow-contract.md#reviewing-a-public-contract-change).
+
+For the packet entry point, trace the functional result and the authority
+of the returned view to their respective proofs. Identify the code or caller
+contract establishing descriptor validity before the first metadata read.
+Where an adapter validates foreign input, include its code and its accepted
+and rejected paths in the same evidence and cost accounting. Substitute the
+host execution record for the image proof in the trial and require the report
+to identify the missing target evidence for those claims.
+
+For the independent library, select one operation with a claim of proof or
+ownership bookkeeping erasure. Follow its source uses through inlining to
+the admitted machine code. Report checks, copies, allocations, reference
+count updates and indirect calls that survive, with their origin and the
+paths on which they execute. Use `n/a` for mechanisms outside the selected
+representation. Compare against the [matched hand-written baseline](workflow-contract.md#cost-of-the-verified-abstraction)
+with the same safety and failure guarantees. Record measured cost or a proved
+bound with its units and observation method. Missing measurements stay
+unknown. Each target-specific implementation carries evidence for its own
+image, assumptions and costs.
+
 ## Route boundaries and closed emission family
 
 **Clight arm.** Prove common-graph-to-imperative transport and its capability-aware CHERI-C/Clight representation bridge, including C printing if used. Retain proofs for applicable CHERI-adapted compiler passes, then supply final Sail validation/admission. Simulation relations may retain invariants; annotation erasure must preserve their semantic consequences.
