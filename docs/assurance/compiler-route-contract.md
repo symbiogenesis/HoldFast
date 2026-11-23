@@ -1,6 +1,6 @@
 # Compiler route comparison
 
-Vela targets the retained CHERI-C/Clight route. A conditional comparison
+HoldFast targets the retained CHERI-C/Clight route. A conditional comparison
 would exercise it and direct capability-aware lowering at the same
 [artifact endpoint](#equivalent-artifact-endpoint). Both routes need the
 canonical machine logic and arbitrary-context proof. Entry requires

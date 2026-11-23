@@ -144,16 +144,16 @@ _SETUP: Final = f"""\
         .globl _start
 _start:
         cmove   c4, c1
-        la      c9, __vela_handler
+        la      c9, __holdfast_handler
         cspecialrw cnull, mtcc, c9
-        li      t0, __vela_stack
+        li      t0, __holdfast_stack
         csetaddr csp, c4, t0
         li      t1, {STACK_BYTES}
-__vela_stack_bounds:
+__holdfast_stack_bounds:
         csetbounds csp, csp, t1
         li      t1, 0xFFE
         candperm csp, csp, t1
-        li      t0, __vela_stack_top
+        li      t0, __holdfast_stack_top
         csetaddr csp, csp, t0
         call    main
 """
@@ -164,27 +164,27 @@ PROLOGUE: Final = f"""\
 # Clearing permission bit 0 makes the stack capability local while preserving
 # its store-local permission.
 {_SETUP}\
-        beqz    a0, __vela_pass
+        beqz    a0, __holdfast_pass
         andi    gp, a0, 0xFF
-        bnez    gp, __vela_fail
+        bnez    gp, __holdfast_fail
         li      gp, 0xFF
-__vela_fail:
+__holdfast_fail:
         slli    t0, gp, 1
         ori     t0, t0, 1
-        j       __vela_exit
-__vela_pass:
+        j       __holdfast_exit
+__holdfast_pass:
         li      t0, 1
-__vela_exit:
+__holdfast_exit:
         li      t1, tohost
         csetaddr c31, c4, t1
         sd      t0, 0(c31)
-__vela_halt:
-        j       __vela_halt
-__vela_handler:
+__holdfast_halt:
+        j       __holdfast_halt
+__holdfast_handler:
         csrr    t0, mcause
         andi    t0, t0, 0xFF
         ori     gp, t0, 0x100
-        j       __vela_fail
+        j       __holdfast_fail
 # --- the emitted stream follows ---
 """
 
@@ -195,9 +195,9 @@ EPILOGUE: Final = f"""\
 tohost:
         .dword  0
         .align  8
-__vela_stack:
+__holdfast_stack:
         .space  {STACK_BYTES}
-__vela_stack_top:
+__holdfast_stack_top:
 """
 
 

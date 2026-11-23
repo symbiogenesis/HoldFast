@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-"""String literal decoding, interpolated template holes, and Format.Write elaboration for Vela."""
+"""String literal decoding, interpolated template holes, and Format.Write elaboration for HoldFast."""
 
 from typing import TYPE_CHECKING, cast
 
 from toolchain.ast import (
-    VelaError,
+    HoldFastError,
     trivia_end,
 )
 from toolchain.authoring import assist_loan_argument
@@ -245,7 +245,7 @@ class _StringsMixin:
                 if target_name is not None:
                     try:
                         self._check_hole_target_alias(hole_ast, target_name)
-                    except VelaError as error:
+                    except HoldFastError as error:
                         repair = ""
                         offset, end_offset = cast("list[int]", node["span"])
                         raw = self.protocol.source
@@ -264,7 +264,7 @@ class _StringsMixin:
                                 suffix += 1
                             revised = (raw[offset:expr_byte_start] + local.encode() + raw[expr_byte_end:end_offset]).decode("utf-8")
                             repair = f". Snapshot the count before borrowing: (let {local} = {snapshot} in {revised})"
-                        raise VelaError(
+                        raise HoldFastError(
                             error.kind, error.line, error.column, f"{error.message}. {origin_message}{repair}"
                         ) from error
                 hole_binding = evaluate_operand(hole_ast)

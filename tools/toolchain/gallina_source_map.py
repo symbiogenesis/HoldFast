@@ -76,7 +76,7 @@ def _source_map(name: str, source: bytes, gallina: str, origins: list[GallinaOri
                 end = len(content.encode("utf-16-le")) // 2
                 mappings[i] = "AA" + _vlq(line - previous_line) + _vlq(column - previous_column) + "," + _vlq(end)
                 previous_line, previous_column = line, column
-    embedded_uri = f"vela-source://sha256/{sha256_bytes(source)}/{quote(name, safe='')}"
+    embedded_uri = f"holdfast-source://sha256/{sha256_bytes(source)}/{quote(name, safe='')}"
     return _encode({"version": 3, "file": GALLINA, "sources": [embedded_uri], "names": [],
                     "sourcesContent": [source.decode()], "mappings": ";".join(mappings)})
 

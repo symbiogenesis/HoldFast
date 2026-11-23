@@ -12,7 +12,7 @@ import tokenize
 from collections.abc import Sequence
 from pathlib import Path, PurePosixPath
 
-import toolchain as vela
+import toolchain as holdfast
 from toolchain import authoring, corpus, estimates, highlight_qualification, markdown, toolenv
 from toolchain.cli import typecheck
 from toolchain.report import Reporter
@@ -26,7 +26,7 @@ _HASH_NAMES = frozenset({".editorconfig", ".gitattributes", ".gitignore", "REUSE
 _NO_MARK_SUFFIXES = (".md", ".json", ".lock")
 _SOURCE_REF_SUFFIXES = (
     ".py",
-    ".vela",
+    ".hf",
     ".ml",
     ".mli",
     ".mll",
@@ -41,13 +41,13 @@ _SOURCE_REF_SUFFIXES = (
     ".yaml",
 )
 _PURE_EXAMPLES = frozenset({
-    "examples/pure.vela",
-    "examples/constants.vela",
-    "examples/expressions.vela",
+    "examples/pure.hf",
+    "examples/constants.hf",
+    "examples/expressions.hf",
 })
 _FORMATTED_EXAMPLES = frozenset({
-    "examples/pure.vela",
-    "examples/constants.vela",
+    "examples/pure.hf",
+    "examples/constants.hf",
 })
 
 _FORBIDDEN_CODEPOINTS = frozenset({
@@ -224,7 +224,7 @@ def marks_findings(root: Path, loaded: corpus.Corpus) -> list[str]:
         ".css": (f"/* {tag} */",),
         ".mjs": (f"// {tag}",),
         ".js": (f"// {tag}",),
-        ".vela": (f"/* {tag} */", f"// {tag}"),
+        ".hf": (f"/* {tag} */", f"// {tag}"),
         ".html": (f"<!-- {tag} -->",),
     }
     hash_mark = (f"# {tag}",)
@@ -403,8 +403,8 @@ def source_ref_findings(root: Path, loaded: corpus.Corpus) -> list[str]:
     return findings
 
 
-def vela_example_findings(root: Path, tracked: Sequence[str]) -> list[str]:
-    """Check tracked pure Vela example files for translation and canonical layout."""
+def holdfast_example_findings(root: Path, tracked: Sequence[str]) -> list[str]:
+    """Check tracked pure HoldFast example files for translation and canonical layout."""
     findings: list[str] = []
     for rel in tracked:
         if rel not in _PURE_EXAMPLES:
@@ -412,21 +412,21 @@ def vela_example_findings(root: Path, tracked: Sequence[str]) -> list[str]:
         try:
             raw = (root / rel).read_bytes()
         except OSError as err:
-            findings.append(f"{rel}: cannot read Vela example: {err}")
+            findings.append(f"{rel}: cannot read HoldFast example: {err}")
             continue
         try:
-            vela.translate(raw)
-        except vela.VelaError as err:
-            findings.append(f"{rel}: pure Vela example failed translation: {err.message}")
+            holdfast.translate(raw)
+        except holdfast.HoldFastError as err:
+            findings.append(f"{rel}: pure HoldFast example failed translation: {err.message}")
             continue
         if rel in _FORMATTED_EXAMPLES:
             try:
                 formatted = authoring.format_source(raw)
-            except vela.VelaError as err:
-                findings.append(f"{rel}: pure Vela example failed formatting: {err.message}")
+            except holdfast.HoldFastError as err:
+                findings.append(f"{rel}: pure HoldFast example failed formatting: {err.message}")
                 continue
             if formatted != raw:
-                findings.append(f"{rel}: pure Vela example is not in canonical format_source layout")
+                findings.append(f"{rel}: pure HoldFast example is not in canonical format_source layout")
     return findings
 
 
@@ -927,17 +927,17 @@ def _playground_asset_findings(root: Path, loaded: corpus.Corpus) -> list[str]:
         ):
             raw_bytes = raw_source.encode("utf-8")
             try:
-                vela.translate(raw_bytes)
-            except vela.VelaError:
+                holdfast.translate(raw_bytes)
+            except holdfast.HoldFastError:
                 continue
             try:
                 if authoring.format_source(raw_bytes) != raw_bytes:
                     findings.append(f"{app_rel}: EXAMPLES.{key} is not canonically formatted")
-            except vela.VelaError as err:
+            except holdfast.HoldFastError as err:
                 findings.append(f"{app_rel}: EXAMPLES.{key} failed canonical formatting: {err}")
 
     lexer_rel = "tools/toolchain/parser/lexer.mll"
-    if lexer_rel in indexed and "export const VELA_GRAMMAR = Object.freeze({" in app_text:
+    if lexer_rel in indexed and "export const HOLDFAST_GRAMMAR = Object.freeze({" in app_text:
         try:
             lexer_source = (root / lexer_rel).read_text(encoding="utf-8")
             ident_table = lexer_source.split("let identifier state lexbuf =", 1)[1].split("let digit_run", 1)[0]
@@ -948,7 +948,7 @@ def _playground_asset_findings(root: Path, loaded: corpus.Corpus) -> list[str]:
                     lexer_retired.add(word)
                 else:
                     lexer_active.add(word)
-            grammar_block = app_text.split("export const VELA_GRAMMAR = Object.freeze({", 1)[1].split("});", 1)[0]
+            grammar_block = app_text.split("export const HOLDFAST_GRAMMAR = Object.freeze({", 1)[1].split("});", 1)[0]
             js_sets: dict[str, set[str]] = {}
             for field in ("keywords", "typeKeywords", "constants", "retiredKeywords"):
                 section = grammar_block.split(f"{field}: Object.freeze([", 1)[1].split("]),", 1)[0]
@@ -956,11 +956,11 @@ def _playground_asset_findings(root: Path, loaded: corpus.Corpus) -> list[str]:
             js_active = js_sets["keywords"] | js_sets["typeKeywords"] | js_sets["constants"]
             missing_active = sorted(lexer_active - js_active)
             if missing_active:
-                findings.append(f"{app_rel}: VELA_GRAMMAR omitted lexer keywords: {', '.join(missing_active)}")
+                findings.append(f"{app_rel}: HOLDFAST_GRAMMAR omitted lexer keywords: {', '.join(missing_active)}")
             if js_sets["retiredKeywords"] != lexer_retired:
-                findings.append(f"{app_rel}: VELA_GRAMMAR retiredKeywords drifted from {lexer_rel}")
+                findings.append(f"{app_rel}: HOLDFAST_GRAMMAR retiredKeywords drifted from {lexer_rel}")
         except (OSError, UnicodeDecodeError, IndexError) as err:
-            findings.append(f"{app_rel}: cannot verify VELA_GRAMMAR against {lexer_rel}: {err}")
+            findings.append(f"{app_rel}: cannot verify HOLDFAST_GRAMMAR against {lexer_rel}: {err}")
     return findings
 
 
@@ -1030,10 +1030,10 @@ def run(root: Path, *, loaded: corpus.Corpus | RuntimeError | None = None) -> Re
         "every relative link and #fragment in source comments and docstrings resolves",
     )
     rep.report(
-        "vela-examples",
-        "Vela example finding(s):",
-        vela_example_findings(root, loaded.tracked),
-        "all tracked pure Vela example files translate and hold to their canonical layout",
+        "holdfast-examples",
+        "HoldFast example finding(s):",
+        holdfast_example_findings(root, loaded.tracked),
+        "all tracked pure HoldFast example files translate and hold to their canonical layout",
     )
     rep.report(
         "javascript",

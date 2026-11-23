@@ -61,7 +61,7 @@ def _failure_coverage() -> None:
 
 
 def _aggregate_coverage() -> None:
-    with tempfile.TemporaryDirectory(prefix="vela-runner-coverage-") as directory:
+    with tempfile.TemporaryDirectory(prefix="holdfast-runner-coverage-") as directory:
         record = Path(directory) / "timings.json"
         with patch.object(runner, "_module_names", return_value=["alpha", "beta"]), \
                 patch.object(runner, "_lanes", return_value=_LANES), \

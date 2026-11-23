@@ -18,7 +18,7 @@ def qualify(root: Path, node: Path) -> dict[str, object]:
               + "".join(f"definition u32 More{i}() => 1u32 + 2u32;\r\n" for i in range(160)))
     with tempfile.TemporaryDirectory() as temporary, parser.cached_build(root) as compiled:
         directory = Path(temporary)
-        path = directory / "arithmetic map.vela"
+        path = directory / "arithmetic map.hf"
         source = module.encode()
         path.write_bytes(source)
         files = maps._compile(compiled, path)
@@ -29,19 +29,19 @@ def qualify(root: Path, node: Path) -> dict[str, object]:
         def find(prefix: str) -> int:
             return next(i for i, line in enumerate(lines) if line.startswith(prefix))
 
-        first = find("Definition vela_d0_Sum ")
+        first = find("Definition holdfast_d0_Sum ")
         # The prelude contains its own lemmas. Identify the synthesized theorem
         # from the independently counted source bytes and the spelling in Gallina.
         operation = b"1u32 + 2u32"
         start = source.index(operation)
-        proof = find(f"Lemma vela_word_{start}_{start + len(operation)}_0 ")
+        proof = find(f"Lemma holdfast_word_{start}_{start + len(operation)}_0 ")
         second_start = source.index(b"7u32 - 4u32")
-        second = find(f"Lemma vela_word_{second_start}_{second_start + len(operation)}_1 ")
-        helper = find("Local Definition vela_word_literal_")
+        second = find(f"Lemma holdfast_word_{second_start}_{second_start + len(operation)}_1 ")
+        helper = find("Local Definition holdfast_word_literal_")
         positions = [(0, 0), (helper, 3), (first, 11), (proof, 0), (proof + 1, 5),
                      (proof + 1, len(lines[proof + 1])), (proof + 2, 0), (second, 8), (len(lines) - 2, 2)]
-        uri = ("vela-source://sha256/89063eadeb30b5ddeccc2824965e4148e6ccce98a9a80afab5fe01a26fcf2fed/"
-               "arithmetic%20map.vela")
+        uri = ("holdfast-source://sha256/89063eadeb30b5ddeccc2824965e4148e6ccce98a9a80afab5fe01a26fcf2fed/"
+               "arithmetic%20map.hf")
         expected = [None, None, [uri, 1, 9], [uri, 1, 49], [uri, 1, 49],
                     None, None, [uri, 2, 32], None]
         observed = maps.read_positions(compiled, path, files, directory, node, positions)
@@ -75,7 +75,7 @@ def qualify(root: Path, node: Path) -> dict[str, object]:
                 raise
             refused.append("source")
         else:
-            raise ValueError("changed Vela source reached the reader")
+            raise ValueError("changed HoldFast source reached the reader")
     return {"status": "qualified", "reader": maps.NODE_VERSION, "reader_sha256": maps.NODE_SHA256,
             "source_sha256": manifest["source_sha256"], "map_sha256": manifest["map_sha256"],
             "gallina_sha256": manifest["gallina_sha256"], "producer": manifest["producer"],

@@ -20,18 +20,18 @@ from filelock import FileLock
 from toolchain import (
     MAX_LITERAL_DIGITS,
     MAX_SOURCE_BYTES,
-    VelaError,
+    HoldFastError,
 )
 from toolchain import (
-    migration as vela_migration,
+    migration as holdfast_migration,
 )
 from toolchain import (
-    parser as vela_parser,
+    parser as holdfast_parser,
 )
 from toolchain.ast import MAX_BLOCK_DEPTH, MAX_SYNTAX_DEPTH
 from toolchain.atomic import publish_report
 
-type Json = vela_parser.Json
+type Json = holdfast_parser.Json
 
 MAX_BLOCK_BINDINGS = MAX_BLOCK_DEPTH
 
@@ -162,7 +162,7 @@ class RenderedToken:
 
 @dataclass(frozen=True)
 class RenderedSentence:
-    """Complete rendered Vela source bound to its originating Menhir terminal sentence."""
+    """Complete rendered HoldFast source bound to its originating Menhir terminal sentence."""
 
     entry: str
     variant: str
@@ -293,7 +293,7 @@ def render_sentence(
     seed: int = 0,
     entry: str = ENTRY_POINT,
 ) -> RenderedSentence:
-    """Render a validated Menhir terminal sequence into UTF-8 Vela source with exact spans."""
+    """Render a validated Menhir terminal sequence into UTF-8 HoldFast source with exact spans."""
     validate_terminal_sentence(terminals)
     if variant not in RENDER_VARIANTS:
         raise ValueError(f"unsupported render variant: {variant!r}")
@@ -406,7 +406,7 @@ def _pure_unsupported_message(word: str) -> str:
     if word == "var":
         return (
             "'var' declares a mutable binding; let and unmarked type-first bindings are "
-            "immutable. Local reassignment requires the wider Vela surface; the pure "
+            "immutable. Local reassignment requires the wider HoldFast surface; the pure "
             "prototype does not support mutation"
         )
     if word in modes:
@@ -418,17 +418,17 @@ def _pure_unsupported_message(word: str) -> str:
 
 
 def independent_tokenize(source: bytes) -> tuple[RenderedToken, ...]:
-    """Tokenize pure Vela bytes independently of `lexer.mll` and `vela.ast`."""
+    """Tokenize pure HoldFast bytes independently of `lexer.mll` and `holdfast.ast`."""
     if len(source) > MAX_SOURCE_BYTES:
-        raise VelaError("limit", 1, 1, f"source exceeds {MAX_SOURCE_BYTES} bytes")
+        raise HoldFastError("limit", 1, 1, f"source exceeds {MAX_SOURCE_BYTES} bytes")
     if source.startswith(b"\xef\xbb\xbf"):
-        raise VelaError("encoding", 1, 1, "remove the initial UTF-8 byte-order mark")
+        raise HoldFastError("encoding", 1, 1, "remove the initial UTF-8 byte-order mark")
     try:
         text = source.decode("utf-8")
     except UnicodeDecodeError as error:
         prefix = source[: error.start].decode("utf-8", errors="ignore")
         line, col = _advance_position(1, 1, prefix)
-        raise VelaError("encoding", line, col, "source is not valid UTF-8") from error
+        raise HoldFastError("encoding", line, col, "source is not valid UTF-8") from error
 
     tokens: list[RenderedToken] = []
     idx = 0
@@ -482,7 +482,7 @@ def independent_tokenize(source: bytes) -> tuple[RenderedToken, ...]:
                 end += 1
             word = text[idx:end]
             if word in PURE_RESERVED_WORDS:
-                raise VelaError("unsupported", line, col, _pure_unsupported_message(word))
+                raise HoldFastError("unsupported", line, col, _pure_unsupported_message(word))
             terminal = PURE_KEYWORDS.get(word, "IDENT")
             w_bytes = len(word.encode("utf-8"))
             tokens.append(RenderedToken(terminal, word, byte_pos, byte_pos + w_bytes, line, col))
@@ -502,7 +502,7 @@ def independent_tokenize(source: bytes) -> tuple[RenderedToken, ...]:
                         or not ("0" <= text[end - 1] <= "9")
                         or not ("0" <= text[end + 1] <= "9")
                     ):
-                        raise VelaError(
+                        raise HoldFastError(
                             "syntax",
                             line,
                             col,
@@ -512,7 +512,7 @@ def independent_tokenize(source: bytes) -> tuple[RenderedToken, ...]:
                     digits += 1
                 end += 1
             if digits > MAX_LITERAL_DIGITS:
-                raise VelaError("limit", line, col, f"literal exceeds {MAX_LITERAL_DIGITS} digits")
+                raise HoldFastError("limit", line, col, f"literal exceeds {MAX_LITERAL_DIGITS} digits")
             spelling = text[idx:end]
             s_bytes = len(spelling.encode("utf-8"))
             tokens.append(
@@ -541,7 +541,7 @@ def independent_tokenize(source: bytes) -> tuple[RenderedToken, ...]:
         if ch in "([{":
             delimiters += 1
             if delimiters > MAX_DELIMITER_DEPTH:
-                raise VelaError(
+                raise HoldFastError(
                     "limit", line, col, f"delimiter nesting exceeds {MAX_DELIMITER_DEPTH}"
                 )
         elif ch in ")]}":
@@ -555,7 +555,7 @@ def independent_tokenize(source: bytes) -> tuple[RenderedToken, ...]:
             col += 1
             continue
 
-        raise VelaError("syntax", line, col, "unexpected character")
+        raise HoldFastError("syntax", line, col, "unexpected character")
 
     return tuple(tokens)
 
@@ -574,8 +574,8 @@ class IndependentPureAstOracle:
     """Independent recursive-descent and precedence-climbing AST/span oracle for `file`.
 
     Constructs the expected schema-1 JSON syntax tree and half-open UTF-8 byte
-    spans directly from `independent_tokenize(source)` without calling `vela.ast`
-    or `vela_parser`.
+    spans directly from `independent_tokenize(source)` without calling `holdfast.ast`
+    or `holdfast_parser`.
     """
 
     def __init__(self, source: bytes) -> None:
@@ -603,15 +603,15 @@ class IndependentPureAstOracle:
         text = self.source.decode("utf-8")
         return _advance_position(1, 1, text)
 
-    def _syntax_error(self, message: str = "unexpected token or incomplete input") -> VelaError:
+    def _syntax_error(self, message: str = "unexpected token or incomplete input") -> HoldFastError:
         tok = self._current()
         if tok is not None:
-            return VelaError("syntax", tok.line, tok.column, message)
+            return HoldFastError("syntax", tok.line, tok.column, message)
         if self.tokens:
             last = self.tokens[-1]
-            return VelaError("syntax", last.line, last.column, message)
+            return HoldFastError("syntax", last.line, last.column, message)
         line, col = self._eof_position()
-        return VelaError("syntax", line, col, message)
+        return HoldFastError("syntax", line, col, message)
 
     def _expect(self, terminal: str) -> RenderedToken:
         tok = self._current()
@@ -634,7 +634,7 @@ class IndependentPureAstOracle:
     ) -> _OracleNode:
         depth = 1 + max((c.depth for c in children), default=0)
         if depth > MAX_SYNTAX_DEPTH:
-            raise VelaError(
+            raise HoldFastError(
                 "limit",
                 first_tok.line,
                 first_tok.column,
@@ -786,7 +786,7 @@ class IndependentPureAstOracle:
         terminal = self._parse_exit()
         rbrace = self._expect("RBRACE")
         if len(bindings) > MAX_BLOCK_BINDINGS:
-            raise VelaError(
+            raise HoldFastError(
                 "limit",
                 lbrace.line,
                 lbrace.column,
@@ -865,7 +865,7 @@ class IndependentPureAstOracle:
             self._expect("EQUAL")
             _ = self._parse_expression()
             self._expect("SEMICOLON")
-            raise VelaError(
+            raise HoldFastError(
                 "syntax",
                 ann.line,
                 ann.column,
@@ -1064,7 +1064,7 @@ def expected_parse_observation(source: bytes) -> dict[str, Json]:
     """Compute the independent expected AST envelope or refusal record for `source`."""
     try:
         envelope = IndependentPureAstOracle(source).parse_envelope()
-    except VelaError as error:
+    except HoldFastError as error:
         return {
             "status": "refused",
             "kind": error.kind,
@@ -1373,7 +1373,7 @@ def verify_sentence_against_oracle(
             if fault_name is not None:
                 actual_env = apply_seeded_fault(actual_env, rendered, fault_name)
             actual_obs = {"status": "accepted", "envelope": actual_env}
-        except VelaError as error:
+        except HoldFastError as error:
             actual_obs = {
                 "status": "refused",
                 "kind": error.kind,
@@ -1408,7 +1408,7 @@ def _is_valid_pure_sentence(terminals: Sequence[str]) -> bool:
     try:
         rendered = render_sentence(terminals)
         obs = expected_parse_observation(rendered.source)
-    except (ValueError, VelaError):
+    except (ValueError, HoldFastError):
         return False
     return obs["status"] == "accepted"
 
@@ -1615,11 +1615,11 @@ def evaluate_seeded_fault(
 
 def _menhir_binary(root: Path, toolchain_receipt: dict[str, object]) -> Path:
     bin_dir = Path(
-        vela_parser._run(["opam", "var", "bin", "--switch", vela_parser.env.SAIL_SWITCH], root)
+        holdfast_parser._run(["opam", "var", "bin", "--switch", holdfast_parser.env.SAIL_SWITCH], root)
     )
     menhir = bin_dir / "menhir"
     expected_hashes = cast("dict[str, str]", toolchain_receipt["binary_sha256"])
-    if vela_parser._digest(menhir) != expected_hashes["menhir"]:
+    if holdfast_parser._digest(menhir) != expected_hashes["menhir"]:
         raise ValueError("Menhir binary digest changed from build toolchain receipt")
     return menhir
 
@@ -1677,10 +1677,10 @@ def _interpret_menhir_sentences(
 
 def _inputs(root: Path) -> dict[str, str]:
     paths = (
-        *vela_migration._inputs(root),
+        *holdfast_migration._inputs(root),
         "tools/toolchain/syntax_campaigns.py",
     )
-    return {path: vela_parser._digest(root / path) for path in paths}
+    return {path: holdfast_parser._digest(root / path) for path in paths}
 
 
 def qualify(
@@ -1696,7 +1696,7 @@ def qualify(
     if goal_length < 1 or goal_length > MAX_SENTENCE_TOKENS:
         raise ValueError(f"goal length {goal_length} out of range 1..{MAX_SENTENCE_TOKENS}")
 
-    work = vela_parser._work_root(root)
+    work = holdfast_parser._work_root(root)
     latest = work / "syntax-campaigns.json"
     with FileLock(work / "syntax-campaigns.lock", timeout=1):
         latest.unlink(missing_ok=True)
@@ -1704,13 +1704,13 @@ def qualify(
         inputs = _inputs(root)
 
         # Require authored-fixture agreement before generating new cases.
-        migration_report = vela_migration.qualify(root)
+        migration_report = holdfast_migration.qualify(root)
         if migration_report.get("status") != "agreed" or migration_report.get("differences"):
             raise ValueError("migration prerequisite failed before syntax campaign")
 
         build_receipt = cast("dict[str, object]", migration_report["build"])
         build_dir = Path(cast("str", build_receipt["directory"]))
-        compiled = vela_parser.Build(build_dir, build_dir / "vela-parser", build_receipt)
+        compiled = holdfast_parser.Build(build_dir, build_dir / "holdfast-parser", build_receipt)
         toolchain_receipt = cast("dict[str, object]", build_receipt["toolchain"])
         menhir = _menhir_binary(root, toolchain_receipt)
         grammar = build_dir / "parser.mly"
@@ -1745,14 +1745,14 @@ def qualify(
             if neg_cst is not None:
                 raise ValueError("Menhir interpreter unexpectedly accepted a malformed negative sentence")
 
-        # 4. Render each sentence across trivia/payload variants and verify native vela-parser against IndependentPureAstOracle:
+        # 4. Render each sentence across trivia/payload variants and verify native holdfast-parser against IndependentPureAstOracle:
         accepted_sentences = 0
         action_refused_sentences = 0
         variant_checks = 0
         sample_replays: list[dict[str, object]] = []
 
         def native_parse(raw: bytes) -> dict[str, Json]:
-            return vela_parser.parse_source(compiled, raw)
+            return holdfast_parser.parse_source(compiled, raw)
 
         for idx, (seed, terminals) in enumerate(generated_sentences):
             if time.monotonic() - started > MAX_CAMPAIGN_SECONDS:
@@ -1808,18 +1808,18 @@ def qualify(
         elapsed = round(time.monotonic() - started, 3)
         if elapsed > MAX_CAMPAIGN_SECONDS:
             raise RuntimeError(f"syntax campaign exceeded {MAX_CAMPAIGN_SECONDS}s wall-time bound")
-        if _inputs(root) != inputs or vela_parser._toolchain(root) != toolchain_receipt:
+        if _inputs(root) != inputs or holdfast_parser._toolchain(root) != toolchain_receipt:
             raise ValueError("syntax campaign inputs or toolchain changed during execution")
         outputs = cast("dict[str, str]", build_receipt["generated_sha256"])
         if any(
-            vela_parser._digest(build_dir / name) != outputs[name]
-            for name in (*vela_parser.GENERATED, "vela-parser")
+            holdfast_parser._digest(build_dir / name) != outputs[name]
+            for name in (*holdfast_parser.GENERATED, "holdfast-parser")
         ):
             raise ValueError("parser generated outputs changed during syntax campaign")
 
         report: dict[str, object] = {
             "schema": 1,
-            "scope": "vela-menhir-generated-syntax-campaigns",
+            "scope": "holdfast-menhir-generated-syntax-campaigns",
             "status": "qualified",
             "checked_parser": False,
             "second_grammar_introduced": False,

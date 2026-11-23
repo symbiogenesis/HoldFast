@@ -35,13 +35,13 @@ EMACS_PINS = {
 }
 
 NEOVIM = r"""
-vim.cmd.edit(vim.fn.fnameescape(vim.env.VELA_FILE))
+vim.cmd.edit(vim.fn.fnameescape(vim.env.HOLDFAST_FILE))
 local buf = vim.api.nvim_get_current_buf()
-vim.bo[buf].filetype = "vela"
+vim.bo[buf].filetype = "holdfast"
 local diagnostics = false
 vim.api.nvim_create_autocmd("DiagnosticChanged", {buffer = buf, callback = function() diagnostics = true end})
 local id = assert(vim.lsp.start({
-  name = "vela", cmd = {vim.env.VELA_PY, vim.env.VELA_RUN, "vela-lsp", "--transcript", vim.env.VELA_WIRE},
+  name = "holdfast", cmd = {vim.env.HOLDFAST_PY, vim.env.HOLDFAST_RUN, "holdfast-lsp", "--transcript", vim.env.HOLDFAST_WIRE},
   root_dir = vim.fn.getcwd(),
   capabilities = vim.tbl_deep_extend("force", vim.lsp.protocol.make_client_capabilities(), {
     workspace = {workspaceEdit = {documentChanges = true}},
@@ -74,7 +74,7 @@ local stale_version = vim.lsp.util.buf_versions[buf]
 apply()
 local stale = contents()
 local again = request("definition", referred)
-local out = assert(io.open(vim.env.VELA_OBSERVATION, "wb"))
+local out = assert(io.open(vim.env.HOLDFAST_OBSERVATION, "wb"))
 out:write(vim.json.encode({prepared=prepared, preview=preview, fresh=fresh, stale=stale,
   definition=definition, again=again, stale_version=stale_version}))
 out:close()
@@ -85,14 +85,14 @@ assert(vim.wait(15000, function() return client:is_stopped() end))
 ELISP = r"""
 (require 'eglot)
 (prefer-coding-system 'utf-8-unix)
-(define-derived-mode vela-mode prog-mode "Vela")
-(add-to-list 'auto-mode-alist '("\\.vela\\'" . vela-mode))
+(define-derived-mode holdfast-mode prog-mode "HoldFast")
+(add-to-list 'auto-mode-alist '("\\.hf\\'" . holdfast-mode))
 (add-to-list 'eglot-server-programs
-             (cons 'vela-mode (list (getenv "VELA_PY") (getenv "VELA_RUN")
-                                    "vela-lsp" "--transcript" (getenv "VELA_WIRE"))))
+             (cons 'holdfast-mode (list (getenv "HOLDFAST_PY") (getenv "HOLDFAST_RUN")
+                                    "holdfast-lsp" "--transcript" (getenv "HOLDFAST_WIRE"))))
 (setq eglot-sync-connect 15 eglot-confirm-server-edits nil
       make-backup-files nil auto-save-default nil)
-(let ((coding-system-for-read 'utf-8-unix)) (find-file (getenv "VELA_FILE")))
+(let ((coding-system-for-read 'utf-8-unix)) (find-file (getenv "HOLDFAST_FILE")))
 (apply #'eglot--connect (eglot--guess-contact))
 (let ((server (eglot-current-server)))
   (unless server (error "Buffer is unmanaged"))
@@ -118,7 +118,7 @@ ELISP = r"""
             (eglot-version eglot--versioned-identifier)
             (stale (buffer-string))
             (again (jsonrpc-request server :textDocument/definition lookup)))
-        (with-temp-file (getenv "VELA_OBSERVATION")
+        (with-temp-file (getenv "HOLDFAST_OBSERVATION")
           (insert (json-serialize (list :prepared prepared :preview preview :fresh fresh :stale stale
                                         :definition definition :again again
                                         :stale_version eglot-version)))))))
@@ -215,13 +215,13 @@ def verify_session(wire: dict[str, object], observation: dict[str, object], uri:
 
 def _session(folder: Path, command: list[str], script: str, filename: str) -> dict[str, object]:
     folder.mkdir()
-    target, wire, observation = (folder / name for name in ("editor.vela", "wire.json", "observation.json"))
+    target, wire, observation = (folder / name for name in ("editor.hf", "wire.json", "observation.json"))
     target.write_bytes(DISK.encode())
     harness = folder / filename
     harness.write_bytes(script.encode())
-    env = {**os.environ, "VELA_FILE": str(target), "VELA_WIRE": str(wire),
-           "VELA_OBSERVATION": str(observation), "VELA_PY": sys.executable,
-           "VELA_RUN": str(Path(__file__).resolve().parents[1] / "run.py")}
+    env = {**os.environ, "HOLDFAST_FILE": str(target), "HOLDFAST_WIRE": str(wire),
+           "HOLDFAST_OBSERVATION": str(observation), "HOLDFAST_PY": sys.executable,
+           "HOLDFAST_RUN": str(Path(__file__).resolve().parents[1] / "run.py")}
     done = subprocess.run([*command, str(harness)], cwd=folder, env=env, capture_output=True,
                           encoding="utf-8", errors="replace", timeout=90, check=False)
     clients._require(done.returncode == 0,
@@ -235,7 +235,7 @@ def _session(folder: Path, command: list[str], script: str, filename: str) -> di
 def qualify() -> dict[str, object]:
     """Run both independently pinned editors against the same source through stdio."""
     if sys.platform == "win32":
-        result = subprocess.run(["wsl", "-u", "root", "-e", "python3", "tools/run.py", "vela-lsp", "--qualify-rename"],
+        result = subprocess.run(["wsl", "-u", "root", "-e", "python3", "tools/run.py", "holdfast-lsp", "--qualify-rename"],
                                 cwd=Path(__file__).resolve().parents[2], capture_output=True,
                                 timeout=420, check=False)
         if result.returncode:
@@ -248,7 +248,7 @@ def qualify() -> dict[str, object]:
     cache = clients._default_cache_root()
     cache.mkdir(parents=True, exist_ok=True)
     with (FileLock(cache / "clients.lock", timeout=clients.TIMEOUT_SECONDS),
-          tempfile.TemporaryDirectory(prefix="vela-rename-") as temp):
+          tempfile.TemporaryDirectory(prefix="holdfast-rename-") as temp):
         root = Path(temp)
         executable, nvim_pin = clients._stage_neovim(cache / "downloads", root)
         emacs = _session(root / "eglot", [str(EMACS), "--batch", "-Q", "-l", str(EGLOT), "-l"], ELISP, "probe.el")

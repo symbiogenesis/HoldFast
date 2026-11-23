@@ -214,8 +214,8 @@ def tree_grammar(root: Path) -> str:
             break
     for name in nullable:
         emitted.pop(name)
-    lines = [_license_comment("//"), "// Generated from the canonical Menhir productions; regenerate with vela-highlight.",
-             "module.exports = grammar({", "  name: 'vela',", "  word: $ => $.identifier,",
+    lines = [_license_comment("//"), "// Generated from the canonical Menhir productions; regenerate with holdfast-highlight.",
+             "module.exports = grammar({", "  name: 'holdfast',", "  word: $ => $.identifier,",
              "  extras: $ => [/\\s/, $.line_comment, $.block_comment],",
              "  externals: $ => [$.block_comment, $.raw_string, $.interpolated_string],",
              "  conflicts: $ => [" + ", ".join("[" + ", ".join("$." + name for name in group) + "]" for group in CONFLICTS) + "],",
@@ -238,33 +238,33 @@ def textmate_grammar(root: Path) -> dict[str, object]:
     """Build lexical scopes from the same keyword inventory as the compiler lexer."""
     words = sorted(set(keywords(root)) - {"Nat", "bool", "true", "false"})
     return {
-        "name": "Vela", "scopeName": "source.vela", "fileTypes": ["vela"],
+        "name": "HoldFast", "scopeName": "source.holdfast", "fileTypes": ["hf"],
         "patterns": [{"include": "#comments"}, {"include": "#raw-string"}, {"include": "#interpolated"},
                      {"include": "#string"}, {"include": "#character"}, {"include": "#tokens"}],
         "repository": {
-            "comments": {"patterns": [{"name": "comment.line.double-slash.vela", "match": "//.*$"},
+            "comments": {"patterns": [{"name": "comment.line.double-slash.holdfast", "match": "//.*$"},
                                         {"include": "#block-comment"}]},
-            "block-comment": {"name": "comment.block.vela", "begin": "/\\*", "end": "\\*/",
+            "block-comment": {"name": "comment.block.holdfast", "begin": "/\\*", "end": "\\*/",
                               "patterns": [{"include": "#block-comment"}]},
-            "raw-string": {"name": "string.quoted.other.raw.vela", "begin": '("{3,})', "end": '\\1(?!")'},
-            "interpolated": {"name": "string.quoted.double.interpolated.vela", "begin": '\\$"', "end": '"',
-                             "patterns": [{"name": "constant.character.escape.vela", "match": r"\\.|\{\{|\}\}"},
-                                          {"name": "meta.interpolation.vela", "begin": r"\{(?!\{)", "end": r"\}",
+            "raw-string": {"name": "string.quoted.other.raw.holdfast", "begin": '("{3,})', "end": '\\1(?!")'},
+            "interpolated": {"name": "string.quoted.double.interpolated.holdfast", "begin": '\\$"', "end": '"',
+                             "patterns": [{"name": "constant.character.escape.holdfast", "match": r"\\.|\{\{|\}\}"},
+                                          {"name": "meta.interpolation.holdfast", "begin": r"\{(?!\{)", "end": r"\}",
                                            "patterns": [{"include": "#interpolation-brace"}, {"include": "$self"}]}]},
-            "interpolation-brace": {"name": "meta.interpolation.block.vela", "begin": r"\{", "end": r"\}",
+            "interpolation-brace": {"name": "meta.interpolation.block.holdfast", "begin": r"\{", "end": r"\}",
                                     "patterns": [{"include": "#interpolation-brace"}, {"include": "$self"}]},
-            "string": {"name": "string.quoted.double.vela", "begin": '"', "end": '"|(?=$)',
-                       "patterns": [{"name": "constant.character.escape.vela", "match": r"\\."}]},
-            "character": {"name": "string.quoted.single.vela", "match": r"'(?:[^'\\\r\n]|\\.)'"},
+            "string": {"name": "string.quoted.double.holdfast", "begin": '"', "end": '"|(?=$)',
+                       "patterns": [{"name": "constant.character.escape.holdfast", "match": r"\\."}]},
+            "character": {"name": "string.quoted.single.holdfast", "match": r"'(?:[^'\\\r\n]|\\.)'"},
             "tokens": {"patterns": [
-                {"name": "keyword.control.vela", "match": r"\b(?:" + "|".join(words) + r")\b"},
-                {"name": "storage.type.vela", "match": r"\b(?:Nat|bool)\b"},
-                {"name": "constant.language.vela", "match": r"\b(?:true|false)\b"},
-                {"name": "constant.numeric.vela", "match": r"\b[0-9][A-Za-z_0-9]*\b"},
-                {"name": "entity.name.type.lifetime.vela", "match": r"'[A-Za-z_][A-Za-z_0-9]*(?:\.[A-Za-z_][A-Za-z_0-9]*)*"},
-                {"name": "invalid.deprecated.hole.vela", "match": r"\?[A-Za-z_][A-Za-z_0-9]*"},
-                {"name": "keyword.operator.vela", "match": r"[+*/%=!<>&|^~?:@-]+"},
-                {"name": "punctuation.separator.vela", "match": r"[(){}\[\],;.]"},
+                {"name": "keyword.control.holdfast", "match": r"\b(?:" + "|".join(words) + r")\b"},
+                {"name": "storage.type.holdfast", "match": r"\b(?:Nat|bool)\b"},
+                {"name": "constant.language.holdfast", "match": r"\b(?:true|false)\b"},
+                {"name": "constant.numeric.holdfast", "match": r"\b[0-9][A-Za-z_0-9]*\b"},
+                {"name": "entity.name.type.lifetime.holdfast", "match": r"'[A-Za-z_][A-Za-z_0-9]*(?:\.[A-Za-z_][A-Za-z_0-9]*)*"},
+                {"name": "invalid.deprecated.hole.holdfast", "match": r"\?[A-Za-z_][A-Za-z_0-9]*"},
+                {"name": "keyword.operator.holdfast", "match": r"[+*/%=!<>&|^~?:@-]+"},
+                {"name": "punctuation.separator.holdfast", "match": r"[(){}\[\],;.]"},
             ]},
         },
     }
@@ -285,5 +285,5 @@ def generated_assets(root: Path) -> dict[str, str]:
     return {
         "tree-sitter/grammar.js": tree_grammar(root),
         "tree-sitter/queries/highlights.scm": "\n".join(queries) + "\n",
-        "textmate/vela.tmLanguage.json": json.dumps(textmate_grammar(root), indent=2, ensure_ascii=False) + "\n",
+        "textmate/holdfast.tmLanguage.json": json.dumps(textmate_grammar(root), indent=2, ensure_ascii=False) + "\n",
     }

@@ -4,7 +4,7 @@
 from dataclasses import dataclass
 from typing import Literal
 
-from toolchain.ast import Name, Site, ValueType, VelaError
+from toolchain.ast import HoldFastError, Name, Site, ValueType
 from toolchain.documentation import DocumentationSource
 
 MAX_SYMBOLS = 1024
@@ -73,7 +73,7 @@ class Facts:
         if not self.collect_expression_types:
             return
         if len(self.scopes) >= MAX_SCOPES:
-            raise VelaError("inspection-limit", site.line, site.column,
+            raise HoldFastError("inspection-limit", site.line, site.column,
                             "pure inspection exceeds scope limit")
         self.scopes.append((kind, site, self.current_scope))
         self.current_scope = len(self.scopes) - 1
@@ -87,7 +87,7 @@ class Facts:
     def declare(self, name: Name, kind: SymbolKind, detail: str, value_type: PureType, *,
                 inferred: bool | None = None) -> int:
         if len(self.symbols) >= MAX_SYMBOLS:
-            raise VelaError("inspection-limit", name.site.line, name.site.column,
+            raise HoldFastError("inspection-limit", name.site.line, name.site.column,
                             "pure inspection exceeds declaration limit")
         identity = len(self.symbols)
         if inferred is not None and (inferred is not False or kind != "variable"):
@@ -102,7 +102,7 @@ class Facts:
 
     def reference(self, identity: int, site: Site, *, declaration: bool = False) -> None:
         if len(self.occurrences) >= MAX_OCCURRENCES:
-            raise VelaError("inspection-limit", site.line, site.column,
+            raise HoldFastError("inspection-limit", site.line, site.column,
                             "pure inspection exceeds occurrence limit")
         self.occurrences.append(_Occurrence(identity, site, declaration))
         if self.collect_expression_types:
@@ -116,7 +116,7 @@ class Facts:
             return
         key = site, kind
         if key not in self.expression_types and len(self.expression_types) >= MAX_EXPRESSIONS:
-            raise VelaError("inspection-limit", site.line, site.column,
+            raise HoldFastError("inspection-limit", site.line, site.column,
                             "pure inspection exceeds expression limit")
         previous = self.expression_types.setdefault(key, value_type)
         if previous != value_type:
@@ -131,7 +131,7 @@ class Facts:
         self.completion_count += len(identities)
         if (self.completion_count > MAX_COMPLETION_OPTIONS
                 or len(self.literal_completions) + len(self.completions) >= MAX_OCCURRENCES):
-            raise VelaError("inspection-limit", site.line, site.column,
+            raise HoldFastError("inspection-limit", site.line, site.column,
                             "pure completion facts exceed option limit")
         self.completions[site] = identities
 
@@ -145,7 +145,7 @@ class Facts:
         self.completion_count += len(identities)
         if (self.completion_count > MAX_COMPLETION_OPTIONS
                 or len(self.literal_completions) + len(self.completions) >= MAX_OCCURRENCES):
-            raise VelaError("inspection-limit", site.line, site.column,
+            raise HoldFastError("inspection-limit", site.line, site.column,
                             "pure literal completion facts exceed limit")
         self.literal_completions[site] = spelling, value_type, False, identities, static
 
@@ -172,7 +172,7 @@ class Facts:
                 try:
                     documentation = self.documentation.at(site)
                 except ValueError as error:
-                    raise VelaError("inspection-limit", site.line, site.column, str(error)) from error
+                    raise HoldFastError("inspection-limit", site.line, site.column, str(error)) from error
                 if documentation is not None:
                     data["documentation"] = documentation.record()
         occurrences: list[dict[str, object]] = [

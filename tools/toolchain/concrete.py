@@ -4,7 +4,7 @@
 from typing import cast
 
 from toolchain import _tokens
-from toolchain.ast import VelaError
+from toolchain.ast import HoldFastError
 
 MAX_CONCRETE_PARTS = 16_384
 TOKEN_KINDS = frozenset({"keyword", "identifier", "decimal", "punctuation"})
@@ -30,7 +30,7 @@ def parts(source: bytes) -> list[dict[str, object]]:
 
     def append(kind: str, first: int, last: int) -> None:
         if len(result) >= MAX_CONCRETE_PARTS:
-            raise VelaError("limit", 1, 1, "concrete inspection exceeds piece limit")
+            raise HoldFastError("limit", 1, 1, "concrete inspection exceeds piece limit")
         result.append({"kind": kind, "text": source[first:last].decode("utf-8"), "span": [first, last]})
 
     cursor = 0

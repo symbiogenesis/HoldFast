@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Qualify Vela optimization decisions through the stock LLVM remark reader."""
+"""Qualify HoldFast optimization decisions through the stock LLVM remark reader."""
 
 import subprocess
 import tempfile
@@ -8,7 +8,7 @@ from io import StringIO
 from pathlib import Path
 
 from toolchain import compiler_trace, remarks
-from toolchain.cli import vela
+from toolchain.cli import holdfast
 from toolchain.hashing import file_sha256, sha256_bytes
 
 READER_SHA256 = "18bdbf0d5d387911b585cd97786ffcb3dcdcc8a539784a2963e293afdec208a3"
@@ -19,7 +19,7 @@ PREFIX = ("module Costs;\r\n// Scaling by a configured gain π.\r\n"
 SOURCE = PREFIX + (b"public Nat Forward(const Nat factor, Nat value) => Scale(factor, value);\r\n"
                    b"public Nat Render(Nat value) => Forward(3, value + 1);\r\n")
 REFUSAL = PREFIX + b"public Nat Bad(Nat value) => Scale(value, value);\r\n"
-FILENAME = "Costs.vela"
+FILENAME = "Costs.hf"
 _APPLIED = "closed static inputs substituted; call eliminated"
 _MISSED = "'call retained pending static parameter(s): factor'"
 _REFUSED = "constant initializer depends on runtime binding 'value'; only earlier constants and static pure-call arguments are permitted"
@@ -65,7 +65,7 @@ def _oracle(source: bytes, *, refused: bool, filename: str) -> bytes:
     lines: list[str] = []
     for tag, name, function, site, args in rows:
         lines += [f"--- {tag}", f"Function: {function}", f"Name: {name}", f"DebugLoc: {site}",
-                  "Pass: vela-static-specialization", "Args:"]
+                  "Pass: holdfast-static-specialization", "Args:"]
         for key, value, loc in args:
             lines.append(f"  - {key}: {value}")
             if loc:
@@ -88,7 +88,7 @@ def _observe(reader: Path, yaml: bytes, oracle: bytes, counts: set[str]) -> dict
 
 def _validate_retained(source: Path, publication: Path, *, changed: bool) -> None:
     with redirect_stdout(StringIO()), redirect_stderr(err := StringIO()):
-        status = vela.main(["remarks-validate", str(source), str(publication)])
+        status = holdfast.main(["remarks-validate", str(source), str(publication)])
     if status != int(changed) or (changed and "remarks differ" not in err.getvalue()):
         raise ValueError(f"wrong validation verdict for {'changed' if changed else 'current'} source: {err.getvalue()}")
 
@@ -98,7 +98,7 @@ def qualify(reader: Path) -> dict[str, object]:
         executable = stream.read(175_985)
     if sha256_bytes(executable) != READER_SHA256 or file_sha256(LIBRARY) != LIBRARY_SHA256:
         raise ValueError("expected the Ubuntu ARM64 LLVM 21.1.8 remark reader and library")
-    with tempfile.TemporaryDirectory(prefix="vela-llvm-remarks-") as temp:
+    with tempfile.TemporaryDirectory(prefix="holdfast-llvm-remarks-") as temp:
         directory = Path(temp)
         tool = directory / "llvm-remarkutil"
         tool.write_bytes(executable)
@@ -113,11 +113,11 @@ def qualify(reader: Path) -> dict[str, object]:
             raise ValueError("retained and eliminated calls do not match the actual Gallina")
         oracle = _oracle(SOURCE, refused=False, filename=FILENAME)
         observed = _observe(tool, success.yaml, oracle, {"f_Render,2", "f_Forward,1"})
-        refused = remarks.compile_remarks(REFUSAL, "Gain's %π.vela", producer)
+        refused = remarks.compile_remarks(REFUSAL, "Gain's %π.hf", producer)
         if refused.gallina is not None or refused.error is None or refused.error.message != _REFUSED:
             raise ValueError("runtime-argument fixture failed to reach the intended refusal")
-        failed = _observe(tool, refused.yaml, _oracle(REFUSAL, refused=True, filename="Gain%27s%20%25%CF%80.vela"), {"f_Bad,1"})
-        _run(tool, ["yaml2bitstream"], b"--- !Passed\nPass: vela-static-specialization\n...\n", malformed=True)
+        failed = _observe(tool, refused.yaml, _oracle(REFUSAL, refused=True, filename="Gain%27s%20%25%CF%80.hf"), {"f_Bad,1"})
+        _run(tool, ["yaml2bitstream"], b"--- !Passed\nPass: holdfast-static-specialization\n...\n", malformed=True)
         source = directory / FILENAME
         publication = directory / "remarks.yaml"
         source.write_bytes(SOURCE)

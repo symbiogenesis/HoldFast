@@ -51,7 +51,7 @@ def _prerequisites() -> None:
 
 def _step_execution() -> None:
     steps = (validate.Step("first", ("fixture", "one"), 10), validate.Step("second", ("fixture", "two"), 20))
-    with tempfile.TemporaryDirectory(prefix="vela-validation-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="holdfast-validation-") as temporary:
         root = Path(temporary)
         commands: list[tuple[str, ...]] = []
 
@@ -78,7 +78,7 @@ def _fail_fast() -> None:
     failures: tuple[object, ...] = (subprocess.CompletedProcess(("fixture",), 7),
                                   subprocess.TimeoutExpired("fixture", 10), OSError("unavailable tool"))
     for failure in failures:
-        with tempfile.TemporaryDirectory(prefix="vela-validation-failure-") as temporary:
+        with tempfile.TemporaryDirectory(prefix="holdfast-validation-failure-") as temporary:
             output = StringIO()
             with patch.object(validate.subprocess, "run", side_effect=[failure]) as run, redirect_stdout(output):
                 ensure(validate.run(Path(temporary), steps, "fixture") == 1, "failed validation returned success")
@@ -90,7 +90,7 @@ def _fail_fast() -> None:
 
 
 def _bounded_log_tail() -> None:
-    with tempfile.TemporaryDirectory(prefix="vela-validation-tail-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="holdfast-validation-tail-") as temporary:
         path = Path(temporary) / "step.log"
         path.write_bytes(b"discarded prefix" + b"x" * validate.TAIL_BYTES + b"\nlast finding\n")
         tail = validate._tail(path)

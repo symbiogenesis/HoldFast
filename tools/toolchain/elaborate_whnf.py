@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Weak-head normal form reduction and carrier evaluation for Vela elaboration."""
+"""Weak-head normal form reduction and carrier evaluation for HoldFast elaboration."""
 
 from typing import TYPE_CHECKING, cast
 
@@ -608,7 +608,7 @@ class _WhnfMixin:
             if v_w.kind in {"int", "nat"}:
                 self.tick(True)
                 cp = cast("int", v_w.value)
-                ce_const = _constant("vela_ConversionError")
+                ce_const = _constant("holdfast_ConversionError")
                 if 0 <= cp <= 0x10FFFF and not (0xD800 <= cp <= 0xDFFF):
                     return self._make_result_ok(_CHAR, ce_const, _term("char", value=cp))
                 return self._make_result_err(_CHAR, ce_const, self._make_conv_err())
@@ -637,28 +637,28 @@ class _WhnfMixin:
         return term
 
     def _make_result_ok(self: _Elaborator, val_type: _Term, err_type: _Term, val_term: _Term) -> _Term:
-        res_union = self.unions_by_type["vela_Result"]
+        res_union = self.unions_by_type["holdfast_Result"]
         ok_ctor = next(c for c in res_union.constructors if c.name == "Ok")
         return _apps(_constant(ok_ctor.ctor_const), val_type, err_type, val_term)
 
     def _make_result_err(self: _Elaborator, val_type: _Term, err_type: _Term, err_term: _Term) -> _Term:
-        res_union = self.unions_by_type["vela_Result"]
+        res_union = self.unions_by_type["holdfast_Result"]
         err_ctor = next(c for c in res_union.constructors if c.name == "Err")
         return _apps(_constant(err_ctor.ctor_const), val_type, err_type, err_term)
 
     def _make_arith_err(self: _Elaborator, ctor_name: str) -> _Term:
-        ae_union = self.unions_by_type["vela_ArithmeticError"]
+        ae_union = self.unions_by_type["holdfast_ArithmeticError"]
         ctor = next(c for c in ae_union.constructors if c.name == ctor_name)
         return _app(_constant(ctor.ctor_const), _term("unit"))
 
     def _make_conv_err(self: _Elaborator) -> _Term:
-        ce_union = self.unions_by_type["vela_ConversionError"]
+        ce_union = self.unions_by_type["holdfast_ConversionError"]
         ctor = ce_union.constructors[0]
         return _app(_constant(ctor.ctor_const), _term("unit"))
 
     def _whnf_int_op(self: _Elaborator, name: str, arguments: list[_Term]) -> _Term | None:
-        ae_const = _constant("vela_ArithmeticError")
-        ce_const = _constant("vela_ConversionError")
+        ae_const = _constant("holdfast_ArithmeticError")
+        ce_const = _constant("holdfast_ConversionError")
         if name.startswith("int_to_nat_") and len(arguments) == 1:
             arg = self.whnf(arguments[0])
             if arg.kind == "int":

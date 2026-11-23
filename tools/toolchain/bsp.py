@@ -49,7 +49,7 @@ class Config:
     lock: Object
 
     def target(self, name: str) -> str:
-        return f"vela-build:{self.digest}/{name}"
+        return f"holdfast-build:{self.digest}/{name}"
 
     def check(self, workspace: Path, producer: Object) -> None:
         if sha256_bytes(packages._read(self.path, packages.MAX_INPUT_BYTES)) != self.digest:
@@ -88,10 +88,10 @@ class Workspace:
                 directory = self.workspace / name / str(row["revision"])
                 targets.append({
                     "id": {"uri": config.target(name)}, "displayName": f"{name}@{row['revision']}",
-                    "baseDirectory": directory.as_uri(), "tags": ["library"], "languageIds": ["vela"],
+                    "baseDirectory": directory.as_uri(), "tags": ["library"], "languageIds": ["holdfast"],
                     "dependencies": [{"uri": config.target(dep)} for dep in sorted(_object(row["dependencies"]))],
                     "capabilities": {"canCompile": name == config.name},
-                    "dataKind": "vela-locked-package",
+                    "dataKind": "holdfast-locked-package",
                     "data": {"lockUri": config.path.as_uri(), "lockSha256": config.digest,
                              "edition": row["edition"], "target": row["target"], "instance": row["instance"],
                              "inputs": row["files"], "producer": config.lock["producer"]},
@@ -173,7 +173,7 @@ class Workspace:
 
 
 def _run_batch(graph: Workspace, config: Config, directory: Path, cancel: threading.Event) -> tuple[int, Object]:
-    command = [sys.executable, str(graph.root / "tools/run.py"), "vela-parser", "build-package",
+    command = [sys.executable, str(graph.root / "tools/run.py"), "holdfast-parser", "build-package",
                str(graph.workspace), str(config.path), "--output", str(directory / "bundle.json")]
     with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr, subprocess.Popen(
         command, cwd=graph.root, stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr,
@@ -227,7 +227,7 @@ class Server:
         cancelled = threading.Event()
 
         def work() -> None:
-            result: Object = {"dataKind": "vela-batch-build"}
+            result: Object = {"dataKind": "holdfast-batch-build"}
             if origin is not None:
                 result["originId"] = origin
             try:
@@ -281,8 +281,8 @@ class Server:
             if method == "build/initialize" and call and self.phase == "new":
                 _require(params.get("bspVersion") == VERSION and params.get("rootUri") == self.graph.workspace.as_uri(),
                          "unsupported BSP version or mismatched workspace root")
-                result = {"displayName": "Vela locked packages", "version": "1", "bspVersion": VERSION,
-                          "capabilities": {"compileProvider": {"languageIds": ["vela"]}}}
+                result = {"displayName": "HoldFast locked packages", "version": "1", "bspVersion": VERSION,
+                          "capabilities": {"compileProvider": {"languageIds": ["holdfast"]}}}
                 self.phase = "initializing"
             elif method == "build/initialized" and not call and self.phase == "initializing":
                 self.phase = "ready"
@@ -324,7 +324,7 @@ def serve(root: Path, workspace: Path, locks: list[Path], source: BinaryIO, outp
             output.write(frame)
             output.flush()
 
-    with tempfile.TemporaryDirectory(prefix="vela-bsp-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="holdfast-bsp-") as tmp:
         server = Server(Workspace(root, workspace, locks, Path(tmp)), send)
         try:
             while (frame := read_frame(source)) is not None:

@@ -12,7 +12,7 @@ from typing import cast, override
 
 from toolchain import highlight, surface
 from toolchain import parser as canonical
-from toolchain.ast import VelaError
+from toolchain.ast import HoldFastError
 from toolchain.hashing import file_sha256 as digest
 
 MAX_SOURCE_BYTES = 65_536
@@ -157,7 +157,7 @@ def _fixtures(root: Path) -> dict[str, list[dict[str, object]]]:
 def _canonical(compiled: canonical.Build, source: str, expected_error: bool) -> None:
     try:
         canonical.parse_source(compiled, source.encode(), surface=True)
-    except VelaError:
+    except HoldFastError:
         if expected_error:
             return
         raise
@@ -186,7 +186,7 @@ def qualify(root: Path, engine: Path, textmate: Path, oniguruma: Path, node: Pat
     inputs += [root / "tools/toolchain/parser" / name for name in ("parser.mly", "lexer.mll")]
     inputs += [root / "tools/toolchain" / name for name in (
         "hashing.py", "highlight.py", "highlight_qualification.py", "surface.py", "parser_checked.py")]
-    inputs += sorted((root / "examples").glob("*.vela"))
+    inputs += sorted((root / "examples").glob("*.hf"))
     bindings = {p.relative_to(root).as_posix(): digest(p) for p in inputs}
     fixtures = _fixtures(root)
     syntax: list[dict[str, object]] = []
@@ -200,16 +200,16 @@ def qualify(root: Path, engine: Path, textmate: Path, oniguruma: Path, node: Pat
     if (not set(positive_recovery) <= {fixture.name for fixture in surface.POSITIVE}
             or not set(negative_parses) <= {name for name, _, _ in surface.NEGATIVE}):
         raise ValueError("known recovery inventory names a case absent from the canonical corpus")
-    with tempfile.TemporaryDirectory(prefix="vela-highlight-") as temporary, canonical.cached_build(root) as compiled:
+    with tempfile.TemporaryDirectory(prefix="holdfast-highlight-") as temporary, canonical.cached_build(root) as compiled:
         stage = Path(temporary)
-        grammar = stage / "tree-sitter-vela"
+        grammar = stage / "tree-sitter-holdfast"
         shutil.copytree(assets / "tree-sitter", grammar, ignore=shutil.ignore_patterns("parser.c", "grammar.json", "node-types.json", "tree_sitter"))
         _run([str(engine), "generate", "--abi", "15"], grammar)
         _run(["cc", "-fsyntax-only", "-Wall", "-Wextra", "-Werror", "-I", str(grammar / "src"),
               str(grammar / "src/scanner.c")], grammar)
         config = stage / "config.json"
         config.write_text(json.dumps({"parser-directories": [str(stage)]}), encoding="utf-8")
-        for path in sorted((root / "examples").glob("*.vela")):
+        for path in sorted((root / "examples").glob("*.hf")):
             source = path.read_text(encoding="utf-8")
             _canonical(compiled, source, False)
             result = _parse(engine, grammar, path)
@@ -218,7 +218,7 @@ def qualify(root: Path, engine: Path, textmate: Path, oniguruma: Path, node: Pat
             syntax.append({"name": path.name, "canonical": "parsed", "tree_sitter": "parsed"})
         for fixture in surface.POSITIVE:
             _canonical(compiled, fixture.source, False)
-            path = stage / "shared.vela"
+            path = stage / "shared.hf"
             path.write_text(fixture.source, encoding="utf-8")
             actual_error = _error(_parse(engine, grammar, path))
             if actual_error != (fixture.name in positive_recovery):
@@ -229,7 +229,7 @@ def qualify(root: Path, engine: Path, textmate: Path, oniguruma: Path, node: Pat
         for name, data, kind in surface.NEGATIVE:
             try:
                 canonical.parse_source(compiled, data, surface=True)
-            except VelaError as error:
+            except HoldFastError as error:
                 if error.kind != kind:
                     raise ValueError(f"canonical refusal kind changed: {name}") from error
             else:
@@ -238,7 +238,7 @@ def qualify(root: Path, engine: Path, textmate: Path, oniguruma: Path, node: Pat
                 shared.append({"name": name, "canonical": kind, "projected": False,
                                "disposition": disposition["outside_editor_envelope"]})
                 continue
-            path = stage / "shared.vela"
+            path = stage / "shared.hf"
             path.write_bytes(data)
             actual_error = _error(_parse(engine, grammar, path))
             if actual_error != (name not in negative_parses):
@@ -249,7 +249,7 @@ def qualify(root: Path, engine: Path, textmate: Path, oniguruma: Path, node: Pat
         for group in ("positive", "negative", "editor_recovery"):
             for item in fixtures[group]:
                 name, source = cast("str", item["name"]), cast("str", item["source"])
-                path = stage / (name + ".vela")
+                path = stage / (name + ".hf")
                 path.write_text(source, encoding="utf-8")
                 expected_error = group == "negative"
                 _canonical(compiled, source, group != "positive")
@@ -258,7 +258,7 @@ def qualify(root: Path, engine: Path, textmate: Path, oniguruma: Path, node: Pat
                     raise ValueError(f"unexpected recovery verdict: {name}")
                 syntax.append({"name": name, "canonical_error": group != "positive", "tree_sitter_error": expected_error})
                 if group == "positive":
-                    result = _run([str(engine), "highlight", "--config-path", str(config), "--scope", "source.vela",
+                    result = _run([str(engine), "highlight", "--config-path", str(config), "--scope", "source.holdfast",
                                    "--html", "--css-classes", str(path)], grammar)
                     reader = HighlightHTML()
                     reader.feed(result.stdout)
@@ -283,7 +283,7 @@ def qualify(root: Path, engine: Path, textmate: Path, oniguruma: Path, node: Pat
             data = source.encode()
             first = data.index(needle.encode())
             updated = data[:first] + replacement.encode() + data[first + len(needle.encode()):]
-            before, after = stage / "before.vela", stage / "after.vela"
+            before, after = stage / "before.hf", stage / "after.hf"
             before.write_bytes(data)
             after.write_bytes(updated)
             incremental_result = _parse(engine, grammar, before, [f"{first} {len(needle.encode())} {replacement}"])
@@ -296,7 +296,7 @@ def qualify(root: Path, engine: Path, textmate: Path, oniguruma: Path, node: Pat
                                 "tree_sha256": hashlib.sha256(_tree(fresh_result).encode()).hexdigest()})
         tm_fixtures = stage / "textmate-fixtures.json"
         tm_fixtures.write_text(json.dumps(fixtures["positive"] + fixtures["negative"] + fixtures["editor_recovery"] + tm_shared), encoding="utf-8")
-        tm_result = _run([str(node), str(assets / "textmate/qualify.mjs"), str(assets / "textmate/vela.tmLanguage.json"),
+        tm_result = _run([str(node), str(assets / "textmate/qualify.mjs"), str(assets / "textmate/holdfast.tmLanguage.json"),
                           str(textmate), str(oniguruma), str(tm_fixtures)], root)
         tm_observation = json.loads(tm_result.stdout)
     if {p.relative_to(root).as_posix(): digest(p) for p in inputs} != bindings:

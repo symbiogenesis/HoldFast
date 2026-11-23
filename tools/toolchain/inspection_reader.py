@@ -50,7 +50,7 @@ def _offset(source: bytes, offset: object) -> bool:
 
 
 def _inventory(value: dict[str, object], source: bytes) -> None:
-    """Check graph and source relationships without parsing or resolving Vela."""
+    """Check graph and source relationships without parsing or resolving HoldFast."""
     identity = value["snapshot"]
     pieces = _records(value, "concrete")
     cursor = 0
@@ -220,7 +220,7 @@ class Reader:
         """Project bounded stored facts only for an independently supplied current binding."""
         value = self.export()
         response = {key: value[key] for key in ("schema", "snapshot", "binding")}
-        response.update(scope="vela-pure-inspection-query", status="refused", complete=False,
+        response.update(scope="holdfast-pure-inspection-query", status="refused", complete=False,
                         reason="malformed-request", items=[], total=0)
 
         def refuse(reason: str, status: object = "refused") -> dict[str, object]:
@@ -306,7 +306,7 @@ def read(publication: bytes, source: bytes, *, binding: dict[str, object]) -> Re
     except (UnicodeError, ValueError, RecursionError) as error:
         raise ValueError("inspection publication is not bounded unique-key JSON") from error
     validate(SCHEMA_PATH, value)
-    if value["scope"] != "vela-pure-inspection":
+    if value["scope"] != "holdfast-pure-inspection":
         raise ValueError("inspection consumer requires a bulk snapshot")
     if (value["binding"] != binding or value["snapshot"] != _hash(_canonical(binding))
             or binding["source_sha256"] != _hash(source) or value["source"].encode("utf-8") != source):

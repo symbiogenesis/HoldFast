@@ -1,4 +1,4 @@
-# Vela development surface grammar
+# HoldFast development surface grammar
 
 This document specifies located syntax. The [first-release contract](first-release.md#release-boundary)
 selects the synchronous subset and defines [primitive semantics](first-release.md#primitive-semantics)
@@ -15,7 +15,7 @@ One authored Menhir grammar owns two public entry points and uses an internal
 generic-call prefix probe sharing its generic-argument productions. The internal
 probe is not an input/output protocol or a second syntax authority. The `file` entry and
 schema 1 serve the pure prototype and its parser comparison. The
-`surface_file` entry, selected with `vela-parser parse --surface SOURCE`, emits
+`surface_file` entry, selected with `holdfast-parser parse --surface SOURCE`, emits
 schema 2 and a `surface_file` node with a module name and declarations. It has no
 translation fallback. Pure translation continues to reject wider constructs.
 All syntax nodes and names carry original-byte, half-open spans; numeric literals
@@ -108,7 +108,7 @@ public hardware RegisterCounter {
 ```
 
 Proof holes and theorem signatures parse without establishing a theorem. The
-[authored surface example](../../examples/surface.vela) combines
+[authored surface example](../../examples/surface.hf) combines
 dependent data, contracts, loans and task cleanup;
 the independent qualification fixtures exercise every feature row above.
 
@@ -732,7 +732,7 @@ checks typed immutable `Nat`/`bool` locals.
 **Bindings and aliases.** Local declarations use `let [T] name = value` and
 `var [T] name = value` (where `[T]` denotes an optional type annotation), and bare
 `T name = value;` declarations are refused. The [primitive contract](first-release.md#primitive-semantics)
-owns the exact integer aliases exported by `Vela.Numerics`: they require explicit
+owns the exact integer aliases exported by `HoldFast.Numerics`: they require explicit
 import or qualification, use ordinary type-name syntax without new keywords,
 implicit conversions, suffixes or default integer types, and agree with their
 underlying fixed-width types in identity, range, layout and operator selection.
@@ -1101,6 +1101,6 @@ precedence and byte spans. Reject malformed declarations, incomplete input,
 trailing tokens and exhaustion without an AST. Lex comments and literals without
 changing delimiters or keyword interpretation inside them.
 
-`vela-parser qualify` must run both the retained pure cases and the surface cases,
+`holdfast-parser qualify` must run both the retained pure cases and the surface cases,
 bind all fixture inputs into its receipt, and retain separate syntax verdicts.
 See [parser qualification](../tooling/parser.md) for the locked-toolchain checks.

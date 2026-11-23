@@ -45,8 +45,8 @@ process.stdout.write(JSON.stringify(rows));
 """
 
 
-def _refuse(site: ast.Site, message: str) -> ast.VelaError:
-    return ast.VelaError("web-output", site.line, site.column, message)
+def _refuse(site: ast.Site, message: str) -> ast.HoldFastError:
+    return ast.HoldFastError("web-output", site.line, site.column, message)
 
 
 def _emit(entry: ast.Function, source_hash: str) -> bytes:
@@ -82,7 +82,7 @@ def _emit(entry: ast.Function, source_hash: str) -> bytes:
 
     expression = render(entry.body.terminal.value)
     guards = [f"arguments.length !== {arity}", *(f"typeof {p} !== 'boolean'" for p in parameters.values())]
-    code = (f"// Vela source SHA-256 {source_hash}, entry {entry.name.text}\n"
+    code = (f"// HoldFast source SHA-256 {source_hash}, entry {entry.name.text}\n"
             f"export default function({', '.join(parameters.values())}) {{\n"
             f"    if ({' || '.join(guards)}) return undefined;\n"
             f"    return {expression};\n}}\n").encode("ascii")
@@ -125,15 +125,15 @@ def _qualify(code: bytes, gallina: str, subject: str, arity: int) -> list[bool]:
         raise ValueError("web qualification needs the pinned Node.js 22.22.1 Ubuntu ARM64 executable")
     node = str(Path(found).resolve())
     prover_bin = proofenv.opam_root() / proofenv.ROCQ_SWITCH / "bin"
-    with tempfile.TemporaryDirectory(prefix="vela-web-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="holdfast-web-") as tmp:
         directory = Path(tmp)
         (directory / "output.mjs").write_bytes(code)
         (directory / "observe.mjs").write_text(_ENGINE, encoding="ascii")
         observed = _run([node, "--max-old-space-size=32", "observe.mjs", str(arity)], directory, timeout=10)
         equations, results = _equations(observed, subject, arity)
         (directory / "Web.v").write_text(f"{gallina}\n{equations}\n", encoding="ascii")
-        _run([str(prover_bin / "rocq"), "c", "-q", "-Q", ".", "VelaWeb", "Web.v"], directory, timeout=30)
-        _run([str(prover_bin / "rocqchk"), "-silent", "-Q", ".", "VelaWeb", "VelaWeb.Web"],
+        _run([str(prover_bin / "rocq"), "c", "-q", "-Q", ".", "HoldFastWeb", "Web.v"], directory, timeout=30)
+        _run([str(prover_bin / "rocqchk"), "-silent", "-Q", ".", "HoldFastWeb", "HoldFastWeb.Web"],
              directory, timeout=30)
         if (directory / "output.mjs").read_bytes() != code or file_sha256(Path(node)) != NODE_SHA256:
             raise ValueError("web output or execution engine changed during replay")

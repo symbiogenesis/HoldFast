@@ -2,7 +2,7 @@
 #include <stdio.h>
 
 /* Use the generated validator and its span representation with an interactive driver. */
-#define main vela_qualification_main
+#define main holdfast_qualification_main
 #include "packet.c"
 #undef main
 
@@ -18,12 +18,12 @@ static void show_bytes(const char *label, const unsigned char *bytes, unsigned l
 int main(void)
 {
     unsigned char backing[32];
-    struct vela_span_byte dst, pkt;
-    struct vela_Result_ValidatedPacket_ValidationError result;
-    vela_span_alloc_zeroed(&dst, backing, 0, 9);
-    vela_span_fill(&dst, &dst, 0, 8, 0xCC);
-    vela_span_write(&dst, &dst, 8, 0xA5);
-    vela_span_alloc_zeroed(&pkt, backing, 16, 8);
+    struct holdfast_span_byte dst, pkt;
+    struct holdfast_Result_ValidatedPacket_ValidationError result;
+    holdfast_span_alloc_zeroed(&dst, backing, 0, 9);
+    holdfast_span_fill(&dst, &dst, 0, 8, 0xCC);
+    holdfast_span_write(&dst, &dst, 8, 0xA5);
+    holdfast_span_alloc_zeroed(&pkt, backing, 16, 8);
     pkt.length = fread(pkt.ptr, 1, pkt.length, stdin);
     if (ferror(stdin)) {
         perror("packet input");
@@ -34,7 +34,7 @@ int main(void)
     show_bytes("before", dst.ptr, dst.length);
     PrepareAndValidatePacket(&result, &dst, &pkt);
     if (result.is_ok) {
-        struct vela_span_byte view = result.ok.PayloadView;
+        struct holdfast_span_byte view = result.ok.PayloadView;
         if (!view.tag || !view.perm_read || view.base < dst.base
             || view.base - dst.base > dst.length || view.length > dst.length - (view.base - dst.base)
             || view.ptr != dst.ptr + (view.base - dst.base)) {

@@ -72,7 +72,7 @@ def reader_identity(executable: Path) -> Object:
 
 def harness_identity() -> str:
     root = Path(__file__).resolve().parent
-    modules = ("atomic.py", "compiler_trace.py", "hashing.py", "jsonutil.py", "trace_viewer.py", "cli/vela.py")
+    modules = ("atomic.py", "compiler_trace.py", "hashing.py", "jsonutil.py", "trace_viewer.py", "cli/holdfast.py")
     return json_digest({name: file_sha256(root / name) for name in modules})
 
 
@@ -155,7 +155,7 @@ def _negative_controls(document: Object) -> list[str]:
     refused: list[str] = []
     for name in NEGATIVE_CONTROLS:
         changed = copy.deepcopy(document)
-        manifest = cast("Object", changed["vela"])
+        manifest = cast("Object", changed["holdfast"])
         events = cast("list[Object]", changed["traceEvents"])
         source, producer = SOURCE, FIXTURE_PRODUCER
         if name == "stale-source":
@@ -209,7 +209,7 @@ type Queries = dict[str, tuple[str, list[list[str]]]]
 def read_queries(executable: Path, document: Object, queries: Queries) -> Object:
     """Import the trace and retain each exact query, transcript and parsed result."""
     result: Object = {}
-    with tempfile.TemporaryDirectory(prefix="vela-trace-viewer-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="holdfast-trace-viewer-") as temporary:
         fixture = Path(temporary) / "fixture.json"
         fixture.write_text(json.dumps(document), encoding="utf-8")
         for name, (sql, _) in queries.items():

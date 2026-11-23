@@ -1,8 +1,8 @@
-# Vela Whole-System Authoring Contract
+# HoldFast Whole-System Authoring Contract
 
-> Qualification criteria for optional Vela-authored software, proofs,
+> Qualification criteria for optional HoldFast-authored software, proofs,
 > machine semantics and hardware.
-> [Whole-system plan](../../PLAN.md#vela-whole-system-authoring-proposal)
+> [Whole-system plan](../../PLAN.md#holdfast-whole-system-authoring-proposal)
 
 ## Authoring end state
 
@@ -10,7 +10,7 @@ Whole-system authorship extends the [first-release subset](../language/first-rel
 Apply the extension selection criteria to each proposed replacement. Qualified
 replacements can author artifacts that the selected backend emits as Rocq terms,
 Clight, machine code or RTL. Proved libraries can remain dependencies behind
-Vela interfaces.
+HoldFast interfaces.
 
 When claiming whole-system authorship, declare the source closure: firmware,
 kernel, storage, services, bootstrap and ISA/ABI primitives, plus compiler, proof
@@ -82,7 +82,7 @@ connections to the admitted machine logic, preserving every discharged obligatio
 The optional full proof-authoring replacement needs inductive/coinductive
 reasoning where used, universes, quantified mathematics, logical relations and
 compiler/hardware metatheory. Retain
-Rocq fallbacks until actual clients express and replay in Vela. Reconstruction and
+Rocq fallbacks until actual clients express and replay in HoldFast. Reconstruction and
 dependency/assumption audits remain kernel checked. Solvers/AI may propose code,
 invariants, lemmas or optimizations; they confer no acceptance authority, and AI
 availability is no theorem premise.
@@ -95,7 +95,7 @@ governs the calculus's interpretation commitment and admission.
 ## Native verified compiler and self-hosting
 
 A native verified, self-hosting compiler is a separately selected later option,
-using Vela-owned IRs to emit target code without mandatory Clight/CompCert or LLVM.
+using HoldFast-owned IRs to emit target code without mandatory Clight/CompCert or LLVM.
 Its selection needs a concrete consumer and comparison against extending the
 retained route, including compiler proof, bootstrap, maintenance and licensing
 costs. The first software release keeps one retained backend; it owes no new
@@ -104,7 +104,7 @@ remains available throughout qualification of the replacement.
 
 Development uses the [Menhir route](../assurance/verification-strategy.md#development-parser-and-grammar)
 with a reviewed grammar and located AST, preserving separate lexer, parsing,
-elaboration and source-correspondence duties. The selected native Vela compiler
+elaboration and source-correspondence duties. The selected native HoldFast compiler
 includes its parser; verified bootstrap accounts for Menhir development/seed dependencies
 until retirement preserves accepted grammar and source meaning.
 
@@ -175,7 +175,7 @@ independently meets the same contract. Search implementations remain untrusted.
 Verified self-hosting connects executable compiler bytes to the proved definition.
 Record the seed compiler, interpreter or proof-grounded evaluation route, exact
 sources/tools, target/ABI, bootstrap stages, assumptions and final compiler image.
-The compiler must compile its declared Vela closure into a successor with checked
+The compiler must compile its declared HoldFast closure into a successor with checked
 compiler correspondence; reproducible stages are an additional check. Resident
 compiler/helpers meet storage, runtime and admission rules. Declare initial
 checker/bootstrap trust boundaries; self-compilation alone proves no soundness.

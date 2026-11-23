@@ -14,8 +14,8 @@ from toolchain.hashing import file_sha256
 
 READER_SHA256 = "2e808bcfc73711f1ab598412ac6ec6f7c68c2c3c07e02f63b05221a2250a357e"
 READER_SIZE = 25_384_521
-WEIGHTS = "weights/v1/Measure.vela"
-SCALE = "scale/v1/Calibration.vela"
+WEIGHTS = "weights/v1/Measure.hf"
+SCALE = "scale/v1/Calibration.hf"
 GENERATED = "__generated__/Weights.Measure.v"
 DEFINITION = 1
 GENERATED_DEFINITION = 17
@@ -164,7 +164,7 @@ def _qualify_absence(root: Path, executable: Path, workspace: Path, directory: P
 
 
 def qualify(root: Path, reader: Path) -> dict[str, object]:
-    with tempfile.TemporaryDirectory(prefix="vela-scip-offline-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="holdfast-scip-offline-") as temporary:
         directory = Path(temporary)
         executable = _stage_reader(reader, directory)
         workspace = directory / "packages"

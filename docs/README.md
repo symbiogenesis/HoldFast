@@ -1,4 +1,4 @@
-# Vela documentation
+# HoldFast documentation
 
 ## Language
 
@@ -9,7 +9,7 @@
 | [language/core-design.md](language/core-design.md) | Core design, explicit loan and mutation rules, refinement/domain tier, and proof obligations |
 | [language/surface-grammar.md](language/surface-grammar.md) | Concrete grammar, precedence, and layout |
 | [language/loan-analysis.md](language/loan-analysis.md) | Path-sensitive loan-end inference over explicit flow facts |
-| [language/language-landscape.md](language/language-landscape.md) | Language landscape behind Vela's handler, async, and surface decisions |
+| [language/language-landscape.md](language/language-landscape.md) | Language landscape behind HoldFast's handler, async, and surface decisions |
 
 ## Toolchain and IDE
 

@@ -129,7 +129,7 @@ Shared scalar capabilities stay in private participant environments. Shared muta
 
 `ConcurrentCell(c,g,S,P)` declares state machine `P`, interference, participant roles, scalar representation `S`, rights and linearization/release points. Each operation proves its functional relation, invariant preservation, published resource transfer and observations. An atomic success is one transition at its proved point; failures establish declared unchanged/partial state, not implicit rollback.
 
-The target is [Ztso](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-15-004) with [whole-path ordering](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-15-015a). The [Sail AMO implementation](https://github.com/symbiogenesis/VerifiedOS/blob/main/model/model/extensions/A/zaamo_insts.sail) decodes `AMOADD`, adds a word and writes it; [memory access](https://github.com/symbiogenesis/VerifiedOS/blob/main/model/model/sys/mem.sail) classifies accesses. These are inspected subjects, not checked Vela atomic laws or a concurrent-logic instance.
+The target is [Ztso](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-15-004) with [whole-path ordering](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-15-015a). The [Sail AMO implementation](https://github.com/symbiogenesis/VerifiedOS/blob/main/model/model/extensions/A/zaamo_insts.sail) decodes `AMOADD`, adds a word and writes it; [memory access](https://github.com/symbiogenesis/VerifiedOS/blob/main/model/model/sys/mem.sail) classifies accesses. These are inspected subjects, not checked HoldFast atomic laws or a concurrent-logic instance.
 
 Lowering names the same pinned Sail term, width/alignment, capability load/store permissions, PMA support, tags, `aq`/`rl` and observations. Distinguish ordinary memory, MMIO and DMA. Forbid widening across neighbors, synthesized CAS/LR-SC, locking `libatomic`, unsupported capability atomics and non-atomic aliases into atomic footprints.
 
@@ -211,7 +211,7 @@ Progress names admitted activations and service/HAL response bounds, with no hid
 
 ## Qualification cases and rejection neighbors
 
-A commissioned extension selects its consumer, supported operations and applicable cases before implementation under the [delivery plan](../../PLAN.md#vela-first-release-delivery). Local cells, dynamic borrowing and concurrent protocols may qualify separately; async and multi-shot cases apply only when those features are selected. Each negative must parse/elaborate beside its positive, reach a satisfiable entry and fail at the named premise. Missing syntax/parser failure or inconsistent preconditions prove no safety.
+A commissioned extension selects its consumer, supported operations and applicable cases before implementation under the [delivery plan](../../PLAN.md#holdfast-first-release-delivery). Local cells, dynamic borrowing and concurrent protocols may qualify separately; async and multi-shot cases apply only when those features are selected. Each negative must parse/elaborate beside its positive, reach a satisfiable entry and fail at the named premise. Missing syntax/parser failure or inconsistent preconditions prove no safety.
 
 | Case | Expected accepted derivation or first rejected premise |
 | --- | --- |

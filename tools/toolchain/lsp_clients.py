@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Two-client Neovim and Vim LSP interoperability qualification for pure Vela."""
+"""Two-client Neovim and Vim LSP interoperability qualification for pure HoldFast."""
 
 import io
 import json
@@ -154,7 +154,7 @@ VIM_WINDOWS_PINS: dict[str, ArchivePin] = {
     ),
 }
 
-DISK_SENTINEL = "// disk sentinel: must never be read or modified by vela-lsp\n"
+DISK_SENTINEL = "// disk sentinel: must never be read or modified by holdfast-lsp\n"
 
 INITIAL_SOURCE = (
     "// 😀 café\n"
@@ -206,11 +206,11 @@ RECOVERY_COMPLETION_SOURCE = "// \U0001f600 recovery\r\nmodule Recovery;\r\npubl
 DELTA_TOKEN_DATA = [2, 11, 2, 0, 1, 0, 7, 5, 1, 3, 0, 10, 5, 1, 2]
 
 NEOVIM_SCRIPT = r"""
-local target_path = vim.env.VELA_TARGET_FILE
-local python_exe = vim.env.VELA_PYTHON_EXE
-local run_py = vim.env.VELA_RUN_PY
-local transcript_path = vim.env.VELA_TRANSCRIPT_FILE
-local out_path = vim.env.VELA_CLIENT_OUT
+local target_path = vim.env.HOLDFAST_TARGET_FILE
+local python_exe = vim.env.HOLDFAST_PYTHON_EXE
+local run_py = vim.env.HOLDFAST_RUN_PY
+local transcript_path = vim.env.HOLDFAST_TRANSCRIPT_FILE
+local out_path = vim.env.HOLDFAST_CLIENT_OUT
 
 local function fail(msg)
   io.stderr:write("neovim client failure: " .. tostring(msg) .. "\n")
@@ -247,7 +247,7 @@ local initial_source = table.concat({
 
 vim.cmd("edit " .. vim.fn.fnameescape(target_path))
 local bufnr = vim.api.nvim_get_current_buf()
-vim.bo[bufnr].filetype = "vela"
+vim.bo[bufnr].filetype = "holdfast"
 vim.bo[bufnr].swapfile = false
 vim.bo[bufnr].fileformat = "unix"
 vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, read_lines(initial_source))
@@ -276,8 +276,8 @@ vim.api.nvim_create_autocmd("DiagnosticChanged", {
 })
 
 local client_id = vim.lsp.start({
-  name = "vela-lsp",
-  cmd = { python_exe, run_py, "vela-lsp", "--transcript", transcript_path },
+  name = "holdfast-lsp",
+  cmd = { python_exe, run_py, "holdfast-lsp", "--transcript", transcript_path },
   root_dir = vim.fn.fnamemodify(target_path, ":h"),
   capabilities = vim.tbl_deep_extend("force", vim.lsp.protocol.make_client_capabilities(), {
     workspace = { workspaceEdit = { documentChanges = true } },
@@ -572,13 +572,13 @@ vim.cmd("qall!")
 
 VIM_SCRIPT = r"""vim9script
 filetype on
-execute 'set runtimepath^=' .. fnameescape($VELA_YEGAPPAN_LSP_ROOT)
-execute 'source ' .. fnameescape($VELA_YEGAPPAN_LSP_ROOT .. '/plugin/lsp.vim')
+execute 'set runtimepath^=' .. fnameescape($HOLDFAST_YEGAPPAN_LSP_ROOT)
+execute 'source ' .. fnameescape($HOLDFAST_YEGAPPAN_LSP_ROOT .. '/plugin/lsp.vim')
 import autoload 'lsp/buffer.vim' as buf
 import autoload 'lsp/diag.vim' as diag
 
 def Fail(msg: string)
-  writefile(['vim client failure: ' .. msg], $VELA_CLIENT_OUT .. '.err')
+  writefile(['vim client failure: ' .. msg], $HOLDFAST_CLIENT_OUT .. '.err')
   cquit 1
 enddef
 
@@ -625,14 +625,14 @@ def RpcRefusal(lserver: dict<any>, method: string, params: dict<any>): dict<any>
 enddef
 
 def RunQualification()
-  var target_path = $VELA_TARGET_FILE
-  var python_exe = $VELA_PYTHON_EXE
-  var run_py = $VELA_RUN_PY
-  var transcript_path = $VELA_TRANSCRIPT_FILE
-  var out_path = $VELA_CLIENT_OUT
-  var inc_sync = $VELA_VIM_INCREMENTAL == '1'
+  var target_path = $HOLDFAST_TARGET_FILE
+  var python_exe = $HOLDFAST_PYTHON_EXE
+  var run_py = $HOLDFAST_RUN_PY
+  var transcript_path = $HOLDFAST_TRANSCRIPT_FILE
+  var out_path = $HOLDFAST_CLIENT_OUT
+  var inc_sync = $HOLDFAST_VIM_INCREMENTAL == '1'
 
-  autocmd BufNewFile,BufRead *.vela setfiletype vela
+  autocmd BufNewFile,BufRead *.hf setfiletype holdfast
   g:LspEnable()
   g:LspOptionsSet({
     autoHighlightDiags: true,
@@ -642,10 +642,10 @@ def RunQualification()
     incrementalSync: inc_sync,
   })
   g:LspAddServer([{
-    name: 'vela-lsp',
-    filetype: ['vela'],
+    name: 'holdfast-lsp',
+    filetype: ['holdfast'],
     path: python_exe,
-    args: [run_py, 'vela-lsp', '--transcript', transcript_path],
+    args: [run_py, 'holdfast-lsp', '--transcript', transcript_path],
     features: {diagnostics: true, documentFormatting: true, inlayHints: true, semanticHighlight: true},
     syncInit: true,
   }])
@@ -1195,7 +1195,7 @@ def _recovery_completion_expectation() -> dict[str, object]:
 
 
 def expected_scenario_oracle(uri: str) -> dict[str, object]:
-    """Compute the independent pure Vela oracle expectations for the 6-stage scenario."""
+    """Compute the independent pure HoldFast oracle expectations for the 6-stage scenario."""
     snap1 = SourceSnapshot(uri, 1, INITIAL_SOURCE, 1)
     facts1 = inspect_source(INITIAL_SOURCE.encode("utf-8"))
     fmt1 = format_document(INITIAL_SOURCE.encode("utf-8"))
@@ -1308,7 +1308,7 @@ def expected_scenario_oracle(uri: str) -> dict[str, object]:
                 "end_character": diag4_pos["character"],
                 "code": "type",
                 "severity": 1,
-                "source": "vela-pure-prototype",
+                "source": "holdfast-pure-prototype",
                 "message": str(diag4_raw["message"]),
             },
             "broken_hover": None,
@@ -1327,7 +1327,7 @@ def expected_scenario_oracle(uri: str) -> dict[str, object]:
                 "end_character": diag5_pos["character"],
                 "code": "unsupported",
                 "severity": 1,
-                "source": "vela-pure-prototype",
+                "source": "holdfast-pure-prototype",
                 "message": str(diag5_raw["message"]),
             },
         },
@@ -1919,13 +1919,13 @@ def _run_editor_session(executable: Path, run_py: Path, session_dir: Path, *,
         arguments = ["-u", "NONE", "-U", "NONE", "-i", "NONE", "--noplugin", "-N", "--not-a-term",
                      "--cmd", "set nomore | set debug=beep | set encoding=utf-8 | set noswapfile",
                      "-S", str(script_file), "-c", "qall!"]
-        editor_env = {"VELA_YEGAPPAN_LSP_ROOT": plugin_root.as_posix(),
-                      "VELA_VIM_INCREMENTAL": "1" if incremental else "0"}
+        editor_env = {"HOLDFAST_YEGAPPAN_LSP_ROOT": plugin_root.as_posix(),
+                      "HOLDFAST_VIM_INCREMENTAL": "1" if incremental else "0"}
         metadata = {"client": "vim-yegappan-lsp", "version": VIM_VERSION,
                     "plugin_commit": YEGAPPAN_LSP_COMMIT, "sync_mode": mode}
 
     workspace.mkdir(parents=True, exist_ok=True)
-    target_file = workspace / "interop.vela"
+    target_file = workspace / "interop.hf"
     target_file.write_text(DISK_SENTINEL, encoding="utf-8", newline="")
     script_file.write_text(script, encoding="utf-8", newline="")
     transcript_file = session_dir / f"{stem}-transcript.json"
@@ -1933,9 +1933,9 @@ def _run_editor_session(executable: Path, run_py: Path, session_dir: Path, *,
     path_text = str if plugin_root is None else Path.as_posix
     env = {
         **os.environ, **editor_env,
-        "VELA_TARGET_FILE": path_text(target_file), "VELA_RUN_PY": path_text(run_py),
-        "VELA_PYTHON_EXE": path_text(Path(sys.executable)),
-        "VELA_TRANSCRIPT_FILE": path_text(transcript_file), "VELA_CLIENT_OUT": path_text(client_out_file),
+        "HOLDFAST_TARGET_FILE": path_text(target_file), "HOLDFAST_RUN_PY": path_text(run_py),
+        "HOLDFAST_PYTHON_EXE": path_text(Path(sys.executable)),
+        "HOLDFAST_TRANSCRIPT_FILE": path_text(transcript_file), "HOLDFAST_CLIENT_OUT": path_text(client_out_file),
     }
     started = time.monotonic()
     done = subprocess.run([str(executable), *arguments], cwd=workspace, env=env, capture_output=True,
@@ -1951,11 +1951,11 @@ def _run_editor_session(executable: Path, run_py: Path, session_dir: Path, *,
 
 
 def _default_cache_root() -> Path:
-    return Path(tempfile.gettempdir()) / "vela-lsp-clients-v1"
+    return Path(tempfile.gettempdir()) / "holdfast-lsp-clients-v1"
 
 
 def qualify_clients(*, cache_root: Path | None = None) -> dict[str, object]:
-    """Authenticate and run the pinned Neovim and Vim LSP clients against vela-lsp."""
+    """Authenticate and run the pinned Neovim and Vim LSP clients against holdfast-lsp."""
     root = Path(__file__).resolve().parents[2]
     run_py = root / "tools" / "run.py"
     effective_cache = _default_cache_root() if cache_root is None else cache_root
@@ -1973,7 +1973,7 @@ def qualify_clients(*, cache_root: Path | None = None) -> dict[str, object]:
                 vim_exe, run_py, stage_dir / "vim-session", plugin_root=plugin_root, incremental=incremental)
         system, arch = _platform_key()
         return {
-            "schema": 2, "scope": "vela-lsp-two-client-interoperability", "status": "passed",
+            "schema": 2, "scope": "holdfast-lsp-two-client-interoperability", "status": "passed",
             "platform": {"os": system, "arch": arch}, "clients": {"neovim": nvim_meta, "vim": vim_meta},
             "sessions": sessions,
         }

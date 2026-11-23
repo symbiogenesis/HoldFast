@@ -4,7 +4,7 @@ Copyright 2026 Edward Miller.
 
 [REUSE.toml](REUSE.toml) assigns the licenses for this repository. The
 [license texts](LICENSES/) govern their terms. [THIRD-PARTY.md](THIRD-PARTY.md)
-records upstream terms and the scope of Vela's use.
+records upstream terms and the scope of HoldFast's use.
 
 ## Repository licenses
 

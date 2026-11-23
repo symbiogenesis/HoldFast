@@ -62,7 +62,7 @@ def qualify_controls(simulator: Path, profile: Path, directory: Path) -> dict[st
     for expression in ("t0 = 3", "mem[0]", "call(main)", "c32.tag", "cap(1)"):
         _refusal(lambda expression=expression: command(passing, "eval " + expression), "read-only")
     _refusal(lambda: command(passing, "eval " + "x" * 64), "32 characters")
-    stop = passing.advance(passing.handle, _line(passing, "beqz    a0, __vela_pass"))
+    stop = passing.advance(passing.handle, _line(passing, "beqz    a0, __holdfast_pass"))
     _expect(stop["pc"], 0x80000050)
     _expect([row["name"] for row in passing.stack(passing.handle)], ["_start"])
     exit_state = passing.advance(passing.handle, finish=True)
@@ -81,7 +81,7 @@ def qualify_controls(simulator: Path, profile: Path, directory: Path) -> dict[st
             _expect(session.evaluate(session.handle, "c13.tag"), {"status": "available", "value": 0})
         stop = session.advance(session.handle, _line(session, "csrr    t0, mcause"))
         _expect(stop["pc"], 0x80000088)
-        _expect([frame["name"] for frame in session.stack(session.handle)], ["__vela_handler", "main", "_start"])
+        _expect([frame["name"] for frame in session.stack(session.handle)], ["__holdfast_handler", "main", "_start"])
         session.advance(session.handle)
         _expect(session.evaluate(session.handle, "t0.bits"), {"status": "available", "value": 28})
         _expect(session.advance(session.handle, finish=True)["htif"], 284)

@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Module-level declaration checking, record/union lowering, and Gallina rendering for Vela."""
+"""Module-level declaration checking, record/union lowering, and Gallina rendering for HoldFast."""
 
 from typing import TYPE_CHECKING, cast
 
 from toolchain import loans
-from toolchain.ast import VelaError
+from toolchain.ast import HoldFastError
 from toolchain.elaborate_types import (
     _BOOL,
     _GALLINA,
@@ -67,7 +67,7 @@ class _DeclarationsMixin:
         witnesses: list[_Term] = []
         for index, prop in enumerate(propositions):
             witness = self.fresh(prop)
-            environment[f"__vela_record_entry_{index}"] = _Binding(witness, prop)
+            environment[f"__holdfast_record_entry_{index}"] = _Binding(witness, prop)
             witnesses.append(witness)
         return witnesses
 
@@ -142,10 +142,10 @@ class _DeclarationsMixin:
         the preceding marker records its source location and reason for the ledger.
         """
         self.complete(statement)
-        axiom = f"vela_solver_{emitted}"
+        axiom = f"holdfast_solver_{emitted}"
         location = self.protocol.error("trust", reason, node)
         self.output.append(
-            f"(* vela-solver-trust: {emitted} at {location.line}:{location.column}; {reason} *)\n"
+            f"(* holdfast-solver-trust: {emitted} at {location.line}:{location.column}; {reason} *)\n"
             f"Axiom {axiom} : {self.render(statement)}."
         )
         self.constants[axiom] = _Binding(_constant(axiom), statement, generic_count)
@@ -511,7 +511,7 @@ class _DeclarationsMixin:
                     self.restore_metas(saved_inv_metas)
                     inv_term = self.proposition(val_node, inv_env)
                     inv_type = _PROP
-            except VelaError:
+            except HoldFastError:
                 self.restore_metas(saved_inv_metas)
                 inv_term = self.proposition(val_node, inv_env)
                 inv_type = _PROP
@@ -652,7 +652,7 @@ class _DeclarationsMixin:
             if req_val_node["kind"] != "quantifier":
                 try:
                     req_val = self.expression(req_val_node, method_env)
-                except VelaError:
+                except HoldFastError:
                     self.restore_metas(saved_req_metas)
                     req_val = None
             if req_val is not None and self.whnf(req_val.type) == _BOOL:
@@ -661,14 +661,14 @@ class _DeclarationsMixin:
                 eq_prop = _apps(_constant("Eq"), _BOOL, req_val.term, _term("bool", value=1))
                 req_var = self.fresh(eq_prop)
                 req_vars.append(req_var)
-                method_env[f"__vela_req_{req_idx}"] = _Binding(req_var, eq_prop)
+                method_env[f"__holdfast_req_{req_idx}"] = _Binding(req_var, eq_prop)
             else:
                 self.restore_metas(saved_req_metas)
                 req_prop = self.proposition(req_val_node, method_env)
                 call_requirements.append(req_prop)
                 req_var = self.fresh(req_prop)
                 req_vars.append(req_var)
-                method_env[f"__vela_req_{req_idx}"] = _Binding(req_var, req_prop)
+                method_env[f"__holdfast_req_{req_idx}"] = _Binding(req_var, req_prop)
                 if req_prop.kind == "app":
                     head_p, args_p = self.spine(req_prop)
                     if (
@@ -777,7 +777,7 @@ class _DeclarationsMixin:
                     ens_proof: _Term | None
                     try:
                         ens_proof = self._prove_proposition(ens_prop, post_env, (), ens_contract)
-                    except VelaError:
+                    except HoldFastError:
                         if not (
                             self._prove_extracted_equality_with_domain_solver(ens_prop, post_env)
                             or self._prove_bool_expr_with_domain_solver(ens_val_node, post_env)
@@ -1074,7 +1074,7 @@ class _DeclarationsMixin:
             raise self.fail("name", f"import namespace '{namespace}' conflicts with an existing binding", node)
         if qualified_only:
             self.module_aliases.add(namespace)
-        if imp_name == "Vela.Numerics":
+        if imp_name == "HoldFast.Numerics":
             for short_name, bindings in self._import_bindings(node, namespace, set(_NUMERICS_ALIASES)).items():
                 target = self.globals[_NUMERICS_ALIASES[short_name]]
                 for alias_name in bindings:
@@ -1341,7 +1341,7 @@ class _DeclarationsMixin:
         generic_vars, generic_env = self.telescope(generics, [], {}, unit=False)
         methods: dict[str, _InterfaceMethodSpec] = {}
         laws: dict[str, _InterfaceLawSpec] = {}
-        identity = f"{self.module_name}.{name}" if self.emission_prefix != "vela" else name
+        identity = f"{self.module_name}.{name}" if self.emission_prefix != "holdfast" else name
         if self.package_instance is not None:
             self.nominal_owners[identity] = self.package_instance
         active_key = (identity, tuple(generic_vars))
@@ -2938,7 +2938,7 @@ class _DeclarationsMixin:
                         if req_val_node["kind"] != "quantifier":
                             try:
                                 req_val = self.expression(req_val_node, environment)
-                            except VelaError:
+                            except HoldFastError:
                                 self.restore_metas(saved_req_metas)
                                 req_val = None
                         if req_val is not None and self.whnf(req_val.type) == _BOOL:
@@ -2947,14 +2947,14 @@ class _DeclarationsMixin:
                             eq_prop = _apps(_constant("Eq"), _BOOL, req_val.term, _term("bool", value=1))
                             req_var = self.fresh(eq_prop)
                             req_vars.append(req_var)
-                            environment[f"__vela_req_{req_idx}"] = _Binding(req_var, eq_prop)
+                            environment[f"__holdfast_req_{req_idx}"] = _Binding(req_var, eq_prop)
                         else:
                             self.restore_metas(saved_req_metas)
                             req_prop = self.proposition(req_val_node, environment)
                             call_requirements.append(req_prop)
                             req_var = self.fresh(req_prop)
                             req_vars.append(req_var)
-                            environment[f"__vela_req_{req_idx}"] = _Binding(req_var, req_prop)
+                            environment[f"__holdfast_req_{req_idx}"] = _Binding(req_var, req_prop)
                             if req_prop.kind == "app":
                                 head_p, args_p = self.spine(req_prop)
                                 if (
@@ -2978,7 +2978,7 @@ class _DeclarationsMixin:
                         self.active_facts.extend(req_bool_terms)
                         try:
                             result = self.proposition(self.node(ensures_clauses[0]["value"]), environment)
-                        except VelaError as err:
+                        except HoldFastError as err:
                             self.restore_metas(saved_ens_m)
                             if err.kind == "name":
                                 is_post_env_theorem = True
@@ -3095,7 +3095,7 @@ class _DeclarationsMixin:
                                         allow_refl=False,
                                         include_env=False,
                                     )
-                                except VelaError:
+                                except HoldFastError:
                                     self.reset_budget()
                                     if not self._entailed_by_theorem_facts(ens_prop, post_env):
                                         raise self.fail(
@@ -3113,7 +3113,7 @@ class _DeclarationsMixin:
                                         allow_refl=True,
                                         include_env=False,
                                     )
-                                except VelaError:
+                                except HoldFastError:
                                     self.restore_metas(saved_ens_p)
                                 self.reset_budget()
                                 post_env_obligations.append((ens_prop, ens_proof, ens_contract))
@@ -3267,7 +3267,7 @@ class _DeclarationsMixin:
                 self.complete(self.metas[index].type)
             if is_recursive and self_var is not None:
                 self.fix_names[cast("int", self_var.value)] = emitted
-            if definition.kind == "const" and str(definition.value).startswith("vela_solver_"):
+            if definition.kind == "const" and str(definition.value).startswith("holdfast_solver_"):
                 # The axiom carries the statement; the export's type is inferred from it.
                 self.output.append(f"Definition {emitted} :=\n  {self.render(definition)}.")
             else:
@@ -3537,7 +3537,7 @@ class _DeclarationsMixin:
                         ens_proof: _Term | None
                         try:
                             ens_proof = self._prove_proposition(ens_prop, post_env, post_req_facts, ens_contract)
-                        except VelaError:
+                        except HoldFastError:
                             self.reset_budget()
                             peeled_prop = ens_prop
                             peeled_env = dict(post_env)
@@ -3596,7 +3596,7 @@ class _DeclarationsMixin:
                                         self.complete(sym_eb.term),
                                     )
                                 )
-                        except VelaError:
+                        except HoldFastError:
                             self.restore_metas(saved_sym_m)
                 finally:
                     self.post_env = {}
@@ -3719,9 +3719,9 @@ class _DeclarationsMixin:
         term = self.resolve(term)
         kind = term.kind
         if kind == "sort":
-            return "Prop" if term.value == -1 else f"Type@{{vela_u{term.value}}}"
+            return "Prop" if term.value == -1 else f"Type@{{holdfast_u{term.value}}}"
         if kind == "var":
-            return f"vela_v{term.value}"
+            return f"holdfast_v{term.value}"
         if kind == "const":
             name = cast("str", term.value)
             if name in _GALLINA:
@@ -3732,16 +3732,16 @@ class _DeclarationsMixin:
         if kind == "nat":
             return f"({term.value} : Corelib.Init.Datatypes.nat)"
         if kind == "char":
-            return f"(vela_mk_char ({term.value} : Corelib.Init.Datatypes.nat))"
+            return f"(holdfast_mk_char ({term.value} : Corelib.Init.Datatypes.nat))"
         if kind == "int":
             spec = cast("_IntSpec", self._int_spec(term.args[0]))
             int_val = cast("int", term.value)
             unsigned = int_val & ((1 << spec.bits) - 1)
-            bits_term = "vela_bnil"
+            bits_term = "holdfast_bnil"
             for nib_idx in range(0, spec.bits, 4):
                 nib = (unsigned >> nib_idx) & 0xF
-                bits_term = f"(vela_x{nib:x} {bits_term})"
-            return f"(@vela_mk_int ({spec.tag} : Corelib.Init.Datatypes.nat) {bits_term})"
+                bits_term = f"(holdfast_x{nib:x} {bits_term})"
+            return f"(@holdfast_mk_int ({spec.tag} : Corelib.Init.Datatypes.nat) {bits_term})"
         if kind == "bool":
             return "Corelib.Init.Datatypes.true" if term.value else "Corelib.Init.Datatypes.false"
         if kind == "unit":
@@ -3751,7 +3751,7 @@ class _DeclarationsMixin:
             return self.render(value)
         if kind == "let":
             domain, value, body = term.args
-            return (f"(let vela_v{term.value} : {self.render(domain)} := {self.render(value)} "
+            return (f"(let holdfast_v{term.value} : {self.render(domain)} := {self.render(value)} "
                     f"in {self.render(body)})")
         if kind == "fix":
             sig, lam_body, struct_var_term, _ = term.args
@@ -3760,18 +3760,18 @@ class _DeclarationsMixin:
             curr_sig = self.resolve(sig)
             while curr_lam.kind == "lam" and curr_sig.kind == "pi":
                 domain = curr_lam.args[0]
-                binders.append(f"(vela_v{curr_lam.value} : {self.render(domain)})")
+                binders.append(f"(holdfast_v{curr_lam.value} : {self.render(domain)})")
                 curr_lam = self.resolve(curr_lam.args[1])
                 curr_sig = self.resolve(curr_sig.args[1])
             binder_str = " ".join(binders)
-            struct_name = f"vela_v{struct_var_term.value}"
+            struct_name = f"holdfast_v{struct_var_term.value}"
             return (
-                f"(fix vela_v{term.value} {binder_str} {{struct {struct_name}}} : "
+                f"(fix holdfast_v{term.value} {binder_str} {{struct {struct_name}}} : "
                 f"{self.render(curr_sig)} := {self.render(curr_lam)})"
             )
         if kind in {"pi", "lam"}:
             domain, body = term.args
-            binder = f"vela_v{term.value} : {self.render(domain)}"
+            binder = f"holdfast_v{term.value} : {self.render(domain)}"
             return (f"(forall ({binder}), {self.render(body)})" if kind == "pi"
                     else f"(fun ({binder}) => {self.render(body)})")
         if kind == "app":
@@ -3802,43 +3802,43 @@ class _DeclarationsMixin:
             return f"(if {self.render(condition)} then {self.render(yes)} else {self.render(no)})"
         if kind == "bool_match":
             motive, scrutinee, yes, no = term.args
-            binder = f"vela_v{motive.value}"
+            binder = f"holdfast_v{motive.value}"
             return (f"(match {self.render(scrutinee)} as {binder} return {self.render(motive.args[1])} with "
                     f"| Corelib.Init.Datatypes.true => {self.render(yes)} "
                     f"| Corelib.Init.Datatypes.false => {self.render(no)} end)")
         if kind == "unit_match":
             motive, scrutinee, body = term.args
-            binder = f"vela_v{motive.value}"
+            binder = f"holdfast_v{motive.value}"
             return (f"(match {self.render(scrutinee)} as {binder} return {self.render(motive.args[1])} with "
                     f"| Corelib.Init.Datatypes.tt => {self.render(body)} end)")
         if kind == "pair_match":
             motive, scrutinee, branch = term.args
             inner = branch.args[1]
-            binder = f"vela_v{motive.value}"
-            left_binder = f"vela_v{branch.value}"
-            right_binder = f"vela_v{inner.value}"
+            binder = f"holdfast_v{motive.value}"
+            left_binder = f"holdfast_v{branch.value}"
+            right_binder = f"holdfast_v{inner.value}"
             return (f"(match {self.render(scrutinee)} as {binder} return {self.render(motive.args[1])} with "
                     f"| @Corelib.Init.Datatypes.pair _ _ {left_binder} {right_binder} => {self.render(inner.args[1])} end)")
         if kind == "sigT_match":
             motive, scrutinee, branch = term.args
             inner = branch.args[1]
-            binder = f"vela_v{motive.value}"
-            fst_binder = f"vela_v{branch.value}"
-            snd_binder = f"vela_v{inner.value}"
+            binder = f"holdfast_v{motive.value}"
+            fst_binder = f"holdfast_v{branch.value}"
+            snd_binder = f"holdfast_v{inner.value}"
             return (f"(match {self.render(scrutinee)} as {binder} return {self.render(motive.args[1])} with "
                     f"| @Corelib.Init.Specif.existT _ _ {fst_binder} {snd_binder} => {self.render(inner.args[1])} end)")
         if kind == "sum_match":
             motive, scrutinee, left_branch, right_branch = term.args
-            binder = f"vela_v{motive.value}"
-            left_binder = f"vela_v{left_branch.value}"
-            right_binder = f"vela_v{right_branch.value}"
+            binder = f"holdfast_v{motive.value}"
+            left_binder = f"holdfast_v{left_branch.value}"
+            right_binder = f"holdfast_v{right_branch.value}"
             return (f"(match {self.render(scrutinee)} as {binder} return {self.render(motive.args[1])} with "
                     f"| @Corelib.Init.Datatypes.inl _ _ {left_binder} => {self.render(left_branch.args[1])} "
                     f"| @Corelib.Init.Datatypes.inr _ _ {right_binder} => {self.render(right_branch.args[1])} end)")
         if kind == "nat_match":
             motive, scrutinee, zero_branch, succ_branch = term.args
-            binder = f"vela_v{motive.value}"
-            pred_binder = f"vela_v{succ_branch.value}"
+            binder = f"holdfast_v{motive.value}"
+            pred_binder = f"holdfast_v{succ_branch.value}"
             return (f"(match {self.render(scrutinee)} as {binder} return {self.render(motive.args[1])} with "
                     f"| Corelib.Init.Datatypes.O => {self.render(zero_branch)} "
                     f"| Corelib.Init.Datatypes.S {pred_binder} => {self.render(succ_branch.args[1])} end)")
@@ -3962,6 +3962,6 @@ class _DeclarationsMixin:
             expr_b = self.expression(val_node, env)
             if self.whnf(expr_b.type) == _BOOL and self._prove_bool_precondition(expr_b.term, env):
                 return True
-        except VelaError:
+        except HoldFastError:
             self.restore_metas(saved_metas)
         return False

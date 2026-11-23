@@ -56,13 +56,13 @@ def plan(platform: str, jobs: int, *, full: bool = False, static: bool = False) 
     steps = [Step("native-prerequisites", preflight, 90),
              Step("gate", (*local, "gate"), 900),
              Step("tests-with-slow-cases", tests, 1800),
-             Step("isolated-generated-tests", (*local, "vela", "generated-tests"), 240)]
+             Step("isolated-generated-tests", (*local, "holdfast", "generated-tests"), 240)]
     if platform == "win32":
         steps.append(Step("guest-tests-with-slow-cases", (
             *guest, "test", "--slow", "--require-toolchain", "--jobs", str(jobs)), 1800))
-    steps.extend((Step("fresh-checked-parser-support", (*guest, "vela-parser", "support"), 3600),
-                  Step("syntax-campaigns-and-migration", (*guest, "vela-parser", "syntax-campaigns"), 1800),
-                  Step("elaboration-kernel-replay", (*guest, "vela-parser", "elaborate-qualify"), 1800)))
+    steps.extend((Step("fresh-checked-parser-support", (*guest, "holdfast-parser", "support"), 3600),
+                  Step("syntax-campaigns-and-migration", (*guest, "holdfast-parser", "syntax-campaigns"), 1800),
+                  Step("elaboration-kernel-replay", (*guest, "holdfast-parser", "elaborate-qualify"), 1800)))
     return tuple(steps)
 
 

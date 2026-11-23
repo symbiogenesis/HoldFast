@@ -59,7 +59,7 @@ def _native_runtime_identity(pid: int) -> Object:
     compiled = checked.ensure_checked_build()
     parser_digest = file_sha256(compiled.executable)
     outputs = cast("dict[str, str]", compiled.receipt["generated_sha256"])
-    if parser_digest != outputs["vela-parser"]:
+    if parser_digest != outputs["holdfast-parser"]:
         raise ValueError("checked parser executable changed during runtime observation")
     return {"python": _python_identity(),
             "parser_sha256": parser_digest,
@@ -181,7 +181,7 @@ class Recorder:
             raise ValueError("trace nesting exceeds limit")
         overhead = time.perf_counter_ns()
         start = self._now()
-        event: Object = {"name": name, "cat": "vela.compiler", "ph": "X", "pid": 1,
+        event: Object = {"name": name, "cat": "holdfast.compiler", "ph": "X", "pid": 1,
                          "tid": 1, "ts": start, "dur": 0}
         if details is not None:
             event["args"] = details
@@ -202,7 +202,7 @@ class Recorder:
         if name not in {"source_bytes", "gallina_bytes"} or type(value) is not int or not 0 <= value <= MAX_TIME:
             raise ValueError("unsupported counter or value")
         overhead = time.perf_counter_ns()
-        self._retain({"name": name, "cat": "vela.compiler", "ph": "C", "pid": 1,
+        self._retain({"name": name, "cat": "holdfast.compiler", "ph": "C", "pid": 1,
                       "tid": 1, "ts": self._now(), "args": {"bytes": value}})
         self.overhead += time.perf_counter_ns() - overhead
 
@@ -222,7 +222,7 @@ class Recorder:
         }
         # Copy the records so later span completion cannot mutate an exported manifest.
         document: Object = {"traceEvents": json.loads(canonical_bytes(self.events)),
-                            "displayTimeUnit": "ms", "vela": manifest}
+                            "displayTimeUnit": "ms", "holdfast": manifest}
         manifest["binding_sha256"] = json_digest(document)
         if len(canonical_bytes(document)) > MAX_TRACE_BYTES:
             raise ValueError("trace export exceeds byte limit")
@@ -245,16 +245,16 @@ def validate(document: object, source: bytes, producer: str, *, require_complete
     """
     _require(isinstance(document, dict), "trace must be an object")
     data = cast("Object", document)
-    _require(set(data) == {"traceEvents", "displayTimeUnit", "vela"}, "unsupported trace fields")
-    _require(data["displayTimeUnit"] == "ms" and isinstance(data["vela"], dict), "unsupported trace format")
-    manifest = cast("Object", data["vela"])
+    _require(set(data) == {"traceEvents", "displayTimeUnit", "holdfast"}, "unsupported trace fields")
+    _require(data["displayTimeUnit"] == "ms" and isinstance(data["holdfast"], dict), "unsupported trace format")
+    manifest = cast("Object", data["holdfast"])
     fields = {"schema", "scope", "clock", "timestamp_unit", "origin", "worker", "source_sha256",
               "producer_sha256", "max_events", "event_count", "dropped_events", "incomplete_spans",
               "clock_fault", "outcome", "recording_overhead_ns", "complete", "binding_sha256", "declaration_count"}
     _require(set(manifest) == fields, "unsupported manifest fields")
     binding = manifest["binding_sha256"]
     unsigned = {key: value for key, value in manifest.items() if key != "binding_sha256"}
-    _require(binding == json_digest({**data, "vela": unsigned}), "trace binding mismatch")
+    _require(binding == json_digest({**data, "holdfast": unsigned}), "trace binding mismatch")
     _require(type(manifest["schema"]) is int and manifest["schema"] == 3
              and manifest["scope"] == "pure-compiler-timing"
              and manifest["clock"] == "perf_counter_ns"
@@ -293,7 +293,7 @@ def validate(document: object, source: bytes, producer: str, *, require_complete
         _require(phase in ("X", "C") and set(event) == fields, "unsupported event fields")
         _require(type(event["pid"]) is int and event["pid"] == 1
                  and type(event["tid"]) is int and event["tid"] == 1
-                 and event["cat"] == "vela.compiler", "invalid worker")
+                 and event["cat"] == "holdfast.compiler", "invalid worker")
         _require(_natural(event["ts"]), "invalid timestamp")
         start = cast("int", event["ts"])
         _require(start >= previous, "events out of start order")

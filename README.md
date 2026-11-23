@@ -1,13 +1,13 @@
-# VelaLang
+# HoldFast
 
-**Vela** is a programming language for writing low-level systems code and
+**HoldFast** is a programming language for writing low-level systems code and
 mathematical proofs in the same file. Calls expose ownership transfer and
 read, write, and initialization loans with `move`, `in`, `ref`, and `out`.
 Functions state preconditions and postconditions with `requires` and
 `ensures`. Named invariants can be opened for an update and must hold again
 when the block exits.
 
-Try the [interactive playground](https://symbiogenesis.github.io/VelaLang/) or
+Try the [interactive playground](https://symbiogenesis.github.io/HoldFast/) or
 browse the [authored examples](examples/). The
 [language reference](docs/language/reference.md) describes the surface syntax and
 marks the boundaries between the development tools and the language design.
@@ -36,8 +36,8 @@ with the [required Python version](tools/pyproject.toml). The runner dispatches
 guest-only commands to WSL on Windows.
 
 ```text
-python tools/run.py vela --help
-python tools/run.py vela-playground
+python tools/run.py holdfast --help
+python tools/run.py holdfast-playground
 python tools/run.py validate
 ```
 

@@ -17,10 +17,10 @@ INDEPENDENT_CASES = True
 def _locked_resolution() -> None:
     uv = shutil.which("uv")
     ensure(uv is not None, "the public tool bootstrap requires uv")
-    with tempfile.TemporaryDirectory(prefix="vela-locked-resolution-") as directory:
+    with tempfile.TemporaryDirectory(prefix="holdfast-locked-resolution-") as directory:
         root = Path(directory)
         project = root / "pyproject.toml"
-        declaration = ('[project]\nname = "vela-lock-fixture"\nversion = "0"\n'
+        declaration = ('[project]\nname = "holdfast-lock-fixture"\nversion = "0"\n'
                        'requires-python = ">=3.14,<3.15"\n'
                        '[tool.uv]\npackage = false\npython-downloads = "never"\n')
         project.write_text(declaration, encoding="utf-8")
@@ -52,7 +52,7 @@ def _exact_checker_pins() -> None:
     live_pins = toolenv.checker_pins(repo_root)
     ensure(set(live_pins) == toolenv.REQUIRED_DEV_PINS,
            f"live checker pins must match REQUIRED_DEV_PINS: {live_pins!r}")
-    with tempfile.TemporaryDirectory(prefix="vela-checker-pins-") as directory:
+    with tempfile.TemporaryDirectory(prefix="holdfast-checker-pins-") as directory:
         root = Path(directory)
         (root / "tools").mkdir()
         path = root / toolenv.PROJECT

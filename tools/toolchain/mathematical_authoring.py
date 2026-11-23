@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import cast
 
 from toolchain import mathematical, parser
-from toolchain.ast import MAX_SOURCE_BYTES, VelaError, position
+from toolchain.ast import MAX_SOURCE_BYTES, HoldFastError, position
 from toolchain.authoring import Finding, is_camel_case, is_pascal_case
 from toolchain.surface import nodes
 from toolchain.syntax_campaigns import strip_spans
@@ -108,7 +108,7 @@ class Document:
                     result.extend(b" ")
             result.extend(value)
             if len(result) >= MAX_SOURCE_BYTES:
-                raise VelaError("limit", 1, 1, "formatted mathematical source exceeds the byte budget")
+                raise HoldFastError("limit", 1, 1, "formatted mathematical source exceeds the byte budget")
             if value == b"{":
                 depth += 1
         result.extend(b"\n")
@@ -142,9 +142,9 @@ def format_checked(compiled: parser.Build, source: bytes) -> tuple[bytes, mathem
     if ([part.spelling for part in original.parts] != [part.spelling for part in checked.parts]
             or list(original.documentation.values()) != list(checked.documentation.values())
             or strip_spans(original.ast) != strip_spans(checked.ast)):
-        raise VelaError("format", 1, 1, "formatting changed tokens, comments, documentation or syntax")
+        raise HoldFastError("format", 1, 1, "formatting changed tokens, comments, documentation or syntax")
     if checked.render() != candidate:
-        raise VelaError("format", 1, 1, "formatting did not reach a stable layout")
+        raise HoldFastError("format", 1, 1, "formatting did not reach a stable layout")
     return candidate, original.checked, checked.checked
 
 
@@ -163,12 +163,12 @@ def lint_source(compiled: parser.Build, source: bytes) -> tuple[Finding, ...]:
         if isinstance(modifiers, list) and "public" in modifiers:
             site = position(source[:_start(name)].decode("utf-8"))
             if not is_pascal_case(spelling):
-                findings.append(Finding("VELA100", f"public member '{spelling}' should use PascalCase",
+                findings.append(Finding("HOLDFAST100", f"public member '{spelling}' should use PascalCase",
                                         site.line, site.column))
             if item["kind"] in ("definition", "function", "constant") and not document.documentation[_start(item)]:
-                findings.append(Finding("VELA102", f"public member '{spelling}' should have a /// documentation comment",
+                findings.append(Finding("HOLDFAST102", f"public member '{spelling}' should have a /// documentation comment",
                                         site.line, site.column))
         if item["kind"] in bindings and _start(item) not in record_fields and not is_camel_case(spelling):
             site = position(source[:_start(name)].decode("utf-8"))
-            findings.append(Finding("VELA101", f"binding '{spelling}' should use camelCase", site.line, site.column))
+            findings.append(Finding("HOLDFAST101", f"binding '{spelling}' should use camelCase", site.line, site.column))
     return tuple(sorted(findings, key=lambda finding: (finding.line, finding.column, finding.code)))

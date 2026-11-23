@@ -15,13 +15,13 @@ of counts and sums, scheduled decay, dead-cluster revival and finalization.
 The authors report matching the held-out loss of 25 Lloyd iterations in
 1.4–2.6 dataset passes, with roughly 10–45× GPU speedups on their evaluated
 configurations. Their GPU measurements use H100s. These results concern cluster
-training; they establish no Vela implementation, universal convergence or
+training; they establish no HoldFast implementation, universal convergence or
 clustering-quality theorem, target timing bound, query-speed improvement or
 inference-throughput improvement.
 
 A search-index or quantization-codebook client could exercise explicit storage,
 dimension and index invariants, finite iteration, mutable reductions and
-numerical refinement. Vela qualification covers the language and lowering the
+numerical refinement. HoldFast qualification covers the language and lowering the
 client needs. [VerifiedOS consumer and target assessment](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/performance/e-means-assessment.md#consumer-selection-and-acceptance)
 
 ## Selection and prerequisites
@@ -57,7 +57,7 @@ Freeze the following contract before candidate implementation:
 
 A successful pilot establishes only its declared behavior and evidence endpoint.
 Any clustering-quality, convergence, search-recall or compression claim needs its
-own stated metric and evidence. H100 speedup factors supply no Vela or VerifiedOS
+own stated metric and evidence. H100 speedup factors supply no HoldFast or VerifiedOS
 performance credit. Upstream source incorporation, if subsequently selected,
 requires its revision-specific licence and dependency review under the
 [working rules](../../AGENTS.md#before-incorporating-an-upstream).

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Build and exercise Vela's syntax-only Menhir development parser.
+"""Build and exercise HoldFast's syntax-only Menhir development parser.
 
 The parser is a native-lane build product. Its JSON syntax tree is no type,
 elaboration, checked-parser or source-correspondence verdict.
@@ -24,9 +24,9 @@ from toolchain import (
     env,
 )
 from toolchain import (
-    surface as vela_surface,
+    surface as holdfast_surface,
 )
-from toolchain.ast import MAX_SOURCE_BYTES, MAX_SYNTAX_DEPTH, VelaError, trivia_end
+from toolchain.ast import MAX_SOURCE_BYTES, MAX_SYNTAX_DEPTH, HoldFastError, trivia_end
 from toolchain.atomic import atomic_path, publish_report
 from toolchain.hashing import file_sha256 as _digest
 from toolchain.jsonutil import exceeds_nesting, finite_float, unique_object
@@ -38,7 +38,7 @@ INPUT_PATHS = (
     *(f"tools/toolchain/parser/{name}" for name in SOURCES),
     "tools/opam/sail.lock", "tools/toolchain/parser.py", "tools/toolchain/surface.py",
     "tools/toolchain/hashing.py", "tools/toolchain/jsonutil.py", "tools/toolchain/atomic.py",
-    "examples/pure.vela", "examples/surface.vela", "examples/constants.vela", "examples/expressions.vela",
+    "examples/pure.hf", "examples/surface.hf", "examples/constants.hf", "examples/expressions.hf",
 )
 GENERATED = ("parser.ml", "parser.mli", "lexer.ml")
 GENERATION_FLAGS = ("--strict", "--infer", "--explain")
@@ -135,7 +135,7 @@ def _commands() -> tuple[list[str], ...]:
             ["ocamlc", "-c", "parser.ml"],
             ["ocamlc", "-c", "lexer.ml"],
             ["ocamlc", "-c", "main.ml"],
-            ["ocamlc", "-o", "vela-parser", "ast.cmo", "parser.cmo", "lexer.cmo", "main.cmo"])
+            ["ocamlc", "-o", "holdfast-parser", "ast.cmo", "parser.cmo", "lexer.cmo", "main.cmo"])
 
 
 def _compile(root: Path, directory: Path, tools: dict[str, object]) -> Build:
@@ -149,10 +149,10 @@ def _compile(root: Path, directory: Path, tools: dict[str, object]) -> Build:
         raise ValueError("parser inputs changed during the build")
     if _toolchain(root) != tools:
         raise ValueError("parser toolchain changed during the build")
-    executable = directory / "vela-parser"
-    outputs = {name: _digest(directory / name) for name in (*GENERATED, "vela-parser")}
+    executable = directory / "holdfast-parser"
+    outputs = {name: _digest(directory / name) for name in (*GENERATED, "holdfast-parser")}
     receipt: dict[str, object] = {
-        "schema": 1, "scope": "vela-syntax-only-development-parser", "status": "built",
+        "schema": 1, "scope": "holdfast-syntax-only-development-parser", "status": "built",
         "inputs": inputs, "toolchain": tools, "commands": commands,
         "generated_sha256": outputs, "directory": str(directory),
     }
@@ -161,7 +161,7 @@ def _compile(root: Path, directory: Path, tools: dict[str, object]) -> Build:
 
 
 def _work_root(root: Path) -> Path:
-    directory = env.lane_root(env.lane_of(root)) / "vela-parser"
+    directory = env.lane_root(env.lane_of(root)) / "holdfast-parser"
     kind = env.filesystem(directory)
     if kind in env.CROSS_OS_FILESYSTEMS | env.VOLATILE_FILESYSTEMS or not kind:
         raise ValueError(f"parser build directory needs a persistent native filesystem: {directory} ({kind})")
@@ -210,21 +210,21 @@ def _cache_hit(directory: Path, inputs: dict[str, str], tools: dict[str, object]
             return None
         receipt = cast("dict[str, object]", value)
         if (type(receipt.get("schema")) is not int or receipt["schema"] != 1
-                or receipt.get("scope") != "vela-syntax-only-development-parser"
+                or receipt.get("scope") != "holdfast-syntax-only-development-parser"
                 or receipt.get("status") != "built" or receipt.get("inputs") != inputs
                 or receipt.get("toolchain") != tools or receipt.get("directory") != str(directory)
                 or receipt.get("commands") != list(_commands())):
             return None
         outputs = receipt.get("generated_sha256")
-        if not isinstance(outputs, dict) or set(outputs) != {*GENERATED, "vela-parser"}:
+        if not isinstance(outputs, dict) or set(outputs) != {*GENERATED, "holdfast-parser"}:
             return None
-        for name in (*GENERATED, "vela-parser"):
+        for name in (*GENERATED, "holdfast-parser"):
             path = directory / name
             if path.is_symlink() or _digest(path) != outputs[name]:
                 return None
     except (OSError, ValueError, TypeError, RecursionError):
         return None
-    return Build(directory, directory / "vela-parser", receipt)
+    return Build(directory, directory / "holdfast-parser", receipt)
 
 
 def _cache_leased(cache: Path, entry: Path) -> bool:
@@ -312,7 +312,7 @@ def read_source(path: Path) -> bytes:
     with path.open("rb") as stream:
         source = stream.read(MAX_SOURCE_BYTES + 1)
     if len(source) > MAX_SOURCE_BYTES:
-        raise VelaError("limit", 1, 1, f"source exceeds {MAX_SOURCE_BYTES} bytes")
+        raise HoldFastError("limit", 1, 1, f"source exceeds {MAX_SOURCE_BYTES} bytes")
     return source
 
 
@@ -425,7 +425,7 @@ def decode_response(source: bytes, returncode: int, stdout: bytes, stderr: bytes
             message.encode("utf-8")
         except UnicodeEncodeError as error:
             raise ValueError("native parser returned an invalid refusal message") from error
-        raise VelaError(cast("str", kind), line, column, message)
+        raise HoldFastError(cast("str", kind), line, column, message)
     if returncode:
         raise RuntimeError(f"native parser exited {returncode}")
     ast = _object(response.get("ast"), "syntax tree")
@@ -444,9 +444,9 @@ def decode_response(source: bytes, returncode: int, stdout: bytes, stderr: bytes
 def parse_source(compiled: Build, source: bytes, *, surface: bool = False, layout: bool = False) -> dict[str, Json]:
     """Decode one complete native response, refusing any unsuccessful process."""
     if len(source) > MAX_SOURCE_BYTES:
-        raise VelaError("limit", 1, 1, f"source exceeds {MAX_SOURCE_BYTES} bytes")
+        raise HoldFastError("limit", 1, 1, f"source exceeds {MAX_SOURCE_BYTES} bytes")
     outputs = cast("dict[str, str]", compiled.receipt["generated_sha256"])
-    if _digest(compiled.executable) != outputs["vela-parser"]:
+    if _digest(compiled.executable) != outputs["holdfast-parser"]:
         raise ValueError("native parser executable changed after its build")
     try:
         arguments = [str(compiled.executable)]
@@ -457,7 +457,7 @@ def parse_source(compiled: Build, source: bytes, *, surface: bool = False, layou
         done = subprocess.run(arguments, input=source, capture_output=True,
                               timeout=PARSE_TIMEOUT, check=False)
     except subprocess.TimeoutExpired as error:
-        raise VelaError("limit", 1, 1, f"parser exceeded {PARSE_TIMEOUT} seconds") from error
+        raise HoldFastError("limit", 1, 1, f"parser exceeded {PARSE_TIMEOUT} seconds") from error
     return decode_response(source, done.returncode, done.stdout, done.stderr, surface=surface or layout, layout=layout)
 
 
@@ -537,7 +537,7 @@ def _concise_fixture(compiled: Build) -> str:
         invalid += b";" if b"=>" in spelling else b" => 0;"
         try:
             parse_source(compiled, invalid)
-        except VelaError as error:
+        except HoldFastError as error:
             if error.kind != "syntax":
                 raise ValueError("malformed concise pure list has wrong refusal") from error
         else:
@@ -605,7 +605,7 @@ def _typed_local_fixture(compiled: Build) -> str:
             raise ValueError("pure local annotation changed its scalar type")
     try:
         parse_source(compiled, b"module M; public Nat F() { Nat bare = 1; return bare; }")
-    except VelaError as error:
+    except HoldFastError as error:
         if error.kind != "syntax" or "let" not in error.message or "var" not in error.message:
             raise ValueError("bare local declaration did not produce let/var syntax refusal") from error
     else:
@@ -763,7 +763,7 @@ def _fixtures(compiled: Build) -> list[str]:
         source = b"// caf\xc3\xa9" + newline + b"module M;" + newline + b"public Nat F() { return @; }"
         try:
             parse_source(compiled, source)
-        except VelaError as error:
+        except HoldFastError as error:
             if (error.kind, error.line, error.column) != ("syntax", 3, 25):
                 raise ValueError("newline/UTF-8 diagnostic position differs") from error
         else:
@@ -808,7 +808,7 @@ def _fixtures(compiled: Build) -> list[str]:
     for number, (source, kind) in enumerate(refusals):
         try:
             parse_source(compiled, source)
-        except VelaError as error:
+        except HoldFastError as error:
             if error.kind != kind:
                 raise ValueError(f"refusal fixture {number}: expected {kind}, got {error.kind}") from error
         else:
@@ -829,18 +829,18 @@ def qualify(root: Path) -> dict[str, object]:
     if any(first_outputs[name] != second_outputs[name] for name in GENERATED):
         raise ValueError("fresh parser regeneration changed generated bytes")
     passed = _fixtures(first)
-    surface_passed = vela_surface.qualify(lambda source: parse_source(first, source, surface=True))
-    example_path = root / "examples/pure.vela"
+    surface_passed = holdfast_surface.qualify(lambda source: parse_source(first, source, surface=True))
+    example_path = root / "examples/pure.hf"
     example = read_source(example_path)
     parse_source(first, example)
-    surface_path = root / "examples/surface.vela"
+    surface_path = root / "examples/surface.hf"
     surface_example = read_source(surface_path)
     parse_source(first, surface_example, surface=True)
-    constant_path = root / "examples/constants.vela"
+    constant_path = root / "examples/constants.hf"
     constant_example = read_source(constant_path)
     parse_source(first, constant_example)
     parse_source(first, constant_example, surface=True)
-    expression_path = root / "examples/expressions.vela"
+    expression_path = root / "examples/expressions.hf"
     expression_example = read_source(expression_path)
     parse_source(first, expression_example)
     parse_source(first, expression_example, surface=True)
@@ -851,7 +851,7 @@ def qualify(root: Path) -> dict[str, object]:
     for compiled in (first, second):
         outputs = cast("dict[str, str]", compiled.receipt["generated_sha256"])
         if any(_digest(compiled.directory / name) != outputs[name]
-               for name in (*GENERATED, "vela-parser")):
+               for name in (*GENERATED, "holdfast-parser")):
             raise ValueError("parser generated output changed after fixtures")
     if read_source(example_path) != example:
         raise ValueError("example changed during qualification")
@@ -862,20 +862,20 @@ def qualify(root: Path) -> dict[str, object]:
     if read_source(expression_path) != expression_example:
         raise ValueError("expression example changed during qualification")
     report: dict[str, object] = {
-        "schema": 1, "scope": "vela-syntax-only-development-parser",
+        "schema": 1, "scope": "holdfast-syntax-only-development-parser",
         "status": "passed", "checked_parser": False,
         "build": first.receipt, "regeneration": second.receipt,
-        "example": {"path": "examples/pure.vela",
+        "example": {"path": "examples/pure.hf",
                     "source_sha256": hashlib.sha256(example).hexdigest()},
-        "constant_example": {"path": "examples/constants.vela",
+        "constant_example": {"path": "examples/constants.hf",
                              "source_sha256": hashlib.sha256(constant_example).hexdigest()},
-        "expression_example": {"path": "examples/expressions.vela",
+        "expression_example": {"path": "examples/expressions.hf",
                                "source_sha256": hashlib.sha256(expression_example).hexdigest()},
         "fixtures": [*passed, "authored-example", "authored-compositional-constants", "authored-extended-expressions"],
         "syntax_entries": {
             "pure": {"schema": 1, "status": "passed"},
             "surface": {"schema": 2, "status": "passed", "fixtures": surface_passed,
-                        "example": {"path": "examples/surface.vela",
+                        "example": {"path": "examples/surface.hf",
                                     "source_sha256": hashlib.sha256(surface_example).hexdigest()}},
         },
     }

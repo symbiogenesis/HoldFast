@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Bounded equational reasoning, congruence closure, and proof-block elaboration for Vela."""
+"""Bounded equational reasoning, congruence closure, and proof-block elaboration for HoldFast."""
 
 from typing import TYPE_CHECKING, cast
 
-from toolchain.ast import VelaError
+from toolchain.ast import HoldFastError
 from toolchain.elaborate_types import (
     _BOOL,
     _CHAR,
@@ -63,7 +63,7 @@ class _ProofsMixin:
         saved = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
         try:
             self.unify(left, right)
-        except VelaError as error:
+        except HoldFastError as error:
             if error.kind != "type":
                 raise
             self.restore_metas(saved)
@@ -413,11 +413,11 @@ class _ProofsMixin:
                 if head == _constant("&&") and len(args) == 2:
                     a, b = args
                     left_fact = _Binding(
-                        _apps(_constant("vela_and_left"), a, b, fact.term),
+                        _apps(_constant("holdfast_and_left"), a, b, fact.term),
                         _apps(_constant("Eq"), _BOOL, a, _term("bool", value=1)),
                     )
                     right_fact = _Binding(
-                        _apps(_constant("vela_and_right"), a, b, fact.term),
+                        _apps(_constant("holdfast_and_right"), a, b, fact.term),
                         _apps(_constant("Eq"), _BOOL, b, _term("bool", value=1)),
                     )
                     add_fact(left_fact, depth + 1)
@@ -434,14 +434,14 @@ class _ProofsMixin:
                         tag = _term("nat", value=spec.tag)
                         expanded.append(
                             _Binding(
-                                _apps(_constant("vela_int_eq_true"), tag, args[0], args[1], fact.term),
+                                _apps(_constant("holdfast_int_eq_true"), tag, args[0], args[1], fact.term),
                                 _apps(_constant("Eq"), spec.const, args[0], args[1]),
                             )
                         )
                 elif head in {_constant("eq_bool"), _constant("<==>")} and len(args) == 2:
                     expanded.append(
                         _Binding(
-                            _apps(_constant("vela_eq_bool_true"), args[0], args[1], fact.term),
+                            _apps(_constant("holdfast_eq_bool_true"), args[0], args[1], fact.term),
                             _apps(_constant("Eq"), _BOOL, args[0], args[1]),
                         )
                     )
@@ -454,11 +454,11 @@ class _ProofsMixin:
                 if head == _constant("||") and len(args) == 2:
                     a, b = args
                     left_fact = _Binding(
-                        _apps(_constant("vela_or_false_l"), a, b, fact.term),
+                        _apps(_constant("holdfast_or_false_l"), a, b, fact.term),
                         _apps(_constant("Eq"), _BOOL, a, _term("bool", value=0)),
                     )
                     right_fact = _Binding(
-                        _apps(_constant("vela_or_false_r"), a, b, fact.term),
+                        _apps(_constant("holdfast_or_false_r"), a, b, fact.term),
                         _apps(_constant("Eq"), _BOOL, b, _term("bool", value=0)),
                     )
                     add_fact(left_fact, depth + 1)
@@ -476,7 +476,7 @@ class _ProofsMixin:
                         tag = _term("nat", value=spec.tag)
                         expanded.append(
                             _Binding(
-                                _apps(_constant("vela_int_le_of_gt_false"), tag, args[0], args[1], fact.term),
+                                _apps(_constant("holdfast_int_le_of_gt_false"), tag, args[0], args[1], fact.term),
                                 _apps(
                                     _constant("Eq"),
                                     _BOOL,
@@ -492,82 +492,82 @@ class _ProofsMixin:
 
     def _coq_store_slice_offset(self: _Elaborator, st: _Term, depth: int = 0) -> _Term:
         if depth > MAX_DEPTH:
-            return _app(_constant("vela_store_slice_offset"), st)
+            return _app(_constant("holdfast_store_slice_offset"), st)
         st_r = self.resolve(st)
         head, args = self.spine(st_r)
-        if head == _constant("vela_bs_empty") and not args:
+        if head == _constant("holdfast_bs_empty") and not args:
             return _int_term(_INT_SPECS["usize"], 0)
-        if head == _constant("vela_bs_slice") and len(args) == 3:
+        if head == _constant("holdfast_bs_slice") and len(args) == 3:
             return args[0]
-        if head == _constant("vela_bs_write") and len(args) == 3:
+        if head == _constant("holdfast_bs_write") and len(args) == 3:
             return self._coq_store_slice_offset(args[2], depth + 1)
-        if head == _constant("vela_bs_fill") and len(args) == 4:
+        if head == _constant("holdfast_bs_fill") and len(args) == 4:
             return self._coq_store_slice_offset(args[3], depth + 1)
-        if head == _constant("vela_bs_copy") and len(args) == 5:
+        if head == _constant("holdfast_bs_copy") and len(args) == 5:
             return self._coq_store_slice_offset(args[4], depth + 1)
-        return _app(_constant("vela_store_slice_offset"), st_r)
+        return _app(_constant("holdfast_store_slice_offset"), st_r)
 
     def _coq_store_shift(self: _Elaborator, off: _Term, st: _Term, depth: int = 0) -> _Term:
         if depth > MAX_DEPTH:
-            return _apps(_constant("vela_bs_shift"), off, st)
+            return _apps(_constant("holdfast_bs_shift"), off, st)
         st_r = self.resolve(st)
         head, args = self.spine(st_r)
-        if head == _constant("vela_bs_empty") and not args:
-            return _constant("vela_bs_empty")
-        if head == _constant("vela_bs_slice") and len(args) == 3:
+        if head == _constant("holdfast_bs_empty") and not args:
+            return _constant("holdfast_bs_empty")
+        if head == _constant("holdfast_bs_slice") and len(args) == 3:
             return args[2]
-        if head == _constant("vela_bs_write") and len(args) == 3:
+        if head == _constant("holdfast_bs_write") and len(args) == 3:
             return _apps(
-                _constant("vela_bs_write"),
+                _constant("holdfast_bs_write"),
                 self.whnf(_apps(_constant("int_add_usize"), off, args[0])),
                 args[1],
                 self._coq_store_shift(off, args[2], depth + 1),
             )
-        if head == _constant("vela_bs_fill") and len(args) == 4:
+        if head == _constant("holdfast_bs_fill") and len(args) == 4:
             return _apps(
-                _constant("vela_bs_fill"),
+                _constant("holdfast_bs_fill"),
                 self.whnf(_apps(_constant("int_add_usize"), off, args[0])),
                 args[1],
                 args[2],
                 self._coq_store_shift(off, args[3], depth + 1),
             )
-        if head == _constant("vela_bs_copy") and len(args) == 5:
+        if head == _constant("holdfast_bs_copy") and len(args) == 5:
             return _apps(
-                _constant("vela_bs_copy"),
+                _constant("holdfast_bs_copy"),
                 self.whnf(_apps(_constant("int_add_usize"), off, args[0])),
                 args[1],
                 args[2],
                 args[3],
                 self._coq_store_shift(off, args[4], depth + 1),
             )
-        return _apps(_constant("vela_bs_shift"), off, st_r)
+        return _apps(_constant("holdfast_bs_shift"), off, st_r)
 
     def _coq_store_term(self: _Elaborator, span: _Term, depth: int = 0) -> _Term:
         if depth > MAX_DEPTH:
-            return _apps(_constant("vela_Span_Store"), _U8, span)
+            return _apps(_constant("holdfast_Span_Store"), _U8, span)
         span_r = self.whnf(span)
         head, args = self.spine(span_r)
         if head in {_constant("Span_ReadOnly"), _constant("Span_Invalidate")} and len(args) == 2:
             return self._coq_store_term(args[1], depth + 1)
         if head == _constant("Span_AllocZeroed") and len(args) == 3:
-            return _constant("vela_bs_empty")
+            return _constant("holdfast_bs_empty")
         if head == _constant("Span_Slice") and len(args) == 4:
             return _apps(
-                _constant("vela_bs_slice"),
+                _constant("holdfast_bs_slice"),
                 args[2],
                 args[3],
                 self._coq_store_term(args[1], depth + 1),
             )
         if head == _constant("Span_Write") and len(args) == 4:
             return _apps(
-                _constant("vela_bs_write"),
+                _constant("holdfast_bs_write"),
                 args[2],
                 args[3],
                 self._coq_store_term(args[1], depth + 1),
             )
         if head == _constant("Span_Fill") and len(args) == 5:
             return _apps(
-                _constant("vela_bs_fill"),
+                _constant("holdfast_bs_fill"),
                 args[2],
                 args[3],
                 args[4],
@@ -576,7 +576,7 @@ class _ProofsMixin:
         if head == _constant("Span_CopyPrefix") and len(args) == 4:
             zero_usize = _int_term(_INT_SPECS["usize"], 0)
             return _apps(
-                _constant("vela_bs_copy"),
+                _constant("holdfast_bs_copy"),
                 zero_usize,
                 zero_usize,
                 args[3],
@@ -587,7 +587,7 @@ class _ProofsMixin:
             view_st = self._coq_store_term(args[2], depth + 1)
             off = self._coq_store_slice_offset(view_st)
             return self._coq_store_shift(off, view_st)
-        return _apps(_constant("vela_Span_Store"), _U8, span_r)
+        return _apps(_constant("holdfast_Span_Store"), _U8, span_r)
 
     def _prove_extent_bound(
         self: _Elaborator, base: _Term, count: _Term, hi: _Term, facts: tuple[_Binding, ...]
@@ -596,7 +596,7 @@ class _ProofsMixin:
         refl = _apps(_constant("Refl"), _BOOL, truth)
         start, ceiling = self.whnf(base), self.whnf(hi)
         if start.kind == "int" and start.value == 0 and self._same_cond_term(count, hi):
-            return _app(_constant("vela_usize_le_refl"), hi)
+            return _app(_constant("holdfast_usize_le_refl"), hi)
         end = self.whnf(_apps(_constant("int_add_usize"), base, count))
         if self.whnf(_apps(_constant("int_le_usize"), end, hi)) == truth:
             return refl
@@ -612,7 +612,7 @@ class _ProofsMixin:
             limit = self.whnf(args[1])
             if (limit.kind == "int"
                     and cast("int", start.value) + cast("int", limit.value) <= cast("int", ceiling.value)):
-                return _apps(_constant("vela_extent_bound"), base, count, limit, hi, fact.term, refl)
+                return _apps(_constant("holdfast_extent_bound"), base, count, limit, hi, fact.term, refl)
         return None
 
     def _vacant_prefix_proof(self: _Elaborator, goal: _Term, facts: tuple[_Binding, ...]) -> _Term | None:
@@ -633,7 +633,7 @@ class _ProofsMixin:
             premise = _apps(_constant("Eq"), _BOOL, larger, truth)
             vacancy = next((known.term for known in facts if self._try_unify(known.type, premise)), None)
             if vacancy is not None:
-                return _apps(_constant("vela_Slots_vacant_shrink"), elem, cap, slots, count, bounds[1], vacancy, fact.term)
+                return _apps(_constant("holdfast_Slots_vacant_shrink"), elem, cap, slots, count, bounds[1], vacancy, fact.term)
         return None
 
     def _transferred_vacancy_proof(self: _Elaborator, goal: _Term, facts: tuple[_Binding, ...]) -> _Term | None:
@@ -654,7 +654,7 @@ class _ProofsMixin:
                 vacancy, old = self.spine(equality[1])
                 if (vacancy == head and len(old) == 5 and self.convertible(old[2], moved[2])
                         and self.convertible(old[4], stop)):
-                    return _apps(_constant("vela_Slots_vacant_after_move"), elem, cap, moved[2], moved[3], old[3], stop, fact.term)
+                    return _apps(_constant("holdfast_Slots_vacant_after_move"), elem, cap, moved[2], moved[3], old[3], stop, fact.term)
         if transfer == _constant("Slots_TransferDest") and self.convertible(moved[3], start):
             copy, params = self.spine(self.whnf(moved[2]))
             if copy != _constant("Slots_CopyRepresentation") or len(params) != 6 or not self.convertible(params[5], start):
@@ -665,7 +665,7 @@ class _ProofsMixin:
             hv = next((f.term for f in facts if self._try_unify(f.type, vacant)), None)
             hb = next((f.term for f in facts if self._try_unify(f.type, bounded)), None)
             if hv is not None and hb is not None:
-                return _apps(_constant("vela_Slots_vacant_after_copy"), elem, src_cap, cap, src, dst, start, stop, hv, hb)
+                return _apps(_constant("holdfast_Slots_vacant_after_copy"), elem, src_cap, cap, src, dst, start, stop, hv, hb)
         return None
 
     def _repeated_take_proof(self: _Elaborator, lhs: _Term, rhs: _Term) -> _Term | None:
@@ -677,7 +677,7 @@ class _ProofsMixin:
         if (inner_head != head or len(inner) != 3 or not self.convertible(inner[2], outer[2])
                 or not self.convertible(nested, rhs)):
             return None
-        return _apps(_constant("vela_Seq_take_idempotent"), inner[0], inner[2], inner[1])
+        return _apps(_constant("holdfast_Seq_take_idempotent"), inner[0], inner[2], inner[1])
 
     def _copied_live_prefix_proof(self: _Elaborator, lhs: _Term, facts: tuple[_Binding, ...]) -> _Term | None:
         head, args = self.spine(lhs)
@@ -704,7 +704,7 @@ class _ProofsMixin:
             if proof is None:
                 return None
             proofs.append(proof)
-        return _apps(_constant("vela_Slots_live_after_copy"), elem, source_cap, cap, source, dest, count, *proofs)
+        return _apps(_constant("holdfast_Slots_live_after_copy"), elem, source_cap, cap, source, dest, count, *proofs)
 
     def _prove_store_byte(
         self: _Elaborator, store: _Term, idx: _Term, rhs: _Term, facts: tuple[_Binding, ...]
@@ -732,14 +732,14 @@ class _ProofsMixin:
         steps: list[tuple[_Term, _Term]] = []
         while True:
             head, args = self.spine(cur)
-            if head == _constant("vela_bs_write") and len(args) == 3:
+            if head == _constant("holdfast_bs_write") and len(args) == 3:
                 widx, val, tail = args
                 skip = next(((lo, p) for lo, p in lowers if
                              self.whnf(_apps(_constant("int_lt_usize"), widx, lo)) == truth), None)
                 if skip is None:
                     return None
-                step = _apps(_constant("vela_store_lookup_write_ge"), widx, skip[0], idx, val, tail, refl, skip[1])
-            elif head == _constant("vela_bs_copy") and len(args) == 5:
+                step = _apps(_constant("holdfast_store_lookup_write_ge"), widx, skip[0], idx, val, tail, refl, skip[1])
+            elif head == _constant("holdfast_bs_copy") and len(args) == 5:
                 base, src_base, count, src, tail = args
                 if self.whnf(base).kind != "int":
                     return None
@@ -748,35 +748,35 @@ class _ProofsMixin:
                 src_head, src_args = self.spine(src)
                 rhs_head, rhs_args = self.spine(rhs)
                 if (lo is not None and hi is not None and self._same_cond_term(src_base, zero)
-                        and src_head == _constant("vela_bs_slice") and len(src_args) == 3
+                        and src_head == _constant("holdfast_bs_slice") and len(src_args) == 3
                         and self._same_cond_term(src_args[0], base) and self._same_cond_term(src_args[1], count)
                         and rhs_head == _constant("Span_Read") and len(rhs_args) == 3
                         and self._same_cond_term(idx, rhs_args[2])
                         and self._coq_store_term(rhs_args[1]) == src_args[2]):
-                    proof = _apps(_constant("vela_store_read_aligned_copy"), base, count, idx, src_args[2], tail, lo, hi)
+                    proof = _apps(_constant("holdfast_store_read_aligned_copy"), base, count, idx, src_args[2], tail, lo, hi)
                     break
                 after = bound(lowers, end)
                 if after is None:
                     return None
-                step = _apps(_constant("vela_store_lookup_copy_ge"), base, src_base, count, end, idx,
-                             src, tail, _app(_constant("vela_usize_le_refl"), end), after)
-            elif head == _constant("vela_bs_fill") and len(args) == 4:
+                step = _apps(_constant("holdfast_store_lookup_copy_ge"), base, src_base, count, end, idx,
+                             src, tail, _app(_constant("holdfast_usize_le_refl"), end), after)
+            elif head == _constant("holdfast_bs_fill") and len(args) == 4:
                 base, count, val, tail = args
                 if self.whnf(base).kind != "int":
                     return None
                 end = count if self._same_cond_term(base, zero) else self.whnf(_apps(_constant("int_add_usize"), base, count))
                 hi = bound(uppers, end)
-                lo = _app(_constant("vela_usize_zero_le"), idx) if self._same_cond_term(base, zero) else bound(lowers, base)
+                lo = _app(_constant("holdfast_usize_zero_le"), idx) if self._same_cond_term(base, zero) else bound(lowers, base)
                 if hi is None or lo is None or not self._same_cond_term(val, rhs):
                     return None
-                proof = _apps(_constant("vela_store_fill_byte"), base, count, idx, val, tail, lo, hi)
+                proof = _apps(_constant("holdfast_store_fill_byte"), base, count, idx, val, tail, lo, hi)
                 break
             else:
                 return None
             steps.append((cur, step))
             cur = tail
         for previous, step in reversed(steps):
-            lookup = _constant("vela_store_lookup")
+            lookup = _constant("holdfast_store_lookup")
             proof = _apps(_constant("Trans"), _U8, _apps(lookup, previous, idx), _apps(lookup, cur, idx), rhs, step, proof)
             cur = previous
         return proof
@@ -804,7 +804,7 @@ class _ProofsMixin:
         if sl_head == _constant("Span_Write") and len(sl_args) == 4:
             base_s, widx, val = sl_args[1], sl_args[2], sl_args[3]
             if self._same_cond_term(widx, idx_l) and self._same_cond_term(val, rhs_r):
-                return _apps(_constant("vela_Span_Read_write_same"), _U8, base_s, idx_l, val)
+                return _apps(_constant("holdfast_Span_Read_write_same"), _U8, base_s, idx_l, val)
             r_head, r_args = self.spine(rhs_r)
             if r_head != _constant("Span_Read") or len(r_args) != 3:
                 rhs_w = self.whnf(rhs_r)
@@ -827,7 +827,7 @@ class _ProofsMixin:
                         and self._same_cond_term(fa[1], idx_l)
                     ):
                         return _apps(
-                            _constant("vela_Span_Read_write_other_ne"),
+                            _constant("holdfast_Span_Read_write_other_ne"),
                             _U8,
                             base_s,
                             widx,
@@ -859,37 +859,37 @@ class _ProofsMixin:
             steps: list[tuple[_Term, _Term, _Term]] = []
             while cur_st != target_st and len(steps) <= 32:
                 st_head, st_args = self.spine(cur_st)
-                if st_head == _constant("vela_bs_write") and len(st_args) == 3:
+                if st_head == _constant("holdfast_bs_write") and len(st_args) == 3:
                     widx, val, rest = st_args
                     if self.whnf(_apps(_constant("int_lt_usize"), widx, hi)) != _term("bool", value=1):
                         break
                     hw = _apps(_constant("Refl"), _BOOL, _term("bool", value=1))
                     step_p = _apps(
-                        _constant("vela_store_lookup_write_ge"), widx, hi, idx_l, val, rest, hw, hge_term
+                        _constant("holdfast_store_lookup_write_ge"), widx, hi, idx_l, val, rest, hw, hge_term
                     )
-                    u_term = _apps(_constant("vela_store_lookup"), cur_st, idx_l)
-                    v_term = _apps(_constant("vela_store_lookup"), rest, idx_l)
+                    u_term = _apps(_constant("holdfast_store_lookup"), cur_st, idx_l)
+                    v_term = _apps(_constant("holdfast_store_lookup"), rest, idx_l)
                     steps.append((u_term, v_term, step_p))
                     cur_st = rest
-                elif st_head == _constant("vela_bs_fill") and len(st_args) == 4:
+                elif st_head == _constant("holdfast_bs_fill") and len(st_args) == 4:
                     base, length, val, rest = st_args
                     hbound = self._prove_extent_bound(base, length, hi, all_facts)
                     if hbound is None:
                         break
                     step_p = _apps(
-                        _constant("vela_store_lookup_fill_ge"), base, length, hi, idx_l, val, rest, hbound, hge_term
+                        _constant("holdfast_store_lookup_fill_ge"), base, length, hi, idx_l, val, rest, hbound, hge_term
                     )
-                    u_term = _apps(_constant("vela_store_lookup"), cur_st, idx_l)
-                    v_term = _apps(_constant("vela_store_lookup"), rest, idx_l)
+                    u_term = _apps(_constant("holdfast_store_lookup"), cur_st, idx_l)
+                    v_term = _apps(_constant("holdfast_store_lookup"), rest, idx_l)
                     steps.append((u_term, v_term, step_p))
                     cur_st = rest
-                elif st_head == _constant("vela_bs_copy") and len(st_args) == 5:
+                elif st_head == _constant("holdfast_bs_copy") and len(st_args) == 5:
                     dbase, sbase, count, src_st, rest = st_args
                     hbound = self._prove_extent_bound(dbase, count, hi, all_facts)
                     if hbound is None:
                         break
                     step_p = _apps(
-                        _constant("vela_store_lookup_copy_ge"),
+                        _constant("holdfast_store_lookup_copy_ge"),
                         dbase,
                         sbase,
                         count,
@@ -900,8 +900,8 @@ class _ProofsMixin:
                         hbound,
                         hge_term,
                     )
-                    u_term = _apps(_constant("vela_store_lookup"), cur_st, idx_l)
-                    v_term = _apps(_constant("vela_store_lookup"), rest, idx_l)
+                    u_term = _apps(_constant("holdfast_store_lookup"), cur_st, idx_l)
+                    v_term = _apps(_constant("holdfast_store_lookup"), rest, idx_l)
                     steps.append((u_term, v_term, step_p))
                     cur_st = rest
                 else:
@@ -1001,9 +1001,9 @@ class _ProofsMixin:
                     u_w = self.whnf(ext_f[1])
                     v_w = self.whnf(ext_f[2])
                     if u_w == _term("bool", value=0) and v_w == _term("bool", value=1):
-                        return _apps(_constant("vela_false_true_elim"), goal, fact.term)
+                        return _apps(_constant("holdfast_false_true_elim"), goal, fact.term)
                     if u_w == _term("bool", value=1) and v_w == _term("bool", value=0):
-                        return _apps(_constant("vela_false_elim"), goal, fact.term)
+                        return _apps(_constant("holdfast_false_elim"), goal, fact.term)
         goal_whnf = self.whnf(goal)
         if goal_whnf.kind == "pi" and cast("int", goal_whnf.value) not in self.nullary_parameters:
             for fact in reversed(all_facts):
@@ -1131,8 +1131,8 @@ class _ProofsMixin:
                             include_env=include_env,
                             split_depth=split_depth,
                         )
-                        return _apps(_constant("vela_and_intro"), lhs_args[0], lhs_args[1], pa, pb)
-                    except VelaError:
+                        return _apps(_constant("holdfast_and_intro"), lhs_args[0], lhs_args[1], pa, pb)
+                    except HoldFastError:
                         self.restore_metas(saved_and)
                         if allow_refl:
                             raise
@@ -1154,7 +1154,7 @@ class _ProofsMixin:
                     if spec is not None:
                         tag = _term("nat", value=spec.tag)
                         if allow_refl and self._try_unify(cmp_args[0], cmp_args[1]):
-                            return _apps(_constant("vela_int_eq_refl"), tag, cmp_args[0])
+                            return _apps(_constant("holdfast_int_eq_refl"), tag, cmp_args[0])
                         saved_ieq = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
                         try:
                             p_eq = self._prove_proposition(
@@ -1166,12 +1166,12 @@ class _ProofsMixin:
                                 include_env=include_env,
                                 split_depth=split_depth,
                             )
-                            return _apps(_constant("vela_int_eq_of_eq"), tag, cmp_args[0], cmp_args[1], p_eq)
-                        except VelaError:
+                            return _apps(_constant("holdfast_int_eq_of_eq"), tag, cmp_args[0], cmp_args[1], p_eq)
+                        except HoldFastError:
                             self.restore_metas(saved_ieq)
                 if cmp_head in {_constant("eq_bool"), _constant("<==>")} and len(cmp_args) == 2:
                     if allow_refl and self._try_unify(cmp_args[0], cmp_args[1]):
-                        return _app(_constant("vela_eq_bool_refl"), cmp_args[0])
+                        return _app(_constant("holdfast_eq_bool_refl"), cmp_args[0])
                     saved_beq = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
                     try:
                         p_beq = self._prove_proposition(
@@ -1183,8 +1183,8 @@ class _ProofsMixin:
                             include_env=include_env,
                             split_depth=split_depth,
                         )
-                        return _apps(_constant("vela_eq_bool_of_eq"), cmp_args[0], cmp_args[1], p_beq)
-                    except VelaError:
+                        return _apps(_constant("holdfast_eq_bool_of_eq"), cmp_args[0], cmp_args[1], p_beq)
+                    except HoldFastError:
                         self.restore_metas(saved_beq)
                 if allow_refl and cmp_head == _constant(">") and len(cmp_args) == 2:
                     gt_l_w = self.whnf(cmp_args[0])
@@ -1198,7 +1198,7 @@ class _ProofsMixin:
                         k_w = self.whnf(add_a[1])
                         if k_w.kind == "nat" and cast("int", k_w.value) >= 1:
                             return _apps(
-                                _constant("vela_gt_add_pos"),
+                                _constant("holdfast_gt_add_pos"),
                                 cmp_args[1],
                                 _term("nat", value=cast("int", k_w.value) - 1),
                             )
@@ -1218,7 +1218,7 @@ class _ProofsMixin:
                     if in_head == _constant("+") and len(in_args) == 2:
                         assoc_rhs = _apps(_constant("+"), in_args[0], _apps(_constant("+"), in_args[1], lh_args[1]))
                         if self.convertible(assoc_rhs, rhs_w):
-                            return _apps(_constant("vela_nat_add_assoc"), in_args[0], in_args[1], lh_args[1])
+                            return _apps(_constant("holdfast_nat_add_assoc"), in_args[0], in_args[1], lh_args[1])
             if allow_refl and (int_spec_eq := self._int_spec(goal_type_w)) is not None:
                 add_const = _constant(f"int_add_{int_spec_eq.name}")
                 lhs_w = self.whnf(lhs)
@@ -1230,7 +1230,7 @@ class _ProofsMixin:
                         assoc_rhs = _apps(add_const, in_args[0], _apps(add_const, in_args[1], lh_args[1]))
                         if self.convertible(assoc_rhs, rhs_w):
                             return _apps(
-                                _constant("vela_int_add_assoc"),
+                                _constant("holdfast_int_add_assoc"),
                                 _term("nat", value=int_spec_eq.tag),
                                 in_args[0],
                                 in_args[1],
@@ -1362,7 +1362,7 @@ class _ProofsMixin:
         saved = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
         try:
             self.unify(a, b)
-        except VelaError:
+        except HoldFastError:
             self.restore_metas(saved)
             return False
         else:
@@ -1561,7 +1561,7 @@ class _ProofsMixin:
                 include_env=include_env,
                 split_depth=split_depth + 1,
             )
-        except VelaError:
+        except HoldFastError:
             self.restore_metas(saved)
             return None
         finally:
@@ -1579,7 +1579,7 @@ class _ProofsMixin:
                 include_env=include_env,
                 split_depth=split_depth + 1,
             )
-        except VelaError:
+        except HoldFastError:
             self.restore_metas(saved)
             return None
         finally:
@@ -1924,7 +1924,7 @@ class _ProofsMixin:
                 if source is not None and self.convertible(source[0], target[0]):
                     upper = _apps(_constant("<="), source[1], target[1])
                     if self.whnf(upper) == _term("bool", value=1):
-                        return _apps(_constant("vela_nat_leb_trans"), target[0], source[1], target[1],
+                        return _apps(_constant("holdfast_nat_leb_trans"), target[0], source[1], target[1],
                                      fact.term, _apps(_constant("Refl"), _BOOL, upper))
         return None
 
@@ -1968,7 +1968,7 @@ class _ProofsMixin:
             saved_prove_m = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
             try:
                 term = self._prove_proposition(goal, environment, facts, node)
-            except VelaError:
+            except HoldFastError:
                 self.restore_metas(saved_prove_m)
                 has_span_env = self.in_post_env_theorem or any(
                     self.spine(self.whnf(b.type))[0] == _constant("Span") for b in environment.values()

@@ -8,14 +8,14 @@ import re
 from dataclasses import dataclass, fields, is_dataclass
 from typing import cast
 
-import toolchain as vela
+import toolchain as holdfast
 from toolchain import ast as syntax
 from toolchain.source import SourceSnapshot
 
 STYLE_VERSION = 1
-LINT_CODES = frozenset({"VELA100", "VELA101", "VELA102", "VELA103", "VELA105"})
-MATHEMATICAL_LINT_CODES = ("VELA105", "VELA107", "VELA108")
-RETIRED_LINT_CODES = frozenset({"VELA104", "VELA106"})
+LINT_CODES = frozenset({"HOLDFAST100", "HOLDFAST101", "HOLDFAST102", "HOLDFAST103", "HOLDFAST105"})
+MATHEMATICAL_LINT_CODES = ("HOLDFAST105", "HOLDFAST107", "HOLDFAST108")
+RETIRED_LINT_CODES = frozenset({"HOLDFAST104", "HOLDFAST106"})
 _MEMBER = re.compile(r"[A-Z][A-Za-z0-9]*")
 _BINDING = re.compile(r"[a-z][A-Za-z0-9]*")
 _IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -53,7 +53,7 @@ def is_camel_case(name: str) -> bool:
 
 def generic_type_findings(names: tuple[syntax.Name, ...]) -> tuple[Finding, ...]:
     """Apply type naming to compiler-recorded generic type identifiers only."""
-    return tuple(Finding("VELA105", f"generic type parameter '{name.text}' should use PascalCase "
+    return tuple(Finding("HOLDFAST105", f"generic type parameter '{name.text}' should use PascalCase "
                          "(for example T or TValue); value indices remain camelCase",
                          name.site.line, name.site.column)
                  for name in names if not is_pascal_case(name.text))
@@ -75,7 +75,7 @@ def _parts(source: bytes) -> list[_Part]:
     starts = [0, *(index + 1 for index, value in enumerate(text) if value == "\n")]
     result: list[_Part] = []
     cursor = 0
-    for token in vela._tokens(source):
+    for token in holdfast._tokens(source):
         start = len(text) if token.kind == "eof" else starts[token.line - 1] + token.column - 1
         token_blank = False
         while cursor < start:
@@ -88,7 +88,7 @@ def _parts(source: bytes) -> list[_Part]:
                 cursor = end
                 break
             if not text.startswith("//", end):
-                raise syntax.VelaError("format", token.line, token.column,
+                raise syntax.HoldFastError("format", token.line, token.column,
                                        "compiler trivia contains an uncovered source token")
             comment_end = text.find("\n", end)
             comment_end = len(text) if comment_end == -1 else comment_end
@@ -215,18 +215,18 @@ def _render(parts: list[_Part]) -> bytes:
 
 def format_source(source: bytes) -> bytes:
     """Return checked canonical bytes without mutating source or filesystem state."""
-    original = vela.parse_module(source)
-    vela._translate(source, original)
+    original = holdfast.parse_module(source)
+    holdfast._translate(source, original)
     parts = _parts(source)
     result = _render(parts)
     # Checking the candidate also enforces its expanded byte and syntax bounds.
-    candidate = vela.parse_module(result)
-    vela._translate(result, candidate)
+    candidate = holdfast.parse_module(result)
+    holdfast._translate(result, candidate)
     rendered = _parts(result)
     if _fingerprint(parts) != _fingerprint(rendered) or _shape(original) != _shape(candidate):
-        raise syntax.VelaError("format", 1, 1, "formatting changed tokens, comments or syntax")
+        raise syntax.HoldFastError("format", 1, 1, "formatting changed tokens, comments or syntax")
     if _render(rendered) != result:
-        raise syntax.VelaError("format", 1, 1, "formatting did not reach a stable layout")
+        raise syntax.HoldFastError("format", 1, 1, "formatting did not reach a stable layout")
     return result
 
 
@@ -238,8 +238,8 @@ def _unwrapped(value: syntax.Expression) -> syntax.Expression:
 
 def lint_source(source: bytes) -> tuple[Finding, ...]:
     """Report optional findings only after complete compiler acceptance."""
-    facts = vela.inspect_source(source)
-    module = vela.parse_module(source)
+    facts = holdfast.inspect_source(source)
+    module = holdfast.parse_module(source)
     findings: list[Finding] = []
 
     def report(code: str, message: str, site: syntax.Site) -> None:
@@ -247,12 +247,12 @@ def lint_source(source: bytes) -> tuple[Finding, ...]:
 
     def binding(name: syntax.Name) -> None:
         if not is_camel_case(name.text):
-            report("VELA101", f"binding '{name.text}' should use camelCase", name.site)
+            report("HOLDFAST101", f"binding '{name.text}' should use camelCase", name.site)
 
     def expression(value: syntax.Expression) -> None:
         if (value.kind == "binary" and value.value == "=="
                 and any(_unwrapped(child).kind == "bool" for child in value.children)):
-            report("VELA103", "Boolean literal comparison is redundant; prefer direct Boolean logic",
+            report("HOLDFAST103", "Boolean literal comparison is redundant; prefer direct Boolean logic",
                    value.site)
         for child in value.children:
             expression(child)
@@ -275,9 +275,9 @@ def lint_source(source: bytes) -> tuple[Finding, ...]:
     for declaration in module.declarations:
         name = declaration.name
         if not _MEMBER.fullmatch(name.text):
-            report("VELA100", f"public member '{name.text}' should use PascalCase", name.site)
+            report("HOLDFAST100", f"public member '{name.text}' should use PascalCase", name.site)
         if (name.site.line, name.site.column) not in documented:
-            report("VELA102", f"public member '{name.text}' should have a /// documentation comment", name.site)
+            report("HOLDFAST102", f"public member '{name.text}' should have a /// documentation comment", name.site)
         if isinstance(declaration, syntax.Function):
             for parameter, _ in declaration.parameters:
                 binding(parameter)
@@ -288,7 +288,7 @@ def lint_source(source: bytes) -> tuple[Finding, ...]:
 
 
 def _bare_binding_sites(source: bytes) -> tuple[syntax.Site, ...]:
-    tokens = vela._tokens(source)
+    tokens = holdfast._tokens(source)
     sites: list[syntax.Site] = []
     for index, token in enumerate(tokens):
         if (token.text in {"Nat", "bool"}
@@ -302,8 +302,8 @@ def _bare_binding_sites(source: bytes) -> tuple[syntax.Site, ...]:
 
 def preview_bindings(source: bytes) -> bytes:
     """Check a candidate containing only explicit immutable-binding insertions."""
-    snapshot = SourceSnapshot("vela:binding-preview", 0, syntax.source_text(source), 1)
-    types = {token.site: token.text.encode("ascii") for token in vela._tokens(source)
+    snapshot = SourceSnapshot("holdfast:binding-preview", 0, syntax.source_text(source), 1)
+    types = {token.site: token.text.encode("ascii") for token in holdfast._tokens(source)
              if token.text in {"Nat", "bool"}}
     offsets: list[int] = []
     for site in _bare_binding_sites(source):
@@ -311,22 +311,22 @@ def preview_bindings(source: bytes) -> bytes:
             position = snapshot.diagnostic_position(site.line, site.column)
             offset = snapshot.position_byte_offset(position["line"], position["character"])
         except ValueError as error:
-            raise syntax.VelaError("lint-preview", 1, 1,
+            raise syntax.HoldFastError("lint-preview", 1, 1,
                                    "binding insertion site is outside the checked source") from error
         spelling = types.get(site)
         if spelling is None or not source.startswith(spelling, offset):
-            raise syntax.VelaError("lint-preview", site.line, site.column,
+            raise syntax.HoldFastError("lint-preview", site.line, site.column,
                                    "binding insertion differs from the checked source type token")
         offsets.append(offset)
     if offsets != sorted(set(offsets)):
-        raise syntax.VelaError("lint-preview", 1, 1, "binding insertion sites are not distinct and ordered")
+        raise syntax.HoldFastError("lint-preview", 1, 1, "binding insertion sites are not distinct and ordered")
     candidate = source
     for offset in reversed(offsets):
         candidate = candidate[:offset] + b"let " + candidate[offset:]
-    first = vela.translate(candidate)
-    checked = vela.translate(candidate)
+    first = holdfast.translate(candidate)
+    checked = holdfast.translate(candidate)
     if first.gallina.splitlines()[2:] != checked.gallina.splitlines()[2:]:
-        raise syntax.VelaError("lint-preview", 1, 1,
+        raise syntax.HoldFastError("lint-preview", 1, 1,
                                "binding preview changed the interpreted terms")
     return candidate
 
@@ -334,21 +334,21 @@ def preview_bindings(source: bytes) -> bytes:
 def assist_loan_argument(source: bytes, line: int, column: int, mode: str) -> bytes:
     """Insert an explicit in/ref/out loan modifier at a checked argument site."""
     if mode not in {"in", "ref", "out"}:
-        raise syntax.VelaError("lint-preview", line, column, f"unsupported loan mode '{mode}'")
+        raise syntax.HoldFastError("lint-preview", line, column, f"unsupported loan mode '{mode}'")
     text = syntax.source_text(source)
-    snapshot = SourceSnapshot("vela:loan-assist", 0, text, 1)
+    snapshot = SourceSnapshot("holdfast:loan-assist", 0, text, 1)
     try:
         position = snapshot.diagnostic_position(line, column)
         offset = snapshot.position_byte_offset(position["line"], position["character"])
     except ValueError as error:
-        raise syntax.VelaError("lint-preview", line, column, "loan argument site is outside source") from error
+        raise syntax.HoldFastError("lint-preview", line, column, "loan argument site is outside source") from error
     lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     line_text = lines[line - 1]
     col0 = column - 1
     if (col0 < 0 or col0 >= len(line_text)
             or _IDENT.match(line_text, col0) is None
             or (col0 > 0 and (line_text[col0 - 1].isalnum() or line_text[col0 - 1] == "_"))):
-        raise syntax.VelaError("lint-preview", line, column, "loan argument site does not start at an identifier")
+        raise syntax.HoldFastError("lint-preview", line, column, "loan argument site does not start at an identifier")
     prefix = f"{mode} ".encode("ascii")
     if source.startswith(prefix, offset):
         return source
@@ -360,7 +360,7 @@ def assist_null_conditional(receiver: str, member: str) -> tuple[str, str]:
     rec = receiver.strip()
     mem = member.strip()
     if not rec or not _IDENT.fullmatch(mem):
-        raise syntax.VelaError("lint-preview", 1, 1, "null-conditional assist requires a receiver and member")
+        raise syntax.HoldFastError("lint-preview", 1, 1, "null-conditional assist requires a receiver and member")
     propagate = f"({rec}?).{mem}"
     local_match = f"match ({rec}) {{ Some(value) => value.{mem}, None => todo }}"
     return propagate, local_match
@@ -372,14 +372,14 @@ def assist_effects_clause(source: bytes, line: int, column: int, effects: tuple[
     for eff in effects:
         item = eff.strip()
         if not _EFFECT_ITEM.fullmatch(item):
-            raise syntax.VelaError("lint-preview", line, column, "effects assist requires valid effect items")
+            raise syntax.HoldFastError("lint-preview", line, column, "effects assist requires valid effect items")
         cleaned.append(item)
-    snapshot = SourceSnapshot("vela:effects-assist", 0, syntax.source_text(source), 1)
+    snapshot = SourceSnapshot("holdfast:effects-assist", 0, syntax.source_text(source), 1)
     try:
         position = snapshot.diagnostic_position(line, column)
         offset = snapshot.position_byte_offset(position["line"], position["character"])
     except ValueError as error:
-        raise syntax.VelaError("lint-preview", line, column, "effects insertion site is outside source") from error
+        raise syntax.HoldFastError("lint-preview", line, column, "effects insertion site is outside source") from error
     ordered = tuple(sorted(set(cleaned)))
     clause = f"effects({', '.join(ordered)}) ".encode("ascii")
     return source[:offset] + clause + source[offset:]
@@ -390,7 +390,7 @@ def suggest_numeric_conversion(source_type: str, target_type: str, expression: s
     expr = expression.strip()
     if (source_type not in _NUMERIC_TYPES or target_type not in _NUMERIC_TYPES
             or not expr or source_type == target_type):
-        raise syntax.VelaError("lint-preview", 1, 1, "numeric conversion assist requires distinct scalar types")
+        raise syntax.HoldFastError("lint-preview", 1, 1, "numeric conversion assist requires distinct scalar types")
     src_signed, src_width = _NUMERIC_TYPES[source_type]
     dst_signed, dst_width = _NUMERIC_TYPES[target_type]
     infallible = False
@@ -407,7 +407,7 @@ def suggest_numeric_conversion(source_type: str, target_type: str, expression: s
     return f"{target_type}.{method}({expr})"
 
 
-def assist_refusal(source: bytes, error: syntax.VelaError) -> tuple[str, ...]:
+def assist_refusal(source: bytes, error: syntax.HoldFastError) -> tuple[str, ...]:
     """Produce source-bound 'assist, don't coerce' repairs for a compiler refusal."""
     text = syntax.source_text(source)
     lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
@@ -432,7 +432,7 @@ def assist_refusal(source: bytes, error: syntax.VelaError) -> tuple[str, ...]:
             target_col = colon_pos + 2 + (len(after_colon) - len(stripped))
         try:
             repaired = assist_loan_argument(source, error.line, target_col, "ref")
-        except syntax.VelaError:
+        except syntax.HoldFastError:
             return ()
         return (repaired.decode("utf-8"),)
     return ()

@@ -5,64 +5,64 @@
       "name": "nested-comments-unicode",
       "source": "module Highlight;\n/* outer /* nested */ // remains block */\n/// documentation 🧭\npublic definition Nat Value<T>(Nat x) => x + 0x2_Au32;\n",
       "scopes": [
-        {"text": "module", "scope": "keyword.control.vela"},
-        {"text": "nested", "scope": "comment.block.vela"},
-        {"text": "remains", "scope": "comment.block.vela"},
-        {"text": "🧭", "scope": "comment.line.double-slash.vela"},
-        {"text": "public", "scope": "keyword.control.vela"},
-        {"text": "Nat", "scope": "storage.type.vela"},
-        {"text": "0x2_Au32", "scope": "constant.numeric.vela"}
+        {"text": "module", "scope": "keyword.control.holdfast"},
+        {"text": "nested", "scope": "comment.block.holdfast"},
+        {"text": "remains", "scope": "comment.block.holdfast"},
+        {"text": "🧭", "scope": "comment.line.double-slash.holdfast"},
+        {"text": "public", "scope": "keyword.control.holdfast"},
+        {"text": "Nat", "scope": "storage.type.holdfast"},
+        {"text": "0x2_Au32", "scope": "constant.numeric.holdfast"}
       ]
     },
     {
       "name": "strings-and-delimiters",
       "source": "module Strings;\npublic definition Text Raw() => \"\"\"raw \"quotes\" 🧭\"\"\";\npublic definition Text Many() => \"\"\"\"\"raw \"\"\" more\"\"\"\"\";\npublic definition Text Escaped() => \"quoted \\\" value\";\npublic definition char Character() => 'x';\npublic definition Format Greeting(Nat value) => $\"value {value + 1} {{ok}}\";\n",
       "scopes": [
-        {"text": "🧭", "scope": "string.quoted.other.raw.vela"},
-        {"text": "more", "scope": "string.quoted.other.raw.vela"},
-        {"text": "quoted", "scope": "string.quoted.double.vela"},
-        {"text": "'x'", "scope": "string.quoted.single.vela"},
-        {"text": "value +", "scope": "meta.interpolation.vela"},
-        {"text": "ok", "scope": "string.quoted.double.interpolated.vela"}
+        {"text": "🧭", "scope": "string.quoted.other.raw.holdfast"},
+        {"text": "more", "scope": "string.quoted.other.raw.holdfast"},
+        {"text": "quoted", "scope": "string.quoted.double.holdfast"},
+        {"text": "'x'", "scope": "string.quoted.single.holdfast"},
+        {"text": "value +", "scope": "meta.interpolation.holdfast"},
+        {"text": "ok", "scope": "string.quoted.double.interpolated.holdfast"}
       ]
     },
     {
       "name": "interpolation-lifetime-apostrophe",
       "source": "module Lifetime;\npublic definition Format Message() => $\"value {Check::<'a>()}\";\n",
       "scopes": [
-        {"text": "'a", "scope": "entity.name.type.lifetime.vela", "tree_scope": "string"},
-        {"text": "Check", "scope": "meta.interpolation.vela"}
+        {"text": "'a", "scope": "entity.name.type.lifetime.holdfast", "tree_scope": "string"},
+        {"text": "Check", "scope": "meta.interpolation.holdfast"}
       ]
     },
     {
       "name": "nested-interpolation-boundary",
       "source": "module Nested;\npublic definition Format Message(Box item) => $\"nested {(item with { Count = 1 }).Count + 2} after\";\n",
       "scopes": [
-        {"text": ".Count + 2", "scope": "meta.interpolation.vela"},
-        {"text": "after", "scope": "string.quoted.double.interpolated.vela"}
+        {"text": ".Count + 2", "scope": "meta.interpolation.holdfast"},
+        {"text": "after", "scope": "string.quoted.double.interpolated.holdfast"}
       ]
     },
     {
       "name": "dependent-nested-types",
       "source": "module Generic;\npublic record Box<T, ghost Nat n>(Vec<T, n> Values);\npublic definition Vec<Nat, 1> Single() => Vec<Nat, 1>(1,);\n",
       "scopes": [
-        {"text": "record", "scope": "keyword.control.vela"},
-        {"text": "ghost", "scope": "keyword.control.vela"},
-        {"text": "1", "scope": "constant.numeric.vela"}
+        {"text": "record", "scope": "keyword.control.holdfast"},
+        {"text": "ghost", "scope": "keyword.control.holdfast"},
+        {"text": "1", "scope": "constant.numeric.holdfast"}
       ]
     }
   ],
   "negative": [
     {"name": "unfinished-function", "source": "module Broken; public Nat Value(Nat x) { return x;", "scopes": []},
-    {"name": "unfinished-comment", "source": "module Broken; /* outer /* nested */ public Nat Value() => 1;", "scopes": [{"text": "public", "scope": "comment.block.vela"}]},
-    {"name": "unfinished-raw", "source": "module Broken; public Text Value() => \"\"\"unterminated 🧭", "scopes": [{"text": "🧭", "scope": "string.quoted.other.raw.vela"}]},
+    {"name": "unfinished-comment", "source": "module Broken; /* outer /* nested */ public Nat Value() => 1;", "scopes": [{"text": "public", "scope": "comment.block.holdfast"}]},
+    {"name": "unfinished-raw", "source": "module Broken; public Text Value() => \"\"\"unterminated 🧭", "scopes": [{"text": "🧭", "scope": "string.quoted.other.raw.holdfast"}]},
     {"name": "broken-generics", "source": "module Broken; public record Box<T(Option<T> Value);", "scopes": []}
   ],
   "editor_recovery": [
-    {"name": "malformed-numeric-separator", "source": "module Recovery; public Nat Value() => 1__2;", "scopes": [{"text": "1__2", "scope": "constant.numeric.vela"}]},
-    {"name": "invalid-string-escape", "source": "module Recovery; public Text Value() => \"bad \\q\";", "scopes": [{"text": "bad", "scope": "string.quoted.double.vela"}]},
-    {"name": "interpolated-unbalanced-parentheses", "source": "module Recovery; public Format Value() => $\"value {(1]}\";", "scopes": [{"text": "1", "scope": "meta.interpolation.vela"}]},
-    {"name": "interpolated-newline", "source": "module Recovery; public Format Value() => $\"first\nsecond\";", "scopes": [{"text": "second", "scope": "string.quoted.double.interpolated.vela"}]}
+    {"name": "malformed-numeric-separator", "source": "module Recovery; public Nat Value() => 1__2;", "scopes": [{"text": "1__2", "scope": "constant.numeric.holdfast"}]},
+    {"name": "invalid-string-escape", "source": "module Recovery; public Text Value() => \"bad \\q\";", "scopes": [{"text": "bad", "scope": "string.quoted.double.holdfast"}]},
+    {"name": "interpolated-unbalanced-parentheses", "source": "module Recovery; public Format Value() => $\"value {(1]}\";", "scopes": [{"text": "1", "scope": "meta.interpolation.holdfast"}]},
+    {"name": "interpolated-newline", "source": "module Recovery; public Format Value() => $\"first\nsecond\";", "scopes": [{"text": "second", "scope": "string.quoted.double.interpolated.holdfast"}]}
   ],
   "edits": [
     {"name": "unicode-before-edit", "source": "module Edit; // 🧭\npublic Nat Value(Nat x) => x + 1;", "needle": "x + 1", "replacement": "x + 2", "error": false},

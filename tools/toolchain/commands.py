@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Every command the VelaLang repository's tools offer, and the lane each one runs in."""
+"""Every command the HoldFast repository's tools offer, and the lane each one runs in."""
 
 from dataclasses import dataclass, field
 
@@ -35,18 +35,18 @@ COMMANDS: tuple[Command, ...] = (
     Command("prepare", "toolchain.cli.prepare",
             "format selected Python or Markdown files with locked tools, without builds"),
     Command("test", "toolchain.cli.test",
-            "the Vela toolchain's behavioral tests"),
-    Command("vela", "toolchain.cli.vela",
-            "check pure Vela prototype source and emit unqualified Gallina definitions"),
-    Command("vela-lsp", "toolchain.cli.vela_lsp",
-            "serve host LSP diagnostics and navigation for unqualified pure Vela over stdio"),
-    Command("vela-highlight", "toolchain.cli.vela_highlight",
+            "the HoldFast toolchain's behavioral tests"),
+    Command("holdfast", "toolchain.cli.holdfast",
+            "check pure HoldFast prototype source and emit unqualified Gallina definitions"),
+    Command("holdfast-lsp", "toolchain.cli.holdfast_lsp",
+            "serve host LSP diagnostics and navigation for unqualified pure HoldFast over stdio"),
+    Command("holdfast-highlight", "toolchain.cli.holdfast_highlight",
             "generate and qualify syntax-only Tree-sitter and TextMate editor assets",
             lane="guest", host_ok=frozenset({"check", "generate", "--help", "-h"})),
-    Command("vela-playground", "toolchain.cli.vela_playground",
-            "serve the unified Vela browser editor with dependent mathematics", lane="guest"),
-    Command("vela-parser", "toolchain.cli.vela_parser",
-            "parse Vela, elaborate dependent mathematics and replay proofs", lane="guest"),
+    Command("holdfast-playground", "toolchain.cli.holdfast_playground",
+            "serve the unified HoldFast browser editor with dependent mathematics", lane="guest"),
+    Command("holdfast-parser", "toolchain.cli.holdfast_parser",
+            "parse HoldFast, elaborate dependent mathematics and replay proofs", lane="guest"),
 )
 
 BY_NAME: dict[str, Command] = {command.name: command for command in COMMANDS}

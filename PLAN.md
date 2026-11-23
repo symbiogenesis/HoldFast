@@ -1,10 +1,10 @@
-# VelaLang Plan and Backlog
+# HoldFast Plan and Backlog
 
 ## Current execution
 
 **The next milestone is acceptance of the packet validator's exact executable.**
 Its source proofs already cover byte values and the returned view with zero
-solver-trusted obligations. [Authored validator](examples/first_slice.vela) · [Artifact acceptance](#q25ba)
+solver-trusted obligations. [Authored validator](examples/first_slice.hf) · [Artifact acceptance](#q25ba)
 
 Start with the `machine-logic` owner. Check whether it can supply the canonical
 Sail term (`rv64d.v`) and Q35 compatibility evidence for [Q25am](#q25am).
@@ -12,10 +12,10 @@ At [VerifiedOS revision e0029a0](https://github.com/symbiogenesis/VerifiedOS/blo
 the emitted-caller bridge covers bounded tag outcomes. Resume the machine
 interpretation when its producer supplies canonical-main replay with the
 selected bindings, the whole-term build and its assumption report.
-The retained `vela-parser first-slice` result names the blocking producers in
+The retained `holdfast-parser first-slice` result names the blocking producers in
 `inventory.blocking_dependencies`. [First-slice qualification](docs/language/first-release.md#first-slice-qualification)
 
-### Vela first-release delivery
+### HoldFast first-release delivery
 
 Take the smallest checked result a release client can use. A consumer can start as soon
 as the part of an interface it needs passes its checks. If an input is missing, record
@@ -49,9 +49,9 @@ the question at hand.
 | Question | Command and evidence |
 | --- | --- |
 | Does the changed behavior pass its regression cases? | `test --only <module-substring>` runs matching modules, for example `test --only first_slice`. |
-| Which inputs or edit sequences break the parser or editor? | `vela-parser syntax-campaigns` compares generated pure syntax with independent expected trees. `vela generated-tests` shrinks editor-state and formatter failures. Use `vela-lsp --qualify-clients` for a change to real-client behavior. [Parser campaigns](docs/tooling/parser.md#generated-syntax-campaigns) · [Generated tests](docs/tooling/tooling-protocols.md#generated-development-tests) · [LSP clients](docs/tooling/lsp-prototype.md#acceptance-and-remaining-qualification) |
-| Do the proofs still hold? | `vela-parser elaborate-qualify` replays the elaboration fixtures in Rocq. For the validator itself, `vela-parser first-slice` produces fresh local proof and execution evidence. [Elaboration replay](docs/tooling/elaboration-prototype.md#commands-and-acceptance) · [First-slice qualification](docs/language/first-release.md#first-slice-qualification) |
-| Does a retained validator receipt still match? | `vela-parser first-slice-bindings <receipt.json>` checks identities. A changed proof, compiler or artifact needs fresh evidence from the producer responsible for that claim. [Receipt checks](docs/language/first-release.md#first-slice-qualification) |
+| Which inputs or edit sequences break the parser or editor? | `holdfast-parser syntax-campaigns` compares generated pure syntax with independent expected trees. `holdfast generated-tests` shrinks editor-state and formatter failures. Use `holdfast-lsp --qualify-clients` for a change to real-client behavior. [Parser campaigns](docs/tooling/parser.md#generated-syntax-campaigns) · [Generated tests](docs/tooling/tooling-protocols.md#generated-development-tests) · [LSP clients](docs/tooling/lsp-prototype.md#acceptance-and-remaining-qualification) |
+| Do the proofs still hold? | `holdfast-parser elaborate-qualify` replays the elaboration fixtures in Rocq. For the validator itself, `holdfast-parser first-slice` produces fresh local proof and execution evidence. [Elaboration replay](docs/tooling/elaboration-prototype.md#commands-and-acceptance) · [First-slice qualification](docs/language/first-release.md#first-slice-qualification) |
+| Does a retained validator receipt still match? | `holdfast-parser first-slice-bindings <receipt.json>` checks identities. A changed proof, compiler or artifact needs fresh evidence from the producer responsible for that claim. [Receipt checks](docs/language/first-release.md#first-slice-qualification) |
 
 Before writing a proof, test or adapter, look for a reusable library law, generator
 or compiler fact. Profile a slow check before optimizing it. Try candidate tools on
@@ -172,7 +172,7 @@ open until the parent's acceptance conditions are met.
   - **Owner** `runtime-primitives`
   - **Start** Use the [accepted validator](#q25ba), [checked frontend](#q25at), [concrete resource interfaces](#q25an) and fixed target and ABI.
   - **Check** Publish representations and laws for the existing integer, UTF-8, raw-string, `TextBuilder` and `Format` definitions for [general lowering](#q25az). Join its per-operation receipts for runtime acceptance. Verify alias identity, arithmetic and conversions, malformed text, exact fit and exhaustion, instance selection, receiver-loan conflicts and static/runtime agreement. [Primitive semantics](docs/language/first-release.md#primitive-semantics) and [bytes and text](docs/language/first-release.md#bytes-and-text).
-  - Run the [bounded word counter](examples/word_count.vela) with the [represented ownership libraries](#q25ay). Overwrite the borrowed input between calls. Check that a full key buffer still permits a hit with zero additional key bytes, and that a failed insertion preserves all key bytes and counts. The [mathematical example](docs/tooling/elaboration-prototype.md#try-the-mathematical-fragment) supplies expected outcomes.
+  - Run the [bounded word counter](examples/word_count.hf) with the [represented ownership libraries](#q25ay). Overwrite the borrowed input between calls. Check that a full key buffer still permits a hit with zero additional key bytes, and that a failed insertion preserves all key bytes and counts. The [mathematical example](docs/tooling/elaboration-prototype.md#try-the-mathematical-fragment) supplies expected outcomes.
 
 <a id="q25ax"></a>
 
@@ -200,15 +200,15 @@ open until the parent's acceptance conditions are met.
 <a id="q25ba"></a>
 
 - [ ] **Q25ba · Accept the synchronous component at the exact-artifact endpoint**
-  - **Owner** `vela-first-slice`
-  - **Start** Use the [authored validator](examples/first_slice.vela), its existing narrow lowering and independently checked first-client core, machine, compiler, security and admission receipts.
+  - **Owner** `holdfast-first-slice`
+  - **Start** Use the [authored validator](examples/first_slice.hf), its existing narrow lowering and independently checked first-client core, machine, compiler, security and admission receipts.
   - **Check** Bind the exact source, existing proof and emitted bytes to those receipts. Check independent expected outputs, aliasing and restoration, wrong operations, stale inputs and corruption. [First-slice qualification](docs/language/first-release.md#first-slice-qualification).
-  - The [opaque caller](tools/tests/test_vela_packet_outcome.py) consumes the exact public error and copied-count law. Check the admitted image against the independent outcomes, including bad flags with an oversized length, zeroed work area and preserved suffix. Source correspondence and artifact admission remain open. [Partial evidence](docs/assurance/completion-log.md#q25ba-accept-the-synchronous-component-at-the-exact-artifact-endpoint).
+  - The [opaque caller](tools/tests/test_holdfast_packet_outcome.py) consumes the exact public error and copied-count law. Check the admitted image against the independent outcomes, including bad flags with an oversized length, zeroed work area and preserved suffix. Source correspondence and artifact admission remain open. [Partial evidence](docs/assurance/completion-log.md#q25ba-accept-the-synchronous-component-at-the-exact-artifact-endpoint).
 
 <a id="q25bb"></a>
 
 - [ ] **Q25bb · Run the independent package and developer-value trial**
-  - **Owner** `vela-package-trial`
+  - **Owner** `holdfast-package-trial`
   - **Start** Select the second client and its intended behavior independently of the first API design. Freeze the baseline, target envelope and benefit thresholds before observing results. Run the trial once the [validator](#q25ba), [packages](#q25ax), represented-library runtime receipts and [general lowering](#q25az) are ready.
   - **Check** Exercise imports, instances, receiver snapshots, partial initialization, exhaustion and resource-returning success and error exits. At the same endpoint, measure annotations, first useful diagnostic, checking latency, review, repair and target costs for a contract change, a preserving refactor and a representation change using explicit Rocq relations. Obtain this client's own admission receipt before acceptance. [Adoption protocol](docs/assurance/workflow-contract.md#first-release-qualification-and-adoption).
   - Run the [public-contract trial](docs/assurance/workflow-contract.md#what-a-caller-can-prove-from-the-public-contract) on the independent client. Check what the caller loses when a required law is weakened and whether its original proof survives a private representation change. Trace [proof erasure and remaining runtime costs](docs/assurance/workflow-contract.md#cost-of-the-verified-abstraction) through the admitted image and compare with the matched baseline on success and error paths.
@@ -219,7 +219,7 @@ open until the parent's acceptance conditions are met.
 <a id="q25bc"></a>
 
 - [ ] **Q25bc · Publish a supported and reproducible release closure**
-  - **Owner** `vela-release`
+  - **Owner** `holdfast-release`
   - **Start** Use the [accepted validator](#q25ba), [independent package trial](#q25bb) and all required [producer receipts](#q25ar).
   - **Check** Publish the versioned language and libraries, conformance and refusal corpus, compatibility policy, installation guide, tutorial, reference, dependency notices and reproducible Windows and Linux artifacts. Verify cold installation, build and proof replay, and obtain independent release review. Name each published guarantee's endpoint. Assess feasibility, recurring developer value and adoption separately, including setup, maintenance and per-case target tradeoffs within hard limits. [Adoption protocol](docs/assurance/workflow-contract.md#first-release-qualification-and-adoption).
   - Run the [packet walkthrough](docs/tooling/packet-walkthrough.md) from the release installation. Check the three published byte traces and the diagnostic for each edited program.
@@ -231,7 +231,7 @@ open until the parent's acceptance conditions are met.
   - **Start** Use the [supported release](#q25bc) and its pinned compiler, kernel and dependencies.
   - **Check** Rehearse one coordinated tool and dependency upgrade, including semantic cache invalidation, compatibility and migration, security response, rollback and proof and conformance replay. Record actual human effort, agent time and machine time separately.
 
-### Remaining Vela ergonomics
+### Remaining HoldFast ergonomics
 
 Qualify the [authoring surface](docs/language/surface-grammar.md#ergonomic-authoring-and-bounded-collection-iteration)
 on its actual clients. Checked inference belongs to [Q25as](#q25as) and [Q25at](#q25at),
@@ -346,7 +346,7 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
 <a id="q25bw"></a>
 
 - [ ] **Q25bw · Implement and qualify one bounded asynchronous service runtime**
-  - **Owner:** `vela-service`. **Start:** Accepted synchronous release, handler-laws/lowering and service-specific storage/control laws. **Check:** Implement one named service with direct helper await and one explicit child, capacity failure, ready/pending outcomes, commit/cancel races and cleanup failure. Supply required lifecycle/manifest/register acts and cost/schedule joins before acceptance; this adds runtime implementation, not a second budget for general HA proofs.
+  - **Owner:** `holdfast-service`. **Start:** Accepted synchronous release, handler-laws/lowering and service-specific storage/control laws. **Check:** Implement one named service with direct helper await and one explicit child, capacity failure, ready/pending outcomes, commit/cancel races and cleanup failure. Supply required lifecycle/manifest/register acts and cost/schedule joins before acceptance; this adds runtime implementation, not a second budget for general HA proofs.
 
 <a id="q25bx"></a>
 
@@ -418,16 +418,16 @@ quality and target cost. [Bounded pilot contract](docs/extensions/numerical-work
 
 <a id="owner-to-budget-allocation"></a>
 
-### Vela whole-system authoring proposal
+### HoldFast whole-system authoring proposal
 
-Whole-system authorship is conditional on the selected inventory. Vela sources define
+Whole-system authorship is conditional on the selected inventory. HoldFast sources define
 the software, contracts, proofs, ISA and authored hardware. Software and its proofs
 share one implementation. Generated Clight, Rocq terms, binaries, simulators and RTL
 remain valid outputs. [Authoring contract](docs/extensions/unified-source-contract.md#authoring-end-state)
 
 Select proof, compiler and hardware work independently as their inputs arrive. Reuse the
 qualified Menhir grammar and extracted pure parser. Wider source correspondence belongs
-to the checked frontend, Vela-authored parsing to the native compiler, and seed
+to the checked frontend, HoldFast-authored parsing to the native compiler, and seed
 retirement to bootstrap. Claim toolchain authorship once the native compiler and its
 bootstrap qualify. Adopt a replacement machine model in one generation across its
 consumers, including both sides of hardware refinement.
@@ -446,7 +446,7 @@ unblock the codec. [Protocol contracts](docs/tooling/tooling-protocols.md) ·
 <a id="q25ch"></a>
 
 - [ ] **Q25ch · Publish qualified compiler inspection services**
-  - **Owner:** `vela-compiler-services`. **Start:** Qualified frontend/diagnostic producers; backend for lowering views. **Check:** Meet the [inspection contract](docs/tooling/tooling-protocols.md#compiler-inspection-api) with versioned schemas, bounded snapshots/queries, origins, source reconstruction and stale-handle/input refusal in an independent consumer. Shared identities and producer semantics are charged once here and at their existing producers.
+  - **Owner:** `holdfast-compiler-services`. **Start:** Qualified frontend/diagnostic producers; backend for lowering views. **Check:** Meet the [inspection contract](docs/tooling/tooling-protocols.md#compiler-inspection-api) with versioned schemas, bounded snapshots/queries, origins, source reconstruction and stale-handle/input refusal in an independent consumer. Shared identities and producer semantics are charged once here and at their existing producers.
   - The pure producer supplies schema-7 source, token, trivia and syntax-tree snapshots bound to the interpreter identity. It records lexical scopes, memberships and structured identifier and expression types for bounded queries. [Partial evidence](docs/assurance/completion-log.md#q25ch-publish-qualified-compiler-inspection-services) retains wider views and their producer prerequisites.
   - The standalone reader consumes the existing pure producer. Wider views require their own qualified producers.
   - [x] **Q25ds · Qualify independent offline compiler inspection queries**
@@ -457,7 +457,7 @@ unblock the codec. [Protocol contracts](docs/tooling/tooling-protocols.md) ·
 <a id="q25ci"></a>
 
 - [ ] **Q25ci · Extend semantic editor services beyond the pure prototype**
-  - **Owner:** `vela-lsp`. **Start:** Compiler services and qualified wider-language facts. **Check:** Meet the [LSP contract](docs/tooling/tooling-protocols.md#language-server-protocol) for selected workspace navigation, completion/signatures, rename, checked actions, token deltas and read-only proof inspection in two clients. Reuse Q25n/o/u and refuse stale or capturing edits.
+  - **Owner:** `holdfast-lsp`. **Start:** Compiler services and qualified wider-language facts. **Check:** Meet the [LSP contract](docs/tooling/tooling-protocols.md#language-server-protocol) for selected workspace navigation, completion/signatures, rename, checked actions, token deltas and read-only proof inspection in two clients. Reuse Q25n/o/u and refuse stale or capturing edits.
   - Compiler-backed callable/value/literal discovery, signatures, token deltas and bounded single-expression recovery invalidate stale producer generations. Pinned Neovim and Vim qualify discovery, recovery and deltas. Neovim and Emacs/Eglot both apply checked local renames and reject stale versions. [Editor evidence](docs/assurance/completion-log.md#q25ci-extend-semantic-editor-services-beyond-the-pure-prototype).
   - [x] **Q25do · Qualify compiler-backed completion at checked literals**
     - The pure resolver supplies type- and scope-compatible whole-literal edits, narrows nested static arguments and shares bounded source-bound completion inventories; independent controls and an unsaved Unicode/CRLF stdio session pass. [Landing evidence](docs/assurance/completion-log.md#q25do-qualify-compiler-backed-completion-at-checked-literals).
@@ -471,13 +471,13 @@ unblock the codec. [Protocol contracts](docs/tooling/tooling-protocols.md) ·
 <a id="q25cj"></a>
 
 - [x] **Q25cj · Distribute Tree-sitter and TextMate syntax assets**
-  - **Owner:** `vela-highlight`. **Start:** Canonical Menhir grammar/corpus and named editor consumers. **Check:** Meet the [highlighting contract](docs/tooling/tooling-protocols.md#syntax-grammars-and-highlighting) with both asset formats, fresh/incremental agreement and malformed/Unicode cases; assets grant no semantic acceptance.
+  - **Owner:** `holdfast-highlight`. **Start:** Canonical Menhir grammar/corpus and named editor consumers. **Check:** Meet the [highlighting contract](docs/tooling/tooling-protocols.md#syntax-grammars-and-highlighting) with both asset formats, fresh/incremental agreement and malformed/Unicode cases; assets grant no semantic acceptance.
   - Generated Menhir-derived assets, pinned independent consumers, the complete canonical corpus with frozen recovery dispositions and eight fresh/incremental edit comparisons pass the [syntax-assets qualification](docs/tooling/highlighting.md#executable-qualification). [Landing evidence](docs/assurance/completion-log.md#q25cj-distribute-tree-sitter-and-textmate-syntax-assets) records the syntax-only boundary.
 
 <a id="q25ck"></a>
 
 - [x] **Q25ck · Extend canonical formatting, lints and checked previews**
-  - **Owner:** `vela-authoring`. **Start:** Qualified wider syntax and semantic fact producers. **Check:** Meet the [authoring contract](docs/tooling/authoring-tools.md) with token/comment/documentation preservation, reparse equivalence, idempotence and source-bound explicit previews. Reuse Q25t/z/ah; default commands preserve source bytes.
+  - **Owner:** `holdfast-authoring`. **Start:** Qualified wider syntax and semantic fact producers. **Check:** Meet the [authoring contract](docs/tooling/authoring-tools.md) with token/comment/documentation preservation, reparse equivalence, idempotence and source-bound explicit previews. Reuse Q25t/z/ah; default commands preserve source bytes.
   - The pure and standalone mathematical authoring commands check canonical bytes, lints and explicit previews against their respective compilers. [Landing evidence](docs/assurance/completion-log.md#q25ck-extend-canonical-formatting-lints-and-checked-previews).
   - [x] **Q25dy · Qualify checked Boolean comparison lint previews**
     - Explicit single-comparison previews recheck source and candidate, preserve operand evaluation and outside bytes, bind exact source/producer identities and refuse comments, malformed or stale edits. [Landing evidence](docs/assurance/completion-log.md#q25dy-qualify-checked-boolean-comparison-lint-previews).
@@ -487,31 +487,31 @@ unblock the codec. [Protocol contracts](docs/tooling/tooling-protocols.md) ·
 <a id="q25cl"></a>
 
 - [x] **Q25cl · Export qualified batch diagnostics as SARIF**
-  - **Owner:** `vela-sarif`. **Start:** Diagnostic producers and compiler-service snapshots. **Check:** Meet the [diagnostic export contract](docs/tooling/tooling-protocols.md#diagnostic-and-semantic-index-exports) with a pinned schema and independent importer for Unicode/cross-file locations, fixes and incomplete status; partial analysis cannot appear clean.
+  - **Owner:** `holdfast-sarif`. **Start:** Diagnostic producers and compiler-service snapshots. **Check:** Meet the [diagnostic export contract](docs/tooling/tooling-protocols.md#diagnostic-and-semantic-index-exports) with a pinned schema and independent importer for Unicode/cross-file locations, fixes and incomplete status; partial analysis cannot appear clean.
   - The [qualified pure batch projection](docs/tooling/tooling-protocols.md#qualified-pure-batch-sarif) consumes the existing diagnostic/format producers, passes an exact-pinned schema and independent reader, and refuses stale, malformed or incomplete handoffs. [Landing evidence](docs/assurance/completion-log.md#q25cl-export-qualified-batch-diagnostics-as-sarif) preserves wider-producer and admission boundaries.
 
 <a id="q25cm"></a>
 
 - [x] **Q25cm · Export a qualified offline SCIP index**
-  - **Owner:** `vela-scip`. **Start:** Resolved identities, package closure and compiler services. **Check:** Meet the semantic-index export contract with independent offline definition/reference/implementation queries across imports, shadowing, generation and rename; refuse stale bindings and incomplete absence claims.
+  - **Owner:** `holdfast-scip`. **Start:** Resolved identities, package closure and compiler services. **Check:** Meet the semantic-index export contract with independent offline definition/reference/implementation queries across imports, shadowing, generation and rename; refuse stale bindings and incomplete absence claims.
   - A pinned reader recovers cross-package definitions, implementations, specializations and generated Gallina origins before and after a dependency rename. [Landing evidence](docs/assurance/completion-log.md#q25cm-export-a-qualified-offline-scip-index).
 
 <a id="q25cn"></a>
 
 - [x] **Q25cn · Expose the actual build graph through BSP**
-  - **Owner:** `vela-build`. **Start:** The packages cell's real locked batch graph and a named client. **Check:** Meet the [build contract](docs/tooling/tooling-protocols.md#build-integration) for targets, dependencies, options and actual bridge commands; cancellation, stale graphs and failed builds preserve batch verdicts. This funds projection, not graph construction.
+  - **Owner:** `holdfast-build`. **Start:** The packages cell's real locked batch graph and a named client. **Check:** Meet the [build contract](docs/tooling/tooling-protocols.md#build-integration) for targets, dependencies, options and actual bridge commands; cancellation, stale graphs and failed builds preserve batch verdicts. This funds projection, not graph construction.
   - The Neovim BSP client consumes the locked mathematical build graph and its generated Gallina. Clang independently reads the packet bridge's compilation database. [Landing evidence](docs/assurance/completion-log.md#q25cn-expose-the-actual-build-graph-through-bsp).
 
 <a id="q25co"></a>
 
 - [x] **Q25co · Export optimization decisions and explanations**
-  - **Owner:** `vela-remarks`. **Start:** An actual qualified optimization producer. **Check:** Meet the [remarks contract](docs/tooling/tooling-protocols.md#compiler-decisions-and-performance-traces) in an independent reader for applied/missed/refused cases and source origins; this funds export, not transformations or a speedup claim.
+  - **Owner:** `holdfast-remarks`. **Start:** An actual qualified optimization producer. **Check:** Meet the [remarks contract](docs/tooling/tooling-protocols.md#compiler-decisions-and-performance-traces) in an independent reader for applied/missed/refused cases and source origins; this funds export, not transformations or a speedup claim.
   - Stock LLVM reads the pure compiler's applied, deferred and refused static-call specializations and their authored and generated origins. [Landing evidence](docs/assurance/completion-log.md#q25co-export-optimization-decisions-and-explanations).
 
 <a id="q25cp"></a>
 
 - [x] **Q25cp · Expose bounded compiler performance traces**
-  - **Owner:** `vela-traces`. **Start:** Named compiler phases and an independent trace consumer. **Check:** Meet the trace contract for clocks, nesting/workers, overhead and bounded recording; dropped events, truncation and cancellation remain explicit. Compiler timing supplies no emitted-program WCET proof.
+  - **Owner:** `holdfast-traces`. **Start:** Named compiler phases and an independent trace consumer. **Check:** Meet the trace contract for clocks, nesting/workers, overhead and bounded recording; dropped events, truncation and cancellation remain explicit. Compiler timing supplies no emitted-program WCET proof.
   - The pure compiler and packet qualification export bounded, input-bound timings. The pinned Perfetto reader recovers phase order, nesting, worker tracks and counters. [Landing evidence](docs/assurance/completion-log.md#q25cp-expose-bounded-compiler-performance-traces).
   - [x] **Q25dq · Qualify parser trace attribution and retained viewer receipts**
     - Record the actual checked-parse/decode work and independently expected nested reader observations; strictly recheck exact reader/harness identities, controls and retained observations. Actual Windows and Linux Perfetto consumers pass. [Landing evidence](docs/assurance/completion-log.md#q25dq-qualify-parser-trace-attribution-and-retained-viewer-receipts).
@@ -525,7 +525,7 @@ unblock the codec. [Protocol contracts](docs/tooling/tooling-protocols.md) ·
 <a id="q25cq"></a>
 
 - [ ] **Q25cq · Emit and qualify exact-image native debug information**
-  - **Owner:** `vela-dwarf`. **Start:** Executable backend, fixed purecap ABI and compiler-owned maps. **Check:** Meet the [DWARF contract](docs/tooling/tooling-protocols.md#dwarf-native-debug-information) for scopes/types/locations/inlining/unwind and capability metadata in independent readers, including optimized-away values, malformed sections and stale-image refusal.
+  - **Owner:** `holdfast-dwarf`. **Start:** Executable backend, fixed purecap ABI and compiler-owned maps. **Check:** Meet the [DWARF contract](docs/tooling/tooling-protocols.md#dwarf-native-debug-information) for scopes/types/locations/inlining/unwind and capability metadata in independent readers, including optimized-away values, malformed sections and stale-image refusal.
 
 <a id="q25cr"></a>
 
@@ -536,12 +536,12 @@ unblock the codec. [Protocol contracts](docs/tooling/tooling-protocols.md) ·
 <a id="q25cs"></a>
 
 - [ ] **Q25cs · Qualify a source debugger through DAP**
-  - **Owner:** `vela-dap`. **Start:** debug-runtime and vela-dwarf. **Check:** Meet the [DAP contract](docs/tooling/tooling-protocols.md#debug-adapter-protocol) for lifecycle, source stepping, scopes/values and stale/unauthorized requests in two clients; reuse the execution producer.
+  - **Owner:** `holdfast-dap`. **Start:** debug-runtime and holdfast-dwarf. **Check:** Meet the [DAP contract](docs/tooling/tooling-protocols.md#debug-adapter-protocol) for lifecycle, source stepping, scopes/values and stale/unauthorized requests in two clients; reuse the execution producer.
 
 <a id="q25ct"></a>
 
 - [ ] **Q25ct · Qualify conditional RSP and GDB-MI integration**
-  - **Owner:** `vela-debug-backend`. **Start:** A separately selected debugger engine and its required packet/command subset. **Check:** Meet the [debugger backend contract](docs/tooling/tooling-protocols.md#debugger-backend-protocols) for registers/capabilities, malformed packets, reconnect and stale state in an independent engine. Direct DAP backends need not select this option.
+  - **Owner:** `holdfast-debug-backend`. **Start:** A separately selected debugger engine and its required packet/command subset. **Check:** Meet the [debugger backend contract](docs/tooling/tooling-protocols.md#debugger-backend-protocols) for registers/capabilities, malformed packets, reconnect and stale state in an independent engine. Direct DAP backends need not select this option.
 
 <a id="q25cu"></a>
 
@@ -552,8 +552,8 @@ unblock the codec. [Protocol contracts](docs/tooling/tooling-protocols.md) ·
 <a id="q25cv"></a>
 
 - [x] **Q25cv · Export qualified generated-output source maps**
-  - **Owner:** `vela-source-maps`. **Start:** web-output or an independently qualified compatible producer and a named consumer. **Check:** Meet the [source-map contract](docs/tooling/tooling-protocols.md#generated-source-maps) for composed/Unicode/unmapped sites and exact map/output/source identities; mismatches fail before handoff. This funds maps, not output generation.
-  - The pinned Node.js reader locates mathematical Gallina declarations and generated arithmetic proofs in their authored Vela source. [Landing evidence](docs/assurance/completion-log.md#q25cv-export-qualified-generated-output-source-maps).
+  - **Owner:** `holdfast-source-maps`. **Start:** web-output or an independently qualified compatible producer and a named consumer. **Check:** Meet the [source-map contract](docs/tooling/tooling-protocols.md#generated-source-maps) for composed/Unicode/unmapped sites and exact map/output/source identities; mismatches fail before handoff. This funds maps, not output generation.
+  - The pinned Node.js reader locates mathematical Gallina declarations and generated arithmetic proofs in their authored HoldFast source. [Landing evidence](docs/assurance/completion-log.md#q25cv-export-qualified-generated-output-source-maps).
 
 <a id="q25cw"></a>
 
@@ -587,13 +587,13 @@ unblock the codec. [Protocol contracts](docs/tooling/tooling-protocols.md) ·
 <a id="q25db"></a>
 
 - [ ] **Q25db · Qualify complete proof authorship for the frozen proof inventory**
-  - **Owner:** `vela-proofs`. **Start:** Checked frontend and independently reviewed proof subjects. **Check:** Meet the [proof-authorship boundary](docs/extensions/unified-source-contract.md#software-and-proof-boundary) for the frozen package inventory, including universes, inductive/coinductive reasoning and logical relations; reconstruct/audit kernel terms with no mandatory handwritten fallback. The underlying machine/security theorems retain their shared owners.
+  - **Owner:** `holdfast-proofs`. **Start:** Checked frontend and independently reviewed proof subjects. **Check:** Meet the [proof-authorship boundary](docs/extensions/unified-source-contract.md#software-and-proof-boundary) for the frozen package inventory, including universes, inductive/coinductive reasoning and logical relations; reconstruct/audit kernel terms with no mandatory handwritten fallback. The underlying machine/security theorems retain their shared owners.
   - When an inventory theorem exceeds the [mathematical fragment](docs/tooling/elaboration-prototype.md), retain the first missing rule and an importing client that needs it. Qualify the rule by replaying the original statement and its client and auditing both for added assumptions. Reject a case that violates the new rule, such as an inconsistent universe constraint for a polymorphic theorem or an invalid decrease for well-founded recursion.
 
 <a id="q25dc"></a>
 
 - [ ] **Q25dc · Migrate the frozen operational software inventory**
-  - **Owner:** `vela-software`. **Start:** Accepted release, its retained target route and supplied component contracts. **Check:** Meet the software-authoring boundary beyond the two release clients: every frozen first-party component, exit, resource/security contract and exact final-byte join uses the same Vela-authored implementation, without a separate optimized rewrite. Existing OS functionality/algorithm construction is not repriced as migration.
+  - **Owner:** `holdfast-software`. **Start:** Accepted release, its retained target route and supplied component contracts. **Check:** Meet the software-authoring boundary beyond the two release clients: every frozen first-party component, exit, resource/security contract and exact final-byte join uses the same HoldFast-authored implementation, without a separate optimized rewrite. Existing OS functionality/algorithm construction is not repriced as migration.
 
 <a id="q25dd"></a>
 
@@ -602,8 +602,8 @@ unblock the codec. [Protocol contracts](docs/tooling/tooling-protocols.md) ·
 
 <a id="q25de"></a>
 
-- [ ] **Q25de · Author the selected native parser and compiler in Vela**
-  - **Owner:** `native-implementation`. **Start:** native-ir and sufficient supported Vela implementation/proof facilities. **Check:** Implement the declared compiler/parser closure in Vela, preserving grammar/source identities and explicit unsupported diagnostics. Reuse the qualified frontend specification and corpus; seed/development dependency retirement waits for bootstrap.
+- [ ] **Q25de · Author the selected native parser and compiler in HoldFast**
+  - **Owner:** `native-implementation`. **Start:** native-ir and sufficient supported HoldFast implementation/proof facilities. **Check:** Implement the declared compiler/parser closure in HoldFast, preserving grammar/source identities and explicit unsupported diagnostics. Reuse the qualified frontend specification and corpus; seed/development dependency retirement waits for bootstrap.
 
 <a id="q25df"></a>
 
@@ -633,22 +633,22 @@ unblock the codec. [Protocol contracts](docs/tooling/tooling-protocols.md) ·
 <a id="q25dk"></a>
 
 - [ ] **Q25dk · Qualify verified self-hosting and resident rebuilding**
-  - **Owner:** `vela-bootstrap`. **Start:** Qualified native compiler definition and sufficient Vela proof authorship. **Check:** Meet the [bootstrap contract](docs/extensions/unified-source-contract.md#bootstrap-and-qualification): connect proved definition, reviewed seed and successive exact binaries, self-compile the declared closure, and qualify reproducibility, runtime/helper/licence closure and resident rebuilding. Reproducibility alone is not the compiler theorem.
+  - **Owner:** `holdfast-bootstrap`. **Start:** Qualified native compiler definition and sufficient HoldFast proof authorship. **Check:** Meet the [bootstrap contract](docs/extensions/unified-source-contract.md#bootstrap-and-qualification): connect proved definition, reviewed seed and successive exact binaries, self-compile the declared closure, and qualify reproducibility, runtime/helper/licence closure and resident rebuilding. Reproducibility alone is not the compiler theorem.
 
 <a id="q25dl"></a>
 
-- [ ] **Q25dl · Qualify the frozen Vela machine-model replacement**
-  - **Owner:** `vela-machine`. **Start:** Admitted interpretation and the pinned canonical Sail/profile contract. **Check:** Meet the [machine-model contract](docs/extensions/unified-source-contract.md#machine-model) for every frozen operation/configuration with behavior/progress and relational leakage/cost agreement, independent executable cases and malformed/stale refusals. Original machine-logic construction remains in the shared prerequisite cells.
+- [ ] **Q25dl · Qualify the frozen HoldFast machine-model replacement**
+  - **Owner:** `holdfast-machine`. **Start:** Admitted interpretation and the pinned canonical Sail/profile contract. **Check:** Meet the [machine-model contract](docs/extensions/unified-source-contract.md#machine-model) for every frozen operation/configuration with behavior/progress and relational leakage/cost agreement, independent executable cases and malformed/stale refusals. Original machine-logic construction remains in the shared prerequisite cells.
 
 <a id="q25dm"></a>
 
 - [ ] **Q25dm · Qualify hardware interpretation and migrate the frozen blocks**
-  - **Owner:** `vela-hardware`. **Start:** Reviewed cycle/register meaning, block contracts and canonical machine interface. **Check:** Meet the [hardware contract](docs/extensions/unified-source-contract.md#hardware) for every frozen authored block with checked generation to exact synthesis inputs, cycle/commit/progress/refinement evidence and its existing artifact tier. Reuse supplied original block theorems; physical fabrication/lab work is outside language migration.
+  - **Owner:** `holdfast-hardware`. **Start:** Reviewed cycle/register meaning, block contracts and canonical machine interface. **Check:** Meet the [hardware contract](docs/extensions/unified-source-contract.md#hardware) for every frozen authored block with checked generation to exact synthesis inputs, cycle/commit/progress/refinement evidence and its existing artifact tier. Reuse supplied original block theorems; physical fabrication/lab work is outside language migration.
 
 <a id="q25dn"></a>
 
 - [ ] **Q25dn · Adopt the shared model and retire legacy authoring dependencies**
-  - **Owner:** `vela-retirement`. **Start:** Accepted machine agreement and complete affected-consumer inventory. **Check:** Meet the [migration gate](docs/extensions/unified-source-contract.md#migration-and-retirement) by rebinding every frozen compiler, logic, TAL, constant-time, timing and hardware consumer in one admitted generation, with explicit amendments and historical evidence retention. No private model or missing consumer is permitted.
+  - **Owner:** `holdfast-retirement`. **Start:** Accepted machine agreement and complete affected-consumer inventory. **Check:** Meet the [migration gate](docs/extensions/unified-source-contract.md#migration-and-retirement) by rebinding every frozen compiler, logic, TAL, constant-time, timing and hardware consumer in one admitted generation, with explicit amendments and historical evidence retention. No private model or missing consumer is permitted.
 
 <a id="q-assessment-actions"></a>
 
@@ -660,38 +660,38 @@ unblock the codec. [Protocol contracts](docs/tooling/tooling-protocols.md) ·
   - [x] **Q25b · Specify handlers and structured async lifecycles** [Evidence](docs/assurance/completion-log.md#q25b-specify-handlers-and-structured-async-lifecycles)
   - [x] **Q25c · Specify interior mutability and interference guardrails** [Evidence](docs/assurance/completion-log.md#q25c-specify-interior-mutability-and-interference-guardrails)
 - [x] **Q25d · Review the combined calculus and price its implementation** [Evidence](docs/assurance/completion-log.md#q25d-review-the-combined-calculus-and-price-its-implementation)
-- [x] **Q25e · Build a pure Vela-to-Gallina prototype** [Evidence](docs/assurance/completion-log.md#q25e-build-a-pure-vela-to-gallina-prototype)
-- [x] **Q25f · Align the executable Vela subset with its proposed surface** [Evidence](docs/assurance/completion-log.md#q25f-align-the-executable-vela-subset-with-its-proposed-surface)
-- [x] **Q25g · Build the Menhir development parser for pure Vela** [Evidence](docs/assurance/completion-log.md#q25g-build-the-menhir-development-parser-for-pure-vela)
-- [x] **Q25h · Qualify checked Vela parsing and retire the Python parser** [Evidence](docs/assurance/completion-log.md#q25h-qualify-checked-vela-parsing-and-retire-the-python-parser)
-- [x] **Q25i · Extend the Menhir grammar across the Vela authoring surface** [Evidence](docs/assurance/completion-log.md#q25i-extend-the-menhir-grammar-across-the-vela-authoring-surface)
+- [x] **Q25e · Build a pure HoldFast-to-Gallina prototype** [Evidence](docs/assurance/completion-log.md#q25e-build-a-pure-holdfast-to-gallina-prototype)
+- [x] **Q25f · Align the executable HoldFast subset with its proposed surface** [Evidence](docs/assurance/completion-log.md#q25f-align-the-executable-holdfast-subset-with-its-proposed-surface)
+- [x] **Q25g · Build the Menhir development parser for pure HoldFast** [Evidence](docs/assurance/completion-log.md#q25g-build-the-menhir-development-parser-for-pure-holdfast)
+- [x] **Q25h · Qualify checked HoldFast parsing and retire the Python parser** [Evidence](docs/assurance/completion-log.md#q25h-qualify-checked-holdfast-parsing-and-retire-the-python-parser)
+- [x] **Q25i · Extend the Menhir grammar across the HoldFast authoring surface** [Evidence](docs/assurance/completion-log.md#q25i-extend-the-menhir-grammar-across-the-holdfast-authoring-surface)
 - [x] **Q25j · Prototype path-sensitive loan-end inference over explicit flow facts** [Evidence](docs/assurance/completion-log.md#q25j-prototype-path-sensitive-loan-end-inference-over-explicit-flow-facts)
 - [x] **Q25k · Elaborate generic dependent mathematics and first-class proofs** [Evidence](docs/assurance/completion-log.md#q25k-elaborate-generic-dependent-mathematics-and-first-class-proofs)
-- [x] **Q25l · Clarify Vela borrowing, evidence and resource interfaces** [Evidence](docs/assurance/completion-log.md#q25l-clarify-vela-borrowing-evidence-and-resource-interfaces)
-- [x] **Q25m · Specify staged Vela metaprogramming and compiler services** [Evidence](docs/assurance/completion-log.md#q25m-specify-staged-vela-metaprogramming-and-compiler-services)
-- [x] **Q25n · Prototype and qualify Vela LSP lifecycle and pure diagnostics** [Evidence](docs/assurance/completion-log.md#q25n-prototype-and-qualify-vela-lsp-lifecycle-and-pure-diagnostics)
-- [x] **Q25o · Add and qualify pure Vela LSP navigation** [Evidence](docs/assurance/completion-log.md#q25o-add-and-qualify-pure-vela-lsp-navigation)
-- [x] **Q25p · Improve Vela authoring syntax and editor hints** [Evidence](docs/assurance/completion-log.md#q25p-improve-vela-authoring-syntax-and-editor-hints)
-- [x] **Q25q · Implement compositional Vela constant functions and parameters** [Evidence](docs/assurance/completion-log.md#q25q-implement-compositional-vela-constant-functions-and-parameters)
-- [x] **Q25r · Add Vela numeric digit separators** [Evidence](docs/assurance/completion-log.md#q25r-add-vela-numeric-digit-separators)
-- [x] **Q25s · Attach Vela documentation comments to compiler facts** [Evidence](docs/assurance/completion-log.md#q25s-attach-vela-documentation-comments-to-compiler-facts)
-- [x] **Q25t · Integrate default Vela formatting and lints** [Evidence](docs/assurance/completion-log.md#q25t-integrate-default-vela-formatting-and-lints)
-- [x] **Q25u · Add pure Vela editor formatting and semantic tokens** [Evidence](docs/assurance/completion-log.md#q25u-add-pure-vela-editor-formatting-and-semantic-tokens)
-- [x] **Q25v · Settle the bounded Vela release and practical language contracts** [Evidence](docs/assurance/completion-log.md#q25v-settle-the-bounded-vela-release-and-practical-language-contracts)
-- [x] **Q25w · Investigate the concrete Vela buffer foundation within a fixed budget** [Evidence](docs/assurance/completion-log.md#q25w-investigate-the-concrete-vela-buffer-foundation-within-a-fixed-budget)
-- [x] **Q25x · Qualify generated tests for existing Vela development tools** [Evidence](docs/assurance/completion-log.md#q25x-qualify-generated-tests-for-existing-vela-development-tools)
+- [x] **Q25l · Clarify HoldFast borrowing, evidence and resource interfaces** [Evidence](docs/assurance/completion-log.md#q25l-clarify-holdfast-borrowing-evidence-and-resource-interfaces)
+- [x] **Q25m · Specify staged HoldFast metaprogramming and compiler services** [Evidence](docs/assurance/completion-log.md#q25m-specify-staged-holdfast-metaprogramming-and-compiler-services)
+- [x] **Q25n · Prototype and qualify HoldFast LSP lifecycle and pure diagnostics** [Evidence](docs/assurance/completion-log.md#q25n-prototype-and-qualify-holdfast-lsp-lifecycle-and-pure-diagnostics)
+- [x] **Q25o · Add and qualify pure HoldFast LSP navigation** [Evidence](docs/assurance/completion-log.md#q25o-add-and-qualify-pure-holdfast-lsp-navigation)
+- [x] **Q25p · Improve HoldFast authoring syntax and editor hints** [Evidence](docs/assurance/completion-log.md#q25p-improve-holdfast-authoring-syntax-and-editor-hints)
+- [x] **Q25q · Implement compositional HoldFast constant functions and parameters** [Evidence](docs/assurance/completion-log.md#q25q-implement-compositional-holdfast-constant-functions-and-parameters)
+- [x] **Q25r · Add HoldFast numeric digit separators** [Evidence](docs/assurance/completion-log.md#q25r-add-holdfast-numeric-digit-separators)
+- [x] **Q25s · Attach HoldFast documentation comments to compiler facts** [Evidence](docs/assurance/completion-log.md#q25s-attach-holdfast-documentation-comments-to-compiler-facts)
+- [x] **Q25t · Integrate default HoldFast formatting and lints** [Evidence](docs/assurance/completion-log.md#q25t-integrate-default-holdfast-formatting-and-lints)
+- [x] **Q25u · Add pure HoldFast editor formatting and semantic tokens** [Evidence](docs/assurance/completion-log.md#q25u-add-pure-holdfast-editor-formatting-and-semantic-tokens)
+- [x] **Q25v · Settle the bounded HoldFast release and practical language contracts** [Evidence](docs/assurance/completion-log.md#q25v-settle-the-bounded-holdfast-release-and-practical-language-contracts)
+- [x] **Q25w · Investigate the concrete HoldFast buffer foundation within a fixed budget** [Evidence](docs/assurance/completion-log.md#q25w-investigate-the-concrete-holdfast-buffer-foundation-within-a-fixed-budget)
+- [x] **Q25x · Qualify generated tests for existing HoldFast development tools** [Evidence](docs/assurance/completion-log.md#q25x-qualify-generated-tests-for-existing-holdfast-development-tools)
 - [x] **Q25y · Qualify Menhir-generated syntax campaigns** [Evidence](docs/assurance/completion-log.md#q25y-qualify-menhir-generated-syntax-campaigns)
-- [x] **Q25z · Qualify the familiar Vela authoring surface** [Evidence](docs/assurance/completion-log.md#q25z-qualify-the-familiar-vela-authoring-surface)
-- [x] **Q25aa · Build a local Vela browser playground** [Evidence](docs/assurance/completion-log.md#q25aa-build-a-local-vela-browser-playground)
-- [x] **Q25ab · Extend the Vela playground authoring and inspection controls** [Evidence](docs/assurance/completion-log.md#q25ab-extend-the-vela-playground-authoring-and-inspection-controls)
-- [x] **Q25ac · Extend pure Vela expressions and playground examples** [Evidence](docs/assurance/completion-log.md#q25ac-extend-pure-vela-expressions-and-playground-examples)
-- [x] **Q25ad · Add natural division and remainder to Vela and its playground** [Evidence](docs/assurance/completion-log.md#q25ad-add-natural-division-and-remainder-to-vela-and-its-playground)
-- [x] **Q25ae · Bring dependent Vela mathematics into the playground** [Evidence](docs/assurance/completion-log.md#q25ae-bring-dependent-vela-mathematics-into-the-playground)
-- [x] **Q25af · Make Vela elaboration evidence kernel-honest** [Evidence](docs/assurance/completion-log.md#q25af-make-vela-elaboration-evidence-kernel-honest)
-- [x] **Q25ag · Conform the Vela first slice to the synchronous design** [Evidence](docs/assurance/completion-log.md#q25ag-conform-the-vela-first-slice-to-the-synchronous-design)
-- [x] **Q25ah · Resolve Vela surface collisions and redundant spellings** [Evidence](docs/assurance/completion-log.md#q25ah-resolve-vela-surface-collisions-and-redundant-spellings)
-- [x] **Q25ai · Publish the Vela language reference and separate extension research** [Evidence](docs/assurance/completion-log.md#q25ai-publish-the-vela-language-reference-and-separate-extension-research)
-- [x] **Q25aj · Unify Vela playground assets, single-source grammar sync, and single-pass worker execution** [Evidence](docs/assurance/completion-log.md#q25aj-unify-vela-playground-assets-single-source-grammar-sync-and-single-pass-worker-execution)
+- [x] **Q25z · Qualify the familiar HoldFast authoring surface** [Evidence](docs/assurance/completion-log.md#q25z-qualify-the-familiar-holdfast-authoring-surface)
+- [x] **Q25aa · Build a local HoldFast browser playground** [Evidence](docs/assurance/completion-log.md#q25aa-build-a-local-holdfast-browser-playground)
+- [x] **Q25ab · Extend the HoldFast playground authoring and inspection controls** [Evidence](docs/assurance/completion-log.md#q25ab-extend-the-holdfast-playground-authoring-and-inspection-controls)
+- [x] **Q25ac · Extend pure HoldFast expressions and playground examples** [Evidence](docs/assurance/completion-log.md#q25ac-extend-pure-holdfast-expressions-and-playground-examples)
+- [x] **Q25ad · Add natural division and remainder to HoldFast and its playground** [Evidence](docs/assurance/completion-log.md#q25ad-add-natural-division-and-remainder-to-holdfast-and-its-playground)
+- [x] **Q25ae · Bring dependent HoldFast mathematics into the playground** [Evidence](docs/assurance/completion-log.md#q25ae-bring-dependent-holdfast-mathematics-into-the-playground)
+- [x] **Q25af · Make HoldFast elaboration evidence kernel-honest** [Evidence](docs/assurance/completion-log.md#q25af-make-holdfast-elaboration-evidence-kernel-honest)
+- [x] **Q25ag · Conform the HoldFast first slice to the synchronous design** [Evidence](docs/assurance/completion-log.md#q25ag-conform-the-holdfast-first-slice-to-the-synchronous-design)
+- [x] **Q25ah · Resolve HoldFast surface collisions and redundant spellings** [Evidence](docs/assurance/completion-log.md#q25ah-resolve-holdfast-surface-collisions-and-redundant-spellings)
+- [x] **Q25ai · Publish the HoldFast language reference and separate extension research** [Evidence](docs/assurance/completion-log.md#q25ai-publish-the-holdfast-language-reference-and-separate-extension-research)
+- [x] **Q25aj · Unify HoldFast playground assets, single-source grammar sync, and single-pass worker execution** [Evidence](docs/assurance/completion-log.md#q25aj-unify-holdfast-playground-assets-single-source-grammar-sync-and-single-pass-worker-execution)
 - [x] **Q25ak · Close remaining elaboration solver axioms and promote source-bound borrow and mutation-invalidation checking** [Evidence](docs/assurance/completion-log.md#q25ak-close-remaining-elaboration-solver-axioms-and-promote-source-bound-borrow-and-mutation-invalidation-checking)
 - [x] **Q25al · Elaborate consuming ownership (`owned` parameters and `move` transfers), general `in`/`ref` runtime value loans, and closed `effects` footprints (`reads`/`writes`/`calls`)** [Evidence](docs/assurance/completion-log.md#q25al-elaborate-consuming-ownership-owned-parameters-and-move-transfers-general-in-ref-runtime-value-loans-and-closed-effects-footprints-reads-writes-calls)
 
@@ -710,13 +710,13 @@ unblock the codec. [Protocol contracts](docs/tooling/tooling-protocols.md) ·
 - **Shared work.** VerifiedOS retains its machine-logic, byte-instance,
   scoped-resource, compiler, security and admission owners. The
   [foundation cells](#shared-foundation-and-retained-route) price only residual
-  Vela needs beyond the booked Q35/M1/TAL slices. Summing both projects'
+  HoldFast needs beyond the booked Q35/M1/TAL slices. Summing both projects'
   estimates would double count shared work. OS algorithms, device design and
   other whole-system proofs remain with their owners.
 - **Conditional scope.** Optional migrations use the first-party software,
   proofs, configuration and authored hardware at
   [VerifiedOS revision 3529ecd](https://github.com/symbiogenesis/VerifiedOS/tree/3529ecd08b8288b004d71766066b0c3367b9cb40)
-  and the Vela implementation at `0354004` as the reuse baseline. Freeze the
+  and the HoldFast implementation at `0354004` as the reuse baseline. Freeze the
   selected paths, theorem subjects, target features and permitted generated or
   imported artifacts at entry. Reprice additions. The estimates exclude a new
   processor, open-ended language growth, a public package registry, interactive

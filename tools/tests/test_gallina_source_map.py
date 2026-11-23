@@ -19,12 +19,12 @@ def _coordinates() -> None:
     # the generated prefix end the first mapped segment at column 2.
     origins = [GallinaOrigin(1, 1, (10, 11), (10, 11), "declaration"),
                GallinaOrigin(3, 1, (8, 9), (8, 9), "word-equation")]
-    record = json.loads(maps._source_map("in #1.vela", source, "stub\n🗺\n\nabc\n", origins))
-    expected_uri = "vela-source://sha256/" + hashlib.sha256(source).hexdigest() + "/in%20%231.vela"
+    record = json.loads(maps._source_map("in #1.hf", source, "stub\n🗺\n\nabc\n", origins))
+    expected_uri = "holdfast-source://sha256/" + hashlib.sha256(source).hexdigest() + "/in%20%231.hf"
     ensure(record["version"] == 3 and record["sources"] == [expected_uri]
            and record["sourcesContent"] == [source.decode()] and record["mappings"] == "A;AAEA,E;A;AADG,G;A",
            f"unexpected standard map coordinate deltas: {record}")
-    other = json.loads(maps._source_map("in #1.vela", source + b" ", "", []))
+    other = json.loads(maps._source_map("in #1.hf", source + b" ", "", []))
     ensure(other["sources"] != record["sources"], "distinct source snapshots with one basename have the same URI")
 
 
@@ -51,7 +51,7 @@ def _freshness() -> None:
 def _late_change() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         directory = Path(tmp)
-        source = directory / "map.vela"
+        source = directory / "map.hf"
         data = b"module Map;"
         manifest = {"source_sha256": hashlib.sha256(data).hexdigest(), "producer": {"compiler": "first"}}
         files = {maps.GALLINA: b"generated", maps.MAP: b"{}", maps.MANIFEST: json.dumps(manifest).encode()}

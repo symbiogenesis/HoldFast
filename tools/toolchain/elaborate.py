@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Bounded, untrusted elaboration of mathematical Vela into CIC terms.
+"""Bounded, untrusted elaboration of mathematical HoldFast into CIC terms.
 
 The surface parser owns syntax. This consumer checks its exact-source protocol,
 then proposes terms for independent kernel checking; it supplies neither checked
@@ -17,7 +17,7 @@ from types import MappingProxyType
 from typing import cast
 
 from toolchain import StaticEvaluation, gallina_module_name, loans
-from toolchain.ast import MAX_SOURCE_BYTES, ValueType, VelaError
+from toolchain.ast import MAX_SOURCE_BYTES, HoldFastError, ValueType
 from toolchain.elaborate_declarations import _DeclarationsMixin
 from toolchain.elaborate_holes import HoleInspection
 from toolchain.elaborate_intrinsics import _IntrinsicsMixin
@@ -200,7 +200,7 @@ class _Elaborator(
         self.package_instance: str | None = None
         self.nominal_owners: dict[str, str] = {}
         self.local_instances: list[tuple[str, _ImplInstance]] = []
-        self.emission_prefix = "vela"
+        self.emission_prefix = "holdfast"
         self.public_symbols: set[str] = set()
         self.sealed_bodies: set[str] = set()
         self.imported_postconditions: dict[str, tuple[str, ...]] = {}
@@ -256,7 +256,7 @@ class _Elaborator(
         self.site: Node | None = None
         self._builtins()
 
-    def fail(self, kind: str, message: str, node: Node | None = None) -> VelaError:
+    def fail(self, kind: str, message: str, node: Node | None = None) -> HoldFastError:
         return self.protocol.error(kind, message, self.site if node is None else node)
 
     def tick(self, reduction: bool = False) -> None:
@@ -299,7 +299,7 @@ class _Elaborator(
             bind(spec.name, _SORT)
         self.globals["byte"] = self.globals["u8"]
         for alias_name, target_name in _NUMERICS_ALIASES.items():
-            self.globals[f"Vela.Numerics.{alias_name}"] = self.globals[target_name]
+            self.globals[f"HoldFast.Numerics.{alias_name}"] = self.globals[target_name]
         bind("Prop", _SORT)
         bind("Succ", self.pi(_NAT, _NAT))
         a = self.fresh(_SORT)
@@ -628,14 +628,14 @@ class _Elaborator(
 
     def _register_builtin_unions(self) -> None:
         # ArithmeticError { Overflow(); ZeroDivisor(); InvalidShift(); }
-        ae_type_const = "vela_ArithmeticError"
+        ae_type_const = "holdfast_ArithmeticError"
         ae_rep_type = _term("sum", _UNIT, _term("sum", _UNIT, _UNIT))
         ae_type_binding = _Binding(_constant(ae_type_const), _SORT, 0)
         self.globals["ArithmeticError"] = ae_type_binding
         self.constants[ae_type_const] = ae_type_binding
         ae_ctors: list[_UnionCtor] = []
         for idx, cname in enumerate(("Overflow", "ZeroDivisor", "InvalidShift")):
-            c_const = f"vela_ArithmeticError_{cname}"
+            c_const = f"holdfast_ArithmeticError_{cname}"
             u_var = self.fresh(_UNIT)
             self.nullary_parameters.add(cast("int", u_var.value))
             c_sig = _term("pi", _UNIT, _constant(ae_type_const), value=u_var.value)
@@ -657,11 +657,11 @@ class _Elaborator(
             self.unions_by_ctor[uc.ctor_const] = (ae_info, uc)
 
         # ConversionError { OutOfRange(); }
-        ce_type_const = "vela_ConversionError"
+        ce_type_const = "holdfast_ConversionError"
         ce_type_binding = _Binding(_constant(ce_type_const), _SORT, 0)
         self.globals["ConversionError"] = ce_type_binding
         self.constants[ce_type_const] = ce_type_binding
-        oor_const = "vela_ConversionError_OutOfRange"
+        oor_const = "holdfast_ConversionError_OutOfRange"
         oor_u = self.fresh(_UNIT)
         self.nullary_parameters.add(cast("int", oor_u.value))
         oor_sig = _term("pi", _UNIT, _constant(ce_type_const), value=oor_u.value)
@@ -682,7 +682,7 @@ class _Elaborator(
         self.unions_by_ctor[oor_const] = (ce_info, oor_ctor)
 
         # Result<TValue, TError> { Err(TError Error); Ok(TValue Value); }
-        res_type_const = "vela_Result"
+        res_type_const = "holdfast_Result"
         tv_var = self.fresh(_SORT)
         te_var = self.fresh(_SORT)
         res_rep = _term("sum", te_var, tv_var)
@@ -694,7 +694,7 @@ class _Elaborator(
 
         err_fvar = self.fresh(te_var)
         self.parameter_names[cast("int", err_fvar.value)] = "Error"
-        err_const = "vela_Result_Err"
+        err_const = "holdfast_Result_Err"
         err_sig = self.wrap("pi", [tv_var, te_var, err_fvar], res_app)
         err_binding = _Binding(_constant(err_const), err_sig, 2)
         self.globals["Err"] = err_binding
@@ -705,7 +705,7 @@ class _Elaborator(
 
         ok_fvar = self.fresh(tv_var)
         self.parameter_names[cast("int", ok_fvar.value)] = "Value"
-        ok_const = "vela_Result_Ok"
+        ok_const = "holdfast_Result_Ok"
         ok_sig = self.wrap("pi", [tv_var, te_var, ok_fvar], res_app)
         ok_binding = _Binding(_constant(ok_const), ok_sig, 2)
         self.globals["Ok"] = ok_binding
@@ -730,9 +730,9 @@ class _Elaborator(
         self.unions_by_ctor[ok_const] = (res_info, ok_ctor)
 
     def _register_int_constants(self) -> None:
-        ae_const = _constant("vela_ArithmeticError")
-        ce_const = _constant("vela_ConversionError")
-        res_const = _constant("vela_Result")
+        ae_const = _constant("holdfast_ArithmeticError")
+        ce_const = _constant("holdfast_ConversionError")
+        res_const = _constant("holdfast_Result")
         res_char_conv = _apps(res_const, _CHAR, ce_const)
         byte_sequence = _app(_constant("Seq"), _NAT)
         self.constants["char_try_from_u32"] = _Binding(
@@ -1237,14 +1237,14 @@ class _Elaborator(
         return specialized
 
     def _is_result(self, value_type: _Term) -> bool:
-        return self.spine(self.whnf(value_type))[0] == _constant("vela_Result")
+        return self.spine(self.whnf(value_type))[0] == _constant("holdfast_Result")
 
     def _result_paths(self, name: str, value_type: _Term) -> set[str]:
         """Return the verdict obligations transferred by a whole-value use."""
         self.tick()
         value_type = self.whnf(value_type)
         head, args = self.spine(value_type)
-        if head == _constant("vela_Result"):
+        if head == _constant("holdfast_Result"):
             nested = any(self._result_paths("", arg) for arg in args)
             return {name, f"{name}.*"} if nested else {name}
         if value_type.kind == "prod":
@@ -2303,7 +2303,7 @@ class _Elaborator(
 
 # A rendered word contains one closing parenthesis per nibble and one for its constructor.
 _WORD_LITERAL = re.compile("|".join(
-    rf"\(@vela_mk_int \([0-9]+ : Corelib\.Init\.Datatypes\.nat\) (?:\(vela_x[0-9a-f] ){{{n}}}vela_bnil\){{{n + 1}}}"
+    rf"\(@holdfast_mk_int \([0-9]+ : Corelib\.Init\.Datatypes\.nat\) (?:\(holdfast_x[0-9a-f] ){{{n}}}holdfast_bnil\){{{n + 1}}}"
     for n in sorted({spec.bits // 4 for spec in _INT_SPECS.values()})
 ))
 
@@ -2313,7 +2313,7 @@ def _proof_module_body(output: list[str]) -> tuple[str, int]:
     if len(body) < MAX_SOURCE_BYTES:
         return body, 0
     counts = Counter(match.group() for match in _WORD_LITERAL.finditer(body))
-    shared = {term: f"vela_word_literal_{index}" for index, (term, count) in enumerate(counts.items())
+    shared = {term: f"holdfast_word_literal_{index}" for index, (term, count) in enumerate(counts.items())
               if count > 2}
     if not shared:
         return body, 0
@@ -2357,8 +2357,8 @@ def _checked_elaboration(
                 elaborator.serial = elaborator.binder_stride + namespace
             else:
                 elaborator.serial = max((mod.serial for mod in available_modules.values()), default=elaborator.serial)
-            elaborator.emission_prefix = f"vela_m{module_key}"
-            generated_module = "VelaPackage_" + module_key
+            elaborator.emission_prefix = f"holdfast_m{module_key}"
+            generated_module = "HoldFastPackage_" + module_key
             elaborator.available_modules = dict(available_modules)
         if protocol.holes:
             elaborator.navigation = None
@@ -2404,7 +2404,7 @@ def _checked_elaboration(
             # REUSE-IgnoreStart
             header = ("(* SPDX-License-Identifier: Apache-2.0 *)\n"
                        # REUSE-IgnoreEnd
-                       "(* Vela mathematical elaboration: unqualified kernel proposal. "
+                       "(* HoldFast mathematical elaboration: unqualified kernel proposal. "
                        f"Source SHA256: {source_digest} *)\n"
                        f"Module {generated_module}.\n\n" + _PRELUDE + "\n")
             body, hoisted_lines = _proof_module_body(elaborator.output)
@@ -2488,7 +2488,7 @@ def elaborate_package(modules: Sequence[tuple[bytes, object]], *, require_word_p
     for mname in order_names:
         if scopes is not None:
             for dependency, site in decoded[mname][4]:
-                if dependency != "Vela.Numerics" and dependency not in scopes[mname].modules:
+                if dependency != "HoldFast.Numerics" and dependency not in scopes[mname].modules:
                     raise decoded[mname][2].error("name", f"module '{mname}' has no declared dependency on '{dependency}'", site)
         if mname not in visited:
             visit(mname)
@@ -2519,8 +2519,8 @@ def elaborate_package(modules: Sequence[tuple[bytes, object]], *, require_word_p
                 generated_size += len(elab.gallina.encode("utf-8"))
                 if generated_size > output_limit:
                     raise elaborator.fail("limit", "combined package Gallina exceeds the output budget")
-        except VelaError as error:
-            raise VelaError(error.kind, error.line, error.column, f"module '{mname}': {error.message}") from error
+        except HoldFastError as error:
+            raise HoldFastError(error.kind, error.line, error.column, f"module '{mname}': {error.message}") from error
         available[mname] = elaborator
         elaborations[mname] = elab
 
@@ -2543,9 +2543,9 @@ def check_client_upgrade(
 
     owner, _ = describe(baseline)
     if describe(candidate)[0] != owner:
-        raise VelaError("name", 1, 1, "upgrade revisions must declare the same module")
+        raise HoldFastError("name", 1, 1, "upgrade revisions must declare the same module")
     if not clients:
-        raise VelaError("name", 1, 1, "an upgrade requires at least one dependent client")
+        raise HoldFastError("name", 1, 1, "an upgrade requires at least one dependent client")
     fixed = [*dependencies, *clients]
     described = [describe(module) for module in fixed]
     graph = dict(described)
@@ -2561,12 +2561,12 @@ def check_client_upgrade(
                 seen.add(current)
                 pending.extend(graph.get(current, ()))
         else:
-            raise VelaError("name", 1, 1, f"client '{client}' does not import '{owner}' directly or transitively")
+            raise HoldFastError("name", 1, 1, f"client '{client}' does not import '{owner}' directly or transitively")
     for phase, revision in (("baseline", baseline), ("candidate", candidate)):
         try:
             elaborate_package([revision, *fixed])
-        except VelaError as error:
-            raise VelaError(error.kind, error.line, error.column, f"{phase} replay: {error.message}") from error
+        except HoldFastError as error:
+            raise HoldFastError(error.kind, error.line, error.column, f"{phase} replay: {error.message}") from error
     return {
         "status": "clients-elaborated", "module": owner, "clients": sorted(client_names),
         "baseline_sha256": hashlib.sha256(baseline[0]).hexdigest(),
@@ -2583,15 +2583,15 @@ def _console_initializer(elaborator: _Elaborator, protocol: _Protocol, parsed: o
     root = protocol.decode(parsed)
     declarations = elaborator.nodes(root["declarations"])
     if len(declarations) != 1 or declarations[0]["kind"] != "constant":
-        raise VelaError("syntax", 3, 1, "expected exactly one constant initializer")
+        raise HoldFastError("syntax", 3, 1, "expected exactly one constant initializer")
     declaration = declarations[0]
     name = elaborator.name(declaration["name"])
     value = elaborator.node(declaration["value"])
-    if (name != "__vela_console_result"
+    if (name != "__holdfast_console_result"
             or declaration["span"] != [len(b"module Playground;\n"), len(protocol.source)]
             or not prefix_bytes <= cast("list[int]", value["span"])[0]
             < cast("list[int]", value["span"])[1] <= prefix_bytes + expression_bytes):
-        raise VelaError("syntax", 3, 1, "expected exactly one complete constant initializer")
+        raise HoldFastError("syntax", 3, 1, "expected exactly one complete constant initializer")
     return declaration
 
 
@@ -2601,7 +2601,7 @@ def _console_value(elaborator: _Elaborator, declaration: Node,
     normalized = elaborator.whnf(result.term)
     expected = "nat" if value_type == "Nat" else "bool"
     if normalized.kind != expected or elaborator.free(normalized):
-        raise VelaError("inference", 1, 1, "constant did not reduce to a closed typed value")
+        raise HoldFastError("inference", 1, 1, "constant did not reduce to a closed typed value")
     return StaticEvaluation(value_type, cast("int", normalized.value) if value_type == "Nat"
                             else bool(normalized.value))
 
@@ -2615,34 +2615,34 @@ def evaluate(source: bytes, parsed: object, expression: str, value_type: ValueTy
     """
     _, elaborator = _checked_elaboration(source, parsed)
     if value_type not in {"Nat", "bool"}:
-        raise VelaError("type", 1, 1, "expression: expected Nat or bool result type")
+        raise HoldFastError("type", 1, 1, "expression: expected Nat or bool result type")
     try:
         raw = expression.encode("utf-8")
     except UnicodeEncodeError as error:
-        raise VelaError("encoding", 1, 1, "expression: invalid Unicode text") from error
+        raise HoldFastError("encoding", 1, 1, "expression: invalid Unicode text") from error
     if len(raw) > 4096:
-        raise VelaError("limit", 1, 1, "expression: exceeds 4096 UTF-8 bytes")
-    prefix = f"module Playground;\npublic const {value_type} __vela_console_result =\n".encode()
+        raise HoldFastError("limit", 1, 1, "expression: exceeds 4096 UTF-8 bytes")
+    prefix = f"module Playground;\npublic const {value_type} __holdfast_console_result =\n".encode()
     probe = prefix + raw + b"\n;"
     protocol = _Protocol(probe)
     try:
         declaration = _console_initializer(elaborator, protocol, parse(probe), len(prefix), len(raw))
-    except VelaError as error:
+    except HoldFastError as error:
         lines = expression.replace("\r\n", "\n").replace("\r", "\n").split("\n")
         line = max(1, error.line - 2)
         column = error.column if line <= len(lines) else len(lines[-1]) + 1
         line = min(line, len(lines))
         column = min(column, len(lines[line - 1]) + 1)
-        raise VelaError(error.kind, line, column, f"expression: {error.message}") from error
+        raise HoldFastError(error.kind, line, column, f"expression: {error.message}") from error
     except RecursionError as error:
-        raise VelaError("limit", 1, 1, "expression: syntax nesting exceeds the host stack bound") from error
+        raise HoldFastError("limit", 1, 1, "expression: syntax nesting exceeds the host stack bound") from error
     elaborator.protocol = protocol
     # The probe is a different source buffer and has its own byte coordinates.
     elaborator.phase_uses.clear()
     elaborator.static_effect_sites.clear()
     try:
         return _console_value(elaborator, declaration, value_type)
-    except VelaError as error:
-        raise VelaError(error.kind, 1, 1, f"expression: {error.message}") from error
+    except HoldFastError as error:
+        raise HoldFastError(error.kind, 1, 1, f"expression: {error.message}") from error
     except RecursionError as error:
-        raise VelaError("limit", 1, 1, "expression: elaboration nesting exceeds the host stack bound") from error
+        raise HoldFastError("limit", 1, 1, "expression: elaboration nesting exceeds the host stack bound") from error

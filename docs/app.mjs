@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 const MONACO_VERSION = "0.55.1";
 const MONACO_BASE = `https://cdn.jsdelivr.net/npm/monaco-editor@${MONACO_VERSION}/min`;
-const DOCUMENT_URI = "untitled:playground.vela";
+const DOCUMENT_URI = "untitled:playground.hf";
 const MAX_SOURCE_BYTES = 65536;
 const MAX_EXPRESSION_DEPTH = 64;
 const MAX_BLOCK_DEPTH = 64;
@@ -356,7 +356,7 @@ public lemma SameValue()
 /// Multi-quote raw string literals need no backslash escapes and dedent by closing quotes.
 public definition Vec<Nat, 10> HeaderTag() =>
     """
-    [vela-hdr]
+    [demo-hdr]
     """;
 
 public const Nat HeaderBytes = ByteLength(HeaderTag());
@@ -492,7 +492,7 @@ export async function sha256Hex(input) {
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-class VelaError extends Error {
+class HoldFastError extends Error {
   constructor(kind, line, column, message, unresolvedName = null) {
     super(message);
     this.kind = kind;
@@ -510,15 +510,15 @@ function normalizeNewlines(text) {
 function checkSourceText(sourceText) {
   const bytes = utf8Bytes(sourceText);
   if (bytes.length > MAX_SOURCE_BYTES) {
-    throw new VelaError("limit", 1, 1, `source exceeds ${MAX_SOURCE_BYTES} bytes`);
+    throw new HoldFastError("limit", 1, 1, `source exceeds ${MAX_SOURCE_BYTES} bytes`);
   }
   if (sourceText.startsWith("\uFEFF")) {
-    throw new VelaError("encoding", 1, 1, "remove the initial UTF-8 byte-order mark");
+    throw new HoldFastError("encoding", 1, 1, "remove the initial UTF-8 byte-order mark");
   }
   const unpaired = /[\uD800-\uDFFF]/u.exec(sourceText);
   if (unpaired) {
     const lines = normalizeNewlines(sourceText.slice(0, unpaired.index)).split("\n");
-    throw new VelaError("encoding", lines.length, Array.from(lines.at(-1)).length + 1,
+    throw new HoldFastError("encoding", lines.length, Array.from(lines.at(-1)).length + 1,
                         "unpaired UTF-16 surrogate cannot be encoded as UTF-8");
   }
   return { text: sourceText, bytes };
@@ -623,7 +623,7 @@ function unsupportedMessage(spelling) {
   if (spelling === "var") {
     return (
       "'var' declares a mutable binding; let and unmarked type-first bindings are immutable. " +
-      "Local reassignment requires the wider Vela surface; the pure prototype does not support mutation"
+      "Local reassignment requires the wider HoldFast surface; the pure prototype does not support mutation"
     );
   }
   if (modes[spelling]) {
@@ -644,7 +644,7 @@ function makeExpr(kind, value, site, children = [], labels = []) {
   }
   const depth = maxChildDepth + (kind !== "group" ? 1 : 0);
   if (depth > MAX_EXPRESSION_DEPTH) {
-    throw new VelaError(
+    throw new HoldFastError(
       "limit",
       site.line,
       site.column,
@@ -656,7 +656,7 @@ function makeExpr(kind, value, site, children = [], labels = []) {
     nesting += 1;
   }
   if (nesting > MAX_EXPRESSION_DEPTH) {
-    throw new VelaError(
+    throw new HoldFastError(
       "limit",
       site.line,
       site.column,
@@ -708,7 +708,7 @@ function pureTokenize(sourceText, { allowSemicolon = true, keepComments = false 
       continue;
     }
     if (sourceText.startsWith("/*", index)) {
-      throw new VelaError(
+      throw new HoldFastError(
         "syntax",
         line,
         column,
@@ -724,7 +724,7 @@ function pureTokenize(sourceText, { allowSemicolon = true, keepComments = false 
     }
     if (PURE_ONE_CHAR_SYMBOLS.has(ch)) {
       if (!allowSemicolon && ch === ";") {
-        throw new VelaError("syntax", line, column, "unexpected ';'");
+        throw new HoldFastError("syntax", line, column, "unexpected ';'");
       }
       tokens.push({ kind: "symbol", text: ch, site: { line, column }, offset: index });
       index += 1;
@@ -745,10 +745,10 @@ function pureTokenize(sourceText, { allowSemicolon = true, keepComments = false 
       const digits = decMatch[0];
       const nextChar = sourceText[index + digits.length] || "";
       if (/[A-Za-z0-9_]/.test(nextChar)) {
-        throw new VelaError("syntax", line, column, "invalid numeric literal");
+        throw new HoldFastError("syntax", line, column, "invalid numeric literal");
       }
       if (digits.replace(/_/g, "").length > MAX_LITERAL_DIGITS) {
-        throw new VelaError(
+        throw new HoldFastError(
           "limit",
           line,
           column,
@@ -760,7 +760,7 @@ function pureTokenize(sourceText, { allowSemicolon = true, keepComments = false 
       column += digits.length;
       continue;
     }
-    throw new VelaError("syntax", line, column, `unexpected character '${ch}'`);
+    throw new HoldFastError("syntax", line, column, `unexpected character '${ch}'`);
   }
   tokens.push({ kind: "eof", text: "<eof>", site: { line, column }, offset: index });
   return tokens;
@@ -796,7 +796,7 @@ class PureParser {
 
   unsupported() {
     if (this.current.kind === "word" && PURE_UNSUPPORTED.has(this.current.text)) {
-      throw new VelaError(
+      throw new HoldFastError(
         "unsupported",
         this.current.site.line,
         this.current.site.column,
@@ -810,7 +810,7 @@ class PureParser {
     const tok = this.match(kind, text);
     if (!tok) {
       const label = description || `'${text}'`;
-      throw new VelaError(
+      throw new HoldFastError(
         "syntax",
         this.current.site.line,
         this.current.site.column,
@@ -824,7 +824,7 @@ class PureParser {
     this.unsupported();
     const tok = this.current;
     if (tok.kind !== "word") {
-      throw new VelaError(
+      throw new HoldFastError(
         "syntax",
         tok.site.line,
         tok.site.column,
@@ -832,7 +832,7 @@ class PureParser {
       );
     }
     if (PURE_KEYWORDS.has(tok.text)) {
-      throw new VelaError(
+      throw new HoldFastError(
         "syntax",
         tok.site.line,
         tok.site.column,
@@ -851,14 +851,14 @@ class PureParser {
       return tok.text;
     }
     if (tok.kind === "word" && !PURE_KEYWORDS.has(tok.text)) {
-      throw new VelaError(
+      throw new HoldFastError(
         "unsupported",
         tok.site.line,
         tok.site.column,
         `unsupported ${role} '${tok.text}'; the pure prototype supports Nat and bool`
       );
     }
-    throw new VelaError(
+    throw new HoldFastError(
       "syntax",
       tok.site.line,
       tok.site.column,
@@ -932,7 +932,7 @@ class PureParser {
       });
     }
     if (declarations.length === 0) {
-      throw new VelaError(
+      throw new HoldFastError(
         "syntax",
         this.current.site.line,
         this.current.site.column,
@@ -944,7 +944,7 @@ class PureParser {
 
   parseBlock(depth) {
     if (depth > MAX_BLOCK_DEPTH) {
-      throw new VelaError(
+      throw new HoldFastError(
         "limit",
         this.current.site.line,
         this.current.site.column,
@@ -976,7 +976,7 @@ class PureParser {
         (this.current.text === "Nat" || this.current.text === "bool")
       ) {
         const startTok = this.current;
-        throw new VelaError(
+        throw new HoldFastError(
           "syntax",
           startTok.site.line,
           startTok.site.column,
@@ -1021,7 +1021,7 @@ class PureParser {
       break;
     }
     if (bindings.length > MAX_BLOCK_DEPTH) {
-      throw new VelaError(
+      throw new HoldFastError(
         "limit",
         openTok.site.line,
         openTok.site.column,
@@ -1043,7 +1043,7 @@ class PureParser {
       terminal = { kind: "conditional", condition, yes, no, site: openCond.site };
     } else {
       this.unsupported();
-      throw new VelaError(
+      throw new HoldFastError(
         "syntax",
         this.current.site.line,
         this.current.site.column,
@@ -1082,7 +1082,7 @@ class PureParser {
       const op = this.advance();
       left = makeExpr("binary", op.text, op.site, [left, this.parseAdditive()]);
       if (this.current.kind === "symbol" && PURE_COMPARISON_OPERATORS.has(this.current.text)) {
-        throw new VelaError(
+        throw new HoldFastError(
           "syntax",
           this.current.site.line,
           this.current.site.column,
@@ -1164,7 +1164,7 @@ class PureParser {
       }
       return makeExpr("name", name.text, name.site);
     }
-    throw new VelaError(
+    throw new HoldFastError(
       "syntax",
       tok.site.line,
       tok.site.column,
@@ -1234,7 +1234,7 @@ function checkPureCallArguments(item, sig, facts) {
     const label = item.labels[i];
     if (label === null || label === undefined) {
       if (seenNamed) {
-        throw new VelaError(
+        throw new HoldFastError(
           "type",
           item.children[i].site.line,
           item.children[i].site.column,
@@ -1251,14 +1251,14 @@ function checkPureCallArguments(item, sig, facts) {
       continue;
     }
     if (sig.parameterNames.includes(label.text)) {
-      throw new VelaError(
+      throw new HoldFastError(
         "type",
         label.site.line,
         label.site.column,
         `named argument '${label.text}:' in call to '${item.value}' must appear in parameter order`
       );
     }
-    throw new VelaError(
+    throw new HoldFastError(
       "type",
       label.site.line,
       label.site.column,
@@ -1324,7 +1324,7 @@ class PureFacts {
 
 function boundedNatural(value, site) {
   if (value > MAX_NAT_VALUE) {
-    throw new VelaError("limit", site.line, site.column, `compile-time Nat value exceeds ${MAX_LITERAL_DIGITS} digits`);
+    throw new HoldFastError("limit", site.line, site.column, `compile-time Nat value exceeds ${MAX_LITERAL_DIGITS} digits`);
   }
   return value;
 }
@@ -1342,7 +1342,7 @@ class PureStaticEvaluator {
   step(site) {
     this.steps += 1;
     if (this.steps > MAX_STATIC_STEPS) {
-      throw new VelaError(
+      throw new HoldFastError(
         "limit",
         site.line,
         site.column,
@@ -1359,7 +1359,7 @@ class PureStaticEvaluator {
     const value = this.evalExpr(declaration.value, new Map(), new Set(), facts);
     const actual = typeof value === "boolean" ? "bool" : "Nat";
     if (actual !== declaration.valueType) {
-      throw new VelaError(
+      throw new HoldFastError(
         "type",
         declaration.site.line,
         declaration.site.column,
@@ -1387,7 +1387,7 @@ class PureStaticEvaluator {
     const localRuntime = new Set(runtimeNames);
     for (const stmt of block.bindings) {
       if (stmt.kind === "reassignment") {
-        throw new VelaError(
+        throw new HoldFastError(
           "unsupported",
           stmt.site.line,
           stmt.site.column,
@@ -1399,7 +1399,7 @@ class PureStaticEvaluator {
       const expected = stmt.kind === "constant" ? stmt.valueType : stmt.annotation;
       if (expected !== null && expected !== undefined && actual !== expected) {
         const role = stmt.kind === "constant" ? "constant" : "local";
-        throw new VelaError(
+        throw new HoldFastError(
           "type",
           stmt.site.line,
           stmt.site.column,
@@ -1414,7 +1414,7 @@ class PureStaticEvaluator {
     }
     const cond = this.evalExpr(block.terminal.condition, localEnv, localRuntime, facts);
     if (typeof cond !== "boolean") {
-      throw new VelaError(
+      throw new HoldFastError(
         "type",
         block.terminal.site.line,
         block.terminal.site.column,
@@ -1445,7 +1445,7 @@ class PureStaticEvaluator {
         return local[1];
       }
       if (runtimeNames.has(name)) {
-        throw new VelaError(
+        throw new HoldFastError(
           "unsupported",
           item.site.line,
           item.site.column,
@@ -1458,12 +1458,12 @@ class PureStaticEvaluator {
         if (rec && constant[2] >= 0) rec.reference(constant[2], item.site);
         return constant[1];
       }
-      throw new VelaError("name", item.site.line, item.site.column, `unknown variable '${name}'`, name);
+      throw new HoldFastError("name", item.site.line, item.site.column, `unknown variable '${name}'`, name);
     }
     if (item.kind === "unary") {
       const operand = this.evalExpr(item.children[0], env, runtimeNames, facts);
       if (typeof operand !== "boolean") {
-        throw new VelaError(
+        throw new HoldFastError(
           "type",
           item.site.line,
           item.site.column,
@@ -1477,7 +1477,7 @@ class PureStaticEvaluator {
       const sig = this.functions.get(callee);
       const fnDecl = this.constFunctions.get(callee);
       if (!sig || !fnDecl) {
-        throw new VelaError(
+        throw new HoldFastError(
           "name",
           item.site.line,
           item.site.column,
@@ -1488,7 +1488,7 @@ class PureStaticEvaluator {
       const rec = this.record(facts);
       if (rec && sig.symbol >= 0) rec.reference(sig.symbol, item.site);
       if (item.children.length !== sig.parameters.length) {
-        throw new VelaError(
+        throw new HoldFastError(
           "type",
           item.site.line,
           item.site.column,
@@ -1502,7 +1502,7 @@ class PureStaticEvaluator {
         const argVal = this.evalExpr(item.children[i], env, runtimeNames, facts);
         const actual = typeof argVal === "boolean" ? "bool" : "Nat";
         if (actual !== pType) {
-          throw new VelaError(
+          throw new HoldFastError(
             "type",
             item.children[i].site.line,
             item.children[i].site.column,
@@ -1514,7 +1514,7 @@ class PureStaticEvaluator {
       const result = this.evalBlock(fnDecl.body, callEnv, new Set(), false);
       const actual = typeof result === "boolean" ? "bool" : "Nat";
       if (actual !== fnDecl.result) {
-        throw new VelaError(
+        throw new HoldFastError(
           "type",
           item.site.line,
           item.site.column,
@@ -1527,7 +1527,7 @@ class PureStaticEvaluator {
     const left = this.evalExpr(item.children[0], env, runtimeNames, facts);
     if (op === "&&" || op === "||") {
       if (typeof left !== "boolean") {
-        throw new VelaError(
+        throw new HoldFastError(
           "type",
           item.site.line,
           item.site.column,
@@ -1545,7 +1545,7 @@ class PureStaticEvaluator {
           null
         )[0];
         if (rightType !== "bool") {
-          throw new VelaError(
+          throw new HoldFastError(
             "type",
             item.site.line,
             item.site.column,
@@ -1556,7 +1556,7 @@ class PureStaticEvaluator {
       }
       const right = this.evalExpr(item.children[1], env, runtimeNames, facts);
       if (typeof right !== "boolean") {
-        throw new VelaError(
+        throw new HoldFastError(
           "type",
           item.site.line,
           item.site.column,
@@ -1568,7 +1568,7 @@ class PureStaticEvaluator {
     const right = this.evalExpr(item.children[1], env, runtimeNames, facts);
     if (op === "==" || op === "!=") {
       if (typeof left !== typeof right) {
-        throw new VelaError(
+        throw new HoldFastError(
           "type",
           item.site.line,
           item.site.column,
@@ -1578,7 +1578,7 @@ class PureStaticEvaluator {
       return op === "==" ? left === right : left !== right;
     }
     if (typeof left === "boolean" || typeof right === "boolean") {
-      throw new VelaError(
+      throw new HoldFastError(
         "type",
         item.site.line,
         item.site.column,
@@ -1629,17 +1629,17 @@ function inferPureExpression(item, env, constants, functions, evaluator, runtime
       if (facts && constant[2] >= 0) facts.reference(constant[2], item.site);
       return [constant[0], `c_${name}`];
     }
-    throw new VelaError("name", item.site.line, item.site.column, `unknown variable '${name}'`, name);
+    throw new HoldFastError("name", item.site.line, item.site.column, `unknown variable '${name}'`, name);
   }
   if (item.kind === "call") {
     const callee = String(item.value);
     const sig = functions.get(callee);
     if (!sig) {
-      throw new VelaError("name", item.site.line, item.site.column, `unknown function '${callee}'`, callee);
+      throw new HoldFastError("name", item.site.line, item.site.column, `unknown function '${callee}'`, callee);
     }
     if (facts && sig.symbol >= 0) facts.reference(sig.symbol, item.site);
     if (item.children.length !== sig.parameters.length) {
-      throw new VelaError(
+      throw new HoldFastError(
         "type",
         item.site.line,
         item.site.column,
@@ -1671,7 +1671,7 @@ function inferPureExpression(item, env, constants, functions, evaluator, runtime
         facts
       );
       if (actual !== expected) {
-        throw new VelaError(
+        throw new HoldFastError(
           "type",
           child.site.line,
           child.site.column,
@@ -1697,7 +1697,7 @@ function inferPureExpression(item, env, constants, functions, evaluator, runtime
           const val = closedStaticArgs.get(pName.text);
           specEnv.set(pName.text, [pType, val, -1, true, gallinaStaticValue(val)]);
         } else {
-          const fresh = `vela_arg_${evaluator.freshArgument}`;
+          const fresh = `holdfast_arg_${evaluator.freshArgument}`;
           evaluator.freshArgument += 1;
           argBindings.push([fresh, renderedArgs[i]]);
           specEnv.set(pName.text, [pType, null, -1, false, fresh]);
@@ -1733,7 +1733,7 @@ function inferPureExpression(item, env, constants, functions, evaluator, runtime
       facts
     );
     if (operandType !== "bool") {
-      throw new VelaError(
+      throw new HoldFastError(
         "type",
         item.site.line,
         item.site.column,
@@ -1763,7 +1763,7 @@ function inferPureExpression(item, env, constants, functions, evaluator, runtime
   const op = String(item.value);
   if (op === "+" || op === "-" || op === "*" || op === "/" || op === "%") {
     if (lt !== "Nat" || rt !== "Nat") {
-      throw new VelaError(
+      throw new HoldFastError(
         "type",
         item.site.line,
         item.site.column,
@@ -1781,7 +1781,7 @@ function inferPureExpression(item, env, constants, functions, evaluator, runtime
   }
   if (op === "<" || op === "<=" || op === ">" || op === ">=") {
     if (lt !== "Nat" || rt !== "Nat") {
-      throw new VelaError(
+      throw new HoldFastError(
         "type",
         item.site.line,
         item.site.column,
@@ -1793,12 +1793,12 @@ function inferPureExpression(item, env, constants, functions, evaluator, runtime
     const cmpFn = op === ">" ? "ltb" : "leb";
     return [
       "bool",
-      `(let vela_cmp_left := ${lr} in let vela_cmp_right := ${rr} in Corelib.Init.Nat.${cmpFn} vela_cmp_right vela_cmp_left)`,
+      `(let holdfast_cmp_left := ${lr} in let holdfast_cmp_right := ${rr} in Corelib.Init.Nat.${cmpFn} holdfast_cmp_right holdfast_cmp_left)`,
     ];
   }
   if (op === "==" || op === "!=") {
     if (lt !== rt) {
-      throw new VelaError(
+      throw new HoldFastError(
         "type",
         item.site.line,
         item.site.column,
@@ -1808,14 +1808,14 @@ function inferPureExpression(item, env, constants, functions, evaluator, runtime
     const eqExpr =
       lt === "Nat"
         ? `(Corelib.Init.Nat.eqb ${lr} ${rr})`
-        : `(let vela_eq_left := ${lr} in let vela_eq_right := ${rr} in if vela_eq_left then vela_eq_right else (if vela_eq_right then ${GALLINA_FALSE} else ${GALLINA_TRUE}))`;
+        : `(let holdfast_eq_left := ${lr} in let holdfast_eq_right := ${rr} in if holdfast_eq_left then holdfast_eq_right else (if holdfast_eq_right then ${GALLINA_FALSE} else ${GALLINA_TRUE}))`;
     return [
       "bool",
       op === "==" ? eqExpr : `(if ${eqExpr} then ${GALLINA_FALSE} else ${GALLINA_TRUE})`,
     ];
   }
   if (lt !== "bool" || rt !== "bool") {
-    throw new VelaError(
+    throw new HoldFastError(
       "type",
       item.site.line,
       item.site.column,
@@ -1850,14 +1850,14 @@ function checkPureBlock(
   for (const stmt of block.bindings) {
     if (stmt.kind === "reassignment") {
       if (localImmutable.has(stmt.name.text)) {
-        throw new VelaError(
+        throw new HoldFastError(
           "unsupported",
           stmt.site.line,
           stmt.site.column,
           `cannot reassign immutable binding '${stmt.name.text}'; let, parameter, const and unmarked type-first bindings are immutable`
         );
       }
-      throw new VelaError(
+      throw new HoldFastError(
         "name",
         stmt.site.line,
         stmt.site.column,
@@ -1880,7 +1880,7 @@ function checkPureBlock(
         facts
       );
       if (inferredType !== stmt.valueType) {
-        throw new VelaError(
+        throw new HoldFastError(
           "type",
           stmt.site.line,
           stmt.site.column,
@@ -1916,7 +1916,7 @@ function checkPureBlock(
       facts
     );
     if (stmt.annotation !== null && stmt.annotation !== undefined && vt !== stmt.annotation) {
-      throw new VelaError(
+      throw new HoldFastError(
         "type",
         stmt.site.line,
         stmt.site.column,
@@ -1945,7 +1945,7 @@ function checkPureBlock(
       facts
     );
     if (vt !== expected) {
-      throw new VelaError(
+      throw new HoldFastError(
         "type",
         block.terminal.site.line,
         block.terminal.site.column,
@@ -1964,7 +1964,7 @@ function checkPureBlock(
       facts
     );
     if (condType !== "bool") {
-      throw new VelaError(
+      throw new HoldFastError(
         "type",
         block.terminal.site.line,
         block.terminal.site.column,
@@ -2016,7 +2016,7 @@ function runPureTranslate(sourceText, collectFacts = false, { sourceHash = "" } 
 
   for (const item of parsed.declarations) {
     if (declarations.has(item.name.text)) {
-      throw new VelaError(
+      throw new HoldFastError(
         "name",
         item.name.site.line,
         item.name.site.column,
@@ -2031,7 +2031,7 @@ function runPureTranslate(sourceText, collectFacts = false, { sourceHash = "" } 
     const parameterIds = [];
     for (const [pName, pType] of item.parameters) {
       if (seenParams.has(pName.text)) {
-        throw new VelaError(
+        throw new HoldFastError(
           "name",
           pName.site.line,
           pName.site.column,
@@ -2124,7 +2124,7 @@ function runPureTranslate(sourceText, collectFacts = false, { sourceHash = "" } 
       const val = probe.evalBlock(item.body, sample, new Set(), false);
       const actual = typeof val === "boolean" ? "bool" : "Nat";
       if (actual !== item.result) {
-        throw new VelaError(
+        throw new HoldFastError(
           "type",
           item.name.site.line,
           item.name.site.column,
@@ -2137,18 +2137,18 @@ function runPureTranslate(sourceText, collectFacts = false, { sourceHash = "" } 
     );
   }
   const moduleName = parsed.name.text.includes("_")
-    ? "VelaEncoded_" + Array.from(utf8Bytes(parsed.name.text), (byte) => byte.toString(16).padStart(2, "0")).join("")
-    : "Vela_" + parsed.name.text.replaceAll(".", "_");
+    ? "HoldFastEncoded_" + Array.from(utf8Bytes(parsed.name.text), (byte) => byte.toString(16).padStart(2, "0")).join("")
+    : "HoldFast_" + parsed.name.text.replaceAll(".", "_");
   const header =
     "(* SPDX-License-" +
     "Identifier: Apache-2.0 *)\n" +
-    `(* Vela pure prototype: unqualified. Source SHA256: ${sourceHash} *)\n` +
+    `(* HoldFast pure prototype: unqualified. Source SHA256: ${sourceHash} *)\n` +
     "From Corelib Require Import Init.Datatypes Init.Nat.\n\n" +
     `Module ${moduleName}.\n\n`;
   const footer = `\n\nEnd ${moduleName}.\n`;
   const gallina = `${header}${definitions.join("\n\n")}${footer}`;
   if (utf8Bytes(gallina).length > MAX_EMITTED_GALLINA_BYTES) {
-    throw new VelaError(
+    throw new HoldFastError(
       "limit",
       parsed.name.site.line,
       parsed.name.site.column,
@@ -2166,13 +2166,13 @@ function runPureTranslate(sourceText, collectFacts = false, { sourceHash = "" } 
 
 function validateConsoleExpression(expressionText, valueType) {
   if (valueType !== "Nat" && valueType !== "bool") {
-    throw new VelaError("type", 1, 1, "expression: expected Nat or bool result type");
+    throw new HoldFastError("type", 1, 1, "expression: expected Nat or bool result type");
   }
   if (typeof expressionText !== "string") {
-    throw new VelaError("syntax", 1, 1, "expression: expected UTF-8 text");
+    throw new HoldFastError("syntax", 1, 1, "expression: expected UTF-8 text");
   }
   if (utf8Bytes(expressionText).length > MAX_CONSOLE_EXPRESSION_BYTES) {
-    throw new VelaError(
+    throw new HoldFastError(
       "limit",
       1,
       1,
@@ -2274,7 +2274,7 @@ function pureFormatSource(sourceText) {
       (!part.text.startsWith("///") || part.inline || parts[i + 1]?.blankBefore === rendered[i + 1]?.blankBefore);
   });
   if (!unchanged || renderPureParts(rendered) !== result) {
-    throw new VelaError("format", 1, 1, "formatting changed tokens, comments or documentation attachment");
+    throw new HoldFastError("format", 1, 1, "formatting changed tokens, comments or documentation attachment");
   }
   return result;
 }
@@ -2294,7 +2294,7 @@ function lintPureExpression(expr, findings) {
     expr.children.some((child) => unwrapPureGroup(child).kind === "bool")
   ) {
     findings.push({
-      code: "VELA103",
+      code: "HOLDFAST103",
       message: "Boolean literal comparison is redundant; prefer direct Boolean logic",
       line: expr.site.line,
       column: expr.site.column,
@@ -2308,7 +2308,7 @@ function lintPureExpression(expr, findings) {
 function lintPureBinding(name, findings) {
   if (name.text !== "_" && !isCamelCase(name.text)) {
     findings.push({
-      code: "VELA101",
+      code: "HOLDFAST101",
       message: `binding '${name.text}' should use camelCase`,
       line: name.site.line,
       column: name.site.column,
@@ -2340,7 +2340,7 @@ function pureLintSource(sourceText) {
     const doc = pubSite ? extractPureDocumentation(sourceText, pubSite) : null;
     if (!isPascalCase(decl.name.text)) {
       findings.push({
-        code: "VELA100",
+        code: "HOLDFAST100",
         message: `public member '${decl.name.text}' should use PascalCase`,
         line: decl.name.site.line,
         column: decl.name.site.column,
@@ -2348,7 +2348,7 @@ function pureLintSource(sourceText) {
     }
     if (doc === null) {
       findings.push({
-        code: "VELA102",
+        code: "HOLDFAST102",
         message: `public member '${decl.name.text}' should have a /// documentation comment`,
         line: decl.name.site.line,
         column: decl.name.site.column,
@@ -2505,7 +2505,7 @@ function projectPureInspection(sourceText, facts, method, position, includeDecla
     return {
       contents: {
         kind: "plaintext",
-        value: `${sym.detail}${doc}\nVela pure prototype (unqualified)`,
+        value: `${sym.detail}${doc}\nHoldFast pure prototype (unqualified)`,
       },
       range: { start: selected.start, end: selected.end },
     };
@@ -2558,7 +2558,7 @@ class BrowserLspSession {
                 full: true,
               },
             },
-            serverInfo: { name: "vela-lsp-browser", version: "0.1.0" },
+            serverInfo: { name: "holdfast-lsp-browser", version: "0.1.0" },
           },
         },
       ];
@@ -2669,10 +2669,10 @@ class BrowserLspSession {
       };
     } catch (err) {
       this.cachedFacts = null;
-      const line = err instanceof VelaError ? err.line : 1;
-      const col = err instanceof VelaError ? err.column : 1;
-      const code = err instanceof VelaError ? err.kind : "internal";
-      const msg = err instanceof VelaError ? err.message : String(err);
+      const line = err instanceof HoldFastError ? err.line : 1;
+      const col = err instanceof HoldFastError ? err.column : 1;
+      const code = err instanceof HoldFastError ? err.kind : "internal";
+      const msg = err instanceof HoldFastError ? err.message : String(err);
       const pos = diagnosticLspPosition(this.document.text, line, col);
       return {
         jsonrpc: "2.0",
@@ -2684,7 +2684,7 @@ class BrowserLspSession {
             {
               range: { start: pos, end: pos },
               severity: 1,
-              source: "vela-lsp (unqualified)",
+              source: "holdfast-lsp (unqualified)",
               code,
               message: msg,
             },
@@ -2695,7 +2695,7 @@ class BrowserLspSession {
   }
 }
 
-export const VELA_GRAMMAR = Object.freeze({
+export const HOLDFAST_GRAMMAR = Object.freeze({
   keywords: Object.freeze([
     "admits",
     "add",
@@ -2886,11 +2886,11 @@ export const VELA_GRAMMAR = Object.freeze({
   semanticTokenModifiers: Object.freeze(["declaration", "readonly"]),
 });
 
-const VELA_GRAMMAR_KEYWORD_SET = new Set(VELA_GRAMMAR.keywords);
-const VELA_GRAMMAR_TYPE_KEYWORD_SET = new Set(VELA_GRAMMAR.typeKeywords);
-const VELA_GRAMMAR_CONSTANT_SET = new Set(VELA_GRAMMAR.constants);
+const HOLDFAST_GRAMMAR_KEYWORD_SET = new Set(HOLDFAST_GRAMMAR.keywords);
+const HOLDFAST_GRAMMAR_TYPE_KEYWORD_SET = new Set(HOLDFAST_GRAMMAR.typeKeywords);
+const HOLDFAST_GRAMMAR_CONSTANT_SET = new Set(HOLDFAST_GRAMMAR.constants);
 
-const MATH_MULTI_SYMBOLS = [...VELA_GRAMMAR.multiOperators];
+const MATH_MULTI_SYMBOLS = [...HOLDFAST_GRAMMAR.multiOperators];
 
 const MATH_SINGLE_SYMBOLS = new Set([
   "{",
@@ -2899,8 +2899,8 @@ const MATH_SINGLE_SYMBOLS = new Set([
   ")",
   "[",
   "]",
-  ...VELA_GRAMMAR.singleOperators,
-  ...VELA_GRAMMAR.delimiters,
+  ...HOLDFAST_GRAMMAR.singleOperators,
+  ...HOLDFAST_GRAMMAR.delimiters,
 ]);
 
 function parseRawStringLiteral(sourceText, startIndex, startLine, startCol) {
@@ -2914,7 +2914,7 @@ function parseRawStringLiteral(sourceText, startIndex, startLine, startCol) {
   } else if (sourceText[idx] === "\n") {
     idx += 1;
   } else {
-    throw new VelaError(
+    throw new HoldFastError(
       "syntax",
       startLine,
       startCol,
@@ -2927,7 +2927,7 @@ function parseRawStringLiteral(sourceText, startIndex, startLine, startCol) {
   let currentLine = startLine + 1;
   while (idx <= sourceText.length) {
     if (idx === sourceText.length) {
-      throw new VelaError("syntax", startLine, startCol, "unterminated raw string literal");
+      throw new HoldFastError("syntax", startLine, startCol, "unterminated raw string literal");
     }
     if (sourceText[idx] === "\r" || sourceText[idx] === "\n") {
       contentLines.push(sourceText.slice(lineStart, idx));
@@ -2949,7 +2949,7 @@ function parseRawStringLiteral(sourceText, startIndex, startLine, startCol) {
       const dedented = contentLines.map((cl, lineOffset) => {
         if (cl.length === 0) return "";
         if (!cl.startsWith(indentPrefix)) {
-          throw new VelaError(
+          throw new HoldFastError(
             "syntax",
             startLine + 1 + lineOffset,
             1,
@@ -2960,7 +2960,7 @@ function parseRawStringLiteral(sourceText, startIndex, startLine, startCol) {
       });
       const textValue = dedented.join("\n");
       if (utf8Bytes(textValue).length > 256) {
-        throw new VelaError(
+        throw new HoldFastError(
           "limit",
           startLine,
           startCol,
@@ -2978,7 +2978,7 @@ function parseRawStringLiteral(sourceText, startIndex, startLine, startCol) {
     }
     idx += 1;
   }
-  throw new VelaError("syntax", startLine, startCol, "unterminated raw string literal");
+  throw new HoldFastError("syntax", startLine, startCol, "unterminated raw string literal");
 }
 
 function mathTokenize(sourceText, { allowSemicolon = true, hole = null } = {}) {
@@ -2992,11 +2992,11 @@ function mathTokenize(sourceText, { allowSemicolon = true, hole = null } = {}) {
   while (index < sourceText.length) {
     const ch = sourceText[index];
     if (hole) {
-      if (ch === "\r" || ch === "\n" || line !== hole.line) throw new VelaError("syntax", line, column, "newline in interpolation hole");
+      if (ch === "\r" || ch === "\n" || line !== hole.line) throw new HoldFastError("syntax", line, column, "newline in interpolation hole");
       if (!nested && (ch === "}" || (ch === ":" && !sourceText.startsWith("::", index)))) break;
       if ("([{".includes(ch)) nested += 1;
       if (")]}".includes(ch)) nested -= 1;
-      if (nested < 0) throw new VelaError("syntax", line, column, "mismatched interpolation delimiter");
+      if (nested < 0) throw new HoldFastError("syntax", line, column, "mismatched interpolation delimiter");
     }
     if (ch === " " || ch === "\t") {
       index += 1;
@@ -3053,7 +3053,7 @@ function mathTokenize(sourceText, { allowSemicolon = true, hole = null } = {}) {
         }
       }
       if (depth > 0) {
-        throw new VelaError("syntax", line, column, "unterminated block comment");
+        throw new HoldFastError("syntax", line, column, "unterminated block comment");
       }
       continue;
     }
@@ -3081,7 +3081,7 @@ function mathTokenize(sourceText, { allowSemicolon = true, hole = null } = {}) {
       let val = "";
       while (index < sourceText.length && sourceText[index] !== '"') {
         if (sourceText[index] === "\r" || sourceText[index] === "\n") {
-          throw new VelaError("syntax", startSite.line, startSite.column, "unterminated string literal");
+          throw new HoldFastError("syntax", startSite.line, startSite.column, "unterminated string literal");
         }
         if (sourceText[index] === "\\") {
           const escape = mathEscape(sourceText, index, line, column);
@@ -3097,12 +3097,12 @@ function mathTokenize(sourceText, { allowSemicolon = true, hole = null } = {}) {
         column += 1;
       }
       if (sourceText[index] !== '"') {
-        throw new VelaError("syntax", startSite.line, startSite.column, "unterminated string literal");
+        throw new HoldFastError("syntax", startSite.line, startSite.column, "unterminated string literal");
       }
       index += 1;
       column += 1;
       if (utf8Bytes(val).length > 256) {
-        throw new VelaError(
+        throw new HoldFastError(
           "limit",
           startSite.line,
           startSite.column,
@@ -3127,7 +3127,7 @@ function mathTokenize(sourceText, { allowSemicolon = true, hole = null } = {}) {
     }
     if (MATH_SINGLE_SYMBOLS.has(ch)) {
       if (!allowSemicolon && ch === ";") {
-        throw new VelaError("syntax", line, column, "unexpected ';'");
+        throw new HoldFastError("syntax", line, column, "unexpected ';'");
       }
       tokens.push({ kind: "symbol", text: ch, site: { line, column } });
       index += 1;
@@ -3146,11 +3146,11 @@ function mathTokenize(sourceText, { allowSemicolon = true, hole = null } = {}) {
       const suffix = suffixMatch ? suffixMatch[0] : "";
       const after = rest[rawNum.length + suffix.length] || "";
       if (/[A-Za-z0-9_]/.test(after)) {
-        throw new VelaError("syntax", line, column, "invalid numeric literal");
+        throw new HoldFastError("syntax", line, column, "invalid numeric literal");
       }
       const cleaned = rawNum.replace(/_/g, "");
       if (cleaned.length > MAX_LITERAL_DIGITS) {
-        throw new VelaError(
+        throw new HoldFastError(
           "limit",
           line,
           column,
@@ -3171,7 +3171,7 @@ function mathTokenize(sourceText, { allowSemicolon = true, hole = null } = {}) {
       column += word.length;
       continue;
     }
-    throw new VelaError("syntax", line, column, `unexpected character '${ch}'`);
+    throw new HoldFastError("syntax", line, column, `unexpected character '${ch}'`);
   }
   tokens.push({ kind: "eof", text: "<eof>", site: { line, column }, offset: index });
   return tokens;
@@ -3215,7 +3215,7 @@ class MathParser {
     const tok = this.match(kind, text);
     if (!tok) {
       const desc = label || (text ? `'${text}'` : kind);
-      throw new VelaError(
+      throw new HoldFastError(
         "syntax",
         this.current.site.line,
         this.current.site.column,
@@ -3415,10 +3415,10 @@ class MathParser {
     const nameTok = this.expect("word", null, "pattern");
     const isCtor = /^[A-Z]/.test(nameTok.text);
     if (this.match("symbol", "(")) {
-      if (!isCtor) throw new VelaError("syntax", nameTok.site.line, nameTok.site.column, "constructor pattern requires an uppercase initial");
+      if (!isCtor) throw new HoldFastError("syntax", nameTok.site.line, nameTok.site.column, "constructor pattern requires an uppercase initial");
       const args = [];
       if (this.current.text === ")") {
-        throw new VelaError("syntax", nameTok.site.line, nameTok.site.column, "a nullary constructor pattern is written without parentheses");
+        throw new HoldFastError("syntax", nameTok.site.line, nameTok.site.column, "a nullary constructor pattern is written without parentheses");
       }
       while (true) {
         let label = null;
@@ -3460,7 +3460,7 @@ class MathParser {
     const earlier = arms.find(({ pattern: prior }) => covers(prior, pattern))?.pattern;
     if (earlier) {
       const why = earlier.kind === "var_pat" ? `pattern '${earlier.name}' binds every value` : "pattern covers this case";
-      throw new VelaError("type", pattern.site.line, pattern.site.column, `unreachable match arm: earlier ${why}`);
+      throw new HoldFastError("type", pattern.site.line, pattern.site.column, `unreachable match arm: earlier ${why}`);
     }
     return pattern;
   }
@@ -3571,7 +3571,7 @@ class MathParser {
     while (this.current.kind !== "eof") {
       if (this.match("word", "import")) {
         const impName = this.parseDottedName("imported module");
-        throw new VelaError("unsupported", impName.site.line, impName.site.column,
+        throw new HoldFastError("unsupported", impName.site.line, impName.site.column,
           `import '${impName.text}' requires native module resolution`);
       }
       let visibility = "public";
@@ -3581,7 +3581,7 @@ class MathParser {
       ) {
         visibility = this.advance().text;
       } else {
-        throw new VelaError(
+        throw new HoldFastError(
           "syntax",
           this.current.site.line,
           this.current.site.column,
@@ -3659,7 +3659,7 @@ class MathParser {
         while (this.current.kind !== "eof" && !this.match("symbol", "}")) {
           const caseName = this.expect("word", null, "union case");
           if (!/^[A-Z]/.test(caseName.text)) {
-            throw new VelaError("syntax", caseName.site.line, caseName.site.column, "constructor declaration requires an uppercase initial");
+            throw new HoldFastError("syntax", caseName.site.line, caseName.site.column, "constructor declaration requires an uppercase initial");
           }
           const caseFields = this.parseParameters();
           this.expect("symbol", ";");
@@ -3924,11 +3924,11 @@ class MathParser {
     }
     if (
       this.current.kind === "word" &&
-      !VELA_GRAMMAR_KEYWORD_SET.has(this.current.text) &&
+      !HOLDFAST_GRAMMAR_KEYWORD_SET.has(this.current.text) &&
       this.peek().kind === "word" &&
       this.peek(2).text === "="
     ) {
-      throw new VelaError(
+      throw new HoldFastError(
         "syntax",
         this.current.site.line,
         this.current.site.column,
@@ -4306,7 +4306,7 @@ class MathParser {
       this.advance();
       return { kind: "name", name: tok.text, site: tok.site };
     }
-    throw new VelaError(
+    throw new HoldFastError(
       "syntax",
       tok.site.line,
       tok.site.column,
@@ -4357,9 +4357,9 @@ export function projectGrammarSemanticTokens(sourceText) {
   }
 
   const tokenTypeIndices = new Map(
-    VELA_GRAMMAR.semanticTokenTypes.map((name, idx) => [name, idx])
+    HOLDFAST_GRAMMAR.semanticTokenTypes.map((name, idx) => [name, idx])
   );
-  const moduleTypes = new Set(VELA_GRAMMAR.typeKeywords);
+  const moduleTypes = new Set(HOLDFAST_GRAMMAR.typeKeywords);
   const moduleCallables = new Set(MATH_BUILTINS);
   const moduleConstants = new Set();
   const moduleProperties = new Set();
@@ -4394,7 +4394,7 @@ export function projectGrammarSemanticTokens(sourceText) {
     if (!site || !rawName || !tokenTypeIndices.has(typeName)) return;
     const baseName = String(rawName).split(".")[0];
     if (!baseName || baseName === "_") return;
-    if (VELA_GRAMMAR_KEYWORD_SET.has(baseName)) return;
+    if (HOLDFAST_GRAMMAR_KEYWORD_SET.has(baseName)) return;
     const start = diagnosticLspPosition(sourceText, site.line, site.column);
     const end = diagnosticLspPosition(
       sourceText,
@@ -4844,42 +4844,42 @@ export function projectGrammarSemanticTokens(sourceText) {
   return { tokens, data };
 }
 
-const VELA_GENERIC_ANGLE_SOURCE =
+const HOLDFAST_GENERIC_ANGLE_SOURCE =
   "<(?=[A-Za-z_0-9'?(](?:->|-(?!>)|[^<>=\\r\\n;{}&|-]|<[^<>=\\r\\n;{}&|]*>)*>)";
-const VELA_CALL_SUFFIX_SOURCE = `\\s*(?:${VELA_GENERIC_ANGLE_SOURCE}(?:->|-(?!>)|[^<>=\\r\\n;{}&|-]|<[^<>=\\r\\n;{}&|]*>)*>\\s*\\(|\\()`;
-const VELA_NUM_SUFFIX_SOURCE = "(?:u8|u16|u32|u64|usize|byte|i8|i16|i32|i64)?\\b";
-const VELA_OPERATOR_SOURCE =
+const HOLDFAST_CALL_SUFFIX_SOURCE = `\\s*(?:${HOLDFAST_GENERIC_ANGLE_SOURCE}(?:->|-(?!>)|[^<>=\\r\\n;{}&|-]|<[^<>=\\r\\n;{}&|]*>)*>\\s*\\(|\\()`;
+const HOLDFAST_NUM_SUFFIX_SOURCE = "(?:u8|u16|u32|u64|usize|byte|i8|i16|i32|i64)?\\b";
+const HOLDFAST_OPERATOR_SOURCE =
   "<==>|==>|::|\\.\\.|=>|->|==|!=|<=|>=|&&|\\|\\||\\+=|-=|\\*=|\\/=|%=|[+*\\/%!=<>~^&|?-]";
 
-export const VELA_LEXICAL_PATTERNS = Object.freeze({
+export const HOLDFAST_LEXICAL_PATTERNS = Object.freeze({
   regionParam: /'[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*/,
   unificationVar: /\?[A-Za-z_][A-Za-z0-9_]*/,
   regionOrVarPrefix:
     /^(?:'[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*|\?[A-Za-z_][A-Za-z0-9_]*)/,
-  hexNumber: new RegExp(`0[xX][0-9A-Fa-f](?:_?[0-9A-Fa-f])*${VELA_NUM_SUFFIX_SOURCE}`),
-  binNumber: new RegExp(`0[bB][01](?:_?[01])*${VELA_NUM_SUFFIX_SOURCE}`),
-  decNumber: new RegExp(`[0-9](?:_?[0-9])*${VELA_NUM_SUFFIX_SOURCE}`),
+  hexNumber: new RegExp(`0[xX][0-9A-Fa-f](?:_?[0-9A-Fa-f])*${HOLDFAST_NUM_SUFFIX_SOURCE}`),
+  binNumber: new RegExp(`0[bB][01](?:_?[01])*${HOLDFAST_NUM_SUFFIX_SOURCE}`),
+  decNumber: new RegExp(`[0-9](?:_?[0-9])*${HOLDFAST_NUM_SUFFIX_SOURCE}`),
   bareNumber: /0[xX][0-9A-Fa-f](?:_?[0-9A-Fa-f])*|0[bB][01](?:_?[01])*|[0-9](?:_?[0-9])*/,
   anyNumberPrefix: new RegExp(
-    `^(?:0[xX][0-9A-Fa-f](?:_?[0-9A-Fa-f])*|0[bB][01](?:_?[01])*|[0-9](?:_?[0-9])*)${VELA_NUM_SUFFIX_SOURCE}`
+    `^(?:0[xX][0-9A-Fa-f](?:_?[0-9A-Fa-f])*|0[bB][01](?:_?[01])*|[0-9](?:_?[0-9])*)${HOLDFAST_NUM_SUFFIX_SOURCE}`
   ),
-  genericOpen: new RegExp(VELA_GENERIC_ANGLE_SOURCE),
-  genericOpenPrefix: new RegExp(`^${VELA_GENERIC_ANGLE_SOURCE}`),
-  callableWord: new RegExp(`[A-Za-z_][A-Za-z0-9_]*(?=${VELA_CALL_SUFFIX_SOURCE})`),
-  callableSuffixPrefix: new RegExp(`^${VELA_CALL_SUFFIX_SOURCE}`),
-  genericTypeWord: new RegExp(`[A-Za-z_][A-Za-z0-9_]*(?=\\s*${VELA_GENERIC_ANGLE_SOURCE})`),
+  genericOpen: new RegExp(HOLDFAST_GENERIC_ANGLE_SOURCE),
+  genericOpenPrefix: new RegExp(`^${HOLDFAST_GENERIC_ANGLE_SOURCE}`),
+  callableWord: new RegExp(`[A-Za-z_][A-Za-z0-9_]*(?=${HOLDFAST_CALL_SUFFIX_SOURCE})`),
+  callableSuffixPrefix: new RegExp(`^${HOLDFAST_CALL_SUFFIX_SOURCE}`),
+  genericTypeWord: new RegExp(`[A-Za-z_][A-Za-z0-9_]*(?=\\s*${HOLDFAST_GENERIC_ANGLE_SOURCE})`),
   typeParamWord: /\b(?:T[A-Z][A-Za-z0-9_]*|[A-Z])\b/,
   typeParamExact: /^(?:T[A-Z][A-Za-z0-9_]*|[A-Z])$/,
-  operator: new RegExp(VELA_OPERATOR_SOURCE),
-  operatorPrefix: new RegExp(`^(?:${VELA_OPERATOR_SOURCE})`),
+  operator: new RegExp(HOLDFAST_OPERATOR_SOURCE),
+  operatorPrefix: new RegExp(`^(?:${HOLDFAST_OPERATOR_SOURCE})`),
 });
 
-export function buildVelaMonarchLanguage() {
+export function buildHoldFastMonarchLanguage() {
   return {
-    keywords: [...VELA_GRAMMAR.keywords],
-    typeKeywords: [...VELA_GRAMMAR.typeKeywords],
+    keywords: [...HOLDFAST_GRAMMAR.keywords],
+    typeKeywords: [...HOLDFAST_GRAMMAR.typeKeywords],
     callableTypeKeywords: ["Fn", "FnMut", "FnOnce"],
-    constants: [...VELA_GRAMMAR.constants],
+    constants: [...HOLDFAST_GRAMMAR.constants],
     tokenizer: {
       root: [
         [/[ \t\r\n]+/, "white"],
@@ -4889,13 +4889,13 @@ export function buildVelaMonarchLanguage() {
         [/\$"/, "string", "@formatString"],
         [/"(?:\\.|[^"\\])*"/, "string"],
         [/'(?:\\.|[^'\\\r\n])'/, "string"],
-        [VELA_LEXICAL_PATTERNS.regionParam, "typeParameter"],
-        [VELA_LEXICAL_PATTERNS.unificationVar, "typeParameter"],
-        [VELA_LEXICAL_PATTERNS.hexNumber, "number"],
-        [VELA_LEXICAL_PATTERNS.binNumber, "number"],
-        [VELA_LEXICAL_PATTERNS.decNumber, "number"],
+        [HOLDFAST_LEXICAL_PATTERNS.regionParam, "typeParameter"],
+        [HOLDFAST_LEXICAL_PATTERNS.unificationVar, "typeParameter"],
+        [HOLDFAST_LEXICAL_PATTERNS.hexNumber, "number"],
+        [HOLDFAST_LEXICAL_PATTERNS.binNumber, "number"],
+        [HOLDFAST_LEXICAL_PATTERNS.decNumber, "number"],
         [/::</, { token: "delimiter.angle", next: "@genericArgs" }],
-        [VELA_LEXICAL_PATTERNS.genericOpen, { token: "delimiter.angle", next: "@genericArgs" }],
+        [HOLDFAST_LEXICAL_PATTERNS.genericOpen, { token: "delimiter.angle", next: "@genericArgs" }],
         [
           /\b(?:record|struct|union|inductive|coinductive|interface|type|alias)\b(?=\s+[A-Za-z_][A-Za-z0-9_]*)/,
           { token: "keyword", next: "@typeDeclarationName" },
@@ -4923,7 +4923,7 @@ export function buildVelaMonarchLanguage() {
           },
         ],
         [
-          VELA_LEXICAL_PATTERNS.callableWord,
+          HOLDFAST_LEXICAL_PATTERNS.callableWord,
           {
             cases: {
               "@keywords": "keyword",
@@ -4934,7 +4934,7 @@ export function buildVelaMonarchLanguage() {
           },
         ],
         [
-          VELA_LEXICAL_PATTERNS.genericTypeWord,
+          HOLDFAST_LEXICAL_PATTERNS.genericTypeWord,
           {
             cases: {
               "@keywords": "keyword",
@@ -4945,7 +4945,7 @@ export function buildVelaMonarchLanguage() {
           },
         ],
         [
-          VELA_LEXICAL_PATTERNS.typeParamWord,
+          HOLDFAST_LEXICAL_PATTERNS.typeParamWord,
           {
             cases: {
               "@typeKeywords": "type",
@@ -4975,7 +4975,7 @@ export function buildVelaMonarchLanguage() {
             },
           },
         ],
-        [VELA_LEXICAL_PATTERNS.operator, "operator"],
+        [HOLDFAST_LEXICAL_PATTERNS.operator, "operator"],
         [/[{}()\[\]]/, "@brackets"],
         [/[;,.:@@]/, "delimiter"],
       ],
@@ -4997,13 +4997,13 @@ export function buildVelaMonarchLanguage() {
         [/[ \t\r\n]+/, "white"],
         [/\/\/.*$/, "comment"],
         [/\/\*/, "comment", "@blockComment"],
-        [VELA_LEXICAL_PATTERNS.genericOpen, { token: "delimiter.angle", next: "@genericArgs" }],
+        [HOLDFAST_LEXICAL_PATTERNS.genericOpen, { token: "delimiter.angle", next: "@genericArgs" }],
         [/->/, "operator"],
         [/>/, { token: "delimiter.angle", next: "@pop" }],
         [/[;{}]/, { token: "@rematch", next: "@popall" }],
-        [VELA_LEXICAL_PATTERNS.regionParam, "typeParameter"],
-        [VELA_LEXICAL_PATTERNS.unificationVar, "typeParameter"],
-        [VELA_LEXICAL_PATTERNS.bareNumber, "number"],
+        [HOLDFAST_LEXICAL_PATTERNS.regionParam, "typeParameter"],
+        [HOLDFAST_LEXICAL_PATTERNS.unificationVar, "typeParameter"],
+        [HOLDFAST_LEXICAL_PATTERNS.bareNumber, "number"],
         [
           /[A-Za-z_][A-Za-z0-9_]*(?=\s*<)/,
           {
@@ -5015,7 +5015,7 @@ export function buildVelaMonarchLanguage() {
           },
         ],
         [
-          VELA_LEXICAL_PATTERNS.typeParamWord,
+          HOLDFAST_LEXICAL_PATTERNS.typeParamWord,
           {
             cases: {
               "@typeKeywords": "type",
@@ -5109,14 +5109,14 @@ export function buildVelaMonarchLanguage() {
   };
 }
 
-function escapeVelaHtml(text) {
+function escapeHoldFastHtml(text) {
   return String(text)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 }
 
-export function highlightVelaCodeHtml(sourceText) {
+export function highlightHoldFastCodeHtml(sourceText) {
   if (typeof sourceText !== "string" || !sourceText) return "";
   const semantic = projectGrammarSemanticTokens(sourceText);
   const semanticByPos = new Map();
@@ -5139,24 +5139,24 @@ export function highlightVelaCodeHtml(sourceText) {
         continue;
       }
       if (rest.startsWith("//")) {
-        out += `<span class="tok-comment">${escapeVelaHtml(rest)}</span>`;
+        out += `<span class="tok-comment">${escapeHoldFastHtml(rest)}</span>`;
         break;
       }
       const strMatch = /^(?:\$"(?:\\.|[^"\\])*"|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])')/.exec(rest);
       if (strMatch) {
-        out += `<span class="tok-string">${escapeVelaHtml(strMatch[0])}</span>`;
+        out += `<span class="tok-string">${escapeHoldFastHtml(strMatch[0])}</span>`;
         col += strMatch[0].length;
         continue;
       }
-      const regionOrVar = VELA_LEXICAL_PATTERNS.regionOrVarPrefix.exec(rest);
+      const regionOrVar = HOLDFAST_LEXICAL_PATTERNS.regionOrVarPrefix.exec(rest);
       if (regionOrVar) {
-        out += `<span class="tok-typeParameter">${escapeVelaHtml(regionOrVar[0])}</span>`;
+        out += `<span class="tok-typeParameter">${escapeHoldFastHtml(regionOrVar[0])}</span>`;
         col += regionOrVar[0].length;
         continue;
       }
-      const numMatch = VELA_LEXICAL_PATTERNS.anyNumberPrefix.exec(rest);
+      const numMatch = HOLDFAST_LEXICAL_PATTERNS.anyNumberPrefix.exec(rest);
       if (numMatch) {
-        out += `<span class="tok-number">${escapeVelaHtml(numMatch[0])}</span>`;
+        out += `<span class="tok-number">${escapeHoldFastHtml(numMatch[0])}</span>`;
         col += numMatch[0].length;
         continue;
       }
@@ -5166,17 +5166,17 @@ export function highlightVelaCodeHtml(sourceText) {
         const sem = semanticByPos.get(`${lineIdx}:${col}`);
         const afterWord = rest.slice(word.length);
         let cls = null;
-        if (VELA_GRAMMAR_KEYWORD_SET.has(word)) {
+        if (HOLDFAST_GRAMMAR_KEYWORD_SET.has(word)) {
           cls = "keyword";
         } else if (sem) {
           cls = sem.type;
-        } else if (VELA_GRAMMAR_TYPE_KEYWORD_SET.has(word)) {
+        } else if (HOLDFAST_GRAMMAR_TYPE_KEYWORD_SET.has(word)) {
           cls = "type";
-        } else if (VELA_GRAMMAR_CONSTANT_SET.has(word)) {
+        } else if (HOLDFAST_GRAMMAR_CONSTANT_SET.has(word)) {
           cls = "constant";
-        } else if (VELA_LEXICAL_PATTERNS.typeParamExact.test(word)) {
+        } else if (HOLDFAST_LEXICAL_PATTERNS.typeParamExact.test(word)) {
           cls = "typeParameter";
-        } else if (VELA_LEXICAL_PATTERNS.callableSuffixPrefix.test(afterWord)) {
+        } else if (HOLDFAST_LEXICAL_PATTERNS.callableSuffixPrefix.test(afterWord)) {
           cls = "function";
         } else if (genericDepth > 0) {
           cls = /^[A-Z]/.test(word) ? "typeParameter" : "parameter";
@@ -5184,12 +5184,12 @@ export function highlightVelaCodeHtml(sourceText) {
           cls = "type";
         }
         out += cls
-          ? `<span class="tok-${cls}">${escapeVelaHtml(word)}</span>`
-          : escapeVelaHtml(word);
+          ? `<span class="tok-${cls}">${escapeHoldFastHtml(word)}</span>`
+          : escapeHoldFastHtml(word);
         col += word.length;
         continue;
       }
-      if (VELA_LEXICAL_PATTERNS.genericOpenPrefix.test(rest)) {
+      if (HOLDFAST_LEXICAL_PATTERNS.genericOpenPrefix.test(rest)) {
         genericDepth += 1;
         out += `<span class="tok-angle">&lt;</span>`;
         col += 1;
@@ -5201,13 +5201,13 @@ export function highlightVelaCodeHtml(sourceText) {
         col += 1;
         continue;
       }
-      const opMatch = VELA_LEXICAL_PATTERNS.operatorPrefix.exec(rest);
+      const opMatch = HOLDFAST_LEXICAL_PATTERNS.operatorPrefix.exec(rest);
       if (opMatch) {
-        out += `<span class="tok-operator">${escapeVelaHtml(opMatch[0])}</span>`;
+        out += `<span class="tok-operator">${escapeHoldFastHtml(opMatch[0])}</span>`;
         col += opMatch[0].length;
         continue;
       }
-      out += escapeVelaHtml(rest[0]);
+      out += escapeHoldFastHtml(rest[0]);
       col += 1;
     }
     renderedLines.push(out);
@@ -5253,11 +5253,11 @@ function mathEscape(source, offset, line, column) {
       return { value: String.fromCodePoint(cp), end: offset + scalar[0].length };
     }
   }
-  throw new VelaError("syntax", line, column, "invalid string escape");
+  throw new HoldFastError("syntax", line, column, "invalid string escape");
 }
 
 function readFormatTemplate(source, start, line, column, depth) {
-  if (depth > MAX_EXPRESSION_DEPTH) throw new VelaError("limit", line, column, "format nesting exceeds limit");
+  if (depth > MAX_EXPRESSION_DEPTH) throw new HoldFastError("limit", line, column, "format nesting exceeds limit");
   const segments = [];
   let literal = "";
   let index = start + 2;
@@ -5284,24 +5284,24 @@ function readFormatTemplate(source, start, line, column, depth) {
       const parser = new MathParser(tokens);
       const expr = parser.parseExpression();
       if (parser.current.kind !== "eof") {
-        throw new VelaError("syntax", line, parser.current.site.column, "unexpected token in interpolation hole");
+        throw new HoldFastError("syntax", line, parser.current.site.column, "unexpected token in interpolation hole");
       }
       index = parser.current.offset;
       column = parser.current.site.column;
       let spec = "";
       if (source[index] === ":") {
         const match = /^:([^\s"'{}()[\]:]+)\}/u.exec(source.slice(index));
-        if (!match) throw new VelaError("syntax", line, column, "invalid interpolation format specifier");
+        if (!match) throw new HoldFastError("syntax", line, column, "invalid interpolation format specifier");
         spec = match[1];
         index += spec.length + 1;
         column += Array.from(spec).length + 1;
       }
-      if (source[index] !== "}") throw new VelaError("syntax", line, column, "unclosed interpolation hole");
+      if (source[index] !== "}") throw new HoldFastError("syntax", line, column, "unclosed interpolation hole");
       segments.push({ kind: "hole", expr, spec });
       index += 1;
       column += 1;
     } else if (ch === "}") {
-      throw new VelaError("syntax", line, column, "unescaped closing brace in format string");
+      throw new HoldFastError("syntax", line, column, "unescaped closing brace in format string");
     } else {
       const codepoint = String.fromCodePoint(source.codePointAt(index));
       literal += codepoint;
@@ -5309,7 +5309,7 @@ function readFormatTemplate(source, start, line, column, depth) {
       column += 1;
     }
   }
-  throw new VelaError("syntax", line, column, "unterminated format string");
+  throw new HoldFastError("syntax", line, column, "unterminated format string");
 }
 
 // The right side of a short-circuited guard is checked in the scope it
@@ -5338,7 +5338,7 @@ function checkScalarValue(type, value, site, binding) {
   if (type?.kind !== "named_type") return;
   if ((type.name === "Nat" && (typeof value !== "bigint" || value < 0n)) ||
       (type.name === "bool" && typeof value !== "boolean")) {
-    throw new VelaError("type", site.line, site.column, `expected ${type.name} for ${binding}`);
+    throw new HoldFastError("type", site.line, site.column, `expected ${type.name} for ${binding}`);
   }
 }
 
@@ -5355,7 +5355,7 @@ class MathElaborator {
   step(site) {
     this.steps += 1;
     if (this.steps > 20000) {
-      throw new VelaError(
+      throw new HoldFastError(
         "limit",
         site ? site.line : 1,
         site ? site.column : 1,
@@ -5417,7 +5417,7 @@ class MathElaborator {
         }
         const rec = this.records.get(pattern.name);
         if (!rec || pattern.args.length !== rec.fields.length) {
-          throw new VelaError(
+          throw new HoldFastError(
             "type",
             pattern.site.line,
             pattern.site.column,
@@ -5429,7 +5429,7 @@ class MathElaborator {
           const arg = pattern.args[i];
           const expectedField = rec.fields[i].name;
           if (arg.label !== null && arg.label !== expectedField) {
-            throw new VelaError(
+            throw new HoldFastError(
               "type",
               pattern.site.line,
               pattern.site.column,
@@ -5474,7 +5474,7 @@ class MathElaborator {
       if (result.matched) {
         for (const [name, value] of result.bindings) {
           if (env.has(name)) {
-            throw new VelaError("name", expr.site.line, expr.site.column, `duplicate or invalid local binding '${name}'`);
+            throw new HoldFastError("name", expr.site.line, expr.site.column, `duplicate or invalid local binding '${name}'`);
           }
           env.set(name, value);
         }
@@ -5483,7 +5483,7 @@ class MathElaborator {
     }
     const value = this.evalExpr(expr, env);
     if (typeof value !== "boolean") {
-      throw new VelaError("type", expr.site.line, expr.site.column, typeError);
+      throw new HoldFastError("type", expr.site.line, expr.site.column, typeError);
     }
     return value;
   }
@@ -5527,7 +5527,7 @@ class MathElaborator {
             const res = this.evalBlock(stmt.elseBlock, localEnv);
             if (res.returned) return res;
           }
-          throw new VelaError(
+          throw new HoldFastError(
             "type",
             stmt.site.line,
             stmt.site.column,
@@ -5568,7 +5568,7 @@ class MathElaborator {
           }
         }
         if (!matchedArm) {
-          throw new VelaError("type", stmt.site.line, stmt.site.column, "non-exhaustive match");
+          throw new HoldFastError("type", stmt.site.line, stmt.site.column, "non-exhaustive match");
         }
         continue;
       }
@@ -5607,7 +5607,7 @@ class MathElaborator {
         if (stmt.target.kind === "name") {
           const name = stmt.target.name;
           if (!localEnv.has(name)) {
-            throw new VelaError("name", stmt.site.line, stmt.site.column, `unknown variable '${name}'`);
+            throw new HoldFastError("name", stmt.site.line, stmt.site.column, `unknown variable '${name}'`);
           }
           const prev = localEnv.get(name);
           if (stmt.op === "=") localEnv.set(name, rhs);
@@ -5626,7 +5626,7 @@ class MathElaborator {
   checkSkippedBoolean(expr, env, operator) {
     const type = this.scalarType(expr, env);
     if (type && type !== "bool") {
-      throw new VelaError("type", expr.site.line, expr.site.column, `operator '${operator}' requires bool`);
+      throw new HoldFastError("type", expr.site.line, expr.site.column, `operator '${operator}' requires bool`);
     }
   }
 
@@ -5646,7 +5646,7 @@ class MathElaborator {
       if (this.callables.has(expr.name) || this.unionCtors.has(expr.name) || MATH_BUILTINS.has(expr.name)) {
         return null;
       }
-      throw new VelaError("name", expr.site.line, expr.site.column, `unknown identifier '${expr.name}'`);
+      throw new HoldFastError("name", expr.site.line, expr.site.column, `unknown identifier '${expr.name}'`);
     }
     if (expr.kind === "is_expr") {
       this.scalarType(expr.target, env);
@@ -5657,14 +5657,14 @@ class MathElaborator {
       const right = this.scalarType(expr.right, expr.op === "&&" ? guardScope(expr.left, env) : env);
       if (expr.op === "==" || expr.op === "!=") {
         if (left && right && left !== right) {
-          throw new VelaError("type", expr.site.line, expr.site.column, `operator '${expr.op}' requires operands of matching types`);
+          throw new HoldFastError("type", expr.site.line, expr.site.column, `operator '${expr.op}' requires operands of matching types`);
         }
         return "bool";
       }
       const logical = ["&&", "||", "==>", "<==>"].includes(expr.op);
       const expected = logical ? "bool" : "Nat";
       if ((left && left !== expected) || (right && right !== expected)) {
-        throw new VelaError("type", expr.site.line, expr.site.column, `operator '${expr.op}' requires ${expected} operands`);
+        throw new HoldFastError("type", expr.site.line, expr.site.column, `operator '${expr.op}' requires ${expected} operands`);
       }
       return logical || PURE_COMPARISON_OPERATORS.has(expr.op) ? "bool" : "Nat";
     }
@@ -5672,7 +5672,7 @@ class MathElaborator {
       const expected = expr.op === "!" ? "bool" : "Nat";
       const actual = this.scalarType(expr.operand, env);
       if (actual && actual !== expected) {
-        throw new VelaError("type", expr.site.line, expr.site.column, `operator '${expr.op}' requires ${expected}`);
+        throw new HoldFastError("type", expr.site.line, expr.site.column, `operator '${expr.op}' requires ${expected}`);
       }
       return expected;
     }
@@ -5681,13 +5681,13 @@ class MathElaborator {
       const decl = this.callables.get(name);
       if (decl) {
         if (expr.args.length !== decl.parameters.length) {
-          throw new VelaError("type", expr.site.line, expr.site.column, `'${name}' expects ${decl.parameters.length} argument(s)`);
+          throw new HoldFastError("type", expr.site.line, expr.site.column, `'${name}' expects ${decl.parameters.length} argument(s)`);
         }
         for (const [index, arg] of expr.args.entries()) {
           const expected = decl.parameters[index].type.name;
           const actual = this.scalarType(arg.value, env);
           if (actual && ["Nat", "bool"].includes(expected) && expected !== actual) {
-            throw new VelaError("type", arg.site.line, arg.site.column, `expected ${expected} for ${decl.parameters[index].name}`);
+            throw new HoldFastError("type", arg.site.line, arg.site.column, `expected ${expected} for ${decl.parameters[index].name}`);
           }
         }
         return ["Nat", "bool"].includes(decl.returnType?.name) ? decl.returnType.name : null;
@@ -5695,7 +5695,7 @@ class MathElaborator {
       if (["Succ", "Zero", "ByteLength", "Written"].includes(name)) return "Nat";
       if (name === "Fits") return "bool";
       if (!env.has(name) && !MATH_BUILTINS.has(name) && !this.records.has(name) && !this.unionCtors.has(name)) {
-        throw new VelaError("name", expr.site.line, expr.site.column, `unknown function '${name}'`);
+        throw new HoldFastError("name", expr.site.line, expr.site.column, `unknown function '${name}'`);
       }
     }
     return null;
@@ -5711,7 +5711,7 @@ class MathElaborator {
     if (expr.kind === "string") return expr.value;
     if (expr.kind === "unit") return { __kind: "unit" };
     if (expr.kind === "format_string") {
-      throw new VelaError(
+      throw new HoldFastError(
         "type",
         expr.site.line,
         expr.site.column,
@@ -5739,7 +5739,7 @@ class MathElaborator {
         }
         return { __kind: "callable_ref", decl };
       }
-      throw new VelaError(
+      throw new HoldFastError(
         "name",
         expr.site.line,
         expr.site.column,
@@ -5756,7 +5756,7 @@ class MathElaborator {
       };
     }
     if (expr.kind === "quantifier") {
-      throw new VelaError("unsupported", expr.site.line, expr.site.column, "quantified propositions require proof checking");
+      throw new HoldFastError("unsupported", expr.site.line, expr.site.column, "quantified propositions require proof checking");
     }
     if (expr.kind === "if_expr") {
       const thenEnv = new Map(env);
@@ -5778,12 +5778,12 @@ class MathElaborator {
           return this.evalExpr(arm.expr, armEnv);
         }
       }
-      throw new VelaError("type", expr.site.line, expr.site.column, "non-exhaustive match");
+      throw new HoldFastError("type", expr.site.line, expr.site.column, "non-exhaustive match");
     }
     if (expr.kind === "with_update") {
       const baseVal = this.evalExpr(expr.base, env);
       if (!baseVal || baseVal.__kind !== "record") {
-        throw new VelaError(
+        throw new HoldFastError(
           "type",
           expr.site.line,
           expr.site.column,
@@ -5796,7 +5796,7 @@ class MathElaborator {
       for (const upd of expr.updates) {
         const fIdx = rec.fields.findIndex((f) => f.name === upd.field);
         if (fIdx < 0) {
-          throw new VelaError(
+          throw new HoldFastError(
             "type",
             upd.site.line,
             upd.site.column,
@@ -5804,7 +5804,7 @@ class MathElaborator {
           );
         }
         if (fIdx <= lastFieldIdx) {
-          throw new VelaError(
+          throw new HoldFastError(
             "type",
             upd.site.line,
             upd.site.column,
@@ -5835,7 +5835,7 @@ class MathElaborator {
           }
         }
       }
-      throw new VelaError(
+      throw new HoldFastError(
         "name",
         expr.site.line,
         expr.site.column,
@@ -5849,13 +5849,13 @@ class MathElaborator {
       const val = this.evalExpr(expr.operand, env);
       if (expr.op === "!") {
         if (typeof val !== "boolean") {
-          throw new VelaError("type", expr.site.line, expr.site.column, "operator '!' requires bool");
+          throw new HoldFastError("type", expr.site.line, expr.site.column, "operator '!' requires bool");
         }
         return !val;
       }
       if (expr.op === "-") {
         if (typeof val !== "bigint") {
-          throw new VelaError("type", expr.site.line, expr.site.column, "operator '-' requires integer");
+          throw new HoldFastError("type", expr.site.line, expr.site.column, "operator '-' requires integer");
         }
         return -val;
       }
@@ -5865,7 +5865,7 @@ class MathElaborator {
       if (op === "||" || op === "==>") {
         const left = this.evalExpr(expr.left, env);
         if (typeof left !== "boolean") {
-          throw new VelaError("type", expr.site.line, expr.site.column, `operator '${op}' requires bool`);
+          throw new HoldFastError("type", expr.site.line, expr.site.column, `operator '${op}' requires bool`);
         }
         if ((op === "||" && left) || (op === "==>" && !left)) {
           this.checkSkippedBoolean(expr.right, env, op);
@@ -5873,7 +5873,7 @@ class MathElaborator {
         }
         const right = this.evalExpr(expr.right, env);
         if (typeof right !== "boolean") {
-          throw new VelaError("type", expr.site.line, expr.site.column, `operator '${op}' requires bool`);
+          throw new HoldFastError("type", expr.site.line, expr.site.column, `operator '${op}' requires bool`);
         }
         return right;
       }
@@ -5881,13 +5881,13 @@ class MathElaborator {
       const right = this.evalExpr(expr.right, env);
       if (op === "<==>") {
         if (typeof left !== "boolean" || typeof right !== "boolean") {
-          throw new VelaError("type", expr.site.line, expr.site.column, "operator '<==>' requires bool");
+          throw new HoldFastError("type", expr.site.line, expr.site.column, "operator '<==>' requires bool");
         }
         return left === right;
       }
       if (op === "==" || op === "!=") {
         if (typeof left !== typeof right) {
-          throw new VelaError(
+          throw new HoldFastError(
             "type",
             expr.site.line,
             expr.site.column,
@@ -5898,7 +5898,7 @@ class MathElaborator {
         return op === "==" ? eq : !eq;
       }
       if (typeof left !== "bigint" || typeof right !== "bigint") {
-        throw new VelaError("type", expr.site.line, expr.site.column, `operator '${op}' requires Nat`);
+        throw new HoldFastError("type", expr.site.line, expr.site.column, `operator '${op}' requires Nat`);
       }
       if (op === "<") return left < right;
       if (op === "<=") return left <= right;
@@ -5913,7 +5913,7 @@ class MathElaborator {
     if (expr.kind === "call") {
       return this.evalCall(expr, env);
     }
-    throw new VelaError("unsupported", expr.site.line, expr.site.column, `unsupported expression kind '${expr.kind}'`);
+    throw new HoldFastError("unsupported", expr.site.line, expr.site.column, `unsupported expression kind '${expr.kind}'`);
   }
 
   evalCall(expr, env) {
@@ -5924,11 +5924,11 @@ class MathElaborator {
       expr.callee.member === "Empty"
     ) {
       if (expr.typeArgs.length !== 1) {
-        throw new VelaError("type", expr.site.line, expr.site.column, "TextBuilder.Empty expects 1 capacity argument");
+        throw new HoldFastError("type", expr.site.line, expr.site.column, "TextBuilder.Empty expects 1 capacity argument");
       }
       const cap = this.evalTypeIndex(expr.typeArgs[0], env);
       if (cap === null) {
-        throw new VelaError("type", expr.site.line, expr.site.column, "TextBuilder capacity must be a Nat");
+        throw new HoldFastError("type", expr.site.line, expr.site.column, "TextBuilder capacity must be a Nat");
       }
       return { __kind: "builder", capacity: cap, written: 0n, ok: true };
     }
@@ -5939,12 +5939,12 @@ class MathElaborator {
       expr.callee.member === "Write"
     ) {
       if (expr.args.length !== 2) {
-        throw new VelaError("type", expr.site.line, expr.site.column, "Format.Write expects 2 arguments");
+        throw new HoldFastError("type", expr.site.line, expr.site.column, "Format.Write expects 2 arguments");
       }
       const builderArg = expr.args[0];
       const fmtArg = expr.args[1];
       if (builderArg.mode !== "ref") {
-        throw new VelaError(
+        throw new HoldFastError(
           "type",
           builderArg.site.line,
           builderArg.site.column,
@@ -5952,7 +5952,7 @@ class MathElaborator {
         );
       }
       if (builderArg.value.kind !== "name" || !env.has(builderArg.value.name)) {
-        throw new VelaError(
+        throw new HoldFastError(
           "type",
           builderArg.site.line,
           builderArg.site.column,
@@ -5961,7 +5961,7 @@ class MathElaborator {
       }
       const builder = env.get(builderArg.value.name);
       if (!builder || builder.__kind !== "builder") {
-        throw new VelaError(
+        throw new HoldFastError(
           "type",
           builderArg.site.line,
           builderArg.site.column,
@@ -5969,7 +5969,7 @@ class MathElaborator {
         );
       }
       if (fmtArg.value.kind !== "format_string") {
-        throw new VelaError(
+        throw new HoldFastError(
           "type",
           fmtArg.site.line,
           fmtArg.site.column,
@@ -5985,19 +5985,19 @@ class MathElaborator {
           let byteCount;
           if (typeof holeVal === "bigint") {
             if (!["", "d", "x", "X", "x2", "X2", "x4", "X4", "x8", "X8", "b"].includes(seg.spec)) {
-              throw new VelaError("type", seg.expr.site.line, seg.expr.site.column, `unsupported integer format specifier '${seg.spec}'`);
+              throw new HoldFastError("type", seg.expr.site.line, seg.expr.site.column, `unsupported integer format specifier '${seg.spec}'`);
             }
             const radix = /^[xX]/.test(seg.spec) ? 16 : seg.spec === "b" ? 2 : 10;
             if (radix !== 10 && holeVal < 0n) {
-              throw new VelaError("type", seg.expr.site.line, seg.expr.site.column, "nondecimal formatting requires a non-negative integer");
+              throw new HoldFastError("type", seg.expr.site.line, seg.expr.site.column, "nondecimal formatting requires a non-negative integer");
             }
             byteCount = BigInt(Math.max(Number(seg.spec[1] || 0), holeVal.toString(radix).length));
           } else if (seg.spec) {
-            throw new VelaError("type", seg.expr.site.line, seg.expr.site.column, `unsupported format specifier '${seg.spec}'`);
+            throw new HoldFastError("type", seg.expr.site.line, seg.expr.site.column, `unsupported format specifier '${seg.spec}'`);
           } else if (typeof holeVal === "boolean") byteCount = holeVal ? 4n : 5n;
           else if (typeof holeVal === "string") byteCount = BigInt(utf8Bytes(holeVal).length);
           else if (holeVal?.__kind === "vec") byteCount = holeVal.length;
-          else throw new VelaError("type", seg.expr.site.line, seg.expr.site.column, "unsupported format hole type");
+          else throw new HoldFastError("type", seg.expr.site.line, seg.expr.site.column, "unsupported format hole type");
           addedBytes += byteCount;
         }
       }
@@ -6022,71 +6022,71 @@ class MathElaborator {
       }
       if (name === "Zero") {
         if (expr.args.length !== 0) {
-          throw new VelaError("type", expr.site.line, expr.site.column, "Zero() takes 0 arguments");
+          throw new HoldFastError("type", expr.site.line, expr.site.column, "Zero() takes 0 arguments");
         }
         return 0n;
       }
       if (name === "Succ") {
         if (expr.args.length !== 1) {
-          throw new VelaError("type", expr.site.line, expr.site.column, "Succ expects 1 argument");
+          throw new HoldFastError("type", expr.site.line, expr.site.column, "Succ expects 1 argument");
         }
         const inner = this.evalExpr(expr.args[0].value, env);
         if (typeof inner !== "bigint") {
-          throw new VelaError("type", expr.site.line, expr.site.column, "Succ requires a Nat argument");
+          throw new HoldFastError("type", expr.site.line, expr.site.column, "Succ requires a Nat argument");
         }
         return boundedNatural(inner + 1n, expr.site);
       }
       if (name === "VNil") {
         if (expr.args.length !== 0) {
-          throw new VelaError("type", expr.site.line, expr.site.column, "VNil takes 0 value arguments");
+          throw new HoldFastError("type", expr.site.line, expr.site.column, "VNil takes 0 value arguments");
         }
         return { __kind: "vec", items: [], length: 0n };
       }
       if (name === "VCons" || name === "Prepend") {
         if (expr.args.length !== 2) {
-          throw new VelaError("type", expr.site.line, expr.site.column, `${name} expects 2 arguments`);
+          throw new HoldFastError("type", expr.site.line, expr.site.column, `${name} expects 2 arguments`);
         }
         const head = this.evalExpr(expr.args[0].value, env);
         const tail = this.evalExpr(expr.args[1].value, env);
         if (!tail || tail.__kind !== "vec") {
-          throw new VelaError("type", expr.site.line, expr.site.column, `${name} second argument must be a Vec`);
+          throw new HoldFastError("type", expr.site.line, expr.site.column, `${name} second argument must be a Vec`);
         }
         return { __kind: "vec", items: [head, ...tail.items], length: tail.length + 1n };
       }
       if (name === "FZero") {
         if (expr.typeArgs.length !== 1 || expr.args.length !== 0) {
-          throw new VelaError("type", expr.site.line, expr.site.column, "FZero<n>() expects 1 index argument");
+          throw new HoldFastError("type", expr.site.line, expr.site.column, "FZero<n>() expects 1 index argument");
         }
         const nVal = this.evalTypeIndex(expr.typeArgs[0], env);
         if (nVal === null || nVal < 0n) {
-          throw new VelaError("type", expr.site.line, expr.site.column, "FZero requires a Nat bound");
+          throw new HoldFastError("type", expr.site.line, expr.site.column, "FZero requires a Nat bound");
         }
         return { __kind: "fin", index: 0n, bound: nVal + 1n };
       }
       if (name === "FSucc") {
         if (expr.args.length !== 1) {
-          throw new VelaError("type", expr.site.line, expr.site.column, "FSucc expects 1 Fin argument");
+          throw new HoldFastError("type", expr.site.line, expr.site.column, "FSucc expects 1 Fin argument");
         }
         const inner = this.evalExpr(expr.args[0].value, env);
         if (!inner || inner.__kind !== "fin") {
-          throw new VelaError("type", expr.site.line, expr.site.column, "FSucc requires a Fin argument");
+          throw new HoldFastError("type", expr.site.line, expr.site.column, "FSucc requires a Fin argument");
         }
         return { __kind: "fin", index: inner.index + 1n, bound: inner.bound + 1n };
       }
       if (name === "At") {
         if (expr.args.length !== 2) {
-          throw new VelaError("type", expr.site.line, expr.site.column, "At expects (Vec, Fin)");
+          throw new HoldFastError("type", expr.site.line, expr.site.column, "At expects (Vec, Fin)");
         }
         const vec = this.evalExpr(expr.args[0].value, env);
         const fin = this.evalExpr(expr.args[1].value, env);
         if (!vec || vec.__kind !== "vec") {
-          throw new VelaError("type", expr.site.line, expr.site.column, "At first argument must be a Vec");
+          throw new HoldFastError("type", expr.site.line, expr.site.column, "At first argument must be a Vec");
         }
         if (!fin || fin.__kind !== "fin") {
-          throw new VelaError("type", expr.site.line, expr.site.column, "At second argument must be a Fin");
+          throw new HoldFastError("type", expr.site.line, expr.site.column, "At second argument must be a Fin");
         }
         if (vec.length !== fin.bound || fin.index < 0n || fin.index >= vec.length) {
-          throw new VelaError(
+          throw new HoldFastError(
             "type",
             expr.site.line,
             expr.site.column,
@@ -6097,7 +6097,7 @@ class MathElaborator {
       }
       if (name === "ByteLength") {
         if (expr.args.length !== 1) {
-          throw new VelaError("type", expr.site.line, expr.site.column, "ByteLength expects 1 argument");
+          throw new HoldFastError("type", expr.site.line, expr.site.column, "ByteLength expects 1 argument");
         }
         const target = this.evalExpr(expr.args[0].value, env);
         if (typeof target === "string") {
@@ -6109,20 +6109,20 @@ class MathElaborator {
         if (target && target.__kind === "builder") {
           return target.written;
         }
-        throw new VelaError("type", expr.site.line, expr.site.column, "ByteLength requires String, Vec, or TextBuilder");
+        throw new HoldFastError("type", expr.site.line, expr.site.column, "ByteLength requires String, Vec, or TextBuilder");
       }
       if (name === "Written" || name === "Fits") {
         if (expr.args.length !== 1) {
-          throw new VelaError("type", expr.site.line, expr.site.column, `${name} expects 1 TextBuilder argument`);
+          throw new HoldFastError("type", expr.site.line, expr.site.column, `${name} expects 1 TextBuilder argument`);
         }
         const target = this.evalExpr(expr.args[0].value, env);
         if (!target || target.__kind !== "builder") {
-          throw new VelaError("type", expr.site.line, expr.site.column, `${name} requires a TextBuilder`);
+          throw new HoldFastError("type", expr.site.line, expr.site.column, `${name} requires a TextBuilder`);
         }
         if (expr.typeArgs.length === 1) {
           const cap = this.evalTypeIndex(expr.typeArgs[0], env);
           if (cap !== null && cap !== target.capacity) {
-            throw new VelaError("type", expr.site.line, expr.site.column, `${name} capacity mismatch`);
+            throw new HoldFastError("type", expr.site.line, expr.site.column, `${name} capacity mismatch`);
           }
         }
         return name === "Written" ? target.written : Boolean(target.ok && target.written <= target.capacity);
@@ -6130,7 +6130,7 @@ class MathElaborator {
       if (this.records.has(name)) {
         const rec = this.records.get(name);
         if (expr.args.length !== rec.fields.length) {
-          throw new VelaError(
+          throw new HoldFastError(
             "type",
             expr.site.line,
             expr.site.column,
@@ -6145,7 +6145,7 @@ class MathElaborator {
           if (arg.label !== null) {
             seenNamed = true;
             if (arg.label !== expectedName) {
-              throw new VelaError(
+              throw new HoldFastError(
                 "type",
                 arg.site.line,
                 arg.site.column,
@@ -6153,7 +6153,7 @@ class MathElaborator {
               );
             }
           } else if (seenNamed) {
-            throw new VelaError(
+            throw new HoldFastError(
               "type",
               arg.site.line,
               arg.site.column,
@@ -6175,7 +6175,7 @@ class MathElaborator {
         const localCallee = env.get(name);
         if (localCallee && localCallee.__kind === "closure") {
           if (expr.args.length !== localCallee.params.length) {
-            throw new VelaError("type", expr.site.line, expr.site.column, "lambda argument count mismatch");
+            throw new HoldFastError("type", expr.site.line, expr.site.column, "lambda argument count mismatch");
           }
           const callEnv = new Map(localCallee.env);
           for (let i = 0; i < localCallee.params.length; i += 1) {
@@ -6187,7 +6187,7 @@ class MathElaborator {
       if (this.callables.has(name)) {
         const decl = this.callables.get(name);
         if (expr.args.length !== decl.parameters.length) {
-          throw new VelaError(
+          throw new HoldFastError(
             "type",
             expr.site.line,
             expr.site.column,
@@ -6219,7 +6219,7 @@ class MathElaborator {
           if (arg.label !== null) {
             seenNamed = true;
             if (arg.label !== param.name) {
-              throw new VelaError(
+              throw new HoldFastError(
                 "type",
                 arg.site.line,
                 arg.site.column,
@@ -6227,7 +6227,7 @@ class MathElaborator {
               );
             }
           } else if (seenNamed) {
-            throw new VelaError(
+            throw new HoldFastError(
               "type",
               arg.site.line,
               arg.site.column,
@@ -6243,7 +6243,7 @@ class MathElaborator {
             param.type.args.length === 2
           ) {
             if (!argVal || argVal.__kind !== "vec") {
-              throw new VelaError("type", arg.site.line, arg.site.column, `expected Vec argument for '${param.name}'`);
+              throw new HoldFastError("type", arg.site.line, arg.site.column, `expected Vec argument for '${param.name}'`);
             }
             const lenArg = param.type.args[1];
             if (lenArg.kind === "named_type" && !callEnv.has(lenArg.name)) {
@@ -6251,7 +6251,7 @@ class MathElaborator {
             } else {
               const expectedLen = this.evalTypeIndex(lenArg, callEnv);
               if (expectedLen !== null && argVal.length !== expectedLen) {
-                throw new VelaError(
+                throw new HoldFastError(
                   "type",
                   arg.site.line,
                   arg.site.column,
@@ -6264,11 +6264,11 @@ class MathElaborator {
         }
         for (const req of decl.contracts.requires) {
           if (this.evalExpr(req.expr, callEnv) !== true) {
-            throw new VelaError("type", req.site.line, req.site.column, `precondition of '${decl.name}' failed`);
+            throw new HoldFastError("type", req.site.line, req.site.column, `precondition of '${decl.name}' failed`);
           }
         }
         if (!decl.body) {
-          throw new VelaError("unsupported", expr.site.line, expr.site.column, `'${decl.name}' has no body to evaluate`);
+          throw new HoldFastError("unsupported", expr.site.line, expr.site.column, `'${decl.name}' has no body to evaluate`);
         }
         const res = this.evalBlock(decl.body, callEnv);
         const returnVal = res.value;
@@ -6279,7 +6279,7 @@ class MathElaborator {
           ensEnv.set("result", returnVal);
           const ok = this.evalExpr(ens.expr, ensEnv);
           if (ok !== true) {
-            throw new VelaError(
+            throw new HoldFastError(
               "type",
               ens.site.line,
               ens.site.column,
@@ -6289,12 +6289,12 @@ class MathElaborator {
         }
         return returnVal;
       }
-      throw new VelaError("name", expr.site.line, expr.site.column, `unknown function '${name}'`);
+      throw new HoldFastError("name", expr.site.line, expr.site.column, `unknown function '${name}'`);
     }
     const calleeVal = this.evalExpr(expr.callee, env);
     if (calleeVal && calleeVal.__kind === "closure") {
       if (expr.args.length !== calleeVal.params.length) {
-        throw new VelaError("type", expr.site.line, expr.site.column, "lambda argument count mismatch");
+        throw new HoldFastError("type", expr.site.line, expr.site.column, "lambda argument count mismatch");
       }
       const callEnv = new Map(calleeVal.env);
       for (let i = 0; i < calleeVal.params.length; i += 1) {
@@ -6302,7 +6302,7 @@ class MathElaborator {
       }
       return this.evalExpr(calleeVal.body, callEnv);
     }
-    throw new VelaError("unsupported", expr.site.line, expr.site.column, "unsupported call target");
+    throw new HoldFastError("unsupported", expr.site.line, expr.site.column, "unsupported call target");
   }
 
   checkReturnValueType(decl, returnVal, env) {
@@ -6314,7 +6314,7 @@ class MathElaborator {
         const strLen = BigInt(utf8Bytes(returnVal).length);
         const expectedLen = this.evalTypeIndex(rt.args[1], env);
         if (expectedLen !== null && strLen !== expectedLen) {
-          throw new VelaError(
+          throw new HoldFastError(
             "type",
             decl.site.line,
             decl.site.column,
@@ -6324,11 +6324,11 @@ class MathElaborator {
         return;
       }
       if (!returnVal || returnVal.__kind !== "vec") {
-        throw new VelaError("type", decl.site.line, decl.site.column, `expected Vec return value in '${decl.name}'`);
+        throw new HoldFastError("type", decl.site.line, decl.site.column, `expected Vec return value in '${decl.name}'`);
       }
       const expectedLen = this.evalTypeIndex(rt.args[1], env);
       if (expectedLen !== null && returnVal.length !== expectedLen) {
-        throw new VelaError(
+        throw new HoldFastError(
           "type",
           decl.site.line,
           decl.site.column,
@@ -6404,13 +6404,13 @@ class MathElaborator {
         for (const item of step.assertions) {
           const val = this.evalExpr(item.prop, env);
           if (val !== true) {
-            throw new VelaError("type", item.site.line, item.site.column, "calc proof assertion failed");
+            throw new HoldFastError("type", item.site.line, item.site.column, "calc proof assertion failed");
           }
         }
       } else if (step.kind === "assert") {
         const val = this.evalExpr(step.prop, env);
         if (val !== true) {
-          throw new VelaError("type", step.site.line, step.site.column, "proof assertion failed");
+          throw new HoldFastError("type", step.site.line, step.site.column, "proof assertion failed");
         }
       }
     }
@@ -6452,7 +6452,7 @@ class MathElaborator {
           this.checkProofBlock(decl.proof, env);
           for (const ens of decl.contracts.ensures) {
             if (this.evalExpr(ens.expr, env) !== true) {
-              throw new VelaError("type", ens.site.line, ens.site.column, `closed assertion in '${decl.name}' is false`);
+              throw new HoldFastError("type", ens.site.line, ens.site.column, `closed assertion in '${decl.name}' is false`);
             }
           }
         }
@@ -6462,7 +6462,7 @@ class MathElaborator {
     for (const binder of this.module.genericTypeBinders) {
       if (!isPascalCase(binder.text)) {
         findings.push({
-          code: "VELA105",
+          code: "HOLDFAST105",
           message: `generic type parameter '${binder.text}' should use PascalCase (for example T or TValue); value indices remain camelCase`,
           line: binder.site.line,
           column: binder.site.column,
@@ -6501,11 +6501,11 @@ function compileBrowserModule(sourceText, sourceHash) {
     scalar = runPureTranslate(sourceText, false, { sourceHash });
     editorServices = !error;
   } catch (err) {
-    const outsideEditorScope = err instanceof VelaError &&
+    const outsideEditorScope = err instanceof HoldFastError &&
       (err.kind === "syntax" || err.kind === "unsupported" || MATH_BUILTINS.has(err.unresolvedName));
     if (!outsideEditorScope) {
       error ??= err;
-      editorServices = err instanceof VelaError && ["name", "type"].includes(err.kind) && err.kind === error.kind;
+      editorServices = err instanceof HoldFastError && ["name", "type"].includes(err.kind) && err.kind === error.kind;
     }
   }
   const result = error
@@ -6521,12 +6521,12 @@ function evaluateMathematical({ elaborator }, expressionText, valueType) {
   try {
     const tokens = mathTokenize(expressionText, { allowSemicolon: false });
     if (tokens.length === 1) {
-      throw new VelaError("syntax", 1, 1, "expected an expression");
+      throw new HoldFastError("syntax", 1, 1, "expected an expression");
     }
     const parser = new MathParser(tokens);
     const expr = parser.parseExpression();
     if (parser.current.kind !== "eof") {
-      throw new VelaError(
+      throw new HoldFastError(
         "syntax",
         parser.current.site.line,
         parser.current.site.column,
@@ -6536,7 +6536,7 @@ function evaluateMathematical({ elaborator }, expressionText, valueType) {
     const val = elaborator.evalExpr(expr, new Map());
     const actual = typeof val === "boolean" ? "bool" : typeof val === "bigint" && val >= 0n ? "Nat" : "other";
     if (actual !== valueType) {
-      throw new VelaError(
+      throw new HoldFastError(
         "type",
         1,
         1,
@@ -6548,8 +6548,8 @@ function evaluateMathematical({ elaborator }, expressionText, valueType) {
       value: typeof val === "boolean" ? (val ? "true" : "false") : val.toString(),
     };
   } catch (err) {
-    if (err instanceof VelaError) {
-      throw new VelaError(err.kind, err.line, err.column, `expression: ${err.message}`);
+    if (err instanceof HoldFastError) {
+      throw new HoldFastError(err.kind, err.line, err.column, `expression: ${err.message}`);
     }
     throw err;
   }
@@ -6559,10 +6559,10 @@ const browserSessions = new Map();
 let browserSessionCounter = 0;
 
 function formatErrorPayload(sourceHash, error) {
-  const kind = error instanceof VelaError ? error.kind : "internal";
-  const line = error instanceof VelaError ? error.line : 1;
-  const column = error instanceof VelaError ? error.column : 1;
-  const message = error instanceof VelaError ? error.message : String(error);
+  const kind = error instanceof HoldFastError ? error.kind : "internal";
+  const line = error instanceof HoldFastError ? error.line : 1;
+  const column = error instanceof HoldFastError ? error.column : 1;
+  const message = error instanceof HoldFastError ? error.message : String(error);
   return {
     ok: false,
     sourceHash,
@@ -6688,8 +6688,8 @@ function initPlaygroundUi() {
 
   let token = new URLSearchParams(location.hash.slice(1)).get("token") || "";
   try {
-    if (token) sessionStorage.setItem("vela-playground-token", token);
-    else token = sessionStorage.getItem("vela-playground-token") || "";
+    if (token) sessionStorage.setItem("holdfast-playground-token", token);
+    else token = sessionStorage.getItem("holdfast-playground-token") || "";
   } catch {
     /* A tab with storage disabled can still use its launch fragment. */
   }
@@ -6810,7 +6810,7 @@ function initPlaygroundUi() {
         );
       }
       if ((path === "/api/compile" || path === "/api/evaluate") &&
-          response.headers.get("X-Vela-Compiler-Generation") !== state.compilerGeneration) {
+          response.headers.get("X-HoldFast-Compiler-Generation") !== state.compilerGeneration) {
         throw new Error("The compiler response belongs to another dependency generation.");
       }
       return data;
@@ -6843,7 +6843,7 @@ function initPlaygroundUi() {
     $("problem-count").classList.remove("has-problems");
     $("diagnostics").replaceChildren(element("p", "muted-message", message));
     if (state.model && window.monaco) {
-      window.monaco.editor.setModelMarkers(state.model, "vela", []);
+      window.monaco.editor.setModelMarkers(state.model, "holdfast", []);
     }
   }
 
@@ -6853,7 +6853,7 @@ function initPlaygroundUi() {
     if (state.model && window.monaco) {
       window.monaco.editor.setModelMarkers(
         state.model,
-        "vela",
+        "holdfast",
         diagnostics.map((diagnostic) => ({
           ...toRange(diagnostic.range),
           message: diagnostic.message,
@@ -6861,7 +6861,7 @@ function initPlaygroundUi() {
             diagnostic.severity === 2
               ? window.monaco.MarkerSeverity.Warning
               : window.monaco.MarkerSeverity.Error,
-          source: diagnostic.source || "Vela compiler",
+          source: diagnostic.source || "HoldFast compiler",
           code: diagnostic.code,
         }))
       );
@@ -6898,7 +6898,7 @@ function initPlaygroundUi() {
           element(
             "span",
             "diagnostic-site",
-            `playground.vela \u00b7 ${diagnostic.range.start.line + 1}:${diagnostic.range.start.character + 1}${code}`
+            `playground.hf \u00b7 ${diagnostic.range.start.line + 1}:${diagnostic.range.start.character + 1}${code}`
           )
         );
         item.append(element("span", "diagnostic-message", diagnostic.message));
@@ -6923,11 +6923,11 @@ function initPlaygroundUi() {
         },
         severity: 1,
         message: `${goal.name} (${goal.status}): ${goal.expected || "expected type unavailable"}. ${goal.context}`,
-        source: "Vela elaborator",
+        source: "HoldFast elaborator",
       }));
       if (error.kind !== "open-goals") {
         diagnostics.unshift({ range: { start: position, end: position }, severity: 1,
-          message: errorText(error), source: "Vela compiler" });
+          message: errorText(error), source: "HoldFast compiler" });
       }
       publishDiagnostics(diagnostics, result);
       return;
@@ -6943,7 +6943,7 @@ function initPlaygroundUi() {
               range: { start: position, end: position },
               severity: 1,
               message: errorText(error),
-              source: "Vela compiler",
+              source: "HoldFast compiler",
             },
           ]
         : findings.map((finding) => {
@@ -6953,7 +6953,7 @@ function initPlaygroundUi() {
               severity: 2,
               message: finding.message,
               code: finding.code,
-              source: "Vela lint",
+              source: "HoldFast lint",
             };
           }),
       result
@@ -7112,7 +7112,7 @@ function initPlaygroundUi() {
           params: {
             textDocument: {
               uri: DOCUMENT_URI,
-              languageId: "vela",
+              languageId: "holdfast",
               version: captured.version,
               text: captured.text,
             },
@@ -7613,8 +7613,8 @@ function initPlaygroundUi() {
 
   function registerLanguage() {
     const monaco = window.monaco;
-    monaco.languages.register({ id: "vela", extensions: [".vela"] });
-    monaco.languages.setLanguageConfiguration("vela", {
+    monaco.languages.register({ id: "holdfast", extensions: [".hf"] });
+    monaco.languages.setLanguageConfiguration("holdfast", {
       comments: {
         lineComment: "//",
         blockComment: ["/*", "*/"],
@@ -7638,8 +7638,8 @@ function initPlaygroundUi() {
         { open: '"', close: '"' },
       ],
     });
-    monaco.languages.setMonarchTokensProvider("vela", buildVelaMonarchLanguage());
-    monaco.editor.defineTheme("vela-night", {
+    monaco.languages.setMonarchTokensProvider("holdfast", buildHoldFastMonarchLanguage());
+    monaco.editor.defineTheme("holdfast-night", {
       base: "vs-dark",
       inherit: true,
       rules: [
@@ -7677,7 +7677,7 @@ function initPlaygroundUi() {
         "editorError.foreground": "#E49AA9",
       },
     });
-    monaco.languages.registerHoverProvider("vela", {
+    monaco.languages.registerHoverProvider("holdfast", {
       async provideHover(model, position, cancellation) {
         const result = await languageQuery(
           "textDocument/hover",
@@ -7696,7 +7696,7 @@ function initPlaygroundUi() {
         };
       },
     });
-    monaco.languages.registerDefinitionProvider("vela", {
+    monaco.languages.registerDefinitionProvider("holdfast", {
       async provideDefinition(model, position, cancellation) {
         return locations(
           await languageQuery(
@@ -7708,7 +7708,7 @@ function initPlaygroundUi() {
         );
       },
     });
-    monaco.languages.registerReferenceProvider("vela", {
+    monaco.languages.registerReferenceProvider("holdfast", {
       async provideReferences(model, position, context, cancellation) {
         return locations(
           await languageQuery(
@@ -7723,7 +7723,7 @@ function initPlaygroundUi() {
         );
       },
     });
-    monaco.languages.registerDocumentSymbolProvider("vela", {
+    monaco.languages.registerDocumentSymbolProvider("holdfast", {
       async provideDocumentSymbols(model, cancellation) {
         const result = await languageQuery(
           "textDocument/documentSymbol",
@@ -7742,7 +7742,7 @@ function initPlaygroundUi() {
         }));
       },
     });
-    monaco.languages.registerInlayHintsProvider("vela", {
+    monaco.languages.registerInlayHintsProvider("holdfast", {
       async provideInlayHints(model, range, cancellation) {
         const result = await languageQuery(
           "textDocument/inlayHint",
@@ -7765,11 +7765,11 @@ function initPlaygroundUi() {
         };
       },
     });
-    monaco.languages.registerDocumentSemanticTokensProvider("vela", {
+    monaco.languages.registerDocumentSemanticTokensProvider("holdfast", {
       getLegend() {
         return {
-          tokenTypes: [...VELA_GRAMMAR.semanticTokenTypes],
-          tokenModifiers: [...VELA_GRAMMAR.semanticTokenModifiers],
+          tokenTypes: [...HOLDFAST_GRAMMAR.semanticTokenTypes],
+          tokenModifiers: [...HOLDFAST_GRAMMAR.semanticTokenModifiers],
         };
       },
       async provideDocumentSemanticTokens(model, lastResultId, cancellation) {
@@ -7789,7 +7789,7 @@ function initPlaygroundUi() {
       },
       releaseDocumentSemanticTokens() {},
     });
-    monaco.languages.registerDocumentFormattingEditProvider("vela", {
+    monaco.languages.registerDocumentFormattingEditProvider("holdfast", {
       async provideDocumentFormattingEdits(model, options, cancellation) {
         const result = await languageQuery(
           "textDocument/formatting",
@@ -7857,13 +7857,13 @@ function initPlaygroundUi() {
       registerLanguage();
       state.model = window.monaco.editor.createModel(
         state.text,
-        "vela",
+        "holdfast",
         window.monaco.Uri.parse(DOCUMENT_URI)
       );
       $("editor").hidden = false;
       state.editor = window.monaco.editor.create($("editor"), {
         model: state.model,
-        theme: "vela-night",
+        theme: "holdfast-night",
         automaticLayout: true,
         fontFamily: '"Cascadia Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace',
         fontSize: 12,
@@ -7887,7 +7887,7 @@ function initPlaygroundUi() {
         quickSuggestions: false,
         suggestOnTriggerCharacters: false,
         wordBasedSuggestions: "off",
-        ariaLabel: "Vela source editor",
+        ariaLabel: "HoldFast source editor",
         contextmenu: true,
       });
       state.model.onDidChangeContent(() => {
@@ -8094,7 +8094,7 @@ function initPlaygroundUi() {
       for (const edit of ordered) {
         text = text.slice(0, edit.start) + edit.text + text.slice(edit.end);
       }
-      replaceBuffer(text, "vela-format");
+      replaceBuffer(text, "holdfast-format");
       activity("Canonical formatting applied");
     } finally {
       updateServiceUI();
@@ -8141,14 +8141,14 @@ function initPlaygroundUi() {
       clearAuthoring("Check style again for a preview of the current source.");
       return;
     }
-    replaceBuffer(preview.candidate, "vela-binding-preview");
+    replaceBuffer(preview.candidate, "holdfast-binding-preview");
     activity("Explicit binding preview applied; undo is available");
   });
   $("undo-buffer").addEventListener("click", () => {
     if ($("source-advanced-menu")) $("source-advanced-menu").open = false;
     const previous = state.undoSource;
     if (!previous || previous.after !== state.text) return;
-    if (state.editor) state.editor.trigger("vela-buffer-undo", "undo", null);
+    if (state.editor) state.editor.trigger("holdfast-buffer-undo", "undo", null);
     else setSource(previous.before);
     state.undoSource = null;
     $("undo-buffer").disabled = true;
@@ -8160,7 +8160,7 @@ function initPlaygroundUi() {
   $("show-semantics").addEventListener("change", updateServiceUI);
   $("download-source").addEventListener("click", () => {
     if ($("source-advanced-menu")) $("source-advanced-menu").open = false;
-    download(state.text, "playground.vela");
+    download(state.text, "playground.hf");
     activity("Source download requested");
   });
   $("download-output").addEventListener("click", () => {
@@ -8258,7 +8258,7 @@ function initPlaygroundUi() {
   void loadEditor();
   document.querySelectorAll(".compact-code code").forEach((codeEl) => {
     try {
-      codeEl.innerHTML = highlightVelaCodeHtml(codeEl.textContent || "");
+      codeEl.innerHTML = highlightHoldFastCodeHtml(codeEl.textContent || "");
     } catch {
       // Keep the raw code text if decorative card highlighting fails.
     }

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Check pure Vela declarations and translate them to Gallina.
+"""Check pure HoldFast declarations and translate them to Gallina.
 
 The Rocq-extracted parser supplies syntax to the name and type checker.
 See the [pure prototype](../../docs/tooling/pure-prototype.md) for its scope.
@@ -16,8 +16,8 @@ from toolchain.ast import (
     MAX_EXPRESSION_DEPTH,
     MAX_LITERAL_DIGITS,
     MAX_SOURCE_BYTES,
+    HoldFastError,
     ValueType,
-    VelaError,
 )
 from toolchain.compiler_trace import Recorder
 from toolchain.facts import Facts, PureType, SymbolKind
@@ -25,9 +25,21 @@ from toolchain.facts import Facts, PureType, SymbolKind
 if TYPE_CHECKING:
     from toolchain.remarks import Decisions
 
-__all__ = ["MAX_BLOCK_DEPTH", "MAX_EXPRESSION_DEPTH", "MAX_LITERAL_DIGITS", "MAX_SOURCE_BYTES",
-           "StaticEvaluation", "Translation", "ValueType", "VelaError", "evaluate",
-           "inspect_source", "parse_module", "translate", "translate_ast"]
+__all__ = [
+    "MAX_BLOCK_DEPTH",
+    "MAX_EXPRESSION_DEPTH",
+    "MAX_LITERAL_DIGITS",
+    "MAX_SOURCE_BYTES",
+    "HoldFastError",
+    "StaticEvaluation",
+    "Translation",
+    "ValueType",
+    "evaluate",
+    "inspect_source",
+    "parse_module",
+    "translate",
+    "translate_ast",
+]
 
 _TYPES: dict[ValueType, str] = {
     "Nat": "Corelib.Init.Datatypes.nat",
@@ -119,12 +131,12 @@ def _tokens(source: bytes) -> list[_Token]:
         if match := syntax.IDENTIFIER.match(text, offset):
             spelling = match.group()
             if spelling in syntax.UNSUPPORTED:
-                raise VelaError("unsupported", line, column, syntax.unsupported_message(spelling))
+                raise HoldFastError("unsupported", line, column, syntax.unsupported_message(spelling))
             kind = "keyword" if spelling in syntax.KEYWORDS else "name"
         elif match := syntax.DECIMAL.match(text, offset):
             spelling = match.group()
             if len(spelling.replace("_", "")) > MAX_LITERAL_DIGITS:
-                raise VelaError("limit", line, column,
+                raise HoldFastError("limit", line, column,
                                 f"literal exceeds {MAX_LITERAL_DIGITS} decimal digits")
             kind = "decimal"
         elif text[offset:offset + 2] in {"->", "=>", "==", "!=", "<=", ">=", "&&", "||"}:
@@ -132,7 +144,7 @@ def _tokens(source: bytes) -> list[_Token]:
         elif character in "();,:{}=+*/%-!<>":
             spelling, kind = character, "symbol"
         else:
-            raise VelaError("syntax", line, column, f"unexpected character {character!r}")
+            raise HoldFastError("syntax", line, column, f"unexpected character {character!r}")
         result.append(_Token(kind, spelling, line, column))
         offset += len(spelling)
         column += len(spelling)
@@ -140,8 +152,8 @@ def _tokens(source: bytes) -> list[_Token]:
     return result
 
 
-def _error(kind: str, message: str, site: syntax.Site) -> VelaError:
-    return VelaError(kind, site.line, site.column, message)
+def _error(kind: str, message: str, site: syntax.Site) -> HoldFastError:
+    return HoldFastError(kind, site.line, site.column, message)
 
 
 class _Elaborator:
@@ -376,7 +388,7 @@ class _Elaborator:
                 mode = "const" if selected.static is not None or selected.required_static else "immutable binding"
                 raise _error("unsupported", f"cannot reassign {mode} '{binding.name.text}'; "
                              "let and unmarked type-first bindings are immutable. Declare var for local "
-                             "reassignment in the wider Vela surface; the pure prototype does not support mutation",
+                             "reassignment in the wider HoldFast surface; the pure prototype does not support mutation",
                              binding.name.site)
             if binding.name.text in extended:
                 raise _error("name", f"duplicate local binding '{binding.name.text}'", binding.name.site)
@@ -497,7 +509,7 @@ class _Elaborator:
                 if parameter.text in signature.source.const_parameters:
                     try:
                         self._require_static(expression.children[index - 1], environment)
-                    except VelaError as error:
+                    except HoldFastError as error:
                         if self.decisions is not None:
                             self.decisions.refused(site, signature.source.name, error)
                         raise
@@ -513,7 +525,7 @@ class _Elaborator:
                         if self.decisions is not None:
                             self.decisions.record("Specialized", site, signature.source.name, "closed static inputs substituted; call eliminated")
                         return specialized
-                except VelaError as error:
+                except HoldFastError as error:
                     if self.decisions is not None:
                         self.decisions.refused(site, signature.source.name, error)
                     raise
@@ -549,19 +561,19 @@ class _Elaborator:
                 raise _error("type", f"'{name}' operands must be Nat", site)
             operation = "ltb" if name in {"<", ">"} else "leb"
             if name in {">", ">="}:
-                term = (f"(let vela_cmp_left := {left.gallina} in "
-                        f"let vela_cmp_right := {right.gallina} in "
-                        f"Corelib.Init.Nat.{operation} vela_cmp_right vela_cmp_left)")
+                term = (f"(let holdfast_cmp_left := {left.gallina} in "
+                        f"let holdfast_cmp_right := {right.gallina} in "
+                        f"Corelib.Init.Nat.{operation} holdfast_cmp_right holdfast_cmp_left)")
             else:
                 term = f"(Corelib.Init.Nat.{operation} {left.gallina} {right.gallina})"
         elif left.value_type == "Nat":
             term = f"(Corelib.Init.Nat.eqb {left.gallina} {right.gallina})"
         else:
             # User locals start with v_; these fresh binders evaluate operands once.
-            term = (f"(let vela_eq_left := {left.gallina} in "
-                    f"let vela_eq_right := {right.gallina} in "
-                    "if vela_eq_left then vela_eq_right else "
-                    f"(if vela_eq_right then {_FALSE} else {_TRUE}))")
+            term = (f"(let holdfast_eq_left := {left.gallina} in "
+                    f"let holdfast_eq_right := {right.gallina} in "
+                    "if holdfast_eq_left then holdfast_eq_right else "
+                    f"(if holdfast_eq_right then {_FALSE} else {_TRUE}))")
         if name == "!=":
             term = f"(if {term} then {_FALSE} else {_TRUE})"
         return self._bounded("bool", term, arguments, site)
@@ -588,7 +600,7 @@ class _Elaborator:
                 if value is not None:
                     environment[parameter.text] = _Local(value_type, None, value, True, self._literal(value))
                 else:
-                    fresh = f"vela_arg_{self.fresh_argument}"
+                    fresh = f"holdfast_arg_{self.fresh_argument}"
                     self.fresh_argument += 1
                     bindings.append((fresh, argument))
                     environment[parameter.text] = _Local(value_type, None, gallina=fresh)
@@ -606,10 +618,10 @@ class _Elaborator:
 
 
 def gallina_module_name(name: str) -> str:
-    """Encode an ASCII Vela module path injectively as a standalone Gallina identifier."""
+    """Encode an ASCII HoldFast module path injectively as a standalone Gallina identifier."""
     if "_" in name:
-        return "VelaEncoded_" + name.encode("ascii").hex()
-    return "Vela_" + name.replace(".", "_")
+        return "HoldFastEncoded_" + name.encode("ascii").hex()
+    return "HoldFast_" + name.replace(".", "_")
 
 
 def _translate(source: bytes, module: syntax.Module, facts: Facts | None = None, *,
@@ -620,7 +632,7 @@ def _translate(source: bytes, module: syntax.Module, facts: Facts | None = None,
     # REUSE-IgnoreStart
     header = ("(* SPDX-License-Identifier: Apache-2.0 *)\n"
               # REUSE-IgnoreEnd
-              f"(* Vela pure prototype: unqualified. Source SHA256: {hashlib.sha256(source).hexdigest()} *)\n"
+              f"(* HoldFast pure prototype: unqualified. Source SHA256: {hashlib.sha256(source).hexdigest()} *)\n"
               "From Corelib Require Import Init.Datatypes Init.Nat.\n\n"
               f"Module {emitted_module}.\n\n")
     footer = f"\n\nEnd {emitted_module}.\n"
@@ -658,7 +670,7 @@ def _budget_key(source: bytes) -> tuple[bytes, int, int, int, int]:
 
 
 def parse_module(source: bytes, *, trace: Recorder | None = None) -> syntax.Module:
-    """Parse and decode pure Vela source through the Rocq-extracted checked parser."""
+    """Parse and decode pure HoldFast source through the Rocq-extracted checked parser."""
     checked = import_module("toolchain.parser_checked")
     if trace is None:
         return syntax.decode(source, checked.parse_checked(source))
@@ -701,34 +713,34 @@ def evaluate(source: bytes, expression: str, value_type: ValueType) -> StaticEva
         _translate(source, parse_module(source), elaborator=elaborator)
         _LAST_ELABORATED = (key, elaborator.copy())
     if value_type not in {"Nat", "bool"}:
-        raise VelaError("type", 1, 1, "expression: expected Nat or bool result type")
+        raise HoldFastError("type", 1, 1, "expression: expected Nat or bool result type")
     if len(expression.encode("utf-8")) > 4096:
-        raise VelaError("limit", 1, 1, "expression: exceeds 4096 UTF-8 bytes")
-    probe = (f"module Playground;\npublic const {value_type} __vela_console_result =\n"
+        raise HoldFastError("limit", 1, 1, "expression: exceeds 4096 UTF-8 bytes")
+    probe = (f"module Playground;\npublic const {value_type} __holdfast_console_result =\n"
              f"{expression}\n;").encode()
     try:
         parsed = parse_module(probe)
-    except VelaError as error:
+    except HoldFastError as error:
         lines = expression.replace("\r\n", "\n").replace("\r", "\n").split("\n")
         line = max(1, error.line - 2)
         column = error.column if line <= len(lines) else len(lines[-1]) + 1
         line = min(line, len(lines))
         column = min(column, len(lines[line - 1]) + 1)
-        raise VelaError(error.kind, line, column,
+        raise HoldFastError(error.kind, line, column,
                         f"expression: {error.message}") from error
     if (len(parsed.declarations) != 1
             or not isinstance(parsed.declarations[0], syntax.Constant)
-            or parsed.declarations[0].name.text != "__vela_console_result"):
-        raise VelaError("syntax", 1, 1, "expression: expected exactly one constant initializer")
+            or parsed.declarations[0].name.text != "__holdfast_console_result"):
+        raise HoldFastError("syntax", 1, 1, "expression: expected exactly one constant initializer")
     try:
         result = elaborator._constant(parsed.declarations[0], {}).static
-    except VelaError as error:
+    except HoldFastError as error:
         # Evaluation may visit an earlier function's source site. Anchor the
         # refusal to this console invocation instead of relabeling that site.
-        raise VelaError(error.kind, 1, 1,
+        raise HoldFastError(error.kind, 1, 1,
                         f"expression: {error.message}") from error
     if result is None:
-        raise VelaError("unsupported", 1, 1, "expression: expression must be closed and static")
+        raise HoldFastError("unsupported", 1, 1, "expression: expression must be closed and static")
     return StaticEvaluation(result.value_type, result.value)
 
 

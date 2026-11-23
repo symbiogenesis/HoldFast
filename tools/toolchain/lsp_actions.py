@@ -48,6 +48,6 @@ def actions(snapshot: SourceSnapshot, selection: QueryRange) -> list[dict[str, o
         location = {"start": snapshot.byte_position(begin), "end": snapshot.byte_position(end)}
     except (KeyError, ValueError, TypeError) as error:
         raise InspectionError("Invalid source-bound comparison action") from error
-    return [{"title": "Simplify Boolean comparison (VELA103)", "kind": KIND,
+    return [{"title": "Simplify Boolean comparison (HOLDFAST103)", "kind": KIND,
              "edit": {"documentChanges": [{"textDocument": {"uri": snapshot.uri, "version": snapshot.version},
                                            "edits": [{"range": location, "newText": replacement}]}]}}]

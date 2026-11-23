@@ -1,6 +1,6 @@
-# VelaLang Completion Log
+# HoldFast Completion Log
 
-Landing evidence for Vela design, parser, elaborator, LSP, playground, and first-slice items extracted from [VerifiedOS](https://github.com/symbiogenesis/VerifiedOS).
+Landing evidence for HoldFast design, parser, elaborator, LSP, playground, and first-slice items extracted from [VerifiedOS](https://github.com/symbiogenesis/VerifiedOS).
 
 <a id="q19-qualify-existing-proof-tooling-and-one-reusable-component"></a>
 
@@ -145,22 +145,22 @@ Authoring `4f10fab` and repair `2468545` pass focused document checks after inde
 
 Landed: Tier A. The review states new claims about which admission arm the combined calculus takes and what its implementation still owes, so it took a full attended read rather than a spot read of its findings.
 
-<a id="q25e-build-a-pure-vela-to-gallina-prototype"></a>
+<a id="q25e-build-a-pure-holdfast-to-gallina-prototype"></a>
 
-#### Q25e · Build a pure Vela-to-Gallina prototype
+#### Q25e · Build a pure HoldFast-to-Gallina prototype
 
 The [pure translation contract](../tooling/pure-prototype.md) landed at
-`d8b1cb38` before implementation. The host `vela` command checks explicit Nat/bool
+`d8b1cb38` before implementation. The host `holdfast` command checks explicit Nat/bool
 functions, immutable bindings, branches and prior-function calls, then emits
 hygienic Gallina definitions bound to exact source bytes. Diagnostics retain source
 locations; rejected source and failed atomic file writes preserve existing output.
-The [authored example](../../examples/pure.vela) and independent expected
+The [authored example](../../examples/pure.hf) and independent expected
 terms exercise the fragment. Boolean equality binds operands once to keep emitted
 text linear in source size.
 
-Focused `test_vela`, command-lane tests and typecheck passed on the integrated
+Focused `test_holdfast`, command-lane tests and typecheck passed on the integrated
 implementation. The exact-revision Host CI verdict and every-lane Guest CI dispatch
-are retained by the `vela-surface-20261031` fanout handoff; Guest CI supplies no verdict
+are retained by the October 31 fanout handoff; Guest CI supplies no verdict
 until it completes. Kernel replay of generated terms, checked source correspondence,
 graded resources and target compilation remain open at the plan's language owners.
 Translation tests confer no kernel, metatheory or production acceptance.
@@ -170,15 +170,15 @@ oracle and complete implementation; the integrator reviewed the library and shar
 registrations. The review clarified reserved feature words and distinguished atomic
 file preservation from standard-output streaming.
 
-<a id="q25f-align-the-executable-vela-subset-with-its-proposed-surface"></a>
+<a id="q25f-align-the-executable-holdfast-subset-with-its-proposed-surface"></a>
 
-#### Q25f · Align the executable Vela subset with its proposed surface
+#### Q25f · Align the executable HoldFast subset with its proposed surface
 
 The [surface contract](../tooling/pure-prototype.md#source-fragment) landed at
 `2cac393c` before the parser correction. Public declarations and parameters put
 types first, Boolean types use `bool`, and immutable locals precede explicit
 returns or fully returning `if (condition)` blocks. The
-[example](../../examples/pure.vela), independent term oracle and rejection
+[example](../../examples/pure.hf), independent term oracle and rejection
 cases use those conventions from the
 [proposed surface](verification-strategy.md#an-ideal-surface).
 The superseded prototype spellings, missing returns, trailing statements,
@@ -186,7 +186,7 @@ branch-local scope leaks and unsupported proof/resource features are refused.
 Block nesting is bounded separately from expression nesting.
 
 Focused translation tests and both-platform Python typecheck passed on the
-integrated correction. The `vela-surface-20261031` handoff retains exact-revision
+integrated correction. The October 31 fanout handoff retains exact-revision
 hosted acceptance and Guest CI dispatch. The accepted fragment still denotes its
 generated CIC terms; kernel replay, source correspondence and the wider language
 remain separately scoped work.
@@ -194,39 +194,37 @@ remain separately scoped work.
 Landed: Tier A. Independent full reads checked the source grammar against the
 design dossier and the parser against independently chosen returning-block cases.
 
-<a id="q25g-build-the-menhir-development-parser-for-pure-vela"></a>
+<a id="q25g-build-the-menhir-development-parser-for-pure-holdfast"></a>
 
-#### Q25g · Build the Menhir development parser for pure Vela
+#### Q25g · Build the Menhir development parser for pure HoldFast
 
 Accepted on 2026-11-08 under the [bounded parser contract](../tooling/parser.md#bounded-increment)
 and [acceptance commands](../tooling/parser.md#acceptance-and-commands).
-The single authored OCaml grammar ([tools/toolchain/parser/parser.mly](../../tools/toolchain/parser/parser.mly),
-`c249a367a6c7cadae2caf42d613afccb54173270ed453d97593c301c561373d2`), lexer
-([lexer.mll](../../tools/toolchain/parser/lexer.mll),
-`7247ea2d0cf4084a9a8d2c0fb895d8f058335b014494028ed4ddb08da92f5d38`), located AST
-([ast.ml](../../tools/toolchain/parser/ast.ml),
-`7f499a8caafa3bf67769540b78a2f7ce8b2de3763b1d6f32e3a13c032184da90`), bounded native
-driver ([main.ml](../../tools/toolchain/parser/main.ml),
-`fa40e2fdfddc896db33b9b60ab54a26584e88c2e2781a16ba887192d3bb87863`) and host
-orchestration ([tools/toolchain/parser.py](../../tools/toolchain/parser.py))
-compile cleanly with `menhir --strict --infer --explain` (`menhir, version 20260209`,
+The landing build used the authored OCaml grammar
+(`c249a367a6c7cadae2caf42d613afccb54173270ed453d97593c301c561373d2`), lexer
+(`7247ea2d0cf4084a9a8d2c0fb895d8f058335b014494028ed4ddb08da92f5d38`), located AST
+(`7f499a8caafa3bf67769540b78a2f7ce8b2de3763b1d6f32e3a13c032184da90`), bounded native
+driver (`fa40e2fdfddc896db33b9b60ab54a26584e88c2e2781a16ba887192d3bb87863`) and
+host orchestration. The build compiled cleanly with `menhir --strict --infer --explain` (`menhir, version 20260209`,
 binary `290c659064d26cb1c51b743ec6a414ed4269e7f686821637656d526333c6c7a2`) and
 `ocamlc 5.4.1` (`454b023dfdebe17bd760300da10dd5b97833a11597cc5f2287444d0ed428a9fc`)
 in `verifiedos-sail-0.20.3-ocaml-5.4.1` without linking `menhirLib`, under the
 generator-output reading recorded in
 [THIRD-PARTY.md](../../THIRD-PARTY.md#development-tools-contained-by-use).
+[Current parser sources](../../tools/toolchain/parser/) and
+[host orchestration](../../tools/toolchain/parser.py)
 
-`python tools/run.py vela-parser qualify` verifies byte-identical deterministic
-regeneration across two fresh builds (`lexer.ml`
+The landing qualification verified byte-identical deterministic regeneration
+across two fresh builds (`lexer.ml`
 `f36a7807363e6d20bfb39dd19e0c6ad014fcea5c0a9ed430931dfaa1cf8ee95b`, `parser.ml`
 `f34d3366aa4f4fe12f24b81488833d065fabd84a769e46b40e8a9ce8908a2eee`, `parser.mli`
-`a185d0e1e41f62ee49381180a8d75d8500e0c4b30defa003146251170d347c43`, `vela-parser`
-`af01c1ca23fe30f6c45f90257ff56c131f92144137c6b8c0e1f832e3e51eaeae`) and passes all
+`a185d0e1e41f62ee49381180a8d75d8500e0c4b30defa003146251170d347c43`, native parser executable
+`af01c1ca23fe30f6c45f90257ff56c131f92144137c6b8c0e1f832e3e51eaeae`) and passed all
 `70` independent pure AST, precedence/associativity, original-byte span, LF/CRLF/bare-CR
 and UTF-8 comment, syntax-vs-semantics separation, and refusal (`syntax`,
-`unsupported`, `encoding`, `limit`) fixtures, plus [examples/pure.vela](../../examples/pure.vela),
-[examples/constants.vela](../../examples/constants.vela) and
-[examples/expressions.vela](../../examples/expressions.vela). Hosted CI remains
+`unsupported`, `encoding`, `limit`) fixtures, plus [examples/pure.hf](../../examples/pure.hf),
+[examples/constants.hf](../../examples/constants.hf) and
+[examples/expressions.hf](../../examples/expressions.hf). Hosted CI remains
 user-managed with no hosted verdict claimed from local execution; Q25h separately
 owns checked parsing and Python-parser retirement. The original 6 h estimate,
 range 4–8, is retained because earlier authoring and qualification intervals were
@@ -236,30 +234,29 @@ Landed: Tier A. Independent full reads cover the pure Menhir grammar, AST and
 span construction, resource/depth limits, generator-output terms and local WSL
 qualification.
 
-<a id="q25h-qualify-checked-vela-parsing-and-retire-the-python-parser"></a>
+<a id="q25h-qualify-checked-holdfast-parsing-and-retire-the-python-parser"></a>
 
-#### Q25h · Qualify checked Vela parsing and retire the Python parser
+#### Q25h · Qualify checked HoldFast parsing and retire the Python parser
 
 Accepted on 2026-11-08 under the
 [promotion and retirement contract](../tooling/parser.md#promotion-and-retirement)
 and [Rocq support prerequisite](../tooling/parser.md#rocq-support-prerequisite).
-[`vela-parser support`](../../tools/toolchain/parser_checked.py) qualifies the exact
-generator (`menhir 20260209 --coq --strict` in `verifiedos-sail-0.20.3-ocaml-5.4.1`,
-binary `290c659064d26cb1c51b743ec6a414ed4269e7f686821637656d526333c6c7a2`) and Rocq
+The landing run qualified the exact generator (`menhir 20260209 --coq --strict`
+in `verifiedos-sail-0.20.3-ocaml-5.4.1`, binary `290c659064d26cb1c51b743ec6a414ed4269e7f686821637656d526333c6c7a2`) and Rocq
 support-library pair (`MenhirLib` from `menhir.20260209` archive
 `69f0414b047d1d5b3507eb8277cd328a60d430bdff51de912b47adb2c25de4f3` in
 `verifiedos-rocq-9.3.0-ocaml-5.4.1`, `rocq`
 `9a2a4eacf47b44c6ec582bc2b9f9cde9de11af77164e0637103fca9865efd5ac`, `rocqchk`
 `46aae2e2a655bec07928a94df91b028bf1eeb899b2df8d8e277d942e57ff5412`), preserving
 `Version.v` (`3746feeefa899fe0d43e4db0ec53f2d7ddd72076d9fab29cdcc9ecb0250072e6`)
-and `require_20260209`. `_pure_grammar_view` extracts and drift-checks all `37`
-pure terminals and `29` reachable pure rules from the single owner
-[`parser.mly`](../../tools/toolchain/parser/parser.mly)
-(`c249a367a6c7cadae2caf42d613afccb54173270ed453d97593c301c561373d2`) to emit
-`VelaPureGrammar.mly`
-(`71325e79c1c655d83210bf5c1589373ef827841b6f668f9b73cafea085004aca`) and
-deterministic `VelaPureGrammar.v`
+and `require_20260209`. The run extracted and drift-checked all `37`
+pure terminals and `29` reachable pure rules from the authored grammar
+(`c249a367a6c7cadae2caf42d613afccb54173270ed453d97593c301c561373d2`).
+It emitted the pure Menhir grammar
+(`71325e79c1c655d83210bf5c1589373ef827841b6f668f9b73cafea085004aca`) and its
+reproducible Rocq grammar
 (`27a38fdde4322a39e056ba89a1b0d0b2470338e55d91c37c4b584e27753ed1e9`).
+[Current support qualification](../../tools/toolchain/parser_checked.py)
 
 Together with the digest-guarded `Interpreter.v`
 (`69cfbdd086858ef37fa50eed10866379a51bd858113a9716331d88f9e46e7fde`) and
@@ -267,30 +264,29 @@ Together with the digest-guarded `Interpreter.v`
 (`1a284ece0e5b547e2b816c0f7623ee1ee628d30385f5d3dde4dd1a180589cb66`) proof
 adaptations (verified public-reading-equal to the unadapted reference twin at
 `17c1e9beb756127c9079803fc99e6273c0515188ab8c4d42d36bc3ffafb85ae9`),
-`VelaPureProofs.v`
-(`f6dbcd0a4aa8f0de1d940e2d96412a261a764ebe9f55c5c27752659c72a06e9c`) proves
-`vela_file_safe`, `vela_file_complete_validator`, `vela_file_correct`,
-`vela_file_complete`, `vela_file_unambiguity`, `vela_file_positive_precedence`,
-`vela_file_bare_local_refused`, `vela_file_empty_module_rejected` and
-`vela_file_zero_fuel_timeout` with `Closed under the global context` (`0` axioms,
-reading `308b14375eb599e10c9320eefc5e0fef85a89b5ebeee30d98ec395be842e7d86`) and
-passes recursive `rocqchk` across all 14 `MenhirLib.*` modules.
-`VelaPureExtraction.v` extracts `vela_checked_parser.ml`
-(`0cb4541b65af4a606b075bd6dee0450929ea887ae3d60a3b2a9251a56b0050bd`) and compiles
-`vela-checked-parser`
+the parser proof file
+(`f6dbcd0a4aa8f0de1d940e2d96412a261a764ebe9f55c5c27752659c72a06e9c`) proved
+safety, validator completeness, correctness, completeness, unambiguity, positive
+precedence, bare-local refusal, empty-module rejection and zero-fuel timeout.
+Rocq reported `Closed under the global context` (`0` axioms, reading
+`308b14375eb599e10c9320eefc5e0fef85a89b5ebeee30d98ec395be842e7d86`), and
+recursive `rocqchk` passed across all 14 `MenhirLib.*` modules.
+The run extracted the checked OCaml parser
+(`0cb4541b65af4a606b075bd6dee0450929ea887ae3d60a3b2a9251a56b0050bd`) and compiled
+its executable
 (`2bf312bd2e1e38f62878c8cb4f2fdbc8d8288dbab5488a7a127393ae7a735529`) over the
 shared UTF-8/lexer boundary with zero code-backend Menhir tables, passing all `70`
-pure qualification fixtures, matching `vela-parser` byte-for-byte on
-[examples/pure.vela](../../examples/pure.vela),
-[examples/constants.vela](../../examples/constants.vela) and
-[examples/expressions.vela](../../examples/expressions.vela), and agreeing across
+pure qualification fixtures, matching the Menhir development parser byte-for-byte on
+[examples/pure.hf](../../examples/pure.hf),
+[examples/constants.hf](../../examples/constants.hf) and
+[examples/expressions.hf](../../examples/expressions.hf), and agreeing across
 all `173` [migration fixtures](../tooling/parser.md#executable-migration-preparation)
 (`0` differences). [`parse_checked`](../../tools/toolchain/parser_checked.py) and
-[`vela.parse_module`](../../tools/toolchain/__init__.py) now serve all pure Vela
+[`holdfast.parse_module`](../../tools/toolchain/__init__.py) now serve all pure HoldFast
 parsing (`translate`, `evaluate`, `inspect_source`, `format_source`, `lint_source`)
-on both Ubuntu (`linux`) and Windows (`win32` via `wsl.exe` batch framing over
-`/root/build/vela-parser-checked-runtime/vela-checked-parser`), and the handwritten
-Python `_Parser` is retired (`"python_retired": true`,
+on both Ubuntu (`linux`) and Windows (`win32` via `wsl.exe` batch framing with the
+checked parser executable in the guest build directory). The handwritten Python
+`_Parser` is retired (`"python_retired": true`,
 `"host_routes": ["linux", "win32"]`, `"deferred": []`). Hosted CI remains
 user-managed with no hosted pass claimed from local execution, and full-language
 frontend admission retains Q25d's prerequisites. The original 16 h estimate,
@@ -299,17 +295,17 @@ were shared across parser batches; both calibration columns remain `n/a`.
 
 Landed: Tier A. Independent full reads cover the `MenhirLib` support adaptations,
 drift-checked pure grammar view, nine zero-axiom Rocq parser theorems, extracted
-`vela-checked-parser` runtime, 173-fixture migration comparison and complete
+`holdfast-checked-parser` runtime, 173-fixture migration comparison and complete
 retirement of the Python `_Parser`.
 
-<a id="q25i-extend-the-menhir-grammar-across-the-vela-authoring-surface"></a>
+<a id="q25i-extend-the-menhir-grammar-across-the-holdfast-authoring-surface"></a>
 
-#### Q25i · Extend the Menhir grammar across the Vela authoring surface
+#### Q25i · Extend the Menhir grammar across the HoldFast authoring surface
 
 Accepted on 2026-11-08 under the
 [development surface grammar contract](../language/surface-grammar.md).
 The single authored Menhir grammar ([tools/toolchain/parser/parser.mly](../../tools/toolchain/parser/parser.mly))
-exposes the `surface_file` entry (`vela-parser parse --surface SOURCE`, schema 2)
+exposes the `surface_file` entry (`holdfast-parser parse --surface SOURCE`, schema 2)
 alongside the pure `file` entry (schema 1), sharing lexical lookahead, operator
 precedence, generic-call probe productions and resource bounds. It covers modules,
 imports, aliases, namespaces, `public`/`private` declarations, typed constants,
@@ -323,15 +319,17 @@ capabilities (`handle ... as chosen`) and `dispose` clauses, grades and domain
 dictionaries, `theorem`/`lemma`/`proof`/`assert ... by`/`calc` blocks, and
 `machine`/`hardware` containers.
 
-`python tools/run.py vela-parser qualify` compiles the grammar conflict-free under
+`python tools/run.py holdfast-parser qualify` compiles the grammar conflict-free under
 locked `menhir 20260209 --strict --infer --explain` and `ocamlc 5.4.1` in
 `verifiedos-sail-0.20.3-ocaml-5.4.1` and passes all `400` independent surface
 positive, span, precedence, lookahead-limit and refusal fixtures
-([tools/toolchain/surface.py](../../tools/toolchain/surface.py)) plus
-[examples/surface.vela](../../examples/surface.vela)
+([tools/toolchain/surface.py](../../tools/toolchain/surface.py)). The landing run also
+passed the authored surface example
 (`3bba4ffee2c7c6221f747b0cf9d262d1810238fe5f491dfc5a8ada8f7260ea88`) while
-preserving all `70` pure fixtures and `173` migration comparisons. Syntax parsing
-grants no elaboration, checked-parser or resource-safety verdict, and hosted CI
+preserving all `70` pure fixtures and `173` migration comparisons.
+[Current surface example](../../examples/surface.hf)
+
+Syntax parsing grants no elaboration, checked-parser or resource-safety verdict, and hosted CI
 remains user-managed. The original 24 h estimate, range 16–32, is retained because
 surface-grammar extensions were authored across multiple feature batches; both
 calibration columns remain `n/a`.
@@ -372,12 +370,12 @@ contract and positive, conflict, malformed-input and incomplete-exploration case
 Accepted on 2026-11-08 under the
 [mathematical elaboration contract](../tooling/elaboration-prototype.md).
 The schema-2 elaborator ([tools/toolchain/elaborate.py](../../tools/toolchain/elaborate.py)
-and its `elaborate_*.py` submodules) and [examples/dependent.vela](../../examples/dependent.vela)
+and its `elaborate_*.py` submodules) and [examples/dependent.hf](../../examples/dependent.hf)
 support generic and ghost-index telescopes, predicative universes `Type`/`Type<n>`,
 dependent callables and type families, higher-order bidirectional inference,
 length-indexed `Vec<T, n>` and `Fin<n>` lookup, products, `char` Unicode scalar
 values, exact fixed-width integers (`u8`..`u64`, `i8`..`i64`, `usize`, `isize`,
-`byte`) and imported `Vela.Numerics` aliases (`int`, `uint`, `long`, `ulong`,
+`byte`) and imported `HoldFast.Numerics` aliases (`int`, `uint`, `long`, `ulong`,
 `short`, `ushort`, `sbyte`), pure `Seq<T>` sequences and `.Model` combinators
 (`.Count`, `.At`, `.Append`, `.Update`, `.Take`, `.Skip`, `.Slice`, `.Contains`,
 `.All`, `.Any`), mutable `var` locals with bounded `foreach` and
@@ -410,7 +408,7 @@ The current local replay passes 172 fixtures with 31 accepted libraries, zero
 solver-trust axioms and recursive `rocqchk`, including effectful guards evaluated
 once, the ordered-local repair and the intended sequencing refusal.
 
-`python tools/run.py vela-parser elaborate-qualify`
+`python tools/run.py holdfast-parser elaborate-qualify`
 ([tools/toolchain/elaboration_check.py](../../tools/toolchain/elaboration_check.py))
 replays all `172` native parser and Rocq kernel cases (`Case000`..`Case171`) in
 `verifiedos-rocq-9.3.0-ocaml-5.4.1` (`rocq 9.3.0`
@@ -429,9 +427,9 @@ Landed: Tier A. Full review of the schema-2 protocol validator, bidirectional
 elaborator, Gallina emission, independent host controls and 142-case native
 parser/Rocq kernel replay.
 
-<a id="q25l-clarify-vela-borrowing-evidence-and-resource-interfaces"></a>
+<a id="q25l-clarify-holdfast-borrowing-evidence-and-resource-interfaces"></a>
 
-#### Q25l · Clarify Vela borrowing, evidence and resource interfaces
+#### Q25l · Clarify HoldFast borrowing, evidence and resource interfaces
 
 The acceptance contract landed at `950dd272`. The
 [language surface](verification-strategy.md#permanent-language-exclusions)
@@ -449,7 +447,7 @@ Independent review of `1e43489a` and `dcd089a4` resolved the callback's effect
 binding and the negative example's possible earlier call-mode refusal in
 `ba1c8b19`. It also checked receiver argument order, conditional budget inference,
 source/target resource boundaries and stale evidence presentation against the
-register. The `vela-interfaces-20261101` fanout journal records the settled revision,
+register. The November 1 interfaces fanout journal records the settled revision,
 comparison base, hosted verdicts and selected Guest CI handoff. Guest verdicts are
 deferred under the shared handoff; they are not supplied by this design review.
 
@@ -462,9 +460,9 @@ Landed: Tier A. Independent full reads covered the changed contracts, examples,
 qualification predicates and their requirement boundaries; no register or semantic
 anchor was amended.
 
-<a id="q25m-specify-staged-vela-metaprogramming-and-compiler-services"></a>
+<a id="q25m-specify-staged-holdfast-metaprogramming-and-compiler-services"></a>
 
-#### Q25m · Specify staged Vela metaprogramming and compiler services
+#### Q25m · Specify staged HoldFast metaprogramming and compiler services
 
 The [metaprogramming contract](../extensions/metaprogramming.md) specifies
 ordinary static computation, opt-in compiler reification/schema dictionaries and
@@ -481,7 +479,7 @@ the companion at `ac0624da`, against the register and the retained phase,
 resource, assurance, parser and compiler owners. The codec qualification keeps
 independently chosen wire semantics, the required Narcissus route and descriptor
 review; generated laws supply no independent intent or final-artifact theorem.
-The `vela-metaprogramming-20261101-r2` fanout journal binds the settled publication,
+The November 1 metaprogramming fanout journal binds the settled publication,
 comparison base, selected checks, Host CI evidence and Guest CI handoff. Guest
 verdicts remain deferred under the shared handoff.
 
@@ -493,8 +491,8 @@ for the stale mutation seed and a Windows standard-library import-probe timeout.
 The focused typecheck behavioral module passed locally without changing the
 probe's bound; the refreshed hosted verdict owns final acceptance.
 
-Accepted on 2026-11-01 as a design contract. `vela-meta` and
-`vela-compiler-services` retain separately scoped, unpriced implementation duties;
+Accepted on 2026-11-01 as a design contract. `holdfast-meta` and
+`holdfast-compiler-services` retain separately scoped, unpriced implementation duties;
 the existing frontend hold, prototypes and grammar qualification are unchanged.
 No evaluator, reflection API, staged checker or performance result is implemented
 by this item. Accounting: 0.5 h agent-parallel authoring, review and required CI
@@ -505,14 +503,14 @@ Landed: Tier A. Independent full reads covered the complete companion and change
 product, composition, evidence and implementation boundaries. No normative
 requirement, coverage cell, semantic anchor or kernel equality was amended.
 
-<a id="q25n-prototype-and-qualify-vela-lsp-lifecycle-and-pure-diagnostics"></a>
+<a id="q25n-prototype-and-qualify-holdfast-lsp-lifecycle-and-pure-diagnostics"></a>
 
-#### Q25n · Prototype and qualify Vela LSP lifecycle and pure diagnostics
+#### Q25n · Prototype and qualify HoldFast LSP lifecycle and pure diagnostics
 
 Accepted on 2026-11-08 under the
 [host LSP contract](../tooling/lsp-prototype.md#interface-and-bounds) and
 [protocol qualification](../tooling/tooling-protocols.md#qualification-and-delivery).
-`vela-lsp` ([tools/toolchain/lsp.py](../../tools/toolchain/lsp.py)) serves bounded
+`holdfast-lsp` ([tools/toolchain/lsp.py](../../tools/toolchain/lsp.py)) serves bounded
 stdio lifecycle (`initialize`/`initialized`, `shutdown`/`exit`) and versioned
 pure-prototype diagnostics over full and incremental unsaved overlays using the
 shared immutable source and UTF-8/UTF-16 coordinate utilities
@@ -521,7 +519,7 @@ refuse before coordinate clamping; diagnostic-worker replies require strict boun
 JSON, known categories, Unicode text and source-valid positions; and invalid edits
 or worker failures preserve synchronized overlays and session generations.
 
-[`vela-lsp --qualify-clients`](../../tools/toolchain/lsp_clients.py) qualifies two
+[`holdfast-lsp --qualify-clients`](../../tools/toolchain/lsp_clients.py) qualifies two
 pinned independent editor clients recorded in
 [THIRD-PARTY.md](../../THIRD-PARTY.md#independent-editor-clients)
 — Neovim `0.11.0` (`vim.lsp`, incremental sync: `97` frames / `37` requests / `7`
@@ -533,8 +531,8 @@ platforms) — across six lifecycle stages (`didOpen`, formatting edit, incremen
 identifier rename with supplementary-character UTF-16 comments, `check_failure`
 unknown-identifier and `unsupported` runtime-constant-argument diagnostics,
 recovery, and clean `shutdown`/`exit`), replaying bidirectional wire transcripts
-(`vela-lsp --transcript`) and client observations against independent expected
-oracles in [test_vela_lsp_clients.py](../../tools/tests/test_vela_lsp_clients.py).
+(`holdfast-lsp --transcript`) and client observations against independent expected
+oracles in [test_holdfast_lsp_clients.py](../../tools/tests/test_holdfast_lsp_clients.py).
 Hosted CI remains user-managed with no hosted pass claimed from local execution,
 and this increment supplies no wider-language or production qualification. The
 original 6 h estimate, range 4–8, is retained because implementation and
@@ -545,9 +543,9 @@ Landed: Tier A. Full review of stdio framing, UTF-8/UTF-16 coordinate conversion
 atomic overlay rollback, worker isolation and two-client headless qualification
 on Windows and Ubuntu.
 
-<a id="q25o-add-and-qualify-pure-vela-lsp-navigation"></a>
+<a id="q25o-add-and-qualify-pure-holdfast-lsp-navigation"></a>
 
-#### Q25o · Add and qualify pure Vela LSP navigation
+#### Q25o · Add and qualify pure HoldFast LSP navigation
 
 Accepted on 2026-11-08 under the
 [pure navigation contract](../tooling/lsp-prototype.md#pure-navigation-increment).
@@ -558,7 +556,7 @@ Compiler-owned resolution facts (`inspect_source` in
 [tools/toolchain/lsp.py](../../tools/toolchain/lsp.py), with exact half-open
 identifier ranges, distinct function/branch and call/value identities, and
 bounded 5-second worker inspection. Independent fixtures in
-[test_vela_lsp_services.py](../../tools/tests/test_vela_lsp_services.py) exercise
+[test_holdfast_lsp_services.py](../../tools/tests/test_holdfast_lsp_services.py) exercise
 function/branch scopes, separate call/value namespaces, inferred types,
 Unicode/newlines, incremental edits and refusal recovery, worker/response limits
 and real stdio sessions.
@@ -567,15 +565,15 @@ The isolated inspection transport carries the exact original-source SHA-256
 before facts reach publication or caching. Independent worker and server controls
 refuse missing, malformed and stale bindings, including equal-coordinate source
 edits, and confirm that a refused response leaves retry and cache recovery usable
-([projection tests](../../tools/tests/test_vela_lsp_projection.py)).
+([projection tests](../../tools/tests/test_holdfast_lsp_projection.py)).
 
-[`vela-lsp --qualify-clients`](../../tools/toolchain/lsp_clients.py) qualifies both
+[`holdfast-lsp --qualify-clients`](../../tools/toolchain/lsp_clients.py) qualifies both
 pinned Neovim `0.11.0` and Vim `9.1.2141` + `yegappan/lsp`
 (`58eac06e81bad174cfa897614ae01adf0d31d10a`) clients across initial, formatted,
 incrementally renamed (`start` -> `seed` with `includeDeclaration` reference sets
 and UTF-16 supplementary-character positions), broken-source (empty/null
 responses) and recovered overlays in
-[test_vela_lsp_clients.py](../../tools/tests/test_vela_lsp_clients.py) on Windows
+[test_holdfast_lsp_clients.py](../../tools/tests/test_holdfast_lsp_clients.py) on Windows
 and Ubuntu. Hosted CI remains user-managed with no hosted pass claimed from local
 execution, and this increment supplies no wider-language or production
 qualification. The original 8 h estimate, range 6–10, is retained because
@@ -585,9 +583,9 @@ both calibration columns remain `n/a`.
 Landed: Tier A. Full review of compiler resolution fact emission, navigation
 projections, snapshot invalidation and two-client headless qualification.
 
-<a id="q25p-improve-vela-authoring-syntax-and-editor-hints"></a>
+<a id="q25p-improve-holdfast-authoring-syntax-and-editor-hints"></a>
 
-#### Q25p · Improve Vela authoring syntax and editor hints
+#### Q25p · Improve HoldFast authoring syntax and editor hints
 
 Accepted on 2026-11-08 under the
 [concise syntax contract](../language/surface-grammar.md#concise-authoring-syntax),
@@ -599,18 +597,18 @@ optional trailing commas, token-shape constructor patterns (`PascalCase`
 constructors and lowercase or `_` binders after Q25ah), canonical `Unit` and
 `this` spellings, bounded `foreach`, declaration-order named arguments and typed
 required-static `const` declarations with runtime-dependency refusals.
-`vela-lsp` serves bounded `textDocument/inlayHint` inferred-local `: Type` hints
+`holdfast-lsp` serves bounded `textDocument/inlayHint` inferred-local `: Type` hints
 over synchronized overlays and distinguishes immutable `let` reassignment from
 exclusive-loan write refusals.
 
 Independent syntax/span/refusal, constant-evaluation, labeled-call and
-editor-hint controls ([test_vela_authoring.py](../../tools/tests/test_vela_authoring.py),
-[test_vela_constants.py](../../tools/tests/test_vela_constants.py),
-[test_vela_const_math.py](../../tools/tests/test_vela_const_math.py),
-[test_vela_const_editor.py](../../tools/tests/test_vela_const_editor.py),
-[test_vela_lsp_hints.py](../../tools/tests/test_vela_lsp_hints.py)), two-client
-LSP qualification (`vela-lsp --qualify-clients`), and strict locked native
-generation and kernel replay (`vela-parser qualify`, `vela-parser elaborate-qualify`)
+editor-hint controls ([test_holdfast_authoring.py](../../tools/tests/test_holdfast_authoring.py),
+[test_holdfast_constants.py](../../tools/tests/test_holdfast_constants.py),
+[test_holdfast_const_math.py](../../tools/tests/test_holdfast_const_math.py),
+[test_holdfast_const_editor.py](../../tools/tests/test_holdfast_const_editor.py),
+[test_holdfast_lsp_hints.py](../../tools/tests/test_holdfast_lsp_hints.py)), two-client
+LSP qualification (`holdfast-lsp --qualify-clients`), and strict locked native
+generation and kernel replay (`holdfast-parser qualify`, `holdfast-parser elaborate-qualify`)
 pass locally. Hosted CI remains user-managed with no hosted pass claimed from
 local execution. The original 8 h estimate, range 6–10, is retained because
 authoring and hint intervals were shared across batches; both calibration columns
@@ -619,9 +617,9 @@ remain `n/a`.
 Landed: Tier A. Full review of concise syntax productions, required-static
 constant evaluation, labeled-call checking and LSP inlay-hint projections.
 
-<a id="q25q-implement-compositional-vela-constant-functions-and-parameters"></a>
+<a id="q25q-implement-compositional-holdfast-constant-functions-and-parameters"></a>
 
-#### Q25q · Implement compositional Vela constant functions and parameters
+#### Q25q · Implement compositional HoldFast constant functions and parameters
 
 Accepted on 2026-11-08 under the
 [compositional constant contract](../language/surface-grammar.md#required-static-constants).
@@ -629,18 +627,18 @@ Both Menhir entries, the pure compiler, the mathematical elaborator and LSP
 signature/hover facts support `const` callable modifiers (preserving ordinary
 runtime calls) and `const` value parameters (checked symbolically in definitions
 and specialized on closed static arguments in declaration order).
-[examples/constants.vela](../../examples/constants.vela)
-(`d2520e3764311b74ab36185cca565d7f35af75c06b64cfdf453b7aa84f1666bb`) combines a
-static configuration with runtime data, and pure specialization bounds expanded
-terms and retained argument text before Gallina emission.
+The [constants example](../../examples/constants.hf) combines a static configuration
+with runtime data, and pure specialization bounds expanded terms and retained
+argument text before Gallina emission. The landing run used the constants fixture
+with digest `d2520e3764311b74ab36185cca565d7f35af75c06b64cfdf453b7aa84f1666bb`.
 
 Focused constant-composition and output-limit controls
-([test_vela_constants.py](../../tools/tests/test_vela_constants.py),
-[test_vela_const_math.py](../../tools/tests/test_vela_const_math.py),
-[test_vela_const_editor.py](../../tools/tests/test_vela_const_editor.py)),
-native pure and surface syntax qualification (`vela-parser qualify`), 173-fixture
-migration agreement (`vela-parser migration`), and native Rocq kernel replay of
-compositional constant functions and static parameters (`vela-parser elaborate-qualify`)
+([test_holdfast_constants.py](../../tools/tests/test_holdfast_constants.py),
+[test_holdfast_const_math.py](../../tools/tests/test_holdfast_const_math.py),
+[test_holdfast_const_editor.py](../../tools/tests/test_holdfast_const_editor.py)),
+native pure and surface syntax qualification (`holdfast-parser qualify`), 173-fixture
+migration agreement (`holdfast-parser migration`), and native Rocq kernel replay of
+compositional constant functions and static parameters (`holdfast-parser elaborate-qualify`)
 pass locally. Hosted CI remains user-managed with no hosted pass claimed from
 local execution, and no production frontend, target representation or
 source-correspondence theorem is claimed. The original 16 h estimate, range 8–24,
@@ -650,9 +648,9 @@ calibration columns remain `n/a`.
 Landed: Tier A. Full review of `const` callable and parameter syntax, symbolic
 checking, bounded specialization, editor hover signatures and native kernel replay.
 
-<a id="q25r-add-vela-numeric-digit-separators"></a>
+<a id="q25r-add-holdfast-numeric-digit-separators"></a>
 
-#### Q25r · Add Vela numeric digit separators
+#### Q25r · Add HoldFast numeric digit separators
 
 Accepted on 2026-11-08 under the
 [numeric separator contract](../tooling/authoring-tools.md#numeric-separators).
@@ -664,10 +662,10 @@ digits against the 256-digit literal bound and refusing leading, trailing,
 repeated, prefix-adjacent or suffix-adjacent underscores.
 
 Independent value, span, malformed-neighbor, suffix/base boundary and digit-limit
-controls ([test_vela_separators.py](../../tools/tests/test_vela_separators.py)),
-native pure and surface qualification fixtures (`vela-parser qualify`),
-173-fixture migration agreement (`vela-parser migration`), and Rocq kernel replay
-(`vela-parser elaborate-qualify`) pass locally. Hosted CI remains user-managed
+controls ([test_holdfast_separators.py](../../tools/tests/test_holdfast_separators.py)),
+native pure and surface qualification fixtures (`holdfast-parser qualify`),
+173-fixture migration agreement (`holdfast-parser migration`), and Rocq kernel replay
+(`holdfast-parser elaborate-qualify`) pass locally. Hosted CI remains user-managed
 with no hosted pass claimed from local execution; source-correspondence and
 represented-type boundaries are unchanged. The original 12 h estimate, range
 8–16, is retained because implementation intervals were shared across authoring
@@ -676,9 +674,9 @@ batches; both calibration columns remain `n/a`.
 Landed: Tier A. Full review of lexer separator rules, pure and mathematical
 literal validation, digit-bound accounting and native parser/kernel qualification.
 
-<a id="q25s-attach-vela-documentation-comments-to-compiler-facts"></a>
+<a id="q25s-attach-holdfast-documentation-comments-to-compiler-facts"></a>
 
-#### Q25s · Attach Vela documentation comments to compiler facts
+#### Q25s · Attach HoldFast documentation comments to compiler facts
 
 Accepted on 2026-11-03 for public functions and constants in the pure compiler.
 The [documentation qualification](../tooling/authoring-tools.md#qualification) covers the
@@ -699,9 +697,9 @@ Both calibration columns remain `n/a`.
 Landed: Tier A. Independent full reads cover attachment, fact production,
 projection, edit invalidation and the independently expected refusal/wire cases.
 
-<a id="q25t-integrate-default-vela-formatting-and-lints"></a>
+<a id="q25t-integrate-default-holdfast-formatting-and-lints"></a>
 
-#### Q25t · Integrate default Vela formatting and lints
+#### Q25t · Integrate default HoldFast formatting and lints
 
 Accepted on 2026-11-03 for the pure compiler's
 [source-preserving command policy](../tooling/authoring-tools.md#pure-formatting-and-lint-disposition).
@@ -724,29 +722,29 @@ cannot reconstruct that actual; both calibration columns remain `n/a`.
 Landed: Tier A. Independent full reads cover the formatter, lints, compiler and
 atomic publication paths, owner predicates and independent preservation controls.
 
-<a id="q25u-add-pure-vela-editor-formatting-and-semantic-tokens"></a>
+<a id="q25u-add-pure-holdfast-editor-formatting-and-semantic-tokens"></a>
 
-#### Q25u · Add pure Vela editor formatting and semantic tokens
+#### Q25u · Add pure HoldFast editor formatting and semantic tokens
 
 Accepted on 2026-11-08 under the
 [pure editor operations contract](../tooling/lsp-prototype.md#pure-editor-operations).
-`vela-lsp` ([tools/toolchain/lsp.py](../../tools/toolchain/lsp.py)) serves
+`holdfast-lsp` ([tools/toolchain/lsp.py](../../tools/toolchain/lsp.py)) serves
 compiler-checked canonical formatting (`textDocument/formatting`) as a proposed
 whole-document edit (`[]` when already canonical) and full identifier semantic
 tokens (`textDocument/semanticTokens/full`, legend `function`/`parameter`/`variable`
 and `declaration`/`readonly`) from resolved compiler facts over synchronized
 open overlays. Independent controls in
-[test_vela_lsp_editor.py](../../tools/tests/test_vela_lsp_editor.py) cover exact
+[test_holdfast_lsp_editor.py](../../tools/tests/test_holdfast_lsp_editor.py) cover exact
 edits and token streams, Unicode/newlines, refusal/recovery, worker isolation,
 oversized-frame correlated refusals, and a real stdio session with unsaved edits.
 
-[`vela-lsp --qualify-clients`](../../tools/toolchain/lsp_clients.py) qualifies both
+[`holdfast-lsp --qualify-clients`](../../tools/toolchain/lsp_clients.py) qualifies both
 pinned Neovim `0.11.0` and Vim `9.1.2141` + `yegappan/lsp`
 (`58eac06e81bad174cfa897614ae01adf0d31d10a`) clients applying the canonical
 formatting edit, verifying formatting idempotence (`[]` on canonical source), and
 checking exact 115-integer (`23` occurrences) semantic-token streams across
 initial, formatted, incrementally renamed, broken (`[]`) and recovered overlays
-in [test_vela_lsp_clients.py](../../tools/tests/test_vela_lsp_clients.py) on
+in [test_holdfast_lsp_clients.py](../../tools/tests/test_holdfast_lsp_clients.py) on
 Windows and Ubuntu. Hosted CI remains user-managed with no hosted pass claimed
 from local execution, and this increment grants no wider-language or production
 qualification. The original 12 h estimate, range 8–16, is retained because
@@ -757,9 +755,9 @@ Landed: Tier A. Full review of isolated formatting proposals, relative UTF-16
 semantic-token encoding, overlay invalidation and two-client headless
 qualification.
 
-<a id="q25v-settle-the-bounded-vela-release-and-practical-language-contracts"></a>
+<a id="q25v-settle-the-bounded-holdfast-release-and-practical-language-contracts"></a>
 
-### Q25v · Settle the bounded Vela release and practical language contracts
+### Q25v · Settle the bounded HoldFast release and practical language contracts
 
 Accepted on 2026-11-03 as a design and planning change. The
 [first-release contract](../language/first-release.md) selects bounded
@@ -776,7 +774,7 @@ sequential helper execution, ordinary error payloads and task-failure outcomes.
 Q25t owns the executable source-preserving default check/emission policy and
 its independent byte-preservation and explicit-write controls.
 
-The [delivery sequence](../../PLAN.md#vela-first-release-delivery) commissions
+The [delivery sequence](../../PLAN.md#holdfast-first-release-delivery) commissions
 Q25w's finite foundation investigation with separate successful-candidate and
 blocked-result predicates. Later component, independent-package and release
 stages require actual prerequisites and separately priced acceptance. This item
@@ -787,7 +785,7 @@ separate criteria without weakening mandatory guarantees.
 Independent review of integrated `53b9f9dd` identified a task-outcome example
 mismatch and a blocked-investigation predicate requiring unavailable candidate
 checks; both are corrected in the settled design. The local
-`vela-wire-20261103-final` fanout journal records the settled revision, comparison
+November 3 wire-contract fanout journal records the settled revision, comparison
 base, selected checks and local verdicts. Hosted acceptance remains user-managed
 and has no verdict from this session; no push or hosted dispatch is performed.
 Accounting: 0.7 h summed agent-session authoring, independent review and integration,
@@ -798,9 +796,9 @@ coverage relation, examples and implementation predicates. Corpus and Markdown
 validation retain their local handoff; they establish document consistency,
 not source metatheory or executable acceptance.
 
-<a id="q25w-investigate-the-concrete-vela-buffer-foundation-within-a-fixed-budget"></a>
+<a id="q25w-investigate-the-concrete-holdfast-buffer-foundation-within-a-fixed-budget"></a>
 
-### Q25w · Investigate the concrete Vela buffer foundation within a fixed budget
+### Q25w · Investigate the concrete HoldFast buffer foundation within a fixed budget
 
 Completed on 2026-11-06 as a blocked outcome under the finite
 foundation-investigation contract in
@@ -813,8 +811,8 @@ delivery stages closed:
 
 1. **Concrete `Span<byte>` carrier, inhabited byte case and contract elaboration
    ([tools/toolchain/elaborate.py](../../tools/toolchain/elaborate.py),
-   [examples/first_slice.vela](../../examples/first_slice.vela)):**
-   `Span<byte>` elaborates to `vela_Span` over `vela_ByteStore` (`nat -> vela_u8`)
+   [examples/first_slice.hf](../../examples/first_slice.hf)):**
+   `Span<byte>` elaborates to `holdfast_Span` over `holdfast_ByteStore` (`nat -> holdfast_u8`)
    paired with `Base`, `Length`, `Tag`, `PermRead`, `PermWrite` and derived
    `CanRead`/`CanWrite` predicates. Bounded operations `Span.AllocZeroed`,
    `Span.Read`, `Span.Write`, `Span.Fill`, `Span.Slice`, `Span.ReadOnly`,
@@ -824,14 +822,15 @@ delivery stages closed:
    contracts elaborate `requires` into typing premises, `restores dst` into five
    metadata-preservation obligations (`Base`, `Length`, `Tag`, `PermRead`,
    `PermWrite`), and `ensures` into postcondition obligations over exit states.
-2. **Law, obligation and scenario inventory (`51` declarations in
-   `Vela_Vela_FirstSlice`):** `python tools/run.py vela-parser first-slice` parses
-   `first_slice.vela` (`SHA256: 840dd34b2e2a03ed45dd8124d5fdf7369dda64090786b677c5cd9b7974f895b3`)
-   through the native Menhir `--surface` parser, elaborates all `51` declarations
-   into `FirstSlice.v` (`SHA256: 275d9c200c488b3cd1569cc629bbc8f73bdf0ad063745d45cc53c8c001426110`),
-   compiles under Rocq 9.3.0 (`rocq c`), reports `Closed under the global context`
-   (`0` axioms) via `Print Assumptions`, and audits with `rocqchk`, plus a
-   fail-closed proof-corruption control. The `51` declarations comprise the union
+2. **Law, obligation and scenario inventory (`51` declarations):** The
+   landing run parsed the validator source
+   (`SHA256: 840dd34b2e2a03ed45dd8124d5fdf7369dda64090786b677c5cd9b7974f895b3`)
+   through the native Menhir `--surface` parser and elaborated all `51`
+   declarations into `FirstSlice.v`
+   (`SHA256: 275d9c200c488b3cd1569cc629bbc8f73bdf0ad063745d45cc53c8c001426110`).
+   Rocq 9.3.0 compiled it with `rocq c`, reported `Closed under the global context`
+   (`0` axioms) via `Print Assumptions`, and audited it with `rocqchk`. The
+   proof-corruption control failed closed. The `51` declarations comprise the union
    `ValidationError`, the record `ValidationOutcome`, `MakePacket8`,
    `CopyPacketToDst`, `ComputePacketChecksum`, `PrepareAndValidatePacket` with its
    `5` `restores dst` and `3` `ensures` obligations, `11` carrier laws
@@ -854,8 +853,8 @@ delivery stages closed:
    restoration claims rest on the untrusted Python solver, and the Gallina model
    defines multiplication, division, remainder, negation and shifts as identity
    functions of their first operand.
-   [Kernel-honest emission](#q25af-make-vela-elaboration-evidence-kernel-honest)
-   and [slice conformance](#q25ag-conform-the-vela-first-slice-to-the-synchronous-design)
+   [Kernel-honest emission](#q25af-make-holdfast-elaboration-evidence-kernel-honest)
+   and [slice conformance](#q25ag-conform-the-holdfast-first-slice-to-the-synchronous-design)
    were tracked separately.
 3. **Capacity-invariance gate, semantic negative controls and target execution
    ([tools/toolchain/first_slice.py](../../tools/toolchain/first_slice.py)):**
@@ -902,7 +901,7 @@ delivery stages closed:
    `rv64d.v`, mechanized Sail-to-Clight/CompCert refinement for `first_slice.c`,
    and user-managed Host CI and Guest CI runs could not run or remain pending and
    supply no passing verdict. Subsequent stages in
-   [Vela first-release delivery](../../PLAN.md#vela-first-release-delivery) remain
+   [HoldFast first-release delivery](../../PLAN.md#holdfast-first-release-delivery) remain
    unpriced until those owners land.
 
 The original 24 h estimate, range 16–32, is retained because earlier authoring
@@ -910,16 +909,16 @@ intervals across `fdddff26` and `eafb9e8f` were not captured as an exclusive
 cumulative actual; both calibration columns remain `n/a`.
 
 Landed: Tier A. Full source, contract, theorem-subject, invalid-neighbor and
-foundation-reuse review, plus local `test_vela_first_slice`, `vela-parser first-slice`,
+foundation-reuse review, plus local `test_holdfast_first_slice`, `holdfast-parser first-slice`,
 `typecheck` and corpus validation.
 
-<a id="q25x-qualify-generated-tests-for-existing-vela-development-tools"></a>
+<a id="q25x-qualify-generated-tests-for-existing-holdfast-development-tools"></a>
 
-#### Q25x · Qualify generated tests for existing Vela development tools
+#### Q25x · Qualify generated tests for existing HoldFast development tools
 
 Accepted on 2026-11-08 under the
 [generated-development-test contract](../tooling/tooling-protocols.md#generated-development-tests).
-[`vela generated-tests`](../../tools/toolchain/generated_tests.py) qualifies
+[`holdfast generated-tests`](../../tools/toolchain/generated_tests.py) qualifies
 `hypothesis==6.170.14` and `sortedcontainers==2.4.0` under the
 `2026-10-31T07:17:33Z` dependency cooldown recorded in
 [THIRD-PARTY.md](../../THIRD-PARTY.md) inside an isolated Python 3.14 environment
@@ -941,11 +940,11 @@ three executable seeded defects (`utf16-codepoint-confusion`,
 `publish-early-edit-before-rollback`), and shrinks nonminimal failing traces
 (`21 -> 10` coordinate units and `8 -> 2` overlay steps) into explicit
 JSON-serializable replays verified by
-[test_vela_generated_tests.py](../../tools/tests/test_vela_generated_tests.py)
+[test_holdfast_generated_tests.py](../../tools/tests/test_holdfast_generated_tests.py)
 under the existing `Case` runner. Compared with the frozen manual baseline
-([test_vela_lsp.py](../../tools/tests/test_vela_lsp.py),
-[test_vela_lsp_services.py](../../tools/tests/test_vela_lsp_services.py),
-[test_vela_format.py](../../tools/tests/test_vela_format.py)), the state-machine
+([test_holdfast_lsp.py](../../tools/tests/test_holdfast_lsp.py),
+[test_holdfast_lsp_services.py](../../tools/tests/test_holdfast_lsp_services.py),
+[test_holdfast_format.py](../../tools/tests/test_holdfast_format.py)), the state-machine
 rules and structural shrinker replace handwritten multi-step sequence
 construction and reduce 8-step failing traces to 2-step replays automatically;
 because `hypothesis==6.170.14` is `MPL-2.0` and ships a compiled 14-crate
@@ -969,15 +968,16 @@ disposition.
 
 Accepted on 2026-11-08 under the
 [generated-syntax campaign contract](../tooling/parser.md#generated-syntax-campaigns).
-[`vela-parser syntax-campaigns`](../../tools/toolchain/syntax_campaigns.py)
+[`holdfast-parser syntax-campaigns`](../../tools/toolchain/syntax_campaigns.py)
 qualifies Menhir `20260209`'s `--random-seed`, `--random-sentence-length`,
 `--random-sentence` and `--interpret --interpret-show-cst` facilities in
 `verifiedos-sail-0.20.3-ocaml-5.4.1` (`menhir` SHA-256
 `290c659064d26cb1c51b743ec6a414ed4269e7f686821637656d526333c6c7a2`, `ocamlc 5.4.1`
 SHA-256 `454b023dfdebe17bd760300da10dd5b97833a11597cc5f2287444d0ed428a9fc`)
-against the `file` entry of [`parser.mly`](../../tools/toolchain/parser/parser.mly)
+against the `file` entry of the authored grammar used at landing
 (`c249a367a6c7cadae2caf42d613afccb54173270ed453d97593c301c561373d2`) under the
 [output reading](../../THIRD-PARTY.md#generated-development-tests).
+[Current grammar](../../tools/toolchain/parser/parser.mly)
 
 Freezing the `multi-declaration-precedence-trailing-comma-and-trivia-boundaries`
 interaction across seeds `20261108..20261171` (`64` sentences, `goal_length=36`,
@@ -995,7 +995,7 @@ negative controls (`empty-sentence`, `missing-eof`, `premature-eof`,
 `--interpret --interpret-show-cst` accepts all `64` generated sentences (`3`
 malformed negative controls rejected) and
 [`IndependentPureAstOracle`](../../tools/toolchain/syntax_campaigns.py) verifies
-all `192` rendered trivia/payload checks against the native `vela-parser`
+all `192` rendered trivia/payload checks against the native `holdfast-parser`
 executable (`63` accepted ASTs and `1` automaton-accepted /
 semantic-action-refused bare-typed local sentence at seed `20261116`), kills all
 three semantic-action/span faults that `--interpret` alone accepts
@@ -1003,7 +1003,7 @@ three semantic-action/span faults that `--interpret` alone accepts
 `trailing-comma-span-or-arity-corruption`: `34 -> 15` tokens; held-out
 `expression-body-excludes-arrow-or-semicolon-span`: `29 -> 14` tokens), and
 verifies deterministic JSON replay in
-[test_vela_syntax_campaigns.py](../../tools/tests/test_vela_syntax_campaigns.py)
+[test_holdfast_syntax_campaigns.py](../../tools/tests/test_holdfast_syntax_campaigns.py)
 without random generation, a second grammar, `menhirLib` runtime linking or
 unbounded `--list-errors` enumeration. Hosted CI remains user-managed with no
 hosted pass claimed from local execution. The original 4.5 h estimate, range 3–6,
@@ -1014,17 +1014,17 @@ Landed: Tier A. Full review of the payload renderer, `IndependentPureAstOracle`,
 automaton-vs-action refusal detection, seeded-fault shrinking and deterministic
 replay fixtures.
 
-<a id="q25z-qualify-the-familiar-vela-authoring-surface"></a>
+<a id="q25z-qualify-the-familiar-holdfast-authoring-surface"></a>
 
-#### Q25z · Qualify the familiar Vela authoring surface
+#### Q25z · Qualify the familiar HoldFast authoring surface
 
 Accepted on 2026-11-08 under the
 [familiar authoring migration](../language/surface-grammar.md#familiar-authoring-migration)
 and [ergonomic syntax contract](../language/surface-grammar.md#ergonomic-authoring-and-bounded-collection-iteration).
 The single Menhir grammar (using an internal token-only generic-call probe over
 the shared generic-argument productions) and the supported consumers implement
-canonical `let`/`var` local bindings (`VELA104` and `--preview-bindings` retired
-at Q25ah once `let`/`var` became mandatory), imported `Vela.Numerics` aliases,
+canonical `let`/`var` local bindings (`HOLDFAST104` and `--preview-bindings` retired
+at Q25ah once `let`/`var` became mandatory), imported `HoldFast.Numerics` aliases,
 fat-arrow `match` arms, mathematical `=>` expression bodies, ordinary `F<T>(...)`
 generic calls alongside explicit `::<...>` applications, `if (cond) a else b`
 expressions, declaration-order `label: pattern` constructor fields, postfix
@@ -1037,13 +1037,13 @@ compiler-verified [assist-don't-coerce](../tooling/authoring-tools.md#compiler-v
 helpers.
 
 Independent syntax, ambiguous-token, probe-budget, pure-route and mathematical
-controls ([test_vela_bindings.py](../../tools/tests/test_vela_bindings.py),
-[test_vela_surface.py](../../tools/tests/test_vela_surface.py)), strict locked
-native generation (`vela-parser qualify`), 173-fixture migration agreement
-(`vela-parser migration`), and 142-case native Rocq kernel replay
-(`vela-parser elaborate-qualify`) pass locally. Represented runtime lowering,
+controls ([test_holdfast_bindings.py](../../tools/tests/test_holdfast_bindings.py),
+[test_holdfast_surface.py](../../tools/tests/test_holdfast_surface.py)), strict locked
+native generation (`holdfast-parser qualify`), 173-fixture migration agreement
+(`holdfast-parser migration`), and 142-case native Rocq kernel replay
+(`holdfast-parser elaborate-qualify`) pass locally. Represented runtime lowering,
 general `IBoundedIterable<T>` iterator laws and wider borrow/editor projections
-retain their [remaining ergonomics owners](../../PLAN.md#remaining-vela-ergonomics)
+retain their [remaining ergonomics owners](../../PLAN.md#remaining-holdfast-ergonomics)
 after the accepted first slice, and hosted CI remains user-managed. The original
 32 h estimate, range 24–40, is retained because ergonomic syntax and consumer
 migrations were shared across multiple batches; both calibration columns remain
@@ -1053,9 +1053,9 @@ Landed: Tier A. Full review of the generic-call probe, familiar authoring
 productions, pure and mathematical consumer migrations, assist helpers and native
 parser/kernel replay.
 
-<a id="q25aa-build-a-local-vela-browser-playground"></a>
+<a id="q25aa-build-a-local-holdfast-browser-playground"></a>
 
-#### Q25aa · Build a local Vela browser playground
+#### Q25aa · Build a local HoldFast browser playground
 
 Accepted on 2026-11-03 as a local development demo under the
 [playground contract](../tooling/playground.md). The host launch command
@@ -1085,7 +1085,7 @@ internet access; plain-text fallback retains compiler operations. Native
 execution, runtime I/O, wider-language semantics and kernel/production acceptance
 remain outside the demo.
 
-The `vela-playground-20261103` fanout journal records the settled local revision,
+The November 3 playground fanout journal records the settled local revision,
 comparison base, focused local verdicts and recommended hosted checks. Host and
 Guest CI remain user-managed with no verdict from this session. No push,
 deployment or hosted dispatch is performed. The original 12 h estimate, range
@@ -1095,9 +1095,9 @@ both calibration columns remain `n/a`.
 Landed: Tier A. Full source and contract reads, independent review and local
 compiler/protocol/browser evidence accept this bounded development demo.
 
-<a id="q25ab-extend-the-vela-playground-authoring-and-inspection-controls"></a>
+<a id="q25ab-extend-the-holdfast-playground-authoring-and-inspection-controls"></a>
 
-#### Q25ab · Extend the Vela playground authoring and inspection controls
+#### Q25ab · Extend the HoldFast playground authoring and inspection controls
 
 Accepted on 2026-11-03 as a local development increment under the
 [playground contract](../tooling/playground.md#authoring-and-inspection-increment).
@@ -1124,7 +1124,7 @@ arguments; undo recovery binds the editor's actual line endings after formatting
 These are local browser and prototype results, not independent-client LSP,
 wider-language, native execution or production qualification.
 
-The `vela-playground-features-20261103` fanout journal records the settled local
+The November 3 playground features fanout journal records the settled local
 revision, comparison base, Python/corpus validation and recommended hosted
 selection. Host and Guest CI remain user-managed with no verdict from this
 session; no push or dispatch is performed. The original 8 h estimate, range
@@ -1134,28 +1134,28 @@ not captured; both calibration columns remain `n/a`.
 Landed: Tier A. Full contract/source review, independent review and focused
 compiler/protocol/browser evidence accept this bounded local increment.
 
-<a id="q25ac-extend-pure-vela-expressions-and-playground-examples"></a>
+<a id="q25ac-extend-pure-holdfast-expressions-and-playground-examples"></a>
 
-#### Q25ac · Extend pure Vela expressions and playground examples
+#### Q25ac · Extend pure HoldFast expressions and playground examples
 
 Accepted on 2026-11-08 under the
 [extended pure expression contract](../tooling/pure-prototype.md#extended-pure-expressions)
 and [playground expression examples](../tooling/playground.md#extended-expression-examples).
-Both pure syntax routes (`vela-checked-parser` and `vela-parser`) accept Boolean
+Both pure syntax routes (`holdfast-checked-parser` and `holdfast-parser`) accept Boolean
 negation (`!`), short-circuit conjunction/disjunction (`&&`, `||`), non-chaining
 comparisons (`==`, `!=`, `<`, `<=`, `>`, `>=`) and saturating natural subtraction
 (`-`), with exact-source native decoding, once-only left-to-right operand
 evaluation, bounded short-circuit static evaluation, canonical formatting and
-runnable playground examples
-([examples/expressions.vela](../../examples/expressions.vela),
-`b9558ad1e09009a433decd3b786e228feb14ed8f25df1e2d2b10b074d3836ae8`).
+runnable [playground examples](../../examples/expressions.hf). The landing run
+used the expression fixture with digest
+`b9558ad1e09009a433decd3b786e228feb14ed8f25df1e2d2b10b074d3836ae8`.
 
 Independent operator, precedence, AST/span, short-circuit limit and refusal
-controls ([test_vela_expressions.py](../../tools/tests/test_vela_expressions.py)),
-focused HTTP/editor tests, native syntax qualification (`vela-parser qualify`),
-173-fixture migration agreement (`vela-parser migration`), headless Edge
+controls ([test_holdfast_expressions.py](../../tools/tests/test_holdfast_expressions.py)),
+focused HTTP/editor tests, native syntax qualification (`holdfast-parser qualify`),
+173-fixture migration agreement (`holdfast-parser migration`), headless Edge
 verification in Monaco and plain-text fallback, and native Rocq kernel replay of
-emitted runtime functions and evaluated constants (`vela-parser elaborate-qualify`)
+emitted runtime functions and evaluated constants (`holdfast-parser elaborate-qualify`)
 pass locally. Hosted CI remains user-managed with no hosted pass claimed from
 local execution. The original 8 h estimate, range 6–10, is retained because
 expression and playground intervals were shared across batches; both calibration
@@ -1165,9 +1165,9 @@ Landed: Tier A. Full review of pure operator precedence, short-circuit emission
 and evaluation, formatter/LSP preservation, playground examples and native kernel
 replay.
 
-<a id="q25ad-add-natural-division-and-remainder-to-vela-and-its-playground"></a>
+<a id="q25ad-add-natural-division-and-remainder-to-holdfast-and-its-playground"></a>
 
-#### Q25ad · Add natural division and remainder to Vela and its playground
+#### Q25ad · Add natural division and remainder to HoldFast and its playground
 
 Accepted on 2026-11-08 under the
 [natural division and remainder contract](../tooling/pure-prototype.md#natural-division-and-remainder)
@@ -1179,12 +1179,12 @@ exact-source native AST decoding, once-only left-to-right static evaluation,
 canonical formatting and runnable playground examples.
 
 Independent value, term, precedence, zero-divisor, static-dependency, limit and
-AST controls ([test_vela_division.py](../../tools/tests/test_vela_division.py)),
-real HTTP/LSP integration, native syntax qualification (`vela-parser qualify`),
-173-fixture migration agreement (`vela-parser migration`), headless Edge
+AST controls ([test_holdfast_division.py](../../tools/tests/test_holdfast_division.py)),
+real HTTP/LSP integration, native syntax qualification (`holdfast-parser qualify`),
+173-fixture migration agreement (`holdfast-parser migration`), headless Edge
 verification in Monaco and plain-text fallback, and native Rocq kernel replay of
 runtime and constant quotient/remainder observations
-(`vela-parser elaborate-qualify`) pass locally. Hosted CI remains user-managed
+(`holdfast-parser elaborate-qualify`) pass locally. Hosted CI remains user-managed
 with no hosted pass claimed from local execution, and represented first-release
 integer division retains its nonzero-divisor obligation in
 [first-release.md](../language/first-release.md#primitive-semantics). The original
@@ -1194,21 +1194,21 @@ across batches; both calibration columns remain `n/a`.
 Landed: Tier A. Full review of `/` and `%` grammar productions, total `Nat`
 emission and static evaluation, playground integration and native kernel replay.
 
-<a id="q25ae-bring-dependent-vela-mathematics-into-the-playground"></a>
+<a id="q25ae-bring-dependent-holdfast-mathematics-into-the-playground"></a>
 
-#### Q25ae · Bring dependent Vela mathematics into the playground
+#### Q25ae · Bring dependent HoldFast mathematics into the playground
 
 Accepted on 2026-11-08 under the
 [dependent playground contract](../tooling/playground.md#dependent-mathematics-increment)
 and [generic naming lint](../tooling/authoring-tools.md#generic-type-parameter-naming).
-The single native-backed `vela-playground` launch
+The single native-backed `holdfast-playground` launch
 ([tools/toolchain/playground.py](../../tools/toolchain/playground.py),
 [playground_worker.py](../../tools/toolchain/playground_worker.py))
 uses the schema-2 surface parser and mathematical elaborator for every buffer
 in its bounded isolated worker. It provides Gallina output, closed-expression
 reduction, an independent `editorServices` indication, and
-source-bound `VELA105` generic type-parameter naming warnings (`--allow VELA105`
-and `--deny VELA105` on `vela-parser elaborate`, with `VELA106` retired at Q25ah).
+source-bound `HOLDFAST105` generic type-parameter naming warnings (`--allow HOLDFAST105`
+and `--deny HOLDFAST105` on `holdfast-parser elaborate`, with `HOLDFAST106` retired at Q25ah).
 
 Generic/higher-order, finite-index `Vec`/`Fin`, record/property/guard, raw-string
 formatting and dependent-function examples return independently expected values,
@@ -1218,22 +1218,22 @@ console suggestions evaluated with the native worker. Headless Edge exercised
 vector lookup in the initial arithmetic buffer, rejection of a mismatched
 `Fin` index and recovery after switching examples in plain-text editing.
 Independent evaluator, HTTP, lint and CLI controls
-([test_vela_playground_math.py](../../tools/tests/test_vela_playground_math.py),
-[test_vela_generic_naming.py](../../tools/tests/test_vela_generic_naming.py),
-[test_vela_naming_cli.py](../../tools/tests/test_vela_naming_cli.py)), locked
-native parser/elaborator replay (`vela-parser elaborate-qualify`), and headless
+([test_holdfast_playground_math.py](../../tools/tests/test_holdfast_playground_math.py),
+[test_holdfast_generic_naming.py](../../tools/tests/test_holdfast_generic_naming.py),
+[test_holdfast_naming_cli.py](../../tools/tests/test_holdfast_naming_cli.py)), locked
+native parser/elaborator replay (`holdfast-parser elaborate-qualify`), and headless
 Edge verification across Monaco and plain-text fallback pass locally. Hosted CI
 remains user-managed with no hosted pass claimed from local execution. The
 original 16 h estimate, range 12–20, is retained because playground and lint
 intervals were shared across batches; both calibration columns remain `n/a`.
 
 Landed: Tier A. Full review of the playground compiler, closed mathematical
-expression reduction, `VELA105` generic naming checks, browser transport and
+expression reduction, `HOLDFAST105` generic naming checks, browser transport and
 native replay.
 
-<a id="q25af-make-vela-elaboration-evidence-kernel-honest"></a>
+<a id="q25af-make-holdfast-elaboration-evidence-kernel-honest"></a>
 
-#### Q25af · Make Vela elaboration evidence kernel-honest
+#### Q25af · Make HoldFast elaboration evidence kernel-honest
 
 Accepted on 2026-11-07 under [R-05-020a](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-020a) and the
 [primitive contract](../language/first-release.md#primitive-semantics).
@@ -1246,7 +1246,7 @@ obligation instead of substituting `true = true` or reflexive `x = x`
 tautologies. Obligations for which the elaborator constructs a kernel proof term
 or definitional computation emit closed `Definition` exports (`Closed under the
 global context`); obligations discharged only by the untrusted Python solver
-emit named `Axiom vela_solver_...` assumptions carrying the real statement
+emit named `Axiom holdfast_solver_...` assumptions carrying the real statement
 (generalized over elaboration-local state with active facts) and record each
 entry in `solver_trust`. Exclusive `ref` parameters emit kernel post-state
 images (`_post_<param>`) so postconditions and restoration obligations state the
@@ -1254,14 +1254,14 @@ callable's actual effect.
 
 In the Gallina prelude ([elaborate_types.py](../../tools/toolchain/elaborate_types.py)),
 fixed-width integers (`u8`..`u64`, `i8`..`i64`, `usize`, `byte`) are represented
-over little-endian bit lists of width `vela_int_bits k`. Wrapping, saturating
+over little-endian bit lists of width `holdfast_int_bits k`. Wrapping, saturating
 and checked addition, subtraction, multiplication, division, remainder, negation
-and bitwise shifts, two's-complement signed comparisons (`vela_int_slt`..`vela_int_sge`)
-and widening/narrowing/checked conversions (`vela_int_from`, `vela_int_try_from`,
-`vela_int_to_nat`, `vela_nat_to_usize`) replace the prior identity and
+and bitwise shifts, two's-complement signed comparisons (`holdfast_int_slt`..`holdfast_int_sge`)
+and widening/narrowing/checked conversions (`holdfast_int_from`, `holdfast_int_try_from`,
+`holdfast_int_to_nat`, `holdfast_nat_to_usize`) replace the prior identity and
 placeholder definitions. Independent value controls in
-[test_vela_primitives.py](../../tools/tests/test_vela_primitives.py) and
-[test_vela_solver_ledger.py](../../tools/tests/test_vela_solver_ledger.py)
+[test_holdfast_primitives.py](../../tools/tests/test_holdfast_primitives.py) and
+[test_holdfast_solver_ledger.py](../../tools/tests/test_holdfast_solver_ledger.py)
 check boundary values, signedness, overflow/zero-divisor/invalid-shift `Err`
 outcomes, non-tautological obligation types and exact `Print Assumptions`
 agreement with `solver_trust`.
@@ -1273,13 +1273,13 @@ batch; both calibration columns remain `n/a`.
 Landed: Tier A. Full review of emitted obligation types, solver-trust ledger
 accounting, bit-list Gallina primitive definitions and local kernel replay.
 
-<a id="q25ag-conform-the-vela-first-slice-to-the-synchronous-design"></a>
+<a id="q25ag-conform-the-holdfast-first-slice-to-the-synchronous-design"></a>
 
-#### Q25ag · Conform the Vela first slice to the synchronous design
+#### Q25ag · Conform the HoldFast first slice to the synchronous design
 
 Accepted on 2026-11-07 under the [synchronous core](../language/core-design.md#loans-and-control-flow)
 and [first-slice qualification contract](../language/first-release.md#first-slice-qualification).
-[examples/first_slice.vela](../../examples/first_slice.vela)
+[examples/first_slice.hf](../../examples/first_slice.hf)
 and [tools/toolchain/first_slice.py](../../tools/toolchain/first_slice.py) conform
 to the synchronous design:
 
@@ -1317,12 +1317,12 @@ WSL qualification intervals were shared across the Q25af–Q25ai batch; both
 calibration columns remain `n/a`.
 
 Landed: Tier A. Full review of the synchronous validator, format-model
-contracts, negative controls, CompCert/Sail harness and local `vela-parser first-slice`
+contracts, negative controls, CompCert/Sail harness and local `holdfast-parser first-slice`
 qualification.
 
-<a id="q25ah-resolve-vela-surface-collisions-and-redundant-spellings"></a>
+<a id="q25ah-resolve-holdfast-surface-collisions-and-redundant-spellings"></a>
 
-#### Q25ah · Resolve Vela surface collisions and redundant spellings
+#### Q25ah · Resolve HoldFast surface collisions and redundant spellings
 
 Accepted on 2026-11-07 under the [surface grammar](../language/surface-grammar.md). Across the Menhir
 grammar ([tools/toolchain/parser/parser.mly](../../tools/toolchain/parser/parser.mly)),
@@ -1341,7 +1341,7 @@ elaborators, formatter and lints:
 4. Pattern matching distinguishes nullary constructors from variable binders by
    token shape (qualified paths `A.B` or known uppercase constructors resolve as
    0-argument `constructor_pattern`s; lowercase identifiers bind variables),
-   retiring `VELA106` and `--preview-patterns` while keeping `VELA106` reserved.
+   retiring `HOLDFAST106` and `--preview-patterns` while keeping `HOLDFAST106` reserved.
 5. Statement `match` and expression `match` unify on fat-arrow `Pattern => body`
    arms (`Pattern => { ... }` or `Pattern => statement;` in statement matches;
    `Pattern => expr,` in expression matches).
@@ -1353,9 +1353,9 @@ calibration columns remain `n/a`.
 
 Landed: Tier A. Full grammar, parser, elaborator, formatter and fixture review.
 
-<a id="q25ai-publish-the-vela-language-reference-and-separate-extension-research"></a>
+<a id="q25ai-publish-the-holdfast-language-reference-and-separate-extension-research"></a>
 
-#### Q25ai · Publish the Vela language reference and separate extension research
+#### Q25ai · Publish the HoldFast language reference and separate extension research
 
 Accepted on 2026-11-07.
 [docs/language/reference.md](../language/reference.md) provides a
@@ -1378,9 +1378,9 @@ were shared across the Q25af–Q25ai batch; both calibration columns remain `n/a
 
 Landed: Tier A. Full review of the compact language reference, extension-dossier separation, and first-release authoring-cost documentation.
 
-<a id="q25aj-unify-vela-playground-assets-single-source-grammar-sync-and-single-pass-worker-execution"></a>
+<a id="q25aj-unify-holdfast-playground-assets-single-source-grammar-sync-and-single-pass-worker-execution"></a>
 
-#### Q25aj · Unify Vela playground assets, single-source grammar sync, and single-pass worker execution
+#### Q25aj · Unify HoldFast playground assets, single-source grammar sync, and single-pass worker execution
 
 Accepted on 2026-11-08 under the [playground architecture contract](../tooling/playground.md#single-source-unification-and-worker-efficiency):
 
@@ -1390,7 +1390,7 @@ Accepted on 2026-11-08 under the [playground architecture contract](../tooling/p
    asset mirror under `tools/toolchain/playground/`. The static check gate
    ([checks.py](../../tools/toolchain/checks.py)) verifies DOM/example bindings on
    `docs/`, enforces canonical formatting (`authoring.format_source`) on all pure
-   inline `EXAMPLES`, verifies `VELA_GRAMMAR` keyword/type/constant/retired-keyword
+   inline `EXAMPLES`, verifies `HOLDFAST_GRAMMAR` keyword/type/constant/retired-keyword
    parity against [lexer.mll](../../tools/toolchain/parser/lexer.mll), and refuses
    any reintroduced `tools/toolchain/playground/*` files.
 2. **Console evaluation and native parser identity.**
@@ -1400,13 +1400,13 @@ Accepted on 2026-11-08 under the [playground architecture contract](../tooling/p
    [playground worker](../../tools/toolchain/playground_worker.py) passes console
    requests directly to the mathematical evaluator.
    [mathematical.py](../../tools/toolchain/mathematical.py)
-   caches `vela_parser.Build` by `(parser, st_mtime_ns, st_size, st_ino)` across
+   caches `holdfast_parser.Build` by `(parser, st_mtime_ns, st_size, st_ino)` across
    unchanged native parser invocations while preserving fail-closed refusal when the
    executable changes.
-3. **Exact `Corelib` Gallina, `Q25ah` syntax, `VELA105` lint, and client unification:**
+3. **Exact `Corelib` Gallina, `Q25ah` syntax, `HOLDFAST105` lint, and client unification:**
    [docs/app.mjs](../app.mjs) replaces custom bitwise SHA-256 with Web Crypto
-   `crypto.subtle.digest("SHA-256", ...)`, shares `VELA_LEXICAL_PATTERNS` between
-   `buildVelaMonarchLanguage()` and `highlightVelaCodeHtml()`, consolidates the six
+   `crypto.subtle.digest("SHA-256", ...)`, shares `HOLDFAST_LEXICAL_PATTERNS` between
+   `buildHoldFastMonarchLanguage()` and `highlightHoldFastCodeHtml()`, consolidates the six
    UI staleness counters into `createTicketTracker()`, emits canonical
    `Corelib.Init.Datatypes` and `Corelib.Init.Nat` Gallina matching
    [tools/toolchain/__init__.py](../../tools/toolchain/__init__.py), enforces
@@ -1414,12 +1414,12 @@ Accepted on 2026-11-08 under the [playground architecture contract](../tooling/p
    and `MathParser.parseStatement` while repairing bare typed locals via
    `purePreviewBindings` in `/api/authoring` matching
    [authoring.py](../../tools/toolchain/authoring.py), emits the exact canonical
-   `VELA105` diagnostic in `MathElaborator.elaborate()`, and caches
+   `HOLDFAST105` diagnostic in `MathElaborator.elaborate()`, and caches
    the elaborated browser module so console expressions can reuse an unchanged
    source.
-   [test_vela_playground_math.py](../../tools/tests/test_vela_playground_math.py)
+   [test_holdfast_playground_math.py](../../tools/tests/test_holdfast_playground_math.py)
    verifies differential compilation, evaluation, suggestion, authoring, `Q25ah`,
-   and `VELA105` parity between `browserApi` and `playground_worker.compile_request`.
+   and `HOLDFAST105` parity between `browserApi` and `playground_worker.compile_request`.
 
 The original 8 h estimate, range 6–12, is retained with `n/a` calibration columns.
 
@@ -1438,8 +1438,8 @@ Accepted on 2026-11-09 under the [mathematical elaboration contract](../tooling/
    states (`CountUpTo_ensures_0`, `SumPrefix_ensures_0`), sequential `out`
    parameter linear arithmetic chains (`InitBounds_ensures_1`, `InitPair_ensures_1`)
    and branching `out` parameter relational postconditions (`InitBranch_ensures_0`)
-   via `vela_nat_add_assoc3`, `vela_nat_lt_add_pos_r` and bit-vector roundtrip
-   lemmas (`vela_bits_from_to_nat_roundtrip` and `vela_int_chk_add_val`).
+   via `holdfast_nat_add_assoc3`, `holdfast_nat_lt_add_pos_r` and bit-vector roundtrip
+   lemmas (`holdfast_bits_from_to_nat_roundtrip` and `holdfast_int_chk_add_val`).
    [elaboration_check.py](../../tools/toolchain/elaboration_check.py) enforces
    `solver_trusted == []` (`Closed under the global context` via `Print Assumptions`
    and recursive `rocqchk`) across all `28` accepted elaboration libraries (`156`
@@ -1449,11 +1449,11 @@ Accepted on 2026-11-09 under the [mathematical elaboration contract](../tooling/
    import-graph control catches omitted checker inputs. The assumption auditor
    refuses empty, malformed and unsupported reports, including unexpected
    continuations; only recognized closed-context reports establish zero axioms
-   ([audit tests](../../tools/tests/test_vela_solver_ledger.py),
-   [input controls](../../tools/tests/test_vela_elaboration_check.py)).
+   ([audit tests](../../tools/tests/test_holdfast_solver_ledger.py),
+   [input controls](../../tools/tests/test_holdfast_elaboration_check.py)).
 2. **Schema-2 AST loan lowering and source-site mapping:**
    [loans.py](../../tools/toolchain/loans.py) extends `_FunctionLowerer` and
-   `LoweredFunction` across `vela_parser` schema-2 AST node shapes (`module`,
+   `LoweredFunction` across `holdfast_parser` schema-2 AST node shapes (`module`,
    `record`, `modified_type`, `name` expressions, `unary` `in`/`ref`/`out`/`move`
    borrows, `assignment` and `expression_statement` nodes, `if`/`if_expression`
    `then`/`else` keys, `match` `cases`, and temporary rvalue borrow targets),
@@ -1518,7 +1518,7 @@ Accepted on 2026-11-09 under the [mathematical elaboration contract](../tooling/
    own `effects` clause, or a callee with non-empty `calls(...)` effects must be
    covered by the caller's `calls(...)` clause.
    [elaboration_check.py](../../tools/toolchain/elaboration_check.py) and
-   [test_vela_elaborate.py](../../tools/tests/test_vela_elaborate.py) verify
+   [test_holdfast_elaborate.py](../../tools/tests/test_holdfast_elaborate.py) verify
    constructive zero-axiom Rocq 9.3.0 replay across all `29` accepted elaboration
    libraries (`166` total replay fixtures).
 
@@ -1537,10 +1537,10 @@ development receipts binding the producer revision, local implementation and
 dependency inputs, parser outputs, locked prover/runtime, interpreter,
 simulator/profile, optional CompCert executable and retained outputs/transcripts.
 Late input changes withdraw publication and preserve a failed attempt journal.
-`vela-parser first-slice-bindings` checks retained identities with
+`holdfast-parser first-slice-bindings` checks retained identities with
 `proof_replayed: false`, `artifact_accepted: false` and
 `production_admission: false`. Independent
-[receipt controls](../../tools/tests/test_vela_first_slice_receipts.py) cover
+[receipt controls](../../tools/tests/test_holdfast_first_slice_receipts.py) cover
 stale/missing/corrupt inputs and outputs, malformed records, refusal and CLI
 dispatch. The binding verdict does not authorize source or machine admission.
 Binding also checks declared source/Gallina/C subjects, required local law,
@@ -1549,9 +1549,9 @@ and required process subjects/verdicts against retained transcripts. Rehashed
 missing coverage, invented source-proof status and altered process records refuse.
 Capacity coverage requires both compilation subjects, their joint kernel-check
 transcript and retained source/library outputs; declared capacities and byte
-lengths agree with those outputs, and original Vela inputs exactly match the
+lengths agree with those outputs, and original HoldFast inputs exactly match the
 frozen small/large fixtures. All 17 semantic negatives retain their exact frozen
-Vela source and must occur exactly once with successful parsing, the intended
+HoldFast source and must occur exactly once with successful parsing, the intended
 semantic refusal and integer locations within that source. The proof-corruption
 subject is exactly the retained Gallina followed by the frozen false equality;
 a normal Rocq exit must report its intended type mismatch at that definition.
@@ -1577,7 +1577,7 @@ hashes must agree. Interpreter stdout must contain exactly one expected terminat
 simulator transcripts must recover the expected verdict and nonempty trace, and
 the main trace summary is recomputed. Each retained assembly must regenerate
 its exact image. Failed interpreter processes cannot publish a source verdict.
-Two additional [receipt cases](../../tools/tests/test_vela_first_slice_receipts.py)
+Two additional [receipt cases](../../tools/tests/test_holdfast_first_slice_receipts.py)
 cover the observation producer and 31 independent process/subject/summary mutations,
 including rehashed contradictory transcripts and changed effective inputs or images.
 Simulator transcripts require exactly one well-formed terminal verdict consistent
@@ -1588,7 +1588,7 @@ its decimal status; plain decimal remains supported. Trace records following the
 verdicts, malformed records previously discarded by normalization, non-ASCII trace
 data and trap-loop diagnostics refuse. The same
 checks run before native first-slice publication. A fifteenth
-[receipt case](../../tools/tests/test_vela_first_slice_receipts.py) exercises
+[receipt case](../../tools/tests/test_holdfast_first_slice_receipts.py) exercises
 rehashed transcript mutations across passing and trapping capability controls
 and optional compiler main/control observations, with valid stderr-carried records.
 All 15 receipt cases pass. Local CompCert remains unavailable; optional fixtures
@@ -1618,24 +1618,24 @@ The three source obligations `PrepareAndValidatePacket_ensures_0`,
 `PrepareAndValidatePacket_ensures_2` and `ValidateEmptyPacketOk` now synthesize
 constructive proof terms within those limits.
 
-Native `vela-parser first-slice` compiles all 69 exports, audits an empty
+Native `holdfast-parser first-slice` compiles all 69 exports, audits an empty
 solver-trust ledger and runs recursive `rocqchk`; source `accepted` and
 `kernel_checked` are true. All 17 semantic negatives, proof-corruption refusal,
 capacity-invariance checks and four Sail controls pass. Native
-`vela-parser elaborate-qualify` passes 172 cases: 31 accepted libraries with
+`holdfast-parser elaborate-qualify` passes 172 cases: 31 accepted libraries with
 zero solver-trust assumptions and 141 intended refusals.
-[Source-proof regression](../../tools/tests/test_vela_first_slice.py) and the
+[Source-proof regression](../../tools/tests/test_holdfast_first_slice.py) and the
 existing speculative-inference rollback cases preserve the budget and cache
 boundary. Combined local gate and behavioral validation cover integration.
 
-On 2026-11-22 the [guest C11 regression](../../tools/tests/test_vela_first_slice.py)
+On 2026-11-22 the [guest C11 regression](../../tools/tests/test_holdfast_first_slice.py)
 exposed a missing check in the packet harness. A four-byte view pointing back
 into the input passed because the copied destination held identical bytes.
 The harness checks the destination address, base, length, tag and permissions
 for empty, partial and full payloads. At `-O0` and `-O2` the wrong backing
 fails at check 6 and a partial view with write permission fails at check 10.
 
-The [importing packet client](../../tools/tests/test_vela_packet_outcome.py)
+The [importing packet client](../../tools/tests/test_holdfast_packet_outcome.py)
 uses the public outcome law to prove that simultaneous bad flags and excessive
 length produce `BadMagicOrFlags`. Rocq checks the closed example with the
 validator opaque. Removing the law leaves the caller's assertion unprovable.
@@ -1653,7 +1653,7 @@ whole-cell completion credit or additional hours are recorded for this increment
 #### Q25ch · Publish qualified compiler inspection services
 
 Under the [pure snapshot contract](../tooling/tooling-protocols.md#pure-development-snapshot-increment),
-`vela inspect` exports immutable source-preserving snapshots with schema-7
+`holdfast inspect` exports immutable source-preserving snapshots with schema-7
 provenance, UTF-8 byte spans, structured scalar/callable identifier types and
 snapshot-scoped resolved symbols/references. Function types include parameter
 types, required-static flags, result types and constant-callable status.
@@ -1665,14 +1665,14 @@ Source, URI, compiler/dependency, configuration,
 target and cross-snapshot handle changes refuse; limited results report partial
 status. Unsupported and failed/timed-out analysis cannot report reference absence.
 
-Twelve [independent consumer cases](../../tools/tests/test_vela_inspection.py)
+Twelve [independent consumer cases](../../tools/tests/test_holdfast_inspection.py)
 validate the machine-checkable response schema, exact Unicode/CRLF reconstruction,
 structured types and sibling scopes, query/export bounds, invalidation and read-only
 CLI behavior. Worker checks refuse malformed types, inconsistent declaration
 labels, missing type records, omitted callable parameters and orphan parameter
 facts; version-1 and version-2 queries are explicitly refused. Independent review found and
 corrected coordinated signature/parameter omissions.
-Three [concrete consumer cases](../../tools/tests/test_vela_inspection_concrete.py)
+Three [concrete consumer cases](../../tools/tests/test_holdfast_inspection_concrete.py)
 independently reconstruct mixed newline/Unicode source, verify piece classifications
 and half-open queries, and exercise bounds, stale inputs, missing/forged trivia
 and source-reconstructing token splits. The worker boundary rechecks the canonical
@@ -1682,7 +1682,7 @@ a source-bound preorder syntax tree. Snapshot-scoped node handles carry parent
 and child links, field roles, list indices, constant qualifiers and exact UTF-8
 spans. Bounded syntax, syntax-at and syntax-children queries enforce snapshot
 freshness and Unicode/CRLF coordinates.
-Four [syntax consumers](../../tools/tests/test_vela_inspection_syntax.py)
+Four [syntax consumers](../../tools/tests/test_holdfast_inspection_syntax.py)
 independently check a complete authored tree with constant qualifiers, typed
 locals, branch nesting, named arguments and parentheses. Malformed, omitted and
 escaping worker nodes, stale schema versions and foreign handles refuse. All
@@ -1695,7 +1695,7 @@ Every pure literal, name, call, operator and grouped expression also carries its
 compiler-recorded scalar result type, joined to the exact syntax node and source
 span. Bounded `expressions`, `expression-at` and `expression-type` queries expose
 these decisions while callable identifier types remain distinct from call result
-types. Three [typed-expression consumers](../../tools/tests/test_vela_inspection_types.py)
+types. Three [typed-expression consumers](../../tools/tests/test_holdfast_inspection_types.py)
 independently check expected source meanings, named/static calls, callee shadowing,
 operator/group sites, Unicode/CRLF, bounded/stale/foreign queries and malformed,
 omitted or inconsistent worker decisions. Failed overlays withdraw the snapshot.
@@ -1706,7 +1706,7 @@ symbols also expose declaration-order availability offsets. Named argument
 labels retain caller environments and callee parameter identities. Bounded
 `scopes`, `scope-at` and `scope-symbols` queries reject stale/foreign handles and
 report truncation explicitly. Three
-[scope consumer cases](../../tools/tests/test_vela_inspection_scopes.py) check
+[scope consumer cases](../../tools/tests/test_holdfast_inspection_scopes.py) check
 nine independently expected environments, shadowing, sibling identities,
 availability, named labels and malformed/omitted worker facts. Combined local
 gate and behavioral validation cover integration.
@@ -1727,7 +1727,7 @@ IDs return current full tokens; configuration/producer changes, save, close,
 desynchronization and shutdown invalidate history. Oversized or failed responses
 cannot advance the retained base. Full-only clients keep their data-only responses.
 
-Five [independent delta cases](../../tools/tests/test_vela_lsp_delta.py) reconstruct
+Five [independent delta cases](../../tools/tests/test_holdfast_lsp_delta.py) reconstruct
 exact integer streams, cover lifecycle/refusal and Unicode/CRLF edits, and exercise
 the real stdio process with unsaved source. Pinned Neovim and Vim sessions,
 including both Vim synchronization modes, request full bases, changed and
@@ -1743,9 +1743,9 @@ previews. Candidate source is rechecked by the existing pure producer and every
 declaration, type and reference binding is compared before publication.
 Type-correct capture, stale overlays and producer changes refuse. Functions,
 parameters and constants remain outside this single-document increment.
-Four [rename cases](../../tools/tests/test_vela_lsp_rename.py) check independent
+Four [rename cases](../../tools/tests/test_holdfast_lsp_rename.py) check independent
 expected edits, capture, coordinates, negotiation and freshness. Eight
-[client cases](../../tools/tests/test_vela_lsp_clients.py) check retained
+[client cases](../../tools/tests/test_holdfast_lsp_clients.py) check retained
 observations and wire joins, including version and edit corruption.
 The live schema-2 client report qualifies successful versioned previews in pinned
 Neovim and explicit `RequestFailed` refusal in pinned Vim's full and incremental
@@ -1759,7 +1759,7 @@ token boundaries, selects the innermost call and counts only that call's argumen
 commas. Named/static arguments, nested calls, documentation and empty parameter
 lists retain the current compiler facts. Invalid, timed-out, changed or stale
 snapshots publish no stale suggestions.
-Eight [discovery cases](../../tools/tests/test_vela_lsp_discovery.py) check
+Eight [discovery cases](../../tools/tests/test_holdfast_lsp_discovery.py) check
 independently expected results, Unicode/trivia and unsaved stdio edits, nested and
 zero-argument calls, static/parameter-name compatibility and output bounds.
 Both pinned clients, including both Vim synchronization modes, qualify completion
@@ -1772,7 +1772,7 @@ and value namespaces and required-static readiness without reconstructing scope
 in the editor adapter. Candidate inventories are bounded and worker validation
 rejects malformed, stale, over-budget and incompatible choice records. Absent
 optional choices yield no value suggestions and retain incomplete status. Seven
-[value-completion cases](../../tools/tests/test_vela_lsp_value_completion.py)
+[value-completion cases](../../tools/tests/test_holdfast_lsp_value_completion.py)
 cover independently expected edits, static compatibility, cache invalidation,
 bounds, Unicode/CRLF and unsaved stdio updates. Both pinned clients recover the
 expected static-compatible value edit with retained source/cursor/wire joins.
@@ -1790,7 +1790,7 @@ tools supply no wider language or proof admission.
 
 The pure compiler exports timings under the
 [bounded trace contract](../tooling/pure-prototype.md#bounded-compiler-traces).
-`vela trace` records the existing pure producer's parse, checked-parse,
+`holdfast trace` records the existing pure producer's parse, checked-parse,
 syntax-decode and combined
 elaboration/emission phases, nested source-located constant/function declaration
 work and byte counters as Chrome Trace Event JSON. The schema-3 manifest counts
@@ -1798,12 +1798,12 @@ attempted declaration records, including drops; validation checks name spellings
 source order, nonoverlapping work within the parent phase and retained/dropped
 counts. Declaration metadata supplies no independent source-coverage theorem.
 The manifest binds source, local producer and events/completeness metadata;
-`vela trace-validate` refuses stale inputs and incomplete or malformed recordings.
+`holdfast trace-validate` refuses stale inputs and incomplete or malformed recordings.
 Event/byte/nesting bounds, clock faults, dropped events, open spans and
 refused/cancelled work preserve truthful completeness. Publication rechecks source
 and producer identities and preserves existing output on preparation failure.
 
-Eleven [trace consumer cases](../../tools/tests/test_vela_compiler_trace.py)
+Eleven [trace consumer cases](../../tools/tests/test_holdfast_compiler_trace.py)
 independently recover a deterministic timeline and cover quantized zero-duration
 boundaries, changed compiler/parser files, malformed data, truncation/refusal,
 clock regression, declaration locations/nesting, real constant/function and
@@ -1817,7 +1817,7 @@ Both Python identities also bind bounded standard-library source/bytecode,
 extension modules, installation archives and Python shared-library inventories.
 Missing, unreadable, changed, added or removed files withdraw freshness; inventory
 observation refuses over 20,000 files or 512 MiB. Three
-[runtime inventory cases](../../tools/tests/test_vela_trace_runtime.py) check
+[runtime inventory cases](../../tools/tests/test_holdfast_trace_runtime.py) check
 independent Linux/Windows file selections and manifest hashes, same-executable
 source/cache/extension/library/archive changes, unavailable inputs and bounds.
 Windows-to-WSL recording and validation pass with the real locked toolchain.
@@ -1825,20 +1825,20 @@ Q25dx extends this binding to active package trees and live mapped libraries.
 New import caches also change the runtime identity.
 The proof-replay input manifest includes the imported runtime-identity helper;
 the independent checker-import audit and all nine replay-control cases pass.
-`vela trace-benchmark` measures bounded alternating plain/traced compilation pairs,
+`holdfast trace-benchmark` measures bounded alternating plain/traced compilation pairs,
 excludes declared warmups and checks identical outputs and complete recordings.
 The source/producer-bound report retains raw timings and independently recomputed
-summaries; `vela trace-benchmark-validate` rejects stale or malformed reports.
-Five [benchmark cases](../../tools/tests/test_vela_trace_benchmark.py) cover
+summaries; `holdfast trace-benchmark-validate` rejects stale or malformed reports.
+Five [benchmark cases](../../tools/tests/test_holdfast_trace_benchmark.py) cover
 independent timing arithmetic, bounds, clock faults, changed outputs, cancellation
 and atomic publication. A local seven-pair benchmark and its validator pass.
-The offline `vela trace-qualify-viewer` command checks exact-pinned Perfetto v58.2
+The offline `holdfast trace-qualify-viewer` command checks exact-pinned Perfetto v58.2
 executable and revision identities before an independent import. Seven stale,
 malformed and incomplete trace controls refuse before handoff. The actual reader
 recovers independently expected nanosecond spans, nesting, worker identities and
 byte counters from a deterministic fixture. Bound reports retain the fixture,
 SQL, raw and parsed reader observations, version/diagnostic transcripts and harness
-identity. Seven [importer cases](../../tools/tests/test_vela_trace_viewer.py) cover
+identity. Seven [importer cases](../../tools/tests/test_holdfast_trace_viewer.py) cover
 wrong observations, disabled controls, unknown readers, timeout/output bounds,
 alias/cancellation and late changes. Actual Windows AMD64 under ARM64 emulation
 and Linux ARM64 reader qualifications pass, along with all 26 trace cases and
@@ -1865,7 +1865,7 @@ and nested required-static arguments narrow choices to static-compatible values.
 The editor proposes complete-token replacements, including numeric separators,
 using shared site/choice bounds and current immutable source/producer facts.
 
-Six [literal-completion cases](../../tools/tests/test_vela_lsp_literal_completion.py)
+Six [literal-completion cases](../../tools/tests/test_holdfast_lsp_literal_completion.py)
 pass for independent expected edits and scopes, static restrictions, legacy and
 empty facts, malformed identities/type/token sites, combined budgets and cache
 invalidation. A real stdio session recovers the exact expected edit before and
@@ -1888,7 +1888,7 @@ decoder subphases within parse work. The deterministic independent fixture
 specifies six nested spans plus byte counters; the pinned Perfetto v58.2 readers
 recover exact durations, nesting and worker identities on Windows and Linux ARM64.
 
-`vela trace-viewer-validate` decodes bounded retained qualification reports and
+`holdfast trace-viewer-validate` decodes bounded retained qualification reports and
 checks exact reader and current harness identities, fixture/query digests, raw
 and parsed independent observations, version/diagnostic transcripts and refusal
 controls. Malformed, rehashed, stale and altered observations cannot pass by
@@ -1962,7 +1962,7 @@ typechecking and the full static gate pass; independent review confirms the
 interpolation, corpus and publication boundaries. Combined local gate and
 behavioral validation cover integration. Reports bind exact input, asset,
 consumer and canonical-parser identities with explicit bounds and
-`semantic_acceptance: false`; no recovered editor tree admits Vela source.
+`semantic_acceptance: false`; no recovered editor tree admits HoldFast source.
 
 <a id="q25ds-qualify-independent-offline-compiler-inspection-queries"></a>
 
@@ -1973,7 +1973,7 @@ effort was shared across this parallel batch. Q25dt retains 88 h (52–124),
 preserving Q25ch's original 112 h (64–160) exactly. The
 [inspection contract](../tooling/tooling-protocols.md#pure-development-snapshot-increment)
 qualifies the existing pure producer through an independent serialized reader.
-`vela inspect SOURCE --snapshot EXPORT.json` validates exact current source,
+`holdfast inspect SOURCE --snapshot EXPORT.json` validates exact current source,
 producer/configuration/target bindings and schema before answering stored queries;
 it invokes no compiler parser worker. Complete concrete partitions, source
 spellings, syntax/scope trees, declaration and occurrence inventories, lexical
@@ -1981,7 +1981,7 @@ owners, availability and typed-expression coverage are cross-checked independent
 Bounded queries preserve partial/unavailable outcomes and reject stale inputs,
 foreign handles and invalid UTF-8/CRLF offsets.
 
-The [offline-reader controls](../../tools/tests/test_vela_inspection_reader.py)
+The [offline-reader controls](../../tools/tests/test_holdfast_inspection_reader.py)
 cover independently expected definitions/references, typed calls and shadowing,
 serialization/CLI round trips, malformed graphs, omitted references and coordinated
 inventory omissions. Independent review identified and corrected missing-use
@@ -2006,7 +2006,7 @@ edits against the original immutable overlay. Prefix filtering, scope and
 required-static arguments retain compiler decisions. Original diagnostics remain
 published; recovered facts confer no accepted-source status.
 
-Six [recovery controls](../../tools/tests/test_vela_lsp_recovery.py) cover exact
+Six [recovery controls](../../tools/tests/test_holdfast_lsp_recovery.py) cover exact
 typed/static edits, lexical scopes, ambiguity/unrelated-error refusal, token
 boundaries, malformed/stale worker bindings and generation invalidation. A real
 stdio session verifies unsaved supplementary Unicode/CRLF edits and retained
@@ -2026,7 +2026,7 @@ Landed on 2026-11-09 with a 14 h retained estimate (8–20), actual n/a because
 effort was shared across this parallel batch. Q25dx retains 8 h (4–12),
 preserving Q25dr's 22 h (12–32) and Q25cp's original total exactly. The
 [trace contract](../tooling/pure-prototype.md#bounded-compiler-traces) qualifies
-`vela trace-render` as an offline HTML timeline over a complete, current
+`holdfast trace-render` as an offline HTML timeline over a complete, current
 source/producer-bound recording. Phase/declaration spans, nesting, exact times,
 byte counters and source details remain visible; explicit filtering and keyboard
 focus require no network. Incomplete/stale recordings and aliased or changed
@@ -2038,7 +2038,7 @@ nesting/colors, byte counters, source tooltips, focusability and live filtering;
 changed layout or consumer bytes refuse. The browser and its dependencies are
 locally provisioned instruments; this receipt supplies no complete browser runtime
 closure or Perfetto UI claim. All 31 trace controls and the full static gate pass;
-the [timeline controls](../../tools/tests/test_vela_trace_html.py) include stale,
+the [timeline controls](../../tools/tests/test_holdfast_trace_html.py) include stale,
 incomplete, changed-input and atomic-publication refusals. Q25dx covers compiler
 runtime identities, broader phases, workers and overhead.
 Combined local gate and behavioral validation cover integration.
@@ -2051,7 +2051,7 @@ Landed on 2026-11-09 with an 8 h retained estimate (4–12), actual n/a because
 effort was shared across this parallel batch. Q25dz retains 64 h (36–92),
 preserving Q25ck's original 72 h (40–104) exactly. The
 [authoring contract](../tooling/authoring-tools.md#checked-boolean-comparison-previews)
-qualifies `vela lint-preview` for one `VELA103` equality at a compiler-reported
+qualifies `holdfast lint-preview` for one `HOLDFAST103` equality at a compiler-reported
 operator site. Existing checked syntax/types select the original operand and byte
 span; explicit parentheses retain precedence and single operand evaluation.
 Both source and candidate are rechecked and their syntax compared modulo grouping
@@ -2059,7 +2059,7 @@ and Boolean equality identities. The exact source/producer snapshot, replacement
 and candidate digest bind the preview. Comments within the comparison, malformed
 sites and stale or changed preview fields refuse; the command never writes source.
 
-Four [preview controls](../../tools/tests/test_vela_authoring_preview.py) cover
+Four [preview controls](../../tools/tests/test_holdfast_authoring_preview.py) cover
 independently expected bytes and exhaustive two-variable truth tables, both
 literal sides, nesting/precedence, Unicode/CRLF, source/producer changes and
 tampered fields. CLI checks preserve modification time and refuse concurrent
@@ -2139,7 +2139,7 @@ the source-byte counter and three child process IDs from the deterministic
 packet fixture. The native harness exercised the same recorder while compiling
 the packet proof, auditing assumptions, running `rocqchk` and lowering to C.
 Each seven-pair pure benchmark passed the 25% elapsed-overhead budget on
-`examples/pure.vela` and `examples/expressions.vela`. A fresh process rechecked
+`examples/pure.hf` and `examples/expressions.hf`. A fresh process rechecked
 each report. That budget applies to these workloads and measured intervals.
 The retained estimate is 8 h (4–12), actual n/a for this parallel batch.
 
@@ -2159,15 +2159,15 @@ specify when it may write source or output.
 #### Q25dz · Complete the remaining authoring qualification
 
 The [mathematical lint preview](../tooling/authoring-tools.md#lint-policy)
-groups the operand reported by `VELA107`. The native parser and elaborator
+groups the operand reported by `HOLDFAST107`. The native parser and elaborator
 check the edited source, compare syntax and emitted Gallina, and preserve the
-original file. The [independent cases](../../tools/tests/test_vela_mathematical_preview.py)
+original file. The [independent cases](../../tools/tests/test_holdfast_mathematical_preview.py)
 cover three bitwise operators, left and right operands, Unicode comments and
 CRLF. The original and edited modules replay four expected Boolean outcomes
 through Rocq. Already grouped operands yield no edit. Changed source, a replaced
 OCaml bytecode interpreter or an altered preview record invalidates the edit.
 
-The [native authoring tests](../../tools/tests/test_vela_mathematical_authoring.py)
+The [native authoring tests](../../tools/tests/test_holdfast_mathematical_authoring.py)
 exercise every accepted mathematical program in the kernel replay corpus.
 Every formatted candidate reparses to the same syntax, rechecks, preserves
 token and comment bytes and declaration documentation, and formats identically
@@ -2185,18 +2185,18 @@ The retained estimate is 64 h (36–92), actual n/a for this parallel batch.
 The [offline package builder](../tooling/elaboration-prototype.md#locked-mathematical-packages)
 locks manifest and source bytes, direct and transitive revisions, explicit
 build inputs, the frontend, the parser and the Gallina target. A changed input
-invalidates the build. The [closure cases](../../tools/tests/test_vela_packages.py)
+invalidates the build. The [closure cases](../../tools/tests/test_holdfast_packages.py)
 cover relocation, missing files, dependency cycles and a diamond that reports
 both conflicting requirements. Package and module identities determine nominal
 declarations. The compiler detects overlapping instances even when their
-defining modules are never imported together. The [binder regression](../../tools/tests/test_vela_package_binders.py)
+defining modules are never imported together. The [binder regression](../../tools/tests/test_holdfast_package_binders.py)
 reproduces each library's Gallina bytes in isolation and in the presence of an
 unrelated sibling, then checks the client that imports both libraries in Rocq.
 
-The independently authored [weights provider](../../examples/packages/weights/v1/Measure.vela)
-and [scale client](../../examples/packages/scale/v1/Calibration.vela) compose
+The independently authored [weights provider](../../examples/packages/weights/v1/Measure.hf)
+and [scale client](../../examples/packages/scale/v1/Calibration.hf) compose
 through a named argument and a nominal interface instance. The
-[native client cases](../../tools/tests/test_vela_locked_clients.py) compile
+[native client cases](../../tools/tests/test_holdfast_locked_clients.py) compile
 the emitted Gallina and run `rocqchk`. They recover readings 2 and 9 before
 and after a local parameter rename. Renaming the external label rejects the
 unchanged client at its call site and preserves its previous bundle. A client
@@ -2244,7 +2244,7 @@ invalidated the retained bundle. After reindexing, queries found `Create` and
 the previous provider symbol had no occurrences. Requesting a complete absence
 verdict on the wider package failed. A scalar package passed the completeness
 check, and the upstream reader found zero authored references to `Unused` and
-one to `Used`. The [behavioral controls](../../tools/tests/test_vela_scip.py)
+one to `Used`. The [behavioral controls](../../tools/tests/test_holdfast_scip.py)
 detected changes to the retained index, manifest, generated file and source.
 
 <a id="q25cr-qualify-a-simulator-execution-and-inspection-backend"></a>
@@ -2301,7 +2301,7 @@ declarations with CRLF and supplementary characters before the mapped tokens.
 Literal sharing moves the first declaration by five generated lines. The pinned
 Node.js reader maps its two proof lines to source line 2, UTF-16 column 50,
 and distinguishes all nine expected lookup results. Independent changes to
-the Gallina, map, manifest and Vela input each refuse before reader handoff.
+the Gallina, map, manifest and HoldFast input each refuse before reader handoff.
 The [host controls](../../tools/tests/test_gallina_source_map.py) check negative
 coordinate deltas, end-of-line boundaries and lookup limits. The mapped
 two-operation source also passed local Rocq compilation and `rocqchk`.
@@ -2314,13 +2314,13 @@ The retained estimate is 38 h (20–56), actual n/a for this parallel batch.
 The [mathematical elaborator](../tooling/elaboration-prototype.md#named-goals)
 exposes a location, expected type or proposition, status and available local
 context for each named goal in the current source. Repeated names at distinct
-sites retain separate judgments. The [elaborator controls](../../tools/tests/test_vela_elaborate.py)
+sites retain separate judgments. The [elaborator controls](../../tools/tests/test_holdfast_elaborate.py)
 exercise proof hypotheses, operand inference and bounded output. An open
 required goal refuses compilation.
 
 Through the [native playground](../tooling/playground.md), changing the bound
 in a dependent equality changes the displayed goal. The
-[interaction controls](../../tools/tests/test_vela_playground_math.py) verify
+[interaction controls](../../tools/tests/test_holdfast_playground_math.py) verify
 repair, dependency replacement and a late success arriving after an invalid
 edit. Q25au remains open for the copy-prefix guard, cleanup token and suspended
 parent in the [composed release fixture](../language/core-design.md#typed-holes-and-invalidation).
@@ -2360,7 +2360,7 @@ indirect and transitive effects. Qualification exercises an effectful branch
 of a function choice, an effect hidden by a wrapper, and a generic application
 of a pure callback that computes the first table entry.
 
-The [locked-package consumer](../../tools/tests/test_vela_package_binders.py)
+The [locked-package consumer](../../tools/tests/test_holdfast_package_binders.py)
 reads the second UTF-8 byte of an imported constant. Rebuilding the same lock
 reproduces the bundle. Changing the provider from `é` to `Å` refuses the stale
 build and preserves its output. A fresh lock changes the kernel-checked reading
@@ -2384,5 +2384,5 @@ its stale version. Rocq and `rocqchk` checked the original and edited Boolean
 function against both independently expected outputs in every run. Four
 acceptance runs used 79.440 seconds of command wall time. Agent wall time
 was 10 minutes 15 seconds, with zero observed human intervention.
-[Interpreter identity control](../../tools/tests/test_vela_inspection.py) ·
-[Mixed-interpreter editor control](../../tools/tests/test_vela_lsp_actions.py)
+[Interpreter identity control](../../tools/tests/test_holdfast_inspection.py) ·
+[Mixed-interpreter editor control](../../tools/tests/test_holdfast_lsp_actions.py)

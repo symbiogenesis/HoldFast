@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Located pure Vela syntax and strict decoding of the native parser protocol.
+"""Located pure HoldFast syntax and strict decoding of the native parser protocol.
 
 Decoding checks the protocol and its source binding. It does not establish lexer
 correctness or correspondence between source grammar and the returned tree.
@@ -37,7 +37,7 @@ def unsupported_message(spelling: str) -> str:
             "move": "an explicit ownership transfer"}.get(spelling)
     if spelling == "var":
         return ("'var' declares a mutable binding; let and unmarked type-first bindings are immutable. "
-                "Local reassignment requires the wider Vela surface; the pure prototype does not support mutation")
+                "Local reassignment requires the wider HoldFast surface; the pure prototype does not support mutation")
     if mode is None:
         return f"'{spelling}' is outside the pure prototype"
     return (f"'{spelling}' requests {mode}; the pure Nat/bool prototype cannot check "
@@ -83,7 +83,7 @@ def trivia_end(source: bytes, offset: int, *, block_comments: bool = False,
     return offset
 
 
-class VelaError(Exception):
+class HoldFastError(Exception):
     """One bounded diagnostic; callers supply the source file's display name."""
 
     def __init__(self, kind: str, line: int, column: int, message: str) -> None:
@@ -121,13 +121,13 @@ def expression(kind: str, value: str | bool, site: Site,
                children: tuple[Expression, ...] = (), *, labels: tuple[Name | None, ...] = ()) -> Expression:
     depth = max((child.depth for child in children), default=0) + (kind != "group")
     if depth > MAX_EXPRESSION_DEPTH:
-        raise VelaError("limit", site.line, site.column,
+        raise HoldFastError("limit", site.line, site.column,
                         f"expression exceeds depth {MAX_EXPRESSION_DEPTH}")
     nesting = max((child.nesting for child in children), default=1)
     if kind in {"group", "unary"} or (kind == "call" and children):
         nesting += 1
     if nesting > MAX_EXPRESSION_DEPTH:
-        raise VelaError("limit", site.line, site.column,
+        raise HoldFastError("limit", site.line, site.column,
                         f"expression nesting exceeds {MAX_EXPRESSION_DEPTH}")
     return Expression(kind, value, site, children, depth, nesting, labels)
 
@@ -201,14 +201,14 @@ def position(prefix: str) -> Site:
 
 def source_text(source: bytes) -> str:
     if len(source) > MAX_SOURCE_BYTES:
-        raise VelaError("limit", 1, 1, f"source exceeds {MAX_SOURCE_BYTES} bytes")
+        raise HoldFastError("limit", 1, 1, f"source exceeds {MAX_SOURCE_BYTES} bytes")
     if source.startswith(b"\xef\xbb\xbf"):
-        raise VelaError("encoding", 1, 1, "remove the initial UTF-8 byte-order mark")
+        raise HoldFastError("encoding", 1, 1, "remove the initial UTF-8 byte-order mark")
     try:
         return source.decode("utf-8")
     except UnicodeDecodeError as error:
         site = position(source[:error.start].decode("utf-8"))
-        raise VelaError("encoding", site.line, site.column, "source is not valid UTF-8") from error
+        raise HoldFastError("encoding", site.line, site.column, "source is not valid UTF-8") from error
 
 
 class _Decoder:
@@ -235,7 +235,7 @@ class _Decoder:
     def _node(self, raw: object, kind: str, fields: set[str],
               parent: tuple[int, int], depth: int) -> tuple[dict[str, object], tuple[int, int], Site]:
         if depth > MAX_SYNTAX_DEPTH or self.remaining == 0:
-            raise VelaError("limit", 1, 1, "native syntax tree exceeds decoding bounds")
+            raise HoldFastError("limit", 1, 1, "native syntax tree exceeds decoding bounds")
         self.remaining -= 1
         if not isinstance(raw, dict) or set(raw) != {"kind", "span", *fields} or raw.get("kind") != kind:
             raise ValueError(f"native parser returned an invalid {kind} node")
@@ -327,7 +327,7 @@ class _Decoder:
             if not isinstance(value, str) or not DECIMAL.fullmatch(value):
                 raise ValueError("native parser returned an invalid decimal spelling")
             if len(value.replace("_", "")) > MAX_LITERAL_DIGITS:
-                raise VelaError("limit", site.line, site.column, "native literal exceeds digit limit")
+                raise HoldFastError("limit", site.line, site.column, "native literal exceeds digit limit")
             if self.source[span[0]:span[1]] != value.encode():
                 raise ValueError("native decimal differs from its source span")
             return expression(kind, value, site)
@@ -449,7 +449,7 @@ class _Decoder:
         if cursor != span[1] - 1:
             raise ValueError("native block leaves source statements uncovered")
         if len(bindings) > MAX_BLOCK_DEPTH:
-            raise VelaError("limit", 1, 1, "native block exceeds binding limit")
+            raise HoldFastError("limit", 1, 1, "native block exceeds binding limit")
         converted: list[Binding | Reassignment | Constant] = []
         for raw_binding in bindings:
             kind = raw_binding.get("kind") if isinstance(raw_binding, dict) else None

@@ -1,9 +1,9 @@
-# Vela first supported release
+# HoldFast first supported release
 
 This contract defines the first release's scope, primitive semantics, module
 rules, ownership libraries and acceptance criteria. The
 [language reference](reference.md) describes prototype support. The
-[delivery plan](../../PLAN.md#vela-first-release-delivery) tracks implementation.
+[delivery plan](../../PLAN.md#holdfast-first-release-delivery) tracks implementation.
 The [VerifiedOS requirements register](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/requirements-register.md)
 governs platform admission.
 
@@ -76,7 +76,7 @@ binds that policy as follows; the target bridge must prove the binding.
 | --- | --- |
 | `bool`, `Unit` | Exactly `false`/`true`, and the single unit value `()`. Integers have no truthiness conversion. |
 | `u8`, `u16`, `u32`, `u64`; `i8`, `i16`, `i32`, `i64` | Unsigned values range from zero to `2^w - 1`; signed values range from `-2^(w-1)` to `2^(w-1) - 1`. Bitwise signed representation is two's complement. `byte` is an alias for `u8`. |
-| Standard numeric aliases | The standard library module `Vela.Numerics` exports ordinary public aliases `int = i32`, `uint = u32`, `long = i64` and `ulong = u64`. Each denotes exactly its target type, including representation, arithmetic and proof obligations. Width-named spellings remain available. |
+| Standard numeric aliases | The standard library module `HoldFast.Numerics` exports ordinary public aliases `int = i32`, `uint = u32`, `long = i64` and `ulong = u64`. Each denotes exactly its target type, including representation, arithmetic and proof obligations. Width-named spellings remain available. |
 | `usize` | Unsigned index/count arithmetic at the target's declared XLEN width. This is not a capability's representation, permission to address all values of that width, or a pointer/integer conversion. Target specialization fixes the width and its representability obligations. |
 | Mathematical `Nat` and integers | Specification/static values with their mathematical operations. Runtime use needs a selected finite representation and a proved range relation; there is no implicit arbitrary-precision runtime. |
 | Integer literals | Decimal, binary and hexadecimal digits with the [separator rules](../tooling/authoring-tools.md#numeric-separators) denote exact mathematical magnitudes. A suffix or expected type determines the representation; an unconstrained runtime literal needs an annotation. No machine-default integer type is guessed. A syntactic negative integer literal is checked as one signed value, admitting the signed minimum; negation of an already typed expression obeys the ordinary range rule. An out-of-range literal is a compile-time error. |
@@ -87,14 +87,14 @@ binds that policy as follows; the target bridge must prove the binding.
 | Bitwise operations and shifts | Bitwise operations use the selected `w` bits. Named `ShiftLeft` and `ShiftRight` take a `usize` count and require `count < w`; no implicit masking of excessive counts. Numeric left shift additionally requires the mathematical result to fit. Explicit `WrappingShiftLeft` discards high bits but retains the count bound. Right shift is zero-filling for unsigned and sign-extending for signed values, equivalent to floor division by `2^count`. `CheckedShiftLeft` and `CheckedShiftRight` return `InvalidShift` for an excessive count; the former returns `Overflow` for numeric left-shift range failure. |
 | Conversions and comparisons | Infallibly wider scalar conversion uses `T.From(x)` (such as `long.From(x)` from `int`); range- or sign-checked conversion uses `T.TryFrom(x)` (such as `usize.TryFrom(x)` from `int`) and returns a named range failure; a proved conversion requires its range premise. Explicit truncation/reinterpretation uses a separately named bit operation. Ordering compares mathematical values within one type. Executable equality is Boolean through a selected decidable operation; proposition equality and transport stay in proof/contract interpretation. |
 | Layout and encoding | Scalar representation/alignment is fixed by the target/ABI. Integer-to-byte encoding uses explicitly named little- or big-endian library operations; native record layout and padding never define a wire format. Capability fabrication and implicit pointer/integer conversion remain excluded. |
-| Floating point | Not in this initial runtime release. A future consumer must select formats, NaN/signed-zero/rounding and exception behavior, equality/ordering, constant evaluation and target correspondence together. Parser recognition or existing hardware floating-point instructions supply no Vela support claim. |
+| Floating point | Not in this initial runtime release. A future consumer must select formats, NaN/signed-zero/rounding and exception behavior, equality/ordering, constant evaluation and target correspondence together. Parser recognition or existing hardware floating-point instructions supply no HoldFast support claim. |
 
 The [e-means numerical research candidate](../extensions/numerical-workloads.md)
 retains separate consumer and arithmetic qualification gates beyond this runtime
 scope; it adds no primitive or first-release client.
 
 Numeric aliases follow the [module rules](#modules-and-packages): use an explicit
-`import Vela.Numerics;` or the fully qualified name, such as `Vela.Numerics.int`.
+`import HoldFast.Numerics;` or the fully qualified name, such as `HoldFast.Numerics.int`.
 The dependency lock binds the standard library package and its definitions;
 there is no implicit prelude or import-order precedence. A duplicate local or
 imported alias name is diagnosed under the same rules as another duplicate
@@ -120,7 +120,7 @@ A suffix or annotation conflicting with the bound is an error; an already typed
 operand never changes type to make the range fit. Ambiguous runtime widths need
 an annotation, including an otherwise unconstrained `let count = 0;`.
 
-In the [packet validator](../../examples/first_slice.vela),
+In the [packet validator](../../examples/first_slice.hf),
 `let magic = pkt[0];` selects `usize` for the index and `magic != 0x56`
 selects `byte` for the compared literal. The packet C lowerer reads the
 immutable syntax snapshot and literal widths from the checked elaboration.
@@ -177,7 +177,7 @@ grapheme segmentation require separately specified libraries. Runtime-built
 text uses explicit bounded storage, capacity outcomes and validation; literals'
 read-only backing is charged to the composed image. Instead of C#/Kotlin's
 heap-allocating `$"..."` string interpolation, runtime `Object.ToString()`
-reflection or ambient `CultureInfo` locale formatting, Vela provides an explicit
+reflection or ambient `CultureInfo` locale formatting, HoldFast provides an explicit
 buffer-writing interpolation and format surface (comparable to C# 10's
 `InterpolatedStringHandler` or Rust's `write!`) such as
 `Format.Write(ref builder, $"...")` that targets an explicit
@@ -367,7 +367,7 @@ transition that ends or repairs that dependency. Equality of bytes and tags
 alone cannot establish the law. The mathematical prototype admits fixed-width
 integers, `bool`, `char` and `Unit` at both operations. Generic or opaque
 elements require a checked law before the release implementation can admit them.
-The [element-loan regression](../../tools/tests/test_vela_loans.py#_element_loan_during_relocation)
+The [element-loan regression](../../tools/tests/test_holdfast_loans.py#_element_loan_during_relocation)
 passes a shared loan of the first occupied slot as one argument and relocates the
 source prefix while evaluating the next argument. The elaborator reports the
 exclusive source borrow at relocation and the earlier element loan. Copying the
@@ -416,7 +416,7 @@ Unwrap before member access with `(Read()?).Value` or an explicit `match`.
 
 ## Qualification
 
-The [delivery plan](../../PLAN.md#vela-first-release-delivery) selects a real
+The [delivery plan](../../PLAN.md#holdfast-first-release-delivery) selects a real
 bounded byte-buffer consumer and an independently chosen second client before
 implementation. Their contracts must identify actual formats, entry states and
 independently expected success/failure results. A candidate that only parses,
@@ -440,7 +440,7 @@ hides a missed hard bound.
 
 ### First-slice component and concrete `Span<byte>` carrier <a id="first-slice-qualification"></a>
 
-The [authored packet validator](../../examples/first_slice.vela) copies the accepted
+The [authored packet validator](../../examples/first_slice.hf) copies the accepted
 header and payload into the destination and zero-pads the eight-byte work area.
 Success returns a read-only view of the payload. Framing rejection preserves
 the complete destination. Other protocol rejections clear the work area.
@@ -487,7 +487,7 @@ descriptor.
 
 #### Qualification and receipt binding
 
-Run `python tools/run.py vela-parser first-slice` for fresh proof and execution
+Run `python tools/run.py holdfast-parser first-slice` for fresh proof and execution
 checks. The [qualification harness](../../tools/toolchain/first_slice.py) owns the
 input fixtures, commands and report fields.
 
@@ -498,9 +498,9 @@ input fixtures, commands and report fields.
 | Capability execution | Run one passing purecap CHERI-RISC-V capability program and the bounds, permission and tag trap controls under Sail. |
 | Optional CompCert execution | Lower the validator and scenario drivers to Clight/C, execute under CompCert's interpreter and run purecap images in Sail. Check the passing paths and altered payload, padding, checksum-code and clearing controls. Use `--ccomp /absolute/path/to/ccomp` to require this run. Automatic discovery records `compcert_sail.available: false` when the compiler is missing. [Compiler build contract](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/implementation/contracts/contained-compiler-reuse.md) |
 | Guest C11 regression | Compile the generated validator with the system C compiler at `-O0` and `-O2` and check all five exits. Before reading a successful payload, check its pointer against the destination backing, its base and length against the expected slice, and its tag and permissions. Reject variants returning the input pointer to identical bytes or granting write access. |
-| Inline proof erasure | [The native regression](../../tools/tests/test_vela_packet_erasure.py) adds an assertion, proof block and calculation to the checksum implementation, replays the annotated module, and compares the complete guest executable at both optimization levels. A false assertion fails during elaboration. |
+| Inline proof erasure | [The native regression](../../tools/tests/test_holdfast_packet_erasure.py) adds an assertion, proof block and calculation to the checksum implementation, replays the annotated module, and compares the complete guest executable at both optimization levels. A false assertion fails during elaboration. |
 
-Use `python tools/run.py vela-parser first-slice-bindings <receipt.json>` to
+Use `python tools/run.py holdfast-parser first-slice-bindings <receipt.json>` to
 check a retained schema-2 receipt against the checkout and installed tools.
 A match binds the exact source, toolchain, target profile, generated artifacts
 and check transcripts. The checker regenerates the source-derived Gallina and C,

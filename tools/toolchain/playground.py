@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Loopback-only HTTP transport for Vela's bounded development playground."""
+"""Loopback-only HTTP transport for HoldFast's bounded development playground."""
 
 import hashlib
 import hmac
@@ -126,10 +126,10 @@ def _validate_authoring(response: dict[str, object], source: str) -> None:
 def _validate_findings(findings: object, source: str, *, mathematical: bool = False) -> None:
     if not isinstance(findings, list) or len(findings) > MAX_AUTHORING_FINDINGS:
         raise ValueError("compiler worker returned oversized or invalid findings")
-    snapshot = SourceSnapshot("vela:playground-findings", 0, source, 1)
+    snapshot = SourceSnapshot("holdfast:playground-findings", 0, source, 1)
     lines = source.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     previous = (0, 0)
-    allowed = set(MATHEMATICAL_LINT_CODES) if mathematical else LINT_CODES - {"VELA105"}
+    allowed = set(MATHEMATICAL_LINT_CODES) if mathematical else LINT_CODES - {"HOLDFAST105"}
     for finding in findings:
         if (not isinstance(finding, dict) or set(finding) != {"code", "message", "line", "column"}
                 or not isinstance(finding["code"], str) or finding["code"] not in allowed
@@ -143,7 +143,7 @@ def _validate_findings(findings: object, source: str, *, mathematical: bool = Fa
             if site <= previous:
                 raise ValueError("mathematical findings must be in source order")
             previous = site
-            if finding["code"] == "VELA107":
+            if finding["code"] == "HOLDFAST107":
                 if line[column:column + 1] not in {"&", "^", "|"} or line[column:column + 2] in {"&&", "||"}:
                     raise ValueError("mathematical precedence finding does not identify a bitwise operator")
                 continue
@@ -263,7 +263,7 @@ class PlaygroundServer(HTTPServer):
 
 
 class PlaygroundHandler(BaseHTTPRequestHandler):
-    server_version = "VelaPlayground"
+    server_version = "HoldFastPlayground"
     _body_read = False
 
     @override
@@ -301,7 +301,7 @@ class PlaygroundHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         if status == 200 and self.path in {"/api/compile", "/api/evaluate"}:
-            self.send_header("X-Vela-Compiler-Generation", self.playground.generation)
+            self.send_header("X-HoldFast-Compiler-Generation", self.playground.generation)
         self.send_header("Cache-Control", "no-store")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("X-Content-Type-Options", "nosniff")

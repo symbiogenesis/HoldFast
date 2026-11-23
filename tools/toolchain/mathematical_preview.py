@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Checked, read-only grouping edits for mathematical VELA107 findings."""
+"""Checked, read-only grouping edits for mathematical HOLDFAST107 findings."""
 
 import hashlib
 import json
@@ -40,14 +40,14 @@ def _gallina(translation: mathematical.Compilation, source: bytes) -> str:
 def preview(compiled: parser.Build, source: bytes, line: int, column: int) -> dict[str, object]:
     """Group exactly one compiler-identified operand, preserving its complete checked term."""
     if any(type(i) is not int or i < 1 for i in (line, column)):
-        raise ValueError("VELA107 requires positive one-based operator coordinates")
+        raise ValueError("HOLDFAST107 requires positive one-based operator coordinates")
     producer = _producer(compiled)
     original = parser.parse_source(compiled, source, surface=True)
     checked = mathematical.inspect_source(source, original)
     spans = [(start, end) for finding, start, end in checked.precedence_operands
              if (finding.line, finding.column) == (line, column)]
     if len(spans) != 1:
-        raise ValueError("select the start of one reported VELA107 bitwise operator")
+        raise ValueError("select the start of one reported HOLDFAST107 bitwise operator")
     start, end = spans[0]
     replacement = b"(" + source[start:end] + b")"
     candidate = source[:start] + replacement + source[end:]
@@ -58,7 +58,7 @@ def preview(compiled: parser.Build, source: bytes, line: int, column: int) -> di
         raise ValueError("grouping changed the checked mathematical program")
     if _producer(compiled) != producer:
         raise ValueError("mathematical preview producer changed during checking")
-    return {"schema": 1, "scope": "mathematical-development", "rule": "VELA107",
+    return {"schema": 1, "scope": "mathematical-development", "rule": "HOLDFAST107",
             "producer": producer, "source_sha256": hashlib.sha256(source).hexdigest(),
             "line": line, "column": column, "span": [start, end],
             "replacement": replacement.decode("utf-8"), "candidate_sha256": hashlib.sha256(candidate).hexdigest()}

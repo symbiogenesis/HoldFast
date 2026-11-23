@@ -14,7 +14,7 @@ from tests.harness import TOOLS, ensure
 def server_command() -> list[str]:
     return [sys.executable, "-I", "-c",
             "import sys; sys.path.insert(0, sys.argv.pop(1)); "
-            "from toolchain.cli.vela_lsp import main; raise SystemExit(main())",
+            "from toolchain.cli.holdfast_lsp import main; raise SystemExit(main())",
             str(TOOLS)]
 
 

@@ -6,7 +6,7 @@ import json
 from dataclasses import fields, is_dataclass
 from typing import cast
 
-import toolchain as vela
+import toolchain as holdfast
 from toolchain import ast, concrete, inspection
 from toolchain.source import SourceSnapshot
 
@@ -40,20 +40,20 @@ def _meaning(value: object) -> object:
 
 
 def preview(source: bytes, line: int, column: int) -> dict[str, object]:
-    """Propose one checked VELA103 edit at a one-based compiler operator site.
+    """Propose one checked HOLDFAST103 edit at a one-based compiler operator site.
 
     The [authoring contract](../../docs/tooling/authoring-tools.md#checked-boolean-comparison-previews)
     owns the supported rewrite and the source-preserving publication boundary.
     """
     if any(type(value) is not int or value < 1 for value in (line, column)):
         raise ValueError("preview requires positive integer compiler coordinates")
-    original = vela.parse_module(source)
-    vela._translate(source, original)
+    original = holdfast.parse_module(source)
+    holdfast._translate(source, original)
     snapshot = inspection.inspect(source)
     publication = snapshot.export()
     if publication["status"] != "checked":
         raise ValueError("complete compiler inspection is required for a lint preview")
-    document = SourceSnapshot("memory:vela", 1, source.decode("utf-8"), 1)
+    document = SourceSnapshot("memory:holdfast", 1, source.decode("utf-8"), 1)
     position = document.diagnostic_position(line, column)
     offset = document.position_byte_offset(position["line"], position["character"])
     nodes = cast("list[dict[str, object]]", publication["syntax"])
@@ -74,7 +74,7 @@ def preview(source: bytes, line: int, column: int) -> dict[str, object]:
             literal, operand = selected, children[other]
             break
     if literal is None or operand is None:
-        raise NoComparisonEditError("preview requires a Boolean literal operand (VELA103)")
+        raise NoComparisonEditError("preview requires a Boolean literal operand (HOLDFAST103)")
     first, last = cast("list[int]", comparison["span"])
     pieces = cast("list[dict[str, object]]", publication["concrete"])
     if any(piece["kind"] not in concrete.TOKEN_KINDS | {"whitespace"}
@@ -84,14 +84,14 @@ def preview(source: bytes, line: int, column: int) -> dict[str, object]:
     begin, end = cast("list[int]", operand["span"])
     replacement = (b"(" if literal["value"] is True else b"!(") + source[begin:end] + b")"
     candidate = source[:first] + replacement + source[last:]
-    parsed = vela.parse_module(candidate)
-    vela._translate(candidate, parsed)
+    parsed = holdfast.parse_module(candidate)
+    holdfast._translate(candidate, parsed)
     if _meaning(original) != _meaning(parsed):
         raise ValueError("Boolean comparison preview changed checked syntax meaning")
     current = inspection.producer_identity()
     if current != cast("dict[str, object]", publication["binding"])["producer"]:
         raise ValueError("compiler producer changed during lint preview")
-    return {"schema": SCHEMA_VERSION, "scope": "vela-pure-boolean-lint-preview", "rule": "VELA103",
+    return {"schema": SCHEMA_VERSION, "scope": "holdfast-pure-boolean-lint-preview", "rule": "HOLDFAST103",
             "binding": publication["binding"], "snapshot": publication["snapshot"],
             "line": line, "column": column, "span": [first, last],
             "replacement": replacement.decode("utf-8"), "candidate": candidate.decode("utf-8"),

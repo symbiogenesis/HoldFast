@@ -1,14 +1,14 @@
 {
-  "name": "vela-syntax",
-  "displayName": "Vela Syntax",
-  "description": "Syntax highlighting for Vela; compiler acceptance is supplied separately.",
+  "name": "holdfast-syntax",
+  "displayName": "HoldFast Syntax",
+  "description": "Syntax highlighting for HoldFast; compiler acceptance is supplied separately.",
   "version": "0.1.0",
-  "publisher": "velalang",
+  "publisher": "holdfast",
   "license": "Apache-2.0",
   "engines": {"vscode": "^1.90.0"},
   "categories": ["Programming Languages"],
   "contributes": {
-    "languages": [{"id": "vela", "aliases": ["Vela"], "extensions": [".vela"]}],
-    "grammars": [{"language": "vela", "scopeName": "source.vela", "path": "./vela.tmLanguage.json"}]
+    "languages": [{"id": "holdfast", "aliases": ["HoldFast"], "extensions": [".hf"]}],
+    "grammars": [{"language": "holdfast", "scopeName": "source.holdfast", "path": "./holdfast.tmLanguage.json"}]
   }
 }

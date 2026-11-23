@@ -107,9 +107,9 @@ def _documents(closure: packages.Closure, outputs: dict[str, CheckedElaboration]
     for name, raw in packages._object(closure.lock["packages"], "packages").items():
         package = packages._object(raw, "package")
         for module, filename in packages._object(package["modules"], "modules").items():
-            docs[module] = _Document(f"{name}/{package['revision']}/{filename}", "Vela", closure.sources[module])
+            docs[module] = _Document(f"{name}/{package['revision']}/{filename}", "HoldFast", closure.sources[module])
             generated[module] = _Document(f"__generated__/{module}.v", "Coq", outputs[module].gallina.encode("utf-8"))
-            prefixes[module] = f"vela vela {name} {package['instance']} " + module.replace(".", "/") + "/"
+            prefixes[module] = f"holdfast holdfast {name} {package['instance']} " + module.replace(".", "/") + "/"
 
     symbols = {site: (f"local {site.start}" if decl.kind == "parameter" else
                       f"{prefixes[site.module]}{decl.name}({site.start}).")
@@ -150,7 +150,7 @@ def _bundle(root: Path, workspace: Path, lock: Path, destination: Path) -> tuple
     docs = _documents(closure, outputs, nav)
     if sum(len(d.occurrences) for d in docs.values()) > MAX_OCCURRENCES:
         raise ValueError("SCIP index exceeds its occurrence budget")
-    metadata = _field(2, _field(1, "vela") + _field(2, "1")) + _field(3, destination.as_uri()) + _field(4, 1)
+    metadata = _field(2, _field(1, "holdfast") + _field(2, "1")) + _field(3, destination.as_uri()) + _field(4, 1)
     index = bytearray(_field(1, metadata))
     for path in sorted(docs):
         index.extend(_field(2, docs[path].encode()))

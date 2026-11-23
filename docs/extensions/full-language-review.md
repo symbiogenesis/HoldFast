@@ -15,7 +15,7 @@ The [admission requirements](#frontend-admission) apply to their composition.
 ## Composed client and inhabited entry
 
 This multi-shot/async/counter client is a retained extension-interaction probe,
-not the first-release acceptance client. The [delivery sequence](../../PLAN.md#vela-first-release-delivery)
+not the first-release acceptance client. The [delivery sequence](../../PLAN.md#holdfast-first-release-delivery)
 first uses a concrete synchronous buffer operation and an independent package.
 The later [service qualification](handlers-async.md#qualification) must exercise
 ordinary sequential async composition and one child before any optional cloning
@@ -129,7 +129,7 @@ services and adapters it needs. [Compiler inspection contract](../tooling/toolin
 | --- | --- |
 | Static evaluation, dependent reindexing and generated resource uses | `core-soundness`: preserve the graded/resource interpretation and kernel-compatible conversion; no static knowledge follows from erasure or a grade. |
 | Description, hygiene and generated-source correspondence | `core-frontend`: bind descriptor dictionaries, declaration identities, scoped generated terms, target/ABI and the exact resulting computation; no arbitrary elimination of `Type` or trusted generator result. |
-| Diagnostics, claims and tooling | `core-diagnostics` and `preset-policy`: preserve source provenance and current evidence status; `vela-compiler-services` exposes shared versioned views, and LSP/SARIF/SCIP consume projections. Syntax assets follow the canonical grammar; build, remarks and trace adapters consume their actual producers. No second semantic implementation or proof-acceptance path. |
+| Diagnostics, claims and tooling | `core-diagnostics` and `preset-policy`: preserve source provenance and current evidence status; `holdfast-compiler-services` exposes shared versioned views, and LSP/SARIF/SCIP consume projections. Syntax assets follow the canonical grammar; build, remarks and trace adapters consume their actual producers. No second semantic implementation or proof-acceptance path. |
 | Lowering and runtime-cost qualification | Existing compiler, admission and hardware owners: retain effects, exits, leakage, representation and final-artifact evidence; inspect removal of generator machinery and measure residual code, descriptors and specialization growth. |
 
 <a id="r-05-009-r-05-020-and-what-holds-the-frontend-rows"></a>

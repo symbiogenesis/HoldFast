@@ -125,7 +125,7 @@ def batch_findings(
         for doc in documents
     )
     targets_payload = b"".join(target.encode("utf-8") + b"\0" for target in non_md_targets)
-    with tempfile.NamedTemporaryFile(prefix="vela-rumdl-targets-", delete=False) as handle:
+    with tempfile.NamedTemporaryFile(prefix="holdfast-rumdl-targets-", delete=False) as handle:
         handle.write(targets_payload)
         targets_path = Path(handle.name)
     try:

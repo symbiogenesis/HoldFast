@@ -191,9 +191,9 @@ class Session:
             item = self.sites[retired.pc].item
             next_pc = self.execution[index + 1].pc
             if any(effect.startswith("T ") for effect in retired.effects):
-                if next_pc != self.symbols["__vela_handler"][1]:
+                if next_pc != self.symbols["__holdfast_handler"][1]:
                     raise ValueError("unmapped trap handler")
-                frames.append(("__vela_handler", retired.pc))
+                frames.append(("__holdfast_handler", retired.pc))
             elif item.text == "call":
                 if next_pc != self.symbols[item.args[0]][1]:
                     raise ValueError("call target disagrees with execution")

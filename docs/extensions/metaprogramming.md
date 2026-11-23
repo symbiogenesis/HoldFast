@@ -1,4 +1,4 @@
-# Vela compile-time metaprogramming
+# HoldFast compile-time metaprogramming
 
 > Design for typed introspection and hygienic compile-time generation.
 > [Implementation plan](../../PLAN.md#tooling-and-metaprogramming)
@@ -262,19 +262,19 @@ workspace access, runtime debug permission or additional proof acceptance path.
 
 ## Design references
 
-These references guide the intended interfaces. Each mechanism still needs Vela's
+These references guide the intended interfaces. Each mechanism still needs HoldFast's
 own interpretation, source correspondence and composition evidence; no source or
 dependency is incorporated, feature parity claimed or implementation commissioned.
 
 | Reference | Design use |
 | --- | --- |
 | Zig 0.15.2 [compile-time evaluation](https://ziglang.org/documentation/0.15.2/#comptime) and [type reflection](https://ziglang.org/documentation/0.15.2/#typeInfo) | Ordinary functions at compile time and the `@typeInfo`/`@Type` metadata/reification interface inform static computation and explicit descriptors. Their availability establishes no CIC or ownership theorem. |
-| Idris 2 [elaborator reflection](https://idris-lang.org/Idris2/base/docs/Language.Reflection.html) | Checking, quotation, declaration and fresh-name operations inform scoped generation and discoverable library APIs. Vela retains its own dependent, graded and resource-aware construction obligations. |
+| Idris 2 [elaborator reflection](https://idris-lang.org/Idris2/base/docs/Language.Reflection.html) | Checking, quotation, declaration and fresh-name operations inform scoped generation and discoverable library APIs. HoldFast retains its own dependent, graded and resource-aware construction obligations. |
 | Roslyn [compiler API model](https://learn.microsoft.com/en-us/dotnet/csharp/roslyn-sdk/compiler-api-model) | Syntax, symbols, semantic analysis, diagnostics and workspace services inform the shared tool interface. These services complement compile-time generation. |
 
 ## Qualification
 
-The [delivery plan](../../PLAN.md#vela-first-release-delivery) qualifies static
+The [delivery plan](../../PLAN.md#holdfast-first-release-delivery) qualifies static
 computation with the initial software clients. Select later descriptor,
 construction or cross-feature rows only when a named consumer needs them; a
 synchronous derivation does not owe handler/async or hardware generation before

@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Span, Seq, Slots, fixed-width integer intrinsics, and expression elaboration for Vela."""
+"""Span, Seq, Slots, fixed-width integer intrinsics, and expression elaboration for HoldFast."""
 
 from typing import TYPE_CHECKING, cast
 
 from toolchain import loans
-from toolchain.ast import VelaError
+from toolchain.ast import HoldFastError
 from toolchain.elaborate_types import (
     _BOOL,
     _CHAR,
@@ -849,15 +849,15 @@ class _IntrinsicsMixin:
         var_spec = self._int_spec(self.types[variable]) if variable is not None else None
         raw = self.render(ordinary)
         args = " ".join(self.render(arg) for arg in operands)
-        checked_op = "vela_checked_wrap_shl" if operation == "wrap_shl" else f"vela_int_chk_{operation}"
+        checked_op = "holdfast_checked_wrap_shl" if operation == "wrap_shl" else f"holdfast_int_chk_{operation}"
         checked = f"({checked_op} {spec.tag} {args})"
-        equality = f"{checked} = vela_Result_Ok (vela_int {spec.tag}) vela_ArithmeticError {raw}"
+        equality = f"{checked} = holdfast_Result_Ok (holdfast_int {spec.tag}) holdfast_ArithmeticError {raw}"
         facts = list(dict.fromkeys([*self.active_facts, *self._fact_bool_terms((), environment)]))
         if not variables:
             statement = equality
             script = "reflexivity."
         elif variable is not None and var_spec is not None and var_spec.bits == 8:
-            bound = f"vela_v{variable}"
+            bound = f"holdfast_v{variable}"
             # Retain comparisons on the symbolic byte as hypotheses in the checked statement.
             guard = _term("bool", value=1)
             for fact in facts:
@@ -868,11 +868,11 @@ class _IntrinsicsMixin:
                 ):
                     guard = _apps(_constant("&&"), fact, guard)
             guard_text = self.render(guard)
-            test = f"(fun {bound} : vela_int {var_spec.tag} => if {guard_text} then vela_int_agrees {spec.tag} {checked} {raw} else true)"
-            statement = f"forall {bound} : vela_int {var_spec.tag}, {guard_text} = true -> {equality}"
-            script = (f"intros {bound} Hguard. apply vela_int_agrees_sound. "
-                      f"pose proof (vela_every_word_sound {var_spec.tag} {test} eq_refl {bound}) as H. "
-                      f"change ((if {guard_text} then vela_int_agrees {spec.tag} {checked} {raw} else true) = true) in H. "
+            test = f"(fun {bound} : holdfast_int {var_spec.tag} => if {guard_text} then holdfast_int_agrees {spec.tag} {checked} {raw} else true)"
+            statement = f"forall {bound} : holdfast_int {var_spec.tag}, {guard_text} = true -> {equality}"
+            script = (f"intros {bound} Hguard. apply holdfast_int_agrees_sound. "
+                      f"pose proof (holdfast_every_word_sound {var_spec.tag} {test} eq_refl {bound}) as H. "
+                      f"change ((if {guard_text} then holdfast_int_agrees {spec.tag} {checked} {raw} else true) = true) in H. "
                       "now rewrite Hguard in H.")
         else:
             statement, script = self._symbolic_word_equation(operation, spec, operands, variables, facts, equality, node)
@@ -901,22 +901,22 @@ class _IntrinsicsMixin:
             shape = self._int_spec(self.types[var])
             if shape is None:
                 raise self.fail("unsupported", "symbolic word replay requires represented word operands", node)
-            name = f"vela_v{var}"
-            binders.append(f"({name} : vela_int {shape.tag})")
+            name = f"holdfast_v{var}"
+            binders.append(f"({name} : holdfast_int {shape.tag})")
             arguments.append(name)
             if signed_sum:
-                steps.append(f"pose proof (proj1 (VelaWordReplay.signed_parts {shape.tag} {name} eq_refl)) as S{var}.")
-                reductions[f"VelaWordReplay.half {shape.tag}"] = 1 << (shape.bits - 1)
+                steps.append(f"pose proof (proj1 (HoldFastWordReplay.signed_parts {shape.tag} {name} eq_refl)) as S{var}.")
+                reductions[f"HoldFastWordReplay.half {shape.tag}"] = 1 << (shape.bits - 1)
             else:
-                steps.append(f"pose proof (VelaWordReplay.range {shape.tag} {name}) as R{var}.")
-                reductions[f"VelaWordReplay.capacity (vela_tag_bits {shape.tag})"] = 1 << shape.bits
+                steps.append(f"pose proof (HoldFastWordReplay.range {shape.tag} {name}) as R{var}.")
+                reductions[f"HoldFastWordReplay.capacity (holdfast_tag_bits {shape.tag})"] = 1 << shape.bits
 
         def literal(term: _Term, shape: _IntSpec) -> None:
             if term.kind == "int":
                 if signed_sum and shape.signed:
-                    reductions[f"VelaWordReplay.signed {shape.tag} {self.render(term)}"] = cast("int", term.value)
+                    reductions[f"HoldFastWordReplay.signed {shape.tag} {self.render(term)}"] = cast("int", term.value)
                 else:
-                    reductions[f"VelaWordReplay.unsigned {shape.tag} {self.render(term)}"] = cast("int", term.value) % (1 << shape.bits)
+                    reductions[f"HoldFastWordReplay.unsigned {shape.tag} {self.render(term)}"] = cast("int", term.value) % (1 << shape.bits)
 
         for term in operands:
             if term.kind == "int":
@@ -946,22 +946,22 @@ class _IntrinsicsMixin:
                 lemma = "eqv" if op == "eq" else "ne"
                 if signed_sum and shape.signed:
                     lemma = "signed_eqv" if op == "eq" else f"signed_ne {shape.tag} _ _ eq_refl"
-                steps.append(f"apply (VelaWordReplay.{lemma}) in {name}.")
+                steps.append(f"apply (HoldFastWordReplay.{lemma}) in {name}.")
             else:
                 if op in {"gt", "ge"}:
                     left, right = right, left
                 lemma = "lt" if op in {"lt", "gt"} else "le"
                 order_lemma = f"signed_{lemma}" if shape.signed else lemma
                 signed_flag = "" if shape.signed else " eq_refl"
-                steps.append(f"apply (proj1 (VelaWordReplay.{order_lemma} {shape.tag} {self.render(left)} {self.render(right)}{signed_flag})) in {name}.")
+                steps.append(f"apply (proj1 (HoldFastWordReplay.{order_lemma} {shape.tag} {self.render(left)} {self.render(right)}{signed_flag})) in {name}.")
         lemma = f"signed_{operation}" if spec.signed and operation in {"neg", "div", "add", "sub"} else operation
-        steps.append(f"apply VelaWordReplay.{lemma}_ok.")
+        steps.append(f"apply HoldFastWordReplay.{lemma}_ok.")
         if operation in {"add", "sub", "div", "neg"}:
             steps.append("1: reflexivity.")
         if lemma in {"signed_neg", "signed_div"}:
-            reductions[f"VelaWordReplay.capacity (Nat.pred (vela_tag_bits {spec.tag}))"] = 1 << (spec.bits - 1)
+            reductions[f"HoldFastWordReplay.capacity (Nat.pred (holdfast_tag_bits {spec.tag}))"] = 1 << (spec.bits - 1)
         if operation in {"shr", "wrap_shl"}:
-            reductions[f"VelaUnsigned.big (vela_nat_to_bits 64 (vela_tag_bits {spec.tag})) 0%Z"] = spec.bits
+            reductions[f"HoldFastUnsigned.big (holdfast_nat_to_bits 64 (holdfast_tag_bits {spec.tag})) 0%Z"] = spec.bits
         for expression, value in reductions.items():
             steps.append(f"all: change ({expression}) with (({value})%Z) in *.")
         statement = f"forall {' '.join(binders)}, " + " -> ".join([*premises, equality])
@@ -1987,8 +1987,8 @@ class _IntrinsicsMixin:
             "CheckedRem": "chk_rem",
         }
         is_checked = name.startswith("Checked")
-        ae_const = _constant("vela_ArithmeticError")
-        res_const = _constant("vela_Result")
+        ae_const = _constant("holdfast_ArithmeticError")
+        res_const = _constant("holdfast_Result")
         if name in unary_ops:
             if receiver is not None:
                 if val_nodes:
@@ -2138,7 +2138,7 @@ class _IntrinsicsMixin:
                 instantiated = self.substitute(instantiated, parameter, argument)
             try:
                 self._check_precondition_term(instantiated, environment, node)
-            except VelaError as error:
+            except HoldFastError as error:
                 if error.kind != "type":
                     raise
                 raise self.fail("type", "callback precondition is stronger than the Fn signature: use a checked wrapper", node) from error
@@ -2383,8 +2383,8 @@ class _IntrinsicsMixin:
                                     "'char.From' requires a byte/u8 or char operand; use 'char.TryFrom' for u32 or Nat",
                                     node,
                                 )
-                            res_const = _constant("vela_Result")
-                            ce_const = _constant("vela_ConversionError")
+                            res_const = _constant("holdfast_Result")
+                            ce_const = _constant("holdfast_ConversionError")
                             ret_type = _apps(res_const, _CHAR, ce_const)
                             src_spec = self._int_spec(src_w)
                             if src_spec is not None and src_spec.name == "u32":
@@ -2427,8 +2427,8 @@ class _IntrinsicsMixin:
                                     _app(_constant(f"int_from_{src_spec.name}_{dst_spec.name}"), src_b.term),
                                     dst_spec.const,
                                 )
-                            res_const = _constant("vela_Result")
-                            ce_const = _constant("vela_ConversionError")
+                            res_const = _constant("holdfast_Result")
+                            ce_const = _constant("holdfast_ConversionError")
                             ret_type = _apps(res_const, dst_spec.const, ce_const)
                             if src_spec is not None:
                                 return _Binding(
@@ -2454,7 +2454,7 @@ class _IntrinsicsMixin:
                             f"integer type '{dst_spec.name}' has no associated function '{member_name}'",
                             node,
                         )
-                    if self._dotted_member_path(receiver) == "Vela.Numerics" and member_name in _INT_INTRINSICS:
+                    if self._dotted_member_path(receiver) == "HoldFast.Numerics" and member_name in _INT_INTRINSICS:
                         return self._elaborate_int_intrinsic(member_name, call_args, environment, node)
                     if (
                         member_name in _INT_INTRINSICS

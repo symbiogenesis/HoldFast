@@ -23,11 +23,11 @@ MAX_READER_OUTPUT = 65_536
 READER_SECONDS = 15
 NEGATIVE_CONTROLS = ("stale-source", "stale-producer", "source-location", "rule-reference",
                      "completion-status", "missing-finding", "fix-range", "report-corruption")
-FIRST = sarif.Input("file:///sarif%20fixture/%CE%BB%F0%9F%98%80.vela",
+FIRST = sarif.Input("file:///sarif%20fixture/%CE%BB%F0%9F%98%80.hf",
                     "module Fixture;\r\n// \U0001f600 \u03bb\r\npublic Nat First()=>1;".encode())
-SECOND = sarif.Input("file:///sarif%20fixture/other.vela",
+SECOND = sarif.Input("file:///sarif%20fixture/other.hf",
                      "module Other;\n// \u03bb\U0001f600\npublic Nat Wrong() => true;".encode())
-UNSUPPORTED = sarif.Input("file:///sarif%20fixture/unfinished.vela",
+UNSUPPORTED = sarif.Input("file:///sarif%20fixture/unfinished.hf",
                           b"module Unfinished; public Nat Wait() { return await; }")
 EXPECTED_FORMATTED = "module Fixture;\n\n// \U0001f600 \u03bb\npublic Nat First() => 1;\n"
 
@@ -49,7 +49,7 @@ def reader_identity(directory: Path) -> sarif.Object:
 def harness_identity() -> str:
     root = Path(__file__).resolve().parent
     identities = {name: file_sha256(root / name)
-                  for name in ("atomic.py", "sarif.py", "sarif_reader.py", "hashing.py", "jsonutil.py", "cli/vela.py")}
+                  for name in ("atomic.py", "sarif.py", "sarif_reader.py", "hashing.py", "jsonutil.py", "cli/holdfast.py")}
     return sha256_bytes(json.dumps(identities, sort_keys=True).encode())
 
 
@@ -68,7 +68,7 @@ def _read(directory: Path, document: sarif.Object) -> sarif.Object:
         "'results':[r for run in f.runs for r in run.get_results()],"
         "'invocations':[i for run in f.runs for i in run.run_data['invocations']]},sort_keys=True))"
     )
-    with tempfile.TemporaryDirectory(prefix="vela-sarif-reader-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="holdfast-sarif-reader-") as temporary:
         path = Path(temporary) / "fixture.sarif"
         path.write_text(json.dumps(document), encoding="utf-8")
         try:
@@ -86,7 +86,7 @@ def _read(directory: Path, document: sarif.Object) -> sarif.Object:
 
 
 def _rebind(document: sarif.Object) -> None:
-    manifest = cast("sarif.Object", cast("sarif.Object", cast("list[sarif.Object]", document["runs"])[0]["properties"])["vela"])
+    manifest = cast("sarif.Object", cast("sarif.Object", cast("list[sarif.Object]", document["runs"])[0]["properties"])["holdfast"])
     manifest.pop("binding_sha256", None)
     manifest["binding_sha256"] = sha256_bytes(json.dumps(
         document, sort_keys=True, separators=(",", ":"), ensure_ascii=True,
@@ -139,8 +139,8 @@ def qualify(directory: Path, schema: Path) -> sarif.Object:
     records = cast("list[sarif.Object]", observed["records"])
     projection = [[record["Code"], record["Severity"], record["Location"], record["Line"]]
                   for record in records]
-    expected = [["VELA-FORMAT", "warning", FIRST.uri, 1],
-                ["VELA-TYPE", "error", SECOND.uri, 3]]
+    expected = [["HOLDFAST-FORMAT", "warning", FIRST.uri, 1],
+                ["HOLDFAST-TYPE", "error", SECOND.uri, 3]]
     if projection != expected:
         raise ValueError(f"independent SARIF records differ: {projection!r}")
     results = json.loads(json.dumps(observed["results"]))
@@ -160,7 +160,7 @@ def qualify(directory: Path, schema: Path) -> sarif.Object:
     if incomplete["complete"] is not False or observed_unfinished["invocations"][0]["executionSuccessful"] is not False:
         raise ValueError("unsupported source lost its incomplete-analysis status")
     corrupted = json.loads(json.dumps(unfinished))
-    corrupted["runs"][0]["properties"]["vela"]["complete"] = True
+    corrupted["runs"][0]["properties"]["holdfast"]["complete"] = True
     _rebind(corrupted)
     try:
         sarif.validate(corrupted, (UNSUPPORTED,), producer, schema_path=schema)

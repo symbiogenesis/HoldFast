@@ -1,6 +1,6 @@
 # Third-Party Software and References
 
-This file records third-party dependencies, development tools, and reference readings for the VelaLang repository, following [COPYRIGHT.md](COPYRIGHT.md).
+This file records third-party dependencies, development tools, and reference readings for the HoldFast repository, following [COPYRIGHT.md](COPYRIGHT.md).
 
 ## Independent SCIP reader
 
@@ -13,7 +13,7 @@ from the [v0.10.0 release](https://github.com/scip-code/scip/releases/tag/v0.10.
 The archive has SHA-256 `6ab677dc2c4bf2955975d0530766152e45daaa988f9404068d8adecacd0bb24c`
 and the executable has SHA-256 `2e808bcfc73711f1ab598412ac6ec6f7c68c2c3c07e02f63b05221a2250a357e`.
 The selected revision's [license](https://github.com/scip-code/scip/blob/1c2b6db7e560d5233c944f36e4ac1377cc6963fc/LICENSE)
-is Apache-2.0. The schema and reader are external development inputs. Vela
+is Apache-2.0. The schema and reader are external development inputs. HoldFast
 distributes its own encoder and qualification harness.
 
 The qualification resolves decoded relationship targets after collecting symbols
@@ -59,8 +59,8 @@ computer-language-definition and IPR policies. The schema remains an external
 development input checked by the existing locked `jsonschema` library; its
 contents are not relicensed or vendored into this tree. No upstream schema,
 reader, dependency source, wheel or native binary is copied into the tracked
-tree, compiler runtime, or a Vela/VerifiedOS image. Retained reports contain
-Vela-authored fixtures, observed records and tool identities. These records
+tree, compiler runtime, or a HoldFast/VerifiedOS image. Retained reports contain
+HoldFast-authored fixtures, observed records and tool identities. These records
 authorize local development use and do not assert a redistribution closure.
 
 ## Independent compilation database reader
@@ -85,7 +85,7 @@ The revision's [LLVM license](https://github.com/llvm/llvm-project/blob/llvmorg-
 specifies Apache-2.0 with LLVM Exceptions and identifies separately licensed
 third-party components. Ubuntu's `libllvm21` copyright record has SHA-256
 `b2ed2fd344e8ddbf2e0c83113bd40fa1853438be61a0ff20af5acd187c07cbf6`.
-The tracked tree distributes Vela's harness and authored fixture records. LLVM
+The tracked tree distributes HoldFast's harness and authored fixture records. LLVM
 executables, shared libraries and upstream source stay with the external tool
 installation.
 
@@ -99,7 +99,7 @@ The [Gallina source map lookup](tools/toolchain/gallina_source_map.py) uses
 executes generated ES modules. Both use the external Linux ARM64 Node.js 22.22.1
 executable, SHA-256 `1ea16f5e8d590ca819f1db81e61a6bc4c8e7d8b69776c9236f8ebbf717113225`.
 Node.js is MIT with separate notices for bundled dependencies. The exporter
-outputs Vela-generated JavaScript, and the lookup reads Vela-generated maps.
+outputs HoldFast-generated JavaScript, and the lookup reads HoldFast-generated maps.
 [SourceMap API](https://nodejs.org/download/release/v22.22.1/docs/api/module.html#class-modulesourcemap)
 · [Release license and notices](https://github.com/nodejs/node/blob/v22.22.1/LICENSE)
 
@@ -111,7 +111,7 @@ owned by [tools/pyproject.toml](tools/pyproject.toml). Its revision's
 [LICENSE](https://github.com/actions/setup-python/blob/5fda3b95a4ea91299a34e894583c3862153e4b97/LICENSE)
 specifies MIT, copyright 2018 GitHub, Inc. and contributors.
 The action runs as a hosted development tool with its upstream notices; no action
-source or runtime binary is copied into this tree or a Vela/VerifiedOS image.
+source or runtime binary is copied into this tree or a HoldFast/VerifiedOS image.
 The workflow installs the existing exact `uv` version from that same manifest
 and synchronizes the repository's locked Python dependencies.
 
@@ -119,7 +119,7 @@ and synchronizes the repository's locked Python dependencies.
 
 ## Browser playground assets
 
-The [Vela playground](docs/tooling/playground.md) loads `monaco-editor` 0.55.1's
+The [HoldFast playground](docs/tooling/playground.md) loads `monaco-editor` 0.55.1's
 browser distribution from its version-pinned jsDelivr package URL. The release's
 [LICENSE.txt](https://github.com/microsoft/monaco-editor/blob/v0.55.1/LICENSE.txt),
 [package manifest](https://github.com/microsoft/monaco-editor/blob/v0.55.1/package.json),
@@ -146,7 +146,7 @@ Project, with the file-specific Chromium BSD notice, syntaqlite Apache-2.0
 notice, public-domain parser-grammar declaration and Niels Provos BSD notice
 stated in that same file. The reader runs only as an independent local
 development tool; no upstream source, executable, library or wrapper is copied
-into the tracked tree, compiler runtime or a Vela/VerifiedOS image. This record
+into the tracked tree, compiler runtime or a HoldFast/VerifiedOS image. This record
 does not authorize a distribution closure.
 
 The harness accepts these exact official standalone prebuilts, checking bytes
@@ -160,7 +160,7 @@ before and after qualification and checking their reported source revision:
 
 The command requires the reader path explicitly and performs no downloads or
 dependency installation. The executable remains in an ignored external-tool
-directory alongside the upstream license; retained reports contain Vela-authored
+directory alongside the upstream license; retained reports contain HoldFast-authored
 fixture data, SQL observations and tool identities. Qualification of one target
 does not claim execution on every target in the pin table or browser UI coverage.
 
@@ -182,7 +182,7 @@ its executable has SHA-256
 `6329ea4be486c26ef87fdc45ead60c1b1fb9ffab62fe9bd295932ec8e0645751`.
 Generated parser C, Tree-sitter runtime headers, compiled language libraries and
 the CLI remain in isolated/ignored development directories with upstream
-notices; none is copied into tracked source or a Vela/VerifiedOS image. The
+notices; none is copied into tracked source or a HoldFast/VerifiedOS image. The
 tracked grammar, queries and external scanner are original Apache-2.0 work.
 
 The lexical consumer is Microsoft's VS Code tokenization engine
@@ -203,7 +203,7 @@ Their pinned JavaScript/Wasm implementation bytes and release metadata are
 checked by the [qualifier](tools/toolchain/highlight_qualification.py).
 Packages and notices remain externally provisioned local development tools;
 no upstream JavaScript, Wasm, package or Node runtime is vendored, added to the
-Python environment or distributed in the syntax extension or a Vela/VerifiedOS
+Python environment or distributed in the syntax extension or a HoldFast/VerifiedOS
 image. The harness records the exact selected Node executable and refuses
 changed runtime bytes before report publication. This use grants no additional
 runtime or generated-parser distribution closure.
@@ -212,7 +212,7 @@ runtime or generated-parser distribution closure.
 
 ## Development parser generator
 
-Vela runs Menhir 20260209's code backend in isolated native build directories.
+HoldFast runs Menhir 20260209's code backend in isolated native build directories.
 It links no Menhir runtime into the development parser. The
 [release archive](https://opam.ocaml.org/packages/menhir/menhir.20260209/)
 contains a root `LICENSE` with SHA-256
@@ -224,15 +224,15 @@ generator output depend on whether the output is based on the generator.
 Distributing generated source, binaries or the compiler bootstrap requires
 qualification of their terms. [Parser qualification](docs/tooling/parser.md#promotion-and-retirement)
 
-### Vela parser support library
+### HoldFast parser support library
 
 The [checked-parser qualification](docs/tooling/parser.md#rocq-support-prerequisite)
 builds `coq-menhirlib` from the authenticated Menhir 20260209 archive above.
 The `coq-menhirlib/LICENSE` specifies LGPL-3.0-or-later and has SHA-256
 `218c42550a9b4ff6e48bf38218908755fe156b2e5c586531c2eb8893248a102d`. The bounded `Interpreter.v`
 proof-command relocation and `Validator_complete.v` abstract `IsItemsMap` proof
-adaptation, the generated `VelaPureGrammar.v`, the compiled Rocq library, and the
-extracted `vela-checked-parser` executable remain in isolated native build
+adaptation, the generated `HoldFastPureGrammar.v`, the compiled Rocq library, and the
+extracted `holdfast-checked-parser` executable remain in isolated native build
 directories with `LICENSE.generator` and `LICENSE.support` staged alongside them.
 Only JSON receipts are exported; this use conveys no upstream source, library,
 generator, or runtime binary into the tracked tree.
@@ -247,13 +247,13 @@ table, and the IANA root-zone table. The wheels contain a native extension
 built from MPL-2.0 Rust source. The wheels lack separate notices for the
 extension's Cargo dependencies. The runner installs the pinned versions in
 an isolated environment and verifies installed versions, license digests and
-the Hypothesis native extension digest. The repository retains Vela-authored
+the Hypothesis native extension digest. The repository retains HoldFast-authored
 regression data. [Generated-test contract](docs/tooling/tooling-protocols.md#generated-development-tests)
 
 The [syntax campaigns](docs/tooling/parser.md#generated-syntax-campaigns) use
 the [Menhir generator above](#development-tools-contained-by-use) to generate
-terminal names from Vela's grammar and interpret them as concrete syntax
-trees. Retained fixtures contain Vela terminal sequences, Vela source and
+terminal names from HoldFast's grammar and interpret them as concrete syntax
+trees. Retained fixtures contain HoldFast terminal sequences, HoldFast source and
 expected observations. The runner uses the code backend and keeps Menhir
 runtime libraries and generated error catalogs outside the fixtures.
 
@@ -267,7 +267,7 @@ Neovim notice covers the bundled `netrw` runtime. Windows uses Vim 9.1.2141
 `2:9.1.0016-1ubuntu7.10` packages and notices. The plugin revision is
 `58eac06e81bad174cfa897614ae01adf0d31d10a` (MIT, copyright 2021
 Yegappan Lakshmanan). The qualifier stages only the required files in temporary
-directories. The repository distributes Vela's harness and fixtures.
+directories. The repository distributes HoldFast's harness and fixtures.
 [Neovim license](https://github.com/neovim/neovim/blob/v0.11.0/LICENSE.txt) ·
 [Vim license](https://github.com/vim/vim/blob/v9.1.2141/LICENSE) ·
 [Plugin license](https://github.com/yegappan/lsp/blob/58eac06e81bad174cfa897614ae01adf0d31d10a/LICENSE)
@@ -281,7 +281,7 @@ the editor. Eglot's source header names the Free Software Foundation and
 GPL-3.0-or-later. The [rename qualifier](tools/toolchain/lsp_rename_clients.py)
 checks exact SHA-256 identities for the editor executable, the explicitly
 loaded Eglot bytecode, the shipped GNU GPL version 3 text and the distribution's
-copyright file. Only the test harness and Vela source fixture are distributed
+copyright file. Only the test harness and HoldFast source fixture are distributed
 here. [Emacs 30.2 Eglot source and license](https://github.com/emacs-mirror/emacs/blob/emacs-30.2/lisp/progmodes/eglot.el)
 
 The [BSP interoperability qualifier](tools/toolchain/bsp_client.py) runs the
@@ -291,7 +291,7 @@ Its root license is Apache-2.0 (SHA-256
 `c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4`).
 The qualifier verifies the archive, stages the license and Lua modules in a
 temporary directory and exercises the client's project loader and build requests.
-The repository distributes the Vela harness. [Pinned client and license](https://github.com/616b2f/bsp.nvim/blob/42f77554d1242b71174da0216e1d29705da7b9d0/LICENSE)
+The repository distributes the HoldFast harness. [Pinned client and license](https://github.com/616b2f/bsp.nvim/blob/42f77554d1242b71174da0216e1d29705da7b9d0/LICENSE)
 
 [CoqEAL and Trocq](docs/assurance/verification-strategy.md#existing-tooling-and-implementation-owners)
 and QCheck are unselected candidates. A concrete consumer must qualify the

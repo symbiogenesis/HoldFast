@@ -38,7 +38,7 @@ def nodes(source: bytes, response: object, identity: str) -> list[dict[str, obje
 
     def visit(raw: dict[str, object], parent: str | None, role: str, index: int | None) -> str:
         if len(result) >= MAX_SYNTAX_NODES:
-            raise ast.VelaError("limit", 1, 1, "syntax inspection exceeds node limit")
+            raise ast.HoldFastError("limit", 1, 1, "syntax inspection exceeds node limit")
         handle = f"{identity}:node:{len(result)}"
         raw_kind = cast("str", raw.get("kind", "operator" if role == "operator" else "identifier"))
         kind = _KINDS.get(raw_kind, raw_kind)

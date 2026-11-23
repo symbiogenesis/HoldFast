@@ -38,7 +38,7 @@ const visible = [...document.querySelectorAll('#spans tbody tr')].filter(r => !r
 const result = {width: round(bounds.width), spans, counters,
   visible: visible.map(r => r.cells[1].textContent),
   titles: [...svg.querySelectorAll('title')].map(t => t.textContent)};
-const pre = document.createElement('pre'); pre.id = 'vela-browser-observation';
+const pre = document.createElement('pre'); pre.id = 'holdfast-browser-observation';
 pre.textContent = JSON.stringify(result); document.body.append(pre);
 """
 EXPECTED: Object = {
@@ -89,7 +89,7 @@ class _Observation(HTMLParser):
 
     @override
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag == "pre" and ("id", "vela-browser-observation") in attrs:
+        if tag == "pre" and ("id", "holdfast-browser-observation") in attrs:
             self.count += 1
             self.active = True
 
@@ -129,7 +129,7 @@ def harness_identity() -> str:
     modules = (Path(__file__), Path(trace_html.__file__), Path(trace_viewer.__file__),
                Path(compiler_trace.__file__), Path(__file__).with_name("jsonutil.py"),
                Path(__file__).with_name("hashing.py"), Path(__file__).with_name("atomic.py"),
-               Path(__file__).parent / "cli" / "vela.py")
+               Path(__file__).parent / "cli" / "holdfast.py")
     return hashlib.sha256(json.dumps({path.name: file_sha256(path)
                                      for path in modules}, sort_keys=True).encode()).hexdigest()
 
@@ -148,7 +148,7 @@ def qualify(executable: Path, expected: str) -> Object:
     harness = harness_identity()
     viewer = trace_html.identity()
     artifact = _fixture()
-    with tempfile.TemporaryDirectory(prefix="vela-trace-browser-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="holdfast-trace-browser-") as temporary:
         root = Path(temporary)
         fixture = root / "timeline.html"
         fixture.write_text(artifact, encoding="utf-8", newline="")

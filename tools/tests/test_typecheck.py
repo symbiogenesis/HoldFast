@@ -31,14 +31,14 @@ _STUB_PIN = "9.9.9"
 def _parse_ty() -> None:
     text = (
         "checks/meta.py:10:5: error[unresolved-import] Cannot resolve import `nope`\n"
-        "vela/corpus.py:2:1: warning[unused-ignore-comment] Unused `ty: ignore`\n"
+        "holdfast/corpus.py:2:1: warning[unused-ignore-comment] Unused `ty: ignore`\n"
         "Found 2 diagnostics\n"
         "All checks passed!\n"
     )
     found = typecheck._parse_ty(text)
     ensure(found == [
         ("unresolved-import", "checks/meta.py:10:5 Cannot resolve import `nope`"),
-        ("unused-ignore-comment", "vela/corpus.py:2:1 Unused `ty: ignore`"),
+        ("unused-ignore-comment", "holdfast/corpus.py:2:1 Unused `ty: ignore`"),
     ], f"ty's concise lines parsed as {found!r}")
 
 
@@ -53,7 +53,7 @@ def _parse_ty_skips_summary() -> None:
 def _parse_ruff() -> None:
     text = (
         "test.py:3:1: ANN001 Missing type annotation for `x`\n"
-        "vela/env.py:7:9: F401 `os` imported but unused\n"
+        "holdfast/env.py:7:9: F401 `os` imported but unused\n"
         "warning: The top-level linter settings are deprecated\n"
         "Found 2 errors.\n"
         "\n"
@@ -61,7 +61,7 @@ def _parse_ruff() -> None:
     found = typecheck._parse_ruff(text)
     ensure(found == [
         ("ANN001", "test.py:3:1 Missing type annotation for `x`"),
-        ("F401", "vela/env.py:7:9 `os` imported but unused"),
+        ("F401", "holdfast/env.py:7:9 `os` imported but unused"),
     ], f"ruff's concise lines parsed as {found!r}")
 
 
@@ -325,7 +325,7 @@ def _ty_settings_refuse_rules() -> None:
 
 
 def _ty_settings_refuse_overrides() -> None:
-    first = '\n[[overrides]]\ninclude = ["vela/**"]\n'
+    first = '\n[[overrides]]\ninclude = ["holdfast/**"]\n'
     second = '\n[[overrides]]\ninclude = ["tests/**"]\n'
     rules = '\n[overrides.rules]\nunresolved-import = "ignore"\n'
     _refused_settings([
@@ -373,7 +373,7 @@ def _ty_settings_refuse_src() -> None:
     _refused_settings([
         head, head + "\n[src]\n",
         *(head + "\n[src]\nexclude = " + exclude + "\nrespect-ignore-files = false\n"
-          for exclude in ('["**/__pycache__/**", "vela/**"]', '["vela/**"]')),
+          for exclude in ('["**/__pycache__/**", "holdfast/**"]', '["holdfast/**"]')),
         *(head + _SRC + line + "\n" for line in (
             'include = ["tests"]', "exclude-scripts = true")),
         head + '\n[src]\nexclude = ["**/__pycache__/**"]\nrespect-ignore-files = true\n',
@@ -788,7 +788,7 @@ def _ruff_settings_refuse_per_file_suppressions() -> None:
             '[lint.per-file-ignores]\n"x.py" = ["ANN"]',
             "extend-per-file-ignores = {}", "future-setting = 1",
             "[lint.flake8-annotations]\nignore-fully-untyped = true",
-            '[lint.isort]\nforce-single-line = true\nknown-first-party = ["vela"]')),
+            '[lint.isort]\nforce-single-line = true\nknown-first-party = ["holdfast"]')),
         *(line + "\n" + lint for line in (
             'per-file-ignores = {"x.py" = ["ANN"]}',
             'extend-per-file-ignores = {"x.py" = ["ANN"]}', 'extend = "other.toml"',

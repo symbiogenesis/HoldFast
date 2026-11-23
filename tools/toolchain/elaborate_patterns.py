@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Pattern parsing, dependent pattern typing, and exhaustive match compilation for Vela elaboration."""
+"""Pattern parsing, dependent pattern typing, and exhaustive match compilation for HoldFast elaboration."""
 
 from collections.abc import Callable
 from functools import partial

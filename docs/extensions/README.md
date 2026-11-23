@@ -1,4 +1,4 @@
-# Vela extension designs
+# HoldFast extension designs
 
 These proposals extend the [first-release subset](../language/first-release.md#release-boundary).
 That contract defines the selection criteria. The
@@ -10,7 +10,7 @@ That contract defines the selection criteria. The
 | [Handlers and async lifecycles](handlers-async.md) | Effect handlers, one-shot and multi-shot control, async tasks, structured scopes and cancellation |
 | [Interior mutability](interior-mutability.md) | Cells, snapshots, invariant opening and lifting, and local aliases |
 | [Metaprogramming](metaprogramming.md) | Typed introspection, derivation, hygienic generation and compiler services |
-| [Unified source contract](unified-source-contract.md) | One Vela codebase for software, proofs, the machine model and hardware, and native self-hosting |
+| [Unified source contract](unified-source-contract.md) | One HoldFast codebase for software, proofs, the machine model and hardware, and native self-hosting |
 | [Assurance profiles](assurance-profiles.md) | Proposed Safe, Contracted and Complete presets and evidence presentation beside declarations |
 | [Extension composition](full-language-review.md) | Combined client, proof obligations and runtime storage |
 | [Numerical workload candidates](numerical-workloads.md) | Deferred e-means client selection and numerical qualification prerequisites |

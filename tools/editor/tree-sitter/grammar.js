@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-// Generated from the canonical Menhir productions; regenerate with vela-highlight.
+// Generated from the canonical Menhir productions; regenerate with holdfast-highlight.
 module.exports = grammar({
-  name: 'vela',
+  name: 'holdfast',
   word: $ => $.identifier,
   extras: $ => [/\s/, $.line_comment, $.block_comment],
   externals: $ => [$.block_comment, $.raw_string, $.interpolated_string],

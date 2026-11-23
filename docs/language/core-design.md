@@ -1,7 +1,7 @@
 # Bounded language core and qualification contract
 
 > Design for the [first-release synchronous core](first-release.md#release-boundary).
-> [Delivery plan](../../PLAN.md#vela-first-release-delivery)
+> [Delivery plan](../../PLAN.md#holdfast-first-release-delivery)
 
 ## Decision and boundary
 
@@ -352,7 +352,7 @@ Record semantic inputs, not filenames alone; conservatively invalidate the compo
 | Fixture | An inhabited `PreparationOpen` token with a checked total `finish` transition, independent expected behavior and a repair check. |
 | Machine artifacts | Checked lowering, optimization, linkage, final-byte admission and any claimed observation, cost and contextual guarantees. |
 
-See the [delivery plan](../../PLAN.md#vela-first-release-delivery) for owners and
+See the [delivery plan](../../PLAN.md#holdfast-first-release-delivery) for owners and
 implementation gates. The [packet validator qualification](first-release.md#first-slice-qualification)
 describes the narrower source model and execution controls.
 

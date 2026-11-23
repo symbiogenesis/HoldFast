@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Exact-source schema-2 AST protocol validation for Vela elaboration."""
+"""Exact-source schema-2 AST protocol validation for HoldFast elaboration."""
 
 import hashlib
 import re
@@ -10,7 +10,7 @@ from toolchain.ast import (
     DECIMAL,
     MAX_LITERAL_DIGITS,
     MAX_SOURCE_BYTES,
-    VelaError,
+    HoldFastError,
     position,
     source_text,
     trivia_end,
@@ -149,10 +149,10 @@ class _Protocol:
         self.holes: dict[int, Node] = {}
         self.boundaries = set(accumulate((len(char.encode("utf-8")) for char in text), initial=0))
 
-    def error(self, kind: str, message: str, node: Node | None = None) -> VelaError:
+    def error(self, kind: str, message: str, node: Node | None = None) -> HoldFastError:
         offset = 0 if node is None else cast("list[int]", node.get("span", [0]))[0]
         site = position(self.source[:offset].decode("utf-8"))
-        return VelaError(kind, site.line, site.column, message)
+        return HoldFastError(kind, site.line, site.column, message)
 
     def _span(self, raw: object, parent: tuple[int, int]) -> tuple[int, int]:
         if (not isinstance(raw, list) or len(raw) != 2

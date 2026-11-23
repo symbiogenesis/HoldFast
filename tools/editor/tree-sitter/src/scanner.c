@@ -6,14 +6,14 @@
 
 enum { BLOCK_COMMENT, RAW_STRING, INTERPOLATED_STRING };
 
-void *tree_sitter_vela_external_scanner_create(void) { return NULL; }
-void tree_sitter_vela_external_scanner_destroy(void *payload) { (void)payload; }
-unsigned tree_sitter_vela_external_scanner_serialize(void *payload, char *buffer) {
+void *tree_sitter_holdfast_external_scanner_create(void) { return NULL; }
+void tree_sitter_holdfast_external_scanner_destroy(void *payload) { (void)payload; }
+unsigned tree_sitter_holdfast_external_scanner_serialize(void *payload, char *buffer) {
     (void)payload;
     (void)buffer;
     return 0;
 }
-void tree_sitter_vela_external_scanner_deserialize(void *payload, const char *buffer, unsigned length) {
+void tree_sitter_holdfast_external_scanner_deserialize(void *payload, const char *buffer, unsigned length) {
     (void)payload;
     (void)buffer;
     (void)length;
@@ -111,7 +111,7 @@ static bool interpolated(TSLexer *lexer) {
     return false;
 }
 
-bool tree_sitter_vela_external_scanner_scan(void *payload, TSLexer *lexer, const bool *valid) {
+bool tree_sitter_holdfast_external_scanner_scan(void *payload, TSLexer *lexer, const bool *valid) {
     (void)payload;
     while (iswspace(lexer->lookahead)) lexer->advance(lexer, true);
     if (valid[BLOCK_COMMENT] && lexer->lookahead == '/') {

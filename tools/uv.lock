@@ -380,7 +380,7 @@ wheels = [
 ]
 
 [[package]]
-name = "velalang-tools"
+name = "holdfast-tools"
 version = "0"
 source = { virtual = "." }
 dependencies = [

@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import cast
 from unittest.mock import patch
 
-import toolchain as vela
+import toolchain as holdfast
 from toolchain import authoring, pyversion
 from toolchain.ast import MAX_SOURCE_BYTES
 from toolchain.hashing import file_sha256
@@ -510,7 +510,7 @@ class OracleOverlayModel:
             items.append({
                 "range": {"start": pos, "end": pos},
                 "severity": 1,
-                "source": "vela-pure-prototype",
+                "source": "holdfast-pure-prototype",
                 "code": diag["kind"],
                 "message": str(diag["message"])[:4096],
                 "data": {
@@ -568,7 +568,7 @@ class OracleOverlayModel:
 
     def step(self, server: Server, action: dict[str, object]) -> None:
         kind = action["action"]
-        uri = cast("str", action.get("uri", "untitled:overlay-a.vela"))
+        uri = cast("str", action.get("uri", "untitled:overlay-a.hf"))
 
         if kind == "open":
             version = cast("int", action["version"])
@@ -583,7 +583,7 @@ class OracleOverlayModel:
                     "params": {
                         "textDocument": {
                             "uri": uri,
-                            "languageId": "vela",
+                            "languageId": "holdfast",
                             "version": version,
                             "text": text,
                         }
@@ -1034,7 +1034,7 @@ class OracleOverlayModel:
             return {
                 "contents": {
                     "kind": "plaintext",
-                    "value": f"{sym['detail']}\nVela pure prototype (unqualified)",
+                    "value": f"{sym['detail']}\nHoldFast pure prototype (unqualified)",
                 },
                 "range": {
                     "start": {"line": sel_start[0], "character": sel_start[1]},
@@ -1080,7 +1080,7 @@ def replay_overlay_trace(actions: list[dict[str, object]]) -> None:
 
 @dataclass(frozen=True)
 class FormatTemplate:
-    """Small supported pure-Vela template with independently known canonical text and facts."""
+    """Small supported pure-HoldFast template with independently known canonical text and facts."""
 
     module_name: str
     header_comment: str | None
@@ -1209,14 +1209,14 @@ def verify_format_template(template: FormatTemplate) -> None:
     if reformatted != formatted:
         raise ObservationMismatchError("format_source is not idempotent")
 
-    actual_tokens = tuple((tok.kind, tok.text) for tok in vela._tokens(formatted))
+    actual_tokens = tuple((tok.kind, tok.text) for tok in holdfast._tokens(formatted))
     if actual_tokens != template.expected_tokens():
         raise ObservationMismatchError(
             f"formatted token sequence drifted: actual={actual_tokens!r}, "
             f"expected={template.expected_tokens()!r}"
         )
 
-    facts = vela.inspect_source(formatted)
+    facts = holdfast.inspect_source(formatted)
     symbols = cast("list[dict[str, object]]", facts["symbols"])
     fn_symbol = next((sym for sym in symbols if sym.get("name") == template.fn_name), None)
     if fn_symbol is None:
@@ -1231,7 +1231,7 @@ def verify_format_template(template: FormatTemplate) -> None:
         )
 
     raw_text = raw.decode("utf-8")
-    snapshot = SourceSnapshot("untitled:format-template.vela", 1, raw_text, 1)
+    snapshot = SourceSnapshot("untitled:format-template.hf", 1, raw_text, 1)
     worker_payload: dict[str, object] = {
         "status": "ok",
         "formatted": formatted.decode("utf-8"),
@@ -1331,7 +1331,7 @@ def seeded_fault_context(fault_name: str) -> Generator[None]:
 NONMINIMAL_FAULT_TRACES: dict[str, dict[str, object]] = {
     "utf16-codepoint-confusion": {
         "kind": "coordinate",
-        "uri": "untitled:unicode-shrink.vela",
+        "uri": "untitled:unicode-shrink.hf",
         "version": 1,
         "lines": [
             "// header line 0 without supplementary chars\n",
@@ -1352,17 +1352,17 @@ NONMINIMAL_FAULT_TRACES: dict[str, dict[str, object]] = {
         "actions": [
             {
                 "action": "open",
-                "uri": "untitled:doc-a.vela",
+                "uri": "untitled:doc-a.hf",
                 "version": 1,
                 "text": "// pad 0\n// pad 1\nmodule Overlay;\npublic Nat Entry(Nat input) {\n  let local = input;\n  return local;\n}\n",
             },
-            {"action": "save", "uri": "untitled:doc-a.vela"},
+            {"action": "save", "uri": "untitled:doc-a.hf"},
             {"action": "cancel", "id": 11},
             {"action": "invalidate", "method": "workspace/didChangeConfiguration"},
-            {"action": "query", "uri": "untitled:doc-a.vela", "method": "textDocument/documentSymbol"},
+            {"action": "query", "uri": "untitled:doc-a.hf", "method": "textDocument/documentSymbol"},
             {
                 "action": "change",
-                "uri": "untitled:doc-a.vela",
+                "uri": "untitled:doc-a.hf",
                 "version": 2,
                 "changes": [
                     {
@@ -1375,7 +1375,7 @@ NONMINIMAL_FAULT_TRACES: dict[str, dict[str, object]] = {
                     },
                 ],
             },
-            {"action": "save", "uri": "untitled:doc-a.vela"},
+            {"action": "save", "uri": "untitled:doc-a.hf"},
             {"action": "cancel", "id": 12},
         ],
     },
@@ -1384,17 +1384,17 @@ NONMINIMAL_FAULT_TRACES: dict[str, dict[str, object]] = {
         "actions": [
             {
                 "action": "open",
-                "uri": "untitled:doc-a.vela",
+                "uri": "untitled:doc-a.hf",
                 "version": 1,
                 "text": "// pad 0\n// pad 1\nmodule Overlay;\npublic Nat Entry(Nat input) {\n  let local = input;\n  return local;\n}\n",
             },
-            {"action": "save", "uri": "untitled:doc-a.vela"},
+            {"action": "save", "uri": "untitled:doc-a.hf"},
             {"action": "cancel", "id": 21},
             {"action": "invalidate", "method": "workspace/didChangeWatchedFiles"},
-            {"action": "query", "uri": "untitled:doc-a.vela", "method": "textDocument/hover", "line": 3, "character": 11},
+            {"action": "query", "uri": "untitled:doc-a.hf", "method": "textDocument/hover", "line": 3, "character": 11},
             {
                 "action": "change",
-                "uri": "untitled:doc-a.vela",
+                "uri": "untitled:doc-a.hf",
                 "version": 2,
                 "changes": [
                     {
@@ -1408,7 +1408,7 @@ NONMINIMAL_FAULT_TRACES: dict[str, dict[str, object]] = {
                 ],
             },
             {"action": "cancel", "id": 22},
-            {"action": "query", "uri": "untitled:doc-a.vela", "method": "textDocument/documentSymbol"},
+            {"action": "query", "uri": "untitled:doc-a.hf", "method": "textDocument/documentSymbol"},
         ],
     },
 }
@@ -1429,7 +1429,7 @@ def case_complexity(case_data: dict[str, object]) -> int:
 def execute_explicit_case(case_data: dict[str, object]) -> None:
     """Run an explicit JSON-serializable coordinate or overlay case against the independent oracle."""
     if case_data.get("kind") == "coordinate":
-        uri = cast("str", case_data.get("uri", "untitled:coord.vela"))
+        uri = cast("str", case_data.get("uri", "untitled:coord.hf"))
         version = cast("int", case_data.get("version", 1))
         lines = cast("list[str]", case_data["lines"])
         text = "".join(lines)
@@ -1683,7 +1683,7 @@ def run_hypothesis_campaign_in_process(
     newline_strategy = st.sampled_from(["\n", "\r\n", "\r"])
     coord_case_strategy = st.fixed_dictionaries({
         "kind": st.just("coordinate"),
-        "uri": st.just("untitled:hyp-coord.vela"),
+        "uri": st.just("untitled:hyp-coord.hf"),
         "version": st.integers(min_value=1, max_value=16),
         "lines": st.lists(
             st.builds(lambda body, nl: body + nl, line_piece_strategy, newline_strategy),
@@ -1771,7 +1771,7 @@ def run_hypothesis_campaign_in_process(
             self.next_ver += 1
             self.model.step(
                 self.server,
-                {"action": "open", "uri": "untitled:doc-a.vela", "version": ver, "text": text},
+                {"action": "open", "uri": "untitled:doc-a.hf", "version": ver, "text": text},
             )
 
         init_default_doc = initialize(text=valid_doc_strategy)(_init_default_doc)
@@ -1786,7 +1786,7 @@ def run_hypothesis_campaign_in_process(
             self.model.step(self.server, {"action": "open", "uri": uri, "version": ver, "text": text})
 
         open_or_reopen_doc = rule(
-            uri=st.sampled_from(["untitled:doc-a.vela", "untitled:doc-b.vela"]),
+            uri=st.sampled_from(["untitled:doc-a.hf", "untitled:doc-b.hf"]),
             text=valid_doc_strategy,
         )(_open_or_reopen_doc)
 
@@ -1821,7 +1821,7 @@ def run_hypothesis_campaign_in_process(
             )
 
         change_doc = rule(
-            uri=st.sampled_from(["untitled:doc-a.vela", "untitled:doc-b.vela"]),
+            uri=st.sampled_from(["untitled:doc-a.hf", "untitled:doc-b.hf"]),
             changes=st.lists(change_item_strategy, min_size=1, max_size=3),
             stale=st.sampled_from([False, False, False, True]),
         )(_change_doc)
@@ -1882,7 +1882,7 @@ def run_hypothesis_campaign_in_process(
             )
 
         change_doc_batch = rule(
-            uri=st.sampled_from(["untitled:doc-a.vela", "untitled:doc-b.vela"]),
+            uri=st.sampled_from(["untitled:doc-a.hf", "untitled:doc-b.hf"]),
             first_text=st.sampled_from(["// first edit\n", "// first 😀\r\n"]),
             second_kind=st.sampled_from(["line1_valid", "line99_invalid"]),
         )(_change_doc_batch)
@@ -1892,14 +1892,14 @@ def run_hypothesis_campaign_in_process(
             overlay_step_count += 1
             self.model.step(self.server, {"action": "save", "uri": uri})
 
-        save_doc = rule(uri=st.sampled_from(["untitled:doc-a.vela", "untitled:doc-b.vela"]))(_save_doc)
+        save_doc = rule(uri=st.sampled_from(["untitled:doc-a.hf", "untitled:doc-b.hf"]))(_save_doc)
 
         def _close_doc(self, uri: str) -> None:
             nonlocal overlay_step_count
             overlay_step_count += 1
             self.model.step(self.server, {"action": "close", "uri": uri})
 
-        close_doc = rule(uri=st.sampled_from(["untitled:doc-a.vela", "untitled:doc-b.vela"]))(_close_doc)
+        close_doc = rule(uri=st.sampled_from(["untitled:doc-a.hf", "untitled:doc-b.hf"]))(_close_doc)
 
         def _invalidate_config(self, method: str) -> None:
             nonlocal overlay_step_count
@@ -1945,7 +1945,7 @@ def run_hypothesis_campaign_in_process(
             )
 
         query_service = rule(
-            uri=st.sampled_from(["untitled:doc-a.vela", "untitled:doc-b.vela"]),
+            uri=st.sampled_from(["untitled:doc-a.hf", "untitled:doc-b.hf"]),
             method=st.sampled_from([
                 "textDocument/hover",
                 "textDocument/definition",
@@ -2050,7 +2050,7 @@ def run_hypothesis_campaign_in_process(
             "reason": (
                 "Keep hypothesis==6.170.14 (MPL-2.0, with compiled Rust/PyO3 _native extension "
                 "whose published wheels omit separate crate license texts) as an isolated "
-                "development-only instrument provisioned in a temporary venv by `vela generated-tests`, "
+                "development-only instrument provisioned in a temporary venv by `holdfast generated-tests`, "
                 "while retaining the independent coordinate/overlay/formatter models and explicit "
                 "shrunk regression fixtures in the Apache-2.0 test suite."
             ),
@@ -2072,7 +2072,7 @@ def qualify_isolated_campaign(
     if uv_bin is None:
         raise RuntimeError("uv executable not found on PATH")
     tools_dir = str((root / "tools").resolve())
-    with tempfile.TemporaryDirectory(prefix="vela-q25x-") as tmp_dir:
+    with tempfile.TemporaryDirectory(prefix="holdfast-q25x-") as tmp_dir:
         venv_dir = Path(tmp_dir) / "venv"
         subprocess.run(
             [uv_bin, "venv", "--python", sys.executable, str(venv_dir)],

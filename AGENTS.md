@@ -16,7 +16,7 @@ or dispatch hosted CI.
 | Artifact | Purpose |
 | --- | --- |
 | [README.md](README.md) | Overview, scope, and document map |
-| [docs/language/reference.md](docs/language/reference.md) | Vela language reference and semantic rules |
+| [docs/language/reference.md](docs/language/reference.md) | HoldFast language reference and semantic rules |
 | [docs/language/surface-grammar.md](docs/language/surface-grammar.md) | Lexical, syntactic, and formatting rules |
 | [docs/tooling/elaboration-prototype.md](docs/tooling/elaboration-prototype.md) | Dependent mathematics, elaboration, and proof kernel boundary |
 | [docs/assurance/verification-strategy.md](docs/assurance/verification-strategy.md) | Mechanization, proof-tooling qualification, and extraction boundaries |
@@ -43,7 +43,7 @@ Read the selected revision's own license files at the milestone that would incor
 Use [checked Markdown references](tools/README.md#checked-references-in-source-comments)
 when a comment or docstring sends readers to a local file, document section, or
 supported declaration. `python tools/run.py check` reports stale references
-across tracked Python, OCaml, Menhir, Coq, JavaScript, and Vela sources.
+across tracked Python, OCaml, Menhir, Coq, JavaScript, and HoldFast sources.
 
 ## Git workflow and worktrees
 

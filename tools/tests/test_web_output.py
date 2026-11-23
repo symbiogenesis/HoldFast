@@ -8,11 +8,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tests.harness import Case, ensure, raises
-from toolchain import VelaError, web_output
+from toolchain import HoldFastError, web_output
 
 
 def _refuses(action: Callable[[], object], message: str) -> None:
-    with raises((VelaError, ValueError), msg=f"missing refusal for {message}") as raised:
+    with raises((HoldFastError, ValueError), msg=f"missing refusal for {message}") as raised:
         action()
     error = raised.exception
     ensure(message in str(error), f"wrong refusal: {error}")
@@ -33,7 +33,7 @@ def _rows() -> None:
 
 def _source_boundary() -> None:
     with tempfile.TemporaryDirectory() as tmp:
-        source = Path(tmp) / "source.vela"
+        source = Path(tmp) / "source.hf"
         output = Path(tmp) / "result.mjs"
         output.write_bytes(b"previous")
         huge = "x"
@@ -63,7 +63,7 @@ def _source_boundary() -> None:
 
 def _publication() -> None:
     with tempfile.TemporaryDirectory() as tmp:
-        source = Path(tmp) / "source.vela"
+        source = Path(tmp) / "source.hf"
         output = Path(tmp) / "result.mjs"
         original = b"module W; public bool F(bool x) => x;"
         source.write_bytes(original)

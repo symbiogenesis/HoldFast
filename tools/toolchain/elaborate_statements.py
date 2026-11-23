@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Imperative statements, propagation, loops, scopes, and control-flow elaboration for Vela."""
+"""Imperative statements, propagation, loops, scopes, and control-flow elaboration for HoldFast."""
 
 from collections.abc import Callable, Collection, Generator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, cast
 
-from toolchain.ast import VelaError
+from toolchain.ast import HoldFastError
 from toolchain.elaborate_protocol import _ASSIGN_OPERATORS
 from toolchain.elaborate_types import (
     _BOOL,
@@ -461,7 +461,7 @@ class _StatementsMixin:
             early_return_term = _apps(_constant(err_ctor.ctor_const), *ret_type_args, err_var)
         ok_type = inst_payload_types[ok_idx]
         ok_var = self.fresh(ok_type)
-        temp_name = f"__vela_prop_{ok_var.value}"
+        temp_name = f"__holdfast_prop_{ok_var.value}"
         ok_binding = _Binding(ok_var, ok_type)
         ok_env = dict(environment)
         ok_env[temp_name] = ok_binding
@@ -491,7 +491,7 @@ class _StatementsMixin:
 
             def resume_guard(truth: bool, branch: dict[str, _Binding]) -> _Term:
                 value = _Binding(_term("bool", value=int(truth)), _BOOL)
-                name = f"__vela_bool_{self.fresh(_BOOL).value}"
+                name = f"__holdfast_bool_{self.fresh(_BOOL).value}"
                 outer = {key: branch[key] for key in environment}
                 saved = self.guard_value
                 self.guard_value = enclosing_guard
@@ -514,7 +514,7 @@ class _StatementsMixin:
 
         def resume(value: _Term, extended: dict[str, _Binding]) -> _Term:
             variable = self.fresh(_BOOL)
-            name = f"__vela_bool_{variable.value}"
+            name = f"__holdfast_bool_{variable.value}"
             binding = _Binding(variable, _BOOL)
             next_env = {**extended, name: binding}
             body = continuation(name, binding, next_env)
@@ -2487,7 +2487,7 @@ class _StatementsMixin:
                                     include_env=False,
                                 )
                                 return finish(_Binding(term, expected))
-                            except VelaError:
+                            except HoldFastError:
                                 if self._entailed_by_theorem_facts(expected, extended):
                                     self.used_domain_solver_in_proof = True
                                     return finish(_Binding(_apps(_constant("Refl"), _BOOL, _term("bool", value=1)), expected))

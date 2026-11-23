@@ -59,7 +59,7 @@ let pure_unsupported word =
     | "move" -> Some "an explicit ownership transfer" | _ -> None
   in
   match word, mode with
-  | "var", _ -> "'var' declares a mutable binding; let and unmarked type-first bindings are immutable. Local reassignment requires the wider Vela surface; the pure prototype does not support mutation"
+  | "var", _ -> "'var' declares a mutable binding; let and unmarked type-first bindings are immutable. Local reassignment requires the wider HoldFast surface; the pure prototype does not support mutation"
   | _, Some requested -> "'" ^ word ^ "' requests " ^ requested ^ "; the pure Nat/bool prototype cannot check ownership, borrowing or resource lifetimes"
   | _ -> "'" ^ word ^ "' is outside the pure prototype"
 (* Contextual annotation names resolve the lexical ambiguity between a type-first
@@ -413,7 +413,7 @@ let valid_escape source length index =
 let raw_string state lexbuf =
   let start = Lexing.lexeme_start lexbuf in
   if not state.surface then
-    refuse "syntax" lexbuf "raw string literals require the wider Vela surface";
+    refuse "syntax" lexbuf "raw string literals require the wider HoldFast surface";
   let after_open = Lexing.lexeme_end lexbuf in
   let quotes = after_open - start in
   let source = lexbuf.Lexing.lex_buffer in

@@ -25,7 +25,7 @@ from typing import Final, cast
 from filelock import FileLock
 
 from toolchain import (
-    VelaError,
+    HoldFastError,
     corpus,
     dialect,
     env,
@@ -39,11 +39,11 @@ from toolchain import (
 )
 from toolchain import compiler_diff as cd
 from toolchain import (
-    elaborate as vela_elaborate,
+    elaborate as holdfast_elaborate,
 )
 from toolchain import elaboration_check as replay
 from toolchain import (
-    parser as vela_parser,
+    parser as holdfast_parser,
 )
 from toolchain.atomic import publish_report
 from toolchain.elaborate_types import (
@@ -57,7 +57,7 @@ from toolchain.hashing import sha256_bytes as _sha256
 from toolchain.jsonutil import unique_object
 
 TIMEOUT: Final = 120
-EXAMPLE: Final = "examples/first_slice.vela"
+EXAMPLE: Final = "examples/first_slice.hf"
 RECEIPT_BYTES: Final = 16 * 1024 * 1024
 ARTIFACT_ENTRIES: Final = 4_096
 ARTIFACT_BYTES: Final = 256 * 1024 * 1024
@@ -140,7 +140,7 @@ class NegativeControl:
 NEGATIVE_CONTROLS: Final[tuple[NegativeControl, ...]] = (
     NegativeControl.marked(
         "oob-read",
-        """module Vela.FirstSlice.NegOobRead;
+        """module HoldFast.FirstSlice.NegOobRead;
 public definition u8 BadRead() =>
     let s = Span.AllocZeroed(64usize, 8usize) in
     /*error*/Span.Read(s, 8usize);
@@ -150,7 +150,7 @@ public definition u8 BadRead() =>
     ),
     NegativeControl.marked(
         "oob-write",
-        """module Vela.FirstSlice.NegOobWrite;
+        """module HoldFast.FirstSlice.NegOobWrite;
 public definition Span<byte> BadWrite() =>
     let s = Span.AllocZeroed(64usize, 8usize) in
     /*error*/Span.Write(s, 8usize, 0x01u8);
@@ -160,7 +160,7 @@ public definition Span<byte> BadWrite() =>
     ),
     NegativeControl.marked(
         "oob-slice",
-        """module Vela.FirstSlice.NegOobSlice;
+        """module HoldFast.FirstSlice.NegOobSlice;
 public definition Span<byte> BadSlice() =>
     let s = Span.AllocZeroed(64usize, 8usize) in
     /*error*/Span.Slice(s, 5usize, 4usize);
@@ -170,7 +170,7 @@ public definition Span<byte> BadSlice() =>
     ),
     NegativeControl.marked(
         "oob-fill",
-        """module Vela.FirstSlice.NegOobFill;
+        """module HoldFast.FirstSlice.NegOobFill;
 public definition Span<byte> BadFill() =>
     let s = Span.AllocZeroed(64usize, 8usize) in
     /*error*/Span.Fill(s, 5usize, 4usize, 0x00u8);
@@ -180,7 +180,7 @@ public definition Span<byte> BadFill() =>
     ),
     NegativeControl.marked(
         "overflow-slice-extent",
-        """module Vela.FirstSlice.NegSliceExtent;
+        """module HoldFast.FirstSlice.NegSliceExtent;
 public definition Span<byte> SliceAt(Span<byte> s)
     requires s.CanRead
     => /*error*/Span.Slice(s, usize.Max, 1usize);
@@ -190,7 +190,7 @@ public definition Span<byte> SliceAt(Span<byte> s)
     ),
     NegativeControl.marked(
         "overflow-fill-extent",
-        """module Vela.FirstSlice.NegFillExtent;
+        """module HoldFast.FirstSlice.NegFillExtent;
 public definition Span<byte> FillAt(Span<byte> s)
     requires s.CanWrite
     => /*error*/Span.Fill(s, 1usize, usize.Max, 0u8);
@@ -200,7 +200,7 @@ public definition Span<byte> FillAt(Span<byte> s)
     ),
     NegativeControl.marked(
         "mutate-in-borrow",
-        """module Vela.FirstSlice.NegMutateInBorrow;
+        """module HoldFast.FirstSlice.NegMutateInBorrow;
 public definition Span<byte> BadBorrowWrite(in Span<byte> pkt)
     requires pkt.CanRead
     requires pkt.CanWrite
@@ -213,7 +213,7 @@ public definition Span<byte> BadBorrowWrite(in Span<byte> pkt)
     ),
     NegativeControl.marked(
         "mutate-readonly-view",
-        """module Vela.FirstSlice.NegMutateReadOnly;
+        """module HoldFast.FirstSlice.NegMutateReadOnly;
 public definition Span<byte> BadViewWrite() =>
     let s = Span.AllocZeroed(64usize, 8usize) in
     let ro = Span.ReadOnly(s) in
@@ -224,7 +224,7 @@ public definition Span<byte> BadViewWrite() =>
     ),
     NegativeControl.marked(
         "mutate-readonly-record-view",
-        """module Vela.FirstSlice.NegMutateRecordView;
+        """module HoldFast.FirstSlice.NegMutateRecordView;
 public record ValidatedPacket<region 'dst>(usize CopiedBytes, in<'dst> Span<byte> PayloadView);
 public Span<byte> BadRecordViewWrite<region 'dst>(ValidatedPacket<'dst> pkt)
     requires pkt.PayloadView.CanRead && pkt.PayloadView.Length >= 1usize
@@ -239,7 +239,7 @@ public Span<byte> BadRecordViewWrite<region 'dst>(ValidatedPacket<'dst> pkt)
     ),
     NegativeControl.marked(
         "read-invalidated-view",
-        """module Vela.FirstSlice.NegReadInvalidated;
+        """module HoldFast.FirstSlice.NegReadInvalidated;
 public definition u8 BadInvalidRead() =>
     let s = Span.AllocZeroed(64usize, 8usize) in
     let inv = Span.Invalidate(s) in
@@ -250,7 +250,7 @@ public definition u8 BadInvalidRead() =>
     ),
     NegativeControl.marked(
         "overlapping-copyprefix",
-        """module Vela.FirstSlice.NegOverlapCopy;
+        """module HoldFast.FirstSlice.NegOverlapCopy;
 public definition Span<byte> BadOverlapCopy() =>
     let s = Span.AllocZeroed(64usize, 8usize) in
     let sub = Span.Slice(s, 2usize, 4usize) in
@@ -261,7 +261,7 @@ public definition Span<byte> BadOverlapCopy() =>
     ),
     NegativeControl.marked(
         "foreign-restore",
-        """module Vela.FirstSlice.NegForeignRestore;
+        """module HoldFast.FirstSlice.NegForeignRestore;
 public definition Span<byte> BadRestore() =>
     let dst = Span.AllocZeroed(64usize, 8usize) in
     let other = Span.Slice(Span.AllocZeroed(64usize, 4usize), 0usize, 4usize) in
@@ -272,7 +272,7 @@ public definition Span<byte> BadRestore() =>
     ),
     NegativeControl.marked(
         "broken-restores-contract",
-        """module Vela.FirstSlice.NegBrokenRestores;
+        """module HoldFast.FirstSlice.NegBrokenRestores;
 public definition Span<byte> BadRestores(/*error*/ref Span<byte> dst)
     requires dst.CanRead
     requires dst.CanWrite
@@ -285,7 +285,7 @@ public definition Span<byte> BadRestores(/*error*/ref Span<byte> dst)
     ),
     NegativeControl.marked(
         "restore-then-return-view",
-        """module Vela.FirstSlice.NegRestoreThenReturnView;
+        """module HoldFast.FirstSlice.NegRestoreThenReturnView;
 public Span<byte> BadReturnRestoredView(ref Span<byte> dst)
     effects writes(dst)
     requires dst.CanRead && dst.CanWrite && dst.Length >= 8usize
@@ -300,7 +300,7 @@ public Span<byte> BadReturnRestoredView(ref Span<byte> dst)
     ),
     NegativeControl.marked(
         "capability-fabrication",
-        """module Vela.FirstSlice.NegCapabilityFabrication;
+        """module HoldFast.FirstSlice.NegCapabilityFabrication;
 public Span<byte> BadFabricate(usize addr)
 {
     return /*error*/Span.AllocZeroed(addr, 8usize);
@@ -311,7 +311,7 @@ public Span<byte> BadFabricate(usize addr)
     ),
     NegativeControl.marked(
         "missing-write-effect",
-        """module Vela.FirstSlice.NegMissingWriteEffect;
+        """module HoldFast.FirstSlice.NegMissingWriteEffect;
 public Unit BadWriteEffect(ref Span<byte> dst, in Span<byte> pkt)
     /*error*/effects reads(dst), reads(pkt)
     requires dst.CanRead && dst.CanWrite && dst.Length >= 1usize
@@ -324,7 +324,7 @@ public Unit BadWriteEffect(ref Span<byte> dst, in Span<byte> pkt)
     ),
     NegativeControl.marked(
         "wrong-expected-byte",
-        """module Vela.FirstSlice.NegWrongByte;
+        """module HoldFast.FirstSlice.NegWrongByte;
 theorem BadByte()
     ensures
         let s = Span.Write(Span.AllocZeroed(64usize, 8usize), 0usize, 0x10u8) in
@@ -339,7 +339,7 @@ proof {
     ),
     NegativeControl.marked(
         "stale-input-leak",
-        """module Vela.FirstSlice.NegStaleLeak;
+        """module HoldFast.FirstSlice.NegStaleLeak;
 theorem BadStale()
     ensures
         let dirty = Span.Fill(Span.AllocZeroed(64usize, 8usize), 0usize, 8usize, 0xEEu8) in
@@ -356,7 +356,7 @@ proof {
     ),
     NegativeControl.marked(
         "loop-frame-overlap",
-        """module Vela.FirstSlice.NegLoopFrameOverlap;
+        """module HoldFast.FirstSlice.NegLoopFrameOverlap;
 public theorem BadLoopFrame(ref Span<byte> s, usize bound, usize frameIdx)
     requires s.CanRead && s.CanWrite
     requires bound <= s.Length
@@ -390,7 +390,7 @@ def _inputs(root: Path) -> dict[str, str]:
     paths = {EXAMPLE, "tools/run.py", "tools/pyproject.toml", "tools/uv.lock",
              "tools/opam/rocq.lock", "tools/opam/sail.lock",
              "tools/generated/dialect-table.json"}
-    paths.update(f"tools/toolchain/parser/{name}" for name in vela_parser.SOURCES)
+    paths.update(f"tools/toolchain/parser/{name}" for name in holdfast_parser.SOURCES)
     paths.update(path.relative_to(root).as_posix()
                  for path in (root / "tools/toolchain").rglob("*.py"))
     return {name: file_sha256(root / name) for name in sorted(paths)}
@@ -528,7 +528,7 @@ def _simulator_transcript(said: str, returncode: int, *,
 
 def _corrupted_proof(gallina: str) -> str:
     return gallina + (
-        "\nDefinition vela_corrupted_check : @Corelib.Init.Logic.eq Corelib.Init.Datatypes.bool "
+        "\nDefinition holdfast_corrupted_check : @Corelib.Init.Logic.eq Corelib.Init.Datatypes.bool "
         "Corelib.Init.Datatypes.true Corelib.Init.Datatypes.false := "
         "@Corelib.Init.Logic.eq_refl Corelib.Init.Datatypes.bool Corelib.Init.Datatypes.true.\n"
     )
@@ -550,19 +550,19 @@ def _retained_steps(report: dict[str, object], directory: Path, artifacts: dict[
         raise ValueError("first-slice receipt process coverage is missing or exceeds its bound")
     required = {
         "FirstSlice.compile.log": _opam(["rocq", "c", "-q", "-R", str(directory),
-                                          "VelaFirstSlice", "FirstSlice.v"]),
+                                          "HoldFastFirstSlice", "FirstSlice.v"]),
         "FirstSlice.assumptions.log": _opam(["rocq", "c", "-q", "-R", str(directory),
-                                              "VelaFirstSlice", "FirstSliceAssumptions.v"]),
-        "FirstSlice.kernel.log": _opam(["rocqchk", "-R", str(directory), "VelaFirstSlice",
-                                         "VelaFirstSlice.FirstSlice"]),
+                                              "HoldFastFirstSlice", "FirstSliceAssumptions.v"]),
+        "FirstSlice.kernel.log": _opam(["rocqchk", "-R", str(directory), "HoldFastFirstSlice",
+                                         "HoldFastFirstSlice.FirstSlice"]),
         "CapSmall.compile.log": _opam(["rocq", "c", "-q", "-R", str(directory),
-                                        "VelaFirstSlice", "CapSmall.v"]),
+                                        "HoldFastFirstSlice", "CapSmall.v"]),
         "CapLarge.compile.log": _opam(["rocq", "c", "-q", "-R", str(directory),
-                                        "VelaFirstSlice", "CapLarge.v"]),
-        "CapGate.kernel.log": _opam(["rocqchk", "-R", str(directory), "VelaFirstSlice",
-                                      "VelaFirstSlice.CapSmall", "VelaFirstSlice.CapLarge"]),
+                                        "HoldFastFirstSlice", "CapLarge.v"]),
+        "CapGate.kernel.log": _opam(["rocqchk", "-R", str(directory), "HoldFastFirstSlice",
+                                      "HoldFastFirstSlice.CapSmall", "HoldFastFirstSlice.CapLarge"]),
         "FirstSliceCorrupted.compile.log": _opam(["rocq", "c", "-q", "-R", str(directory),
-                                                   "VelaFirstSlice", "FirstSliceCorrupted.v"]),
+                                                   "HoldFastFirstSlice", "FirstSliceCorrupted.v"]),
     }
     covered: dict[str, bytes] = {}
     for step in steps:
@@ -619,11 +619,11 @@ def _retained_controls(report: dict[str, object], directory: Path,
         if type(count) is not int or count < (0 if field == "reduction_steps" else 1):
             raise ValueError("first-slice receipt capacity metrics are malformed")
     for stem in ("CapSmall", "CapLarge"):
-        for extension in ("vela", "v", "vo"):
+        for extension in ("hf", "v", "vo"):
             if str(directory / f"{stem}.{extension}") not in artifacts:
                 raise ValueError("first-slice receipt omits a required capacity proof artifact")
         literal = capacity["small_capacity" if stem == "CapSmall" else "large_capacity"]
-        if (directory / f"{stem}.vela").read_bytes() != _capacity_fixture(str(literal)):
+        if (directory / f"{stem}.hf").read_bytes() != _capacity_fixture(str(literal)):
             raise ValueError("first-slice receipt capacity source differs from its declared subject")
         if len((directory / f"{stem}.v").read_bytes()) != capacity["gallina_bytes"]:
             raise ValueError("first-slice receipt capacity size differs from retained Gallina")
@@ -645,7 +645,7 @@ def _retained_controls(report: dict[str, object], directory: Path,
                 or control.expected_substring not in row["message"]):
             raise ValueError("first-slice receipt semantic-refusal subject or verdict changed")
         control.check_location(row.get("line"), row.get("column"))
-        path = directory / "negative-controls" / f"{name}.vela"
+        path = directory / "negative-controls" / f"{name}.hf"
         if str(path) not in artifacts or path.read_bytes() != control.source.encode("utf-8"):
             raise ValueError("first-slice receipt semantic-refusal source differs from its declared subject")
         seen.add(name)
@@ -818,9 +818,9 @@ def _lowering_provenance(checked: CheckedElaboration, generated: str, operations
 
 def _reconstruct_lowering(root: Path) -> dict[str, object]:
     source = (root / EXAMPLE).read_bytes()
-    with vela_parser.cached_build(root) as local:
-        parsed = vela_parser.parse_source(local, source, surface=True)
-    checked = vela_elaborate.elaborate(source, parsed)
+    with holdfast_parser.cached_build(root) as local:
+        parsed = holdfast_parser.parse_source(local, source, surface=True)
+    checked = holdfast_elaborate.elaborate(source, parsed)
     operations: list[dict[str, object]] = []
     generated, _ = lower_to_c(source, parsed, checked=checked, observations=operations)
     return _lowering_provenance(checked, generated, operations)
@@ -844,14 +844,14 @@ def _retained_proof(root: Path, report: dict[str, object], directory: Path,
     gallina = (directory / "FirstSlice.v").read_text(encoding="utf-8")
     if (directory / "FirstSliceCorrupted.v").read_bytes() != _corrupted_proof(gallina).encode("utf-8"):
         raise ValueError("first-slice receipt corrupted proof differs from its declared subject")
-    modules = re.findall(r"^Module ((?:Vela_|VelaEncoded_)[A-Za-z0-9_]+)\.$", gallina, flags=re.MULTILINE)
+    modules = re.findall(r"^Module ((?:HoldFast_|HoldFastEncoded_)[A-Za-z0-9_]+)\.$", gallina, flags=re.MULTILINE)
     exports = solver_ledger.math_exports(gallina)
-    if modules != [gallina_module_name("Vela.FirstSlice")] or len(set(exports)) != len(exports):
+    if modules != [gallina_module_name("HoldFast.FirstSlice")] or len(set(exports)) != len(exports):
         raise ValueError("first-slice receipt Gallina module or exports are malformed")
     for suffix in (*EXPECTED_LAWS, *EXPECTED_CONTRACT_OBLIGATIONS, *EXPECTED_SCENARIO_THEOREMS):
         if not any(name.endswith(f"_{suffix}") for name in exports):
             raise ValueError(f"first-slice receipt omits required local obligation '{suffix}'")
-    expected_query = "From VelaFirstSlice Require Import FirstSlice.\n" + "".join(
+    expected_query = "From HoldFastFirstSlice Require Import FirstSlice.\n" + "".join(
         f"Print Assumptions FirstSlice.{modules[0]}.{name}.\n" for name in exports)
     if (directory / "FirstSliceAssumptions.v").read_text(encoding="utf-8") != expected_query:
         raise ValueError("first-slice receipt assumption query omits or changes an audited export")
@@ -918,16 +918,16 @@ def _run(command: list[str], cwd: Path, log_path: Path,
 
 
 def _work_root(root: Path) -> Path:
-    directory = env.lane_root(env.lane_of(root)) / "vela-first-slice"
+    directory = env.lane_root(env.lane_of(root)) / "holdfast-first-slice"
     kind = env.filesystem(directory)
     if not kind or kind in env.CROSS_OS_FILESYSTEMS | env.VOLATILE_FILESYSTEMS:
-        raise ValueError("Vela first-slice outputs require a persistent native filesystem")
+        raise ValueError("HoldFast first-slice outputs require a persistent native filesystem")
     directory.mkdir(parents=True, exist_ok=True)
     return directory
 
 
 def _capacity_fixture(capacity_literal: str) -> bytes:
-    text = f"""module Vela.FirstSlice.CapGate;
+    text = f"""module HoldFast.FirstSlice.CapGate;
 
 public Span<byte> PrepareSliceHeader(ref Span<byte> dst)
     effects writes(dst)
@@ -972,7 +972,7 @@ def build_foundation_inventory() -> dict[str, object]:
     """Return the checked law, assumption, and blocking-dependency inventory."""
     return {
         "carrier_representation": (
-            "vela_Span (vela_ByteStore = nat -> vela_u8, Base, Length, Tag, PermRead, PermWrite)"
+            "holdfast_Span (holdfast_ByteStore = nat -> holdfast_u8, Base, Length, Tag, PermRead, PermWrite)"
         ),
         "carrier_laws": list(EXPECTED_LAWS),
         "validator_contract_obligations": [
@@ -1055,11 +1055,11 @@ def _c_scalar_type(type_name: str) -> str:
     if type_name in ("bool", "ValidationError"):
         return "int"
     if type_name == "Span":
-        return "struct vela_span_byte"
+        return "struct holdfast_span_byte"
     if type_name == "ValidatedPacket":
-        return "struct vela_ValidatedPacket"
+        return "struct holdfast_ValidatedPacket"
     if type_name == "Result":
-        return "struct vela_Result_ValidatedPacket_ValidationError"
+        return "struct holdfast_Result_ValidatedPacket_ValidationError"
     if type_name in ("unit", "Unit"):
         return "void"
     raise ValueError(f"unsupported C lowering type {type_name!r}")
@@ -1094,7 +1094,7 @@ def _lower_record_to_c(decl: dict[str, object]) -> tuple[str, list[tuple[str, st
     params = cast("list[dict[str, object]]", decl.get("parameters", []))
     if not params:
         raise ValueError(f"record {rname} missing AST parameters")
-    lines = [f"struct vela_{rname} {{"]
+    lines = [f"struct holdfast_{rname} {{"]
     fields: list[tuple[str, str]] = []
     for param in params:
         pname = _node_text(param.get("name"))
@@ -1141,13 +1141,13 @@ def _lower_function_to_c(
     c_params: list[str] = []
     if ret_type == "Span":
         c_ret = "void"
-        c_params.extend(["struct vela_span_byte *out", "unsigned char *backing"])
+        c_params.extend(["struct holdfast_span_byte *out", "unsigned char *backing"])
     elif ret_type == "Result":
         c_ret = "void"
-        c_params.append("struct vela_Result_ValidatedPacket_ValidationError *out")
+        c_params.append("struct holdfast_Result_ValidatedPacket_ValidationError *out")
     elif ret_type in record_fields:
         c_ret = "void"
-        c_params.append(f"struct vela_{ret_type} *out")
+        c_params.append(f"struct holdfast_{ret_type} *out")
     else:
         c_ret = _c_scalar_type(ret_type)
 
@@ -1156,7 +1156,7 @@ def _lower_function_to_c(
         _, ptype = _type_info(param.get("type"))
         if ptype == "Span":
             ptr_spans.add(pname)
-            c_params.append(f"struct vela_span_byte *{pname}")
+            c_params.append(f"struct holdfast_span_byte *{pname}")
         else:
             c_params.append(f"{_c_scalar_type(ptype)} {pname}")
 
@@ -1179,7 +1179,7 @@ def _lower_function_to_c(
             return (tname == "Span"), _c_scalar_type(tname)
         val = cast("dict[str, object]", stmt.get("value", {}))
         if _is_span_call(val) is not None:
-            return True, "struct vela_span_byte"
+            return True, "struct holdfast_span_byte"
         vkind = str(val.get("kind", ""))
         if vkind == "nat":
             return False, _c_scalar_type(literal_type(val))
@@ -1254,7 +1254,7 @@ def _lower_function_to_c(
     def temp(c_ty: str) -> str:
         nonlocal temp_index
         while True:
-            name = f"vela_eval_{temp_index}"
+            name = f"holdfast_eval_{temp_index}"
             temp_index += 1
             if name not in used_names:
                 used_names.add(name)
@@ -1315,7 +1315,7 @@ def _lower_function_to_c(
         if ekind == "nat":
             width = literal_type(node)
             digits = cast("str", node["value"]).replace("_", "")
-            # C treats leading zeros as octal, while Vela uses decimal.
+            # C treats leading zeros as octal, while HoldFast uses decimal.
             magnitude = digits if digits.lower().startswith("0x") else str(_parse_numeric_magnitude(digits))
             return observed(node, "literal", width, magnitude + ("UL" if width == "usize" else "U"))
         if ekind == "bool":
@@ -1346,7 +1346,7 @@ def _lower_function_to_c(
         if ekind == "index":
             s_ptr = span_ptr_expr(cast("dict[str, object]", node.get("value")))
             idx_c = lower_expr(node.get("index"), prefix)
-            return f"vela_span_read({s_ptr}, {idx_c})"
+            return f"holdfast_span_read({s_ptr}, {idx_c})"
         if ekind == "binary":
             op = _node_text(node.get("operator"))
             if op in ("&&", "||"):
@@ -1380,7 +1380,7 @@ def _lower_function_to_c(
                 rname = _node_text(callee.get("value"))
                 mname = _node_text(callee.get("name"))
                 if rname == "Span" and mname == "Disjoint":
-                    return f"vela_span_disjoint({span_ptr_expr(args[0])}, {span_ptr_expr(args[1])})"
+                    return f"holdfast_span_disjoint({span_ptr_expr(args[0])}, {span_ptr_expr(args[1])})"
                 if rname == "usize" and mname == "From":
                     return f"(unsigned long){lower_expr(args[0], prefix)}"
             if callee.get("kind") == "name":
@@ -1396,11 +1396,11 @@ def _lower_function_to_c(
         mname = _is_span_call(expr)
         args = [_unwrap_arg(a) for a in cast("list[object]", expr.get("arguments", []))]
         if mname == "AllocZeroed":
-            return [f"vela_span_alloc_zeroed({dst_ptr}, backing, {', '.join(ordered(args, prefix))});"]
+            return [f"holdfast_span_alloc_zeroed({dst_ptr}, backing, {', '.join(ordered(args, prefix))});"]
         if mname == "Slice":
-            return [f"vela_span_slice({dst_ptr}, {', '.join(ordered(args, prefix))});"]
+            return [f"holdfast_span_slice({dst_ptr}, {', '.join(ordered(args, prefix))});"]
         if mname in ("Invalidate", "ReadOnly"):
-            c_fn = "vela_span_invalidate" if mname == "Invalidate" else "vela_span_readonly"
+            c_fn = "holdfast_span_invalidate" if mname == "Invalidate" else "holdfast_span_readonly"
             inner = args[0]
             if _is_span_call(inner) is not None:
                 return [*lower_span_init(dst_ptr, inner, prefix), f"{c_fn}({dst_ptr}, {dst_ptr});"]
@@ -1439,10 +1439,10 @@ def _lower_function_to_c(
                         idx_c = temp("unsigned long")
                         index_value = lower_expr(target["index"], prefix)
                         prefix.append(f"{idx_c} = {index_value};")
-                        rhs = compound_rhs(st, f"vela_span_read({s_ptr}, {idx_c})", prefix)
+                        rhs = compound_rhs(st, f"holdfast_span_read({s_ptr}, {idx_c})", prefix)
                     else:
                         idx_c, rhs = ordered([_unwrap_arg(target["index"]), val], prefix)
-                    out_lines.append(f"{indent}vela_span_write({s_ptr}, {s_ptr}, {idx_c}, {rhs});")
+                    out_lines.append(f"{indent}holdfast_span_write({s_ptr}, {s_ptr}, {idx_c}, {rhs});")
                 elif target.get("kind") == "name":
                     tname = _node_text(target)
                     rhs = compound_rhs(st, tname, prefix) if compound else lower_expr(val, prefix)
@@ -1456,11 +1456,11 @@ def _lower_function_to_c(
                 if mname == "Fill":
                     s_ptr = span_ptr_expr(args[0])
                     scalars = ", ".join(ordered(args[1:], prefix))
-                    out_lines.append(f"{indent}vela_span_fill({s_ptr}, {s_ptr}, {scalars});")
+                    out_lines.append(f"{indent}holdfast_span_fill({s_ptr}, {s_ptr}, {scalars});")
                 elif mname == "CopyPrefix":
                     d_ptr = span_ptr_expr(args[0])
                     s_ptr = span_ptr_expr(args[1])
-                    out_lines.append(f"{indent}vela_span_copy_prefix({d_ptr}, {d_ptr}, {s_ptr}, {lower_expr(args[2], prefix)});")
+                    out_lines.append(f"{indent}holdfast_span_copy_prefix({d_ptr}, {d_ptr}, {s_ptr}, {lower_expr(args[2], prefix)});")
                     target_node = _unwrap_arg(args[0])
                     if target_node.get("kind") == "unary" and _node_text(target_node.get("operator")) in ("ref", "in"):
                         target_node = _unwrap_arg(target_node.get("value"))
@@ -1469,11 +1469,11 @@ def _lower_function_to_c(
                         if view_nm in slice_parents:
                             parent_nm = slice_parents[view_nm]
                             p_ptr = parent_nm if parent_nm in ptr_spans else f"&{parent_nm}"
-                            out_lines.append(f"{indent}vela_span_restore({p_ptr}, {p_ptr}, {d_ptr});")
+                            out_lines.append(f"{indent}holdfast_span_restore({p_ptr}, {p_ptr}, {d_ptr});")
                 elif mname == "Restore":
                     p_ptr = span_ptr_expr(args[0])
                     v_ptr = span_ptr_expr(args[1])
-                    out_lines.append(f"{indent}vela_span_restore({p_ptr}, {p_ptr}, {v_ptr});")
+                    out_lines.append(f"{indent}holdfast_span_restore({p_ptr}, {p_ptr}, {v_ptr});")
                 else:
                     out_lines.append(f"{indent}{lower_expr(val, prefix)};")
             elif skind == "foreach":
@@ -1511,7 +1511,7 @@ def _lower_function_to_c(
                     continue
                 val = _unwrap_arg(raw_val)
                 if ret_type == "Span":
-                    out_lines.append(f"{indent}vela_span_copy_meta(out, {span_ptr_expr(val)});")
+                    out_lines.append(f"{indent}holdfast_span_copy_meta(out, {span_ptr_expr(val)});")
                     out_lines.append(f"{indent}return;")
                 elif ret_type == "Result":
                     callee = cast("dict[str, object]", val.get("callee", {}))
@@ -1521,7 +1521,7 @@ def _lower_function_to_c(
                         out_lines.append(f"{indent}out->is_ok = 0;")
                         out_lines.append(f"{indent}out->err = {lower_expr(r_args[0], prefix)};")
                         out_lines.append(f"{indent}out->ok.CopiedBytes = 0UL;")
-                        out_lines.append(f"{indent}vela_span_invalidate(&out->ok.PayloadView, dst);")
+                        out_lines.append(f"{indent}holdfast_span_invalidate(&out->ok.PayloadView, dst);")
                         out_lines.append(f"{indent}return;")
                     elif cname == "Ok" and len(r_args) == 1:
                         ok_inner = r_args[0]
@@ -1533,7 +1533,7 @@ def _lower_function_to_c(
                         out_lines.append(f"{indent}out->err = 0;")
                         for (f_name, f_type), arg_val in zip(fields, ok_args, strict=True):
                             if f_type == "Span":
-                                out_lines.append(f"{indent}vela_span_copy_meta(&out->ok.{f_name}, {span_ptr_expr(arg_val)});")
+                                out_lines.append(f"{indent}holdfast_span_copy_meta(&out->ok.{f_name}, {span_ptr_expr(arg_val)});")
                             else:
                                 out_lines.append(f"{indent}out->ok.{f_name} = {lower_expr(arg_val, prefix)};")
                         out_lines.append(f"{indent}return;")
@@ -1546,7 +1546,7 @@ def _lower_function_to_c(
                         raise ValueError(f"record return in {fname} expected {len(fields)} fields, got {len(args)}")
                     for (f_name, f_type), arg_val in zip(fields, args, strict=True):
                         if f_type == "Span":
-                            out_lines.append(f"{indent}vela_span_copy_meta(&out->{f_name}, {span_ptr_expr(arg_val)});")
+                            out_lines.append(f"{indent}holdfast_span_copy_meta(&out->{f_name}, {span_ptr_expr(arg_val)});")
                         else:
                             out_lines.append(f"{indent}out->{f_name} = {lower_expr(arg_val, prefix)};")
                     out_lines.append(f"{indent}return;")
@@ -1561,7 +1561,7 @@ def _lower_function_to_c(
     header = f"static {c_ret} {fname}(\n    {param_sig})\n{{"
     stmt_lines = lower_stmts(body_stmts, "    ")
     decl_lines = [
-        *(f"    struct vela_span_byte {s_name};" for s_name in local_spans),
+        *(f"    struct holdfast_span_byte {s_name};" for s_name in local_spans),
         *(f"    {c_ty} {v_name};" for c_ty, v_name in local_scalars),
     ]
     all_body = [*decl_lines, *([""] if decl_lines and stmt_lines else []), *stmt_lines]
@@ -1572,7 +1572,7 @@ def lower_to_c(
     source: bytes, parsed: object, *, perturb_check: int = 0, checked: CheckedElaboration | None = None,
     observations: list[dict[str, object]] | None = None,
 ) -> tuple[str, int]:
-    """Lower the executable subset of `first_slice.vela` from its checked AST to C.
+    """Lower the executable subset of `first_slice.hf` from its checked AST to C.
 
     Verifies that the parsed AST carries the expected executable type and callable
     declarations (`ValidationError`, `ValidatedPacket`, `WritePacket8`,
@@ -1582,7 +1582,7 @@ def lower_to_c(
     translation unit in the `verifiedos-scalar-source-v1` subset.
     """
     if checked is None:
-        checked = vela_elaborate.elaborate(source, parsed)
+        checked = holdfast_elaborate.elaborate(source, parsed)
     elif checked.source_sha256 != _sha256(source) or checked.syntax != CheckedElaboration.encode_syntax(parsed):
         raise ValueError("packet elaboration belongs to different source or syntax")
     decl_map = _extract_decl_map(json.loads(checked.syntax))
@@ -1667,12 +1667,12 @@ def lower_to_c(
         return val + (1 if check_num == perturb_check else 0)
 
     c_source = f"""/* SPDX-License-Identifier: Apache-2.0 */
-/* Lowered from examples/first_slice.vela (SHA256: {_sha256(source)}) */
+/* Lowered from examples/first_slice.hf (SHA256: {_sha256(source)}) */
 /* Source profile: verifiedos-scalar-source-v1 */
 
 {union_c}
 
-struct vela_span_byte {{
+struct holdfast_span_byte {{
     unsigned char *ptr;
     unsigned long base;
     unsigned long length;
@@ -1683,13 +1683,13 @@ struct vela_span_byte {{
 
 {record_c}
 
-struct vela_Result_ValidatedPacket_ValidationError {{
+struct holdfast_Result_ValidatedPacket_ValidationError {{
     int is_ok;
     int err;
-    struct vela_ValidatedPacket ok;
+    struct holdfast_ValidatedPacket ok;
 }};
 
-static void vela_span_copy_meta(struct vela_span_byte *dst, struct vela_span_byte *src)
+static void holdfast_span_copy_meta(struct holdfast_span_byte *dst, struct holdfast_span_byte *src)
 {{
     dst->ptr = src->ptr;
     dst->base = src->base;
@@ -1699,8 +1699,8 @@ static void vela_span_copy_meta(struct vela_span_byte *dst, struct vela_span_byt
     dst->perm_write = src->perm_write;
 }}
 
-static void vela_span_alloc_zeroed(
-    struct vela_span_byte *out,
+static void holdfast_span_alloc_zeroed(
+    struct holdfast_span_byte *out,
     unsigned char *backing,
     unsigned long base,
     unsigned long length)
@@ -1717,24 +1717,24 @@ static void vela_span_alloc_zeroed(
     out->perm_write = 1;
 }}
 
-static unsigned char vela_span_read(struct vela_span_byte *s, unsigned long idx)
+static unsigned char holdfast_span_read(struct holdfast_span_byte *s, unsigned long idx)
 {{
     return s->ptr[idx];
 }}
 
-static void vela_span_write(
-    struct vela_span_byte *out,
-    struct vela_span_byte *s,
+static void holdfast_span_write(
+    struct holdfast_span_byte *out,
+    struct holdfast_span_byte *s,
     unsigned long idx,
     unsigned char val)
 {{
     s->ptr[idx] = val;
-    vela_span_copy_meta(out, s);
+    holdfast_span_copy_meta(out, s);
 }}
 
-static void vela_span_fill(
-    struct vela_span_byte *out,
-    struct vela_span_byte *s,
+static void holdfast_span_fill(
+    struct holdfast_span_byte *out,
+    struct holdfast_span_byte *s,
     unsigned long off,
     unsigned long count,
     unsigned char val)
@@ -1743,12 +1743,12 @@ static void vela_span_fill(
     for (i = 0UL; i < count; i++) {{
         s->ptr[off + i] = val;
     }}
-    vela_span_copy_meta(out, s);
+    holdfast_span_copy_meta(out, s);
 }}
 
-static void vela_span_slice(
-    struct vela_span_byte *out,
-    struct vela_span_byte *s,
+static void holdfast_span_slice(
+    struct holdfast_span_byte *out,
+    struct holdfast_span_byte *s,
     unsigned long off,
     unsigned long count)
 {{
@@ -1760,21 +1760,21 @@ static void vela_span_slice(
     out->perm_write = s->perm_write;
 }}
 
-static void vela_span_readonly(struct vela_span_byte *out, struct vela_span_byte *s)
+static void holdfast_span_readonly(struct holdfast_span_byte *out, struct holdfast_span_byte *s)
 {{
-    vela_span_copy_meta(out, s);
+    holdfast_span_copy_meta(out, s);
     out->perm_write = 0;
 }}
 
-static void vela_span_invalidate(struct vela_span_byte *out, struct vela_span_byte *s)
+static void holdfast_span_invalidate(struct holdfast_span_byte *out, struct holdfast_span_byte *s)
 {{
-    vela_span_copy_meta(out, s);
+    holdfast_span_copy_meta(out, s);
     out->tag = 0;
     out->perm_read = 0;
     out->perm_write = 0;
 }}
 
-static int vela_span_disjoint(struct vela_span_byte *a, struct vela_span_byte *b)
+static int holdfast_span_disjoint(struct holdfast_span_byte *a, struct holdfast_span_byte *b)
 {{
     if (a->length == 0UL || b->length == 0UL) {{
         return 1;
@@ -1785,31 +1785,31 @@ static int vela_span_disjoint(struct vela_span_byte *a, struct vela_span_byte *b
     return b->length <= a->base - b->base;
 }}
 
-static void vela_span_copy_prefix(
-    struct vela_span_byte *out,
-    struct vela_span_byte *dst,
-    struct vela_span_byte *src,
+static void holdfast_span_copy_prefix(
+    struct holdfast_span_byte *out,
+    struct holdfast_span_byte *dst,
+    struct holdfast_span_byte *src,
     unsigned long count)
 {{
     unsigned long i;
     for (i = 0UL; i < count; i++) {{
         dst->ptr[i] = src->ptr[i];
     }}
-    vela_span_copy_meta(out, dst);
+    holdfast_span_copy_meta(out, dst);
 }}
 
-static void vela_span_restore(
-    struct vela_span_byte *out,
-    struct vela_span_byte *parent,
-    struct vela_span_byte *view)
+static void holdfast_span_restore(
+    struct holdfast_span_byte *out,
+    struct holdfast_span_byte *parent,
+    struct holdfast_span_byte *view)
 {{
     (void)view;
-    vela_span_copy_meta(out, parent);
+    holdfast_span_copy_meta(out, parent);
 }}
 
 {lowered_functions_c}
 
-static int packet_view_matches(struct vela_span_byte *view, unsigned char *arena,
+static int packet_view_matches(struct holdfast_span_byte *view, unsigned char *arena,
                                unsigned long base, unsigned long length)
 {{
     return view->ptr == arena + base && view->base == base && view->length == length
@@ -1821,14 +1821,14 @@ int main(void)
     unsigned char arena[136];
     unsigned char before[8];
     unsigned long i;
-    struct vela_span_byte dst;
-    struct vela_span_byte pkt;
-    struct vela_Result_ValidatedPacket_ValidationError out;
+    struct holdfast_span_byte dst;
+    struct holdfast_span_byte pkt;
+    struct holdfast_Result_ValidatedPacket_ValidationError out;
 
     /* 1. ValidateEmptyPacketOk: valid 0-byte payload + live frame preservation at index 8 */
-    vela_span_alloc_zeroed(&dst, arena, 64UL, 10UL);
-    vela_span_write(&dst, &dst, 8UL, 0xC3U);
-    vela_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
+    holdfast_span_alloc_zeroed(&dst, arena, 64UL, 10UL);
+    holdfast_span_write(&dst, &dst, 8UL, 0xC3U);
+    holdfast_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
     WritePacket8(&pkt, 0x56U, 0x00U, 0x5AU, 0x01U, 0x00U, 0x00U, 0x00U, 0x00U);
     PrepareAndValidatePacket(&out, &dst, &pkt);
     if (out.is_ok != {exp(1, 1)})
@@ -1839,86 +1839,86 @@ int main(void)
         return 3;
     if (!packet_view_matches(&out.ok.PayloadView, arena, 68UL, 0UL))
         return 4;
-    if (dst.base != 64UL || dst.length != {exp(5, 10)}UL || dst.perm_write != 1 || vela_span_read(&dst, 8UL) != 0xC3U)
+    if (dst.base != 64UL || dst.length != {exp(5, 10)}UL || dst.perm_write != 1 || holdfast_span_read(&dst, 8UL) != 0xC3U)
         return 5;
 
     /* 2. ValidateFullPacketOk: valid 4-byte payload [0x10, 0x20, 0x30, 0x40] */
-    vela_span_alloc_zeroed(&dst, arena, 64UL, 8UL);
-    vela_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
+    holdfast_span_alloc_zeroed(&dst, arena, 64UL, 8UL);
+    holdfast_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
     WritePacket8(&pkt, 0x56U, 0x04U, 0x1EU, 0x01U, 0x10U, 0x20U, 0x30U, 0x40U);
     PrepareAndValidatePacket(&out, &dst, &pkt);
     if (out.is_ok != 1 || out.err != 0 || out.ok.CopiedBytes != 4UL
         || !packet_view_matches(&out.ok.PayloadView, arena, 68UL, 4UL))
         return 6;
-    if (vela_span_read(&out.ok.PayloadView, 0UL) != {exp(7, 0x10)}U)
+    if (holdfast_span_read(&out.ok.PayloadView, 0UL) != {exp(7, 0x10)}U)
         return 7;
-    if (vela_span_read(&out.ok.PayloadView, 1UL) != 0x20U
-        || vela_span_read(&out.ok.PayloadView, 2UL) != 0x30U
-        || vela_span_read(&out.ok.PayloadView, 3UL) != {exp(8, 0x40)}U)
+    if (holdfast_span_read(&out.ok.PayloadView, 1UL) != 0x20U
+        || holdfast_span_read(&out.ok.PayloadView, 2UL) != 0x30U
+        || holdfast_span_read(&out.ok.PayloadView, 3UL) != {exp(8, 0x40)}U)
         return 8;
-    if (vela_span_read(&dst, 0UL) != 0x56U || vela_span_read(&dst, 7UL) != 0x40U)
+    if (holdfast_span_read(&dst, 0UL) != 0x56U || holdfast_span_read(&dst, 7UL) != 0x40U)
         return 9;
 
     /* 3. ValidatePartialPacketScrubsStaleAndTrailingBytes: 2-byte payload scrubs [6..8) and preserves frame [8..10) */
-    vela_span_alloc_zeroed(&dst, arena, 64UL, 10UL);
-    vela_span_fill(&dst, &dst, 0UL, 10UL, 0xAAU);
-    vela_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
+    holdfast_span_alloc_zeroed(&dst, arena, 64UL, 10UL);
+    holdfast_span_fill(&dst, &dst, 0UL, 10UL, 0xAAU);
+    holdfast_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
     WritePacket8(&pkt, 0x56U, 0x02U, 0x6BU, 0x01U, 0x11U, 0x22U, 0xDEU, 0xADU);
     PrepareAndValidatePacket(&out, &dst, &pkt);
     if (out.is_ok != 1 || out.ok.CopiedBytes != 2UL
         || !packet_view_matches(&out.ok.PayloadView, arena, 68UL, 2UL))
         return 10;
-    if (vela_span_read(&out.ok.PayloadView, 0UL) != 0x11U || vela_span_read(&out.ok.PayloadView, 1UL) != 0x22U)
+    if (holdfast_span_read(&out.ok.PayloadView, 0UL) != 0x11U || holdfast_span_read(&out.ok.PayloadView, 1UL) != 0x22U)
         return 11;
-    if (vela_span_read(&dst, 6UL) != {exp(12, 0x00)}U || vela_span_read(&dst, 7UL) != 0x00U || vela_span_read(&dst, 9UL) != 0xAAU)
+    if (holdfast_span_read(&dst, 6UL) != {exp(12, 0x00)}U || holdfast_span_read(&dst, 7UL) != 0x00U || holdfast_span_read(&dst, 9UL) != 0xAAU)
         return 12;
 
     /* 4. RejectFramingShort: pkt.length < 4 */
-    vela_span_alloc_zeroed(&dst, arena, 64UL, 8UL);
-    vela_span_alloc_zeroed(&pkt, arena, 128UL, 3UL);
+    holdfast_span_alloc_zeroed(&dst, arena, 64UL, 8UL);
+    holdfast_span_alloc_zeroed(&pkt, arena, 128UL, 3UL);
     PrepareAndValidatePacket(&out, &dst, &pkt);
     if (out.is_ok != 0 || out.err != {exp(13, 1)} || out.ok.PayloadView.tag != 0)
         return 13;
 
     /* 5. RejectBadMagic: header magic != 0x56 */
-    vela_span_alloc_zeroed(&dst, arena, 64UL, 8UL);
-    vela_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
+    holdfast_span_alloc_zeroed(&dst, arena, 64UL, 8UL);
+    holdfast_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
     WritePacket8(&pkt, 0x00U, 0x02U, 0x3AU, 0x01U, 0xAAU, 0xCCU, 0x00U, 0x00U);
     PrepareAndValidatePacket(&out, &dst, &pkt);
     if (out.is_ok != 0 || out.err != {exp(14, 2)} || out.ok.PayloadView.tag != 0)
         return 14;
 
     /* 6. RejectLengthOutOfBounds: rawLen == 5 > 4 */
-    vela_span_alloc_zeroed(&dst, arena, 64UL, 8UL);
-    vela_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
+    holdfast_span_alloc_zeroed(&dst, arena, 64UL, 8UL);
+    holdfast_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
     WritePacket8(&pkt, 0x56U, 0x05U, 0x5FU, 0x01U, 0x10U, 0x20U, 0x30U, 0x40U);
     PrepareAndValidatePacket(&out, &dst, &pkt);
     if (out.is_ok != 0 || out.err != {exp(15, 3)} || out.ok.PayloadView.tag != 0)
         return 15;
 
     /* 7. RejectChecksumScrubsDestinationAndRestores: bad checksum scrubs [0..8), preserves frame at 8, restores dst */
-    vela_span_alloc_zeroed(&dst, arena, 64UL, 10UL);
-    vela_span_fill(&dst, &dst, 0UL, 10UL, 0x77U);
-    vela_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
+    holdfast_span_alloc_zeroed(&dst, arena, 64UL, 10UL);
+    holdfast_span_fill(&dst, &dst, 0UL, 10UL, 0x77U);
+    holdfast_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
     WritePacket8(&pkt, 0x56U, 0x04U, 0xFFU, 0x01U, 0x10U, 0x20U, 0x30U, 0x40U);
     PrepareAndValidatePacket(&out, &dst, &pkt);
     if (out.is_ok != 0 || out.err != {exp(16, 4)} || out.ok.PayloadView.tag != 0)
         return 16;
-    if (vela_span_read(&dst, 0UL) != {exp(17, 0x00)}U
-        || vela_span_read(&dst, 4UL) != 0x00U
-        || vela_span_read(&dst, 7UL) != 0x00U
-        || vela_span_read(&dst, 8UL) != 0x77U)
+    if (holdfast_span_read(&dst, 0UL) != {exp(17, 0x00)}U
+        || holdfast_span_read(&dst, 4UL) != 0x00U
+        || holdfast_span_read(&dst, 7UL) != 0x00U
+        || holdfast_span_read(&dst, 8UL) != 0x77U)
         return 17;
     if (dst.base != 64UL || dst.length != 10UL || dst.perm_write != 1)
         return 18;
 
     /* Overlapping byte views over the same allocation must be rejected before either view writes. */
-    vela_span_alloc_zeroed(&dst, arena, 64UL, 8UL);
-    vela_span_alloc_zeroed(&pkt, arena, 68UL, 8UL);
+    holdfast_span_alloc_zeroed(&dst, arena, 64UL, 8UL);
+    holdfast_span_alloc_zeroed(&pkt, arena, 68UL, 8UL);
     WritePacket8(&pkt, 0x56U, 0x04U, 0x1EU, 0x01U, 0x10U, 0x20U, 0x30U, 0x40U);
-    vela_span_write(&dst, &dst, 0UL, 0xA3U);
+    holdfast_span_write(&dst, &dst, 0UL, 0xA3U);
     for (i = 0UL; i < 8UL; i++) {{
-        before[i] = vela_span_read(&dst, i);
+        before[i] = holdfast_span_read(&dst, i);
     }}
     if (before[4] != 0x56U || before[7] != 0x01U)
         return 19;
@@ -1926,23 +1926,23 @@ int main(void)
     if (out.is_ok != 0 || out.err != VOS_ERR_FramingShort || out.ok.PayloadView.tag != 0)
         return 19;
     for (i = 0UL; i < 8UL; i++) {{
-        if (vela_span_read(&dst, i) != before[i])
+        if (holdfast_span_read(&dst, i) != before[i])
             return 19;
     }}
 
     /* Bad flags take precedence over the oversized length; preserve the suffix. */
-    vela_span_alloc_zeroed(&dst, arena, 64UL, 10UL);
-    vela_span_fill(&dst, &dst, 0UL, 10UL, 0xA5U);
-    vela_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
+    holdfast_span_alloc_zeroed(&dst, arena, 64UL, 10UL);
+    holdfast_span_fill(&dst, &dst, 0UL, 10UL, 0xA5U);
+    holdfast_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
     WritePacket8(&pkt, 0x56U, 0x05U, 0x00U, 0x00U, 0x11U, 0x22U, 0x33U, 0x44U);
     PrepareAndValidatePacket(&out, &dst, &pkt);
     if (out.is_ok != 0 || out.err != VOS_ERR_BadMagicOrFlags || out.ok.PayloadView.tag != 0)
         return 20;
     for (i = 0UL; i < 8UL; i++) {{
-        if (vela_span_read(&dst, i) != 0x00U)
+        if (holdfast_span_read(&dst, i) != 0x00U)
             return 20;
     }}
-    if (vela_span_read(&dst, 8UL) != 0xA5U || vela_span_read(&dst, 9UL) != 0xA5U)
+    if (holdfast_span_read(&dst, 8UL) != 0xA5U || holdfast_span_read(&dst, 9UL) != 0xA5U)
         return 20;
 
     return 0;
@@ -2161,18 +2161,18 @@ def _resolve_ccomp(ccomp_path: Path | None) -> Path | None:
     return None
 
 
-def _run_negative_controls(compiled: vela_parser.Build, directory: Path) -> list[dict[str, object]]:
+def _run_negative_controls(compiled: holdfast_parser.Build, directory: Path) -> list[dict[str, object]]:
     results: list[dict[str, object]] = []
     sources = directory / "negative-controls"
     sources.mkdir()
     for ctrl in NEGATIVE_CONTROLS:
         raw = ctrl.source.encode("utf-8")
-        (sources / f"{ctrl.name}.vela").write_bytes(raw)
+        (sources / f"{ctrl.name}.hf").write_bytes(raw)
         # Must parse cleanly as schema-2 surface syntax; syntax refusal is never a semantic control.
-        parsed = vela_parser.parse_source(compiled, raw, surface=True)
+        parsed = holdfast_parser.parse_source(compiled, raw, surface=True)
         try:
-            vela_elaborate.elaborate(raw, parsed)
-        except VelaError as error:
+            holdfast_elaborate.elaborate(raw, parsed)
+        except HoldFastError as error:
             if error.kind != ctrl.expected_kind or ctrl.expected_substring not in error.message:
                 raise ValueError(
                     f"negative control {ctrl.name}: expected {ctrl.expected_kind} containing "
@@ -2192,8 +2192,8 @@ def _run_negative_controls(compiled: vela_parser.Build, directory: Path) -> list
     return results
 
 
-def _check_capacity_structure(small_state: vela_elaborate._Elaborator,
-                              large_state: vela_elaborate._Elaborator) -> None:
+def _check_capacity_structure(small_state: holdfast_elaborate._Elaborator,
+                              large_state: holdfast_elaborate._Elaborator) -> None:
     small_literal = small_state.render(_int_term(_INT_SPECS["usize"], 8))
     large_literal = large_state.render(_int_term(_INT_SPECS["usize"], 1_000_000_000))
     if not any(large_literal in decl for decl in large_state.output):
@@ -2203,23 +2203,23 @@ def _check_capacity_structure(small_state: vela_elaborate._Elaborator,
 
 
 def _run_capacity_invariance_gate(
-    compiled: vela_parser.Build,
+    compiled: holdfast_parser.Build,
     directory: Path,
     steps: list[dict[str, object]],
 ) -> dict[str, object]:
     small_src = _capacity_fixture("8usize")
     large_src = _capacity_fixture("1_000_000_000usize")
-    (directory / "CapSmall.vela").write_bytes(small_src)
-    (directory / "CapLarge.vela").write_bytes(large_src)
-    small_parsed = vela_parser.parse_source(compiled, small_src, surface=True)
-    large_parsed = vela_parser.parse_source(compiled, large_src, surface=True)
-    small_elab, small_state = vela_elaborate._checked_elaboration(small_src, small_parsed)
-    large_elab, large_state = vela_elaborate._checked_elaboration(large_src, large_parsed)
+    (directory / "CapSmall.hf").write_bytes(small_src)
+    (directory / "CapLarge.hf").write_bytes(large_src)
+    small_parsed = holdfast_parser.parse_source(compiled, small_src, surface=True)
+    large_parsed = holdfast_parser.parse_source(compiled, large_src, surface=True)
+    small_elab, small_state = holdfast_elaborate._checked_elaboration(small_src, small_parsed)
+    large_elab, large_state = holdfast_elaborate._checked_elaboration(large_src, large_parsed)
 
-    small_work = vela_elaborate.MAX_WORK - small_state.work
-    large_work = vela_elaborate.MAX_WORK - large_state.work
-    small_red = vela_elaborate.MAX_REDUCTIONS - small_state.reductions
-    large_red = vela_elaborate.MAX_REDUCTIONS - large_state.reductions
+    small_work = holdfast_elaborate.MAX_WORK - small_state.work
+    large_work = holdfast_elaborate.MAX_WORK - large_state.work
+    small_red = holdfast_elaborate.MAX_REDUCTIONS - small_state.reductions
+    large_red = holdfast_elaborate.MAX_REDUCTIONS - large_state.reductions
 
     if len(small_state.output) != len(large_state.output):
         raise ValueError(
@@ -2242,12 +2242,12 @@ def _run_capacity_invariance_gate(
     large_v = directory / "CapLarge.v"
     small_v.write_text(small_elab.gallina, encoding="utf-8", newline="")
     large_v.write_text(large_elab.gallina, encoding="utf-8", newline="")
-    _run(_opam(["rocq", "c", "-q", "-R", str(directory), "VelaFirstSlice", small_v.name]),
+    _run(_opam(["rocq", "c", "-q", "-R", str(directory), "HoldFastFirstSlice", small_v.name]),
          directory, directory / "CapSmall.compile.log", steps)
-    _run(_opam(["rocq", "c", "-q", "-R", str(directory), "VelaFirstSlice", large_v.name]),
+    _run(_opam(["rocq", "c", "-q", "-R", str(directory), "HoldFastFirstSlice", large_v.name]),
          directory, directory / "CapLarge.compile.log", steps)
-    _run(_opam(["rocqchk", "-R", str(directory), "VelaFirstSlice",
-                "VelaFirstSlice.CapSmall", "VelaFirstSlice.CapLarge"]),
+    _run(_opam(["rocqchk", "-R", str(directory), "HoldFastFirstSlice",
+                "HoldFastFirstSlice.CapSmall", "HoldFastFirstSlice.CapLarge"]),
          directory, directory / "CapGate.kernel.log", steps)
     return {
         "small_capacity": "8usize",
@@ -2265,23 +2265,23 @@ def _qualify_attempt(
     directory: Path,
     steps: list[dict[str, object]],
     ccomp_path: Path | None,
-    compiled: vela_parser.Build,
+    compiled: holdfast_parser.Build,
     timing: packet_trace.Recorder | None = None,
 ) -> dict[str, object]:
     source_path = root / EXAMPLE
-    source = vela_parser.read_source(source_path)
+    source = holdfast_parser.read_source(source_path)
     phase = nullcontext if timing is None else timing.span
     with phase("packet"):
         if timing is not None:
             timing.source_size(len(source))
         with phase("parse"):
-            parsed = vela_parser.parse_source(compiled, source, surface=True)
+            parsed = holdfast_parser.parse_source(compiled, source, surface=True)
 
-        # 1. Elaborate first_slice.vela and verify determinism + exported obligations
-        translated = vela_elaborate._checked_elaboration(source, parsed, phase=phase)[0]
-        repeated = vela_elaborate.elaborate(source, parsed)
+        # 1. Elaborate first_slice.hf and verify determinism + exported obligations
+        translated = holdfast_elaborate._checked_elaboration(source, parsed, phase=phase)[0]
+        repeated = holdfast_elaborate.elaborate(source, parsed)
         if translated != repeated:
-            raise ValueError("first_slice.vela elaboration is nondeterministic")
+            raise ValueError("first_slice.hf elaboration is nondeterministic")
 
         exports = solver_ledger.math_exports(translated.gallina)
         for required_suffix in (*EXPECTED_LAWS, *EXPECTED_CONTRACT_OBLIGATIONS, *EXPECTED_SCENARIO_THEOREMS):
@@ -2291,7 +2291,7 @@ def _qualify_attempt(
         gallina_path = directory / "FirstSlice.v"
         gallina_path.write_text(translated.gallina, encoding="utf-8", newline="")
         _run(
-            _opam(["rocq", "c", "-q", "-R", str(directory), "VelaFirstSlice", gallina_path.name]),
+            _opam(["rocq", "c", "-q", "-R", str(directory), "HoldFastFirstSlice", gallina_path.name]),
             directory,
             directory / "FirstSlice.compile.log",
             steps,
@@ -2302,13 +2302,13 @@ def _qualify_attempt(
         audited = [f"{module}.{name}" for name in exports]
         assumptions_path = directory / "FirstSliceAssumptions.v"
         assumptions_path.write_text(
-            "From VelaFirstSlice Require Import FirstSlice.\n"
+            "From HoldFastFirstSlice Require Import FirstSlice.\n"
             + "".join(f"Print Assumptions FirstSlice.{name}.\n" for name in audited),
             encoding="utf-8",
             newline="",
         )
         assumptions_out = _run(
-            _opam(["rocq", "c", "-q", "-R", str(directory), "VelaFirstSlice", assumptions_path.name]),
+            _opam(["rocq", "c", "-q", "-R", str(directory), "HoldFastFirstSlice", assumptions_path.name]),
             directory,
             directory / "FirstSlice.assumptions.log",
             steps,
@@ -2318,7 +2318,7 @@ def _qualify_attempt(
         reported_trust = solver_ledger.audit(assumptions_out, len(audited), module, trusted)
 
         _run(
-            _opam(["rocqchk", "-R", str(directory), "VelaFirstSlice", "VelaFirstSlice.FirstSlice"]),
+            _opam(["rocqchk", "-R", str(directory), "HoldFastFirstSlice", "HoldFastFirstSlice.FirstSlice"]),
             directory,
             directory / "FirstSlice.kernel.log",
             steps,
@@ -2335,7 +2335,7 @@ def _qualify_attempt(
     corrupted_text = _corrupted_proof(translated.gallina)
     corrupted_v.write_text(corrupted_text, encoding="utf-8", newline="")
     corrupt_proc = subprocess.run(
-        _opam(["rocq", "c", "-q", "-R", str(directory), "VelaFirstSlice", corrupted_v.name]),
+        _opam(["rocq", "c", "-q", "-R", str(directory), "HoldFastFirstSlice", corrupted_v.name]),
         cwd=directory,
         capture_output=True,
         encoding="utf-8",
@@ -2510,7 +2510,7 @@ def qualify(root: Path, *, ccomp_path: Path | None = None, trace_phases: bool = 
         steps: list[dict[str, object]] = []
         attempt: dict[str, object] = {
             "schema": 2,
-            "scope": "vela-first-slice-qualification",
+            "scope": "holdfast-first-slice-qualification",
             "status": "running",
             "directory": str(directory),
             "steps": steps,
@@ -2529,7 +2529,7 @@ def qualify(root: Path, *, ccomp_path: Path | None = None, trace_phases: bool = 
             revision = _revision(root)
             tools = replay._toolchain(root, directory, steps)
             runtime = replay._runtime(directory, steps)
-            compiled = vela_parser.build(root)
+            compiled = holdfast_parser.build(root)
             parser_receipt = copy.deepcopy(compiled.receipt)
             outputs = replay._parser_outputs(compiled)
             attempt.update({"inputs": inputs, "producer_revision": revision,
@@ -2557,7 +2557,7 @@ def qualify(root: Path, *, ccomp_path: Path | None = None, trace_phases: bool = 
                      and _execution_inputs(ccomp_path) == execution,
                      "first-slice inputs, toolchain or runtime changed during qualification")
             _require(compiled.receipt == parser_receipt and replay._parser_outputs(compiled) == outputs
-                     and vela_parser._toolchain(root) == parser_receipt["toolchain"],
+                     and holdfast_parser._toolchain(root) == parser_receipt["toolchain"],
                      "first-slice parser identity changed during qualification")
             replay._observations([], steps)
             final_outputs = _artifacts(directory)
@@ -2612,7 +2612,7 @@ def verify_bindings(root: Path, receipt_path: Path) -> dict[str, object]:
     except (ValueError, RecursionError) as error:
         raise ValueError("first-slice receipt is malformed") from error
     if (not isinstance(value, dict) or type(value.get("schema")) is not int or value["schema"] != 2
-            or value.get("scope") != "vela-first-slice-qualification" or value.get("status") != "passed"
+            or value.get("scope") != "holdfast-first-slice-qualification" or value.get("status") != "passed"
             or any(value.get(key) is not False for key in (
                 "artifact_accepted", "source_correspondence", "production_admission",
                 "full_machine_refinement_closed"))):
@@ -2633,10 +2633,10 @@ def verify_bindings(root: Path, receipt_path: Path) -> dict[str, object]:
     if (not isinstance(parser_receipt, dict) or not isinstance(parser_receipt.get("directory"), str)
             or not isinstance(parser_receipt.get("generated_sha256"), dict)):
         raise TypeError("first-slice receipt parser identity is malformed")
-    directory = _receipt_directory(parser_receipt["directory"], vela_parser._work_root(root), "build-")
-    compiled = vela_parser.Build(directory, directory / "vela-parser", parser_receipt)
-    if (parser_receipt.get("inputs") != vela_parser._inputs(root)
-            or parser_receipt.get("toolchain") != vela_parser._toolchain(root)
+    directory = _receipt_directory(parser_receipt["directory"], holdfast_parser._work_root(root), "build-")
+    compiled = holdfast_parser.Build(directory, directory / "holdfast-parser", parser_receipt)
+    if (parser_receipt.get("inputs") != holdfast_parser._inputs(root)
+            or parser_receipt.get("toolchain") != holdfast_parser._toolchain(root)
             or replay._parser_outputs(compiled) != receipt.get("parser_outputs")):
         raise ValueError("first-slice receipt parser identities changed")
     artifacts = receipt.get("artifacts_sha256")
@@ -2671,14 +2671,14 @@ def verify_bindings(root: Path, receipt_path: Path) -> dict[str, object]:
             raise ValueError("packet compiler trace runtime changed")
     if (receipt.get("inputs") != _inputs(root) or receipt.get("producer_revision") != _revision(root)
             or _execution_inputs(compiler) != execution
-            or parser_receipt.get("inputs") != vela_parser._inputs(root)
-            or parser_receipt.get("toolchain") != vela_parser._toolchain(root)
+            or parser_receipt.get("inputs") != holdfast_parser._inputs(root)
+            or parser_receipt.get("toolchain") != holdfast_parser._toolchain(root)
             or replay._parser_outputs(compiled) != receipt.get("parser_outputs")
             or _artifacts(_receipt_directory(directory_name, _work_root(root), "slice-")) != artifacts):
         raise ValueError("first-slice receipt inputs or outputs changed during binding check")
     with receipt_path.open("rb") as stream:
         if stream.read(RECEIPT_BYTES + 1) != raw:
             raise ValueError("first-slice receipt changed during binding check")
-    return {"schema": 1, "scope": "vela-first-slice-binding-check", "status": "matched",
+    return {"schema": 1, "scope": "holdfast-first-slice-binding-check", "status": "matched",
             "receipt": str(receipt_path), "receipt_sha256": _sha256(raw),
             "proof_replayed": False, "artifact_accepted": False, "production_admission": False}

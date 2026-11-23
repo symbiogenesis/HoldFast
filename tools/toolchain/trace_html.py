@@ -80,9 +80,9 @@ def render(document: object, source: bytes, producer: str) -> str:
            "'; base-uri 'none'; form-action 'none'; connect-src 'none'")
     result = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="{csp}"><title>Vela compiler timeline</title>
+<meta http-equiv="Content-Security-Policy" content="{csp}"><title>HoldFast compiler timeline</title>
 <style>{_STYLE}</style></head><body><main>
-<h1>Vela compiler timeline</h1><p>Complete pure compiler recording · {duration} microseconds · worker 1:1</p>
+<h1>HoldFast compiler timeline</h1><p>Complete pure compiler recording · {duration} microseconds · worker 1:1</p>
 <div class="panel"><p>Focus or hover a span for its exact time and source site. Each row shows a nesting depth.
 Zero and subpixel spans retain a minimum half-pixel hit target; the table preserves exact durations.</p>
 <div class="scroll"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 160" role="img"

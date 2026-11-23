@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import cast
 
 from toolchain import concrete
-from toolchain.ast import VelaError
+from toolchain.ast import HoldFastError
 from toolchain.lsp_services import Inspection, InspectionError, Position, lsp_range
 from toolchain.source import SourceSnapshot
 
@@ -76,7 +76,7 @@ def _calls(snapshot: SourceSnapshot, inspection: Inspection) -> list[_Call]:
     try:
         tokens = [piece for piece in concrete.parts(snapshot.source)
                   if piece["kind"] in concrete.TOKEN_KINDS]
-    except (ValueError, VelaError) as error:
+    except (ValueError, HoldFastError) as error:
         raise InspectionError("Callable token context unavailable or exceeds bounds") from error
     stack: list[tuple[int, int | None, list[int]]] = []
     result: list[_Call] = []

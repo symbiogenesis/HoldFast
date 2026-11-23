@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from typing import cast
 
-from toolchain import MAX_SOURCE_BYTES, VelaError, inspect_source, translate
+from toolchain import MAX_SOURCE_BYTES, HoldFastError, inspect_source, translate
 from toolchain.authoring import format_source
 from toolchain.completion import recover
 from toolchain.concrete import parts
@@ -39,7 +39,7 @@ def main() -> int:
             error_data = None
             try:
                 translate(source)
-            except VelaError as error:
+            except HoldFastError as error:
                 error_data = {"kind": error.kind, "line": error.line, "column": error.column,
                               "message": error.message[:4096]}
             print(json.dumps(error_data, ensure_ascii=True))
@@ -51,7 +51,7 @@ def main() -> int:
             try:
                 start, end = int(first), int(last)
                 preview = selection(source, start, end)
-            except (ValueError, VelaError, OSError):
+            except (ValueError, HoldFastError, OSError):
                 return 2
             result = {"selection": [start, end], "edit": None}
             if preview is not None:
@@ -61,12 +61,12 @@ def main() -> int:
         case ["--complete-at", cursor]:
             try:
                 result = recover(source, int(cursor))
-            except (ValueError, VelaError):
+            except (ValueError, HoldFastError):
                 return 2
         case ["--format"]:
             try:
                 result = {"status": "ok", "formatted": format_source(source).decode("utf-8")}
-            except VelaError as error:
+            except HoldFastError as error:
                 result = {"status": "unavailable", "reason": error.kind}
         case [("--inspect" | "--inspect-snapshot" | "--inspect-completion") as mode]:
             try:
@@ -74,7 +74,7 @@ def main() -> int:
                                         completion_options=mode == "--inspect-completion")
                 if mode == "--inspect-snapshot":
                     result["concrete"] = parts(source)
-            except VelaError as error:
+            except HoldFastError as error:
                 result = {"status": "unavailable", "reason": error.kind}
         case _:
             return 2

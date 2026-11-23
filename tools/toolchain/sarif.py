@@ -24,11 +24,11 @@ MAX_SCHEMA_BYTES = 300_000
 MAX_FILES = 16
 MAX_REPORT_BYTES = 1_048_576
 MAX_FINDINGS = 4096
-SCOPE = "vela-pure-batch-diagnostics-v1"
+SCOPE = "holdfast-pure-batch-diagnostics-v1"
 KINDS = frozenset({"syntax", "name", "type", "encoding", "unsupported", "limit", "timeout", "internal"})
 INCOMPLETE = frozenset({"unsupported", "limit", "timeout", "internal", "format-unavailable"})
-RULE_IDS = tuple(sorted({f"VELA-{kind.upper()}" for kind in KINDS}
-                        | {"VELA-FORMAT", "VELA-FORMAT-UNAVAILABLE"}))
+RULE_IDS = tuple(sorted({f"HOLDFAST-{kind.upper()}" for kind in KINDS}
+                        | {"HOLDFAST-FORMAT", "HOLDFAST-FORMAT-UNAVAILABLE"}))
 type Object = dict[str, object]
 type Checker = Callable[[bytes], Object | None]
 type Formatter = Callable[[bytes], Object]
@@ -64,7 +64,7 @@ def _location(item: Input, index: int, line: int, column: int) -> Object:
 
 def _result(item: Input, index: int, rule: str, message: str, line: int, column: int) -> Object:
     return {"ruleId": rule, "ruleIndex": RULE_IDS.index(rule),
-            "level": "warning" if rule == "VELA-FORMAT" else "error",
+            "level": "warning" if rule == "HOLDFAST-FORMAT" else "error",
             "message": {"text": message}, "locations": [_location(item, index, line, column)]}
 
 
@@ -98,19 +98,19 @@ def export(inputs: tuple[Input, ...], producer: str, *, format_fixes: bool = Fal
                     or len(diagnostic["message"]) > 4096):
                 raise ValueError("invalid diagnostic producer result")
             status = kind if kind in INCOMPLETE else "rejected"
-            results.append(_result(item, index, f"VELA-{kind.upper()}",
+            results.append(_result(item, index, f"HOLDFAST-{kind.upper()}",
                                    diagnostic["message"], diagnostic["line"], diagnostic["column"]))
         elif format_fixes:
             try:
                 edits = _format_edits(item, formatter)
             except InspectionError:
                 status = "format-unavailable"
-                results.append(_result(item, index, "VELA-FORMAT-UNAVAILABLE",
+                results.append(_result(item, index, "HOLDFAST-FORMAT-UNAVAILABLE",
                                        "Canonical formatter unavailable; requested analysis incomplete", 1, 1))
             else:
                 if edits:
-                    result = _result(item, index, "VELA-FORMAT",
-                                     "Source differs from canonical Vela formatting", 1, 1)
+                    result = _result(item, index, "HOLDFAST-FORMAT",
+                                     "Source differs from canonical HoldFast formatting", 1, 1)
                     result["fixes"] = [{
                         "description": {"text": "Preview canonical formatting of this exact source"},
                         "artifactChanges": [{"artifactLocation": {"uri": item.uri, "index": index},
@@ -130,7 +130,7 @@ def export(inputs: tuple[Input, ...], producer: str, *, format_fixes: bool = Fal
                         "complete": complete, "inputs": bindings,
                         "unqualified": True}
     document: Object = {"version": "2.1.0", "$schema": SCHEMA_URI, "runs": [{
-        "tool": {"driver": {"name": "vela-pure-development", "semanticVersion": "0.0.0",
+        "tool": {"driver": {"name": "holdfast-pure-development", "semanticVersion": "0.0.0",
                               "rules": [{"id": rule, "shortDescription": {"text": rule}}
                                         for rule in RULE_IDS]}},
         "columnKind": "utf16CodeUnits", "artifacts": [
@@ -139,7 +139,7 @@ def export(inputs: tuple[Input, ...], producer: str, *, format_fixes: bool = Fal
             for item in inputs],
         "results": results, "invocations": [{"executionSuccessful": complete,
                                                "toolExecutionNotifications": notifications}],
-        "properties": {"vela": manifest}}]}
+        "properties": {"holdfast": manifest}}]}
     manifest["binding_sha256"] = json_digest(document)
     if len(results) > MAX_FINDINGS or len(canonical_bytes(document)) > MAX_REPORT_BYTES:
         raise ValueError("SARIF export exceeds report bounds")
@@ -200,9 +200,9 @@ def validate(document: Object, inputs: tuple[Input, ...], producer: str,
         if len(runs) != 1:
             raise ValueError("expected exactly one SARIF run")
         run = runs[0]
-        manifest = cast("Object", cast("Object", run["properties"])["vela"])
+        manifest = cast("Object", cast("Object", run["properties"])["holdfast"])
         pending = copy.deepcopy(document)
-        retained = cast("Object", cast("Object", cast("list[Object]", pending["runs"])[0]["properties"])["vela"])
+        retained = cast("Object", cast("Object", cast("list[Object]", pending["runs"])[0]["properties"])["holdfast"])
         claimed = retained.pop("binding_sha256")
         if claimed != json_digest(pending):
             raise ValueError("SARIF report binding mismatch")
@@ -232,7 +232,7 @@ def validate(document: Object, inputs: tuple[Input, ...], producer: str,
             if not isinstance(message, str) or not message or len(message) > 4096:
                 raise ValueError("SARIF invalid diagnostic message")
             locations = cast("list[Object]", result["locations"])
-            if len(locations) != 1 or result["level"] != ("warning" if rule == "VELA-FORMAT" else "error"):
+            if len(locations) != 1 or result["level"] != ("warning" if rule == "HOLDFAST-FORMAT" else "error"):
                 raise ValueError("SARIF location or severity mismatch")
             physical = cast("Object", locations[0]["physicalLocation"])
             location = cast("Object", physical["artifactLocation"])
@@ -250,7 +250,7 @@ def validate(document: Object, inputs: tuple[Input, ...], producer: str,
             offset = snapshot.position_byte_offset(line - 1, column - 1)
             if snapshot.byte_position(offset) != {"line": line - 1, "character": column - 1}:
                 raise ValueError("SARIF coordinate exceeds source")
-            if rule == "VELA-FORMAT":
+            if rule == "HOLDFAST-FORMAT":
                 fixes = result.get("fixes")
                 if not manifest["format_fixes"] or not isinstance(fixes, list) or len(fixes) != 1:
                     raise ValueError("SARIF format fix missing or unexpected")
@@ -277,12 +277,12 @@ def validate(document: Object, inputs: tuple[Input, ...], producer: str,
                 raise ValueError("SARIF stale input closure")
             expected = by_input[index]
             if status == "checked":
-                valid = expected in ([], ["VELA-FORMAT"])
+                valid = expected in ([], ["HOLDFAST-FORMAT"])
             elif status == "rejected":
                 valid = len(expected) == 1 and expected[0] in {
-                    "VELA-SYNTAX", "VELA-NAME", "VELA-TYPE", "VELA-ENCODING"}
+                    "HOLDFAST-SYNTAX", "HOLDFAST-NAME", "HOLDFAST-TYPE", "HOLDFAST-ENCODING"}
             else:
-                valid = status in INCOMPLETE and expected == [f"VELA-{cast('str', status).upper()}"]
+                valid = status in INCOMPLETE and expected == [f"HOLDFAST-{cast('str', status).upper()}"]
             if not valid:
                 raise ValueError("SARIF source status disagrees with findings")
         notifications = [{"level": "error", "message": {
@@ -294,7 +294,7 @@ def validate(document: Object, inputs: tuple[Input, ...], producer: str,
                                            "toolExecutionNotifications": notifications}]):
             raise ValueError("SARIF completion status disagreement")
     except (KeyError, TypeError, IndexError, AttributeError) as error:
-        raise ValueError("malformed Vela SARIF report") from error
+        raise ValueError("malformed HoldFast SARIF report") from error
     return manifest
 
 

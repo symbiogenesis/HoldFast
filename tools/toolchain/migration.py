@@ -11,8 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-import toolchain as vela
-from toolchain import parser as vela_parser
+import toolchain as holdfast
+from toolchain import parser as holdfast_parser
 from toolchain.atomic import publish_report
 from toolchain.hashing import file_sha256
 
@@ -200,7 +200,7 @@ def fixtures(example: bytes) -> tuple[Fixture, ...]:
         Fixture("empty-file", b"", "syntax"),
         Fixture("empty-module", b"module M;", "syntax"),
         Fixture("invalid-utf8", b"// bad \xff\nmodule M;", "encoding"),
-        Fixture("oversized-source", b" " * (vela.MAX_SOURCE_BYTES + 1), "limit"),
+        Fixture("oversized-source", b" " * (holdfast.MAX_SOURCE_BYTES + 1), "limit"),
         Fixture("oversized-literal", prefix + b"9" * 257 + b"; }", "limit"),
         Fixture("deep-group", prefix + b"(" * 2000 + b"0" + b")" * 2000 + b"; }", "limit"),
         Fixture("deep-expression", prefix + b" + ".join([b"1"] * 2000) + b"; }", "limit"),
@@ -248,21 +248,21 @@ def fixtures(example: bytes) -> tuple[Fixture, ...]:
     return tuple(result)
 
 
-def _observe(operation: Callable[[], vela.Translation]) -> dict[str, object]:
+def _observe(operation: Callable[[], holdfast.Translation]) -> dict[str, object]:
     try:
         translation = operation()
-    except vela.VelaError as error:
+    except holdfast.HoldFastError as error:
         return {"category": error.kind, "line": error.line, "column": error.column}
     return {"category": "accepted", "module": translation.module,
             "gallina_sha256": hashlib.sha256(translation.gallina.encode()).hexdigest()}
 
 
-def compare(compiled: vela_parser.Build, cases: tuple[Fixture, ...]) -> dict[str, object]:
+def compare(compiled: holdfast_parser.Build, cases: tuple[Fixture, ...]) -> dict[str, object]:
     rows: list[dict[str, object]] = []
     differences: list[str] = []
     for case in cases:
-        baseline = _observe(lambda source=case.source: vela.translate(source))
-        native = _observe(lambda source=case.source: vela.translate_ast(source, vela_parser.parse_source(compiled, source)))
+        baseline = _observe(lambda source=case.source: holdfast.translate(source))
+        native = _observe(lambda source=case.source: holdfast.translate_ast(source, holdfast_parser.parse_source(compiled, source)))
         reasons: list[str] = []
         if baseline["category"] != case.expected:
             reasons.append("baseline differs from independent expected category")
@@ -277,7 +277,7 @@ def compare(compiled: vela_parser.Build, cases: tuple[Fixture, ...]) -> dict[str
         rows.append({"name": case.name, "source_sha256": hashlib.sha256(case.source).hexdigest(),
                      "source_bytes": len(case.source), "expected_category": case.expected,
                      "baseline": baseline, "generated": native, "differences": reasons})
-    return {"schema": 1, "scope": "vela-development-parser-migration-comparison",
+    return {"schema": 1, "scope": "holdfast-development-parser-migration-comparison",
             "status": "differences" if differences else "agreed",
             "checked_parser": False, "python_retired": False,
             "differences": differences, "fixtures": rows}
@@ -285,36 +285,36 @@ def compare(compiled: vela_parser.Build, cases: tuple[Fixture, ...]) -> dict[str
 
 def authored_cases(root: Path) -> tuple[Fixture, ...]:
     return (
-        *fixtures(vela_parser.read_source(root / "examples/pure.vela")),
+        *fixtures(holdfast_parser.read_source(root / "examples/pure.hf")),
         Fixture("authored-compositional-constants",
-                vela_parser.read_source(root / "examples/constants.vela"), "accepted"),
+                holdfast_parser.read_source(root / "examples/constants.hf"), "accepted"),
         Fixture("authored-extended-expressions",
-                vela_parser.read_source(root / "examples/expressions.vela"), "accepted"),
+                holdfast_parser.read_source(root / "examples/expressions.hf"), "accepted"),
     )
 
 
 def _inputs(root: Path) -> dict[str, str]:
     paths = ("tools/toolchain/__init__.py", "tools/toolchain/ast.py", "tools/toolchain/migration.py",
-             "examples/pure.vela")
-    return {**vela_parser._inputs(root),
+             "examples/pure.hf")
+    return {**holdfast_parser._inputs(root),
             **{path: file_sha256(root / path) for path in paths}}
 
 
 def qualify(root: Path) -> dict[str, object]:
     """Retain all differences; never replace the active prototype parser."""
-    latest = vela_parser._work_root(root) / "migration.json"
+    latest = holdfast_parser._work_root(root) / "migration.json"
     latest.unlink(missing_ok=True)
     inputs = _inputs(root)
-    syntax = vela_parser.qualify(root)
+    syntax = holdfast_parser.qualify(root)
     receipt = cast("dict[str, object]", syntax["build"])
     directory = Path(cast("str", receipt["directory"]))
-    compiled = vela_parser.Build(directory, directory / "vela-parser", receipt)
+    compiled = holdfast_parser.Build(directory, directory / "holdfast-parser", receipt)
     report = compare(compiled, authored_cases(root))
-    if _inputs(root) != inputs or vela_parser._toolchain(root) != receipt["toolchain"]:
+    if _inputs(root) != inputs or holdfast_parser._toolchain(root) != receipt["toolchain"]:
         raise ValueError("migration inputs or toolchain changed during comparison")
     outputs = cast("dict[str, str]", receipt["generated_sha256"])
-    if any(vela_parser._digest(directory / name) != outputs[name]
-           for name in (*vela_parser.GENERATED, "vela-parser")):
+    if any(holdfast_parser._digest(directory / name) != outputs[name]
+           for name in (*holdfast_parser.GENERATED, "holdfast-parser")):
         raise ValueError("migration parser output changed during comparison")
     report.update({"inputs": inputs, "build": receipt,
                    "syntax_qualification": str(directory / "qualification.json")})

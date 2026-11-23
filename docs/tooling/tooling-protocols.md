@@ -1,10 +1,10 @@
-# Vela compiler, editor and debugger interoperability
+# HoldFast compiler, editor and debugger interoperability
 
-Vela tooling shares compiler facts and exact source identities across
+HoldFast tooling shares compiler facts and exact source identities across
 diagnostics, navigation, explicit edits and proof inspection. The
 [pure language server](lsp-prototype.md) exposes the checked pure subset.
 This document defines the wider protocol and qualification boundaries.
-[Release boundary](../language/first-release.md#release-boundary) · [Delivery plan](../../PLAN.md#vela-whole-system-authoring-proposal)
+[Release boundary](../language/first-release.md#release-boundary) · [Delivery plan](../../PLAN.md#holdfast-whole-system-authoring-proposal)
 
 ## Standards and shared boundaries
 
@@ -38,7 +38,7 @@ parser, type system or proof acceptance path. Reuse
 [contextual diagnostic judgments](../language/core-design.md#typed-holes-and-invalidation)
 from `core-diagnostics`. The existing Rocq editor and
 [R-05-018a workflow](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-018a) retain their own subject and scope;
-their qualification is not Vela-server qualification.
+their qualification is not HoldFast-server qualification.
 
 The [compiler-service contract](../extensions/metaprogramming.md#compiler-services-and-runtime-information)
 constrains versioned semantic snapshots selected for analysis, refactoring and generation
@@ -49,10 +49,10 @@ these services. An incomplete editor snapshot remains diagnostic data and cannot
 authorize a splice, theorem reuse or production emission.
 
 For interchange exports, use the format's standard metadata where adequate and
-an explicitly hash-bound companion manifest for Vela provenance or completion
+an explicitly hash-bound companion manifest for HoldFast provenance or completion
 facts it cannot carry. The exporter owns the exported-file digest, input closure,
 compiler/configuration/target identities, supported scope and completion status.
-A Vela integration wrapper validates these bindings against the requested current
+A HoldFast integration wrapper validates these bindings against the requested current
 inputs before handing the projection to a stock consumer. Independent consumers
 qualify format interpretation; the wrapper owns freshness and completion checks
 that those consumers do not implement. A valid format alone supplies neither.
@@ -142,7 +142,7 @@ and invalid ranges inside an encoded character. Never reinterpret byte offsets
 as character indices.
 
 Standard diagnostics and hover remain useful without a custom client. Rich proof
-state may use a separately versioned, capability-advertised Vela extension with
+state may use a separately versioned, capability-advertised HoldFast extension with
 an explicit schema, source/dependency identity, statuses and cancellation rules.
 That extension adds presentation, not proof authority. Interactive recovery,
 holes and cached goals cannot satisfy
@@ -152,9 +152,9 @@ completed batch verdict only with its exact artifact/environment evidence.
 ## Compiler inspection API
 
 There is no adopted language-independent typed-AST interchange contract for
-Vela to implement. [ESTree](https://github.com/estree/estree) describes JavaScript
+HoldFast to implement. [ESTree](https://github.com/estree/estree) describes JavaScript
 syntax; [Clang's interfaces](https://clang.llvm.org/docs/Tooling.html) expose
-Clang-specific information with different stability boundaries. Define Vela's
+Clang-specific information with different stability boundaries. Define HoldFast's
 public views through versioned schemas owned by the compiler services in
 [the metaprogramming contract](../extensions/metaprogramming.md#compiler-services-and-runtime-information).
 Do not expose an accidental serialization of implementation objects as a stable API.
@@ -173,7 +173,7 @@ Publish a machine-checkable schema, protocol/version policy and independent
 client fixtures before advertising a view. A JSON CLI or local request API can
 carry these views; selecting that transport does not define their semantics.
 LLVM/MLIR representations are exposed only when actually used by a selected
-producer; compatibility exports do not require changing Vela's native pipeline.
+producer; compatibility exports do not require changing HoldFast's native pipeline.
 
 Each response/export binds schema and compiler versions, immutable source and
 dependency identities, configuration, target/ABI and producer stage. Node and
@@ -194,7 +194,7 @@ checked-generation requests retain their separate metaprogramming obligations.
 
 ### Pure development snapshot increment
 
-`python tools/run.py vela inspect SOURCE` exports version 7 of the bounded
+`python tools/run.py holdfast inspect SOURCE` exports version 7 of the bounded
 pure inspection view. Its [JSON Schema](../../tools/toolchain/inspection.schema.json)
 covers bulk snapshots and query replies; the
 [implementation](../../tools/toolchain/inspection.py) consumes the existing
@@ -285,12 +285,12 @@ image digest, compiler Python and parser source manifest, and dependency locks.
 The interpreter digest covers the Python executable and configured shared
 Python library on shared builds. Replacing either file invalidates offline
 snapshots, retained lint previews and the editor's worker replies.
-The pure producer has no imported Vela dependencies. These
+The pure producer has no imported HoldFast dependencies. These
 identities describe development inspection inputs; they supply no checked source
 correspondence, kernel or runtime-artifact acceptance. The isolated producer uses
 the existing checked-parser runtime qualification and integrity checks.
 
-`vela inspect SOURCE --query REQUEST.json` accepts a strict object with `schema: 7`,
+`holdfast inspect SOURCE --query REQUEST.json` accepts a strict object with `schema: 7`,
 the exported `snapshot` digest and one `operation`: `symbols`, `symbol-at` or
 `type-at` with a byte `offset`, or `references` with a snapshot-scoped `symbol` handle.
 `tokens` returns the full concrete partition subject to the query limit;
@@ -344,7 +344,7 @@ only for `checked` and preserves the source file.
 
 The independent [offline reader](../../tools/toolchain/inspection_reader.py) consumes
 serialized bulk exports through
-`python tools/run.py vela inspect SOURCE --snapshot EXPORT.json`, optionally with
+`python tools/run.py holdfast inspect SOURCE --snapshot EXPORT.json`, optionally with
 the same `--query REQUEST.json`. This path invokes no parser or resolution worker.
 Before handoff, the CLI recomputes the current source URI, source digest,
 configuration, target and producer closure; it refuses an export whose exact
@@ -361,7 +361,7 @@ stored facts. It implements all fifteen existing bounded query operations over
 those stored facts, including reference, type, syntax and scope queries. Current
 binding checks, cross-snapshot handle refusal, byte/CRLF coordinates, explicit
 truncation and incomplete producer statuses remain mandatory during offline queries.
-The [consumer qualification](../../tools/tests/test_vela_inspection_reader.py)
+The [consumer qualification](../../tools/tests/test_holdfast_inspection_reader.py)
 uses independently expected shadowing, sibling-block, required-static signature,
 named-argument and call-result facts, malformed graph and binding controls, and a
 source-preserving CLI round trip with the compiler worker disabled. This is a
@@ -390,7 +390,7 @@ generic/dependent constructs, malformed/incomplete edits and embedded-language
 boundaries where supported. Exercise each distributed grammar in its intended
 consumer and test Tree-sitter incremental results against a fresh parse after
 the same edit. Record known recovery differences without presenting recovered
-syntax as accepted Vela. Source-preserving tools use the compiler's qualified
+syntax as accepted HoldFast. Source-preserving tools use the compiler's qualified
 concrete-syntax view when exact language correspondence is required.
 
 ## Diagnostic and semantic-index exports
@@ -409,7 +409,7 @@ rule references and completion status to require visible rejection or degradatio
 
 ### Qualified pure batch SARIF
 
-`python tools/run.py vela sarif <source> ... --schema <schema.json> --output <report.sarif>`
+`python tools/run.py holdfast sarif <source> ... --schema <schema.json> --output <report.sarif>`
 exports the current pure `Nat`/`bool` diagnostic producer used by LSP. Its actual
 consumer is the pinned offline `sarif-tools` importer, providing portable batch
 review of multiple development files without a running language server. The
@@ -419,20 +419,20 @@ pure diagnostic worker has the existing five-second budget. Sources remain
 unchanged, and output is atomically published after source, producer and schema
 freshness checks. The report cannot alias a source or the external schema.
 
-Stable rules are `VELA-SYNTAX`, `VELA-NAME`, `VELA-TYPE`, `VELA-ENCODING`,
-`VELA-UNSUPPORTED`, `VELA-LIMIT`, `VELA-TIMEOUT` and `VELA-INTERNAL`.
+Stable rules are `HOLDFAST-SYNTAX`, `HOLDFAST-NAME`, `HOLDFAST-TYPE`, `HOLDFAST-ENCODING`,
+`HOLDFAST-UNSUPPORTED`, `HOLDFAST-LIMIT`, `HOLDFAST-TIMEOUT` and `HOLDFAST-INTERNAL`.
 An ordinary source rejection is a completed check with error findings; unsupported,
 limited, timed-out and failed checks set standard `executionSuccessful: false`
 and visible error notifications. Empty findings alone never supply completion.
-`properties.vela` binds the exact source URI/byte hashes, configuration, target,
+`properties.holdfast` binds the exact source URI/byte hashes, configuration, target,
 current compiler/runtime identity, supported scope, per-file outcomes and report
 bytes. These are development analysis judgments, with `unqualified: true`;
 neither a clean report nor its integrity binding supplies a source theorem.
 
 `--format-fixes` additionally requests the existing canonical formatter in its
-bounded worker. A `VELA-FORMAT` warning carries an explicit whole-file replacement
+bounded worker. A `HOLDFAST-FORMAT` warning carries an explicit whole-file replacement
 using SARIF byte regions; this is a preview, and the command applies no edit.
-An unavailable requested formatter emits `VELA-FORMAT-UNAVAILABLE` and incomplete
+An unavailable requested formatter emits `HOLDFAST-FORMAT-UNAVAILABLE` and incomplete
 status. The current producers supply no related locations, code flows or semantic
 fixes, so those fields are absent. Findings in different batch files preserve
 their own source associations; imports and wider semantic producers retain their
@@ -441,14 +441,14 @@ existing owners and unsupported verdicts.
 Reports use the exact external OASIS SARIF 2.1.0 schema recorded with the
 [reader pins and licence review](../../THIRD-PARTY.md#independent-sarif-importer).
 Supply that file explicitly; these commands download nothing.
-`vela sarif-validate <report.sarif> --sources <source> ... --schema <schema.json>`
+`holdfast sarif-validate <report.sarif> --sources <source> ... --schema <schema.json>`
 rechecks the schema, report binding, current producer and exact ordered inputs,
 including source bounds, rule references, UTF-16 source regions, fix ranges and
 consistent completion status. Both commands exit nonzero for rejected or
 incomplete analysis, preserving the report for inspection. A changed report,
 source, producer, scope or schema is refused before handoff.
 
-`vela sarif-qualify-reader --reader-directory <wheels> --schema <schema.json> --output <report.json>`
+`holdfast sarif-qualify-reader --reader-directory <wheels> --schema <schema.json> --output <report.json>`
 runs the exact-pinned importer from verified external wheels in an isolated
 Python process, with a 15-second process budget and 64 KiB output bounds. Its
 independently expected real fixtures cover Unicode/space file URIs, CRLF sources,
@@ -456,9 +456,9 @@ cross-file finding associations, source locations, canonical-format fix bytes an
 unsupported analysis. The stock importer independently interprets rule/severity,
 path and line records; the harness additionally checks the imported UTF-16 regions
 and applies the standard byte replacement independently of the exporter.
-Malformed and stale handoffs refuse through the Vela wrapper before import;
+Malformed and stale handoffs refuse through the HoldFast wrapper before import;
 stock `sarif-tools` alone grants no freshness or completion guarantee. The
-[behavioral controls](../../tools/tests/test_vela_sarif.py) additionally exercise
+[behavioral controls](../../tools/tests/test_holdfast_sarif.py) additionally exercise
 supplementary-character coordinates, every unavailable worker outcome, missing
 findings, corrupt messages/rules/status/fixes, malformed JSON and publication
 aliases. The pure lexer permits Unicode in line comments only; its adapter's
@@ -471,14 +471,14 @@ through the companion manifest; document symbol-identity rules, index scope and
 omissions. Import and query it
 without a running language server; test shadowing, imports, generated definitions,
 specializations and deleted/renamed dependencies against independently expected
-navigation. The Vela wrapper refuses a stale index as current source evidence
+navigation. The HoldFast wrapper refuses a stale index as current source evidence
 and distinguishes an incomplete index from a verified absence of references
 within the qualified scope; the stock reader supplies no such verdict. SCIP is a navigation
 projection, not the typed AST or the complete analysis/proof-state interface.
 
 ### Locked mathematical package index
 
-Run `python tools/run.py vela-parser scip WORKSPACE LOCK --output DIRECTORY`
+Run `python tools/run.py holdfast-parser scip WORKSPACE LOCK --output DIRECTORY`
 with a fresh destination directory after
 [locking a mathematical package](elaboration-prototype.md#locked-mathematical-packages).
 The bundle contains `index.scip`, `manifest.json`, the exact authored module
@@ -501,7 +501,7 @@ offset. A parameter's local symbol uses its declaration offset within its
 document. Identical spellings can resolve to different declarations.
 
 Before handing an index to an offline consumer, run
-`python tools/run.py vela-parser scip-check WORKSPACE LOCK DIRECTORY`.
+`python tools/run.py holdfast-parser scip-check WORKSPACE LOCK DIRECTORY`.
 This rebuilds against the current compiler and locked closure and compares all
 published bytes, including the schema-bound manifest and generated documents.
 A changed dependency or lock needs a fresh export. Use `--require-complete`
@@ -513,9 +513,9 @@ incomplete. Record fields, general type references, external labels and
 generated helper internals are outside this coverage. Qualification budgets
 allow 100,000 occurrences and 32 MiB of serialized index in addition to the
 locked build's own limits.
-Run `python tools/run.py vela-parser qualify-scip-reader READER` with the pinned
+Run `python tools/run.py holdfast-parser qualify-scip-reader READER` with the pinned
 Linux ARM64 SCIP v0.10.0 executable to replay both package revisions in the
-independent reader. [Behavioral controls](../../tools/tests/test_vela_scip.py)
+independent reader. [Behavioral controls](../../tools/tests/test_holdfast_scip.py)
 
 ## Build integration
 
@@ -534,17 +534,17 @@ For actual C/C++ bridge invocations, export
 with exact argument arrays, working directories and source/output associations.
 An independent tooling consumer must recover the same includes, defines and target
 flags, including paths with spaces. This export describes bridge compilations;
-it neither replaces Vela's module graph nor assumes every build has a C stage.
+it neither replaces HoldFast's module graph nor assumes every build has a C stage.
 
 ### Locked mathematical package builds
 
-`vela-parser bsp WORKSPACE LOCK [LOCK ...]` serves BSP 2.1.1 over length-framed
+`holdfast-parser bsp WORKSPACE LOCK [LOCK ...]` serves BSP 2.1.1 over length-framed
 stdio on the native parser lane. Pass one to eight locks created by
 [`lock-package`](elaboration-prototype.md#locked-mathematical-packages). Supply the
 workspace's file URI in `build/initialize`, then send `build/initialized`.
 `workspace/buildTargets` exposes every package in each checked configuration.
 The target URI binds the exact lock bytes and package name. Dependencies point to
-targets in that configuration. The `vela-locked-package` data includes the
+targets in that configuration. The `holdfast-locked-package` data includes the
 edition, target, package instance, declared input hashes and locked producer.
 Each lock's root exposes the batch compile operation. Supply a separate root
 lock to compile a dependency by itself.
@@ -552,7 +552,7 @@ lock to compile a dependency by itself.
 `buildTarget/compile` runs the existing `build-package` command for one root at a
 time, with its locked options and a 180-second process budget. Success carries
 the batch verdict, module digests and exact generated bundle URI and SHA-256 in
-`vela-batch-build` data. `buildTarget/sources` reports the declared Vela files
+`holdfast-batch-build` data. `buildTarget/sources` reports the declared HoldFast files
 and, following success, the corresponding generated Gallina files. Outputs live
 in a private directory for the session. A changed dependency or lock requires
 a new checked graph. A failed build returns its exit status and bounded diagnostic.
@@ -560,7 +560,7 @@ a new checked graph. A failed build returns its exit status and bounded diagnost
 The package build's verdict is mathematical elaboration. Kernel replay and the
 packet compiler are separate operations.
 
-Run `python tools/run.py vela-parser qualify-bsp-client` for the
+Run `python tools/run.py holdfast-parser qualify-bsp-client` for the
 [pinned bsp.nvim client](../../tools/toolchain/bsp_client.py). Its Neovim
 project loader reads five targets from three configurations in a workspace
 whose path contains a space. The qualifier compares the two generated modules
@@ -570,11 +570,11 @@ and observes the stale graph after the imported provider changes. It checks
 the server's clean shutdown after these requests. [BSP 2.1.1 specification release](https://github.com/build-server-protocol/build-server-protocol/releases/tag/v2.1.1)
 
 For the [packet walkthrough](packet-walkthrough.md), pass
-`--compile-commands NEW_DIRECTORY` to `vela-parser packet-example`. The new
+`--compile-commands NEW_DIRECTORY` to `holdfast-parser packet-example`. The new
 directory retains the generated C, compiled executable and compilation database.
 The database records the same working directory and argument vector passed to
 the successful C compiler process, including the translation unit and output.
-`vela-parser qualify-compile-commands /usr/lib/llvm-21/bin/clang-scan-deps`
+`holdfast-parser qualify-compile-commands /usr/lib/llvm-21/bin/clang-scan-deps`
 checks this build and a cross-compiled RISC-V object with an explicit target,
 include path and definition. The [Clang reader](../../THIRD-PARTY.md#independent-compilation-database-reader)
 recovers the expected translation units, included files, options, working
@@ -586,7 +586,7 @@ Expose optimization decisions using an
 [LLVM remarks](https://llvm.org/docs/Remarks.html) compatibility exporter for the
 declared supported subset, initially YAML where a selected reader supports it.
 Report pass/site identities, performed or missed transformations, analysis reasons
-and source/IR origins. Keep Vela-specific legality, proof, resource and cost causes
+and source/IR origins. Keep HoldFast-specific legality, proof, resource and cost causes
 in a documented extension or bound compiler-service record rather than inventing
 standard fields. This serialization adds no LLVM dependency to the native path.
 Qualify an independent reader and independently chosen applied/missed/refused
@@ -594,8 +594,8 @@ cases, including generated and optimized-away sites. A remark reports a decision
 it supplies no transformation-preservation proof or target speedup measurement.
 
 The pure compiler exports the decisions of its required-static specialization
-pass with `python tools/run.py vela remarks SOURCE --output REMARKS.yaml`.
-The LLVM YAML pass name is `vela-static-specialization`. Each record names the
+pass with `python tools/run.py holdfast remarks SOURCE --output REMARKS.yaml`.
+The LLVM YAML pass name is `holdfast-static-specialization`. Each record names the
 containing generated Gallina function or constant and points to the authored
 call in one-based lines and Unicode code-point columns. `File` is the
 UTF-8 percent-encoded source basename. The `Callee` argument
@@ -617,10 +617,10 @@ digest or the compiler refusal. The command returns failure for refused
 source and publishes the decisions reached before it stopped. A syntax error
 can therefore yield an empty stream with a refusal in its header. Recording
 allows 256 decisions and one MiB per file. Exhaustion preserves the previous
-file. Run `python tools/run.py vela remarks-validate SOURCE REMARKS.yaml` to
+file. Run `python tools/run.py holdfast remarks-validate SOURCE REMARKS.yaml` to
 recompile and compare every byte, including the decision order and bindings.
 
-Run `python tools/run.py vela-parser qualify-remarks /usr/lib/llvm-21/bin/llvm-remarkutil`
+Run `python tools/run.py holdfast-parser qualify-remarks /usr/lib/llvm-21/bin/llvm-remarkutil`
 with the [pinned Ubuntu ARM64 reader](../../THIRD-PARTY.md#llvm-optimization-remark-reader).
 LLVM converts the exported YAML to its native bitstream, decodes it, and counts
 the decisions per function. The [qualification](../../tools/toolchain/remarks_reader.py)
@@ -637,7 +637,7 @@ Identify parsing, resolution, elaboration, generation, proof work and lowering,
 with explicit clock/time units, worker identities, counters and input/tool
 identities. Bound recording overhead and size; mark dropped events, incomplete
 spans and cancellation. An independent viewer must recover expected ordering,
-nesting and durations from a deterministic fixture. The recorder and Vela
+nesting and durations from a deterministic fixture. The recorder and HoldFast
 validation wrapper bind those events and completeness metadata in the export
 manifest; malformed timestamps and overflow/truncation cannot produce a complete
 measurement claim. Compiler traces
@@ -658,7 +658,7 @@ resulting ELF, the simulator executable and its configuration.
 [Backend](../../tools/toolchain/simulator_debug.py)
 
 Run the passing control at its packet-view length query with
-`python tools/run.py vela-parser debug-simulator --command "until 102" --command stack --command step --command "eval c13.length"`.
+`python tools/run.py holdfast-parser debug-simulator --command "until 102" --command stack --command step --command "eval c13.length"`.
 At line 102, PC `0x80000168`, the stack shows `main` called from `_start` at
 line 20. One machine step retires `cgetlen`, making `c13.length` available as
 4. Use `--command source` to see the numbered assembly and `--control tag-trap`
@@ -677,9 +677,9 @@ the available stack frames. Disconnect expires the stop handle. Reconnect
 repeats the stop and issues a fresh handle. Each run has a ten-second deadline.
 After execution, the backend rejects traces larger than 128 KiB before reading
 them. Sessions inspect development assembly. Source-level
-Vela debugging additionally requires [exact-image debug information](#dwarf-native-debug-information).
+HoldFast debugging additionally requires [exact-image debug information](#dwarf-native-debug-information).
 
-Run `python tools/run.py vela-parser debug-simulator --qualify` in a lane with
+Run `python tools/run.py holdfast-parser debug-simulator --qualify` in a lane with
 a configured simulator and profile. To select the installation used for the
 four controls explicitly, append
 `--simulator /root/build/verifiedos-model/c_emulator/sail_riscv_sim --profile /root/build/verifiedos-model/config/verifiedos.json`
@@ -773,12 +773,12 @@ compiler work.
 
 The target profile must specify register numbering, capability-sized locations,
 pointer/address distinctions and unwind rules for its exact purecap ABI. Use
-standard DWARF encodings where adequate and document every required CHERI/Vela
+standard DWARF encodings where adequate and document every required CHERI/HoldFast
 extension with independent reader controls. A generic RV64 debugger is not
 presumed capability-aware. Consult the
 [assigned language codes](https://dwarfstd.org/languages.html): obtain an assignment
 or document a temporary code in DWARF's user range; never claim another language's
-code as Vela's or invent a registered `DW_LANG_Vela` value.
+code as HoldFast's or invent a registered `DW_LANG_HoldFast` value.
 
 Bind the debug sidecar to the final stripped/composed executable bytes, layout,
 source closure, compiler/options and target/ABI identities. DWARF file checksums
@@ -797,18 +797,18 @@ by a debug sidecar.
 
 ## Generated-source maps
 
-To find the Vela source of a generated Gallina proof, run
-`python tools/run.py vela-parser source-map SOURCE --output NEW_DIRECTORY`.
+To find the HoldFast source of a generated Gallina proof, run
+`python tools/run.py holdfast-parser source-map SOURCE --output NEW_DIRECTORY`.
 The mathematical compiler elaborates a standalone module with word equations
 enabled. The directory contains its exact `module.v`, a version 3
 `module.v.map` and a companion `manifest.json`. The text map follows the
 [first edition of ECMA-426](https://ecma-international.org/publications-and-standards/standards/ecma-426/).
 
-Run `python tools/run.py vela-parser source-map-query SOURCE DIRECTORY --node /usr/local/bin/node --line LINE --column COLUMN`
+Run `python tools/run.py holdfast-parser source-map-query SOURCE DIRECTORY --node /usr/local/bin/node --line LINE --column COLUMN`
 at a position in that Gallina file. The command accepts and returns one-based
 UTF-16 coordinates. A declaration maps to its authored start. A generated
 arithmetic statement and its proof map to the operation that required the
-equation. Each map embeds the original text under a `vela-source:` URI
+equation. Each map embeds the original text under a `holdfast-source:` URI
 containing its SHA-256 and escaped filename. Offline readers can open the
 embedded source after the bundle moves. The lookup command also returns the
 verified local file URI. The manifest preserves both the operation and its enclosing
@@ -821,7 +821,7 @@ to the [DWARF producer](#dwarf-native-debug-information).
 The [lookup wrapper](../../tools/toolchain/gallina_source_map.py) regenerates
 the three files from the current source, mathematical compiler, parser and
 interpreter. It verifies their exact bytes before passing the map to the stock
-Node.js reader. Use `python tools/run.py vela-parser qualify-source-maps --node /usr/local/bin/node`
+Node.js reader. Use `python tools/run.py holdfast-parser qualify-source-maps --node /usr/local/bin/node`
 on the qualified Linux ARM64 setup to exercise Unicode, proof origins after
 literal sharing, unmapped locations and stale inputs.
 [Reader pin](../../THIRD-PARTY.md#independent-gallina-source-map-reader)
@@ -829,7 +829,7 @@ literal sharing, unmapped locations and stale inputs.
 
 ## Generated development tests
 
-`python tools/run.py vela generated-tests` exercises source coordinates,
+`python tools/run.py holdfast generated-tests` exercises source coordinates,
 synchronous LSP overlays and pure formatting. It installs the pinned generator
 and its dependency in a disposable environment using the manifest's Python
 minor version and the locked tool runtime. The command runs with Python's
@@ -849,7 +849,7 @@ per campaign process. Reports bind seeds, settings, inputs and tool identities.
 A timeout or replay failure leaves the campaign incomplete. Minimized cases
 replay from explicit data without the original generator. Seeded faults check
 code-point/UTF-16 conversion, sequential edit coordinates and rollback after a
-later invalid edit. [Replay fixtures](../../tools/tests/test_vela_generated_tests.py)
+later invalid edit. [Replay fixtures](../../tools/tests/test_holdfast_generated_tests.py)
 
 The [native syntax campaigns](parser.md#generated-syntax-campaigns) use Menhir's
 generation and interpreter facilities. Both campaigns exercise development

@@ -17,26 +17,26 @@ from typing import cast
 
 from filelock import FileLock
 
-import toolchain as vela
+import toolchain as holdfast
 from toolchain import (
-    VelaError,
+    HoldFastError,
     env,
     proofenv,
     solver_ledger,
 )
 from toolchain import (
-    elaborate as vela_elaborate,
+    elaborate as holdfast_elaborate,
 )
 from toolchain import (
-    parser as vela_parser,
+    parser as holdfast_parser,
 )
 from toolchain.atomic import publish_report
 from toolchain.hashing import file_sha256
 from toolchain.hashing import sha256_bytes as _sha256
 
 TIMEOUT = 120
-EXAMPLE = "examples/dependent.vela"
-WORD_COUNT_EXAMPLE = "examples/word_count.vela"
+EXAMPLE = "examples/dependent.hf"
+WORD_COUNT_EXAMPLE = "examples/word_count.hf"
 
 
 @dataclass(frozen=True)
@@ -379,7 +379,7 @@ lemma Observed() ensures Fit() == true ensures Exhausted() == true
         ("raw-strings-and-checked-formatting", '''module CheckedFormattingReplay;
 public definition Vec<Nat, 10> HeaderTag() =>
     """
-    [vela-hdr]
+    [demo-hdr]
     """;
 public const Nat HeaderBytes = ByteLength(HeaderTag());
 public definition Nat Count(Nat internalCount as count) => internalCount;
@@ -688,7 +688,7 @@ public definition u32 SafeAdd(u32 a, u32 b)
     requires a <= 1000u32 && b <= 1000u32 =>
     a + b;
 public definition u8 WrapByte(u8 x) =>
-    Vela.Numerics.WrappingAdd(x, 1u8);
+    HoldFast.Numerics.WrappingAdd(x, 1u8);
 public definition Seq<u32> PairSeq() =>
     Seq.Singleton(10u32).Append(Seq.Singleton(20u32));
 public lemma CharIntAndSeqProofs()
@@ -1386,7 +1386,7 @@ public definition Fn(Nat n,Vec<Nat,n> values) -> Vec<Nat,n> Preserve() =>
 public definition Vec<Nat,1> Original() => VCons(42, VNil<Nat>());
 public definition Nat PreservedValue() =>
     At(Preserve()(n: 1, values: Copy(Original())), FZero<0>());
-public definition Vec<Nat,10> HeaderTag() => """[vela-hdr]""";
+public definition Vec<Nat,10> HeaderTag() => """[demo-hdr]""";
 public TextBuilder<36> FormatPacket(Nat id, bool ok) {
     let TextBuilder<36> builder = EmptyBuilder();
     let TextBuilder<36> withHeader = Format.Write(ref builder, $"hdr={HeaderTag()} ");
@@ -1414,14 +1414,14 @@ public definition Nat AdvancedRemaining() =>
 public definition Nat GuardedStep() =>
     StepIfPositive(2, Counter(Value: 10, Limit: 5));
 ''', observations=(
-        ("vela_d2_HigherOrder Corelib.Init.Datatypes.tt", "42"),
-        ("vela_d4_Second Corelib.Init.Datatypes.tt", "20"),
-        ("vela_d5_SelectedValue Corelib.Init.Datatypes.tt", "true"),
-        ("vela_d9_PreservedValue Corelib.Init.Datatypes.tt", "42"),
-        ("vela_d12_PacketWritten Corelib.Init.Datatypes.tt", "32"),
-        ("vela_d13_PacketFits Corelib.Init.Datatypes.tt", "true"),
-        ("vela_d23_AdvancedRemaining Corelib.Init.Datatypes.tt", "2"),
-        ("vela_d24_GuardedStep Corelib.Init.Datatypes.tt", "15")))
+        ("holdfast_d2_HigherOrder Corelib.Init.Datatypes.tt", "42"),
+        ("holdfast_d4_Second Corelib.Init.Datatypes.tt", "20"),
+        ("holdfast_d5_SelectedValue Corelib.Init.Datatypes.tt", "true"),
+        ("holdfast_d9_PreservedValue Corelib.Init.Datatypes.tt", "42"),
+        ("holdfast_d12_PacketWritten Corelib.Init.Datatypes.tt", "32"),
+        ("holdfast_d13_PacketFits Corelib.Init.Datatypes.tt", "true"),
+        ("holdfast_d23_AdvancedRemaining Corelib.Init.Datatypes.tt", "2"),
+        ("holdfast_d24_GuardedStep Corelib.Init.Datatypes.tt", "15")))
     widths = Fixture("symbolic-format-width", b"""module FormatWidth;
 definition TextBuilder<2> Hex(Nat value) =>
     Format.Write(ref EmptyBuilder<2>(), $"{value:x2}");
@@ -1430,13 +1430,13 @@ definition TextBuilder<2> Word(u32 value) =>
 definition bool Fits255() => Fits(Hex(255));
 definition bool Fits256() => Fits(Hex(256));
 definition Nat WordLength() => Written(Word(0xffffffffu32));
-""", observations=(("vela_d2_Fits255 tt", "true"), ("vela_d3_Fits256 tt", "false"),
-                   ("vela_d4_WordLength tt", "0")))
+""", observations=(("holdfast_d2_Fits255 tt", "true"), ("holdfast_d3_Fits256 tt", "false"),
+                   ("holdfast_d4_WordLength tt", "0")))
     capacity = Fixture("specialized-slot-capacity", b"""module SlotCapacity;
 definition usize CapacityOf<ghost Nat n>(Slots<byte,n> s) => s.Capacity;
 definition usize Closed(Slots<byte,4> s) => s.Capacity;
 definition bool Agrees() => let s = Slots.AllocVacant<byte,4>() in CapacityOf(s) == Closed(s);
-""", observations=(("vela_d2_Agrees tt", "true"),))
+""", observations=(("holdfast_d2_Agrees tt", "true"),))
     slots = Fixture("vacant-slot-representation", b"""module Storage;
 definition Slots<u32, 4> Pair() =>
     let s = Slots.AllocVacant<u32, 4>(0usize) in
@@ -1455,9 +1455,9 @@ Slots<u32,4> Replace(Slots<u32,4> input)
     return s;
 }
 definition bool Replaced() => Replace(Pair()).Model.At(0) == 33u32 && Replace(Pair()).Model.At(1) == 22u32;
-""", observations=(("vela_d1_Contents tt", "true"), ("vela_d2_Occupancy tt", "true"),
-                   ("vela_d3_Overlap tt", "false"), ("vela_d4_MatchEmpty tt", "false"),
-                   ("vela_d5_PrefixLength tt", "1"), ("vela_d7_Replaced tt", "true")))
+""", observations=(("holdfast_d1_Contents tt", "true"), ("holdfast_d2_Occupancy tt", "true"),
+                   ("holdfast_d3_Overlap tt", "false"), ("holdfast_d4_MatchEmpty tt", "false"),
+                   ("holdfast_d5_PrefixLength tt", "1"), ("holdfast_d7_Replaced tt", "true")))
     span_model = Fixture("span-sequence-projection", b"""module SpanModel;
 definition Nat Size(Span<byte> s) requires s.CanRead => s.Model.Count;
 definition bool HasMark(Span<byte> s) requires s.CanRead => s.Model.Any(b => b == 42u8);
@@ -1466,16 +1466,16 @@ definition Nat Nonempty() => Size(Marked());
 definition bool InSlice() => HasMark(Span.Slice(Marked(), 1usize, 1usize));
 definition bool OutsideSlice() => HasMark(Span.Slice(Marked(), 2usize, 1usize));
 definition bool InEmpty() => HasMark(Span.AllocZeroed(0usize));
-""", observations=(("vela_d3_Nonempty tt", "3"), ("vela_d4_InSlice tt", "true"),
-                   ("vela_d5_OutsideSlice tt", "false"), ("vela_d6_InEmpty tt", "false")))
+""", observations=(("holdfast_d3_Nonempty tt", "3"), ("holdfast_d4_InSlice tt", "true"),
+                   ("holdfast_d5_OutsideSlice tt", "false"), ("holdfast_d6_InEmpty tt", "false")))
     intervals = Fixture("span-interval-boundaries", b"""module Extents;
 definition bool Apart(usize a, usize n, usize b, usize m) =>
     Span.Disjoint(Span.AllocZeroed(a, n), Span.AllocZeroed(b, m));
 definition bool LastByte() => Apart(0xffffffffffffffffusize, 1usize, 0xffffffffffffffffusize, 1usize);
 definition bool EmptyInside() => Apart(2usize, 4usize, 3usize, 0usize);
 definition bool Touch() => Apart(2usize, 4usize, 6usize, 2usize);
-""", observations=(("vela_d1_LastByte tt", "false"), ("vela_d2_EmptyInside tt", "true"),
-                   ("vela_d3_Touch tt", "true")))
+""", observations=(("holdfast_d1_LastByte tt", "false"), ("holdfast_d2_EmptyInside tt", "true"),
+                   ("holdfast_d3_Touch tt", "true")))
     arithmetic = Fixture("checked-word-operations", b"""module WordReplay;
 definition u8 Next(u8 x) requires x < 255u8 => x + 1u8;
 definition i8 Divide() => -10i8 / 2i8;
@@ -1484,10 +1484,10 @@ definition u8 Shift() => ShiftLeft(3u8, 2usize);
 definition u8 ModularShift() => WrappingShiftLeft(255u8, 2usize);
 """, word_proofs=True)
     def word(tag: int, hex_digits: str) -> str:
-        bits = "vela_bnil"
+        bits = "holdfast_bnil"
         for digit in reversed(hex_digits):
-            bits = f"(vela_x{digit} {bits})"
-        return f"(vela_mk_int {tag} {bits})"
+            bits = f"(holdfast_x{digit} {bits})"
+        return f"(holdfast_mk_int {tag} {bits})"
 
     zero64 = word(8, "0000000000000000")
     symbolic_wide = Fixture("symbolic-wide-word-operations", b"""module WideReplay;
@@ -1501,25 +1501,25 @@ definition i16 Flip(i16 x) requires x != i16.Min => -x;
 definition i32 Right(i32 x, usize c) requires c < 32usize => ShiftRight(x, c);
 definition u16 Left(u16 x, usize c) requires c < 16usize => WrappingShiftLeft(x, c);
 """, word_proofs=True, word_expectations=(
-        (b"x + 1u32", f"forall x, vela_int_lt 2 x {word(2, 'ffffffff')} = true -> "
-         f"vela_int_chk_add 2 x {word(2, '00000001')} = vela_Result_Ok _ _ (vela_d0_Next x)"),
-        (b"x + y", f"forall x y, vela_int_le 4 x {word(4, '000000012a05f200')} = true -> "
-         f"vela_int_le 4 y {word(4, '0000000165a0bc00')} = true -> "
-         "vela_int_chk_add 4 x y = vela_Result_Ok _ _ (vela_d1_Add x y)"),
-        (b"x - y", "forall x y, vela_int_ge 3 x y = true -> "
-         "vela_int_chk_sub 3 x y = vela_Result_Ok _ _ (vela_d2_Distance x y)"),
-        (b"x / d", f"forall x d, vela_int_ne 1 d {word(1, '0000')} = true -> "
-         "vela_int_chk_div 1 x d = vela_Result_Ok _ _ (vela_d3_Divide x d)"),
-        (b"x % d", f"forall x d, vela_int_ne 8 d {zero64} = true -> "
-         "vela_int_chk_rem 8 x d = vela_Result_Ok _ _ (vela_d4_Remainder x d)"),
-        (b"x / divisor", f"forall x d, vela_int_ne 8 d {zero64} = true -> vela_int_ne 8 x {word(8, '8000000000000000')} = true -> "
-         "vela_int_chk_div 8 x d = vela_Result_Ok _ _ (vela_d5_SignedDivide x d)"),
-        (b"-x", f"forall x, vela_int_ne 6 x {word(6, '8000')} = true -> "
-         "vela_int_chk_neg 6 x = vela_Result_Ok _ _ (vela_d6_Flip x)"),
-        (b"ShiftRight(x, c)", f"forall x c, vela_int_lt 4 c {word(4, '0000000000000020')} = true -> "
-         "vela_int_chk_shr 7 x c = vela_Result_Ok _ _ (vela_d7_Right x c)"),
-        (b"WrappingShiftLeft(x, c)", f"forall x c, vela_int_lt 4 c {word(4, '0000000000000010')} = true -> "
-         "vela_checked_wrap_shl 1 x c = vela_Result_Ok _ _ (vela_d8_Left x c)"),
+        (b"x + 1u32", f"forall x, holdfast_int_lt 2 x {word(2, 'ffffffff')} = true -> "
+         f"holdfast_int_chk_add 2 x {word(2, '00000001')} = holdfast_Result_Ok _ _ (holdfast_d0_Next x)"),
+        (b"x + y", f"forall x y, holdfast_int_le 4 x {word(4, '000000012a05f200')} = true -> "
+         f"holdfast_int_le 4 y {word(4, '0000000165a0bc00')} = true -> "
+         "holdfast_int_chk_add 4 x y = holdfast_Result_Ok _ _ (holdfast_d1_Add x y)"),
+        (b"x - y", "forall x y, holdfast_int_ge 3 x y = true -> "
+         "holdfast_int_chk_sub 3 x y = holdfast_Result_Ok _ _ (holdfast_d2_Distance x y)"),
+        (b"x / d", f"forall x d, holdfast_int_ne 1 d {word(1, '0000')} = true -> "
+         "holdfast_int_chk_div 1 x d = holdfast_Result_Ok _ _ (holdfast_d3_Divide x d)"),
+        (b"x % d", f"forall x d, holdfast_int_ne 8 d {zero64} = true -> "
+         "holdfast_int_chk_rem 8 x d = holdfast_Result_Ok _ _ (holdfast_d4_Remainder x d)"),
+        (b"x / divisor", f"forall x d, holdfast_int_ne 8 d {zero64} = true -> holdfast_int_ne 8 x {word(8, '8000000000000000')} = true -> "
+         "holdfast_int_chk_div 8 x d = holdfast_Result_Ok _ _ (holdfast_d5_SignedDivide x d)"),
+        (b"-x", f"forall x, holdfast_int_ne 6 x {word(6, '8000')} = true -> "
+         "holdfast_int_chk_neg 6 x = holdfast_Result_Ok _ _ (holdfast_d6_Flip x)"),
+        (b"ShiftRight(x, c)", f"forall x c, holdfast_int_lt 4 c {word(4, '0000000000000020')} = true -> "
+         "holdfast_int_chk_shr 7 x c = holdfast_Result_Ok _ _ (holdfast_d7_Right x c)"),
+        (b"WrappingShiftLeft(x, c)", f"forall x c, holdfast_int_lt 4 c {word(4, '0000000000000010')} = true -> "
+         "holdfast_checked_wrap_shl 1 x c = holdfast_Result_Ok _ _ (holdfast_d8_Left x c)"),
     ))
     signed_sums = Fixture("guarded-signed-word-sums", b"""module SignedSums;
 definition i32 Increment(i32 x) requires x < i32.Max => x + 1i32;
@@ -1531,22 +1531,22 @@ definition i32 Difference(i32 x, i32 y) requires x >= 0i32 requires y >= 0i32 =>
 definition i16 Offset(i16 x) requires x == -1i16 => x + -32767i16;
 definition i32 Previous(i32 value) requires value != i32.Min => value + -1i32;
 """, word_proofs=True, word_expectations=(
-        (b"x + 1i32", f"forall x, vela_int_lt 7 x {word(7, '7fffffff')} = true -> "
-         f"vela_int_chk_add 7 x {word(7, '00000001')} = vela_Result_Ok _ _ (vela_d0_Increment x)"),
-        (b"x - 1i16", f"forall x, vela_int_gt 6 x {word(6, '8000')} = true -> "
-         f"vela_int_chk_sub 6 x {word(6, '0001')} = vela_Result_Ok _ _ (vela_d1_Decrement x)"),
-        (b"a + b", f"forall a b, vela_int_ge 8 a {word(8, 'ffffffff1194d800')} = true -> "
-         f"vela_int_le 8 a {word(8, '00000000ee6b2800')} = true -> "
-         f"vela_int_ge 8 b {word(8, 'fffffffe9a5f4400')} = true -> "
-         f"vela_int_le 8 b {word(8, '0000000165a0bc00')} = true -> "
-         "vela_int_chk_add 8 a b = vela_Result_Ok _ _ (vela_d2_Add a b)"),
-        (b"x - y", f"forall x y, vela_int_ge 7 x {word(7, '00000000')} = true -> "
-         f"vela_int_ge 7 y {word(7, '00000000')} = true -> "
-         "vela_int_chk_sub 7 x y = vela_Result_Ok _ _ (vela_d3_Difference x y)"),
-        (b"x + -32767i16", f"forall x, vela_int_eq 6 x {word(6, 'ffff')} = true -> "
-         f"vela_int_chk_add 6 x {word(6, '8001')} = vela_Result_Ok _ _ (vela_d4_Offset x)"),
-        (b"value + -1i32", f"forall x, vela_int_ne 7 x {word(7, '80000000')} = true -> "
-         f"vela_int_chk_add 7 x {word(7, 'ffffffff')} = vela_Result_Ok _ _ (vela_d5_Previous x)"),
+        (b"x + 1i32", f"forall x, holdfast_int_lt 7 x {word(7, '7fffffff')} = true -> "
+         f"holdfast_int_chk_add 7 x {word(7, '00000001')} = holdfast_Result_Ok _ _ (holdfast_d0_Increment x)"),
+        (b"x - 1i16", f"forall x, holdfast_int_gt 6 x {word(6, '8000')} = true -> "
+         f"holdfast_int_chk_sub 6 x {word(6, '0001')} = holdfast_Result_Ok _ _ (holdfast_d1_Decrement x)"),
+        (b"a + b", f"forall a b, holdfast_int_ge 8 a {word(8, 'ffffffff1194d800')} = true -> "
+         f"holdfast_int_le 8 a {word(8, '00000000ee6b2800')} = true -> "
+         f"holdfast_int_ge 8 b {word(8, 'fffffffe9a5f4400')} = true -> "
+         f"holdfast_int_le 8 b {word(8, '0000000165a0bc00')} = true -> "
+         "holdfast_int_chk_add 8 a b = holdfast_Result_Ok _ _ (holdfast_d2_Add a b)"),
+        (b"x - y", f"forall x y, holdfast_int_ge 7 x {word(7, '00000000')} = true -> "
+         f"holdfast_int_ge 7 y {word(7, '00000000')} = true -> "
+         "holdfast_int_chk_sub 7 x y = holdfast_Result_Ok _ _ (holdfast_d3_Difference x y)"),
+        (b"x + -32767i16", f"forall x, holdfast_int_eq 6 x {word(6, 'ffff')} = true -> "
+         f"holdfast_int_chk_add 6 x {word(6, '8001')} = holdfast_Result_Ok _ _ (holdfast_d4_Offset x)"),
+        (b"value + -1i32", f"forall x, holdfast_int_ne 7 x {word(7, '80000000')} = true -> "
+         f"holdfast_int_chk_add 7 x {word(7, 'ffffffff')} = holdfast_Result_Ok _ _ (holdfast_d5_Previous x)"),
     ))
     wide_refusals = (
         ("wide-add-overflow", "definition u32 Next(u32 x) requires x <= u32.Max => x + 1u32;", "type"),
@@ -1573,16 +1573,16 @@ definition Nat ApplyTag(const Vec<Nat,3> tag, Nat value) => value + tag[1];
 definition Nat Scale(Nat value) => ApplyTag(Tag, value);
 definition bool Wide() => Offsets[0] == 4294967297usize && Offsets[1] == 17usize;
 definition Nat Last() => Tag[2];
-""".encode(), observations=(("vela_d6_Scale 0", "195"), ("vela_d6_Scale 11", "206"),
-                            ("vela_d8_Wide tt", "true"), ("vela_d9_Last tt", "169")),
+""".encode(), observations=(("holdfast_d6_Scale 0", "195"), ("holdfast_d6_Scale 11", "206"),
+                            ("holdfast_d8_Wide tt", "true"), ("holdfast_d9_Last tt", "169")),
                            freeze_expectations=(
-                               ("vela_d2_Tag_freeze", "vela_d1_TagBytes tt = vela_d2_Tag"),
-                               ("vela_d4_Offsets_freeze", "vela_d3_MakeOffsets tt = vela_d4_Offsets"),
-                               ("@vela_freeze_observe _ _ _ vela_d2_Tag_freeze "
-                                "(fun bytes => vela_Fin (S (vela_d5_ApplyTag bytes 11))) "
-                                "(fun bytes => vela_fzero (vela_d5_ApplyTag bytes 11))",
-                                "@eq_rect _ (vela_d1_TagBytes tt) (fun bytes => vela_Fin (S (vela_d5_ApplyTag bytes 11))) "
-                                "(vela_fzero 206) vela_d2_Tag vela_d2_Tag_freeze = vela_fzero 206"),
+                               ("holdfast_d2_Tag_freeze", "holdfast_d1_TagBytes tt = holdfast_d2_Tag"),
+                               ("holdfast_d4_Offsets_freeze", "holdfast_d3_MakeOffsets tt = holdfast_d4_Offsets"),
+                               ("@holdfast_freeze_observe _ _ _ holdfast_d2_Tag_freeze "
+                                "(fun bytes => holdfast_Fin (S (holdfast_d5_ApplyTag bytes 11))) "
+                                "(fun bytes => holdfast_fzero (holdfast_d5_ApplyTag bytes 11))",
+                                "@eq_rect _ (holdfast_d1_TagBytes tt) (fun bytes => holdfast_Fin (S (holdfast_d5_ApplyTag bytes 11))) "
+                                "(holdfast_fzero 206) holdfast_d2_Tag holdfast_d2_Tag_freeze = holdfast_fzero 206"),
                            ))
     return (arithmetic, symbolic_wide, signed_sums, frozen_table,
             Fixture("runtime-static-table-element", b"""module RuntimeElement;
@@ -1648,7 +1648,7 @@ def _run(arguments: list[str], directory: Path, log: Path,
         row.update({"status": "timeout", "seconds": round(time.monotonic() - started, 6),
                     "log": str(log), "log_sha256": _sha256(output)})
         steps.append(row)
-        raise RuntimeError(f"Vela replay command exceeded {TIMEOUT} seconds") from error
+        raise RuntimeError(f"HoldFast replay command exceeded {TIMEOUT} seconds") from error
     except OSError as error:
         output = str(error).encode("utf-8")
         log.write_bytes(output)
@@ -1662,7 +1662,7 @@ def _run(arguments: list[str], directory: Path, log: Path,
                 "log": str(log), "log_sha256": _sha256(output)})
     steps.append(row)
     if done.returncode:
-        raise RuntimeError(f"Vela replay command exited {done.returncode}: "
+        raise RuntimeError(f"HoldFast replay command exited {done.returncode}: "
                            + output.decode("utf-8", errors="replace")[-3000:])
     return done.stdout.decode("utf-8")
 
@@ -1676,33 +1676,33 @@ def _inputs(root: Path) -> dict[str, str]:
         "tools/uv.lock",
         "tools/toolchain/proofenv.py",
         "tools/toolchain/env.py",
-        *(f"tools/toolchain/{name}" for name in vela_elaborate.FRONTEND_SOURCES),
+        *(f"tools/toolchain/{name}" for name in holdfast_elaborate.FRONTEND_SOURCES),
         "tools/toolchain/solver_ledger.py",
         "tools/toolchain/elaboration_check.py",
         "tools/toolchain/atomic.py",
     )
-    return {**vela_parser._inputs(root),
+    return {**holdfast_parser._inputs(root),
             **{name: file_sha256(root / name) for name in paths}}
 
 
 def _toolchain(root: Path, directory: Path, steps: list[dict[str, object]]) -> dict[str, object]:
     lock = (root / "tools/opam/rocq.lock").read_text(encoding="utf-8")
     if set(re.findall(r'"rocq-core\.([^"\s]+)"', lock)) != {proofenv.ROCQ_VERSION}:
-        raise ValueError("Vela replay prover differs from the proof snapshot")
+        raise ValueError("HoldFast replay prover differs from the proof snapshot")
     version = _run(_opam(["rocq", "c", "--version"]), directory,
                    directory / "toolchain.log", steps).strip()
     found = re.search(r"\bversion\s+([^\s]+)", version)
     if found is None or found[1] not in {proofenv.ROCQ_VERSION, proofenv.ROCQ_VERSION.removesuffix(".0")}:
-        raise ValueError("Vela replay compiler differs from the locked prover")
+        raise ValueError("HoldFast replay compiler differs from the locked prover")
     compiler = _run(_opam(["ocamlc", "-version"]), directory,
                     directory / "ocaml.log", steps).strip()
     if compiler != proofenv.OCAML_VERSION:
-        raise ValueError("Vela replay OCaml differs from the proof snapshot")
+        raise ValueError("HoldFast replay OCaml differs from the proof snapshot")
     binary = _run(["opam", "var", "bin", "--switch", proofenv.ROCQ_SWITCH], directory,
                   directory / "tool-path.log", steps).strip()
     binary_dir = Path(binary)
     if not binary_dir.is_absolute():
-        raise ValueError("Vela replay tool directory must be absolute")
+        raise ValueError("HoldFast replay tool directory must be absolute")
     return {"switch": proofenv.ROCQ_SWITCH, "rocq": version, "ocamlc": compiler,
             "binary_sha256": {name: file_sha256(binary_dir / name)
                               for name in ("rocq", "rocqchk", "ocamlc")}}
@@ -1713,12 +1713,12 @@ def _load_path_identity(listing: str, directory: Path) -> tuple[set[Path], str]:
     roots: set[Path] = set()
     lines = re.sub(r"\n\s+(/)", r" \1", listing).splitlines()
     if not lines or lines[0] != "Installed / Logical Path / Physical path:":
-        raise ValueError("Vela replay prover load-path listing is unsupported")
+        raise ValueError("HoldFast replay prover load-path listing is unsupported")
     identities = [lines[0]]
     for line in lines[1:]:
         found = re.fullmatch(r"\s*(?:i\s+)?(?:<>|[\w.]+)\s+(/.+)", line)
         if found is None:
-            raise ValueError("Vela replay prover load-path row is unsupported")
+            raise ValueError("HoldFast replay prover load-path row is unsupported")
         path = Path(found[1]).resolve()
         if path == directory.resolve():
             identities.append(line[:found.start(1)] + "<qualification-directory>")
@@ -1739,9 +1739,9 @@ def _runtime(directory: Path, steps: list[dict[str, object]]) -> dict[str, objec
     settings = dict(line.split("=", 1) for line in config.splitlines() if "=" in line)
     if any(key not in settings or not Path(settings[key]).is_absolute()
            for key in ("COQLIB", "COQCORELIB")):
-        raise ValueError("Vela replay prover library configuration is unsupported")
+        raise ValueError("HoldFast replay prover library configuration is unsupported")
     if not where or not Path(where).is_absolute():
-        raise ValueError("Vela replay kernel library path is unsupported")
+        raise ValueError("HoldFast replay kernel library path is unsupported")
     roots = {Path(settings[key]).resolve() for key in ("COQLIB", "COQCORELIB")}
     roots.add(Path(where).resolve())
     additional, identity = _load_path_identity(listing, directory)
@@ -1751,113 +1751,113 @@ def _runtime(directory: Path, steps: list[dict[str, object]]) -> dict[str, objec
     files: dict[str, str] = {}
     for root in minimal:
         if not root.is_dir():
-            raise ValueError("Vela replay library root is missing")
+            raise ValueError("HoldFast replay library root is missing")
         for path in sorted(root.rglob("*")):
             if path.is_symlink() and path.is_dir():
-                raise ValueError("Vela replay library has a directory alias")
+                raise ValueError("HoldFast replay library has a directory alias")
             if path.is_file():
                 files[str(path)] = file_sha256(path)
     if not files:
-        raise ValueError("Vela replay runtime inventory is empty")
+        raise ValueError("HoldFast replay runtime inventory is empty")
     return {"config": config, "load_path": identity, "files_sha256": files}
 
 
 def _work_root(root: Path) -> Path:
-    directory = env.lane_root(env.lane_of(root)) / "vela-elaboration"
+    directory = env.lane_root(env.lane_of(root)) / "holdfast-elaboration"
     kind = env.filesystem(directory)
     if not kind or kind in env.CROSS_OS_FILESYSTEMS | env.VOLATILE_FILESYSTEMS:
-        raise ValueError("Vela replay outputs require a persistent native filesystem")
+        raise ValueError("HoldFast replay outputs require a persistent native filesystem")
     directory.mkdir(parents=True, exist_ok=True)
     return directory
 
 
-def _parser_outputs(compiled: vela_parser.Build) -> dict[str, str]:
+def _parser_outputs(compiled: holdfast_parser.Build) -> dict[str, str]:
     outputs = cast("dict[str, str]", compiled.receipt["generated_sha256"])
     current = {name: file_sha256(compiled.directory / name)
-               for name in (*vela_parser.GENERATED, "vela-parser")}
+               for name in (*holdfast_parser.GENERATED, "holdfast-parser")}
     if current != outputs:
-        raise ValueError("Vela replay parser output changed after its build")
+        raise ValueError("HoldFast replay parser output changed after its build")
     return current
 
 
-def _case(compiled: vela_parser.Build, case: Fixture, directory: Path, index: int,
+def _case(compiled: holdfast_parser.Build, case: Fixture, directory: Path, index: int,
           steps: list[dict[str, object]]) -> dict[str, object]:
     """A parsing failure can never satisfy a semantic negative fixture."""
     stem = f"Case{index:03d}"
-    source_path = directory / f"{stem}.vela"
+    source_path = directory / f"{stem}.hf"
     source_path.write_bytes(case.source)
-    parsed = vela_parser.parse_source(compiled, case.source, surface=not case.pure)
+    parsed = holdfast_parser.parse_source(compiled, case.source, surface=not case.pure)
     syntax_path = directory / f"{stem}.syntax.json"
     publish_report(syntax_path, parsed)
     row: dict[str, object] = {"name": case.name, "source": str(source_path),
                               "source_sha256": _sha256(case.source), "expected": case.expected,
                               "consumer": "pure" if case.pure else "mathematical",
                               "syntax": str(syntax_path), "syntax_sha256": file_sha256(syntax_path)}
-    def consume(source: bytes, syntax: object) -> vela_elaborate.Elaboration | vela.Translation:
+    def consume(source: bytes, syntax: object) -> holdfast_elaborate.Elaboration | holdfast.Translation:
         if case.pure:
-            return vela.translate_ast(source, syntax)
-        return vela_elaborate.elaborate(source, syntax, require_word_proofs=case.word_proofs)
+            return holdfast.translate_ast(source, syntax)
+        return holdfast_elaborate.elaborate(source, syntax, require_word_proofs=case.word_proofs)
 
     try:
         translated = consume(case.source, parsed)
-    except VelaError as error:
+    except HoldFastError as error:
         row.update({"category": error.kind, "line": error.line, "column": error.column,
                     "message": error.message})
         if error.kind != case.expected or case.expected == "accepted" or case.refusal_contains not in error.message:
             raise ValueError(
-                f"Vela replay {case.name}: expected {case.expected}, got {error.kind} "
+                f"HoldFast replay {case.name}: expected {case.expected}, got {error.kind} "
                 f"at {error.line}:{error.column}: {error.message}"
             ) from error
         return row
     if case.expected != "accepted":
-        raise ValueError(f"Vela replay {case.name}: expected {case.expected}, source was accepted")
+        raise ValueError(f"HoldFast replay {case.name}: expected {case.expected}, source was accepted")
     repeated = consume(case.source, parsed)
     if translated != repeated:
-        raise ValueError(f"Vela replay {case.name}: elaboration is nondeterministic")
-    module = vela.gallina_module_name(translated.module)
+        raise ValueError(f"HoldFast replay {case.name}: elaboration is nondeterministic")
+    module = holdfast.gallina_module_name(translated.module)
     checks = "".join(
-        f"\nDefinition vela_replay_check_{index} : Corelib.Init.Logic.eq "
+        f"\nDefinition holdfast_replay_check_{index} : Corelib.Init.Logic.eq "
         f"({module}.{expression}) ({expected}) := Corelib.Init.Logic.eq_refl ({expected}).\n"
         for index, (expression, expected) in enumerate(case.observations))
-    word_checks = re.findall(r"^Lemma (vela_word_[0-9]+_[0-9]+_[0-9]+) :", translated.gallina, flags=re.MULTILINE)
+    word_checks = re.findall(r"^Lemma (holdfast_word_[0-9]+_[0-9]+_[0-9]+) :", translated.gallina, flags=re.MULTILINE)
     if case.word_expectations:
         _require(len(word_checks) == len(case.word_expectations), f"{case.name}: unexpected number of word equations")
         checks += f"\nImport {module}.\n"
         for consumer, (expression, expected_type) in enumerate(case.word_expectations):
             start = case.source.index(expression)
-            site = f"vela_word_{start}_{start + len(expression)}_"
+            site = f"holdfast_word_{start}_{start + len(expression)}_"
             witnesses = [name for name in word_checks if name.startswith(site)]
             _require(len(witnesses) == 1, f"{case.name}: missing unique word proof at {expression!r}")
-            checks += (f"Lemma vela_word_consumer_{consumer} : {expected_type}.\n"
+            checks += (f"Lemma holdfast_word_consumer_{consumer} : {expected_type}.\n"
                        f"Proof. intros. apply {witnesses[0]}; assumption. Qed.\n")
     if case.freeze_expectations:
         checks += f"\nImport {module}.\n"
         for consumer, (proof, equation) in enumerate(case.freeze_expectations):
-            checks += f"Example vela_freeze_consumer_{consumer} : {equation} := {proof}.\n"
+            checks += f"Example holdfast_freeze_consumer_{consumer} : {equation} := {proof}.\n"
     target = directory / f"{stem}.v"
     target.write_text(translated.gallina + checks, encoding="utf-8", newline="")
-    _run(_opam(["rocq", "c", "-q", "-R", str(directory), "VelaElaboration", target.name]),
+    _run(_opam(["rocq", "c", "-q", "-R", str(directory), "HoldFastElaboration", target.name]),
          directory, directory / f"{stem}.compile.log", steps)
     exports = (re.findall(r"^Definition ([fc]_[A-Za-z_][A-Za-z0-9_]*)\s*(?:\(|:)", translated.gallina, re.MULTILINE)
                if case.pure else solver_ledger.math_exports(translated.gallina))
     exports.extend(word_checks)
     row["word_operation_checks"] = len(word_checks)
     if not exports:
-        raise ValueError(f"Vela replay {case.name}: no generated exports to audit")
+        raise ValueError(f"HoldFast replay {case.name}: no generated exports to audit")
     audited = [f"{module}.{name}" for name in exports]
-    audited.extend(f"vela_replay_check_{index}" for index in range(len(case.observations)))
-    audited.extend(f"vela_word_consumer_{index}" for index in range(len(case.word_expectations)))
-    audited.extend(f"vela_freeze_consumer_{index}" for index in range(len(case.freeze_expectations)))
+    audited.extend(f"holdfast_replay_check_{index}" for index in range(len(case.observations)))
+    audited.extend(f"holdfast_word_consumer_{index}" for index in range(len(case.word_expectations)))
+    audited.extend(f"holdfast_freeze_consumer_{index}" for index in range(len(case.freeze_expectations)))
     query = directory / f"{stem}Assumptions.v"
-    query.write_text(f"From VelaElaboration Require Import {stem}.\n"
+    query.write_text(f"From HoldFastElaboration Require Import {stem}.\n"
                      + "".join(f"Print Assumptions {stem}.{name}.\n" for name in audited),
                      encoding="utf-8", newline="")
-    assumptions = _run(_opam(["rocq", "c", "-q", "-R", str(directory), "VelaElaboration", query.name]),
+    assumptions = _run(_opam(["rocq", "c", "-q", "-R", str(directory), "HoldFastElaboration", query.name]),
                        directory, directory / f"{stem}.assumptions.log", steps)
     trusted = solver_ledger.ledger(translated.gallina)
     reported_trust = solver_ledger.audit(assumptions, len(audited), module, trusted)
     if reported_trust:
-        raise ValueError(f"Vela replay {case.name}: translation emitted solver-trust axioms")
+        raise ValueError(f"HoldFast replay {case.name}: translation emitted solver-trust axioms")
     artifact = directory / f"{stem}.vo"
     row.update({"category": "accepted", "module": translated.module,
                 "gallina": str(target), "gallina_sha256": file_sha256(target),
@@ -1865,18 +1865,18 @@ def _case(compiled: vela_parser.Build, case: Fixture, directory: Path, index: in
                 "assumption_exports": exports,
                 "solver_trusted": [entry.as_json() for entry in trusted],
                 "observations": [list(value) for value in case.observations],
-                "library": f"VelaElaboration.{stem}", "vo": str(artifact),
+                "library": f"HoldFastElaboration.{stem}", "vo": str(artifact),
                 "vo_sha256": file_sha256(artifact)})
     return row
 
 
 def check_arithmetic(root: Path, path: Path) -> dict[str, object]:
-    source = vela_parser.read_source(path)
-    with vela_parser.cached_build(root) as compiled, tempfile.TemporaryDirectory() as tmp:
+    source = holdfast_parser.read_source(path)
+    with holdfast_parser.cached_build(root) as compiled, tempfile.TemporaryDirectory() as tmp:
         directory = Path(tmp)
         steps: list[dict[str, object]] = []
         row = _case(compiled, Fixture(path.name, source, word_proofs=True), directory, 0, steps)
-        _run(_opam(["rocqchk", "-R", tmp, "VelaElaboration", str(row["library"])]),
+        _run(_opam(["rocqchk", "-R", tmp, "HoldFastElaboration", str(row["library"])]),
              directory, directory / "kernel.log", steps)
         return {"source_sha256": row["source_sha256"], "word_operation_checks": row["word_operation_checks"],
                 "status": "kernel-checked"}
@@ -1891,13 +1891,13 @@ def _observations(rows: list[dict[str, object]], steps: list[dict[str, object]])
                 digest = file_sha256(path)
                 expected = str(row[f"{field}_sha256"])
                 if digest != expected:
-                    raise ValueError("Vela replay artifact changed during qualification")
+                    raise ValueError("HoldFast replay artifact changed during qualification")
                 files[str(path)] = digest
     for step in steps:
         path = Path(str(step["log"]))
         digest = file_sha256(path)
         if digest != step["log_sha256"]:
-            raise ValueError("Vela replay process transcript changed during qualification")
+            raise ValueError("HoldFast replay process transcript changed during qualification")
         files[str(path)] = digest
     return files
 
@@ -1911,7 +1911,7 @@ def qualify(root: Path) -> dict[str, object]:
         directory = Path(tempfile.mkdtemp(prefix="replay-", dir=work))
         steps: list[dict[str, object]] = []
         rows: list[dict[str, object]] = []
-        attempt: dict[str, object] = {"schema": 1, "scope": "vela-elaboration-kernel-replay",
+        attempt: dict[str, object] = {"schema": 1, "scope": "holdfast-elaboration-kernel-replay",
                                       "status": "running", "directory": str(directory),
                                       "steps": steps, "fixtures": rows, "checked_parser": False,
                                       "source_correspondence": False, "production_admission": False}
@@ -1920,25 +1920,25 @@ def qualify(root: Path) -> dict[str, object]:
             inputs = _inputs(root)
             tools = _toolchain(root, directory, steps)
             runtime = _runtime(directory, steps)
-            compiled = vela_parser.build(root)
+            compiled = holdfast_parser.build(root)
             parser_receipt = copy.deepcopy(compiled.receipt)
             outputs = _parser_outputs(compiled)
             attempt.update({"inputs": inputs, "toolchain": tools, "runtime": runtime,
                             "parser": parser_receipt, "parser_outputs": outputs})
-            cases = fixtures(vela_parser.read_source(root / EXAMPLE), vela_parser.read_source(root / WORD_COUNT_EXAMPLE))
+            cases = fixtures(holdfast_parser.read_source(root / EXAMPLE), holdfast_parser.read_source(root / WORD_COUNT_EXAMPLE))
             for index, case in enumerate(cases):
                 rows.append(_case(compiled, case, directory, index, steps))
                 publish_report(directory / "attempt.json", attempt)
             libraries = [str(row["library"]) for row in rows if row["category"] == "accepted"]
-            _require(bool(libraries), "Vela replay has no accepted library to kernel-check")
-            _run(_opam(["rocqchk", "-R", str(directory), "VelaElaboration", *libraries]),
+            _require(bool(libraries), "HoldFast replay has no accepted library to kernel-check")
+            _run(_opam(["rocqchk", "-R", str(directory), "HoldFastElaboration", *libraries]),
                  directory, directory / "kernel.log", steps)
             _require(_inputs(root) == inputs and _toolchain(root, directory, steps) == tools
                      and _runtime(directory, steps) == runtime,
-                     "Vela replay inputs, toolchain or runtime changed during qualification")
+                     "HoldFast replay inputs, toolchain or runtime changed during qualification")
             _require(compiled.receipt == parser_receipt and _parser_outputs(compiled) == outputs
-                     and vela_parser._toolchain(root) == parser_receipt["toolchain"],
-                     "Vela replay parser identity changed during qualification")
+                     and holdfast_parser._toolchain(root) == parser_receipt["toolchain"],
+                     "HoldFast replay parser identity changed during qualification")
             attempt.update({"status": "passed", "kernel_checked": True,
                             "artifacts_sha256": _observations(rows, steps)})
             publish_report(directory / "attempt.json", attempt)

@@ -24,7 +24,7 @@ _UPDATED = _ORIGINAL.replace("old figures", "new figures")
 def _default_is_read_only() -> None:
     rep = Reporter()
     rep.report("fixture", "finding(s):", ["summary is stale"])
-    with tempfile.TemporaryDirectory(prefix="vela-check-cli-") as td:
+    with tempfile.TemporaryDirectory(prefix="holdfast-check-cli-") as td:
         root = Path(td)
         plan = root / "PLAN.md"
         plan.write_bytes(_ORIGINAL.encode("utf-8"))
@@ -46,7 +46,7 @@ def _default_is_read_only() -> None:
 def _fix_then_check() -> None:
     rep = Reporter()
     rep.report("fixture", "finding(s):", ["unrelated hygiene failure"])
-    with tempfile.TemporaryDirectory(prefix="vela-check-cli-") as td:
+    with tempfile.TemporaryDirectory(prefix="holdfast-check-cli-") as td:
         root = Path(td)
         plan = root / "PLAN.md"
         plan.write_bytes(_ORIGINAL.encode("utf-8"))
@@ -71,7 +71,7 @@ def _fix_then_check() -> None:
 
 
 def _malformed_fix_preserves_input() -> None:
-    with tempfile.TemporaryDirectory(prefix="vela-check-cli-") as td:
+    with tempfile.TemporaryDirectory(prefix="holdfast-check-cli-") as td:
         root = Path(td)
         plan = root / "PLAN.md"
         plan.write_bytes(_ORIGINAL.encode("utf-8"))
@@ -90,7 +90,7 @@ def _malformed_fix_preserves_input() -> None:
 
 
 def _unknown_arguments_are_rejected() -> None:
-    with tempfile.TemporaryDirectory(prefix="vela-check-cli-") as td:
+    with tempfile.TemporaryDirectory(prefix="holdfast-check-cli-") as td:
         root = Path(td)
         plan = root / "PLAN.md"
         plan.write_bytes(_ORIGINAL.encode("utf-8"))

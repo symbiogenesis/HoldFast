@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Bounded arithmetic, comparison, and Boolean precondition solver for Vela elaboration."""
+"""Bounded arithmetic, comparison, and Boolean precondition solver for HoldFast elaboration."""
 
 from collections import defaultdict, deque
 from typing import TYPE_CHECKING, cast, overload

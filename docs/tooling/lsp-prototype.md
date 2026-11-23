@@ -1,37 +1,37 @@
-# Vela host language server prototype
+# HoldFast host language server prototype
 
 ## Connect an editor
 
-`python tools/run.py vela-lsp` starts a stdio server for the
+`python tools/run.py holdfast-lsp` starts a stdio server for the
 [pure Nat/bool compiler](pure-prototype.md). It uses LSP 3.17-compatible
 messages. Its diagnostics and editing services use the compiler's checked
 source and resolution facts.
 
 To connect a host editor, configure its stdio language-server command as `python`
 with arguments consisting of the absolute path to `tools/run.py` followed by
-`vela-lsp`; use `python3` on Linux. Associate Vela buffers with language ID `vela`
-and the `.vela` extension. No editor extension or automatic registration is
+`holdfast-lsp`; use `python3` on Linux. Associate HoldFast buffers with language ID `holdfast`
+and the `.hf` extension. No editor extension or automatic registration is
 installed by this command. The server uses open-buffer text and does not read the
 URI's file. Diagnostics and navigation cover only the pure subset linked above.
 
 For Neovim 0.11's built-in LSP client, adapt these absolute paths in `init.lua`
-and reopen a `.vela` file. This configuration uses the
+and reopen a `.hf` file. This configuration uses the
 [documented client configuration API](https://github.com/neovim/neovim/blob/v0.11.0/runtime/doc/lsp.txt).
 The [client qualifier](#acceptance-and-remaining-qualification) checks
 interoperability with the pinned editors.
 
 ```lua
-vim.filetype.add({ extension = { vela = 'vela' } })
-vim.lsp.config['vela'] = {
-  cmd = { 'python', 'C:/src/VelaLang/tools/run.py', 'vela-lsp' },
-  filetypes = { 'vela' },
+vim.filetype.add({ extension = { hf = 'holdfast' } })
+vim.lsp.config['holdfast'] = {
+  cmd = { 'python', 'C:/src/HoldFast/tools/run.py', 'holdfast-lsp' },
+  filetypes = { 'holdfast' },
   root_markers = { '.git' },
 }
-vim.lsp.enable('vela')
+vim.lsp.enable('holdfast')
 ```
 
 Use the manifest's Python minor version and `python3` on Linux. Prepare the locked
-environment once with `python tools/run.py vela-lsp --help` before the editor's
+environment once with `python tools/run.py holdfast-lsp --help` before the editor's
 first connection. In Neovim, `K` shows hover, `grr` finds references, `gO` lists
 document symbols and `:lua vim.lsp.buf.definition()` jumps to a declaration.
 Only complete sources accepted by the pure checker provide navigation; incomplete
@@ -214,7 +214,7 @@ insert source, conversions, loans, proof steps or accepted artifacts.
 
 Requests require an initialized session and a synchronized overlay. Invalid
 coordinates, refused source and worker failures follow the navigation policy.
-Invalid or unsupported source supplies no hints. [Hint fixtures](../../tools/tests/test_vela_lsp_hints.py)
+Invalid or unsupported source supplies no hints. [Hint fixtures](../../tools/tests/test_holdfast_lsp_hints.py)
 
 The pure checker diagnoses mutation and resource syntax outside its subset.
 [Binding syntax](../language/surface-grammar.md#bindings-match-arms-and-generic-calls)
@@ -297,7 +297,7 @@ inspection and timeout bounds apply to the complete operation.
 
 Formatting and token controls cover exact edits and token streams, source
 identity, malformed replies, UTF-16 positions and recovery after unsaved edits.
-[Editor fixtures](../../tools/tests/test_vela_lsp_editor.py)
+[Editor fixtures](../../tools/tests/test_holdfast_lsp_editor.py)
 
 ## Callable discovery
 
@@ -385,7 +385,7 @@ omitted inventories provide no literal suggestions. Cached tuples detach from
 mutable producer replies and invalidate with source, producer and configuration
 changes. Literal lists remain `isIncomplete: true` and are explicit proposals.
 
-The [literal completion controls](../../tools/tests/test_vela_lsp_literal_completion.py)
+The [literal completion controls](../../tools/tests/test_holdfast_lsp_literal_completion.py)
 cover full separator-containing edits, Boolean types, sibling scopes,
 self-initializers, shadowed constants, nested static arguments, malformed facts,
 shared budgets and cache invalidation. A real stdio session verifies exact edits
@@ -425,7 +425,7 @@ and configuration generation; a concurrent replacement invalidates the reply.
 Injected inspection producers require an explicitly paired completion producer,
 so a test or alternate producer cannot silently fall back to another compiler.
 
-The [independent recovery controls](../../tools/tests/test_vela_lsp_recovery.py)
+The [independent recovery controls](../../tools/tests/test_holdfast_lsp_recovery.py)
 cover typed numeric and Boolean insertions, full identifier edits, prefix filters,
 branch scopes, required-static arguments, ambiguity and unrelated-error refusals,
 malformed repair facts and producer invalidation. A real stdio session verifies
@@ -513,7 +513,7 @@ and incremental sessions check the explicit refusal. Retained observations join
 the exact responses to wire requests, open source and document version; changed
 versions, incomplete edits and mismatched observations fail replay.
 
-`python tools/run.py vela-lsp --qualify-rename --output rename.json` qualifies
+`python tools/run.py holdfast-lsp --qualify-rename --output rename.json` qualifies
 application in Neovim 0.11.0 and GNU Emacs 30.2 with Eglot on Ubuntu 26.04
 ARM64. Windows runs the clients in WSL and writes the report to the requested
 host path. Install the [pinned client packages](../../THIRD-PARTY.md#independent-editor-clients)
@@ -545,15 +545,15 @@ expectations for mixed line endings and supplementary characters. An invalid
 update preserves the previous snapshot and desynchronizes the document.
 The server accepts source text through overlays.
 
-`python tools/run.py vela-lsp --qualify-clients`
+`python tools/run.py holdfast-lsp --qualify-clients`
 ([`lsp_clients.py`](../../tools/toolchain/lsp_clients.py)) executes the two
 pinned independent editor clients recorded in
 [THIRD-PARTY.md](../../THIRD-PARTY.md#independent-editor-clients)
 — Neovim `0.11.0` (`vim.lsp`, incremental sync) and Vim `9.1.2141` +
 `yegappan/lsp` (`58eac06e81bad174cfa897614ae01adf0d31d10a`, both full and
-incremental sync) — against `vela-lsp --transcript`, verifying bidirectional
+incremental sync) — against `holdfast-lsp --transcript`, verifying bidirectional
 wire transcripts and client observations against independent expected oracles in
-[`test_vela_lsp_clients.py`](../../tools/tests/test_vela_lsp_clients.py).
+[`test_holdfast_lsp_clients.py`](../../tools/tests/test_holdfast_lsp_clients.py).
 The schema-2 report embeds each session's transcript and editor observations,
 their digests and a traffic summary. Use `--output FILE` to save the report.
 The exercised subset includes diagnostics, navigation, hints, formatting,

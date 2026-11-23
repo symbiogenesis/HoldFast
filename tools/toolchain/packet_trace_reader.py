@@ -35,7 +35,7 @@ QUERIES = {
 def _harness() -> str:
     root = Path(__file__).resolve().parent
     return packet_trace.digest({name: file_sha256(root / name) for name in (
-        "atomic.py", "packet_trace_reader.py", "packet_trace.py", "trace_viewer.py", "compiler_trace.py", "hashing.py", "jsonutil.py", "cli/vela.py")})
+        "atomic.py", "packet_trace_reader.py", "packet_trace.py", "trace_viewer.py", "compiler_trace.py", "hashing.py", "jsonutil.py", "cli/holdfast.py")})
 
 
 def _fixture() -> Object:

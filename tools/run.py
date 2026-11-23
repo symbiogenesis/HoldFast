@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The one way into the VelaLang repository's tools.
+"""The one way into the HoldFast repository's tools.
 
     python tools/run.py                      run the behavioral test suite
     python tools/run.py test                 run the behavioral test suite
-    python tools/run.py vela --help          pure Vela CLI, formatter, linter and Gallina emitter
-    python tools/run.py vela-lsp --help      pure Vela language server over stdio
-    python tools/run.py vela-playground      unified Vela browser playground [wsl]
-    python tools/run.py vela-parser --help   Menhir parser, dependent elaborator and Rocq replay [wsl]
+    python tools/run.py holdfast --help          pure HoldFast CLI, formatter, linter and Gallina emitter
+    python tools/run.py holdfast-lsp --help      pure HoldFast language server over stdio
+    python tools/run.py holdfast-playground      unified HoldFast browser playground [wsl]
+    python tools/run.py holdfast-parser --help   Menhir parser, dependent elaborator and Rocq replay [wsl]
 """
 
 import io

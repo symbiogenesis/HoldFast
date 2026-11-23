@@ -4,7 +4,7 @@
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
-from toolchain.ast import VelaError, position
+from toolchain.ast import HoldFastError, position
 from toolchain.elaborate_types import _SORT, Node, _Binding, _Meta, _Term
 
 if TYPE_CHECKING:
@@ -30,8 +30,8 @@ class HoleGoal:
         return f"{self.name} {self.status} at {self.line}:{self.column}, {goal}. {self.context}"
 
 
-class OpenGoalsError(VelaError):
-    def __init__(self, goals: tuple[HoleGoal, ...], stopped: VelaError | None) -> None:
+class OpenGoalsError(HoldFastError):
+    def __init__(self, goals: tuple[HoleGoal, ...], stopped: HoldFastError | None) -> None:
         first = goals[0]
         message = "\n".join(goal.describe() for goal in goals)
         if stopped is None:
@@ -145,12 +145,12 @@ class HoleInspection:
 
     def refusal(self, declarations: list[Node]) -> OpenGoalsError:
         checker = self.elaborator
-        stopped: VelaError | None = None
+        stopped: HoldFastError | None = None
         try:
             for declaration in declarations:
                 checker.declaration(declaration)
                 self._resolved_types()
-        except VelaError as error:
+        except HoldFastError as error:
             stopped = error
         source = checker.protocol.source
         goals: list[HoleGoal] = []

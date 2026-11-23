@@ -21,7 +21,7 @@ from toolchain.package_navigation import Navigation
 
 type Object = dict[str, object]
 
-MANIFEST = "vela-package.toml"
+MANIFEST = "holdfast-package.toml"
 NAME = re.compile(r"[a-z][a-z0-9-]{0,63}")
 REVISION = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}")
 MODULE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*")
@@ -35,7 +35,7 @@ MAX_GENERATED_BYTES = 32 * MAX_INPUT_BYTES
 PRODUCER_INPUTS = (
     *(f"toolchain/{name}" for name in FRONTEND_SOURCES),
     "run.py", "pyproject.toml", "uv.lock", "opam/rocq.lock", "opam/sail.lock", "toolchain/atomic.py",
-    "toolchain/cli/__init__.py", "toolchain/cli/vela_parser.py", "toolchain/packages.py", "toolchain/commands.py", "toolchain/pyversion.py",
+    "toolchain/cli/__init__.py", "toolchain/cli/holdfast_parser.py", "toolchain/packages.py", "toolchain/commands.py", "toolchain/pyversion.py",
     "toolchain/toolenv.py", "toolchain/corpus.py", "toolchain/env.py", "toolchain/proofenv.py",
 )
 
@@ -87,7 +87,7 @@ def _producer(root: Path, compiled: parser.Build) -> Object:
 def _recheck_parser(root: Path, compiled: parser.Build) -> None:
     outputs = _object(compiled.receipt["generated_sha256"], "parser outputs")
     if (parser._inputs(root) != compiled.receipt["inputs"] or parser._toolchain(root) != compiled.receipt["toolchain"]
-            or file_sha256(compiled.executable) != outputs["vela-parser"]):
+            or file_sha256(compiled.executable) != outputs["holdfast-parser"]):
         raise ValueError("stale package inputs: parser sources, tools or generated executable changed")
 
 
@@ -151,9 +151,9 @@ def resolve(workspace: Path, root_name: str, root_revision: str, producer: Objec
         paths: dict[str, str | None] = {}
         for module, rel in sorted(declared.items()):
             _token(module, MODULE, "module name")
-            if module == "Vela.Numerics" or module in sources:
+            if module == "HoldFast.Numerics" or module in sources:
                 raise ValueError(f"duplicate or built-in module path {module}")
-            if not isinstance(rel, str) or not rel.endswith(".vela") or rel in paths:
+            if not isinstance(rel, str) or not rel.endswith(".hf") or rel in paths:
                 raise ValueError(f"invalid or duplicate module path in {name}: {rel!r}")
             paths[rel] = module
         for item in manifest["inputs"]:

@@ -1,0 +1,283 @@
+# SPDX-License-Identifier: Apache-2.0
+"""Independent controls for the pure-fact worker boundary and LSP projection."""
+
+import copy
+import hashlib
+import json
+import subprocess
+from collections.abc import Callable
+from io import BytesIO
+from types import SimpleNamespace
+from typing import cast
+from unittest.mock import patch
+
+from tests.harness import Case, ensure
+from toolchain import HoldFastError, lsp_worker
+from toolchain.lsp import Server
+from toolchain.lsp_services import InspectionError, inspect_document, project
+from toolchain.protocol_json import MAX_BODY_BYTES, encode_message
+from toolchain.source import SourceSnapshot
+
+_URI = "untitled:projection.hf"
+_TEXT = "module Demo;\r\n// 😀\rpublic Nat Id(Nat value) { return value; }\n"
+
+
+def _facts() -> dict[str, object]:
+    return {"status": "ok", "symbols": [
+        {"name": "Id", "kind": "function", "detail": "public Nat Id(Nat value)",
+         "type": {"kind": "function", "result": "Nat", "const": False,
+                  "parameters": [{"type": "Nat", "required_static": False}]}, "line": 3, "column": 12},
+        {"name": "value", "kind": "parameter", "detail": "value: Nat",
+         "type": {"kind": "scalar", "name": "Nat"}, "line": 3, "column": 19}],
+        "occurrences": [
+            {"symbol": 0, "line": 3, "column": 12, "declaration": True},
+            {"symbol": 1, "line": 3, "column": 19, "declaration": True},
+            {"symbol": 1, "line": 3, "column": 35, "declaration": False}]}
+
+
+def _refuses(operation: Callable[[], object], message: str) -> None:
+    try:
+        operation()
+    except InspectionError:
+        return
+    raise AssertionError(message)
+
+
+def _request(method: str, params: object = None, identity: int = 1) -> dict[str, object]:
+    return {"jsonrpc": "2.0", "id": identity, "method": method,
+            "params": {} if params is None else params}
+
+
+def _notice(method: str, params: object = None) -> dict[str, object]:
+    return {"jsonrpc": "2.0", "method": method, "params": {} if params is None else params}
+
+
+def _opened(inspector: Callable[[bytes], dict[str, object]],
+            text: str = _TEXT, uri: str = _URI) -> Server:
+    server = Server(checker=lambda _: None, inspector=inspector)
+    server.handle(_request("initialize"))
+    server.handle(_notice("initialized"))
+    server.handle(_notice("textDocument/didOpen", {"textDocument": {
+        "uri": uri, "languageId": "holdfast", "version": 1, "text": text}}))
+    return server
+
+
+def _params(uri: str = _URI) -> dict[str, object]:
+    return {"textDocument": {"uri": uri}, "position": {"line": 2, "character": 34}}
+
+
+def _error_code(reply: list[dict[str, object]]) -> object:
+    error = reply[0].get("error")
+    ensure(isinstance(error, dict), f"expected an error response: {reply!r}")
+    return cast("dict[str, object]", error).get("code")
+
+
+def _projection() -> None:
+    snapshot = SourceSnapshot(_URI, 1, _TEXT, 1)
+    hover = project(snapshot, _facts(), "textDocument/hover", (2, 34))
+    ensure(hover == {"contents": {"kind": "plaintext", "value": "value: Nat\nHoldFast pure prototype (unqualified)"},
+                     "range": {"start": {"line": 2, "character": 34}, "end": {"line": 2, "character": 39}}},
+           f"hover changed resolved type or coordinates: {hover!r}")
+    location = {"uri": _URI, "range": {"start": {"line": 2, "character": 18},
+                                       "end": {"line": 2, "character": 23}}}
+    ensure(project(snapshot, _facts(), "textDocument/definition", (2, 36)) == location,
+           "definition did not select exact parameter name")
+    references = project(snapshot, _facts(), "textDocument/references", (2, 19), True)
+    ensure(references == [location, {"uri": _URI, "range": {
+        "start": {"line": 2, "character": 34}, "end": {"line": 2, "character": 39}}}],
+        "references did not honor the compiler identity and declaration flag")
+    ensure(project(snapshot, _facts(), "textDocument/references", (2, 19)) == cast("list[object]", references)[1:],
+           "references included an unrequested declaration")
+    for point in ((2, 39), (2, 33), (1, 3), (0, 7)):
+        ensure(project(snapshot, _facts(), "textDocument/hover", point) is None,
+               f"nonidentifier point selected a symbol: {point!r}")
+    symbols = project(snapshot, _facts(), "textDocument/documentSymbol", None)
+    ensure(isinstance(symbols, list) and len(symbols) == 2, "flat symbols lost a declaration")
+    ensure(cast("list[dict[str, object]]", symbols)[1] == {"name": "value", "kind": 13, "location": location},
+           "flat parameter symbol changed its exact name location")
+    refused: dict[str, object] = {"status": "unavailable", "reason": "type"}
+    ensure(project(snapshot, refused, "textDocument/hover", (2, 34)) is None
+           and project(snapshot, refused, "textDocument/references", (2, 34)) == [],
+           "failed complete source exposed facts")
+
+
+def _producer_refusals() -> None:
+    snapshot = SourceSnapshot(_URI, 1, _TEXT, 1)
+    variants: list[dict[str, object]] = []
+    missing = _facts()
+    missing["occurrences"] = cast("list[object]", missing["occurrences"])[1:]
+    variants.append(missing)
+    for field, value in (("symbol", 20), ("symbol", True), ("declaration", 1),
+                         ("line", 4), ("column", 36)):
+        changed = _facts()
+        cast("list[dict[str, object]]", changed["occurrences"])[2][field] = value
+        variants.append(changed)
+    duplicate = _facts()
+    cast("list[object]", duplicate["occurrences"]).append(copy.deepcopy(
+        cast("list[object]", duplicate["occurrences"])[2]))
+    variants.append(duplicate)
+    prefix = _facts()
+    cast("list[dict[str, object]]", prefix["symbols"])[1]["name"] = "valu"
+    variants.append(prefix)
+    variants.extend([{"status": "unavailable", "reason": "inspection-limit"},
+                     {"status": "ok", "symbols": [], "occurrences": [], "extra": True},
+                     {"status": "unavailable", "reason": []}])
+    for raw in variants:
+        _refuses(lambda raw=raw: project(snapshot, raw, "textDocument/hover", (2, 34)),
+                 f"malformed or incomplete producer result accepted: {raw!r}")
+    bounded = _facts()
+    bounded["symbols"] = cast("list[object]", bounded["symbols"]) * 513
+    _refuses(lambda: project(snapshot, bounded, "textDocument/documentSymbol", None),
+             "over-budget declaration set accepted")
+    bounded = _facts()
+    bounded["occurrences"] = cast("list[object]", bounded["occurrences"]) * 1366
+    _refuses(lambda: project(snapshot, bounded, "textDocument/documentSymbol", None),
+             "over-budget occurrence set accepted")
+
+
+def _worker_boundary() -> None:
+    source = b"source"
+    digest = hashlib.sha256(source).hexdigest()
+    refused = {"status": "unavailable", "reason": "syntax", "source_sha256": digest}
+    done = subprocess.CompletedProcess(["fixed"], 0, json.dumps(refused).encode(), b"")
+    with patch("toolchain.lsp_services.subprocess.run", return_value=done) as run:
+        ensure(inspect_document(b"source") == {"status": "unavailable", "reason": "syntax"},
+               "worker JSON was not consumed")
+        command = run.call_args.args[0]
+        ensure(command[1:3] == ["-I", "-c"] and command[-1] == "--inspect"
+               and run.call_args.kwargs["input"] == b"source"
+               and run.call_args.kwargs["timeout"] == 5,
+               "inspection did not use isolated fixed producer and timeout")
+    for done in (subprocess.CompletedProcess(["fixed"], 1, b"", b""),
+                 subprocess.CompletedProcess(["fixed"], 0, b"x" * (MAX_BODY_BYTES + 1), b""),
+                 subprocess.CompletedProcess(["fixed"], 0, b'{"status":"ok","status":"ok"}', b""),
+                 *[subprocess.CompletedProcess([], 0, json.dumps(raw).encode(), b"")
+                   for raw in ({"status": "unavailable", "reason": "syntax"},
+                               {**refused, "source_sha256": hashlib.sha256(b"other").hexdigest()},
+                               {**refused, "source_sha256": None},
+                               {**refused, "source_sha256": [digest]})]):
+        with patch("toolchain.lsp_services.subprocess.run", return_value=done):
+            _refuses(lambda: inspect_document(b"source"), "bad worker output accepted")
+    with patch("toolchain.lsp_services.subprocess.run", side_effect=subprocess.TimeoutExpired("fixed", 5)):
+        _refuses(lambda: inspect_document(b"source"), "worker timeout accepted")
+
+
+def _inspection_worker_source_binding() -> None:
+    source = "module M;\r\n// 😀\rpublic Nat F()=>0;".encode()
+    digest = hashlib.sha256(source).hexdigest()
+    for result, expected, reason in (({"status": "ok", "symbols": [], "occurrences": []}, "ok", None),
+                                     (HoldFastError("type", 1, 1, "chosen error"), "unavailable", "type"),
+                                     ({"status": "ok", "symbols": ["x" * MAX_BODY_BYTES],
+                                       "occurrences": []}, "unavailable", "inspection-limit")):
+        output = BytesIO()
+        producer = (patch.object(lsp_worker, "inspect_source", side_effect=result)
+                    if isinstance(result, HoldFastError) else
+                    patch.object(lsp_worker, "inspect_source", return_value=copy.deepcopy(result)))
+        with (patch.object(lsp_worker.sys, "stdin", SimpleNamespace(buffer=BytesIO(source))),
+              patch.object(lsp_worker.sys, "stdout", SimpleNamespace(
+                  write=lambda text, output=output: output.write(text.encode()))),
+              patch.object(lsp_worker.sys, "argv", ["worker", "--inspect"]),
+              producer):
+            ensure(lsp_worker.main() == 0, "inspection worker failed to encode a bounded response")
+        raw = json.loads(output.getvalue())
+        ensure(raw["source_sha256"] == digest and raw["status"] == expected,
+               "inspection worker omitted the exact original-byte binding")
+        ensure(len(output.getvalue()) <= MAX_BODY_BYTES, "inspection binding exceeded the worker bound")
+        ensure(raw.get("reason") == reason, "inspection worker lost its explicit refusal")
+
+
+def _stale_inspection_transport_recovery() -> None:
+    server = _opened(inspect_document)
+    original = _facts()
+    stale = {**original, "source_sha256": hashlib.sha256(_TEXT.replace("Demo", "OldM").encode()).hexdigest()}
+    current = {**original, "source_sha256": hashlib.sha256(_TEXT.encode()).hexdigest()}
+    outcomes = [subprocess.CompletedProcess([], 0, json.dumps(raw).encode(), b"") for raw in (stale, current)]
+    with patch("toolchain.lsp_services.subprocess.run", side_effect=outcomes) as run:
+        response = server.handle(_request("textDocument/hover", _params()))
+        ensure(_error_code(response) == -32803 and not server._inspections,
+               "stale worker facts were published or cached against another source")
+        response = server.handle(_request("textDocument/hover", _params()))
+        ensure("result" in response[0] and response[0]["result"] is not None
+               and len(server._inspections) == 1 and run.call_count == 2,
+               "a stale worker response poisoned retry or current-source caching")
+
+
+def _request_refusals() -> None:
+    server = _opened(lambda _: _facts())
+    for params in ({}, {"textDocument": {"uri": "untitled:unknown"}},
+                   {"textDocument": {"uri": _URI}, "position": {"line": True, "character": 0}},
+                   {"textDocument": {"uri": _URI}, "position": {"line": -1, "character": 0}},
+                   {"textDocument": {"uri": _URI}, "position": {"line": 1, "character": 4}}):
+        # The supplementary character in '// 😀' occupies UTF-16 columns 3..5.
+        ensure(_error_code(server.handle(_request("textDocument/hover", params))) == -32602,
+               "invalid query position or unopened document accepted")
+    params = _params()
+    params["context"] = {"includeDeclaration": 1}
+    ensure(_error_code(server.handle(_request("textDocument/references", params))) == -32602,
+           "nonboolean declaration flag accepted")
+    server.desynchronized.add(_URI)
+    ensure(_error_code(server.handle(_request("textDocument/hover", _params()))) == -32801,
+           "desynchronized overlay exposed facts")
+    before_ready = Server(checker=lambda _: None, inspector=lambda _: _facts())
+    before_ready.handle(_request("initialize"))
+    ensure(_error_code(before_ready.handle(_request("textDocument/hover", _params()))) == -32002,
+           "query before initialized notification accepted")
+
+
+def _oversized_reply_recovery() -> None:
+    uri = "untitled:" + "x" * 4080
+    text = "module Demo;\n" + "".join(f"public Nat F{index}() {{ return 0; }}\n" for index in range(300))
+    raw: dict[str, object] = {"status": "ok", "symbols": [
+        {"name": f"F{index}", "kind": "function", "detail": f"public Nat F{index}()",
+         "type": {"kind": "function", "result": "Nat", "const": False, "parameters": []},
+         "line": index + 2, "column": 12} for index in range(300)],
+        "occurrences": [{"symbol": index, "line": index + 2, "column": 12, "declaration": True}
+                        for index in range(300)]}
+    server = _opened(lambda _: raw, text, uri)
+    oversized = server.handle(_request("textDocument/documentSymbol", {"textDocument": {"uri": uri}}, 90))
+    ensure(oversized[0]["id"] == 90 and _error_code(oversized) == -32803,
+           "oversized result was truncated or lost request correlation")
+    params = {"textDocument": {"uri": uri}, "position": {"line": 1, "character": 11}}
+    recovered = server.handle(_request("textDocument/hover", params, 91))
+    ensure(recovered[0]["id"] == 91 and "result" in recovered[0] and server.exit_code is None,
+           "oversized query terminated the session or poisoned the next result")
+
+
+def _frame_sized_request_id_recovery() -> None:
+    server = _opened(lambda _: _facts(), uri="u")
+    request = _request("textDocument/documentSymbol", {"textDocument": {"uri": "u"}})
+    request["id"] = ""
+    envelope = len(json.dumps(request, ensure_ascii=False, separators=(",", ":")).encode())
+    request["id"] = "x" * (MAX_BODY_BYTES - envelope)
+    ensure(len(encode_message(request).split(b"\r\n\r\n", 1)[1]) == MAX_BODY_BYTES,
+           "large-ID control did not fill the valid incoming frame")
+    refused = server.handle(request)
+    ensure(_error_code(refused) == -32803 and refused[0]["id"] == request["id"],
+           "oversized large-ID reply lost its correlated refusal")
+    encode_message(refused[0])
+    server.desynchronized.add("u")
+    refused = server.handle(request)
+    ensure(_error_code(refused) == -32801 and refused[0]["id"] == request["id"],
+           "large-ID desynchronization refusal lost its code or correlation")
+    encode_message(refused[0])
+    server.desynchronized.discard("u")
+    server.ready = False
+    refused = server.handle(request)
+    ensure(_error_code(refused) == -32002 and refused[0]["id"] == request["id"],
+           "large-ID initialization refusal lost its code or correlation")
+    encode_message(refused[0])
+    server.ready = True
+    recovered = server.handle(_request("textDocument/hover", _params("u"), 92))
+    ensure(recovered[0]["id"] == 92 and "result" in recovered[0] and server.exit_code is None,
+           "large-ID reply refusal poisoned the next query")
+
+
+def cases() -> list[Case]:
+    return [Case("resolved-fact-projection-and-source-units", _projection),
+            Case("producer-shape-source-links-and-bounds", _producer_refusals),
+            Case("isolated-inspection-worker-boundary", _worker_boundary),
+            Case("inspection-worker-original-byte-source-binding", _inspection_worker_source_binding),
+            Case("stale-inspection-transport-refusal-and-recovery", _stale_inspection_transport_recovery),
+            Case("query-parameter-lifecycle-and-overlay-refusals", _request_refusals),
+            Case("oversized-result-refusal-and-session-recovery", _oversized_reply_recovery),
+            Case("frame-sized-request-id-recovery", _frame_sized_request_id_recovery)]

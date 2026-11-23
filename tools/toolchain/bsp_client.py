@@ -27,13 +27,13 @@ PLUGIN = lsp_clients.ArchivePin(
 )
 
 SESSION = r"""
-local cfg = vim.json.decode(table.concat(vim.fn.readfile(vim.env.VELA_BSP_CASE), "\n"))
+local cfg = vim.json.decode(table.concat(vim.fn.readfile(vim.env.HOLDFAST_BSP_CASE), "\n"))
 vim.opt.runtimepath:prepend(cfg.plugin)
 local bsp = require("bsp")
 local exited, version
 local id = assert(bsp.start_client({
-    name = "vela", root_dir = cfg.workspace, cmd = cfg.command, cmd_cwd = cfg.root,
-    capabilities = {languageIds = {"vela"}},
+    name = "holdfast", root_dir = cfg.workspace, cmd = cfg.command, cmd_cwd = cfg.root,
+    capabilities = {languageIds = {"holdfast"}},
     on_init = function(_, result) version = result.bspVersion end,
     on_exit = function(code) exited = code end,
 }))
@@ -100,7 +100,7 @@ def qualify(root: Path) -> dict[str, object]:
     """Build the package fixture in independent batch and editor sessions."""
     cache = lsp_clients._default_cache_root() / "downloads"
     archive = lsp_clients._download_bytes(PLUGIN.url, PLUGIN.archive_sha256, cache, PLUGIN.filename)
-    with tempfile.TemporaryDirectory(prefix="vela-bsp-client-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="holdfast-bsp-client-") as temporary:
         stage = Path(temporary)
         neovim, editor = lsp_clients._stage_neovim(cache, stage)
         plugin = stage / "client"
@@ -111,29 +111,29 @@ def qualify(root: Path) -> dict[str, object]:
         shutil.copytree(workspace / "scale" / "v1", broken)
         manifest = broken / packages.MANIFEST
         manifest.write_text(manifest.read_text().replace('revision = "v1"', 'revision = "broken"'))
-        source = broken / "Calibration.vela"
+        source = broken / "Calibration.hf"
         source.write_text(source.read_text().replace("Make(units:", "UnknownScale(units:"))
 
         locks = [stage / f"{label}.lock" for label in ("scale", "weights", "broken")]
         targets = []
         for lock, (name, revision) in zip(locks, (("scale", "v1"), ("weights", "v1"), ("scale", "broken")), strict=True):
             packages.lock_package(root, workspace, name, revision, lock)
-            targets.append(f"vela-build:{file_sha256(lock)}/{name}")
+            targets.append(f"holdfast-build:{file_sha256(lock)}/{name}")
         batch_file = stage / "batch.json"
         batch = packages.build_package(root, workspace, locks[0], batch_file)
         observations = stage / "observations.json"
         config = stage / "case.json"
         config.write_text(json.dumps({
             "plugin": str(plugin), "root": str(root), "workspace": str(workspace),
-            "command": [sys.executable, str(root / "tools/run.py"), "vela-parser", "bsp", str(workspace), *map(str, locks)],
+            "command": [sys.executable, str(root / "tools/run.py"), "holdfast-parser", "bsp", str(workspace), *map(str, locks)],
             "target": targets[0], "dependency": targets[0].rsplit("/", 1)[0] + "/weights", "broken": targets[2],
-            "input": str(workspace / "weights/v1/Measure.vela"), "observations": str(observations),
+            "input": str(workspace / "weights/v1/Measure.hf"), "observations": str(observations),
         }))
         script = stage / "qualify.lua"
         script.write_text(SESSION, encoding="utf-8")
         process = subprocess.run(
             [str(neovim), "--headless", "-u", "NONE", "-i", "NONE", "-n", "-l", str(script)],
-            cwd=workspace, env={**os.environ, "VELA_BSP_CASE": str(config), "XDG_STATE_HOME": str(stage / "state")},
+            cwd=workspace, env={**os.environ, "HOLDFAST_BSP_CASE": str(config), "XDG_STATE_HOME": str(stage / "state")},
             capture_output=True, timeout=360, check=False,
         )
         if process.returncode or not observations.is_file():
@@ -154,7 +154,7 @@ def qualify(root: Path) -> dict[str, object]:
                 uri = f"{prefix}/{name}"
                 row = target_rows[uri]
                 if (row["id"] != {"uri": uri} or row["displayName"] != f"{name}@{package['revision']}"
-                        or row["dataKind"] != "vela-locked-package"
+                        or row["dataKind"] != "holdfast-locked-package"
                         or row["data"]["lockUri"] != lock.as_uri() or row["data"]["lockSha256"] != prefix.split(":")[1]
                         or row["data"]["inputs"] != package["files"] or row["data"]["producer"] != locked["producer"]
                         or row["data"]["edition"] != "math-1" or row["data"]["target"] != "rocq-gallina"

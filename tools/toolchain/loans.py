@@ -1189,7 +1189,7 @@ def analyze(owners: tuple[Owner, ...], graph: Graph, limits: Limits | None = Non
 
 
 # ---------------------------------------------------------------------------
-# AST-to-Loan-Graph Lowering Pass (Schema-2 Surface AST -> vela_loans.Graph)
+# AST-to-Loan-Graph Lowering Pass (Schema-2 Surface AST -> holdfast_loans.Graph)
 # ---------------------------------------------------------------------------
 
 

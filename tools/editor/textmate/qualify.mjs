@@ -16,7 +16,7 @@ const registry = new textmate.Registry({
   }),
   loadGrammar: async () => textmate.parseRawGrammar(fs.readFileSync(grammarPath, 'utf8'), grammarPath)
 });
-const grammar = await registry.loadGrammar('source.vela');
+const grammar = await registry.loadGrammar('source.holdfast');
 const cases = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
 const observations = [];
 for (const fixture of cases) {

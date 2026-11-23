@@ -1,4 +1,4 @@
-# Vela loan-analysis diagnostic
+# HoldFast loan-analysis diagnostic
 
 The loan diagnostic proposes loan ends and reports conflicts and unresolved
 obligations over explicit flow facts. The
@@ -26,7 +26,7 @@ a whole-buffer exclusive receiver conflicts with the `length` read. Saving
 `let n = buf.length;` before the call removes the overlap. A receiver restricted
 to the `payload` field permits the `length` read. Single-field receiver views
 identify a footprint. Compound and indexed views conservatively cover the whole
-receiver. [Receiver timing fixtures](../../tools/tests/test_vela_loans.py#_located_receiver_timing)
+receiver. [Receiver timing fixtures](../../tools/tests/test_holdfast_loans.py#_located_receiver_timing)
 
 Names must be unambiguous within a path. A child loan must stay within its parent
 footprint; a shared parent cannot produce an exclusive child. Missing references,
@@ -78,7 +78,7 @@ The API must not expose an admitted-program or memory-safe verdict.
 
 [loans.py](../../tools/toolchain/loans.py) exposes immutable graph/event
 records and `analyze(owners, graph, limits)`. Run its focused behavioral checks
-with `python tools/run.py test --only test_vela_loans --jobs 1` on Windows.
+with `python tools/run.py test --only test_holdfast_loans --jobs 1` on Windows.
 An explicit result split can be modeled as follows:
 
 ```python
@@ -114,10 +114,10 @@ than proved source semantics.
 
 ## Acceptance
 
-The [loan tests](../../tools/tests/test_vela_loans.py) check structural refusals,
+The [loan tests](../../tools/tests/test_holdfast_loans.py) check structural refusals,
 path-local demand, move and transitive capture accounting, symbolic overlap,
 restoration order and returned outcomes. An
-[independent branch-demand oracle](../../tools/tests/test_vela_loans.py#_generated_branch_demand_oracle)
+[independent branch-demand oracle](../../tools/tests/test_holdfast_loans.py#_generated_branch_demand_oracle)
 checks conflict and restoration locations while varying each branch's reads and
 writes. Unsupported operations and budget exhaustion have distinct refusal cases.
 
@@ -143,11 +143,11 @@ Two 2026 results supply candidate analyses for the parts their models cover.
   [OOPSLA paper](https://2026.splashcon.org/details/oopsla-2026/147/Tracking-Borrows-with-Regular-Expressions) · [Lean artifact](https://zenodo.org/records/21850968)
 - Wu, Wang and Chen verify a forward abstract interpretation of Polonius for a
   Rust core. On the common fragment, compare its alias decision at the write
-  with Vela's. Record which source places and control-flow edges the translation
+  with HoldFast's. Record which source places and control-flow edges the translation
   preserves. [November 2026 preprint](https://arxiv.org/abs/2611.06319v1)
 
 Record any feature a model cannot express, such as an exit that returns a
-Vela-specific resource. To qualify an analysis for Vela, replay its restoration
+HoldFast-specific resource. To qualify an analysis for HoldFast, replay its restoration
 obligations on each exit and measure its work against the same budgets.
 
 Record accepted, semantically rejected, unsupported and incomplete cases

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Independent expected syntax and rejection cases for Vela's wider surface.
+"""Independent expected syntax and rejection cases for HoldFast's wider surface.
 
 These cases describe source behavior, not semantic acceptance. In particular,
 unknown names, duplicate declarations and invalid resource use must still parse.
@@ -9,7 +9,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
-from toolchain import MAX_SOURCE_BYTES, VelaError
+from toolchain import MAX_SOURCE_BYTES, HoldFastError
 from toolchain.ast import trivia_end
 from toolchain.loans import (
     LoweredFunction,
@@ -90,9 +90,9 @@ public Nat Extract(Option<Delivery> candidate, Nat fallback)
       "labeled_pattern", "let_else", "var_else", "is", "match_expression")),
     Fixture("familiar-generic-calls-and-expression-arms", """// café: token shape fixes every generic application.
 module Familiar;
-import Vela.Numerics;
+import HoldFast.Numerics;
 alias Count = int;
-alias Qualified = Vela.Numerics.ulong;
+alias Qualified = HoldFast.Numerics.ulong;
 definition T Identity<T>(T value) => value;
 definition Nat Choose(Option<Nat> option) => match (option) {
     Some(value) => Identity<Nat>(value), None => 0,
@@ -4384,7 +4384,7 @@ def _numeric_separator_limits(parse: Callable[[bytes], dict[str, Json]]) -> None
         parse(prefix + base + b"_".join([digit] * 256) + b";")
         try:
             parse(prefix + base + b"_".join([digit] * 257) + b";")
-        except VelaError as error:
+        except HoldFastError as error:
             if error.kind != "limit":
                 raise ValueError("separated literal has the wrong digit-bound refusal") from error
         else:
@@ -4393,7 +4393,7 @@ def _numeric_separator_limits(parse: Callable[[bytes], dict[str, Json]]) -> None
                      b"0xF__F", b"0b_10", b"0b10_", b"0b1__0", b"0b1_2"):
         try:
             parse(prefix + spelling + b";")
-        except VelaError as error:
+        except HoldFastError as error:
             if error.kind != "syntax":
                 raise ValueError("malformed separator has the wrong syntax refusal") from error
         else:
@@ -4565,7 +4565,7 @@ def _generic_probe_limits(parse: Callable[[bytes], dict[str, Json]]) -> None:
             raise ValueError("generic probe boundary fixture exceeds the independent source limit")
         try:
             parse(source)
-        except VelaError as error:
+        except HoldFastError as error:
             if count <= 200_000 or error.kind != "limit" or "200000 inspected tokens" not in error.message:
                 raise ValueError("generic probe inspection boundary has the wrong refusal") from error
             if "F::<T>" not in error.message:
@@ -4765,7 +4765,7 @@ def qualify(parse: Callable[[bytes], dict[str, Json]]) -> list[str]:
         source = fixture.source.encode("utf-8")
         try:
             result = parse(source)
-        except VelaError as error:
+        except HoldFastError as error:
             raise ValueError(f"surface fixture {fixture.name} failed at {error.line}:{error.column}: {error}") from error
         _argument_roles(source, result)
         found = {node.get("kind") for node in nodes(result.get("ast"))}
@@ -4782,7 +4782,7 @@ def qualify(parse: Callable[[bytes], dict[str, Json]]) -> list[str]:
     for name, source, kind in NEGATIVE:
         try:
             parse(source)
-        except VelaError as error:
+        except HoldFastError as error:
             if error.kind != kind:
                 raise ValueError(f"surface refusal {name}: expected {kind}, got {error.kind}") from error
             if name == "null-conditional" and ("(expr?).Member" not in error.message or "match" not in error.message):
@@ -4794,7 +4794,7 @@ def qualify(parse: Callable[[bytes], dict[str, Json]]) -> list[str]:
         source = b"// caf\xc3\xa9" + newline + b"module M;" + newline + b"public void F() { let x = #; }"
         try:
             parse(source)
-        except VelaError as error:
+        except HoldFastError as error:
             if (error.kind, error.line, error.column) != ("syntax", 3, 27):
                 raise ValueError("surface newline/UTF-8 diagnostic oracle differs") from error
         else:
@@ -4803,7 +4803,7 @@ def qualify(parse: Callable[[bytes], dict[str, Json]]) -> list[str]:
                       + b"    Core.Span<byte> local = #;" + newline + b"}")
         try:
             parse(annotation)
-        except VelaError as error:
+        except HoldFastError as error:
             if (error.kind, error.line, error.column) != ("syntax", 3, 29):
                 raise ValueError("surface annotation-lookahead diagnostic position differs") from error
         else:

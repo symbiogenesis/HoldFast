@@ -16,7 +16,7 @@ INDEPENDENT_CASES = True
 
 
 def _supported_minor() -> None:
-    with tempfile.TemporaryDirectory(prefix="vela-pyversion-") as name:
+    with tempfile.TemporaryDirectory(prefix="holdfast-pyversion-") as name:
         root = Path(name)
         path = root / pyversion.PROJECT
         path.parent.mkdir()
@@ -29,7 +29,7 @@ def _supported_minor() -> None:
 
 
 def _invalid_owner_refuses() -> None:
-    with tempfile.TemporaryDirectory(prefix="vela-pyversion-") as name:
+    with tempfile.TemporaryDirectory(prefix="holdfast-pyversion-") as name:
         root = Path(name)
         path = root / pyversion.PROJECT
         path.parent.mkdir()
@@ -47,7 +47,7 @@ def _invalid_owner_refuses() -> None:
 
 
 def _runtime_follows_manifest() -> None:
-    with tempfile.TemporaryDirectory(prefix="vela-pyversion-") as name:
+    with tempfile.TemporaryDirectory(prefix="holdfast-pyversion-") as name:
         root = Path(name)
         path = root / pyversion.PROJECT
         path.parent.mkdir()
@@ -79,7 +79,7 @@ def _editor_targets_follow_metadata() -> None:
         executable = typecheck._pinned(report, tool, pin)
         if executable is None:
             raise AssertionError(f"the pinned checkers must be installed: {report.out!r}")
-        with tempfile.TemporaryDirectory(prefix="vela-editor-python-") as name:
+        with tempfile.TemporaryDirectory(prefix="holdfast-editor-python-") as name:
             root = Path(name)
             project = root / pyversion.PROJECT
             project.parent.mkdir()

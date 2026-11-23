@@ -28,7 +28,7 @@ from toolchain import (
     proofenv,
 )
 from toolchain import (
-    parser as vela_parser,
+    parser as holdfast_parser,
 )
 from toolchain.ast import source_text
 from toolchain.atomic import atomic_path, publish_report
@@ -57,19 +57,19 @@ MODULES = (
     "Interpreter_correct", "Main", "Validator_classes", "Validator_complete",
     "Validator_safe", "Version",
 )
-GRAMMAR_MODULES = ("VelaPureAst", "VelaPureGrammar", "VelaPureProofs")
+GRAMMAR_MODULES = ("HoldFastPureAst", "HoldFastPureGrammar", "HoldFastPureProofs")
 ALL_MODULES = (*MODULES, *GRAMMAR_MODULES)
 TARGETS = ("pop", "reduce_step", "parse")
 THEOREMS = (
-    "vela_file_safe",
-    "vela_file_complete_validator",
-    "vela_file_correct",
-    "vela_file_complete",
-    "vela_file_unambiguity",
-    "vela_file_positive_precedence",
-    "vela_file_bare_local_refused",
-    "vela_file_empty_module_rejected",
-    "vela_file_zero_fuel_timeout",
+    "holdfast_file_safe",
+    "holdfast_file_complete_validator",
+    "holdfast_file_correct",
+    "holdfast_file_complete",
+    "holdfast_file_unambiguity",
+    "holdfast_file_positive_precedence",
+    "holdfast_file_bare_local_refused",
+    "holdfast_file_empty_module_rejected",
+    "holdfast_file_zero_fuel_timeout",
 )
 PURE_TERMINALS: tuple[str, ...] = (
     "MODULE", "PUBLIC", "NAT", "BOOL", "LET", "CONST", "RETURN", "IF", "ELSE", "TRUE", "FALSE",
@@ -166,7 +166,7 @@ Print Assumptions Parser.unambiguity.
 End SupportBoundary.
 """
 
-VELA_PURE_AST_V = """(* SPDX-License-Identifier: Apache-2.0 *)
+HOLDFAST_PURE_AST_V = """(* SPDX-License-Identifier: Apache-2.0 *)
 From Stdlib Require Import Bool Arith List Ascii String.
 Import ListNotations.
 Open Scope string_scope.
@@ -272,36 +272,36 @@ Definition binary_node (op : located_text) (left_out right_out : outcome node) :
     [left_node; right_node])).
 """
 
-VELA_PURE_GRAMMAR_MLY = """/* SPDX-License-Identifier: Apache-2.0 */
+HOLDFAST_PURE_GRAMMAR_MLY = """/* SPDX-License-Identifier: Apache-2.0 */
 %{
 From Stdlib Require Import Bool Arith List String.
-From MenhirLib Require Import VelaPureAst.
+From MenhirLib Require Import HoldFastPureAst.
 Import ListNotations.
 Open Scope string_scope.
 %}
 
-%token <VelaPureAst.span> MODULE PUBLIC NAT BOOL LET CONST RETURN IF ELSE TRUE FALSE
-%token <VelaPureAst.span> LPAREN RPAREN LBRACE RBRACE SEMICOLON COMMA COLON FATARROW
-%token <VelaPureAst.span> EQUAL PLUS MINUS STAR SLASH PERCENT
-%token <VelaPureAst.span> EQ LE NE LT GT GE AND OR NOT EOF
-%token <VelaPureAst.span * String.string> IDENT DECIMAL
+%token <HoldFastPureAst.span> MODULE PUBLIC NAT BOOL LET CONST RETURN IF ELSE TRUE FALSE
+%token <HoldFastPureAst.span> LPAREN RPAREN LBRACE RBRACE SEMICOLON COMMA COLON FATARROW
+%token <HoldFastPureAst.span> EQUAL PLUS MINUS STAR SLASH PERCENT
+%token <HoldFastPureAst.span> EQ LE NE LT GT GE AND OR NOT EOF
+%token <HoldFastPureAst.span * String.string> IDENT DECIMAL
 
-%start <VelaPureAst.outcome VelaPureAst.node> file
-%type <VelaPureAst.outcome VelaPureAst.node> pure_declaration value_type function_body parameter
-%type <VelaPureAst.outcome VelaPureAst.node> block binding exit expression conjunction comparison
-%type <VelaPureAst.outcome VelaPureAst.node> sum product unary atom
-%type <VelaPureAst.outcome VelaPureAst.node> call_argument(expression, name)
-%type <VelaPureAst.outcome VelaPureAst.node> left_binary(conjunction, s_disjunction_operator)
-%type <VelaPureAst.outcome VelaPureAst.node> left_binary(comparison, s_conjunction_operator)
-%type <VelaPureAst.outcome VelaPureAst.node> left_binary(product, s_sum_operator)
-%type <VelaPureAst.outcome VelaPureAst.node> left_binary(unary, s_product_operator)
-%type <VelaPureAst.located_text> name comparison_operator plus_operator star_operator
-%type <VelaPureAst.located_text> negation_operator s_disjunction_operator s_conjunction_operator
-%type <VelaPureAst.located_text> s_sum_operator s_product_operator
-%type <Datatypes.option VelaPureAst.span> option(CONST)
-%type <Datatypes.list (VelaPureAst.outcome VelaPureAst.node)> list(binding) nonempty_list(pure_declaration)
-%type <Datatypes.list (VelaPureAst.outcome VelaPureAst.node)> comma_list(parameter) comma_nonempty_list(parameter) comma_tail(parameter)
-%type <Datatypes.list (VelaPureAst.outcome VelaPureAst.node)> comma_list(call_argument(expression, name)) comma_nonempty_list(call_argument(expression, name)) comma_tail(call_argument(expression, name))
+%start <HoldFastPureAst.outcome HoldFastPureAst.node> file
+%type <HoldFastPureAst.outcome HoldFastPureAst.node> pure_declaration value_type function_body parameter
+%type <HoldFastPureAst.outcome HoldFastPureAst.node> block binding exit expression conjunction comparison
+%type <HoldFastPureAst.outcome HoldFastPureAst.node> sum product unary atom
+%type <HoldFastPureAst.outcome HoldFastPureAst.node> call_argument(expression, name)
+%type <HoldFastPureAst.outcome HoldFastPureAst.node> left_binary(conjunction, s_disjunction_operator)
+%type <HoldFastPureAst.outcome HoldFastPureAst.node> left_binary(comparison, s_conjunction_operator)
+%type <HoldFastPureAst.outcome HoldFastPureAst.node> left_binary(product, s_sum_operator)
+%type <HoldFastPureAst.outcome HoldFastPureAst.node> left_binary(unary, s_product_operator)
+%type <HoldFastPureAst.located_text> name comparison_operator plus_operator star_operator
+%type <HoldFastPureAst.located_text> negation_operator s_disjunction_operator s_conjunction_operator
+%type <HoldFastPureAst.located_text> s_sum_operator s_product_operator
+%type <Datatypes.option HoldFastPureAst.span> option(CONST)
+%type <Datatypes.list (HoldFastPureAst.outcome HoldFastPureAst.node)> list(binding) nonempty_list(pure_declaration)
+%type <Datatypes.list (HoldFastPureAst.outcome HoldFastPureAst.node)> comma_list(parameter) comma_nonempty_list(parameter) comma_tail(parameter)
+%type <Datatypes.list (HoldFastPureAst.outcome HoldFastPureAst.node)> comma_list(call_argument(expression, name)) comma_nonempty_list(call_argument(expression, name)) comma_tail(call_argument(expression, name))
 
 %%
 
@@ -557,123 +557,123 @@ comma_tail(item):
 | COMMA first=item rest=comma_tail(item) { cons first rest }
 """
 
-VELA_PURE_PROOFS_V = """(* SPDX-License-Identifier: Apache-2.0 *)
+HOLDFAST_PURE_PROOFS_V = """(* SPDX-License-Identifier: Apache-2.0 *)
 From Stdlib Require Import Bool Arith List String.
-From MenhirLib Require Import VelaPureAst VelaPureGrammar.
+From MenhirLib Require Import HoldFastPureAst HoldFastPureGrammar.
 Import ListNotations.
-Import VelaPureGrammar.Gram VelaPureGrammar.Aut.GramDefs.
+Import HoldFastPureGrammar.Gram HoldFastPureGrammar.Aut.GramDefs.
 Open Scope string_scope.
 
-Definition version_guard : unit := VelaPureGrammar.version_check.
+Definition version_guard : unit := HoldFastPureGrammar.version_check.
 
-Theorem vela_file_safe :
-  VelaPureGrammar.MenhirLibParser.safe_validator tt = true.
-Proof. exact VelaPureGrammar.safe. Qed.
+Theorem holdfast_file_safe :
+  HoldFastPureGrammar.MenhirLibParser.safe_validator tt = true.
+Proof. exact HoldFastPureGrammar.safe. Qed.
 
-Theorem vela_file_complete_validator :
-  VelaPureGrammar.MenhirLibParser.complete_validator tt = true.
-Proof. exact VelaPureGrammar.complete. Qed.
+Theorem holdfast_file_complete_validator :
+  HoldFastPureGrammar.MenhirLibParser.complete_validator tt = true.
+Proof. exact HoldFastPureGrammar.complete. Qed.
 
-Theorem vela_file_correct :
-  forall (log_fuel : nat) (buffer : VelaPureGrammar.MenhirLibParser.Inter.buffer),
-  match VelaPureGrammar.file log_fuel buffer with
-  | VelaPureGrammar.MenhirLibParser.Inter.Parsed_pr sem buffer_new =>
+Theorem holdfast_file_correct :
+  forall (log_fuel : nat) (buffer : HoldFastPureGrammar.MenhirLibParser.Inter.buffer),
+  match HoldFastPureGrammar.file log_fuel buffer with
+  | HoldFastPureGrammar.MenhirLibParser.Inter.Parsed_pr sem buffer_new =>
       exists word (tree : parse_tree (NT file'nt) word),
-        buffer = VelaPureGrammar.MenhirLibParser.Inter.app_buf word buffer_new /\\
+        buffer = HoldFastPureGrammar.MenhirLibParser.Inter.app_buf word buffer_new /\\
         pt_sem tree = sem
   | _ => True
   end.
-Proof. exact VelaPureGrammar.file_correct. Qed.
+Proof. exact HoldFastPureGrammar.file_correct. Qed.
 
-Theorem vela_file_complete :
-  forall (log_fuel : nat) (word : list VelaPureGrammar.token) (buffer_end : VelaPureGrammar.MenhirLibParser.Inter.buffer)
+Theorem holdfast_file_complete :
+  forall (log_fuel : nat) (word : list HoldFastPureGrammar.token) (buffer_end : HoldFastPureGrammar.MenhirLibParser.Inter.buffer)
          (tree : parse_tree (NT file'nt) word),
-  match VelaPureGrammar.file log_fuel (VelaPureGrammar.MenhirLibParser.Inter.app_buf word buffer_end) with
-  | VelaPureGrammar.MenhirLibParser.Inter.Fail_pr => False
-  | VelaPureGrammar.MenhirLibParser.Inter.Parsed_pr output_res buffer_end_res =>
+  match HoldFastPureGrammar.file log_fuel (HoldFastPureGrammar.MenhirLibParser.Inter.app_buf word buffer_end) with
+  | HoldFastPureGrammar.MenhirLibParser.Inter.Fail_pr => False
+  | HoldFastPureGrammar.MenhirLibParser.Inter.Parsed_pr output_res buffer_end_res =>
       output_res = pt_sem tree /\\
       buffer_end_res = buffer_end /\\ (pt_size tree <= PeanoNat.Nat.pow 2 log_fuel)%nat
-  | VelaPureGrammar.MenhirLibParser.Inter.Timeout_pr =>
+  | HoldFastPureGrammar.MenhirLibParser.Inter.Timeout_pr =>
       (PeanoNat.Nat.pow 2 log_fuel < pt_size tree)%nat
   end.
-Proof. exact VelaPureGrammar.file_complete. Qed.
+Proof. exact HoldFastPureGrammar.file_complete. Qed.
 
-Theorem vela_file_unambiguity :
-  forall (word : list VelaPureGrammar.token)
+Theorem holdfast_file_unambiguity :
+  forall (word : list HoldFastPureGrammar.token)
          (tree1 tree2 : parse_tree (NT file'nt) word),
     pt_sem tree1 = pt_sem tree2.
 Proof.
-  exact (VelaPureGrammar.MenhirLibParser.unambiguity
-           VelaPureGrammar.safe VelaPureGrammar.complete
-           (inhabits (VelaPureGrammar.EOF (0, 0)))
-           VelaPureGrammar.Aut.Init'0).
+  exact (HoldFastPureGrammar.MenhirLibParser.unambiguity
+           HoldFastPureGrammar.safe HoldFastPureGrammar.complete
+           (inhabits (HoldFastPureGrammar.EOF (0, 0)))
+           HoldFastPureGrammar.Aut.Init'0).
 Qed.
 
-CoFixpoint eof_buffer (sp : span) : VelaPureGrammar.MenhirLibParser.Inter.buffer :=
-  VelaPureGrammar.MenhirLibParser.Inter.Buf_cons (VelaPureGrammar.EOF sp) (eof_buffer sp).
+CoFixpoint eof_buffer (sp : span) : HoldFastPureGrammar.MenhirLibParser.Inter.buffer :=
+  HoldFastPureGrammar.MenhirLibParser.Inter.Buf_cons (HoldFastPureGrammar.EOF sp) (eof_buffer sp).
 
-Definition token_stream (words : list VelaPureGrammar.token) (eof_span : span)
-  : VelaPureGrammar.MenhirLibParser.Inter.buffer :=
-  VelaPureGrammar.MenhirLibParser.Inter.app_buf words (eof_buffer eof_span).
+Definition token_stream (words : list HoldFastPureGrammar.token) (eof_span : span)
+  : HoldFastPureGrammar.MenhirLibParser.Inter.buffer :=
+  HoldFastPureGrammar.MenhirLibParser.Inter.app_buf words (eof_buffer eof_span).
 
-Definition parse_tokens (log_fuel : nat) (words : list VelaPureGrammar.token) (eof_span : span)
+Definition parse_tokens (log_fuel : nat) (words : list HoldFastPureGrammar.token) (eof_span : span)
   : option (outcome node) :=
-  match VelaPureGrammar.file log_fuel (token_stream words eof_span) with
-  | VelaPureGrammar.MenhirLibParser.Inter.Parsed_pr result _ => Some result
+  match HoldFastPureGrammar.file log_fuel (token_stream words eof_span) with
+  | HoldFastPureGrammar.MenhirLibParser.Inter.Parsed_pr result _ => Some result
   | _ => None
   end.
 
-Definition sample_Precedence_tokens : list VelaPureGrammar.token := [
-  VelaPureGrammar.MODULE (0, 6);
-  VelaPureGrammar.IDENT ((7, 8), "M");
-  VelaPureGrammar.SEMICOLON (8, 9);
-  VelaPureGrammar.PUBLIC (10, 16);
-  VelaPureGrammar.NAT (17, 20);
-  VelaPureGrammar.IDENT ((21, 22), "F");
-  VelaPureGrammar.LPAREN (22, 23);
-  VelaPureGrammar.RPAREN (23, 24);
-  VelaPureGrammar.LBRACE (25, 26);
-  VelaPureGrammar.RETURN (27, 33);
-  VelaPureGrammar.DECIMAL ((34, 35), "1");
-  VelaPureGrammar.PLUS (36, 37);
-  VelaPureGrammar.DECIMAL ((38, 39), "2");
-  VelaPureGrammar.STAR (40, 41);
-  VelaPureGrammar.DECIMAL ((42, 43), "3");
-  VelaPureGrammar.SEMICOLON (43, 44);
-  VelaPureGrammar.RBRACE (45, 46);
-  VelaPureGrammar.EOF (46, 46)
+Definition sample_Precedence_tokens : list HoldFastPureGrammar.token := [
+  HoldFastPureGrammar.MODULE (0, 6);
+  HoldFastPureGrammar.IDENT ((7, 8), "M");
+  HoldFastPureGrammar.SEMICOLON (8, 9);
+  HoldFastPureGrammar.PUBLIC (10, 16);
+  HoldFastPureGrammar.NAT (17, 20);
+  HoldFastPureGrammar.IDENT ((21, 22), "F");
+  HoldFastPureGrammar.LPAREN (22, 23);
+  HoldFastPureGrammar.RPAREN (23, 24);
+  HoldFastPureGrammar.LBRACE (25, 26);
+  HoldFastPureGrammar.RETURN (27, 33);
+  HoldFastPureGrammar.DECIMAL ((34, 35), "1");
+  HoldFastPureGrammar.PLUS (36, 37);
+  HoldFastPureGrammar.DECIMAL ((38, 39), "2");
+  HoldFastPureGrammar.STAR (40, 41);
+  HoldFastPureGrammar.DECIMAL ((42, 43), "3");
+  HoldFastPureGrammar.SEMICOLON (43, 44);
+  HoldFastPureGrammar.RBRACE (45, 46);
+  HoldFastPureGrammar.EOF (46, 46)
 ].
 
-Definition sample_BareLocal_tokens : list VelaPureGrammar.token := [
-  VelaPureGrammar.MODULE (0, 6);
-  VelaPureGrammar.IDENT ((7, 8), "M");
-  VelaPureGrammar.SEMICOLON (8, 9);
-  VelaPureGrammar.PUBLIC (10, 16);
-  VelaPureGrammar.NAT (17, 20);
-  VelaPureGrammar.IDENT ((21, 22), "F");
-  VelaPureGrammar.LPAREN (22, 23);
-  VelaPureGrammar.RPAREN (23, 24);
-  VelaPureGrammar.LBRACE (25, 26);
-  VelaPureGrammar.NAT (27, 30);
-  VelaPureGrammar.IDENT ((31, 32), "x");
-  VelaPureGrammar.EQUAL (33, 34);
-  VelaPureGrammar.DECIMAL ((35, 36), "1");
-  VelaPureGrammar.SEMICOLON (36, 37);
-  VelaPureGrammar.RETURN (38, 44);
-  VelaPureGrammar.IDENT ((45, 46), "x");
-  VelaPureGrammar.SEMICOLON (46, 47);
-  VelaPureGrammar.RBRACE (48, 49);
-  VelaPureGrammar.EOF (49, 49)
+Definition sample_BareLocal_tokens : list HoldFastPureGrammar.token := [
+  HoldFastPureGrammar.MODULE (0, 6);
+  HoldFastPureGrammar.IDENT ((7, 8), "M");
+  HoldFastPureGrammar.SEMICOLON (8, 9);
+  HoldFastPureGrammar.PUBLIC (10, 16);
+  HoldFastPureGrammar.NAT (17, 20);
+  HoldFastPureGrammar.IDENT ((21, 22), "F");
+  HoldFastPureGrammar.LPAREN (22, 23);
+  HoldFastPureGrammar.RPAREN (23, 24);
+  HoldFastPureGrammar.LBRACE (25, 26);
+  HoldFastPureGrammar.NAT (27, 30);
+  HoldFastPureGrammar.IDENT ((31, 32), "x");
+  HoldFastPureGrammar.EQUAL (33, 34);
+  HoldFastPureGrammar.DECIMAL ((35, 36), "1");
+  HoldFastPureGrammar.SEMICOLON (36, 37);
+  HoldFastPureGrammar.RETURN (38, 44);
+  HoldFastPureGrammar.IDENT ((45, 46), "x");
+  HoldFastPureGrammar.SEMICOLON (46, 47);
+  HoldFastPureGrammar.RBRACE (48, 49);
+  HoldFastPureGrammar.EOF (49, 49)
 ].
 
-Definition sample_EmptyModule_tokens : list VelaPureGrammar.token := [
-  VelaPureGrammar.MODULE (0, 6);
-  VelaPureGrammar.IDENT ((7, 8), "M");
-  VelaPureGrammar.SEMICOLON (8, 9);
-  VelaPureGrammar.EOF (9, 9)
+Definition sample_EmptyModule_tokens : list HoldFastPureGrammar.token := [
+  HoldFastPureGrammar.MODULE (0, 6);
+  HoldFastPureGrammar.IDENT ((7, 8), "M");
+  HoldFastPureGrammar.SEMICOLON (8, 9);
+  HoldFastPureGrammar.EOF (9, 9)
 ].
 
-Theorem vela_file_positive_precedence :
+Theorem holdfast_file_positive_precedence :
   match parse_tokens 6 sample_Precedence_tokens (46, 46) with
   | Some (Accepted parsed) =>
       (Nat.eqb (fst (node_span parsed)) 0 &&
@@ -683,47 +683,47 @@ Theorem vela_file_positive_precedence :
   end = true.
 Proof. lazy; reflexivity. Qed.
 
-Theorem vela_file_bare_local_refused :
+Theorem holdfast_file_bare_local_refused :
   parse_tokens 6 sample_BareLocal_tokens (49, 49) =
   Some (Refused "syntax" 27
     "local declaration requires 'let' or 'var' before its type (write 'let T x = e;' or 'var T x = e;')").
 Proof. lazy; reflexivity. Qed.
 
-Theorem vela_file_empty_module_rejected :
+Theorem holdfast_file_empty_module_rejected :
   parse_tokens 6 sample_EmptyModule_tokens (9, 9) = None.
 Proof. lazy; reflexivity. Qed.
 
-Theorem vela_file_zero_fuel_timeout :
-  VelaPureGrammar.file 0 (token_stream sample_Precedence_tokens (46, 46)) =
-  VelaPureGrammar.MenhirLibParser.Inter.Timeout_pr.
+Theorem holdfast_file_zero_fuel_timeout :
+  HoldFastPureGrammar.file 0 (token_stream sample_Precedence_tokens (46, 46)) =
+  HoldFastPureGrammar.MenhirLibParser.Inter.Timeout_pr.
 Proof. lazy; reflexivity. Qed.
 
-Print Assumptions vela_file_safe.
-Print Assumptions vela_file_complete_validator.
-Print Assumptions vela_file_correct.
-Print Assumptions vela_file_complete.
-Print Assumptions vela_file_unambiguity.
-Print Assumptions vela_file_positive_precedence.
-Print Assumptions vela_file_bare_local_refused.
-Print Assumptions vela_file_empty_module_rejected.
-Print Assumptions vela_file_zero_fuel_timeout.
+Print Assumptions holdfast_file_safe.
+Print Assumptions holdfast_file_complete_validator.
+Print Assumptions holdfast_file_correct.
+Print Assumptions holdfast_file_complete.
+Print Assumptions holdfast_file_unambiguity.
+Print Assumptions holdfast_file_positive_precedence.
+Print Assumptions holdfast_file_bare_local_refused.
+Print Assumptions holdfast_file_empty_module_rejected.
+Print Assumptions holdfast_file_zero_fuel_timeout.
 """
 
-VELA_PURE_EXTRACTION_V = """(* SPDX-License-Identifier: Apache-2.0 *)
+HOLDFAST_PURE_EXTRACTION_V = """(* SPDX-License-Identifier: Apache-2.0 *)
 From Stdlib Require Extraction.
-From MenhirLib Require Import VelaPureAst VelaPureGrammar VelaPureProofs.
+From MenhirLib Require Import HoldFastPureAst HoldFastPureGrammar HoldFastPureProofs.
 Extraction Language OCaml.
 Set Extraction Output Directory ".".
-Extraction "vela_checked_parser.ml" VelaPureGrammar.file.
+Extraction "holdfast_checked_parser.ml" HoldFastPureGrammar.file.
 """
 
 CHECKED_MAIN_ML = """(* SPDX-License-Identifier: Apache-2.0 *)
 (* Execute the extracted Rocq pure parser over the shared UTF-8/lexer boundary. *)
 
 let peano =
-  let table = Array.make (Ast.max_source_bytes + 1) Vela_checked_parser.O in
+  let table = Array.make (Ast.max_source_bytes + 1) HoldFast_checked_parser.O in
   for i = 1 to Ast.max_source_bytes do
-    table.(i) <- Vela_checked_parser.S table.(i - 1)
+    table.(i) <- HoldFast_checked_parser.S table.(i - 1)
   done;
   table
 
@@ -732,26 +732,26 @@ let nat_of_int n =
   else
     let rec loop acc k =
       if k <= 0 then acc
-      else loop (Vela_checked_parser.S acc) (k - 1)
+      else loop (HoldFast_checked_parser.S acc) (k - 1)
     in
     loop peano.(Ast.max_source_bytes) (n - Ast.max_source_bytes)
 
 let int_of_nat n =
   let rec loop acc = function
-    | Vela_checked_parser.O -> acc
-    | Vela_checked_parser.S rest -> loop (acc + 1) rest
+    | HoldFast_checked_parser.O -> acc
+    | HoldFast_checked_parser.S rest -> loop (acc + 1) rest
   in
   loop 0 n
 
-let bit b = if b then Vela_checked_parser.True else Vela_checked_parser.False
+let bit b = if b then HoldFast_checked_parser.True else HoldFast_checked_parser.False
 
 let unbit = function
-  | Vela_checked_parser.True -> 1
-  | Vela_checked_parser.False -> 0
+  | HoldFast_checked_parser.True -> 1
+  | HoldFast_checked_parser.False -> 0
 
 let ascii_of_char ch =
   let code = Char.code ch in
-  Vela_checked_parser.Ascii (
+  HoldFast_checked_parser.Ascii (
     bit (code land 1 <> 0),
     bit (code land 2 <> 0),
     bit (code land 4 <> 0),
@@ -763,7 +763,7 @@ let ascii_of_char ch =
   )
 
 let char_of_ascii = function
-  | Vela_checked_parser.Ascii (b0, b1, b2, b3, b4, b5, b6, b7) ->
+  | HoldFast_checked_parser.Ascii (b0, b1, b2, b3, b4, b5, b6, b7) ->
       Char.chr (
         unbit b0
         lor (unbit b1 lsl 1)
@@ -778,15 +778,15 @@ let char_of_ascii = function
 let coq_string_of_string s =
   let rec loop idx acc =
     if idx < 0 then acc
-    else loop (idx - 1) (Vela_checked_parser.String (ascii_of_char s.[idx], acc))
+    else loop (idx - 1) (HoldFast_checked_parser.String (ascii_of_char s.[idx], acc))
   in
-  loop (String.length s - 1) Vela_checked_parser.EmptyString
+  loop (String.length s - 1) HoldFast_checked_parser.EmptyString
 
 let string_of_coq_string s =
   let buf = Buffer.create 32 in
   let rec loop = function
-    | Vela_checked_parser.EmptyString -> Buffer.contents buf
-    | Vela_checked_parser.String (ch, rest) ->
+    | HoldFast_checked_parser.EmptyString -> Buffer.contents buf
+    | HoldFast_checked_parser.String (ch, rest) ->
         Buffer.add_char buf (char_of_ascii ch);
         loop rest
   in
@@ -794,72 +794,72 @@ let string_of_coq_string s =
 
 let list_of_coq_list items =
   let rec loop acc = function
-    | Vela_checked_parser.Nil -> List.rev acc
-    | Vela_checked_parser.Cons (head, tail) -> loop (head :: acc) tail
+    | HoldFast_checked_parser.Nil -> List.rev acc
+    | HoldFast_checked_parser.Cons (head, tail) -> loop (head :: acc) tail
   in
   loop [] items
 
 let rec ast_json_of_coq_json = function
-  | Vela_checked_parser.JNull -> Ast.Null
-  | Vela_checked_parser.JBoolean Vela_checked_parser.True -> Ast.Boolean true
-  | Vela_checked_parser.JBoolean Vela_checked_parser.False -> Ast.Boolean false
-  | Vela_checked_parser.JNumber n -> Ast.Number (int_of_nat n)
-  | Vela_checked_parser.JString s -> Ast.String (string_of_coq_string s)
-  | Vela_checked_parser.JArray items ->
+  | HoldFast_checked_parser.JNull -> Ast.Null
+  | HoldFast_checked_parser.JBoolean HoldFast_checked_parser.True -> Ast.Boolean true
+  | HoldFast_checked_parser.JBoolean HoldFast_checked_parser.False -> Ast.Boolean false
+  | HoldFast_checked_parser.JNumber n -> Ast.Number (int_of_nat n)
+  | HoldFast_checked_parser.JString s -> Ast.String (string_of_coq_string s)
+  | HoldFast_checked_parser.JArray items ->
       Ast.Array (List.map ast_json_of_coq_json (list_of_coq_list items))
-  | Vela_checked_parser.JObject fields ->
+  | HoldFast_checked_parser.JObject fields ->
       Ast.Object (
         List.map
-          (fun (Vela_checked_parser.Pair (k, v)) ->
+          (fun (HoldFast_checked_parser.Pair (k, v)) ->
             (string_of_coq_string k, ast_json_of_coq_json v))
           (list_of_coq_list fields)
       )
 
 let coq_span start_pos end_pos =
-  Vela_checked_parser.Pair (nat_of_int start_pos, nat_of_int end_pos)
+  HoldFast_checked_parser.Pair (nat_of_int start_pos, nat_of_int end_pos)
 
-let convert_token start_pos end_pos (raw : Parser.token) : Vela_checked_parser.token0 =
+let convert_token start_pos end_pos (raw : Parser.token) : HoldFast_checked_parser.token0 =
   let sp = coq_span start_pos end_pos in
   match raw with
-  | Parser.MODULE -> Vela_checked_parser.MODULE sp
-  | Parser.PUBLIC -> Vela_checked_parser.PUBLIC sp
-  | Parser.NAT -> Vela_checked_parser.NAT sp
-  | Parser.BOOL -> Vela_checked_parser.BOOL sp
-  | Parser.LET -> Vela_checked_parser.LET sp
-  | Parser.CONST -> Vela_checked_parser.CONST sp
-  | Parser.RETURN -> Vela_checked_parser.RETURN sp
-  | Parser.IF -> Vela_checked_parser.IF sp
-  | Parser.ELSE -> Vela_checked_parser.ELSE sp
-  | Parser.TRUE -> Vela_checked_parser.TRUE sp
-  | Parser.FALSE -> Vela_checked_parser.FALSE sp
-  | Parser.LPAREN -> Vela_checked_parser.LPAREN sp
-  | Parser.RPAREN -> Vela_checked_parser.RPAREN sp
-  | Parser.LBRACE -> Vela_checked_parser.LBRACE sp
-  | Parser.RBRACE -> Vela_checked_parser.RBRACE sp
-  | Parser.SEMICOLON -> Vela_checked_parser.SEMICOLON sp
-  | Parser.COMMA -> Vela_checked_parser.COMMA sp
-  | Parser.COLON -> Vela_checked_parser.COLON sp
-  | Parser.FATARROW -> Vela_checked_parser.FATARROW sp
-  | Parser.EQUAL -> Vela_checked_parser.EQUAL sp
-  | Parser.PLUS -> Vela_checked_parser.PLUS sp
-  | Parser.MINUS -> Vela_checked_parser.MINUS sp
-  | Parser.STAR -> Vela_checked_parser.STAR sp
-  | Parser.SLASH -> Vela_checked_parser.SLASH sp
-  | Parser.PERCENT -> Vela_checked_parser.PERCENT sp
-  | Parser.EQ -> Vela_checked_parser.EQ0 sp
-  | Parser.LE -> Vela_checked_parser.LE sp
-  | Parser.NE -> Vela_checked_parser.NE sp
-  | Parser.LT -> Vela_checked_parser.LT0 sp
-  | Parser.GT -> Vela_checked_parser.GT0 sp
-  | Parser.GE -> Vela_checked_parser.GE sp
-  | Parser.AND -> Vela_checked_parser.AND sp
-  | Parser.OR -> Vela_checked_parser.OR sp
-  | Parser.NOT -> Vela_checked_parser.NOT sp
-  | Parser.EOF -> Vela_checked_parser.EOF sp
+  | Parser.MODULE -> HoldFast_checked_parser.MODULE sp
+  | Parser.PUBLIC -> HoldFast_checked_parser.PUBLIC sp
+  | Parser.NAT -> HoldFast_checked_parser.NAT sp
+  | Parser.BOOL -> HoldFast_checked_parser.BOOL sp
+  | Parser.LET -> HoldFast_checked_parser.LET sp
+  | Parser.CONST -> HoldFast_checked_parser.CONST sp
+  | Parser.RETURN -> HoldFast_checked_parser.RETURN sp
+  | Parser.IF -> HoldFast_checked_parser.IF sp
+  | Parser.ELSE -> HoldFast_checked_parser.ELSE sp
+  | Parser.TRUE -> HoldFast_checked_parser.TRUE sp
+  | Parser.FALSE -> HoldFast_checked_parser.FALSE sp
+  | Parser.LPAREN -> HoldFast_checked_parser.LPAREN sp
+  | Parser.RPAREN -> HoldFast_checked_parser.RPAREN sp
+  | Parser.LBRACE -> HoldFast_checked_parser.LBRACE sp
+  | Parser.RBRACE -> HoldFast_checked_parser.RBRACE sp
+  | Parser.SEMICOLON -> HoldFast_checked_parser.SEMICOLON sp
+  | Parser.COMMA -> HoldFast_checked_parser.COMMA sp
+  | Parser.COLON -> HoldFast_checked_parser.COLON sp
+  | Parser.FATARROW -> HoldFast_checked_parser.FATARROW sp
+  | Parser.EQUAL -> HoldFast_checked_parser.EQUAL sp
+  | Parser.PLUS -> HoldFast_checked_parser.PLUS sp
+  | Parser.MINUS -> HoldFast_checked_parser.MINUS sp
+  | Parser.STAR -> HoldFast_checked_parser.STAR sp
+  | Parser.SLASH -> HoldFast_checked_parser.SLASH sp
+  | Parser.PERCENT -> HoldFast_checked_parser.PERCENT sp
+  | Parser.EQ -> HoldFast_checked_parser.EQ0 sp
+  | Parser.LE -> HoldFast_checked_parser.LE sp
+  | Parser.NE -> HoldFast_checked_parser.NE sp
+  | Parser.LT -> HoldFast_checked_parser.LT0 sp
+  | Parser.GT -> HoldFast_checked_parser.GT0 sp
+  | Parser.GE -> HoldFast_checked_parser.GE sp
+  | Parser.AND -> HoldFast_checked_parser.AND sp
+  | Parser.OR -> HoldFast_checked_parser.OR sp
+  | Parser.NOT -> HoldFast_checked_parser.NOT sp
+  | Parser.EOF -> HoldFast_checked_parser.EOF sp
   | Parser.IDENT s ->
-      Vela_checked_parser.IDENT (Vela_checked_parser.Pair (sp, coq_string_of_string s))
+      HoldFast_checked_parser.IDENT (HoldFast_checked_parser.Pair (sp, coq_string_of_string s))
   | Parser.DECIMAL s ->
-      Vela_checked_parser.DECIMAL (Vela_checked_parser.Pair (sp, coq_string_of_string s))
+      HoldFast_checked_parser.DECIMAL (HoldFast_checked_parser.Pair (sp, coq_string_of_string s))
   | _ ->
       raise (Ast.Refusal ("syntax", start_pos, "unexpected token or incomplete input"))
 
@@ -936,7 +936,7 @@ let rec token_stream state lexbuf current history =
     current := start_pos;
     history := (start_pos, raw) :: !history;
     let tok = convert_token start_pos end_pos raw in
-    Vela_checked_parser.MenhirLibParser.Inter.Buf_cons
+    HoldFast_checked_parser.MenhirLibParser.Inter.Buf_cons
       (tok, token_stream state lexbuf current history)
   )
 
@@ -973,18 +973,18 @@ let parse_source_string raw_source =
     let state = Lexer.create ~surface:false () in
     let stream = token_stream state lexbuf current history in
     let log_fuel = nat_of_int 30 in
-    match Vela_checked_parser.file log_fuel stream with
-    | Vela_checked_parser.MenhirLibParser.Inter.Parsed_pr (Vela_checked_parser.Accepted node, _) ->
-        let syntax = ast_json_of_coq_json node.Vela_checked_parser.node_syntax in
+    match HoldFast_checked_parser.file log_fuel stream with
+    | HoldFast_checked_parser.MenhirLibParser.Inter.Parsed_pr (HoldFast_checked_parser.Accepted node, _) ->
+        let syntax = ast_json_of_coq_json node.HoldFast_checked_parser.node_syntax in
         (0, Ast.encode (Ast.Object [("schema", Ast.Number 1); ("ast", syntax)]))
-    | Vela_checked_parser.MenhirLibParser.Inter.Parsed_pr
-        (Vela_checked_parser.Refused (kind, offset, message), _) ->
+    | HoldFast_checked_parser.MenhirLibParser.Inter.Parsed_pr
+        (HoldFast_checked_parser.Refused (kind, offset, message), _) ->
         (1, Ast.encode (diagnostic raw_source (string_of_coq_string kind)
                           (int_of_nat offset) (string_of_coq_string message)))
-    | Vela_checked_parser.MenhirLibParser.Inter.Fail_pr_full _ ->
+    | HoldFast_checked_parser.MenhirLibParser.Inter.Fail_pr_full _ ->
         let kind, offset, message = classify_failure state lexbuf !current !history in
         (1, Ast.encode (diagnostic raw_source kind offset message))
-    | Vela_checked_parser.MenhirLibParser.Inter.Timeout_pr ->
+    | HoldFast_checked_parser.MenhirLibParser.Inter.Timeout_pr ->
         (1, Ast.encode (diagnostic raw_source "limit" !current "checked parser step fuel exhausted"))
   with
   | Ast.Refusal (kind, offset, message) ->
@@ -1081,7 +1081,7 @@ def _strip_comments_and_actions(body: str) -> str:
 
 
 def _pure_grammar_view(mly_text: str) -> tuple[str, str]:
-    """Verify the pure grammar skeleton in parser.mly and emit VelaPureGrammar.mly and a token stub."""
+    """Verify the pure grammar skeleton in parser.mly and emit HoldFastPureGrammar.mly and a token stub."""
     header, sep, body = mly_text.partition("\n%%\n")
     if sep != "\n%%\n":
         raise ValueError("parser.mly is missing its %% section separator")
@@ -1128,7 +1128,7 @@ exception Error
 let generic_call_prefix _ _ : unit = raise Error
 let format_expression _ _ : Ast.node * int * bool = raise Error
 """
-    return VELA_PURE_GRAMMAR_MLY, token_stub
+    return HOLDFAST_PURE_GRAMMAR_MLY, token_stub
 
 
 def _proof_openings(source: bytes, *, reference: bool = False) -> bytes:
@@ -1282,8 +1282,8 @@ def _inputs(root: Path) -> dict[str, str]:
         "tools/opam/rocq.lock", "tools/opam/sail.lock", "tools/toolchain/parser_checked.py",
         "tools/toolchain/hashing.py", "tools/toolchain/atomic.py",
         "tools/toolchain/parser/ast.ml", "tools/toolchain/parser/parser.mly",
-        "tools/toolchain/parser/lexer.mll", "examples/pure.vela",
-        "examples/constants.vela", "examples/expressions.vela")}
+        "tools/toolchain/parser/lexer.mll", "examples/pure.hf",
+        "examples/constants.hf", "examples/expressions.hf")}
 
 
 def _toolchain(root: Path, directory: Path, steps: list[dict[str, object]]) -> dict[str, object]:
@@ -1398,22 +1398,22 @@ def _compile(directory: Path, steps: list[dict[str, object]]) -> None:
 
 
 def _compile_grammar_and_extract(tree: Path, pure_mly: str, steps: list[dict[str, object]]) -> None:
-    (tree / "VelaPureAst.v").write_text(VELA_PURE_AST_V, encoding="utf-8", newline="")
-    (tree / "VelaPureGrammar.mly").write_text(pure_mly, encoding="utf-8", newline="")
-    _run(_opam(["menhir", "--coq", "--strict", "VelaPureGrammar.mly"], switch=env.SAIL_SWITCH),
+    (tree / "HoldFastPureAst.v").write_text(HOLDFAST_PURE_AST_V, encoding="utf-8", newline="")
+    (tree / "HoldFastPureGrammar.mly").write_text(pure_mly, encoding="utf-8", newline="")
+    _run(_opam(["menhir", "--coq", "--strict", "HoldFastPureGrammar.mly"], switch=env.SAIL_SWITCH),
          tree, tree / "menhir-coq.stdout", steps)
     for module_name in GRAMMAR_MODULES:
-        if module_name == "VelaPureProofs":
-            (tree / "VelaPureProofs.v").write_text(VELA_PURE_PROOFS_V, encoding="utf-8", newline="")
+        if module_name == "HoldFastPureProofs":
+            (tree / "HoldFastPureProofs.v").write_text(HOLDFAST_PURE_PROOFS_V, encoding="utf-8", newline="")
         _run(_opam(["rocq", "c", "-R", ".", "MenhirLib", f"{module_name}.v"]),
              tree, tree / f"{module_name.lower()}.stdout", steps)
-    (tree / "VelaPureExtraction.v").write_text(VELA_PURE_EXTRACTION_V, encoding="utf-8", newline="")
-    _run(_opam(["rocq", "c", "-R", ".", "MenhirLib", "VelaPureExtraction.v"]),
+    (tree / "HoldFastPureExtraction.v").write_text(HOLDFAST_PURE_EXTRACTION_V, encoding="utf-8", newline="")
+    _run(_opam(["rocq", "c", "-R", ".", "MenhirLib", "HoldFastPureExtraction.v"]),
          tree, tree / "extraction.stdout", steps)
 
 
 def _work_root(root: Path) -> Path:
-    directory = proofenv.lane_root(proofenv.lane_of(root)) / "vela-parser-checked"
+    directory = proofenv.lane_root(proofenv.lane_of(root)) / "holdfast-parser-checked"
     kind = proofenv.filesystem(directory)
     if not kind or kind in proofenv.CROSS_OS_FILESYSTEMS | proofenv.VOLATILE_FILESYSTEMS:
         raise ValueError("Menhir support outputs require a persistent native filesystem")
@@ -1422,7 +1422,7 @@ def _work_root(root: Path) -> Path:
 
 
 def _runtime_root() -> Path:
-    directory = proofenv.build_root() / "vela-parser-checked-runtime"
+    directory = proofenv.build_root() / "holdfast-parser-checked-runtime"
     kind = proofenv.filesystem(directory)
     if not kind or kind in proofenv.CROSS_OS_FILESYSTEMS | proofenv.VOLATILE_FILESYSTEMS:
         raise ValueError("checked parser runtime requires a persistent native filesystem")
@@ -1451,9 +1451,9 @@ def _runtime_inputs(root: Path) -> dict[str, str]:
         "archive_sha512": ARCHIVE_SHA512,
         "candidate_sha256": CANDIDATE_SHA256,
         "validator_complete_candidate_sha256": VALIDATOR_COMPLETE_CANDIDATE_SHA256,
-        "vela_pure_ast_v_sha256": _sha256(VELA_PURE_AST_V.encode("utf-8")),
-        "vela_pure_proofs_v_sha256": _sha256(VELA_PURE_PROOFS_V.encode("utf-8")),
-        "vela_pure_extraction_v_sha256": _sha256(VELA_PURE_EXTRACTION_V.encode("utf-8")),
+        "holdfast_pure_ast_v_sha256": _sha256(HOLDFAST_PURE_AST_V.encode("utf-8")),
+        "holdfast_pure_proofs_v_sha256": _sha256(HOLDFAST_PURE_PROOFS_V.encode("utf-8")),
+        "holdfast_pure_extraction_v_sha256": _sha256(HOLDFAST_PURE_EXTRACTION_V.encode("utf-8")),
         "checked_main_ml_sha256": _sha256(CHECKED_MAIN_ML.encode("utf-8")),
     }
 
@@ -1469,39 +1469,39 @@ def _compile_checked_executable(root: Path, tree: Path, token_stub: str,
         ("token-stub-compile", ["ocamlc", "-c", "parser.ml"]),
         ("lexer-generate", ["ocamllex", "lexer.mll"]),
         ("lexer-compile", ["ocamlc", "-c", "lexer.ml"]),
-        ("extracted-mli-compile", ["ocamlc", "-w", "-a", "-c", "vela_checked_parser.mli"]),
-        ("extracted-ml-compile", ["ocamlc", "-w", "-a", "-c", "vela_checked_parser.ml"]),
+        ("extracted-mli-compile", ["ocamlc", "-w", "-a", "-c", "holdfast_checked_parser.mli"]),
+        ("extracted-ml-compile", ["ocamlc", "-w", "-a", "-c", "holdfast_checked_parser.ml"]),
         ("checked-main-compile", ["ocamlc", "-c", "checked_main.ml"]),
-        ("checked-link", ["ocamlc", "-o", "vela-checked-parser", "ast.cmo",
-                          "parser.cmo", "lexer.cmo", "vela_checked_parser.cmo", "checked_main.cmo"]),
+        ("checked-link", ["ocamlc", "-o", "holdfast-checked-parser", "ast.cmo",
+                          "parser.cmo", "lexer.cmo", "holdfast_checked_parser.cmo", "checked_main.cmo"]),
     )
     for step_name, cmd in ocaml_commands:
         _run(_opam(cmd), tree, tree / f"{step_name}.stdout", steps)
-    return tree / "vela-checked-parser"
+    return tree / "holdfast-checked-parser"
 
 
-def _publish_runtime_build(runtime_dir: Path, source_tree: Path, wanted: dict[str, str]) -> vela_parser.Build:
-    exe_path = runtime_dir / "vela-checked-parser"
+def _publish_runtime_build(runtime_dir: Path, source_tree: Path, wanted: dict[str, str]) -> holdfast_parser.Build:
+    exe_path = runtime_dir / "holdfast-checked-parser"
     receipt_path = runtime_dir / "receipt.json"
-    exe_bytes = _read_file_bytes(source_tree / "vela-checked-parser")
+    exe_bytes = _read_file_bytes(source_tree / "holdfast-checked-parser")
     with atomic_path(exe_path) as pending_exe:
         pending_exe.write_bytes(exe_bytes)
         pending_exe.chmod(0o755)
     receipt: dict[str, object] = {
         "schema": 1,
-        "scope": "vela-checked-pure-parser-runtime",
+        "scope": "holdfast-checked-pure-parser-runtime",
         "status": "built",
         "directory": str(runtime_dir),
         "inputs": wanted,
         "generated_sha256": {
-            "vela-parser": _sha256(exe_bytes),
-            "vela_checked_parser.ml": file_sha256(source_tree / "vela_checked_parser.ml"),
-            "vela_checked_parser.mli": file_sha256(source_tree / "vela_checked_parser.mli"),
-            "VelaPureGrammar.v": file_sha256(source_tree / "VelaPureGrammar.v"),
+            "holdfast-parser": _sha256(exe_bytes),
+            "holdfast_checked_parser.ml": file_sha256(source_tree / "holdfast_checked_parser.ml"),
+            "holdfast_checked_parser.mli": file_sha256(source_tree / "holdfast_checked_parser.mli"),
+            "HoldFastPureGrammar.v": file_sha256(source_tree / "HoldFastPureGrammar.v"),
         },
     }
     publish_report(receipt_path, receipt)
-    return vela_parser.Build(runtime_dir, exe_path, receipt)
+    return holdfast_parser.Build(runtime_dir, exe_path, receipt)
 
 
 def _runtime_entry(cache: Path, wanted: dict[str, str]) -> Path:
@@ -1511,7 +1511,7 @@ def _runtime_entry(cache: Path, wanted: dict[str, str]) -> Path:
     return directory
 
 
-def _read_runtime(directory: Path, wanted: dict[str, str], *, legacy: bool = False) -> vela_parser.Build | None:
+def _read_runtime(directory: Path, wanted: dict[str, str], *, legacy: bool = False) -> holdfast_parser.Build | None:
     receipt_path = directory / "receipt.json"
     if not receipt_path.is_file():
         return None
@@ -1524,52 +1524,52 @@ def _read_runtime(directory: Path, wanted: dict[str, str], *, legacy: bool = Fal
         _require(legacy, "checked parser cache receipt names different inputs")
         return None
     outputs = receipt.get("generated_sha256")
-    exe = directory / "vela-checked-parser"
-    if not isinstance(outputs, dict) or not exe.is_file() or file_sha256(exe) != outputs.get("vela-parser"):
+    exe = directory / "holdfast-checked-parser"
+    if not isinstance(outputs, dict) or not exe.is_file() or file_sha256(exe) != outputs.get("holdfast-parser"):
         raise ValueError("checked parser executable changed after its build")
-    return vela_parser.Build(directory, exe, receipt)
+    return holdfast_parser.Build(directory, exe, receipt)
 
 
-def _install_runtime_build(root: Path, source_tree: Path, contents: bytes | None = None) -> vela_parser.Build:
+def _install_runtime_build(root: Path, source_tree: Path, contents: bytes | None = None) -> holdfast_parser.Build:
     cache = _runtime_root()
     wanted = _runtime_inputs(root)
     directory = _runtime_entry(cache, wanted)
-    with vela_parser._file_lock(directory / "runtime.lock", timeout=TIMEOUT):
+    with holdfast_parser._file_lock(directory / "runtime.lock", timeout=TIMEOUT):
         if contents is not None:
-            with vela_parser._file_lock(cache / "runtime.lock", timeout=TIMEOUT), atomic_path(cache / "menhir.tar.gz") as pending_tar:
+            with holdfast_parser._file_lock(cache / "runtime.lock", timeout=TIMEOUT), atomic_path(cache / "menhir.tar.gz") as pending_tar:
                 pending_tar.write_bytes(contents)
         return _publish_runtime_build(directory, source_tree, wanted)
 
 
-def ensure_checked_build(root: Path | None = None, *, archive: Path | None = None) -> vela_parser.Build:
+def ensure_checked_build(root: Path | None = None, *, archive: Path | None = None) -> holdfast_parser.Build:
     """Return the receipt-verified parser published for this checkout's exact runtime inputs."""
     repo = Path(__file__).resolve().parents[2] if root is None else root
     cache = _runtime_root()
     wanted = _runtime_inputs(repo)
     directory = _runtime_entry(cache, wanted)
-    with vela_parser._file_lock(directory / "runtime.lock", timeout=TIMEOUT):
+    with holdfast_parser._file_lock(directory / "runtime.lock", timeout=TIMEOUT):
         cached = _read_runtime(directory, wanted)
         if cached is not None:
             return cached
-        with vela_parser._file_lock(cache / "runtime.lock", timeout=TIMEOUT):
+        with holdfast_parser._file_lock(cache / "runtime.lock", timeout=TIMEOUT):
             # Reuse a verified shared-cache entry under the lock that protects its receipt.
             legacy = _read_runtime(cache, wanted, legacy=True)
             if legacy is not None:
-                exe = directory / "vela-checked-parser"
+                exe = directory / "holdfast-checked-parser"
                 copied = _read_file_bytes(legacy.executable)
                 outputs = cast("dict[str, str]", legacy.receipt["generated_sha256"])
-                _require(_sha256(copied) == outputs["vela-parser"], "checked parser executable changed after its build")
+                _require(_sha256(copied) == outputs["holdfast-parser"], "checked parser executable changed after its build")
                 with atomic_path(exe) as pending:
                     pending.write_bytes(copied)
                     pending.chmod(0o755)
                 receipt = {**legacy.receipt, "directory": str(directory)}
                 publish_report(directory / "receipt.json", receipt)
-                return vela_parser.Build(directory, exe, receipt)
+                return holdfast_parser.Build(directory, exe, receipt)
             return _build_runtime(repo, cache, directory, wanted, archive)
 
 
 def _build_runtime(repo: Path, cache: Path, directory: Path,
-                   wanted: dict[str, str], archive: Path | None) -> vela_parser.Build:
+                   wanted: dict[str, str], archive: Path | None) -> holdfast_parser.Build:
     stage_dir = cache / "stage"
     menhirlib_stamp: dict[str, object] = {
         "archive_sha512": ARCHIVE_SHA512,
@@ -1607,7 +1607,7 @@ def print_guest_executable(root: Path) -> None:
     """Ensure the WSL guest checked-parser executable is built and print its path and digest."""
     compiled = ensure_checked_build(root)
     outputs = cast("dict[str, str]", compiled.receipt["generated_sha256"])
-    print(f"{compiled.executable} {outputs['vela-parser']}", flush=True)
+    print(f"{compiled.executable} {outputs['holdfast-parser']}", flush=True)
 
 
 _POPEN = subprocess.Popen
@@ -1663,7 +1663,7 @@ def _ensure_worker_command(repo: Path) -> list[str]:
         proc = cast("subprocess.Popen[bytes] | None", _WORKER_STATE.get("proc"))
         _WORKER_STATE["proc"] = None
         _close_proc(proc)
-        _ = outputs["vela-parser"]
+        _ = outputs["holdfast-parser"]
         return command
     if sys.platform == "win32":
         wanted = _runtime_inputs(repo)
@@ -1710,15 +1710,15 @@ def _ensure_worker_command(repo: Path) -> list[str]:
 
 
 def parse_checked(source: bytes, *, root: Path | None = None,
-                  compiled: vela_parser.Build | None = None) -> dict[str, vela_parser.Json]:
-    """Parse pure Vela source through the Rocq-extracted vela-checked-parser."""
+                  compiled: holdfast_parser.Build | None = None) -> dict[str, holdfast_parser.Json]:
+    """Parse pure HoldFast source through the Rocq-extracted holdfast-checked-parser."""
     source_text(source)
     if compiled is not None:
         outputs = cast("dict[str, str]", compiled.receipt["generated_sha256"])
         if (not compiled.executable.is_file()
-                or file_sha256(compiled.executable) != outputs.get("vela-parser")):
+                or file_sha256(compiled.executable) != outputs.get("holdfast-parser")):
             raise ValueError("checked parser executable changed after its build")
-        return vela_parser.parse_source(compiled, source, surface=False)
+        return holdfast_parser.parse_source(compiled, source, surface=False)
     repo = Path(__file__).resolve().parents[2] if root is None else root
     frame = f"{len(source)}\n".encode("ascii") + source
     with _WORKER_LOCK:
@@ -1752,7 +1752,7 @@ def parse_checked(source: bytes, *, root: Path | None = None,
     code_bytes, sep, raw_json = trimmed.partition(b" ")
     if sep != b" " or code_bytes not in (b"0", b"1"):
         raise ValueError("checked parser returned a malformed batch response")
-    return vela_parser.decode_response(source, int(code_bytes), raw_json, surface=False)
+    return holdfast_parser.decode_response(source, int(code_bytes), raw_json, surface=False)
 
 
 def trace_worker_pids() -> tuple[int, int]:
@@ -1805,7 +1805,7 @@ def qualify(root: Path, *, archive: Path | None = None) -> dict[str, object]:
         latest.unlink(missing_ok=True)
         directory = Path(tempfile.mkdtemp(prefix="support-", dir=work))
         steps: list[dict[str, object]] = []
-        attempt: dict[str, object] = {"schema": 1, "scope": "vela-checked-pure-parser",
+        attempt: dict[str, object] = {"schema": 1, "scope": "holdfast-checked-pure-parser",
                                       "directory": str(directory), "steps": steps, "status": "running"}
         try:
             inputs = _inputs(root)
@@ -1824,23 +1824,23 @@ def qualify(root: Path, *, archive: Path | None = None) -> dict[str, object]:
                 _run(_opam(["rocq", "c", "-R", ".", "MenhirLib", "Frozen.v"]),
                      tree, tree / "frozen.stdout", steps)
                 _compile_grammar_and_extract(tree, pure_mly, steps)
-            generated_v = (candidate / "VelaPureGrammar.v").read_bytes()
-            _require(bool(generated_v) and generated_v == (reference / "VelaPureGrammar.v").read_bytes(),
-                     "fresh menhir --coq --strict generation changed VelaPureGrammar.v bytes")
+            generated_v = (candidate / "HoldFastPureGrammar.v").read_bytes()
+            _require(bool(generated_v) and generated_v == (reference / "HoldFastPureGrammar.v").read_bytes(),
+                     "fresh menhir --coq --strict generation changed HoldFastPureGrammar.v bytes")
             _require(f"MenhirLib.Version.require_{RELEASE}".encode() in generated_v,
-                     "generated VelaPureGrammar.v omits the MenhirLib version guard")
-            extracted_ml = (candidate / "vela_checked_parser.ml").read_bytes()
-            extracted_mli = (candidate / "vela_checked_parser.mli").read_bytes()
-            _require(bool(extracted_ml) and extracted_ml == (reference / "vela_checked_parser.ml").read_bytes()
-                     and bool(extracted_mli) and extracted_mli == (reference / "vela_checked_parser.mli").read_bytes(),
-                     "fresh Rocq extraction changed vela_checked_parser.ml/.mli bytes")
+                     "generated HoldFastPureGrammar.v omits the MenhirLib version guard")
+            extracted_ml = (candidate / "holdfast_checked_parser.ml").read_bytes()
+            extracted_mli = (candidate / "holdfast_checked_parser.mli").read_bytes()
+            _require(bool(extracted_ml) and extracted_ml == (reference / "holdfast_checked_parser.ml").read_bytes()
+                     and bool(extracted_mli) and extracted_mli == (reference / "holdfast_checked_parser.mli").read_bytes(),
+                     "fresh Rocq extraction changed holdfast_checked_parser.ml/.mli bytes")
             outputs = {str(tree.name): {f"{name}.vo": file_sha256(tree / f"{name}.vo")
                                        for name in ALL_MODULES} for tree in (candidate, reference)}
             frozen = (candidate / "frozen.stdout").read_bytes()
             _require(bool(frozen) and frozen == (reference / "frozen.stdout").read_bytes(),
                      "same-prover Menhir public types, bodies, universes or assumptions differ")
-            proofs_reading = (candidate / "velapureproofs.stdout").read_text(encoding="utf-8")
-            _require(proofs_reading.encode() == (reference / "velapureproofs.stdout").read_bytes(),
+            proofs_reading = (candidate / "holdfastpureproofs.stdout").read_text(encoding="utf-8")
+            _require(proofs_reading.encode() == (reference / "holdfastpureproofs.stdout").read_bytes(),
                      "concrete checked-parser assumption reading differs between candidate and reference")
             _check_closed_assumptions(proofs_reading, len(THEOREMS))
             _run(_opam(["rocqchk", "-R", ".", "MenhirLib",
@@ -1858,28 +1858,28 @@ def qualify(root: Path, *, archive: Path | None = None) -> dict[str, object]:
             _run(_opam(["rocq", "c", "-R", ".", "MenhirLib", "VersionRefused.v"]),
                  candidate, candidate / "guard-refused.stdout", steps, refusal="require_unreleased")
             checked_exe = _compile_checked_executable(root, candidate, token_stub, steps)
-            checked_build = vela_parser.Build(
+            checked_build = holdfast_parser.Build(
                 directory=candidate,
                 executable=checked_exe,
-                receipt={"generated_sha256": {"vela-parser": file_sha256(checked_exe)}},
+                receipt={"generated_sha256": {"holdfast-parser": file_sha256(checked_exe)}},
             )
-            passed_fixtures = vela_parser._fixtures(checked_build)
+            passed_fixtures = holdfast_parser._fixtures(checked_build)
             if (root / "tools/toolchain/parser/parser.mly").is_file():
                 _install_runtime_build(root, candidate, contents)
                 reset_checked_worker()
-            dev_build = vela_parser.build(root)
+            dev_build = holdfast_parser.build(root)
             examples_verified: dict[str, str] = {}
-            for rel_example in ("examples/pure.vela", "examples/constants.vela", "examples/expressions.vela"):
-                example_bytes = vela_parser.read_source(root / rel_example)
-                checked_parsed = vela_parser.parse_source(checked_build, example_bytes)
-                dev_parsed = vela_parser.parse_source(dev_build, example_bytes)
+            for rel_example in ("examples/pure.hf", "examples/constants.hf", "examples/expressions.hf"):
+                example_bytes = holdfast_parser.read_source(root / rel_example)
+                checked_parsed = holdfast_parser.parse_source(checked_build, example_bytes)
+                dev_parsed = holdfast_parser.parse_source(dev_build, example_bytes)
                 _require(checked_parsed == dev_parsed,
-                         f"vela-checked-parser disagreed with vela-parser on {rel_example}")
+                         f"holdfast-checked-parser disagreed with holdfast-parser on {rel_example}")
                 examples_verified[rel_example] = _sha256(example_bytes)
             migration_cases = migration.authored_cases(root)
             migration_report = migration.compare(checked_build, migration_cases)
             _require(migration_report.get("status") == "agreed" and not migration_report.get("differences"),
-                     "vela-checked-parser disagreed with pure migration fixtures")
+                     "holdfast-checked-parser disagreed with pure migration fixtures")
             _require(_inputs(root) == inputs and _toolchain(root, directory, steps) == tools,
                      "support qualification inputs or toolchain changed during execution")
             _require(_runtime(directory, steps) == runtime,
@@ -1907,7 +1907,7 @@ def qualify(root: Path, *, archive: Path | None = None) -> dict[str, object]:
             report: dict[str, object] = {
                 **attempt, "status": "passed", "inputs": inputs, "toolchain": tools,
                 "installed_libraries": runtime, "compiled_sha256": outputs, "probes_sha256": probes,
-                "generator_pair_qualified": True, "checked_vela_parser": True, "python_retired": True,
+                "generator_pair_qualified": True, "checked_holdfast_parser": True, "python_retired": True,
                 "host_routes": ["linux", "win32"],
                 "source": {"release": RELEASE, "url": ARCHIVE_URL,
                            "sha512": ARCHIVE_SHA512, "sha256": _sha256(contents),
@@ -1925,17 +1925,17 @@ def qualify(root: Path, *, archive: Path | None = None) -> dict[str, object]:
                     "owner": "tools/toolchain/parser/parser.mly",
                     "terminals": list(PURE_TERMINALS),
                     "rules": list(EXPECTED_PURE_SKELETON),
-                    "vela_pure_ast_v_sha256": _sha256(VELA_PURE_AST_V.encode()),
-                    "vela_pure_grammar_mly_sha256": _sha256(pure_mly.encode()),
-                    "vela_pure_grammar_v_sha256": _sha256(generated_v),
-                    "vela_pure_proofs_v_sha256": _sha256(VELA_PURE_PROOFS_V.encode()),
+                    "holdfast_pure_ast_v_sha256": _sha256(HOLDFAST_PURE_AST_V.encode()),
+                    "holdfast_pure_grammar_mly_sha256": _sha256(pure_mly.encode()),
+                    "holdfast_pure_grammar_v_sha256": _sha256(generated_v),
+                    "holdfast_pure_proofs_v_sha256": _sha256(HOLDFAST_PURE_PROOFS_V.encode()),
                     "deterministic_generation": True,
                 },
                 "extraction": {
-                    "vela_pure_extraction_v_sha256": _sha256(VELA_PURE_EXTRACTION_V.encode()),
-                    "vela_checked_parser_ml_sha256": _sha256(extracted_ml),
-                    "vela_checked_parser_mli_sha256": _sha256(extracted_mli),
-                    "vela_checked_parser_exe_sha256": file_sha256(checked_exe),
+                    "holdfast_pure_extraction_v_sha256": _sha256(HOLDFAST_PURE_EXTRACTION_V.encode()),
+                    "holdfast_checked_parser_ml_sha256": _sha256(extracted_ml),
+                    "holdfast_checked_parser_mli_sha256": _sha256(extracted_mli),
+                    "holdfast_checked_parser_exe_sha256": file_sha256(checked_exe),
                     "deterministic_extraction": True,
                     "pure_fixtures_passed": len(passed_fixtures),
                     "examples_verified_sha256": examples_verified,

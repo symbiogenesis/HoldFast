@@ -6,16 +6,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="dark">
     <meta name="referrer" content="no-referrer">
-    <meta name="description" content="Explore Vela functions, explicit loans, dependent types, and Rocq/Gallina proofs in an interactive browser playground.">
-    <title>Vela · Playground &amp; Language Overview</title>
+    <meta name="description" content="Explore HoldFast functions, explicit loans, dependent types, and Rocq/Gallina proofs in an interactive browser playground.">
+    <title>HoldFast · Playground &amp; Language Overview</title>
     <link rel="stylesheet" href="./style.css">
     <script type="module" src="./app.mjs"></script>
 </head>
 <body>
     <header class="topbar">
-        <a class="brand" href="#overview" aria-label="Vela playground home">
+        <a class="brand" href="#overview" aria-label="HoldFast playground home">
             <span class="brand-mark" aria-hidden="true">v<span>·</span></span>
-            <span>vela<span class="brand-divider">/</span><span class="brand-context">playground</span></span>
+            <span>holdfast<span class="brand-divider">/</span><span class="brand-context">playground</span></span>
         </a>
         <nav class="topbar-nav" aria-label="Primary navigation">
             <a href="#playground" class="nav-item active">Playground</a>
@@ -30,10 +30,10 @@
                     <a href="#verification" role="menuitem">Verification</a>
                     <a href="#specifications" role="menuitem">Documentation</a>
                     <div class="menu-divider"></div>
-                    <a href="https://github.com/symbiogenesis/VelaLang/blob/main/docs/language/reference.md" target="_blank" rel="noopener noreferrer" role="menuitem">Language Reference ↗</a>
-                    <a href="https://github.com/symbiogenesis/VelaLang/blob/main/docs/language/surface-grammar.md" target="_blank" rel="noopener noreferrer" role="menuitem">Surface Grammar ↗</a>
-                    <a href="https://github.com/symbiogenesis/VelaLang/blob/main/docs/tooling/elaboration-prototype.md" target="_blank" rel="noopener noreferrer" role="menuitem">Dependent Elaborator ↗</a>
-                    <a href="https://github.com/symbiogenesis/VelaLang" target="_blank" rel="noopener noreferrer" role="menuitem">GitHub Repository ↗</a>
+                    <a href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/language/reference.md" target="_blank" rel="noopener noreferrer" role="menuitem">Language Reference ↗</a>
+                    <a href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/language/surface-grammar.md" target="_blank" rel="noopener noreferrer" role="menuitem">Surface Grammar ↗</a>
+                    <a href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/tooling/elaboration-prototype.md" target="_blank" rel="noopener noreferrer" role="menuitem">Dependent Elaborator ↗</a>
+                    <a href="https://github.com/symbiogenesis/HoldFast" target="_blank" rel="noopener noreferrer" role="menuitem">GitHub Repository ↗</a>
                 </div>
             </div>
         </nav>
@@ -46,9 +46,9 @@
     <main>
         <section id="overview" class="introduction" aria-labelledby="page-title">
             <div class="intro-main">
-                <h1 id="page-title">Vela playground</h1>
+                <h1 id="page-title">HoldFast playground</h1>
                 <p id="intro-copy" class="intro-copy">
-                    Vela combines systems programming and mathematical proofs. Load an example, evaluate an
+                    HoldFast combines systems programming and mathematical proofs. Load an example, evaluate an
                     expression, or inspect its <a href="#verification">Gallina output</a>.
                 </p>
                 <div class="quick-picks" aria-label="Quick example loaders">
@@ -65,12 +65,12 @@
             The formatter, symbol inspector, and style preview support functions and constants over <code>Nat</code> and <code>bool</code>.
         </p>
 
-        <section id="playground" class="workspace" aria-label="Vela development workspace">
+        <section id="playground" class="workspace" aria-label="HoldFast development workspace">
             <div class="source-pane">
                 <div class="pane-toolbar">
                     <div class="file-tab">
                         <span class="file-icon" aria-hidden="true">V</span>
-                        <span id="filename">playground.vela</span>
+                        <span id="filename">playground.hf</span>
                         <span id="edited-source" class="unsaved-dot" role="img" aria-label="Edited source" title="Source differs from the loaded example" hidden></span>
                     </div>
                     <div class="source-actions">
@@ -98,8 +98,8 @@
                 </div>
 
                 <div class="editor-shell">
-                    <div id="editor" aria-label="Vela source editor" hidden></div>
-                    <textarea id="source-fallback" aria-label="Vela source" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+                    <div id="editor" aria-label="HoldFast source editor" hidden></div>
+                    <textarea id="source-fallback" aria-label="HoldFast source" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
                     <div id="editor-notice" class="editor-notice" role="status">Loading the code editor…</div>
                 </div>
 
@@ -130,7 +130,7 @@
                                 <div class="menu-section">
                                     <span class="menu-heading">BUFFER &amp; TOOLS</span>
                                     <button id="quick-check-style" class="menu-action-btn" type="button">Check style &amp; let preview…</button>
-                                    <button id="download-source" class="menu-action-btn" type="button">Download playground.vela</button>
+                                    <button id="download-source" class="menu-action-btn" type="button">Download playground.hf</button>
                                     <button id="undo-buffer" class="menu-action-btn" type="button" disabled>Undo last tool edit</button>
                                 </div>
                                 <div id="feature-notes" class="menu-footnotes">
@@ -257,7 +257,7 @@
                         <span class="eyebrow">AUTHORING TOOLS</span>
                         <button id="check-authoring" class="button button-quiet" type="button">Check style</button>
                     </div>
-                    <p class="panel-description"><a href="https://github.com/symbiogenesis/VelaLang/blob/main/docs/tooling/authoring-tools.md" target="_blank" rel="noopener noreferrer">Style rules ↗</a> for names, documentation, Boolean comparisons, and bindings.</p>
+                    <p class="panel-description"><a href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/tooling/authoring-tools.md" target="_blank" rel="noopener noreferrer">Style rules ↗</a> for names, documentation, Boolean comparisons, and bindings.</p>
                     <div id="authoring-summary" class="output-summary" aria-live="polite">Choose Check style to see findings.</div>
                     <div id="authoring-findings" aria-label="Advisory style findings"></div>
                     <div class="panel-heading preview-heading">
@@ -300,7 +300,7 @@ public lemma SameValue() ensures PreservedValue() == 42
                     <div class="pillar-foot">
                         <button type="button" class="text-button" data-load-example="dependent">Load Proof ↑</button>
                         <button type="button" class="text-button" data-load-example="vectors">Safe Vec ↑</button>
-                        <a class="spec-deep-link" href="https://github.com/symbiogenesis/VelaLang/blob/main/docs/tooling/elaboration-prototype.md" target="_blank" rel="noopener noreferrer">Elaborator spec ↗</a>
+                        <a class="spec-deep-link" href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/tooling/elaboration-prototype.md" target="_blank" rel="noopener noreferrer">Elaborator spec ↗</a>
                     </div>
                 </article>
 
@@ -316,7 +316,7 @@ public lemma SameValue() ensures PreservedValue() == 42
 }</code></pre>
                     <div class="pillar-foot">
                         <button type="button" class="text-button" data-load-example="formatting">Load Formatting ↑</button>
-                        <a class="spec-deep-link" href="https://github.com/symbiogenesis/VelaLang/blob/main/docs/language/surface-grammar.md" target="_blank" rel="noopener noreferrer">Surface grammar ↗</a>
+                        <a class="spec-deep-link" href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/language/surface-grammar.md" target="_blank" rel="noopener noreferrer">Surface grammar ↗</a>
                     </div>
                 </article>
 
@@ -333,7 +333,7 @@ public definition Counter Advance(Counter counter, Nat step) =&gt;
                     <div class="pillar-foot">
                         <button type="button" class="text-button" data-load-example="ergonomics">Load Records ↑</button>
                         <button type="button" class="text-button" data-load-example="generic">Higher-Order Fn ↑</button>
-                        <a class="spec-deep-link" href="https://github.com/symbiogenesis/VelaLang/blob/main/docs/language/reference.md" target="_blank" rel="noopener noreferrer">Reference ↗</a>
+                        <a class="spec-deep-link" href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/language/reference.md" target="_blank" rel="noopener noreferrer">Reference ↗</a>
                     </div>
                 </article>
 
@@ -349,7 +349,7 @@ public definition Counter Advance(Counter counter, Nat step) =&gt;
                     <div class="pillar-foot">
                         <button type="button" class="text-button" data-load-example="constants">Load Constants ↑</button>
                         <button type="button" class="text-button" data-load-example="bindings">Let Preview ↑</button>
-                        <a class="spec-deep-link" href="https://github.com/symbiogenesis/VelaLang/blob/main/docs/tooling/lsp-prototype.md" target="_blank" rel="noopener noreferrer">LSP contract ↗</a>
+                        <a class="spec-deep-link" href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/tooling/lsp-prototype.md" target="_blank" rel="noopener noreferrer">LSP contract ↗</a>
                     </div>
                 </article>
             </div>
@@ -360,7 +360,7 @@ public definition Counter Advance(Counter counter, Nat step) =&gt;
                 <div>
                     <h2 id="tour-title">Systems language tour</h2>
                 </div>
-                <a class="spec-deep-link" href="https://github.com/symbiogenesis/VelaLang/blob/main/examples/dependent.vela" target="_blank" rel="noopener noreferrer">Source module ↗</a>
+                <a class="spec-deep-link" href="https://github.com/symbiogenesis/HoldFast/blob/main/examples/dependent.hf" target="_blank" rel="noopener noreferrer">Source module ↗</a>
             </div>
 
             <div class="tour-grid">
@@ -372,7 +372,7 @@ public definition Counter Advance(Counter counter, Nat step) =&gt;
                         <span class="expand-pill">Example ▾</span>
                     </summary>
                     <p class="tour-body">
-                        Ordinary arguments mark their modes with <code>in</code>, <code>ref</code>, <code>out</code>, or <code>move</code>. A method declaration supplies its receiver’s mode. <a href="https://github.com/symbiogenesis/VelaLang/blob/main/docs/language/reference.md#loans-and-parameter-modes" target="_blank" rel="noopener noreferrer">Loan rules ↗</a>
+                        Ordinary arguments mark their modes with <code>in</code>, <code>ref</code>, <code>out</code>, or <code>move</code>. A method declaration supplies its receiver’s mode. <a href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/language/reference.md#loans-and-parameter-modes" target="_blank" rel="noopener noreferrer">Loan rules ↗</a>
                     </p>
                     <pre class="compact-code"><code>public u32 SumInitializedBounds()
 {
@@ -389,7 +389,7 @@ public definition Counter Advance(Counter counter, Nat step) =&gt;
                         <span class="expand-pill">Example ▾</span>
                     </summary>
                     <p class="tour-body">
-                        The <code>open</code> block lifts only the named invariant during an update. Vela requires proof of the invariant at block exit. <a href="https://github.com/symbiogenesis/VelaLang/blob/main/docs/language/reference.md#contracts" target="_blank" rel="noopener noreferrer">Contract rules ↗</a>
+                        The <code>open</code> block lifts only the named invariant during an update. HoldFast requires proof of the invariant at block exit. <a href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/language/reference.md#contracts" target="_blank" rel="noopener noreferrer">Contract rules ↗</a>
                     </p>
                     <pre class="compact-code"><code>public RangeWindow RebalanceWindow()
 {
@@ -411,7 +411,7 @@ public definition Counter Advance(Counter counter, Nat step) =&gt;
                         <span class="expand-pill">Example ▾</span>
                     </summary>
                     <p class="tour-body">
-                        A half-open <code>low..high</code> range bounds a <code>foreach</code> loop. A <code>while</code> loop states its invariant and decreasing measure. <a href="https://github.com/symbiogenesis/VelaLang/blob/main/docs/language/reference.md#statements-and-control-flow" target="_blank" rel="noopener noreferrer">Loop rules ↗</a>
+                        A half-open <code>low..high</code> range bounds a <code>foreach</code> loop. A <code>while</code> loop states its invariant and decreasing measure. <a href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/language/reference.md#statements-and-control-flow" target="_blank" rel="noopener noreferrer">Loop rules ↗</a>
                     </p>
                     <pre class="compact-code"><code>public usize CountUpTo(usize limit)
     requires limit &lt;= 8usize
@@ -438,8 +438,8 @@ public definition Counter Advance(Counter counter, Nat step) =&gt;
                 </summary>
                 <div class="ref-disclosure-body">
                     <div class="spec-pills">
-                        <a href="https://github.com/symbiogenesis/VelaLang/blob/main/docs/language/reference.md" target="_blank" rel="noopener noreferrer">Syntax, operator precedence, and implementation status ↗</a>
-                        <a href="https://github.com/symbiogenesis/VelaLang/blob/main/docs/language/surface-grammar.md" target="_blank" rel="noopener noreferrer">Surface grammar ↗</a>
+                        <a href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/language/reference.md" target="_blank" rel="noopener noreferrer">Syntax, operator precedence, and implementation status ↗</a>
+                        <a href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/language/surface-grammar.md" target="_blank" rel="noopener noreferrer">Surface grammar ↗</a>
                     </div>
                 </div>
             </details>
@@ -451,24 +451,24 @@ public definition Counter Advance(Counter counter, Nat step) =&gt;
                     <h2 id="verification-title">What the playground checks</h2>
                 </div>
                 <p class="section-sub">
-                    The browser translates pure modules and previews supported mathematical inputs. Run <code>python tools/run.py vela-playground</code> to use the local mathematical elaborator. Use the <a href="https://github.com/symbiogenesis/VelaLang/blob/main/docs/tooling/elaboration-prototype.md" target="_blank" rel="noopener noreferrer">Rocq replay commands ↗</a> to check emitted proofs.
+                    The browser translates pure modules and previews supported mathematical inputs. Run <code>python tools/run.py holdfast-playground</code> to use the local mathematical elaborator. Use the <a href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/tooling/elaboration-prototype.md" target="_blank" rel="noopener noreferrer">Rocq replay commands ↗</a> to check emitted proofs.
                 </p>
             </div>
 
-            <div class="pipeline-strip" aria-label="Vela development tools">
-                <a class="pipeline-step" href="https://github.com/symbiogenesis/VelaLang/blob/main/docs/tooling/parser.md" target="_blank" rel="noopener noreferrer">
+            <div class="pipeline-strip" aria-label="HoldFast development tools">
+                <a class="pipeline-step" href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/tooling/parser.md" target="_blank" rel="noopener noreferrer">
                     <strong>Surface parser</strong>
                     <span>Menhir recognizes syntax before name resolution.</span>
                 </a>
-                <a class="pipeline-step" href="https://github.com/symbiogenesis/VelaLang/blob/main/docs/tooling/lsp-prototype.md" target="_blank" rel="noopener noreferrer">
+                <a class="pipeline-step" href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/tooling/lsp-prototype.md" target="_blank" rel="noopener noreferrer">
                     <strong>Editor tools</strong>
                     <span>Formatting, style checks, and navigation for pure modules.</span>
                 </a>
-                <a class="pipeline-step" href="https://github.com/symbiogenesis/VelaLang/blob/main/docs/tooling/elaboration-prototype.md" target="_blank" rel="noopener noreferrer">
+                <a class="pipeline-step" href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/tooling/elaboration-prototype.md" target="_blank" rel="noopener noreferrer">
                     <strong>Mathematical elaborator</strong>
                     <span>Emit Gallina for supported types, functions, and proofs.</span>
                 </a>
-                <a class="pipeline-step" href="https://github.com/symbiogenesis/VelaLang/blob/main/docs/assurance/verification-strategy.md" target="_blank" rel="noopener noreferrer">
+                <a class="pipeline-step" href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/assurance/verification-strategy.md" target="_blank" rel="noopener noreferrer">
                     <strong>Kernel replay</strong>
                     <span>Check the emitted terms and audit their assumptions.</span>
                 </a>
@@ -486,28 +486,28 @@ public definition Counter Advance(Counter counter, Nat step) =&gt;
                 <div class="spec-col">
                     <h3>Language (<code>docs/language/</code>)</h3>
                     <div class="spec-pills">
-                        <a href="https://github.com/symbiogenesis/VelaLang/blob/main/docs/language/reference.md" target="_blank" rel="noopener noreferrer" title="Declarations, types, loans, contracts, expressions, patterns, proofs">Language Reference ↗</a>
-                        <a href="https://github.com/symbiogenesis/VelaLang/blob/main/docs/language/first-release.md" target="_blank" rel="noopener noreferrer" title="Primitive semantics, module rules, ownership libraries, first-slice qualification">First-Release Boundary ↗</a>
-                        <a href="https://github.com/symbiogenesis/VelaLang/blob/main/docs/language/core-design.md" target="_blank" rel="noopener noreferrer" title="Explicit loan/mutation calculus, refinement tier, proof obligations">Core Design &amp; Loans ↗</a>
-                        <a href="https://github.com/symbiogenesis/VelaLang/blob/main/docs/language/surface-grammar.md" target="_blank" rel="noopener noreferrer" title="Concrete syntax, operator precedence, patterns, constants, ergonomics">Surface Grammar ↗</a>
+                        <a href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/language/reference.md" target="_blank" rel="noopener noreferrer" title="Declarations, types, loans, contracts, expressions, patterns, proofs">Language Reference ↗</a>
+                        <a href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/language/first-release.md" target="_blank" rel="noopener noreferrer" title="Primitive semantics, module rules, ownership libraries, first-slice qualification">First-Release Boundary ↗</a>
+                        <a href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/language/core-design.md" target="_blank" rel="noopener noreferrer" title="Explicit loan/mutation calculus, refinement tier, proof obligations">Core Design &amp; Loans ↗</a>
+                        <a href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/language/surface-grammar.md" target="_blank" rel="noopener noreferrer" title="Concrete syntax, operator precedence, patterns, constants, ergonomics">Surface Grammar ↗</a>
                     </div>
                 </div>
                 <div class="spec-col">
                     <h3>Tooling &amp; IDE (<code>docs/tooling/</code>)</h3>
                     <div class="spec-pills">
-                        <a href="https://github.com/symbiogenesis/VelaLang/blob/main/docs/tooling/elaboration-prototype.md" target="_blank" rel="noopener noreferrer" title="Generic dependent mathematics, first-class proofs, Rocq kernel replay">Mathematical Elaborator ↗</a>
-                        <a href="https://github.com/symbiogenesis/VelaLang/blob/main/docs/tooling/playground.md" target="_blank" rel="noopener noreferrer" title="Browser playground contract, console reducer, and security boundary">Playground Contract ↗</a>
-                        <a href="https://github.com/symbiogenesis/VelaLang/blob/main/docs/tooling/lsp-prototype.md" target="_blank" rel="noopener noreferrer" title="LSP diagnostics, hover, definition, references, symbols, inlay hints, formatting">LSP Server Prototype ↗</a>
-                        <a href="https://github.com/symbiogenesis/VelaLang/blob/main/docs/tooling/authoring-tools.md" target="_blank" rel="noopener noreferrer" title="Canonical formatter, VELA100–VELA105 lints, and explicit-let previews">Authoring Tools ↗</a>
+                        <a href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/tooling/elaboration-prototype.md" target="_blank" rel="noopener noreferrer" title="Generic dependent mathematics, first-class proofs, Rocq kernel replay">Mathematical Elaborator ↗</a>
+                        <a href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/tooling/playground.md" target="_blank" rel="noopener noreferrer" title="Browser playground contract, console reducer, and security boundary">Playground Contract ↗</a>
+                        <a href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/tooling/lsp-prototype.md" target="_blank" rel="noopener noreferrer" title="LSP diagnostics, hover, definition, references, symbols, inlay hints, formatting">LSP Server Prototype ↗</a>
+                        <a href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/tooling/authoring-tools.md" target="_blank" rel="noopener noreferrer" title="Canonical formatter, HOLDFAST100–HOLDFAST105 lints, and explicit-let previews">Authoring Tools ↗</a>
                     </div>
                 </div>
                 <div class="spec-col">
                     <h3>Assurance &amp; Roadmap</h3>
                     <div class="spec-pills">
-                        <a href="https://github.com/symbiogenesis/VelaLang/blob/main/docs/assurance/verification-strategy.md" target="_blank" rel="noopener noreferrer" title="Kernel-honest elaboration boundary, permanent exclusions, tool qualification">Verification Strategy ↗</a>
-                        <a href="https://github.com/symbiogenesis/VelaLang/blob/main/docs/assurance/compiler-route-contract.md" target="_blank" rel="noopener noreferrer" title="Retained compiler route and source-to-artifact correspondence">Compiler Route ↗</a>
-                        <a href="https://github.com/symbiogenesis/VelaLang/blob/main/docs/extensions/README.md" target="_blank" rel="noopener noreferrer" title="Graded foundation, handlers/async, interior mutability, metaprogramming">Extension Dossiers ↗</a>
-                        <a href="https://github.com/symbiogenesis/VelaLang/blob/main/PLAN.md" target="_blank" rel="noopener noreferrer" title="Backlog, delivery stages, and acceptance criteria">Project plan ↗</a>
+                        <a href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/assurance/verification-strategy.md" target="_blank" rel="noopener noreferrer" title="Kernel-honest elaboration boundary, permanent exclusions, tool qualification">Verification Strategy ↗</a>
+                        <a href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/assurance/compiler-route-contract.md" target="_blank" rel="noopener noreferrer" title="Retained compiler route and source-to-artifact correspondence">Compiler Route ↗</a>
+                        <a href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/extensions/README.md" target="_blank" rel="noopener noreferrer" title="Graded foundation, handlers/async, interior mutability, metaprogramming">Extension Dossiers ↗</a>
+                        <a href="https://github.com/symbiogenesis/HoldFast/blob/main/PLAN.md" target="_blank" rel="noopener noreferrer" title="Backlog, delivery stages, and acceptance criteria">Project plan ↗</a>
                     </div>
                 </div>
             </div>
@@ -515,13 +515,13 @@ public definition Counter Advance(Counter counter, Nat step) =&gt;
 
         <footer class="page-footer">
             <div class="footer-brand">
-                <strong>VelaLang</strong> · Designed alongside <a href="https://github.com/symbiogenesis/VerifiedOS" target="_blank" rel="noopener noreferrer">VerifiedOS</a>
+                <strong>HoldFast</strong> · Designed alongside <a href="https://github.com/symbiogenesis/VerifiedOS" target="_blank" rel="noopener noreferrer">VerifiedOS</a>
             </div>
             <div class="footer-links">
                 <a href="#overview">Top</a>
                 <a href="#playground">Playground</a>
-                <a href="https://github.com/symbiogenesis/VelaLang" target="_blank" rel="noopener noreferrer">GitHub</a>
-                <a href="https://github.com/symbiogenesis/VelaLang/blob/main/COPYRIGHT.md" target="_blank" rel="noopener noreferrer">Apache-2.0 / CC-BY-4.0</a>
+                <a href="https://github.com/symbiogenesis/HoldFast" target="_blank" rel="noopener noreferrer">GitHub</a>
+                <a href="https://github.com/symbiogenesis/HoldFast/blob/main/COPYRIGHT.md" target="_blank" rel="noopener noreferrer">Apache-2.0 / CC-BY-4.0</a>
             </div>
         </footer>
     </main>

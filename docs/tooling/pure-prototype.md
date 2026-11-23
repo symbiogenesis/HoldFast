@@ -1,4 +1,4 @@
-# Pure Vela translation prototype
+# Pure HoldFast translation prototype
 
 The pure compiler translates explicit `Nat` and `bool` functions and
 constants to Gallina. The [checked parser](parser.md#checked-parser-boundary)
@@ -151,9 +151,9 @@ operand once and evaluate the right only when needed. Thus
 `false && runtimeFlag` still cannot initialize a required-static constant.
 The evaluator applies its work, depth, output and numeric limits.
 
-The [expression fixtures](../../tools/tests/test_vela_expressions.py) check
+The [expression fixtures](../../tools/tests/test_holdfast_expressions.py) check
 expected values, emitted terms, refusal cases and original-source spans.
-`vela-parser elaborate-qualify` replays independently expected constant
+`holdfast-parser elaborate-qualify` replays independently expected constant
 and runtime equalities with the kernel and assumption auditor.
 [Playground examples](playground.md#extended-expression-examples)
 
@@ -161,10 +161,10 @@ and runtime equalities with the kernel and assumption auditor.
 
 Export one function from a checked pure module as a default ECMAScript module
 function. For example, build the playground's `Changed` comparison, then
-import the resulting file in an ES module. [Example source](../../examples/expressions.vela)
+import the resulting file in an ES module. [Example source](../../examples/expressions.hf)
 
 ```console
-python tools/run.py vela-parser emit-web examples/expressions.vela Changed --output changed.mjs
+python tools/run.py holdfast-parser emit-web examples/expressions.hf Changed --output changed.mjs
 ```
 
 ```js
@@ -200,7 +200,7 @@ for Node with a 32 MiB old-space limit and thirty seconds for each kernel tool.
 The bounds describe this generated expression and qualification process.
 Browser engine memory allocation and execution time depend on the host.
 
-Run `python tools/run.py vela-parser qualify-web` to exercise four independent
+Run `python tools/run.py holdfast-parser qualify-web` to exercise four independent
 truth tables and require the kernel to reject two changed JavaScript expressions.
 [Runtime pin](../../THIRD-PARTY.md#boolean-web-execution-engine) ·
 [Qualified client](../../tools/toolchain/web_output_check.py)
@@ -220,14 +220,14 @@ are checked and evaluated once in source order, including for a zero divisor.
 [Represented arithmetic](../language/first-release.md#primitive-semantics) has
 its own nonzero-divisor and representability requirements.
 
-The [division fixtures](../../tools/tests/test_vela_division.py) exercise
+The [division fixtures](../../tools/tests/test_holdfast_division.py) exercise
 values, rendering, operand types and static dependency checks. Native kernel
 replay also checks emitted terms. [Playground examples](playground.md#division-and-remainder-examples)
 
 ## Command and publication
 
-Run `python tools/run.py vela check SOURCE` to check a file, or
-`python tools/run.py vela emit SOURCE` to print its Gallina. Use `--output FILE`
+Run `python tools/run.py holdfast check SOURCE` to check a file, or
+`python tools/run.py holdfast emit SOURCE` to print its Gallina. Use `--output FILE`
 to publish Gallina atomically after successful checking. The output must
 have an existing parent and must not alias the source. Diagnostics identify
 the source position and the kind of failure. Formatting and lint behavior
@@ -252,15 +252,15 @@ governs production correspondence.
 From the repository root on Windows (use `python3` on Linux):
 
 ```console
-python tools/run.py vela check examples/pure.vela
-python tools/run.py vela emit examples/pure.vela --output out/Pure.v
+python tools/run.py holdfast check examples/pure.hf
+python tools/run.py holdfast emit examples/pure.hf --output out/Pure.v
 ```
 
 Create the output directory first, or omit `--output` to print definitions.
-The [example](../../examples/pure.vela) defines a cube and Boolean
+The [example](../../examples/pure.hf) defines a cube and Boolean
 selection: intended `Choose(true, 1)` is true, `Choose(true, 2)` false. Output is
-module `Vela_Oracle` with `f_Cube`/`f_Choose`. The
-[expression example](../../examples/expressions.vela) adds Boolean
+module `HoldFast_Oracle` with `f_Cube`/`f_Choose`. The
+[expression example](../../examples/expressions.hf) adds Boolean
 logic, comparisons and saturating natural subtraction. The playground console
 evaluates closed expressions through the bounded static evaluator; kernel
 acceptance requires the separate replay.
@@ -270,7 +270,7 @@ acceptance requires the separate replay.
 The compiler records bounded development traces under the
 [performance trace contract](tooling-protocols.md#compiler-decisions-and-performance-traces).
 
-For the packet validator, `python tools/run.py vela-parser first-slice --trace`
+For the packet validator, `python tools/run.py holdfast-parser first-slice --trace`
 runs the [native qualification](../language/first-release.md#first-slice-qualification)
 and records the path of a Chrome Trace Event file in the receipt's
 `compiler_trace` field. The host track covers surface parsing, joint resolution
@@ -295,25 +295,25 @@ loader injection. Configured Rocq load roots and proof inputs have separate
 file-by-file bindings in the same receipt.
 These measurements describe compiler execution.
 
-Run `python tools/run.py vela trace-qualify-packet-viewer --trace-processor PATH --output out/packet-viewer.json`
+Run `python tools/run.py holdfast trace-qualify-packet-viewer --trace-processor PATH --output out/packet-viewer.json`
 with a provisioned, pinned Perfetto v58.2 reader. It imports a deterministic
 packet trace and checks eleven independently specified spans in nanoseconds,
 their depths, logical threads and processes, the source byte counter and the
 three proof-command process IDs. Each child has its own process track and
 falls inside the wall-time interval of its host proof phase.
-`python tools/run.py vela trace-packet-viewer-validate out/packet-viewer.json --trace-processor PATH`
+`python tools/run.py holdfast trace-packet-viewer-validate out/packet-viewer.json --trace-processor PATH`
 rechecks the exact fixture, reader, harness, SQL and retained CSV observations.
 
 Create the destination directory, then run:
 
 ```console
-python tools/run.py vela trace examples/pure.vela --output out/pure-trace.json
-python tools/run.py vela trace-validate out/pure-trace.json --source examples/pure.vela
-python tools/run.py vela trace-render out/pure-trace.json --source examples/pure.vela --output out/pure-timeline.html
-python tools/run.py vela trace-benchmark examples/pure.vela --output out/pure-trace-comparison.json
-python tools/run.py vela trace-benchmark-validate out/pure-trace-comparison.json --source examples/pure.vela
-python tools/run.py vela trace-qualify-viewer --trace-processor /path/to/trace_processor_shell --output out/trace-viewer.json
-python tools/run.py vela trace-viewer-validate out/trace-viewer.json --trace-processor /path/to/trace_processor_shell
+python tools/run.py holdfast trace examples/pure.hf --output out/pure-trace.json
+python tools/run.py holdfast trace-validate out/pure-trace.json --source examples/pure.hf
+python tools/run.py holdfast trace-render out/pure-trace.json --source examples/pure.hf --output out/pure-timeline.html
+python tools/run.py holdfast trace-benchmark examples/pure.hf --output out/pure-trace-comparison.json
+python tools/run.py holdfast trace-benchmark-validate out/pure-trace-comparison.json --source examples/pure.hf
+python tools/run.py holdfast trace-qualify-viewer --trace-processor /path/to/trace_processor_shell --output out/trace-viewer.json
+python tools/run.py holdfast trace-viewer-validate out/trace-viewer.json --trace-processor /path/to/trace_processor_shell
 ```
 
 The read-only trace command records `compile`, nested `parse` and
@@ -344,7 +344,7 @@ sites identify name spellings; declaration kinds are recorded producer metadata.
 The inventory counts recorder calls and supplies no independent source-coverage
 or source-to-timing correspondence theorem.
 
-The `vela` schema-3 manifest binds events and completeness metadata, exact source
+The `holdfast` schema-3 manifest binds events and completeness metadata, exact source
 bytes, local Python/compiler/parser input files and Python/platform versions.
 The producer identity binds the Python and opam locks, command bootstrap,
 Python executables, active import search paths, interpreter flags and kernel
@@ -412,15 +412,15 @@ budget before measuring. Qualification requires at least one warmup and seven
 measured pairs with a positive total plain time. It compares the exact totals,
 so an overrun smaller than one part per million still fails. A failed comparison
 preserves the previous output. Pass the same budget to the independent validation
-invocation. The qualification workloads are [pure functions](../../examples/pure.vela)
-and [expressions](../../examples/expressions.vela), each with one warmup,
+invocation. The qualification workloads are [pure functions](../../examples/pure.hf)
+and [expressions](../../examples/expressions.hf), each with one warmup,
 seven measured pairs and a 250,000 ppm (25%) aggregate elapsed overhead budget.
 The verdict applies to those recorded runs.
 
-[Independent timeline fixtures](../../tools/tests/test_vela_compiler_trace.py)
+[Independent timeline fixtures](../../tools/tests/test_holdfast_compiler_trace.py)
 recover expected order, durations, nesting and counters with a separate JSON reader
 and exercise corruption, overflow, clock and refusal controls.
-[Paired-measurement fixtures](../../tools/tests/test_vela_trace_benchmark.py) check
+[Paired-measurement fixtures](../../tools/tests/test_holdfast_trace_benchmark.py) check
 independently chosen timing totals, warmup exclusion, output equivalence, binding
 and publication refusals.
 
@@ -446,7 +446,7 @@ binding over the complete report. Each reader invocation has a 30-second timeout
 and bounded accepted output. Hashes detect changes and authenticate no measurement.
 Reader/harness changes withdraw qualification; atomic publication preserves
 existing evidence after failures or cancellation and refuses output aliases.
-[Reader qualification tests](../../tools/tests/test_vela_trace_viewer.py) cover
+[Reader qualification tests](../../tools/tests/test_holdfast_trace_viewer.py) cover
 wrong independent observations, disabled negative checks, unknown binaries,
 timeouts, output bounds, aliases and late identity changes.
 
@@ -489,7 +489,7 @@ Qualify actual browser rendering using an already provisioned Chromium browser
 and an explicitly selected executable SHA-256:
 
 ```console
-python tools/run.py vela trace-qualify-browser --browser /path/to/browser --browser-sha256 <sha256> --output out/trace-browser.json
+python tools/run.py holdfast trace-qualify-browser --browser /path/to/browser --browser-sha256 <sha256> --output out/trace-browser.json
 ```
 
 The command installs nothing and opens only a temporary local file in a fresh
@@ -501,11 +501,11 @@ require six spans at their exact time-derived positions, three nesting depths,
 source details and a single matching declaration row after filtering. The receipt
 binds observed geometry and behavior, exact browser bytes, viewer/harness inputs
 and fixture HTML; late changes withdraw publication. The
-[viewer controls](../../tools/tests/test_vela_trace_html.py) exercise incorrect
+[viewer controls](../../tools/tests/test_holdfast_trace_html.py) exercise incorrect
 layout, styles, filtering and source observations, binary changes, timeouts,
 oversized output, stale/incomplete recordings and atomic publication failures.
 
-This qualifies the Vela offline viewer in the exact selected Chromium executable.
+This qualifies the HoldFast offline viewer in the exact selected Chromium executable.
 It supplies no Perfetto browser-UI qualification, browser installation/runtime
 closure, measurement authentication or emitted-program timing verdict. The pinned
 Perfetto importer retains its independent receipt and separate acceptance scope.

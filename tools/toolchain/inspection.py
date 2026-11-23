@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import cast
 
 from toolchain import (
-    VelaError,
+    HoldFastError,
     concrete,
     inspection_scopes,
     inspection_syntax,
@@ -52,7 +52,7 @@ def producer_identity() -> dict[str, object]:
     images = {"executable": Path(sys.executable)}
     if library := trace_runtime.configured_shared_library():
         images["shared-library"] = library
-    producer = {"name": "vela-pure-development", "stage": "pure-resolution",
+    producer = {"name": "holdfast-pure-development", "stage": "pure-resolution",
                 "dependencies": compiler_dependency_hashes(), "python": sys.version,
                 "implementation": sys.implementation.name, "interpreter_sha256": trace_runtime.file_identity(images)}
     return {**producer, "version": sha256_bytes(_encoded(producer))}
@@ -64,7 +64,7 @@ def _binding(document: SourceSnapshot, configuration: str, target: str) -> dict[
             "coordinate_unit": "utf8-byte", "symbol_lifetime": "snapshot"}
 
 
-def current_binding(source: bytes, *, uri: str = "memory:vela", configuration: str = CONFIGURATION,
+def current_binding(source: bytes, *, uri: str = "memory:holdfast", configuration: str = CONFIGURATION,
                     target: str = TARGET) -> dict[str, object]:
     """Identify current inputs without invoking the parser or semantic worker."""
     return _binding(SourceSnapshot(uri, 1, source.decode("utf-8"), 1), configuration, target)
@@ -107,7 +107,7 @@ class Snapshot:
         """Answer bounded queries only while the caller's input and producer closure match."""
         current = self.export()
         response: dict[str, object] = {
-            "schema": SCHEMA_VERSION, "scope": "vela-pure-inspection-query",
+            "schema": SCHEMA_VERSION, "scope": "holdfast-pure-inspection-query",
             "snapshot": current["snapshot"], "binding": current["binding"],
             "status": "refused", "complete": False, "reason": None,
             "items": [], "total": 0}
@@ -220,7 +220,7 @@ class Snapshot:
         return response
 
 
-def inspect(source: bytes, *, uri: str = "memory:vela", configuration: str = CONFIGURATION,
+def inspect(source: bytes, *, uri: str = "memory:holdfast", configuration: str = CONFIGURATION,
             target: str = TARGET) -> Snapshot:
     """Build a complete source-preserving snapshot using the isolated pure fact producer.
 
@@ -231,7 +231,7 @@ def inspect(source: bytes, *, uri: str = "memory:vela", configuration: str = CON
     binding = _binding(document, configuration, target)
     identity = sha256_bytes(_encoded(binding))
     publication: dict[str, object] = {
-        "schema": SCHEMA_VERSION, "scope": "vela-pure-inspection",
+        "schema": SCHEMA_VERSION, "scope": "holdfast-pure-inspection",
         "snapshot": identity, "binding": binding, "status": "unavailable", "complete": False,
         "reason": None, "source": document.text, "symbols": [], "occurrences": [], "concrete": [], "syntax": [],
         "expressions": [], "scopes": [],
@@ -264,7 +264,7 @@ def inspect(source: bytes, *, uri: str = "memory:vela", configuration: str = CON
             timed_out = "exceeded 5 seconds" in str(error)
             publication.update(status="timed-out" if timed_out else "unavailable",
                                reason="producer-timeout" if timed_out else "producer-failure")
-        except VelaError as error:
+        except HoldFastError as error:
             publication["reason"] = error.kind
         except (ValueError, TypeError, KeyError):
             publication["reason"] = "producer-failure"

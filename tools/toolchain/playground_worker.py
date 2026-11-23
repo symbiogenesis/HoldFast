@@ -8,13 +8,13 @@ from pathlib import Path
 from typing import cast
 
 from toolchain import (
+    HoldFastError,
     Translation,
     ValueType,
-    VelaError,
     translate,
 )
 from toolchain import (
-    mathematical as vela_mathematical,
+    mathematical as holdfast_mathematical,
 )
 from toolchain.authoring import lint_source, preview_bindings
 from toolchain.elaborate_holes import OpenGoalsError
@@ -22,11 +22,11 @@ from toolchain.hashing import file_sha256
 from toolchain.protocol_json import MAX_BODY_BYTES, decode_message, encode_body
 
 
-def _editor_translation(source: bytes) -> Translation | VelaError | None:
+def _editor_translation(source: bytes) -> Translation | HoldFastError | None:
     """Check compatibility with the pure editor services and their canonical emitter."""
     try:
         return translate(source)
-    except VelaError as error:
+    except HoldFastError as error:
         return error
     except (OSError, RuntimeError, ValueError):
         return None
@@ -47,7 +47,7 @@ def compile_request(request: dict[str, object], *, mathematical_parser: Path) ->
                                  for finding in findings],
                     "bindingPreview": preview.decode("utf-8")}
         if request["action"] == "compile":
-            compiled = vela_mathematical.compile_source(source, mathematical_parser)
+            compiled = holdfast_mathematical.compile_source(source, mathematical_parser)
             editor = _editor_translation(source)
             return {"ok": True, "sourceHash": digest,
                     "module": compiled.module,
@@ -58,10 +58,10 @@ def compile_request(request: dict[str, object], *, mathematical_parser: Path) ->
                                  for finding in compiled.findings]}
         if request["action"] != "evaluate":
             raise ValueError("Unknown compiler request")
-        result = vela_mathematical.evaluate_source(
+        result = holdfast_mathematical.evaluate_source(
             source, cast("str", request["expression"]), cast("ValueType", request["valueType"]), mathematical_parser)
         value = ("true" if result.value else "false") if result.value_type == "bool" else str(result.value)
-    except VelaError as error:
+    except HoldFastError as error:
         response: dict[str, object] = {
             "ok": False, "sourceHash": digest,
             "error": {"kind": error.kind, "message": error.message,
@@ -76,7 +76,7 @@ def compile_request(request: dict[str, object], *, mathematical_parser: Path) ->
                 response["editorServices"] = False
                 return response
             editor = _editor_translation(source)
-            response["editorServices"] = (isinstance(editor, VelaError)
+            response["editorServices"] = (isinstance(editor, HoldFastError)
                                           and editor.kind == error.kind and error.kind in {"name", "type"})
         return response
     return {"ok": True, "sourceHash": digest, "valueType": result.value_type, "value": value}

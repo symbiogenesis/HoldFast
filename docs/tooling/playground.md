@@ -1,9 +1,9 @@
-# Vela browser playground
+# HoldFast browser playground
 
 ## Scope and launch
 
-Open the [hosted playground](https://symbiogenesis.github.io/VelaLang/) for a
-browser-only preview. Launch `python tools/run.py vela-playground` to use the
+Open the [hosted playground](https://symbiogenesis.github.io/HoldFast/) for a
+browser-only preview. Launch `python tools/run.py holdfast-playground` to use the
 native compiler, then open the printed loopback URL. The command runs in WSL on
 Windows. On Linux use `python3`. Use `--port 0` for an available port and
 Ctrl+C to stop the server.
@@ -86,7 +86,7 @@ with `kind`, `message`, `line` and `column`. Compile refusals also return
 Named-goal refusals carry an ordered `goals` array. Its entries have
 `name`, `line`, `column`, `status`, nullable `expected` and `context`.
 Compile and evaluation replies carry the prepared input digest in the
-`X-Vela-Compiler-Generation` header.
+`X-HoldFast-Compiler-Generation` header.
 Expression diagnostics identify expression context. Transport refusals use
 an unsuccessful HTTP status and an `error` string.
 
@@ -127,10 +127,10 @@ division and remainder, including zero divisors.
 
 ## Acceptance
 
-The [HTTP controls](../../tools/tests/test_vela_playground.py) exercise
+The [HTTP controls](../../tools/tests/test_holdfast_playground.py) exercise
 authentication, session isolation, real editor requests, bounded failures
 and stale-result handling. The
-[mathematical controls](../../tools/tests/test_vela_playground_math.py)
+[mathematical controls](../../tools/tests/test_holdfast_playground_math.py)
 exercise compile/evaluate, injection refusal, response validation and the
 browser assets. Browser interaction and independent editor interoperability
 use their own checks. [Local validation](../../AGENTS.md#tool-execution-and-validation) · [Editor qualification](lsp-prototype.md#acceptance-and-remaining-qualification)

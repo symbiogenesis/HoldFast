@@ -1,4 +1,4 @@
-# Vela language reference
+# HoldFast language reference
 
 The tables summarize syntax, semantics and prototype support. See the
 [first-release contract](first-release.md) for primitive semantics, module rules and
@@ -18,12 +18,12 @@ prototype contracts:
 | **D** | Specified by a design contract with no checking implementation for that behavior | The linked contract |
 
 P implies M unless the row says otherwise, and M implies S. These markers describe
-prototype support. Production requirements are in the [delivery plan](../../PLAN.md#vela-first-release-delivery).
+prototype support. Production requirements are in the [delivery plan](../../PLAN.md#holdfast-first-release-delivery).
 The mathematical elaborator tracks solver-discharged obligations in its
 [solver-trust ledger](../tooling/elaboration-prototype.md#supported-mathematical-increment).
 
 Examples labeled **parsed** are accepted by
-`python tools/run.py vela-parser parse --surface FILE`. Examples labeled **design**
+`python tools/run.py holdfast-parser parse --surface FILE`. Examples labeled **design**
 show features outside the relevant prototype's supported subset.
 
 ## Lexical structure
@@ -120,7 +120,7 @@ public Nat Total<T>(T first, T second) where Sized(type T)
 | `bool`, `Unit` | Exactly `false`/`true`, and the single value `()`; no integer truthiness | P (`bool`), M |
 | `Nat` | Unbounded mathematical natural number. Runtime use needs a selected representation and range relation | P, M |
 | `u8`…`u64`, `i8`…`i64`, `byte`, `usize` | Fixed-width target integers; `usize` has the target's XLEN width ([primitive semantics](first-release.md#primitive-semantics)) | M (closed values) |
-| `int`, `uint`, `long`, `ulong` | Exact aliases exported by `Vela.Numerics`, requiring import or qualification | M |
+| `int`, `uint`, `long`, `ulong` | Exact aliases exported by `HoldFast.Numerics`, requiring import or qualification | M |
 | `char` | One Unicode scalar value | M |
 | Tuples `(A, B)` | Products, eliminated by tuple patterns | M |
 | `Option<T>`, `Result<T, E>` | Library unions with `Some(v)`/`None` and `Ok(v)`/`Err(e)`; absence and failure are explicit cases | M |
@@ -440,7 +440,7 @@ public lemma AddZero(Nat n)
 
 ## Errors and failure
 
-Executable failure is an explicit `Result` or `union` case. Vela has no
+Executable failure is an explicit `Result` or `union` case. HoldFast has no
 exceptions, panics, stack unwinding or `longjmp`
 ([R-05-100](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-100)); an operation owes the absence of
 unexpected traps under its entry conditions, and environmental faults keep the

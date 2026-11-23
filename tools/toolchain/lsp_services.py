@@ -15,10 +15,10 @@ from toolchain.ast import (
     MAX_LITERAL_DIGITS,
     MAX_SOURCE_BYTES,
     UNSUPPORTED,
+    HoldFastError,
     Name,
     Site,
     ValueType,
-    VelaError,
 )
 from toolchain.documentation import DocumentationSource
 from toolchain.facts import MAX_COMPLETION_OPTIONS, MAX_OCCURRENCES, MAX_SYMBOLS, PureType
@@ -317,7 +317,7 @@ def _validate(snapshot: SourceSnapshot, raw: dict[str, object]) -> Inspection | 
             tokens = {tuple(cast("list[int]", piece["span"])): piece["text"]
                       for piece in concrete.parts(snapshot.source)
                       if piece["kind"] in {"decimal", "keyword"}}
-        except VelaError as error:
+        except HoldFastError as error:
             raise InspectionError("Literal completion token context is unavailable") from error
         for value in choices_raw:
             choice = _object(value, {"line", "column", "spelling", "type", "required_static", "symbols"})
@@ -411,7 +411,7 @@ def project_inspection(snapshot: SourceSnapshot, inspection: Inspection | None, 
     symbol = inspection.symbols[selected.symbol]
     if method == "textDocument/hover":
         doc = "" if symbol.documentation is None else "\n\n" + symbol.documentation
-        return {"contents": {"kind": "plaintext", "value": symbol.detail + doc + "\nVela pure prototype (unqualified)"},
+        return {"contents": {"kind": "plaintext", "value": symbol.detail + doc + "\nHoldFast pure prototype (unqualified)"},
                 "range": lsp_range(selected.start, selected.end)}
     if method == "textDocument/definition":
         return _location(snapshot.uri, symbol.start, symbol.end)

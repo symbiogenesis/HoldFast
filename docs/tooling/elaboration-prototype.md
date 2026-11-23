@@ -1,4 +1,4 @@
-# Vela mathematical elaboration prototype
+# HoldFast mathematical elaboration prototype
 
 ## Elaboration boundary
 
@@ -14,7 +14,7 @@ declarations are part of the [metaprogramming design](../extensions/metaprogramm
 
 ## Client upgrade replay
 
-`python tools/run.py vela-parser check-upgrade old.vela new.vela --client client.vela`
+`python tools/run.py holdfast-parser check-upgrade old.hf new.hf --client client.hf`
 compares two revisions of the same named module. Supply additional
 `--client` and `--dependency` files as needed. Each client must transitively
 import the module under review. A successful replay records the SHA-256 of
@@ -200,9 +200,9 @@ and supports the following features.
   `>=`, and explicit conversions `Nat(c)`, `u32.From(c)`, `char.From(b)` from
   `u8`/`byte` and `char.TryFrom(x)` returning `Result<char, ConversionError>`),
   fixed-width represented integer types (`u8`, `u16`, `u32`, `u64`, `usize`,
-  `i8`, `i16`, `i32`, `i64` and `byte = u8`) and `import Vela.Numerics;`
+  `i8`, `i16`, `i32`, `i64` and `byte = u8`) and `import HoldFast.Numerics;`
   aliases (`int = i32`, `uint = u32`, `long = i64`, `ulong = u64`, also
-  available qualified as `Vela.Numerics.int`), with associated constants
+  available qualified as `HoldFast.Numerics.int`), with associated constants
   `T.Min`, `T.Max` and `T.Bits`, decimal/hexadecimal (`0x...`)/binary (`0b...`)
   literals with `_` separators, suffixed or expected-type contextual literals,
   and syntactic negative signed literals (admitting `T.Min`). Ordinary `+`, `-`,
@@ -221,7 +221,7 @@ and supports the following features.
   width of its tag. Every inhabitant of the emitted character carrier carries
   a proof that its code satisfies the Unicode scalar test. These restrictions
   also apply to open parameters and quantified variables.
-- `python tools/run.py vela-parser check-arithmetic SOURCE` emits and replays a
+- `python tools/run.py holdfast-parser check-arithmetic SOURCE` emits and replays a
   theorem at each elaborated partial word operation. The theorem states that
   the checked primitive returns `Ok` of the ordinary primitive's result.
   Wrapping left shift checks its count and permits discarded high bits.
@@ -374,7 +374,7 @@ and supports the following features.
   circular-import refusal, `public` versus `private` visibility enforcement
   across module boundaries for declarations, record properties and methods.
   Standalone Gallina modules distinguish dotted paths from literal underscores.
-  For example, `A.B` emits `Vela_A_B`, while `A_B` emits `VelaEncoded_415f42`.
+  For example, `A.B` emits `HoldFast_A_B`, while `A_B` emits `HoldFastEncoded_415f42`.
   Emitted package declarations carry their defining module identity, including
   private helpers in transitive dependencies. A plain import opens the public
   names and rejects conflicts. An aliased import exposes only qualified names. A selective import binds
@@ -446,7 +446,7 @@ also apply.
 For a module constant, the emitted `_freeze` equality compares the interpreted
 initializer with its frozen declaration. Closed local and argument freezes
 carry conversion checks in the containing module. Rocq checks each equality
-by conversion. The `vela_freeze_observe` lemma transports an observation
+by conversion. The `holdfast_freeze_observe` lemma transports an observation
 whose result type depends on the table along that equality. Consumers can
 retain the frozen value at its declared type. The
 [locked mathematical package build](#locked-mathematical-packages) binds the
@@ -457,14 +457,14 @@ frontend, parser, target and transitive source inputs used for specialization.
 The [playground console](playground.md#dependent-mathematics-increment)
 uses the bounded closed-expression evaluator.
 
-`python tools/run.py vela-parser elaborate SOURCE` parses the complete surface,
+`python tools/run.py holdfast-parser elaborate SOURCE` parses the complete surface,
 elaborates this mathematical fragment and emits Gallina. `--output FILE` uses
 atomic publication after complete validation and refuses input aliases. Missing
 parents, malformed input and failed writes leave existing destinations intact.
 The command runs through the existing guest dispatch because Menhir is native.
-`vela-parser elaborate --help` documents development status and limits.
+`holdfast-parser elaborate --help` documents development status and limits.
 
-`python tools/run.py vela-parser elaborate-qualify` builds the pinned parser,
+`python tools/run.py holdfast-parser elaborate-qualify` builds the pinned parser,
 elaborates the authored example and independent positive/negative sources, then
 kernel-checks emitted terms with the locked proof switch and recursively checks
 the resulting library. Its receipt binds source, elaborator, parser and tool
@@ -521,22 +521,22 @@ own [resource derivations](../language/core-design.md#typed-holes-and-invalidati
 
 The batch builder composes packages for edition `math-1` and target
 `rocq-gallina`. In an offline workspace, each package revision lives at
-`<name>/<revision>/vela-package.toml`. The manifest names both identifiers,
-the edition and target, a `modules` table mapping exact Vela module names to
+`<name>/<revision>/holdfast-package.toml`. The manifest names both identifiers,
+the edition and target, a `modules` table mapping exact HoldFast module names to
 source paths, a `dependencies` table mapping canonical package names to
 exact revisions, and an `inputs` list of additional files to bind. All input
 paths are relative to the manifest. Install the selected revisions into the
-workspace before locking. [Example manifest](../../examples/packages/scale/v1/vela-package.toml)
+workspace before locking. [Example manifest](../../examples/packages/scale/v1/holdfast-package.toml)
 
 ```console
-python tools/run.py vela-parser lock-package examples/packages scale v1 --output scale.lock
-python tools/run.py vela-parser build-package examples/packages scale.lock --output scale.json
+python tools/run.py holdfast-parser lock-package examples/packages scale v1 --output scale.lock
+python tools/run.py holdfast-parser build-package examples/packages scale.lock --output scale.json
 ```
 
 The lock records every reachable manifest, file digest, module, revision and
 dependency edge together with the parser, elaborator and target configuration.
 A diamond must select a single revision for each package. A module can import
-its own package and its direct dependencies, plus the built-in `Vela.Numerics`
+its own package and its direct dependencies, plus the built-in `HoldFast.Numerics`
 aliases supplied by the locked frontend. A package instance digest binds its
 canonical name, revision, declared files and dependency instances. Its nominal
 declarations carry that identity in the emitted modules. The compiler checks
@@ -554,22 +554,22 @@ Kernel replay and release artifact admission have their own evidence owners.
 
 ## Try the mathematical fragment
 
-The [bounded word counter](../../examples/word_count.vela) borrows validated
+The [bounded word counter](../../examples/word_count.hf) borrows validated
 UTF-8 for each lookup. A new key takes its own bytes in a three-byte builder.
 An existing key only updates its count. With `red`, `red`, `blue` the table
 counts two occurrences of `red` and returns `KeyBytesFull` with the table
 intact. Other examples reuse one scratch variable, exhaust the two entry
 slots, and count the two UTF-8 bytes of `é` against the byte budget.
-`vela-parser elaborate-qualify` replays these proofs in Rocq. Represented storage is governed by the [release contract](../language/first-release.md).
+`holdfast-parser elaborate-qualify` replays these proofs in Rocq. Represented storage is governed by the [release contract](../language/first-release.md).
 
 Run from the repository root on Windows, using `python3` on Linux:
 
 ```console
-python tools/run.py vela-parser elaborate examples/dependent.vela
-python tools/run.py vela-parser elaborate-qualify
+python tools/run.py holdfast-parser elaborate examples/dependent.hf
+python tools/run.py holdfast-parser elaborate-qualify
 ```
 
-The [example](../../examples/dependent.vela) combines a generic
+The [example](../../examples/dependent.hf) combines a generic
 identity, higher-order application, inferred vector lengths, finite-index lookup,
 a dependent callable and equality proofs. `elaborate` prints Gallina or writes
 `--output FILE` in an existing directory. It requires the parser's locked native

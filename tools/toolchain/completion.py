@@ -4,7 +4,7 @@
 from typing import cast
 
 from toolchain import inspect_source
-from toolchain.ast import VelaError, source_text
+from toolchain.ast import HoldFastError, source_text
 from toolchain.concrete import parts
 
 
@@ -33,7 +33,7 @@ def recover(source: bytes, cursor: int) -> dict[str, object]:
     unavailable: dict[str, object] = {"status": "unavailable"}
     try:
         span = repair_span(source, cursor)
-    except VelaError:
+    except HoldFastError:
         return unavailable
     if span is None:
         return unavailable
@@ -43,7 +43,7 @@ def recover(source: bytes, cursor: int) -> dict[str, object]:
         repaired = source[:first] + literal.encode("ascii") + source[last:]
         try:
             facts = inspect_source(repaired, completion_options=True)
-        except VelaError:
+        except HoldFastError:
             continue
         line = repaired[:first].decode("utf-8").replace("\r\n", "\n").replace("\r", "\n").split("\n")
         contexts = cast("list[dict[str, object]]", facts["literal_completions"])

@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Solver-trust ledger for elaborated Vela Gallina and its kernel assumption audit.
+"""Solver-trust ledger for elaborated HoldFast Gallina and its kernel assumption audit.
 
 The mathematical elaborator emits an obligation it cannot kernel-prove as a named
-`vela_solver_*` axiom carrying the real statement, preceded by a marker naming its
+`holdfast_solver_*` axiom carrying the real statement, preceded by a marker naming its
 export, source location and reason. This module reads that ledger from emitted
 text and checks that `Print Assumptions` reports exactly those axioms and nothing
 else. A non-empty ledger is never acceptance evidence.
@@ -12,8 +12,8 @@ import re
 from dataclasses import dataclass
 
 _MARKER = re.compile(
-    r"^\(\* vela-solver-trust: (?P<export>\S+) at (?P<line>\d+):(?P<column>\d+); (?P<reason>.*?) \*\)\n"
-    r"Axiom (?P<axiom>vela_solver_[A-Za-z0-9_]+) :",
+    r"^\(\* holdfast-solver-trust: (?P<export>\S+) at (?P<line>\d+):(?P<column>\d+); (?P<reason>.*?) \*\)\n"
+    r"Axiom (?P<axiom>holdfast_solver_[A-Za-z0-9_]+) :",
     flags=re.MULTILINE,
 )
 _AXIOM = re.compile(r"^Axiom (\S+)", flags=re.MULTILINE)
@@ -22,7 +22,7 @@ _ASSUMPTION_NAME = re.compile(r"^(?P<name>[A-Za-z_][A-Za-z0-9_'.]*) :")
 
 def math_exports(gallina: str) -> list[str]:
     """List mathematical declarations and erased assertion witnesses for the kernel audit."""
-    pattern = (r"^Definition (vela(?:_m[0-9a-f]+(?:_[0-9a-f]+)?)?_"
+    pattern = (r"^Definition (holdfast(?:_m[0-9a-f]+(?:_[0-9a-f]+)?)?_"
                r"(?:d[0-9]+_[A-Za-z_][A-Za-z0-9_]*|assert_\d+_\d+_\d+))\s*(?:\(|:)")
     return [match[1] for match in re.finditer(pattern, gallina, flags=re.MULTILINE)]
 
@@ -59,7 +59,7 @@ def ledger(gallina: str) -> tuple[TrustedObligation, ...]:
         unmarked = sorted(set(declared) - set(marked))
         raise ValueError(f"emitted Gallina declares unledgered or duplicate axioms: {unmarked or marked}")
     for entry in entries:
-        if entry.axiom != f"vela_solver_{entry.export}":
+        if entry.axiom != f"holdfast_solver_{entry.export}":
             raise ValueError(f"solver-trust axiom {entry.axiom} does not name its export {entry.export}")
     return entries
 

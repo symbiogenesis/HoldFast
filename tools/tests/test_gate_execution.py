@@ -81,9 +81,9 @@ def _reuse_worktree_environment() -> None:
 
 
 def _translation_deadline() -> None:
-    with tempfile.TemporaryDirectory(prefix="vela-path-probe-") as directory:
+    with tempfile.TemporaryDirectory(prefix="holdfast-path-probe-") as directory:
         root = Path(directory)
-        (root / ".git").write_text("gitdir: C:/missing-vela-checkout/.git/worktrees/review\n", encoding="utf-8")
+        (root / ".git").write_text("gitdir: C:/missing-holdfast-checkout/.git/worktrees/review\n", encoding="utf-8")
         with patch.dict(proofenv.os.environ, {}, clear=True), \
                 patch.object(proofenv.shutil, "which", return_value="wslpath"), \
                 patch.object(proofenv.subprocess, "run",

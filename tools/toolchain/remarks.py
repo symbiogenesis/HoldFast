@@ -8,7 +8,7 @@ from typing import Literal
 from urllib.parse import quote
 
 from toolchain import _Elaborator, _translate, parse_module
-from toolchain.ast import MAX_SOURCE_BYTES, Name, Site, VelaError
+from toolchain.ast import MAX_SOURCE_BYTES, HoldFastError, Name, Site
 from toolchain.hashing import sha256_bytes
 
 MAX_DECISIONS = 256
@@ -21,7 +21,7 @@ _TAGS = {"Specialized": "Passed", "SymbolicStaticArgument": "Missed", "Specializ
 class Export:
     yaml: bytes
     gallina: str | None
-    error: VelaError | None
+    error: HoldFastError | None
 
 
 def _message(value: str) -> str:
@@ -48,7 +48,7 @@ class Decisions:
     def record(self, decision: Decision, site: Site, callee: Name, reason: str, *, failed_at: Site | None = None) -> None:
         if len(self.documents) >= MAX_DECISIONS:
             raise ValueError(f"specialization remarks exceed {MAX_DECISIONS} decisions")
-        lines = [f"--- !{_TAGS[decision]}", "Pass: vela-static-specialization", f"Name: {decision}",
+        lines = [f"--- !{_TAGS[decision]}", "Pass: holdfast-static-specialization", f"Name: {decision}",
                  f"DebugLoc: {self._location(site)}", f"Function: {self.function}", "Args:",
                  f"  - Callee: f_{callee.text}", f"    DebugLoc: {self._location(callee.site)}"]
         for origin in self.expansions:
@@ -62,7 +62,7 @@ class Decisions:
             raise ValueError("specialization remarks exceed the output byte budget")
         self.documents.append(record)
 
-    def refused(self, site: Site, callee: Name, error: VelaError) -> None:
+    def refused(self, site: Site, callee: Name, error: HoldFastError) -> None:
         self.record("SpecializationRefused", site, callee, error.message, failed_at=Site(error.line, error.column))
 
 
@@ -76,10 +76,10 @@ def compile_remarks(source: bytes, filename: str, producer: str) -> Export:
         raise ValueError("remarks require a bound compiler identity")
     decisions = Decisions(filename)
     gallina: str | None = None
-    error: VelaError | None = None
+    error: HoldFastError | None = None
     try:
         gallina = _translate(source, parse_module(source), elaborator=_Elaborator(decisions=decisions)).gallina
-    except VelaError as failure:
+    except HoldFastError as failure:
         error = failure
     binding = {
         "schema": 1, "source": filename, "source_sha256": sha256_bytes(source), "producer_sha256": producer,
@@ -89,7 +89,7 @@ def compile_remarks(source: bytes, filename: str, producer: str) -> Export:
         "diagnostic": None if error is None else {"kind": error.kind, "line": error.line,
                                                    "column": error.column, "message": error.message},
     }
-    header = "# Vela remarks " + json.dumps(binding, sort_keys=True, separators=(",", ":")) + "\n"
+    header = "# HoldFast remarks " + json.dumps(binding, sort_keys=True, separators=(",", ":")) + "\n"
     data = (header + "".join(decisions.documents)).encode("utf-8")
     if len(data) > MAX_REMARK_BYTES:
         raise ValueError("specialization remarks exceed the output byte budget")

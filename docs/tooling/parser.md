@@ -1,4 +1,4 @@
-# Vela development parser qualification
+# HoldFast development parser qualification
 
 The Rocq-extracted checked parser serves the [pure compiler](pure-prototype.md).
 The Menhir code-backend parser also accepts the
@@ -37,9 +37,9 @@ qualification verdict.
 
 ## Acceptance and commands
 
-`python tools/run.py vela-parser build` generates and compiles the parser in the
-native guest lane. `vela-parser parse SOURCE` emits its JSON syntax tree.
-`vela-parser qualify` builds it and runs independent expected-tree fixtures,
+`python tools/run.py holdfast-parser build` generates and compiles the parser in the
+native guest lane. `holdfast-parser parse SOURCE` emits its JSON syntax tree.
+`holdfast-parser qualify` builds it and runs independent expected-tree fixtures,
 whole-file positive/refusal cases, source spans, LF/CRLF/bare-CR positions,
 UTF-8 comments and invalid encoding, decimal spelling, precedence and
 associativity, incomplete editor input, excessive nesting and oversized input.
@@ -50,8 +50,8 @@ own obligations.
 
 ### Ordinary build cache
 
-`vela-parser parse`, `vela-parser elaborate`, and `vela-playground` reuse a
-development parser in the native worktree lane's `vela-parser/ordinary-cache`
+`holdfast-parser parse`, `holdfast-parser elaborate`, and `holdfast-playground` reuse a
+development parser in the native worktree lane's `holdfast-parser/ordinary-cache`
 directory. Each lookup checks the exact authored-input hashes, selected
 toolchain versions and executable hashes, generation/compilation arguments,
 receipt scope and directory, and all generated-output hashes. A missing,
@@ -69,12 +69,12 @@ The cache retains its current generation and any older generation still in use.
 Obsolete unused entries and interrupted candidates are removed at the next
 lookup or lease release. A crashed reader releases its OS lock, allowing its
 stale lease to be collected. Cleanup is confined to cache entries; explicit
-`vela-parser build` and all qualification paths continue making fresh builds
+`holdfast-parser build` and all qualification paths continue making fresh builds
 outside the cache and retain their existing evidence artifacts.
 
 ## Generated syntax campaigns
 
-`python tools/run.py vela-parser syntax-campaigns` includes parser qualification
+`python tools/run.py holdfast-parser syntax-campaigns` includes parser qualification
 and the [pure parser comparison](#pure-parser-comparison). It uses the locked
 Menhir generator and deterministic seeds to exercise interactions among multiple
 declarations, precedence, trailing commas and trivia. A bounded renderer turns
@@ -86,7 +86,7 @@ Menhir's interpreter and CST exercise the grammar. An independent oracle checks
 native syntax trees and source spans, including cases the automaton accepts
 and an action refuses. Seeded action and span faults exercise the oracle.
 Reports bind the exact tools, grammar, seeds and rendered inputs. Reduced
-failures replay without random generation. [Campaign implementation](../../tools/toolchain/syntax_campaigns.py) · [Fixture checks](../../tools/tests/test_vela_syntax_campaigns.py)
+failures replay without random generation. [Campaign implementation](../../tools/toolchain/syntax_campaigns.py) · [Fixture checks](../../tools/tests/test_holdfast_syntax_campaigns.py)
 
 <a id="promotion-and-retirement"></a>
 
@@ -110,7 +110,7 @@ batch protocol on Linux and through WSL on Windows. The
 schema, exact source digest, token spelling, child spans and resource bounds
 before semantic checking.
 
-`python tools/run.py vela-parser migration` compares the checked route with the
+`python tools/run.py holdfast-parser migration` compares the checked route with the
 Menhir code-backend route. They must agree on independently categorized fixtures,
 source edits, diagnostic categories and positions, resource boundaries and full
 emitted Gallina bytes. Differences are recorded in `migration.json` and fail the
@@ -118,7 +118,7 @@ command. The receipt binds source, tools and generated parser bytes.
 
 ### Rocq support prerequisite
 
-`python tools/run.py vela-parser support` authenticates the pinned Menhir
+`python tools/run.py holdfast-parser support` authenticates the pinned Menhir
 archive, builds its Rocq support library under the
 [locked proof switch](../../tools/opam/rocq.lock), and generates the concrete
 pure grammar with `menhir --coq --strict`. Supply `--archive FILE` to reuse an
@@ -126,11 +126,11 @@ authenticated archive. The support build applies exact-digest-guarded source
 adaptations to relocate three `Proof` commands and keep an item-map parameter
 abstract during kernel checking. It checks public types, universes, executable
 bodies and assumptions against the reference and exercises the generator-version
-guard with passing and failing clients. [Support build](../../tools/toolchain/parser_checked.py) · [Support library terms](../../THIRD-PARTY.md#vela-parser-support-library)
+guard with passing and failing clients. [Support build](../../tools/toolchain/parser_checked.py) · [Support library terms](../../THIRD-PARTY.md#holdfast-parser-support-library)
 
 The build checks deterministic grammar generation and replays
-`vela_file_safe`, `vela_file_complete_validator`, `vela_file_correct`,
-`vela_file_complete`, `vela_file_unambiguity` and the concrete precedence,
+`holdfast_file_safe`, `holdfast_file_complete_validator`, `holdfast_file_correct`,
+`holdfast_file_complete`, `holdfast_file_unambiguity` and the concrete precedence,
 bare-local, empty-module and zero-fuel controls. The assumption audit requires
 a closed global context and recursive `rocqchk` validates the support closure.
 

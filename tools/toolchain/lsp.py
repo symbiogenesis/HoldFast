@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Untrusted host LSP adapter for the pure Vela diagnostic producer."""
+"""Untrusted host LSP adapter for the pure HoldFast diagnostic producer."""
 
 import hashlib
 import subprocess
@@ -257,7 +257,7 @@ class Server:
             position = snapshot.diagnostic_position(cast("int", result["line"]),
                                                     cast("int", result["column"]))
             diagnostics.append({"range": {"start": position, "end": position}, "severity": 1,
-                                "source": "vela-pure-prototype", "code": result["kind"],
+                                "source": "holdfast-pure-prototype", "code": result["kind"],
                                 "message": _string(result["message"])[:4096],
                                 "data": {"snapshot": snapshot.identity,
                                          "generation": snapshot.generation, "unqualified": True}})
@@ -419,7 +419,7 @@ class Server:
                             "full": {"delta": True}, "range": False},
                         "textDocumentSync": {
                         "openClose": True, "change": 2, "save": {"includeText": False}}},
-                    "serverInfo": {"name": "Vela pure prototype (unqualified)", "version": "0"}}}
+                    "serverInfo": {"name": "HoldFast pure prototype (unqualified)", "version": "0"}}}
                 if versioned_edits:
                     _object(_object(reply.get("result")).get("capabilities"))["renameProvider"] = {
                         "prepareProvider": True}
@@ -472,8 +472,8 @@ class Server:
             if method == "textDocument/didOpen":
                 if uri in self.documents or len(self.documents) >= MAX_DOCUMENTS:
                     _invalid("duplicate open or document count exceeds limit")
-                if document.get("languageId") != "vela":
-                    _invalid("expected Vela languageId")
+                if document.get("languageId") != "holdfast":
+                    _invalid("expected HoldFast languageId")
                 snapshot = self._snapshot(uri, _integer(document.get("version")),
                                           _string(document.get("text")))
                 self.received_versions[uri] = snapshot.version
@@ -509,7 +509,7 @@ class Server:
         except ValueError as error:
             if request:
                 return [_error(request_id, -32602, str(error)[:256])]
-            print(f"vela-lsp: ignored {method}: {str(error)[:256]}", file=sys.stderr)
+            print(f"holdfast-lsp: ignored {method}: {str(error)[:256]}", file=sys.stderr)
             match message.get("params"):
                 case {"textDocument": {"uri": str(uri)}} if uri in self.documents:
                     self._inspections.pop(uri, None)
@@ -553,6 +553,6 @@ def serve(input_stream: BinaryIO, output_stream: BinaryIO,
                 output_stream.write(encoded)
             output_stream.flush()
     except (FrameError, OSError, ValueError) as error:
-        print(f"vela-lsp: session closed: {str(error)[:256]}", file=sys.stderr)
+        print(f"holdfast-lsp: session closed: {str(error)[:256]}", file=sys.stderr)
         return 1
     return server.exit_code

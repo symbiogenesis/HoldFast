@@ -63,7 +63,7 @@ class Recorder:
         if name not in PHASES or name == "source_bytes" or (name in CHILDREN) != (os_pid is not None):
             raise ValueError("invalid packet trace phase or worker")
         start = self._now()
-        event: Object = {"ph": "X", "cat": "vela.compiler", "name": name, "pid": CHILDREN.get(name, 1),
+        event: Object = {"ph": "X", "cat": "holdfast.compiler", "name": name, "pid": CHILDREN.get(name, 1),
                          "tid": 1, "ts": start, "dur": 0}
         if os_pid is not None:
             event["args"] = {"os_pid": os_pid}
@@ -76,7 +76,7 @@ class Recorder:
             self.open -= 1
 
     def source_size(self, size: int) -> None:
-        self._record({"ph": "C", "cat": "vela.compiler", "name": "source_bytes",
+        self._record({"ph": "C", "cat": "holdfast.compiler", "name": "source_bytes",
                       "pid": 1, "tid": 1, "ts": self._now(), "args": {"bytes": size}})
 
     def export(self, binding: str, outcome: str) -> Object:
@@ -87,22 +87,22 @@ class Recorder:
                             "dropped_events": self.dropped, "open_spans": self.open, "clock_fault": self.clock_fault,
                             "complete": outcome == "passed" and len(self.events) == len(PHASES)
                                         and not (self.open or self.dropped or self.clock_fault)}
-        document: Object = {"displayTimeUnit": "ms", "traceEvents": [dict(e) for e in self.events], "vela": manifest}
+        document: Object = {"displayTimeUnit": "ms", "traceEvents": [dict(e) for e in self.events], "holdfast": manifest}
         manifest["binding_sha256"] = digest(document)
         return document
 
 
 def validate(document: Object, binding: str, source_size: int, pids: dict[str, int]) -> None:
     """Check the exact complete event inventory and its host-observed child intervals."""
-    events, raw = document.get("traceEvents"), document.get("vela")
-    if (set(document) != {"displayTimeUnit", "traceEvents", "vela"} or document["displayTimeUnit"] != "ms"
+    events, raw = document.get("traceEvents"), document.get("holdfast")
+    if (set(document) != {"displayTimeUnit", "traceEvents", "holdfast"} or document["displayTimeUnit"] != "ms"
             or not isinstance(raw, dict) or not isinstance(events, list) or len(events) != len(PHASES)):
         raise ValueError("invalid packet trace inventory")
     manifest = {key: value for key, value in raw.items() if key != "binding_sha256"}
     expected = {"schema": 1, "scope": "packet-compiler-timing", "clock": "perf_counter_ns", "unit": "us",
                 "subjects_sha256": binding, "outcome": "passed", "dropped_events": 0, "open_spans": 0,
                 "clock_fault": False, "complete": True}
-    if (digest(manifest) != digest(expected) or raw.get("binding_sha256") != digest({**document, "vela": manifest})
+    if (digest(manifest) != digest(expected) or raw.get("binding_sha256") != digest({**document, "holdfast": manifest})
             or set(pids) != set(CHILDREN) or any(type(pid) is not int or pid <= 0 for pid in pids.values())):
         raise ValueError("incomplete or stale packet trace")
     spans: dict[str, tuple[int, int]] = {}
@@ -116,7 +116,7 @@ def validate(document: Object, binding: str, source_size: int, pids: dict[str, i
             raise ValueError("invalid packet trace timing")
         previous = start
         spans[name] = (start, start + duration)
-        wanted: Object = {"ph": "X", "cat": "vela.compiler", "name": name, "pid": CHILDREN.get(name, 1),
+        wanted: Object = {"ph": "X", "cat": "holdfast.compiler", "name": name, "pid": CHILDREN.get(name, 1),
                           "tid": 1, "ts": start, "dur": duration}
         if name == "source_bytes":
             wanted.pop("dur")
