@@ -140,7 +140,7 @@ parameter:
 
 block:
   LBRACE bindings=list(binding) terminal=exit RBRACE
-    { if List.length bindings > 64 then
+    { if List.compare_length_with bindings 64 > 0 then
         (let first = $startpos in
          raise (Refusal ("limit", first.Lexing.pos_cnum,
                          "block exceeds 64 bindings")));
@@ -254,11 +254,11 @@ s_value_identifier:
 | CARRIER { name $startpos $endpos "carrier" }
 | role=s_domain_role { name $startpos $endpos role }
 
-s_path:
+%inline s_path:
   value=s_qualified_name(s_identifier) { value }
 s_qualified_name(head):
   first=head rest=list(s_path_segment)
-    { name $startpos $endpos (String.concat "." (name_text first :: rest)) }
+    { if rest = [] then first else name $startpos $endpos (String.concat "." (name_text first :: rest)) }
 
 s_modifier:
   PUBLIC { "public" } | PRIVATE { "private" } | INTERNAL { "internal" }
@@ -467,11 +467,10 @@ s_kind_annotation:
   COLON value=s_nonfunction_type { value }
 
 s_type:
-  value=s_nonfunction_type { value }
-| value=s_qualified_function_type { value }
-s_qualified_function_type:
+  value=s_nonfunction_type | value=s_qualified_function_type { value }
+%inline s_qualified_function_type:
   value=s_modified_type(s_function_type) { value }
-s_nonfunction_type:
+%inline s_nonfunction_type:
   value=s_modified_type(s_type_atom) { value }
 /* All type contexts retain the same modifier order, lifetime and child depth. */
 s_modified_type(base):
@@ -486,8 +485,7 @@ s_loan_lifetime:
   s_generic_open value=LIFETIME GT
     { make "lifetime" $startpos $endpos [("name", name $startpos(value) $endpos(value) value)] [] }
 s_type_atom:
-  value=s_named_type(s_qualified_name(s_type_identifier)) { value }
-| value=s_computed_type { value }
+  value=s_named_type(s_qualified_name(s_type_identifier)) | value=s_computed_type
 | value=s_parenthesized_type(s_open_paren) { value }
 %inline s_named_type(path):
   type_name=path arguments=s_type_arguments
@@ -521,21 +519,18 @@ s_type_effects:
 s_type_arguments:
   { [] } | s_generic_open values=comma_nonempty_list(s_type_argument) GT { values }
 s_type_argument:
-  value=s_generic_type { value }
-| value=s_operator_value { value }
+  value=s_generic_type | value=s_operator_value { value }
 | TYPE value=s_type { make "type_argument" $startpos $endpos [("type", value.syntax)] [value] }
-| value=s_literal { value }
-| value=s_hole { value }
+| value=s_literal | value=s_hole { value }
 | value=LIFETIME { make "lifetime" $startpos $endpos [("name", name $startpos $endpos value)] [] }
 | LPAREN value=s_expression RPAREN { make "group" $startpos $endpos [("value", value.syntax)] [value] }
 /* Bare parentheses in generic arguments remain value syntax. Structural types
    have an explicit `type` introducer. */
-s_generic_type:
+%inline s_generic_type:
   value=s_modified_type(s_generic_type_atom) { value }
 s_generic_type_atom:
-  value=s_named_type(s_qualified_name(s_type_identifier)) { value }
-| value=s_computed_type { value }
-| value=s_function_type { value }
+  value=s_named_type(s_qualified_name(s_type_identifier))
+| value=s_computed_type | value=s_function_type { value }
 s_callable_parameter:
   value=s_parameter { value }
 | constant=option(CONST) value_type=s_type binder=s_identifier AS label=s_identifier grade=option(s_grade)
@@ -570,10 +565,10 @@ s_block:
     { make "block" $startpos $endpos [("statements", array statements)] statements }
 
 /* Matched and unmatched statements make nearest-else association structural. */
-s_statement:
+%inline s_statement:
   value=s_statement_with(s_simple_statement) { value }
 s_statement_with(simple):
-  value=s_closed_statement_with(simple) { value } | value=s_open_statement_with(simple) { value }
+  value=s_closed_statement_with(simple) | value=s_open_statement_with(simple) { value }
 s_closed_statement_with(simple):
   value=simple { value }
 | IF s_open_paren condition=s_expression RPAREN yes=s_closed_statement_with(simple) ELSE no=s_closed_statement_with(simple)
@@ -607,7 +602,6 @@ s_nonempty_simple_statement:
         ("type", optional annotation); ("mode", String mode); ("collection", collection.syntax);
         ("contracts", array contracts); ("body", body.syntax)]
         (children annotation @ collection :: body :: contracts) }
-
 | kind=s_local_kind binding=s_local_initializer SEMICOLON
     { let suffix, fields, parts = binding in
       make (kind ^ suffix) $startpos $endpos fields parts }
@@ -638,12 +632,10 @@ s_nonempty_simple_statement:
     { make "assignment" $startpos $endpos [("target", target.syntax); ("operator", operator); ("value", value.syntax)] [target; value] }
 | value=s_statement_expression SEMICOLON
     { make "expression_statement" $startpos $endpos [("value", value.syntax)] [value] }
-s_annotation_type:
+%inline s_annotation_type:
   value=s_modified_type(s_annotation_type_atom) { value }
 s_annotation_type_atom:
-  value=s_named_type(s_annotation_path) { value }
-| value=s_computed_type { value }
-| value=s_function_type { value }
+  value=s_named_type(s_annotation_path) | value=s_computed_type | value=s_function_type
 | value=s_parenthesized_type(ANNOTATION_OPEN) { value }
 s_iteration_mode:
   LET { "value" } | IN { "in" } | REF { "ref" }
@@ -765,7 +757,7 @@ s_lambda_parameter:
     { make "lambda_parameter" $startpos $endpos [("type", Null); ("name", parameter_name);
         ("grade", optional grade)] (children grade) }
 s_lambda_body:
-  value=s_expression { value } | value=s_block { value }
+  value=s_expression | value=s_block { value }
 /* Binary operators and their value forms share one spelling and source span.
    Recursive ladders make associativity explicit; comparison/range stay singular. */
 left_binary(operand, operator):
@@ -779,19 +771,19 @@ right_binary(operand, operator):
 /* Contracts use the same precedence/postfix rules as expressions, with only
    their outer grouping boundary changed. A full-form contract value (lambda,
    quantifier, let or type expression) is explicitly parenthesized. */
-s_implication:
+%inline s_implication:
   value=s_implication_with(LPAREN) { value }
-s_contract_expression:
+%inline s_contract_expression:
   value=s_implication_with(s_parameter_open) { value }
-s_implication_with(opening):
+%inline s_implication_with(opening):
   value=right_binary(s_disjunction_with(opening), s_implication_operator) { value }
 s_implication_operator:
   IMPLIES { name $startpos $endpos "==>" } | IFF { name $startpos $endpos "<==>" }
-s_disjunction_with(opening):
+%inline s_disjunction_with(opening):
   value=left_binary(s_conjunction_with(opening), s_disjunction_operator) { value }
 s_disjunction_operator:
   OR { name $startpos $endpos "||" }
-s_conjunction_with(opening):
+%inline s_conjunction_with(opening):
   value=left_binary(s_comparison_with(opening), s_conjunction_operator) { value }
 s_conjunction_operator:
   AND { name $startpos $endpos "&&" }
@@ -800,24 +792,25 @@ s_comparison_with(opening):
 | left=s_range_with(opening) op=s_comparison_operator right=s_range_with(opening) { binary $startpos $endpos op left right }
 | value=s_range_with(opening) IS pattern=s_pattern
     { make "is" $startpos $endpos [("value", value.syntax); ("pattern", pattern.syntax)] [value; pattern] }
-s_comparison_operator:
+%inline s_comparison_operator:
   value=comparison_operator { value }
 s_range_with(opening):
   value=s_bit_or_with(opening) { value }
 | left=s_bit_or_with(opening) RANGE right=s_bit_or_with(opening)
     { make "range" $startpos $endpos [("start", left.syntax); ("end", right.syntax)] [left; right] }
-s_bit_or_with(opening):
+%inline s_bit_or_with(opening):
   value=left_binary(s_bit_xor_with(opening), s_bit_or_operator) { value }
 s_bit_or_operator:
   BAR { name $startpos $endpos "|" }
-s_bit_xor_with(opening):
+%inline s_bit_xor_with(opening):
   value=left_binary(s_bit_and_with(opening), s_bit_xor_operator) { value }
 s_bit_xor_operator:
   CARET { name $startpos $endpos "^" }
-s_bit_and_with(opening):
+%inline s_bit_and_with(opening):
   value=left_binary(s_sum_with(opening), s_bit_and_operator) { value }
 s_bit_and_operator:
   AMP { name $startpos $endpos "&" }
+/* Keeping the arithmetic aliases as reductions reduces generated code size. */
 s_sum_with(opening):
   value=left_binary(s_product_with(opening), s_sum_operator) { value }
 s_sum_operator:
@@ -880,8 +873,7 @@ s_atom_with(opening):
 | value=INTERPOLATED_STRING
     { let spelling, holes = value in
       make "interpolated_string" $startpos $endpos [("value", String spelling); ("holes", array holes)] holes }
-| value=s_operator_value_with(opening) { value }
-| value=s_hole { value }
+| value=s_operator_value_with(opening) | value=s_hole { value }
 | value=s_value_identifier { make "name" $startpos $endpos [("name", value)] [] }
 | opening RPAREN { make "unit" $startpos $endpos [] [] }
 | opening value=s_expression RPAREN { make "group" $startpos $endpos [("value", value.syntax)] [value] }
@@ -922,21 +914,15 @@ s_handler_clause:
     { make kind $startpos $endpos [("name", binder); ("body", body.syntax)] [body] }
 %inline s_terminal_clause_kind:
   RETURN { "return_clause" } | DISPOSE { "disposal_clause" }
-s_operator_value:
+%inline s_operator_value:
   value=s_operator_value_with(LPAREN) { value }
 s_operator_value_with(opening):
   opening op=s_symbolic_operator RPAREN
     { make "operator" $startpos $endpos [("name", op)] [] }
 s_symbolic_operator:
-  value=s_implication_operator { value }
-| value=s_disjunction_operator { value }
-| value=s_conjunction_operator { value }
-| value=s_comparison_operator { value }
-| value=s_bit_or_operator { value }
-| value=s_bit_xor_operator { value }
-| value=s_bit_and_operator { value }
-| value=s_sum_operator { value }
-| value=s_product_operator { value }
+  value=s_implication_operator | value=s_disjunction_operator | value=s_conjunction_operator
+| value=s_comparison_operator | value=s_bit_or_operator | value=s_bit_xor_operator
+| value=s_bit_and_operator | value=s_sum_operator | value=s_product_operator { value }
 | NOT { name $startpos $endpos "!" } | TILDE { name $startpos $endpos "~" }
 
 /* Nonempty comma-delimited lists may end in one comma. Product productions
