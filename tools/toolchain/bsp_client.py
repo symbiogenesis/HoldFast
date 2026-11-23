@@ -157,7 +157,7 @@ def qualify(root: Path) -> dict[str, object]:
                         or row["dataKind"] != "holdfast-locked-package"
                         or row["data"]["lockUri"] != lock.as_uri() or row["data"]["lockSha256"] != prefix.split(":")[1]
                         or row["data"]["inputs"] != package["files"] or row["data"]["producer"] != locked["producer"]
-                        or row["data"]["edition"] != "math-1" or row["data"]["target"] != "rocq-gallina"
+                        or row["data"]["edition"] != package["edition"] or row["data"]["target"] != "rocq-gallina"
                         or row["data"]["instance"] != package["instance"]
                         or row["capabilities"]["canCompile"] != (uri == target_uri)
                         or row["dependencies"] != [{"uri": f"{prefix}/{dep}"} for dep in package["dependencies"]]):

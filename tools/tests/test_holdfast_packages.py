@@ -140,8 +140,27 @@ def _bound_producer() -> None:
         ensure("interpreter differs" in str(raised.exception), "wrong runtime-mismatch refusal")
 
 
+def _package_editions() -> None:
+    with TemporaryDirectory() as temporary:
+        workspace = Path(temporary)
+        _write(workspace, "lib", "v1", {}, "Lib")
+        manifest = _write(workspace, "main", "v1", {"lib": "v1"}, "Main") / packages.MANIFEST
+        legacy = manifest.read_text()
+        producer: packages.Object = {"frontend": "fixed"}
+        first = packages.resolve(workspace, "main", "v1", producer)
+        manifest.write_text(legacy.replace("math-1", "math-2"))
+        _refuses(workspace, "stale package lock", lock=first.lock)
+        second = packages.resolve(workspace, "main", "v1", producer)
+        ensure(second.scopes["Main"].edition == "math-2" and second.scopes["Lib"].edition == "math-1",
+               "the importing package's edition leaked into its dependency")
+        packages.resolve(workspace, "main", "v1", producer, locked=second.lock)
+        manifest.write_text(legacy.replace("math-1", "unknown"))
+        _refuses(workspace, "unsupported manifest")
+
+
 def cases() -> list[Case]:
     return [Case("bound-relocatable-closure-and-file-invalidation", _locked_inputs),
+            Case("edition-selected-per-package-and-bound-in-lock", _package_editions),
             Case("package-diamonds-and-cycle-paths", _diamond_and_cycle),
             Case("distinct-module-owners-and-explicit-build-files", _declared_files_and_module_owners),
             Case("explicit-producer-file-closure", _bound_producer)]

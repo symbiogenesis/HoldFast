@@ -265,6 +265,7 @@ class _PatternsMixin:
         smaller_roots: frozenset[int] = frozenset(),
         destruct_roots: frozenset[int] = frozenset(),
         track_verdicts: bool = False,
+        whole_match_pattern: bool = False,
     ) -> _Term:
         self.tick()
         self.site = pat.node
@@ -284,7 +285,13 @@ class _PatternsMixin:
                 expected_head, _ = self.spine(self.whnf(expected_type))
                 for spelling, (owner, constructor) in self.union_ctors.items():
                     if (_constant(owner.type_const) == expected_head
-                            and constructor.name == binder[:1].upper() + binder[1:]):
+                            and spelling.rsplit(".", 1)[-1] == binder[:1].upper() + binder[1:]):
+                        if whole_match_pattern:
+                            suggested = spelling + ("(...)" if constructor.fields else "")
+                            raise self.fail(
+                                "type", f"'{binder}' binds every value of the scrutinee. Use '{suggested}' "
+                                "to match the constructor, '_' to discard, or a different binding name", pat.node,
+                            )
                         start = cast("list[int]", pat.node["span"])[0]
                         self.constructor_suggestions[start] = spelling
                         break
@@ -774,6 +781,7 @@ class _PatternsMixin:
                 smaller_roots=scrut_smaller_roots,
                 destruct_roots=scrut_destruct_roots,
                 track_verdicts=nested_verdicts,
+                whole_match_pattern=True,
             )
             if nested_verdicts:
                 self.result_bindings[id(arm["pattern"])] = {
@@ -1373,9 +1381,6 @@ class _PatternsMixin:
                         if covering.kind == "wild" and covering.names:
                             binder = covering.names[0]
                             reason = f"earlier pattern '{binder}' binds every value"
-                            candidate = self.constructor_suggestions.get(cast("list[int]", covering.node["span"])[0])
-                            if candidate is not None:
-                                reason += f"; did you mean '{candidate}'?"
                         raise self.fail("type", f"unreachable match arm: {reason}", pattern.node)
         if arm_uninit_sets:
             merged_uninit: set[str] = set()

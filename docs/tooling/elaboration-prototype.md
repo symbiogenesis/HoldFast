@@ -519,8 +519,10 @@ own [resource derivations](../language/core-design.md#typed-holes-and-invalidati
 
 ## Locked mathematical packages
 
-The batch builder composes packages for edition `math-1` and target
-`rocq-gallina`. In an offline workspace, each package revision lives at
+The batch builder composes packages for editions `math-1` and `math-2` on
+target `rocq-gallina`. Each package's edition selects its
+[import rules](../language/first-release.md#modules-and-packages).
+In an offline workspace, each package revision lives at
 `<name>/<revision>/holdfast-package.toml`. The manifest names both identifiers,
 the edition and target, a `modules` table mapping exact HoldFast module names to
 source paths, a `dependencies` table mapping canonical package names to

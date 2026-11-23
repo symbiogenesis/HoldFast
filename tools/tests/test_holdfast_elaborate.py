@@ -6231,22 +6231,40 @@ def _constructor_spelling_and_shadowed_patterns() -> None:
     bad = _Fixture("MisspelledConstructor")
     bad.union("State", (("ready", ()),))
     _refuses(bad, "name", "uppercase")
-    last = _Fixture("LastArm")
-    last.union("State", (("Ready", ()), ("Busy", ())))
-    last.definition("Read", _NAT, (("s", _type("State")),),
-                    _match_expr(_variable("s"), ((_pat_ctor("Busy"), _natural(0)), (_pat_bind("ready"), _natural(1)))))
-    last.definition("Other", _NAT, (("n", _NAT),),
-                    _match_expr(_variable("n"), ((_pat_bind("ready"), _natural(1)),)))
-    findings = inspect_source(*last.response()).findings
+    for possibly_misspelled in (_pat_bind("none"), _pat_group(_pat_bind("none"))):
+        last = _Fixture("LastArm")
+        last.union("State", (("Ready", ()), ("None", ())))
+        last.definition("Read", _NAT, (("s", _type("State")),), _match_expr(_variable("s"), (
+            (_pat_ctor("Ready"), _natural(0)), (possibly_misspelled, _natural(1)))))
+        _refuses(last, "type", "Use 'None' to match")
+    nested = _Fixture("PayloadNames")
+    nested.union("State", (("Ready", ()), ("Busy", ())))
+    nested.union("Envelope", (("Packed", (("Item", _type("State")),)),))
+    nested.definition("Read", _NAT, (("s", _type("Envelope")),), _match_expr(_variable("s"), (
+        (_pat_ctor("Packed", _pat_bind("ready")), _natural(1)),)))
+    nested.definition("Other", _NAT, (("n", _NAT),), _match_expr(_variable("n"), (
+        (_pat_bind("ready"), _variable("ready")),)))
+    findings = inspect_source(*nested.response()).findings
     ensure(len(findings) == 1 and findings[0].code == "HOLDFAST108" and "'Ready'" in findings[0].message,
-           "the final binding pattern warning must use the scrutinee's constructors")
-    for first, message in ((_pat_bind("ready"), "did you mean 'Ready'"), (_pat_ctor("Ready"), "covers this pattern")):
+           "nested pattern warning must use the payload's constructors")
+    for first, message in ((_pat_bind("ready"), "Use 'Ready' to match"), (_pat_ctor("Ready"), "covers this pattern")):
         fixture = _Fixture("ShadowedPattern")
         fixture.union("State", (("Ready", ()), ("Busy", ())))
         fixture.definition("Read", _NAT, (("s", _type("State")),), _match_expr(_variable("s"), (
             (first, _natural(1)), (_pat_ctor("Ready"), _natural(0)), (_pat_ctor("Busy"), _natural(0)),
         )))
         _refuses(fixture, "type", message)
+    provider, importer = _Fixture("States"), _Fixture("Importer")
+    provider.union("State", (("Ready", ()), ("Busy", ())))
+    _import_decl(importer, "States", items=(("State", None), ("Ready", "Available")))
+    importer.definition("OriginalName", _NAT, (("s", _type("State")),),
+                        _match_expr(_variable("s"), ((_pat_bind("ready"), _natural(1)),)))
+    elaborate_package([importer.response(), provider.response()])
+    importer.definition("MisspelledAlias", _NAT, (("s", _type("State")),),
+                        _match_expr(_variable("s"), ((_pat_bind("available"), _natural(1)),)))
+    with raises(HoldFastError, msg="renamed constructor allowed an accidentally exhaustive arm") as raised:
+        elaborate_package([importer.response(), provider.response()])
+    ensure("Use 'Available' to match" in raised.exception.message, "diagnostic lost the visible constructor name")
 
 
 def _qualified_imports() -> None:
@@ -6274,6 +6292,42 @@ def _qualified_imports() -> None:
     with raises(HoldFastError, msg="qualified import introduced a bare interface method") as raised:
         elaborate_package([client.response(), producer.response()])
     ensure(raised.exception.kind == "name", "wrong qualified-only dispatch diagnosis")
+
+
+def _package_edition_imports() -> None:
+    first, second = _Fixture("Base.Catalog"), _Fixture("Other.Catalog")
+    first.definition("Lookup", _NAT, (), _natural(3))
+    second.definition("Lookup", _NAT, (), _natural(5))
+    scopes = {"Base.Catalog": terms.PackageScope("1" * 64, frozenset({"Base.Catalog"})),
+              "Other.Catalog": terms.PackageScope("2" * 64, frozenset({"Other.Catalog"})),
+              "App": terms.PackageScope("3" * 64, frozenset({"App", "Base.Catalog", "Other.Catalog"}), "math-2")}
+    imports = (("Base.Catalog", None), ("Other.Catalog", "Other"))
+    for order in (imports, imports[::-1]):
+        app = _Fixture("App")
+        for path, alias in order:
+            _import_decl(app, path, alias=alias)
+        _import_decl(app, "HoldFast.Numerics", items=(("int", None),))
+        app.definition("Lookup", _NAT, (), _natural(7))
+        app.definition("Keep", _type("int"), (("x", _type("int")),), _variable("x"))
+        for name, receiver, expected in (("First", "Catalog", 3), ("Second", "Other", 5)):
+            law = _binary("==", _call(_member(_variable(receiver), "Lookup")), _natural(expected))
+            app.theorem(name, (), law, _assert(law))
+        own = _binary("==", _call("Lookup"), _natural(7))
+        app.theorem("Own", (), own, _assert(own))
+        elaborate_package([app.response(), second.response(), first.response()], scopes=scopes)
+
+    collision = _Fixture("App")
+    _import_decl(collision, "Base.Catalog")
+    _import_decl(collision, "Other.Catalog")
+    with raises(HoldFastError, msg="two imports introduced the same namespace") as raised:
+        elaborate_package([collision.response(), first.response(), second.response()], scopes=scopes)
+    ensure("namespace 'Catalog' conflicts" in raised.exception.message, "wrong duplicate namespace diagnostic")
+    missing = _Fixture("App")
+    _import_decl(missing, "Base.Catalog")
+    missing.definition("Read", _NAT, (), _call("Lookup"))
+    with raises(HoldFastError, msg="math-2 exposed a bare export") as raised:
+        elaborate_package([missing.response(), first.response(), second.response()], scopes=scopes)
+    ensure(raised.exception.kind == "name" and "Lookup" in raised.exception.message, "wrong missing export diagnostic")
 
 
 def _upgrade_client_replay() -> None:
@@ -7248,6 +7302,7 @@ def _package_scope_and_identity() -> None:
 
 def cases() -> list[Case]:
     return [Case("locked-package-import-scope-and-nominal-identity", _package_scope_and_identity),
+            Case("qualified-import-default-in-mathematical-package-edition", _package_edition_imports),
             Case("upgrade-replay-against-unchanged-dependent-clients", _upgrade_client_replay),
             Case("selective-imports-and-renamed-constructors", _selective_imports),
             Case("constructor-case-and-redundant-patterns", _constructor_spelling_and_shadowed_patterns),

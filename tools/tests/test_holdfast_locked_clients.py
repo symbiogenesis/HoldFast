@@ -44,7 +44,8 @@ def _replay(directory: Path, modules: dict[str, str]) -> None:
     # The expected values come from the client's scale contract.
     gallina = modules["Scale.Calibration"]
     [subject] = re.findall(r"^Module (HoldFastPackage_[a-z0-9_]+)\.$", gallina, re.MULTILINE)
-    [operation] = re.findall(r"^Definition (\w+_ReadScale)\b", gallina, re.MULTILINE)
+    readings = re.compile(r"^Definition (\w+_ReadScale)\b", re.MULTILINE)
+    [operation] = set(readings.findall(gallina)) - set(readings.findall(modules["Weights.Measure"]))
     checks = "".join(
         f"Example reading_{units} : {subject}.{operation} {units} = {value} := eq_refl.\n"
         for units, value in ((0, 2), (7, 9))
@@ -167,6 +168,25 @@ public impl Measured<Nat> { public definition Nat Measure(Nat value) => value; }
         _command("build-package", workspace, _lock(workspace), refusal="must own")
 
 
+def _namespace_edition() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        directory = Path(temporary)
+        workspace = _workspace(directory)
+        app = workspace / "scale" / "v1"
+        lock = _lock(workspace)
+        manifest = app / "holdfast-package.toml"
+        manifest.write_text(manifest.read_text().replace('"math-1"', '"math-2"'))
+        _command("build-package", workspace, lock, refusal="stale package lock")
+        _command("build-package", workspace, _lock(workspace), refusal="Measured")
+        client = app / "Calibration.hf"
+        client.write_text(client.read_text().replace("Measured.Measure(Make(", "Measure.Measured.Measure(Measure.Make("))
+        provider = workspace / "weights" / "v1" / "Measure.hf"
+        provider.write_text(provider.read_text() + "\npublic definition Nat ReadScale(Nat x) => 9;\n")
+        bundle = directory / "qualified.json"
+        _command("build-package", workspace, _lock(workspace), "--output", bundle)
+        _replay(directory, json.loads(bundle.read_bytes())["modules"])
+
+
 def _opaque_provider_upgrade() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         directory = Path(temporary)
@@ -245,6 +265,7 @@ public lemma ReturnedReaderBound()
 def cases() -> list[Case]:
     return [
         Case("independent locked client, kernel readings and label evolution", _client_upgrade, lane="toolchain"),
+        Case("qualified imports compose with legacy packages across an added export", _namespace_edition, lane="toolchain"),
         Case("sibling instance coherence, declaration ownership and import order", _closure_coherence, lane="toolchain"),
         Case("locked client proof across opaque implementation and public law changes",
              _opaque_provider_upgrade, lane="toolchain"),

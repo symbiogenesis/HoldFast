@@ -42,13 +42,18 @@ import-order input to parsing, and Menhir generation is strict and
 conflict-free ([no ambiguous syntax](../assurance/verification-strategy.md#permanent-language-exclusions)).
 In patterns, an identifier beginning with an uppercase letter is a constructor
 and a lowercase identifier binds.
+The mathematical checker rejects a whole-pattern binder whose spelling differs
+only in its initial capitalization from a visible union constructor of the
+matched type. For example, `none => ...` would accept every value of an
+`Option`. Write `None` for the case, `_` for an admissible discard, or a
+distinct binding name to retain the whole value. Parentheses preserve this rule.
 
 ## Declarations
 
 | Construct | Syntax | Status |
 | --- | --- | --- |
 | Module | `module Name.Path;` opens every file | P |
-| Import | `import Module.Path;` opens exports, `import Module.Path as M;` binds a namespace, and `import Module.Path { T, F as G };` selects names | M |
+| Import | `import Module.Path;` binds namespace `Path` in a locked `math-2` package and opens exports in `math-1` or stand-alone source. `import Module.Path as M;` binds a namespace and `import Module.Path { T, F as G };` selects names. [Package editions](first-release.md#modules-and-packages) | M |
 | Visibility | `public` or `private` on each declaration | M |
 | Constant | `const T Name = expression;` at module or local scope, evaluated during compilation ([required-static constants](surface-grammar.md#required-static-constants)) | P |
 | Function | Type-first `T Name(T1 a, T2 b) { ... }` or `=> expression;` | P |
