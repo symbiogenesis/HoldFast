@@ -8,7 +8,7 @@ See the [pure prototype](../../docs/tooling/pure-prototype.md) for its scope.
 import hashlib
 from dataclasses import dataclass
 from importlib import import_module
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from toolchain import ast as syntax
 from toolchain.ast import (
@@ -21,6 +21,9 @@ from toolchain.ast import (
 )
 from toolchain.compiler_trace import Recorder
 from toolchain.facts import Facts, PureType, SymbolKind
+
+if TYPE_CHECKING:
+    from toolchain.remarks import Decisions
 
 __all__ = ["MAX_BLOCK_DEPTH", "MAX_EXPRESSION_DEPTH", "MAX_LITERAL_DIGITS", "MAX_SOURCE_BYTES",
            "StaticEvaluation", "Translation", "ValueType", "VelaError", "evaluate",
@@ -144,13 +147,14 @@ def _error(kind: str, message: str, site: syntax.Site) -> VelaError:
 class _Elaborator:
     """Resolve and type located syntax, emitting only the established pure terms."""
 
-    def __init__(self, facts: Facts | None = None) -> None:
+    def __init__(self, facts: Facts | None = None, *, decisions: Decisions | None = None) -> None:
         self.functions: dict[str, _Signature] = {}
         self.constants: dict[str, _Local] = {}
         self.static_work = MAX_STATIC_WORK
         self.specialization_depth = 0
         self.fresh_argument = 0
         self.facts = facts
+        self.decisions = decisions
 
     def copy(self) -> _Elaborator:
         cloned = _Elaborator()
@@ -491,15 +495,32 @@ class _Elaborator:
                     raise _error("type", f"argument {index} to '{name}' must be {expected}, "
                                  f"got {argument.value_type}", site)
                 if parameter.text in signature.source.const_parameters:
-                    self._require_static(expression.children[index - 1], environment)
+                    try:
+                        self._require_static(expression.children[index - 1], environment)
+                    except VelaError as error:
+                        if self.decisions is not None:
+                            self.decisions.refused(site, signature.source.name, error)
+                        raise
             self._reference(signature.symbol, site)
             if signature.source.const_parameters:
-                static_arguments = {parameter.text: self._static_value(source, environment)
-                                    for (parameter, _, _), source in zip(signature.parameters, expression.children, strict=True)
-                                    if parameter.text in signature.source.const_parameters}
-                closed_arguments = {name: value for name, value in static_arguments.items() if value is not None}
-                if len(closed_arguments) == len(static_arguments):
-                    return self._specialize(signature, arguments, closed_arguments, site)
+                try:
+                    static_arguments = {parameter.text: self._static_value(source, environment)
+                                        for (parameter, _, _), source in zip(signature.parameters, expression.children, strict=True)
+                                        if parameter.text in signature.source.const_parameters}
+                    closed_arguments = {key: value for key, value in static_arguments.items() if value is not None}
+                    if len(closed_arguments) == len(static_arguments):
+                        specialized = self._specialize(signature, arguments, closed_arguments, site)
+                        if self.decisions is not None:
+                            self.decisions.record("Specialized", site, signature.source.name, "closed static inputs substituted; call eliminated")
+                        return specialized
+                except VelaError as error:
+                    if self.decisions is not None:
+                        self.decisions.refused(site, signature.source.name, error)
+                    raise
+                if self.decisions is not None:
+                    pending = ", ".join(key for key, value in static_arguments.items() if value is None)
+                    self.decisions.record("SymbolicStaticArgument", site, signature.source.name,
+                                          f"call retained pending static parameter(s): {pending}")
             term = f"f_{name}"
             if arguments:
                 term = "(" + term + " " + " ".join(argument.gallina for argument in arguments) + ")"
@@ -549,6 +570,8 @@ class _Elaborator:
                     static_arguments: dict[str, _Static], site: syntax.Site) -> _Expression:
         """Instantiate static binders while evaluating each runtime argument exactly once."""
         self.specialization_depth += 1
+        if self.decisions is not None:
+            self.decisions.expansions.append(syntax.Name(signature.source.name.text, site))
         previous_facts = self.facts
         previous_constants = self.constants
         self.facts = None
@@ -575,6 +598,8 @@ class _Elaborator:
                                      (argument, body), site)
             return body
         finally:
+            if self.decisions is not None:
+                self.decisions.expansions.pop()
             self.facts = previous_facts
             self.constants = previous_constants
             self.specialization_depth -= 1
@@ -605,6 +630,8 @@ def _translate(source: bytes, module: syntax.Module, facts: Facts | None = None,
     definitions: list[str] = []
     for declaration in module.declarations:
         is_constant = isinstance(declaration, syntax.Constant)
+        if elaborator.decisions is not None:
+            elaborator.decisions.function = ("c_" if is_constant else "f_") + declaration.name.text
         if trace is None:
             definition = (elaborator.constant(declaration) if isinstance(declaration, syntax.Constant)
                           else elaborator.function(declaration))

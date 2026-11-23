@@ -17,6 +17,7 @@ from toolchain import (
     compiler_trace,
     inspection_reader,
     packet_trace_reader,
+    remarks,
     sarif,
     sarif_reader,
     trace_benchmark,
@@ -164,6 +165,38 @@ def _trace(args: argparse.Namespace) -> int:
     else:
         print(f"vela: {args.output}: {outcome}; recording complete: {manifest['complete']}")
         return result
+
+
+def _remarks(args: argparse.Namespace) -> int:
+    try:
+        source = _read_source(args.source)
+        producer = compiler_trace.producer_identity()
+        report = remarks.compile_remarks(source.data, source.path.name, producer)
+        if args.command == "remarks-validate":
+            retained = _read_source(args.report, max_bytes=remarks.MAX_REMARK_BYTES)
+            if report.yaml != retained.data:
+                print(f"{args.report}: retained remarks differ from the current compiler decisions", file=sys.stderr)
+                return 1
+            _unchanged(retained)
+            _unchanged(source)
+            _producer_unchanged(producer, "during remarks validation")
+            print("ok vela: current specialization remarks")
+            return 0
+        _destination(source.path, args.output)
+        with atomic_path(args.output) as pending:
+            pending.write_bytes(report.yaml)
+            _unchanged(source)
+            _producer_unchanged(producer, "during remarks export")
+            _destination(source.path, args.output)
+    except (OSError, ValueError) as error:
+        print(f"{args.source}:1:1: remarks: {error}", file=sys.stderr)
+        return 1
+    if report.error is not None:
+        error = report.error
+        print(f"{source.path}:{error.line}:{error.column}: {error.kind}: {error.message}", file=sys.stderr)
+        return 1
+    print(f"vela: {args.output}: specialization remarks")
+    return 0
 
 
 def _producer_unchanged(producer: str, when: str) -> None:
@@ -358,6 +391,12 @@ def main(argv: list[str] | None = None) -> int:
     preview.add_argument("source", type=Path)
     preview.add_argument("--line", type=int, required=True, help="one-based compiler equality-operator line")
     preview.add_argument("--column", type=int, required=True, help="one-based compiler equality-operator column")
+    report = commands.add_parser("remarks", help="export required-static specialization decisions as LLVM YAML")
+    report.add_argument("source", type=Path)
+    report.add_argument("--output", type=Path, required=True)
+    validation = commands.add_parser("remarks-validate", help="recompile and check retained specialization remarks")
+    validation.add_argument("source", type=Path)
+    validation.add_argument("report", type=Path)
     trace = commands.add_parser("trace", help="record bounded pure compiler phase timings")
     trace.add_argument("source", type=Path)
     trace.add_argument("--output", type=Path, required=True)
@@ -427,6 +466,8 @@ def main(argv: list[str] | None = None) -> int:
         return _sarif_reader(args)
     if args.command in {"trace", "trace-validate"}:
         return _trace(args)
+    if args.command in {"remarks", "remarks-validate"}:
+        return _remarks(args)
     if args.command == "trace-render":
         return _trace_render(args)
     if args.command == "trace-qualify-browser":

@@ -593,6 +593,33 @@ Qualify an independent reader and independently chosen applied/missed/refused
 cases, including generated and optimized-away sites. A remark reports a decision;
 it supplies no transformation-preservation proof or target speedup measurement.
 
+The pure compiler exports the decisions of its required-static specialization
+pass with `python tools/run.py vela remarks SOURCE --output REMARKS.yaml`.
+The LLVM YAML pass name is `vela-static-specialization`. Each record names the
+containing generated Gallina function or constant and points to the authored
+call in one-based lines and Unicode code-point columns. `File` is the
+UTF-8 percent-encoded source basename. The `Callee` argument
+locates the original declaration. Each `GeneratedFrom` argument identifies an
+enclosing call whose specialization produced this site, outermost first.
+
+| LLVM tag and decision | Meaning |
+| --- | --- |
+| `!Passed Specialized` | All required-static arguments were closed. The compiler substituted them and replaced the call with its specialized body. |
+| `!Missed SymbolicStaticArgument` | The generic definition retains the call. The `String` argument identifies the static inputs that a later instantiation may supply. |
+| `!Failure SpecializationRefused` | Static checking or specialization failed at this call. The `String` argument carries the compiler diagnostic and its location. |
+
+An explicit UTF-8 percent-encoding prefix protects diagnostic strings that
+LLVM's YAML reader cannot represent verbatim.
+
+The leading YAML comment binds the source basename and exact bytes, compiler
+and runtime identity, target, decision count, and either the emitted Gallina
+digest or the compiler refusal. The command returns failure for refused
+source and publishes the decisions reached before it stopped. A syntax error
+can therefore yield an empty stream with a refusal in its header. Recording
+allows 256 decisions and one MiB per file. Exhaustion preserves the previous
+file. Run `python tools/run.py vela remarks-validate SOURCE REMARKS.yaml` to
+recompile and compare every byte, including the decision order and bindings.
+
 Export compiler phase and nested-work timings as Chrome Trace Event JSON or a
 native Perfetto trace, according to the selected consumer's
 [supported formats](https://perfetto.dev/docs/getting-started/other-formats).
