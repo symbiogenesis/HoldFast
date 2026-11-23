@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
 from toolchain.ast import VelaError, position
-from toolchain.elaborate_types import _SORT, Node, _Binding, _Term
+from toolchain.elaborate_types import _SORT, Node, _Binding, _Meta, _Term
 
 if TYPE_CHECKING:
     from toolchain.elaborate import _Elaborator
@@ -47,6 +47,7 @@ class HoleInspection:
     def __init__(self, elaborator: _Elaborator) -> None:
         self.elaborator = elaborator
         self.observations: dict[int, tuple[str | None, str]] = {}
+        self.pending_types: dict[int, tuple[int, _Meta, dict[int, str]]] = {}
         self.placeholders: dict[int, str] = {}
         self.remaining = MAX_GOAL_BYTES - len(elaborator.protocol.holes) * max(len(_EMPTY), len(_UNREACHED))
 
@@ -85,14 +86,16 @@ class HoleInspection:
             self._term(chunks, argument, names)
         self._write(chunks, ")")
 
-    def observe(self, node: Node, expected: _Term | None, environment: dict[str, _Binding]) -> _Binding:
+    def observe(self, node: Node, expected: _Term | None, environment: dict[str, _Binding],
+                *, facts: tuple[_Binding, ...] = ()) -> _Binding:
         checker = self.elaborator
         start, end = cast("list[int]", node["span"])
         names = {cast("int", binding.term.value): name for name, binding in environment.items()
                  if binding.term.kind == "var"}
         chunks: list[str] = []
-        if expected is not None:
-            self._term(chunks, expected, names)
+        domain = checker.resolve(expected) if expected is not None else checker.meta(_SORT, environment)
+        if domain.kind != "meta":
+            self._term(chunks, domain, names)
         goal = "".join(chunks) or None
         chunks.clear()
 
@@ -109,6 +112,8 @@ class HoleInspection:
                 self._term(chunks, binding.term, names)
         for fact in checker.active_facts:
             entry("branch fact ", fact)
+        for proof in facts:
+            entry("hypothesis ", proof.type)
         for name, (mode, owner, fields) in checker.local_borrows.items():
             entry(f"{name}: {mode} loan of {'.'.join((owner, *fields))}")
         for name, owner in checker.slice_views.items():
@@ -119,10 +124,24 @@ class HoleInspection:
             entry("return ", checker.current_return_type)
         context = "".join(chunks) or _EMPTY
         self.observations[start] = (goal, context)
-        domain = expected if expected is not None else checker.meta(_SORT, environment)
+        if domain.kind == "meta":
+            index = cast("int", domain.value)
+            self.pending_types[start] = (index, checker.metas[index], names)
+        else:
+            self.pending_types.pop(start, None)
         variable = checker.fresh(domain)
         self.placeholders[cast("int", variable.value)] = checker.protocol.source[start:end].decode("ascii")
         return _Binding(variable, domain)
+
+    def _resolved_types(self) -> None:
+        checker = self.elaborator
+        for start, (index, record, names) in self.pending_types.items():
+            # Backtracking can discard a meta and reuse its index for another judgment.
+            if index < len(checker.metas) and checker.metas[index] is record and record.solution is not None:
+                chunks: list[str] = []
+                self._term(chunks, record.solution, names)
+                self.observations[start] = ("".join(chunks), self.observations[start][1])
+        self.pending_types.clear()
 
     def refusal(self, declarations: list[Node]) -> OpenGoalsError:
         checker = self.elaborator
@@ -130,6 +149,7 @@ class HoleInspection:
         try:
             for declaration in declarations:
                 checker.declaration(declaration)
+                self._resolved_types()
         except VelaError as error:
             stopped = error
         source = checker.protocol.source
