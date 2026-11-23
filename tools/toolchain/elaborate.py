@@ -2618,6 +2618,9 @@ def evaluate(source: bytes, parsed: object, expression: str, value_type: ValueTy
     except RecursionError as error:
         raise VelaError("limit", 1, 1, "expression: syntax nesting exceeds the host stack bound") from error
     elaborator.protocol = protocol
+    # The probe is a different source buffer and has its own byte coordinates.
+    elaborator.phase_uses.clear()
+    elaborator.static_effect_sites.clear()
     try:
         return _console_value(elaborator, declaration, value_type)
     except VelaError as error:
