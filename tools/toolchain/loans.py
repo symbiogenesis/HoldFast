@@ -1102,14 +1102,11 @@ def analyze(owners: tuple[Owner, ...], graph: Graph, limits: Limits | None = Non
     fields = {owner.name: frozenset(owner.fields) for owner in owners}
 
     in_degree = dict.fromkeys(nodes, 0)
+    # The initial state is an incoming edge when the entry is a loop header.
+    in_degree[graph.entry] = 1
     for node in graph.nodes:
         for successor in node.successors:
             in_degree[successor] += 1
-    has_loops = any(
-        successor in dominators[node.name]
-        for node in graph.nodes
-        for successor in node.successors
-    )
 
     # Topological order of the forward DAG (excluding natural-loop back-edges).
     postorder: list[str] = []
@@ -1132,36 +1129,31 @@ def analyze(owners: tuple[Owner, ...], graph: Graph, limits: Limits | None = Non
     pending_joins: dict[str, deque[frozenset[str]]] = {
         name: deque() for name in join_states
     }
-    branch_worklist: list[tuple[str, _State]] = [
-        (graph.entry, _State(owner_map, fields, budget, graph.entry))
-    ]
-    terminal_reports: list[PathReport] = []
-    loop_terminals: dict[tuple[str, str], int] = {}
+    initial = _State(owner_map, fields, budget, graph.entry)
+    if graph.entry in join_states:
+        join_states[graph.entry][frozenset()] = initial.clone()
+    branch_worklist: list[tuple[str, _State, frozenset[str]]] = [(graph.entry, initial, frozenset())]
+    terminal_reports: dict[tuple[str, frozenset[str]], PathReport] = {}
 
     while branch_worklist or any(pending_joins.values()):
         budget.spend()
         if branch_worklist:
-            node_name, state = branch_worklist.pop()
+            node_name, state, join_env = branch_worklist.pop()
         else:
             next_join = min(
                 (name for name, keys in pending_joins.items() if keys),
                 key=lambda name: rpo_index.get(name, 0),
             )
-            env_key = pending_joins[next_join].popleft()
+            join_env = pending_joins[next_join].popleft()
             node_name = next_join
-            state = join_states[next_join][env_key].clone()
+            state = join_states[next_join][join_env].clone()
 
         node = nodes[node_name]
         state.step(node, demanded_after[node_name])
         if not node.successors:
-            report_item = state.finalize(node)
-            if has_loops:
-                tkey = (node_name, report_item.outcome)
-                if tkey in loop_terminals:
-                    terminal_reports[loop_terminals[tkey]] = report_item
-                    continue
-                loop_terminals[tkey] = len(terminal_reports)
-            terminal_reports.append(report_item)
+            # Each terminal has a unique nearest upstream join (or the entry).
+            # A fixpoint revisit updates only that join environment's prior report.
+            terminal_reports[node_name, join_env] = state.finalize(node)
             if len(terminal_reports) > limits.paths:
                 raise AnalysisRefusalError("complete path budget exhausted")
             continue
@@ -1191,9 +1183,9 @@ def analyze(owners: tuple[Owner, ...], graph: Graph, limits: Limits | None = Non
                 if queued_key not in pending_joins[successor]:
                     pending_joins[successor].append(queued_key)
             else:
-                branch_worklist.append((successor, branch))
+                branch_worklist.append((successor, branch, join_env))
 
-    return Report(tuple(terminal_reports))
+    return Report(tuple(terminal_reports.values()))
 
 
 # ---------------------------------------------------------------------------

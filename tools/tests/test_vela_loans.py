@@ -709,6 +709,41 @@ def _cfg_join_merging_and_bounded_loops() -> None:
     )
 
 
+def _loop_entry_and_conditional_view() -> None:
+    header = Node("header", successors=("body", "exit"))
+    entry_loop = Graph("header", (
+        header,
+        Node("body", Access(_ROOT, "move"), ("header",)),
+        Node("exit", Return("done")),
+    ))
+    paths = analyze(_OWNERS, entry_loop, Limits(paths=1)).paths
+    ensure(len(paths) == 1 and "use-after-owner-move" in _kinds(paths[0]),
+           "loop at entry failed to converge with the loop-carried owner move")
+    _refuses(lambda: analyze(_OWNERS, entry_loop, Limits(work=1)), "work budget")
+
+    for order in (("skip", "lend"), ("lend", "skip")):
+        graph = Graph("header", (
+            header,
+            Node("body", successors=("header",)),
+            Node("exit", successors=order),
+            Node("skip", successors=("read",)),
+            Node("lend", Borrow(Loan("view", "workspace", _BYTES)), ("read",)),
+            Node("read", Use("view"), ("done",)),
+            Node("done", Return("done")),
+        ))
+        paths = analyze(_OWNERS, graph, Limits(paths=2)).paths
+        ensure(len(paths) == 2 and all(path.outcome == "done" for path in paths),
+               "the common return lost an incoming view environment")
+        by_branch = {("lend" if "lend" in path.nodes else "skip"): path for path in paths}
+        ensure(not by_branch["lend"].issues
+               and _ends(by_branch["lend"]) == [("read", "view", "workspace")],
+               "the read through the live view lost its restoration")
+        ensure([(issue.node, issue.kind, issue.resources) for issue in by_branch["skip"].issues]
+               == [("read", "unavailable-name", ("view",))],
+               "the rejected read lost its unavailable-view diagnostic")
+        _refuses(lambda graph=graph: analyze(_OWNERS, graph, Limits(paths=1)), "path budget")
+
+
 def _surface_ast_to_loan_graph_lowering() -> None:
     def id_node(text: str) -> dict[str, object]:
         return {"text": text, "span": [0, len(text)]}
@@ -1317,5 +1352,6 @@ def cases() -> list[Case]:
             Case("complete deterministic exploration and bounded refusal", _complete_exploration_and_budgets),
             Case("selective per-conjunct invariant lifting and unlifted active clauses", _selective_invariant_lifting),
             Case("cfg join-point state merging and bounded loop fixpoint", _cfg_join_merging_and_bounded_loops),
+            Case("entry loop and branch-specific view diagnostics", _loop_entry_and_conditional_view),
             Case("schema-2 surface ast to loan graph lowering pass", _surface_ast_to_loan_graph_lowering),
             Case("vela_parser schema-2 surface ast lowering and site mapping", _vela_parser_schema2_surface_ast_lowering)]
