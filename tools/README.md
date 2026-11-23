@@ -29,6 +29,7 @@ Run `python tools/run.py` on Windows and `python3 tools/run.py` on Linux. Guest-
 | `python tools/run.py holdfast-parser lint FILE` | guest | Inspect mathematical source for declaration, binding, documentation, pattern and expression warnings |
 | `python tools/run.py holdfast-parser lock-package WORKSPACE NAME REVISION --output LOCK` | guest | Resolve and bind the explicit local dependency closure for the [mathematical batch target](../docs/tooling/elaboration-prototype.md#locked-mathematical-packages) |
 | `python tools/run.py holdfast-parser build-package WORKSPACE LOCK [--output BUNDLE]` | guest | Check the lock and module graph, elaborate in dependency order and optionally publish the bound Gallina bundle |
+| `python tools/run.py holdfast-parser diff-contract BASELINE CANDIDATE` | guest | Compare [authored public declarations and effect clauses](../docs/language/first-release.md#public-api-evolution) for one module |
 | `python tools/run.py holdfast-parser scip WORKSPACE LOCK --output DIRECTORY` | guest | Export the [offline mathematical package index](../docs/tooling/tooling-protocols.md#locked-mathematical-package-index) and its exact source and generated files |
 | `python tools/run.py holdfast-parser scip-check WORKSPACE LOCK DIRECTORY [--require-complete]` | guest | Recheck all SCIP bundle bytes and optionally require full authored-reference coverage |
 | `python tools/run.py holdfast-parser qualify-scip-reader READER` | guest | Exercise imported definitions, references, implementations and freshness in the pinned independent SCIP reader |

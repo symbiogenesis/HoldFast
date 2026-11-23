@@ -18,6 +18,7 @@ from toolchain import (
     HoldFastError,
     bsp,
     bsp_client,
+    contract_diff,
     env,
     gallina_source_map,
     mathematical_authoring,
@@ -292,6 +293,9 @@ def main(argv: list[str] | None = None) -> int:
     upgrade.add_argument("candidate", type=Path)
     upgrade.add_argument("--client", required=True, action="append", type=Path, help="dependent client module (repeatable)")
     upgrade.add_argument("--dependency", action="append", type=Path, default=[], help="fixed dependency module (repeatable)")
+    diff = commands.add_parser("diff-contract", help="compare authored public declarations and authority clauses")
+    diff.add_argument("baseline", type=Path)
+    diff.add_argument("candidate", type=Path)
     lock = commands.add_parser("lock-package", help="lock an offline mathematical package and its declared inputs")
     lock.add_argument("workspace", type=Path)
     lock.add_argument("name")
@@ -446,6 +450,14 @@ def main(argv: list[str] | None = None) -> int:
                 output = check_client_upgrade(load_module(args.baseline), load_module(args.candidate),
                                               [load_module(path) for path in args.client],
                                               [load_module(path) for path in args.dependency])
+        elif args.command == "diff-contract":
+            baseline, candidate = read_source(args.baseline), read_source(args.candidate)
+            with holdfast_parser.cached_build(root) as compiled:
+                old_tree = holdfast_parser.parse_source(compiled, baseline.data, surface=True)
+                new_tree = holdfast_parser.parse_source(compiled, candidate.data, surface=True)
+            output = contract_diff.compare(baseline.data, old_tree, candidate.data, new_tree)
+            ensure_unchanged(baseline)
+            ensure_unchanged(candidate)
         elif args.command == "qualify-bsp-client":
             output = bsp_client.qualify(root)
         elif args.command == "qualify-scip-reader":

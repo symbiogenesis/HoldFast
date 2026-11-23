@@ -269,6 +269,16 @@ version breaking changes accordingly, and supply a migration or retain an
 adapter where the prior interface can still be implemented. An API intended
 to admit new internal cases can expose an abstract type with stable eliminators.
 
+Run `holdfast-parser diff-contract BASELINE CANDIDATE` to review the authored
+changes to one module. The JSON report binds both source digests and lists
+added and removed public declarations, changed declaration fields, and changes
+to imports and implementation declarations that can affect resolution.
+It compares syntax without source locations or comments. It includes contracts
+and effect clauses and retains transparent definition bodies. It omits
+top-level executable function and theorem/lemma bodies. The comparison treats
+changes to binder spelling and equivalent expressions as differences and gives
+no semantic compatibility, kernel assumption or runtime permission verdict.
+
 The local [client replay command](../tooling/elaboration-prototype.md#client-upgrade-replay)
 keeps client and dependency sources fixed and elaborates both revisions, including
 exhaustiveness and proof obligations exercised by those clients. Release
