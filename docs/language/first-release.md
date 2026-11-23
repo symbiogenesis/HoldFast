@@ -491,7 +491,7 @@ input fixtures, commands and report fields.
 | Capacity and refusals | Compare proof structure and inference/reduction work at capacities 8 and 10⁹ and replay both proofs. Each negative fixture must parse after its `/*error*/` marker is removed. Elaboration must report the expected category and message fragment at the marked line and column. |
 | Capability execution | Run one passing purecap CHERI-RISC-V capability program and the bounds, permission and tag trap controls under Sail. |
 | Optional CompCert execution | Lower the validator and scenario drivers to Clight/C, execute under CompCert's interpreter and run purecap images in Sail. Check the passing paths and altered payload, padding, checksum-code and clearing controls. Use `--ccomp /absolute/path/to/ccomp` to require this run. Automatic discovery records `compcert_sail.available: false` when the compiler is missing. [Compiler build contract](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/implementation/contracts/contained-compiler-reuse.md) |
-| Guest C11 regression | Compile the generated validator with the system C compiler at `-O0` and `-O2` and check all five exits. |
+| Guest C11 regression | Compile the generated validator with the system C compiler at `-O0` and `-O2` and check all five exits. Before reading a successful payload, check its pointer against the destination backing, its base and length against the expected slice, and its tag and permissions. Reject variants returning the input pointer to identical bytes or granting write access. |
 
 Use `python tools/run.py vela-parser first-slice-bindings <receipt.json>` to
 check a retained schema-2 receipt against the checkout and installed tools.

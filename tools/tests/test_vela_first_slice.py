@@ -646,15 +646,27 @@ def _execute_generated_packet_c() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         c_file = Path(temporary) / "packet.c"
         executable = Path(temporary) / "packet"
-        for expected in (0, *(number for number, _ in vela_first_slice.PERTURBED_CASES)):
-            generated, checks = vela_first_slice.lower_to_c(source, parsed, checked=checked, perturb_check=expected)
-            ensure(checks == 19, "emitted packet scenario check count changed")
-            c_file.write_text(generated, encoding="utf-8")
+        def check_program(program: str, expected: int) -> None:
+            c_file.write_text(program, encoding="utf-8")
             for optimization in ("-O0", "-O2"):
                 subprocess.run(["cc", "-std=c11", optimization, str(c_file), "-o", str(executable)],
                                check=True, timeout=30)
                 observed = subprocess.run([str(executable)], check=False, timeout=5).returncode
                 ensure(observed == expected, f"packet C {optimization} returned {observed}, expected {expected}")
+
+        generated, checks = vela_first_slice.lower_to_c(source, parsed, checked=checked)
+        ensure(checks == 19, "emitted packet scenario check count changed")
+        check_program(generated, 0)
+        returned = "vela_span_copy_meta(&out->ok.PayloadView, &payloadView);"
+        ensure(generated.count(returned) == 1, "packet regression lost the returned view assignment")
+        for change, expected in (
+            ("if (out->ok.PayloadView.length == 4UL) out->ok.PayloadView.ptr = pkt->ptr + 4UL;", 6),
+            ("if (out->ok.PayloadView.length == 2UL) out->ok.PayloadView.perm_write = 1;", 10),
+        ):
+            check_program(generated.replace(returned, returned + "\n    " + change), expected)
+        for expected, _ in vela_first_slice.PERTURBED_CASES:
+            perturbed, _ = vela_first_slice.lower_to_c(source, parsed, checked=checked, perturb_check=expected)
+            check_program(perturbed, expected)
 
 
 def _check_packet_statements(statements: str, start: bytes = b"    var u8 acc = 0x5A ^ rawLen;",

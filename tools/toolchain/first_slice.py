@@ -1801,6 +1801,13 @@ static void vela_span_restore(
 
 {lowered_functions_c}
 
+static int packet_view_matches(struct vela_span_byte *view, unsigned char *arena,
+                               unsigned long base, unsigned long length)
+{{
+    return view->ptr == arena + base && view->base == base && view->length == length
+        && view->tag == 1 && view->perm_read == 1 && view->perm_write == 0;
+}}
+
 int main(void)
 {{
     unsigned char arena[136];
@@ -1820,9 +1827,9 @@ int main(void)
         return 1;
     if (out.err != {exp(2, 0)})
         return 2;
-    if (out.ok.CopiedBytes != {exp(3, 0)}UL || out.ok.PayloadView.length != 0UL || out.ok.PayloadView.base != 68UL)
+    if (out.ok.CopiedBytes != {exp(3, 0)}UL)
         return 3;
-    if (out.ok.PayloadView.tag != 1 || out.ok.PayloadView.perm_read != 1 || out.ok.PayloadView.perm_write != 0)
+    if (!packet_view_matches(&out.ok.PayloadView, arena, 68UL, 0UL))
         return 4;
     if (dst.base != 64UL || dst.length != {exp(5, 10)}UL || dst.perm_write != 1 || vela_span_read(&dst, 8UL) != 0xC3U)
         return 5;
@@ -1832,7 +1839,8 @@ int main(void)
     vela_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
     WritePacket8(&pkt, 0x56U, 0x04U, 0x1EU, 0x01U, 0x10U, 0x20U, 0x30U, 0x40U);
     PrepareAndValidatePacket(&out, &dst, &pkt);
-    if (out.is_ok != 1 || out.err != 0 || out.ok.CopiedBytes != 4UL)
+    if (out.is_ok != 1 || out.err != 0 || out.ok.CopiedBytes != 4UL
+        || !packet_view_matches(&out.ok.PayloadView, arena, 68UL, 4UL))
         return 6;
     if (vela_span_read(&out.ok.PayloadView, 0UL) != {exp(7, 0x10)}U)
         return 7;
@@ -1849,7 +1857,8 @@ int main(void)
     vela_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
     WritePacket8(&pkt, 0x56U, 0x02U, 0x6BU, 0x01U, 0x11U, 0x22U, 0xDEU, 0xADU);
     PrepareAndValidatePacket(&out, &dst, &pkt);
-    if (out.is_ok != 1 || out.ok.CopiedBytes != 2UL || out.ok.PayloadView.length != 2UL)
+    if (out.is_ok != 1 || out.ok.CopiedBytes != 2UL
+        || !packet_view_matches(&out.ok.PayloadView, arena, 68UL, 2UL))
         return 10;
     if (vela_span_read(&out.ok.PayloadView, 0UL) != 0x11U || vela_span_read(&out.ok.PayloadView, 1UL) != 0x22U)
         return 11;

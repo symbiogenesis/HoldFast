@@ -1628,6 +1628,13 @@ zero solver-trust assumptions and 141 intended refusals.
 existing speculative-inference rollback cases preserve the budget and cache
 boundary. Combined local gate and behavioral validation cover integration.
 
+On 2026-11-22 the [guest C11 regression](../../tools/tests/test_vela_first_slice.py)
+exposed a missing check in the packet harness. A four-byte view pointing back
+into the input passed because the copied destination held identical bytes.
+The harness checks the destination address, base, length, tag and permissions
+for empty, partial and full payloads. At `-O0` and `-O2` the wrong backing
+fails at check 6 and a partial view with write permission fails at check 10.
+
 Q25ba remains open: checked source correspondence, concrete canonical-machine
 laws, retained compiler/contextual-security/admission receipts and exact final
 bytes are still missing. Local CompCert execution remains unavailable. No
