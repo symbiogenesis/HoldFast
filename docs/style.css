@@ -231,8 +231,7 @@ a:hover {
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    flex-wrap: wrap;
-    gap: 18px;
+    gap: 12px;
     font: 10px var(--mono);
     letter-spacing: 1.1px;
 }
@@ -254,6 +253,20 @@ a:hover {
     padding: 6px 8px;
     font-size: 9px;
     letter-spacing: .9px;
+}
+
+.github-link {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    color: #fff;
+}
+
+.github-link:hover {
+    background: #1a202e;
 }
 
 /* Main Container & Introduction */
@@ -1631,12 +1644,20 @@ kbd {
     }
 }
 
-@media (max-width: 820px) {
+@media (max-width: 900px) {
     .topbar {
         height: auto;
         padding: 10px 4%;
         flex-wrap: wrap;
+        gap: 8px 18px;
     }
+    .topbar-nav {
+        flex-basis: 100%;
+        order: 1;
+    }
+}
+
+@media (max-width: 820px) {
     .local-label {
         display: none;
     }
@@ -1679,7 +1700,7 @@ kbd {
     .brand-context {
         font-size: 13px;
     }
-    .topbar-right {
+    .prototype-badge {
         display: none;
     }
     .pane-toolbar,

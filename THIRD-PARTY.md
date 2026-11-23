@@ -131,6 +131,13 @@ modification, and distribution with its copyright and permission notice. Browser
 assets and upstream notices are served directly from the package CDN rather than
 vendored into this repository or shipped in a VerifiedOS image.
 
+The [playground header](docs/index.html) embeds Primer Octicons v19.21.2's
+[16-pixel GitHub mark](https://github.com/primer/octicons/blob/v19.21.2/icons/mark-github-16.svg)
+as a link to the HoldFast repository. Its [release license](https://github.com/primer/octicons/blob/v19.21.2/LICENSE)
+is MIT, copyright 2026 GitHub Inc. Both the hosted and local playgrounds serve
+the SVG and license notice inline. Use of the mark follows
+[GitHub's logo guidelines](https://brand.github.com/foundations/logo).
+
 <a id="independent-trace-importer"></a>
 
 ## Independent trace importer
