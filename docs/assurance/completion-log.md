@@ -2289,6 +2289,24 @@ coordinate deltas, end-of-line boundaries and lookup limits. The mapped
 two-operation source also passed local Rocq compilation and `rocqchk`.
 The retained estimate is 38 h (20–56), actual n/a for this parallel batch.
 
+<a id="q25au-qualify-contextual-diagnostics-and-invalidation"></a>
+
+#### Q25au · Qualify contextual diagnostics and invalidation
+
+The [mathematical elaborator](../tooling/elaboration-prototype.md#named-goals)
+exposes a location, expected type or proposition, status and available local
+context for each named goal in the current source. Repeated names at distinct
+sites retain separate judgments. The [elaborator controls](../../tools/tests/test_vela_elaborate.py)
+exercise proof hypotheses, operand inference and bounded output. An open
+required goal refuses compilation.
+
+Through the [native playground](../tooling/playground.md), changing the bound
+in a dependent equality changes the displayed goal. The
+[interaction controls](../../tools/tests/test_vela_playground_math.py) verify
+repair, dependency replacement and a late success arriving after an invalid
+edit. Q25au remains open for the copy-prefix guard, cleanup token and suspended
+parent in the [composed release fixture](../language/core-design.md#typed-holes-and-invalidation).
+
 <a id="q25cw-qualify-target-aware-aggregate-and-text-static-evaluation"></a>
 
 #### Q25cw · Qualify target-aware aggregate and text static evaluation

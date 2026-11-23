@@ -149,6 +149,7 @@ open until the parent's acceptance conditions are met.
   - **Owner** `core-diagnostics`
   - **Start** Use [checked frontend derivations](#q25at) as they become available.
   - **Check** In the existing interaction path, show each typed hole's location, exact outstanding proposition and status. A dependency change or invalid edit withdraws stale evidence, including late results from the previous generation. [Typed holes and invalidation](docs/language/core-design.md#typed-holes-and-invalidation).
+  - The local mathematical playground shows named goals from the elaborator and withdraws them after source or compiler changes. The copy guard, cleanup and post-match loan diagnostics still need the checked release fixture. [Partial evidence](docs/assurance/completion-log.md#q25au-qualify-contextual-diagnostics-and-invalidation).
 
 <a id="q25av"></a>
 
