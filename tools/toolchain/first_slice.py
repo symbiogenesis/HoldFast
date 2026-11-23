@@ -1418,9 +1418,11 @@ def _lower_function_to_c(
     def lower_stmts(stmts: list[dict[str, object]], indent: str) -> list[str]:
         out_lines: list[str] = []
         for st in stmts:
+            skind = str(st.get("kind", ""))
+            if skind in {"assert", "proof", "calc"}:
+                continue
             prefix: list[str] = []
             first_line = len(out_lines)
-            skind = str(st.get("kind", ""))
             if skind in ("var", "let"):
                 vname = _node_text(st.get("name"))
                 val = cast("dict[str, object]", st.get("value", {}))

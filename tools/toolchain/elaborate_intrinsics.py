@@ -1152,6 +1152,8 @@ class _IntrinsicsMixin:
                 node,
             )
         if isinstance(node["operator"], dict) and node["operator"].get("text") == "move":
+            if self.in_inline_proof:
+                raise self.fail("type", "an erased proof cannot move a runtime value", node)
             target_node = self._unwrap_group(self.node(node["value"]))
             if target_node["kind"] in {"member", "index"}:
                 raise self.fail(

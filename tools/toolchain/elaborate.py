@@ -241,6 +241,7 @@ class _Elaborator(
         self.in_loop_depth: int = 0
         self.active_regions: set[str] = set()
         self.in_executable_function = False
+        self.in_inline_proof = False
         self.ghost_parameters: set[int] = set()
         self.specification_values: dict[str, str] = {}
         self.phase_uses: list[tuple[Node, str]] = []
@@ -1295,6 +1296,8 @@ class _Elaborator(
     def _check_argument_mode(self, expected: str | None, actual: object, site: Node) -> None:
         marker = "move" if expected == "owned" else expected
         if actual == marker:
+            if self.in_inline_proof and marker in {"ref", "out", "move"}:
+                raise self.fail("type", f"an erased proof cannot pass a '{marker}' argument", site)
             if expected == "in" and self.in_executable_function:
                 marked = self._unwrap_group(self.node(site["value"]))
                 place = self._unwrap_group(self.node(marked["value"]))

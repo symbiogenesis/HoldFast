@@ -2577,7 +2577,7 @@ class _DeclarationsMixin:
             return set()
         active_shadow = set() if shadowed is None else set(shadowed)
         kind = node.get("kind")
-        if kind in {"assert", "contract", "invariant", "open_invariant"}:
+        if kind in {"assert", "proof", "calc", "contract", "invariant", "open_invariant"}:
             if kind == "open_invariant" and isinstance(node.get("body"), dict):
                 return self._collect_runtime_read_names(
                     self.node(node["body"]), candidates, active_shadow
@@ -2721,6 +2721,8 @@ class _DeclarationsMixin:
         self.decl_first_meta = first_meta
         self.whnf_cache.clear()
         self.mutable_locals.clear()
+        self.local_borrows.clear()
+        self.readonly_in_params.clear()
         self.out_param_names.clear()
         self.uninitialized_out_params.clear()
         self.last_call_updates.clear()

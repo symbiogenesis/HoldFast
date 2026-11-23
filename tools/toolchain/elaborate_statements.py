@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Imperative statements, propagation, loops, scopes, and control-flow elaboration for Vela."""
 
-from collections.abc import Callable, Collection
+from collections.abc import Callable, Collection, Generator
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, cast
 
 from toolchain.ast import VelaError
@@ -31,6 +32,43 @@ if TYPE_CHECKING:
 
 
 class _StatementsMixin:
+    @contextmanager
+    def _inline_proof_scope(self: _Elaborator) -> Generator[None]:
+        if not self.in_executable_function or self.in_inline_proof:
+            yield
+            return
+        # A proof sees the current values and permissions. Only its stated facts
+        # may reach the next runtime statement, including when a binder name is reused.
+        mutable, borrows, views = self.mutable_locals, self.local_borrows, self.slice_views
+        restored, uninitialized = self.restored_view_terms, self.uninitialized_out_params
+        verdicts, updates, active = self.result_bindings, self.last_call_updates, self.active_facts
+        exit_env, exit_facts, theorem_facts = self.final_ref_bindings, self.final_return_facts, self.final_theorem_facts
+        self.mutable_locals, self.local_borrows, self.slice_views = mutable.copy(), borrows.copy(), views.copy()
+        self.restored_view_terms, self.uninitialized_out_params = restored.copy(), uninitialized.copy()
+        self.result_bindings, self.last_call_updates, self.active_facts = {}, [], active.copy()
+        self.final_ref_bindings, self.final_return_facts, self.final_theorem_facts = {}, [], ()
+        self.in_inline_proof = True
+        try:
+            yield
+        finally:
+            self.in_inline_proof = False
+            self.mutable_locals, self.local_borrows, self.slice_views = mutable, borrows, views
+            self.restored_view_terms, self.uninitialized_out_params = restored, uninitialized
+            self.result_bindings, self.last_call_updates, self.active_facts = verdicts, updates, active
+            self.final_ref_bindings, self.final_return_facts, self.final_theorem_facts = exit_env, exit_facts, theorem_facts
+
+    def _statement_proof_facts(
+        self: _Elaborator, statement: Node, environment: dict[str, _Binding], facts: tuple[_Binding, ...],
+    ) -> list[_Binding]:
+        with self._inline_proof_scope():
+            environment = dict(environment)
+            if statement["kind"] == "assert":
+                return [self._elaborate_assert(statement, environment, facts)]
+            body = self.node(statement["body"], "block")
+            if statement["kind"] == "proof":
+                return self._elaborate_proof_statement(body, environment, facts)
+            return self._elaborate_calc_statement(body, environment, facts)
+
     @staticmethod
     def _unwrap_group(node: Node) -> Node:
         while node["kind"] == "group" and isinstance(node.get("value"), dict):
@@ -946,6 +984,8 @@ class _StatementsMixin:
         self._refresh_local_borrows(updated, site_node)
 
     def _note_runtime_access(self: _Elaborator, target: Node, footprint: set[str]) -> None:
+        if self.in_inline_proof:
+            return
         place = self._unwrap_group(target)
         while place["kind"] in {"member", "index", "argument", "unary"}:
             place = self._unwrap_group(self.node(place["value"]))
@@ -956,11 +996,15 @@ class _StatementsMixin:
             footprint.add(self.slice_views.get(name, name))
 
     def _note_runtime_write(self: _Elaborator, target: Node) -> None:
+        if self.in_inline_proof:
+            raise self.fail("type", "an erased proof cannot write through a runtime place", target)
         self._note_runtime_access(target, self.runtime_writes)
 
     def _record_call_update(
         self: _Elaborator, target: Node, value: _Binding, *, writes: bool = True, index: _Term | None = None
     ) -> None:
+        if self.in_inline_proof:
+            raise self.fail("type", "an erased proof cannot update a runtime loan", target)
         if writes:
             self._note_runtime_write(target)
         if self.guard_value:
@@ -1456,22 +1500,8 @@ class _StatementsMixin:
                 if kind == "expression_statement":
                     extended = self._elaborate_expression_statement(statement, extended)
                     continue
-                if kind == "assert":
-                    fact = self._elaborate_assert(statement, extended, (*facts, *statement_facts))
-                    statement_facts.append(fact)
-                    self.active_facts.extend(self._fact_bool_terms((fact,), extended))
-                    continue
-                if kind == "proof":
-                    sub_facts = self._elaborate_proof_statement(
-                        self.node(statement["body"], "block"), extended, (*facts, *statement_facts)
-                    )
-                    statement_facts.extend(sub_facts)
-                    self.active_facts.extend(self._fact_bool_terms(sub_facts, extended))
-                    continue
-                if kind == "calc":
-                    sub_facts = self._elaborate_calc_statement(
-                        self.node(statement["body"], "block"), extended, (*facts, *statement_facts)
-                    )
+                if kind in {"assert", "proof", "calc"}:
+                    sub_facts = self._statement_proof_facts(statement, extended, (*facts, *statement_facts))
                     statement_facts.extend(sub_facts)
                     self.active_facts.extend(self._fact_bool_terms(sub_facts, extended))
                     continue
@@ -2437,17 +2467,7 @@ class _StatementsMixin:
                 if kind in {"break", "continue"}:
                     raise self.fail("type", f"'{kind}' statement is only permitted inside a loop", statement)
                 if kind in {"assert", "proof", "calc"}:
-                    cur_facts = (*active_facts, *statement_facts)
-                    if kind == "assert":
-                        step_facts = [self._elaborate_assert(statement, extended, cur_facts)]
-                    elif kind == "proof":
-                        step_facts = self._elaborate_proof_statement(
-                            self.node(statement["body"], "block"), extended, cur_facts
-                        )
-                    else:
-                        step_facts = self._elaborate_calc_statement(
-                            self.node(statement["body"], "block"), extended, cur_facts
-                        )
+                    step_facts = self._statement_proof_facts(statement, extended, (*active_facts, *statement_facts))
                     statement_facts.extend(step_facts)
                     self.active_facts.extend(self._fact_bool_terms(tuple(step_facts), extended))
                     if index == len(statements) - 1:
