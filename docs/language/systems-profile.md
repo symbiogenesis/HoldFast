@@ -80,3 +80,41 @@ The [measurement protocol](../assurance/workflow-contract.md#measurement-record-
 governs repeated runs. A sampled cycle count supports a measurement claim.
 A worst-case bound requires coverage of the declared inputs, schedules and
 target conditions.
+
+## Secret-processing client
+
+Use fixed-length authentication-tag verification as the first client. An
+independent specification accepts exactly when every byte of the submitted tag
+equals the expected tag. Treat the expected tag as secret, and length and the
+submitted tag as public. The caller receives one declassified Boolean result at
+the declared output. A separate proof connects a cryptographic primitive to the
+expected tag when a client claims message authentication.
+
+Freeze the allowed attacker observations and execution context alongside the
+public signature. For any two invocations with the same public inputs, require
+equal control-flow and address traces until the verdict is released. If later
+behavior branches on the verdict, compare those observations for equal
+verdicts. Check independently expected outputs for an equal tag and
+for mismatches at the first, middle and last byte. Pair two distinct mismatch
+positions yielding the same verdict. A comparison that exits at the first
+mismatch passes all the functional examples and fails that trace obligation.
+
+The claim names the actual instruction, cache and scheduling observations
+covered on each target. Check source and final-image traces against the same
+policy. If the contract requires data-independent instruction latency, name the
+applicable instruction and hardware guarantees. A claim covering speculation
+also needs a transient-execution model. Record which physical observations
+(for example power or electromagnetic emissions) have evidence. Explicitly
+authorize any declassification in the policy, including what may be logged or
+returned on failure. [Jasmin's verification models](https://jasmin-lang.readthedocs.io/en/v2026.09.0/tools/ct.html)
+provide a comparison for ordinary and speculative constant-time checking.
+
+For a component that promises erasure, specify the storage under its control
+and the point by which disposal completes. Inventory represented copies,
+registers, spills, temporaries, diagnostic output and shared buffers on every
+permitted exit. Inspect the final image for a removed clear and unaccounted
+copies. Name any memory retained by the caller, foreign runtime or device in
+the assumptions. A nonce-using protocol additionally needs its own freshness
+contract across retries and restarts, together with the source and assumptions
+for keys and randomness. Each claim reports its evidence independently under
+the [assurance policy](../extensions/assurance-profiles.md#what-complete-coverage-must-mean).
