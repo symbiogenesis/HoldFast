@@ -2172,6 +2172,8 @@ class _IntrinsicsMixin:
                 return _Binding(_int_term(spec, mag), spec.const)
             return _Binding(_term("nat", value=mag), _NAT)
         if kind == "hole":
+            if self.hole_inspection is not None:
+                return self.hole_inspection.observe(node, None, environment)
             raise self.fail("inference", "unfinished named proof hole; provide an explicit term")
         if kind == "bool":
             return _Binding(_term("bool", value=int(cast("bool", node["value"]))), _BOOL)

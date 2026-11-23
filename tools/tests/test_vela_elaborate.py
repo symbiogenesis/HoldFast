@@ -16,6 +16,7 @@ from toolchain import elaborate as language
 from toolchain import elaborate_types as terms
 from toolchain.ast import VelaError
 from toolchain.elaborate import elaborate, elaborate_package
+from toolchain.elaborate_holes import OpenGoals
 from toolchain.mathematical import inspect_source
 
 type Node = dict[str, object]
@@ -1536,6 +1537,38 @@ def _malformed_role_containers() -> None:
             ensure(error.kind == "protocol", f"malformed {label} reached semantic checking")
         else:
             raise AssertionError(f"accepted malformed {label}")
+
+
+def _contextual_holes() -> None:
+    fixture = _Fixture("Open")
+    fixture.definition("Components", _tuple(_NAT, _BOOL, types=True), (),
+                       _tuple(_hole("?item"), _hole("?item")))
+    x = _variable("n")
+    prop = _binary("==", x, _natural(4))
+    fixture.theorem("Bound", (("n", _NAT),), prop, _assert(prop, _hole("?bound")))
+    source, tree = fixture.response()
+    error = _refuses(fixture, "inference")
+    ensure(isinstance(error, OpenGoals), "named holes lost the contextual refusal")
+    goals = cast("OpenGoals", error).goals
+    ensure([(goal.name, goal.expected) for goal in goals] == [
+        ("?item", "Nat"), ("?item", "bool"), ("?bound", "Eq(Nat, n, 4)")],
+        f"repeated names, product components or proof premise lost their own type: {goals}")
+    lines = source.decode().splitlines()
+    ensure(all(lines[goal.line - 1][goal.column - 1:].startswith(goal.name) for goal in goals)
+           and goals[0].column != goals[1].column and "n: Nat" in goals[2].context,
+           "named-hole locations or proof environment differ from the authored source")
+    try:
+        elaborate_package([(source, tree)])
+    except VelaError as refused:
+        ensure("?bound unresolved" in refused.message, "package build lost its goal details")
+    else:
+        raise AssertionError("a diagnostic placeholder escaped into a checked package")
+    wrong = _Fixture()
+    wrong.definition("Invalid", _NAT, (), _variable("missing"))
+    wrong.definition("Later", _NAT, (), _hole("?later"))
+    refused = _refuses(wrong, "name", "missing")
+    ensure(isinstance(refused, OpenGoals) and refused.goals[0].expected is None,
+           "a goal after a blocking error acquired an invented expected type")
 
 
 def _holes_unsupported_and_hygiene() -> None:
@@ -7164,6 +7197,7 @@ def cases() -> list[Case]:
             Case("products-and-concrete-dependent-lookup", _products_and_lookup_computation),
             Case("strict-surface-schema-and-source-binding", _strict_protocol),
             Case("malformed-role-containers", _malformed_role_containers),
+            Case("contextual-named-holes-and-package-refusal", _contextual_holes),
             Case("holes-unsupported-forms-and-hygiene", _holes_unsupported_and_hygiene),
             Case("bounded-source-and-syntax", _source_limits),
             Case("inference-reduction-and-output-budgets", _elaboration_budgets),
