@@ -150,6 +150,26 @@ Record any feature a model cannot express, such as an exit that returns a
 HoldFast-specific resource. To qualify an analysis for HoldFast, replay its restoration
 obligations on each exit and measure its work against the same budgets.
 
+In the comparison, distinguish reasoning about loans from resolving generic
+interfaces. Exercise the following source clients with their corresponding
+invalid edits and record the first obligation each compiler can judge.
+
+| Client | Required distinction |
+| --- | --- |
+| Returned view on one branch, owner updated on its sibling | The update after the view's last use is safe. An update followed by use of the same view conflicts. |
+| Iterator lending a mutable element from its receiver | The next iteration can proceed after the first loan ends. Holding the first element through a second overlapping loan conflicts. |
+| Generic callback valid for each fresh input lifetime | A noncapturing identity view returns the loan tied to its input. Storing that view in longer-lived state violates the callback contract. |
+| Generic iterator with an associated item | Resolve the required item equality through an independently imported instance, report a genuinely ambiguous selection and check that reordering imports preserves both outcomes. |
+
+Pin the Rust edition, compiler revision, flags and crate closure separately for
+each run. Keep ordinary Rust receiver behavior in the baseline. Compare
+Polonius configurations for the loan cases and the next-generation trait solver
+for the generic obligations it judges. Record extra proof terms, annotations,
+unsafe abstractions, runtime checks and source rewrites for each tool.
+[Rust two-phase borrows](https://rustc-dev-guide.rust-lang.org/borrow-check/two-phase-borrows.html)
+and [Rust trait solving](https://rustc-dev-guide.rust-lang.org/solve/trait-solving.html)
+describe the respective subjects.
+
 Record accepted, semantically rejected, unsupported and incomplete cases
 separately. A diagnostic with no detected conflict still carries its unresolved
 proof obligations and supplies no source acceptance. Compare matching behavior
@@ -162,3 +182,25 @@ for diagnostic latency, elapsed/CPU time, peak memory and environment identity.
 Record graph size, branching, captures, configured budgets and budget refusals
 alongside successful cases. State each claimed improvement's objective and
 supported workload, including regressions and endpoint differences. Report conclusions for the tested workloads and evidence endpoints.
+
+### Two-phase receiver trial
+
+The [two-phase trial](../../PLAN.md#q25cd) compares the ordinary exclusive
+receiver with a reservation restricted to implicit method receivers. The trial
+evaluates the receiver once, reserves its identity and footprint, then evaluates
+the arguments left-to-right. An overlapping by-value read may finish during
+the reservation. Activation immediately before entering the method requires
+exclusive access to that same footprint. A nested overlapping mutation, move
+or retained shared argument fails at the conflicting access or activation.
+Disjoint arguments retain their ordinary rights. A failure while evaluating
+an argument cancels the reservation and accounts for any earlier argument
+transfers on that exit. No method body has run.
+
+Use `buf.Update(buf.ReadCount())` with a whole-object exclusive receiver and a
+by-value count, plus versions with a nested mutation and an overlapping shared
+argument retained into the call. Compare events with a count snapshot when
+evaluating that snapshot at the earlier point preserves its meaning. Include
+an effectful argument before the read and a failure before activation. Check
+the observed order, the number of receiver evaluations and restoration on each
+exit. Explicit `ref` arguments keep the ordinary grant rule. Promotion requires
+source correspondence and the [core borrow obligations](core-design.md#borrow-analysis-promotion).

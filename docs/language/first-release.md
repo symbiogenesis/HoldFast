@@ -401,8 +401,19 @@ a named disjoint view under an abstract footprint contract, so clients can keep
 using it after a private field is renamed. If evaluating a preceding argument
 can change the observed value, the diagnostic identifies the conflict and leaves
 the evaluation order to the author.
+An exported disjointness law names public views such as `Data` and `Count`.
+The provider establishes their separation for each representation and allowed
+entry state. A client can use `buf.WriteData(buf.ReadCount())` when the
+outer exclusive receiver covers `Data` and the nested shared receiver covers
+`Count`. The [view diagnostic fixture](../../tools/tests/test_holdfast_loans.py#_receiver_view_representation_change)
+keeps the client text identical across a private field rename, then maps
+both views to the same field and checks the location of the conflicting loan.
+Release qualification repeats the client across a package boundary after a
+private layout change, rechecks the provider's footprint law, verifies that
+overlapping backing fails the law, and records which client proofs or
+annotations changed.
 Two-phase receiver borrowing remains a separately priced option, triggered by
-measured client friction rather than made a prerequisite for ordinary ownership.
+measured client friction under the [receiver trial](loan-analysis.md#two-phase-receiver-trial).
 No diagnostic may silently reorder effectful arguments or insert hidden loans.
 
 <a id="csharp-transition-guide"></a>
