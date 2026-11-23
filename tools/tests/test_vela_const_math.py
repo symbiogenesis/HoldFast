@@ -14,6 +14,7 @@ from tests.test_vela_elaborate import (
     _boolean,
     _call,
     _choice,
+    _effects_clause,
     _Fixture,
     _function_type,
     _inferred_lambda,
@@ -137,6 +138,13 @@ def _static_callback_value() -> None:
     output = language.elaborate(*fixture.response()).gallina.split("Definition vela_d2_Use", 1)[1]
     ensure("(9 : Corelib.Init.Datatypes.nat)" in output,
            "a static callable value did not compute the demanded scalar constant")
+    effectful = copy.deepcopy(fixture)
+    effectful.function("Dynamic", _NAT, (("n", _NAT),), _call("Square", _variable("n")),
+                       contracts=(_effects_clause(_call("calls", _variable("Square"))),))
+    for callback in (_variable("Dynamic"), _inferred_lambda(("n",), _call("Dynamic", _variable("n")))):
+        bad = copy.deepcopy(effectful)
+        bad.function("Bad", _NAT, (), _call("ApplyStatic", callback, _natural(2)))
+        _refuses(bad, "type", "empty effect footprint")
     fixture.function("Bad", _NAT, (("operation", callback_type), ("value", _NAT)),
                      _call("ApplyStatic", _variable("operation"), _variable("value")))
     _refuses(fixture, "type", "nonstatic binding 'operation'")
