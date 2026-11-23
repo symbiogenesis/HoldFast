@@ -119,9 +119,31 @@ def _locked_static_text() -> None:
         ensure(output.read_bytes() == updated, "a refused target replaced the last built bundle")
 
 
+def _locked_inferred_contract() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        workspace = Path(tmp)
+        provider = _write(workspace, "readings", "v1", {}, "Readings")
+        client = _write(workspace, "consumer", "v1", {"readings": "v1"}, "Consumer")
+        (provider / "module.vela").write_text("""module Readings;
+public Result<Nat, bool> Read(Nat n) ensures result == Ok(n) => Ok(n);
+""", encoding="utf-8")
+        (client / "module.vela").write_text("""module Consumer;
+import Readings;
+public definition Result<bool, Nat> Marker() => Ok(true);
+public lemma Observed() ensures Read(7) == Ok(7) proof { assert Read(7) == Ok(7); }
+public definition bool UsedMarker() => Marker() is Ok(_);
+""", encoding="utf-8")
+        lock, output = workspace / "lock.json", workspace / "bundle.json"
+        packages.lock_package(TOOLS.parent, workspace, "consumer", "v1", lock)
+        packages.build_package(TOOLS.parent, workspace, lock, output)
+        _kernel_consumer(json.loads(output.read_bytes())["modules"]["Consumer"], "UsedMarker", "true")
+
+
 def cases() -> list[Case]:
     return [Case("module-local deterministic locked binder identities", _in_memory),
             Case("kernel composes stable locked providers with different binder types", _native_replay,
                  slow=True, lane="toolchain"),
+            Case("locked public contracts retain provider-inferred result constructors", _locked_inferred_contract,
+                 lane="toolchain"),
             Case("locked static text survives replay and refuses stale dependency and target", _locked_static_text,
                  slow=True, lane="toolchain")]

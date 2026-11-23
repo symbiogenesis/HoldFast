@@ -71,19 +71,24 @@ class _DeclarationsMixin:
             witnesses.append(witness)
         return witnesses
 
-    def complete(self: _Elaborator, term: _Term, seen: dict[int, _Term] | None = None) -> None:
-        if seen is None:
-            seen = {}
+    def complete(self: _Elaborator, term: _Term, memo: dict[int, tuple[_Term, _Term]] | None = None) -> _Term:
+        """Resolve inference variables before a term crosses its elaborator's boundary."""
+        if memo is None:
+            memo = {}
         tid = id(term)
-        if tid in seen:
-            return
-        seen[tid] = term
+        if tid in memo:
+            return memo[tid][1]
+        original = term
         self.tick()
         term = self.resolve(term)
         if term.kind == "meta":
             raise self.fail("inference", "unresolved inference variable; add a type or generic argument")
-        for child in term.args:
-            self.complete(child, seen)
+        if term.args:
+            children = tuple(self.complete(child, memo) for child in term.args)
+            if any(child is not previous for child, previous in zip(children, term.args, strict=True)):
+                term = _Term(term.kind, term.value, children)
+        memo[tid] = (original, term)
+        return term
 
     def _solver_statement(
         self: _Elaborator,
@@ -188,8 +193,8 @@ class _DeclarationsMixin:
         if proof is not None and self.free(prop) <= bound and self.free(proof) <= bound:
             signature = self.wrap("pi", binders, stated)
             definition = self.wrap("lam", binders, self._replace_images(proof, images or []))
-            self.complete(signature)
-            self.complete(definition)
+            signature = self.complete(signature)
+            definition = self.complete(definition)
             self.output.append(f"Definition {emitted} : {self.render(signature)} :=\n  {self.render(definition)}.")
         else:
             facts = [self._replace_images(fact, images or []) for fact in fact_bools]
@@ -3253,8 +3258,8 @@ class _DeclarationsMixin:
                 else:
                     definition = lam_body
             self.site = node
-            self.complete(signature)
-            self.complete(definition)
+            signature = self.complete(signature)
+            definition = self.complete(definition)
             for index in range(first_meta, len(self.metas)):
                 self.complete(_term("meta", value=index))
                 self.complete(self.metas[index].type)
@@ -3586,7 +3591,7 @@ class _DeclarationsMixin:
                                         base_param_ids,
                                         tuple(sym_loan_pairs),
                                         cast("int", sym_res_var.value),
-                                        sym_eb.term,
+                                        self.complete(sym_eb.term),
                                     )
                                 )
                         except VelaError:
