@@ -24,6 +24,8 @@ Run `python tools/run.py` on Windows and `python3 tools/run.py` on Linux. Guest-
 | `python tools/run.py vela-highlight` | host / guest | Check/regenerate syntax-only editor assets; qualify pinned Tree-sitter and TextMate consumers in the guest |
 | `python tools/run.py vela-playground` | guest (`[wsl]`) | Unified Vela browser playground with dependent mathematics |
 | `python tools/run.py vela-parser` | guest (`[wsl]`) | Menhir parser build/qualification, syntax campaigns, dependent elaboration, first-slice harness, and Rocq kernel replay |
+| `python tools/run.py vela-parser fmt FILE --check` | guest | Check [canonical mathematical layout](../docs/tooling/authoring-tools.md#formatting-and-linting-mathematical-source). Omit `--check` to apply the checked formatting. |
+| `python tools/run.py vela-parser lint FILE` | guest | Inspect mathematical source for declaration, binding, documentation, pattern and expression warnings |
 | `python tools/run.py vela-parser lock-package WORKSPACE NAME REVISION --output LOCK` | guest | Resolve and bind the explicit local dependency closure for the [mathematical batch target](../docs/tooling/elaboration-prototype.md#locked-mathematical-packages) |
 | `python tools/run.py vela-parser build-package WORKSPACE LOCK [--output BUNDLE]` | guest | Check the lock and module graph, elaborate in dependency order and optionally publish the bound Gallina bundle |
 | `python tools/run.py vela-parser scip WORKSPACE LOCK --output DIRECTORY` | guest | Export the [offline mathematical package index](../docs/tooling/tooling-protocols.md#locked-mathematical-package-index) and its exact source and generated files |

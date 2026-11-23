@@ -47,6 +47,10 @@ def is_pascal_case(name: str) -> bool:
     return _MEMBER.fullmatch(name) is not None
 
 
+def is_camel_case(name: str) -> bool:
+    return name == "_" or _BINDING.fullmatch(name) is not None
+
+
 def generic_type_findings(names: tuple[syntax.Name, ...]) -> tuple[Finding, ...]:
     """Apply type naming to compiler-recorded generic type identifiers only."""
     return tuple(Finding("VELA105", f"generic type parameter '{name.text}' should use PascalCase "
@@ -242,7 +246,7 @@ def lint_source(source: bytes) -> tuple[Finding, ...]:
         findings.append(Finding(code, message, site.line, site.column))
 
     def binding(name: syntax.Name) -> None:
-        if name.text != "_" and not _BINDING.fullmatch(name.text):
+        if not is_camel_case(name.text):
             report("VELA101", f"binding '{name.text}' should use camelCase", name.site)
 
     def expression(value: syntax.Expression) -> None:

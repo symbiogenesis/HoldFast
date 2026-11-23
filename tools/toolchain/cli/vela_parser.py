@@ -20,6 +20,7 @@ from toolchain import (
     bsp_client,
     env,
     gallina_source_map,
+    mathematical_authoring,
     mathematical_preview,
     packages,
     scip,
@@ -58,6 +59,7 @@ from toolchain.cli import report_findings
 from toolchain.elaborate import check_client_upgrade
 from toolchain.elaborate import elaborate as elaborate_source
 from toolchain.hashing import file_sha256
+from toolchain.source_file import check_destination, ensure_unchanged, read_source, rewrite_source
 
 
 def _packet_bytes(argument: str) -> bytes:
@@ -192,6 +194,40 @@ def _lint_preview(root: Path, path: Path, line: int, column: int) -> dict[str, o
     return edit
 
 
+def _authoring(root: Path, args: argparse.Namespace, allowed: set[str], denied: set[str]) -> int:
+    snapshot = read_source(args.source)
+    with vela_parser.cached_build(root) as compiled:
+        if args.command == "lint":
+            findings = mathematical_authoring.lint_source(compiled, snapshot.data)
+            ensure_unchanged(snapshot)
+            return 0 if report_findings(args.source, findings, allowed, denied) else 1
+        candidate, original, checked = mathematical_authoring.format_checked(compiled, snapshot.data)
+    ensure_unchanged(snapshot)
+    check_only = args.check if args.command == "fmt" else args.format == "check"
+    if check_only and candidate != snapshot.data:
+        raise VelaError("format", 1, 1, "source differs from mathematical style; run vela-parser fmt")
+    if args.command == "fmt":
+        rewrite_source(snapshot, candidate)
+        return 0
+    if any(finding.code in denied for finding in original.findings):
+        report_findings(args.source, original.findings, allowed, denied)
+        return 1
+    if not report_findings(args.source, checked.findings, allowed, denied):
+        return 1
+    if args.output is None:
+        current = rewrite_source(snapshot, candidate)
+        ensure_unchanged(current)
+        print(checked.gallina, end="")
+    else:
+        check_destination(snapshot.path, args.output)
+        with atomic_path(args.output) as pending:
+            pending.write_text(checked.gallina, encoding="utf-8", newline="")
+            check_destination(snapshot.path, args.output)
+            current = rewrite_source(snapshot, candidate)
+            ensure_unchanged(current)
+    return 0
+
+
 def _debug_simulator(args: argparse.Namespace) -> dict[str, object]:
     loaded = env.load()
     simulator = args.simulator or loaded.simulator
@@ -316,12 +352,22 @@ def main(argv: list[str] | None = None) -> int:
                     "Run kernel replay separately to check emitted proof terms. "
                     "The elaborator reports unsupported constructs and refuses unresolved holes.")
     elaborate.add_argument("source", type=Path)
+    elaborate.add_argument("--format", choices=("off", "check", "write"), default="off",
+                           help="explicitly check or write canonical mathematical layout before emission")
     elaborate.add_argument("--output", type=Path,
                            help="atomically replace a file in an existing directory")
     elaborate.add_argument("--allow", action="append", choices=MATHEMATICAL_LINT_CODES, default=[],
                            help="suppress an advisory mathematical lint (repeatable)")
     elaborate.add_argument("--deny", action="append", choices=MATHEMATICAL_LINT_CODES, default=[],
                            help="make an advisory mathematical lint an error (repeatable)")
+    fmt = commands.add_parser("fmt", help="check and format a mathematically elaborated source")
+    fmt.add_argument("source", type=Path)
+    fmt.add_argument("--check", action="store_true", help="report a style difference without writing")
+    lint = commands.add_parser("lint", help="check mathematical declarations, documentation and expression lints")
+    lint.add_argument("source", type=Path)
+    codes = ("VELA100", "VELA101", "VELA102", *MATHEMATICAL_LINT_CODES)
+    lint.add_argument("--allow", action="append", choices=codes, default=[])
+    lint.add_argument("--deny", action="append", choices=codes, default=[])
     preview = commands.add_parser("lint-preview", help="preview checked grouping for a mathematical VELA107 warning")
     preview.add_argument("source", type=Path)
     preview.add_argument("--line", type=int, required=True, help="one-based warning line")
@@ -343,6 +389,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "packet-example":
             print(_packet_example(root, args.source, args.packet, bridge_dir=args.compile_commands), end="")
             return 0
+        if args.command in ("fmt", "lint") or (args.command == "elaborate" and args.format != "off"):
+            return _authoring(root, args, allowed, denied)
         if args.command == "elaborate":
             source = vela_parser.read_source(args.source)
             with vela_parser.cached_build(root) as compiled:

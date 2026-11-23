@@ -14,7 +14,7 @@ import shutil
 import subprocess
 import tempfile
 import uuid
-from collections.abc import Generator
+from collections.abc import Generator, Sequence
 from dataclasses import dataclass
 from importlib import import_module
 from pathlib import Path
@@ -26,7 +26,7 @@ from toolchain import (
 from toolchain import (
     surface as vela_surface,
 )
-from toolchain.ast import MAX_SOURCE_BYTES, MAX_SYNTAX_DEPTH, VelaError
+from toolchain.ast import MAX_SOURCE_BYTES, MAX_SYNTAX_DEPTH, VelaError, trivia_end
 from toolchain.atomic import atomic_path, publish_report
 from toolchain.hashing import file_sha256 as _digest
 from toolchain.jsonutil import exceeds_nesting, finite_float, unique_object
@@ -385,8 +385,31 @@ def _validate_tree(value: Json, source: bytes) -> None:
                 raise ValueError("native parser returned a non-Unicode syntax string") from error
 
 
+def _layout_ranges(source: bytes, tokens: Json) -> list[Json]:
+    """Interleave the surface lexer's exact token ranges and all original comments."""
+    if not isinstance(tokens, list):
+        raise TypeError("native parser omitted its token ranges")
+    parts: list[Json] = []
+    def comment(start: int, end: int) -> None:
+        parts.append([start, end])
+    cursor = 0
+    for span in tokens:
+        if not isinstance(span, list) or len(span) != 2:
+            raise ValueError("native parser returned a malformed token range")
+        start, end = span
+        if (type(start) is not int or type(end) is not int or not cursor <= start < end <= len(source)
+                or trivia_end(source, cursor, block_comments=True, comment=comment) != start):
+            raise ValueError("native parser tokens do not cover their source")
+        source[start:end].decode("utf-8")
+        parts.append(span)
+        cursor = end
+    if trivia_end(source, cursor, block_comments=True, comment=comment) != len(source):
+        raise ValueError("native parser tokens omit trailing source")
+    return parts
+
+
 def decode_response(source: bytes, returncode: int, stdout: bytes, stderr: bytes = b"", *,
-                    surface: bool = False) -> dict[str, Json]:
+                    surface: bool = False, layout: bool = False) -> dict[str, Json]:
     """Validate one native parser process response against the input source."""
     if len(stdout) > MAX_RESPONSE_BYTES or stderr:
         raise ValueError("native parser returned excessive output or unexpected standard error")
@@ -407,14 +430,18 @@ def decode_response(source: bytes, returncode: int, stdout: bytes, stderr: bytes
         raise RuntimeError(f"native parser exited {returncode}")
     ast = _object(response.get("ast"), "syntax tree")
     schema, kind = (2, "surface_file") if surface else (1, "file")
-    if (set(response) != {"schema", "ast"} or type(response.get("schema")) is not int
+    fields = {"schema", "ast", "tokens"} if layout else {"schema", "ast"}
+    if (set(response) != fields or type(response.get("schema")) is not int
             or response["schema"] != schema or ast.get("kind") != kind):
         raise ValueError("native parser returned an unsupported syntax-tree schema")
     _validate_tree(ast, source)
-    return {"schema": schema, "source_sha256": hashlib.sha256(source).hexdigest(), "ast": ast}
+    result: dict[str, Json] = {"schema": schema, "ast": ast, "source_sha256": hashlib.sha256(source).hexdigest()}
+    if layout:
+        result["layout"] = _layout_ranges(source, response["tokens"])
+    return result
 
 
-def parse_source(compiled: Build, source: bytes, *, surface: bool = False) -> dict[str, Json]:
+def parse_source(compiled: Build, source: bytes, *, surface: bool = False, layout: bool = False) -> dict[str, Json]:
     """Decode one complete native response, refusing any unsuccessful process."""
     if len(source) > MAX_SOURCE_BYTES:
         raise VelaError("limit", 1, 1, f"source exceeds {MAX_SOURCE_BYTES} bytes")
@@ -422,12 +449,16 @@ def parse_source(compiled: Build, source: bytes, *, surface: bool = False) -> di
     if _digest(compiled.executable) != outputs["vela-parser"]:
         raise ValueError("native parser executable changed after its build")
     try:
-        arguments = [str(compiled.executable), *(["--surface"] if surface else [])]
+        arguments = [str(compiled.executable)]
+        if layout:
+            arguments.append("--surface-layout")
+        elif surface:
+            arguments.append("--surface")
         done = subprocess.run(arguments, input=source, capture_output=True,
                               timeout=PARSE_TIMEOUT, check=False)
     except subprocess.TimeoutExpired as error:
         raise VelaError("limit", 1, 1, f"parser exceeded {PARSE_TIMEOUT} seconds") from error
-    return decode_response(source, done.returncode, done.stdout, done.stderr, surface=surface)
+    return decode_response(source, done.returncode, done.stdout, done.stderr, surface=surface or layout, layout=layout)
 
 
 def _body(result: dict[str, Json]) -> dict[str, Json]:
@@ -679,6 +710,15 @@ def _fixtures(compiled: Build) -> list[str]:
     if baseline["ast"] != trailing["ast"] or baseline["source_sha256"] == trailing["source_sha256"]:
         raise ValueError("trivia changed the AST or failed to change the source binding")
     passed.append("independent-spans-and-trivia")
+    lexemes = [b"module", b"M", b";", b"/* outer /* inner */ */", b"public", b"definition",
+               b"Text", b"F", b"(", b")", b"=>", b'""" a // b """', b";", "// π".encode()]
+    source = b"  ".join(lexemes) + b"\r\n"
+    layout = parse_source(compiled, source, layout=True)
+    if [source[a:b] for a, b in cast("Sequence[Sequence[int]]", layout.pop("layout"))] != lexemes:
+        raise ValueError("layout splits literal or comment content, or loses original token spelling")
+    if layout != parse_source(compiled, source, surface=True):
+        raise ValueError("formatting and ordinary surface parsing differ")
+    passed.append("original-surface-tokens-and-comments")
     utf8 = b"// caf\xc3\xa9\r\nmodule M;\r\npublic Nat F() { return 0001; }\r\n"
     located = parse_source(compiled, utf8)
     if _object(located["ast"], "file").get("span") != [10, 52] or _body(located).get("span") != [45, 49]:
