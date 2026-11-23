@@ -721,9 +721,9 @@ CHECKED_MAIN_ML = """(* SPDX-License-Identifier: Apache-2.0 *)
 (* Execute the extracted Rocq pure parser over the shared UTF-8/lexer boundary. *)
 
 let peano =
-  let table = Array.make (Ast.max_source_bytes + 1) HoldFast_checked_parser.O in
+  let table = Array.make (Ast.max_source_bytes + 1) Holdfast_checked_parser.O in
   for i = 1 to Ast.max_source_bytes do
-    table.(i) <- HoldFast_checked_parser.S table.(i - 1)
+    table.(i) <- Holdfast_checked_parser.S table.(i - 1)
   done;
   table
 
@@ -732,26 +732,26 @@ let nat_of_int n =
   else
     let rec loop acc k =
       if k <= 0 then acc
-      else loop (HoldFast_checked_parser.S acc) (k - 1)
+      else loop (Holdfast_checked_parser.S acc) (k - 1)
     in
     loop peano.(Ast.max_source_bytes) (n - Ast.max_source_bytes)
 
 let int_of_nat n =
   let rec loop acc = function
-    | HoldFast_checked_parser.O -> acc
-    | HoldFast_checked_parser.S rest -> loop (acc + 1) rest
+    | Holdfast_checked_parser.O -> acc
+    | Holdfast_checked_parser.S rest -> loop (acc + 1) rest
   in
   loop 0 n
 
-let bit b = if b then HoldFast_checked_parser.True else HoldFast_checked_parser.False
+let bit b = if b then Holdfast_checked_parser.True else Holdfast_checked_parser.False
 
 let unbit = function
-  | HoldFast_checked_parser.True -> 1
-  | HoldFast_checked_parser.False -> 0
+  | Holdfast_checked_parser.True -> 1
+  | Holdfast_checked_parser.False -> 0
 
 let ascii_of_char ch =
   let code = Char.code ch in
-  HoldFast_checked_parser.Ascii (
+  Holdfast_checked_parser.Ascii (
     bit (code land 1 <> 0),
     bit (code land 2 <> 0),
     bit (code land 4 <> 0),
@@ -763,7 +763,7 @@ let ascii_of_char ch =
   )
 
 let char_of_ascii = function
-  | HoldFast_checked_parser.Ascii (b0, b1, b2, b3, b4, b5, b6, b7) ->
+  | Holdfast_checked_parser.Ascii (b0, b1, b2, b3, b4, b5, b6, b7) ->
       Char.chr (
         unbit b0
         lor (unbit b1 lsl 1)
@@ -778,15 +778,15 @@ let char_of_ascii = function
 let coq_string_of_string s =
   let rec loop idx acc =
     if idx < 0 then acc
-    else loop (idx - 1) (HoldFast_checked_parser.String (ascii_of_char s.[idx], acc))
+    else loop (idx - 1) (Holdfast_checked_parser.String (ascii_of_char s.[idx], acc))
   in
-  loop (String.length s - 1) HoldFast_checked_parser.EmptyString
+  loop (String.length s - 1) Holdfast_checked_parser.EmptyString
 
 let string_of_coq_string s =
   let buf = Buffer.create 32 in
   let rec loop = function
-    | HoldFast_checked_parser.EmptyString -> Buffer.contents buf
-    | HoldFast_checked_parser.String (ch, rest) ->
+    | Holdfast_checked_parser.EmptyString -> Buffer.contents buf
+    | Holdfast_checked_parser.String (ch, rest) ->
         Buffer.add_char buf (char_of_ascii ch);
         loop rest
   in
@@ -794,72 +794,72 @@ let string_of_coq_string s =
 
 let list_of_coq_list items =
   let rec loop acc = function
-    | HoldFast_checked_parser.Nil -> List.rev acc
-    | HoldFast_checked_parser.Cons (head, tail) -> loop (head :: acc) tail
+    | Holdfast_checked_parser.Nil -> List.rev acc
+    | Holdfast_checked_parser.Cons (head, tail) -> loop (head :: acc) tail
   in
   loop [] items
 
 let rec ast_json_of_coq_json = function
-  | HoldFast_checked_parser.JNull -> Ast.Null
-  | HoldFast_checked_parser.JBoolean HoldFast_checked_parser.True -> Ast.Boolean true
-  | HoldFast_checked_parser.JBoolean HoldFast_checked_parser.False -> Ast.Boolean false
-  | HoldFast_checked_parser.JNumber n -> Ast.Number (int_of_nat n)
-  | HoldFast_checked_parser.JString s -> Ast.String (string_of_coq_string s)
-  | HoldFast_checked_parser.JArray items ->
+  | Holdfast_checked_parser.JNull -> Ast.Null
+  | Holdfast_checked_parser.JBoolean Holdfast_checked_parser.True -> Ast.Boolean true
+  | Holdfast_checked_parser.JBoolean Holdfast_checked_parser.False -> Ast.Boolean false
+  | Holdfast_checked_parser.JNumber n -> Ast.Number (int_of_nat n)
+  | Holdfast_checked_parser.JString s -> Ast.String (string_of_coq_string s)
+  | Holdfast_checked_parser.JArray items ->
       Ast.Array (List.map ast_json_of_coq_json (list_of_coq_list items))
-  | HoldFast_checked_parser.JObject fields ->
+  | Holdfast_checked_parser.JObject fields ->
       Ast.Object (
         List.map
-          (fun (HoldFast_checked_parser.Pair (k, v)) ->
+          (fun (Holdfast_checked_parser.Pair (k, v)) ->
             (string_of_coq_string k, ast_json_of_coq_json v))
           (list_of_coq_list fields)
       )
 
 let coq_span start_pos end_pos =
-  HoldFast_checked_parser.Pair (nat_of_int start_pos, nat_of_int end_pos)
+  Holdfast_checked_parser.Pair (nat_of_int start_pos, nat_of_int end_pos)
 
-let convert_token start_pos end_pos (raw : Parser.token) : HoldFast_checked_parser.token0 =
+let convert_token start_pos end_pos (raw : Parser.token) : Holdfast_checked_parser.token0 =
   let sp = coq_span start_pos end_pos in
   match raw with
-  | Parser.MODULE -> HoldFast_checked_parser.MODULE sp
-  | Parser.PUBLIC -> HoldFast_checked_parser.PUBLIC sp
-  | Parser.NAT -> HoldFast_checked_parser.NAT sp
-  | Parser.BOOL -> HoldFast_checked_parser.BOOL sp
-  | Parser.LET -> HoldFast_checked_parser.LET sp
-  | Parser.CONST -> HoldFast_checked_parser.CONST sp
-  | Parser.RETURN -> HoldFast_checked_parser.RETURN sp
-  | Parser.IF -> HoldFast_checked_parser.IF sp
-  | Parser.ELSE -> HoldFast_checked_parser.ELSE sp
-  | Parser.TRUE -> HoldFast_checked_parser.TRUE sp
-  | Parser.FALSE -> HoldFast_checked_parser.FALSE sp
-  | Parser.LPAREN -> HoldFast_checked_parser.LPAREN sp
-  | Parser.RPAREN -> HoldFast_checked_parser.RPAREN sp
-  | Parser.LBRACE -> HoldFast_checked_parser.LBRACE sp
-  | Parser.RBRACE -> HoldFast_checked_parser.RBRACE sp
-  | Parser.SEMICOLON -> HoldFast_checked_parser.SEMICOLON sp
-  | Parser.COMMA -> HoldFast_checked_parser.COMMA sp
-  | Parser.COLON -> HoldFast_checked_parser.COLON sp
-  | Parser.FATARROW -> HoldFast_checked_parser.FATARROW sp
-  | Parser.EQUAL -> HoldFast_checked_parser.EQUAL sp
-  | Parser.PLUS -> HoldFast_checked_parser.PLUS sp
-  | Parser.MINUS -> HoldFast_checked_parser.MINUS sp
-  | Parser.STAR -> HoldFast_checked_parser.STAR sp
-  | Parser.SLASH -> HoldFast_checked_parser.SLASH sp
-  | Parser.PERCENT -> HoldFast_checked_parser.PERCENT sp
-  | Parser.EQ -> HoldFast_checked_parser.EQ0 sp
-  | Parser.LE -> HoldFast_checked_parser.LE sp
-  | Parser.NE -> HoldFast_checked_parser.NE sp
-  | Parser.LT -> HoldFast_checked_parser.LT0 sp
-  | Parser.GT -> HoldFast_checked_parser.GT0 sp
-  | Parser.GE -> HoldFast_checked_parser.GE sp
-  | Parser.AND -> HoldFast_checked_parser.AND sp
-  | Parser.OR -> HoldFast_checked_parser.OR sp
-  | Parser.NOT -> HoldFast_checked_parser.NOT sp
-  | Parser.EOF -> HoldFast_checked_parser.EOF sp
+  | Parser.MODULE -> Holdfast_checked_parser.MODULE sp
+  | Parser.PUBLIC -> Holdfast_checked_parser.PUBLIC sp
+  | Parser.NAT -> Holdfast_checked_parser.NAT sp
+  | Parser.BOOL -> Holdfast_checked_parser.BOOL sp
+  | Parser.LET -> Holdfast_checked_parser.LET sp
+  | Parser.CONST -> Holdfast_checked_parser.CONST sp
+  | Parser.RETURN -> Holdfast_checked_parser.RETURN sp
+  | Parser.IF -> Holdfast_checked_parser.IF sp
+  | Parser.ELSE -> Holdfast_checked_parser.ELSE sp
+  | Parser.TRUE -> Holdfast_checked_parser.TRUE sp
+  | Parser.FALSE -> Holdfast_checked_parser.FALSE sp
+  | Parser.LPAREN -> Holdfast_checked_parser.LPAREN sp
+  | Parser.RPAREN -> Holdfast_checked_parser.RPAREN sp
+  | Parser.LBRACE -> Holdfast_checked_parser.LBRACE sp
+  | Parser.RBRACE -> Holdfast_checked_parser.RBRACE sp
+  | Parser.SEMICOLON -> Holdfast_checked_parser.SEMICOLON sp
+  | Parser.COMMA -> Holdfast_checked_parser.COMMA sp
+  | Parser.COLON -> Holdfast_checked_parser.COLON sp
+  | Parser.FATARROW -> Holdfast_checked_parser.FATARROW sp
+  | Parser.EQUAL -> Holdfast_checked_parser.EQUAL sp
+  | Parser.PLUS -> Holdfast_checked_parser.PLUS sp
+  | Parser.MINUS -> Holdfast_checked_parser.MINUS sp
+  | Parser.STAR -> Holdfast_checked_parser.STAR sp
+  | Parser.SLASH -> Holdfast_checked_parser.SLASH sp
+  | Parser.PERCENT -> Holdfast_checked_parser.PERCENT sp
+  | Parser.EQ -> Holdfast_checked_parser.EQ0 sp
+  | Parser.LE -> Holdfast_checked_parser.LE sp
+  | Parser.NE -> Holdfast_checked_parser.NE sp
+  | Parser.LT -> Holdfast_checked_parser.LT0 sp
+  | Parser.GT -> Holdfast_checked_parser.GT0 sp
+  | Parser.GE -> Holdfast_checked_parser.GE sp
+  | Parser.AND -> Holdfast_checked_parser.AND sp
+  | Parser.OR -> Holdfast_checked_parser.OR sp
+  | Parser.NOT -> Holdfast_checked_parser.NOT sp
+  | Parser.EOF -> Holdfast_checked_parser.EOF sp
   | Parser.IDENT s ->
-      HoldFast_checked_parser.IDENT (HoldFast_checked_parser.Pair (sp, coq_string_of_string s))
+      Holdfast_checked_parser.IDENT (Holdfast_checked_parser.Pair (sp, coq_string_of_string s))
   | Parser.DECIMAL s ->
-      HoldFast_checked_parser.DECIMAL (HoldFast_checked_parser.Pair (sp, coq_string_of_string s))
+      Holdfast_checked_parser.DECIMAL (Holdfast_checked_parser.Pair (sp, coq_string_of_string s))
   | _ ->
       raise (Ast.Refusal ("syntax", start_pos, "unexpected token or incomplete input"))
 
@@ -936,7 +936,7 @@ let rec token_stream state lexbuf current history =
     current := start_pos;
     history := (start_pos, raw) :: !history;
     let tok = convert_token start_pos end_pos raw in
-    HoldFast_checked_parser.MenhirLibParser.Inter.Buf_cons
+    Holdfast_checked_parser.MenhirLibParser.Inter.Buf_cons
       (tok, token_stream state lexbuf current history)
   )
 
@@ -973,18 +973,18 @@ let parse_source_string raw_source =
     let state = Lexer.create ~surface:false () in
     let stream = token_stream state lexbuf current history in
     let log_fuel = nat_of_int 30 in
-    match HoldFast_checked_parser.file log_fuel stream with
-    | HoldFast_checked_parser.MenhirLibParser.Inter.Parsed_pr (HoldFast_checked_parser.Accepted node, _) ->
-        let syntax = ast_json_of_coq_json node.HoldFast_checked_parser.node_syntax in
+    match Holdfast_checked_parser.file log_fuel stream with
+    | Holdfast_checked_parser.MenhirLibParser.Inter.Parsed_pr (Holdfast_checked_parser.Accepted node, _) ->
+        let syntax = ast_json_of_coq_json node.Holdfast_checked_parser.node_syntax in
         (0, Ast.encode (Ast.Object [("schema", Ast.Number 1); ("ast", syntax)]))
-    | HoldFast_checked_parser.MenhirLibParser.Inter.Parsed_pr
-        (HoldFast_checked_parser.Refused (kind, offset, message), _) ->
+    | Holdfast_checked_parser.MenhirLibParser.Inter.Parsed_pr
+        (Holdfast_checked_parser.Refused (kind, offset, message), _) ->
         (1, Ast.encode (diagnostic raw_source (string_of_coq_string kind)
                           (int_of_nat offset) (string_of_coq_string message)))
-    | HoldFast_checked_parser.MenhirLibParser.Inter.Fail_pr_full _ ->
+    | Holdfast_checked_parser.MenhirLibParser.Inter.Fail_pr_full _ ->
         let kind, offset, message = classify_failure state lexbuf !current !history in
         (1, Ast.encode (diagnostic raw_source kind offset message))
-    | HoldFast_checked_parser.MenhirLibParser.Inter.Timeout_pr ->
+    | Holdfast_checked_parser.MenhirLibParser.Inter.Timeout_pr ->
         (1, Ast.encode (diagnostic raw_source "limit" !current "checked parser step fuel exhausted"))
   with
   | Ast.Refusal (kind, offset, message) ->
