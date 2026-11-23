@@ -49,6 +49,7 @@ class Fixture:
     word_proofs: bool = False
     word_expectations: tuple[tuple[bytes, str], ...] = ()
     refusal_contains: str = ""
+    freeze_expectations: tuple[tuple[str, str], ...] = ()
 
 
 def fixtures(example: bytes, word_count: bytes) -> tuple[Fixture, ...]:
@@ -1560,7 +1561,42 @@ definition i32 Previous(i32 value) requires value != i32.Min => value + -1i32;
         ("signed-negative-add-underflow", "definition i64 Add(i64 x) requires x <= 0i64 => x + -1i64;", "addition on 'i64'"),
         ("signed-negative-sub-overflow", "definition i32 Sub(i32 x) requires x >= 0i32 => x - -1i32;", "subtraction on 'i32'"),
     )
-    return (arithmetic, symbolic_wide, signed_sums,
+    frozen_table = Fixture("target-static-table-and-text", """module FrozenTable;
+definition Type Layout(Nat width) => type Vec<Nat,width>;
+definition Vec<Nat,3> TagBytes() => "Aé";
+const type[Layout(3)] Tag = TagBytes();
+definition Vec<usize,2> MakeOffsets() => VCons(4294967297usize, VCons(17usize, VNil<usize>()));
+const Vec<usize,2> Offsets = MakeOffsets();
+definition Nat ApplyTag(const Vec<Nat,3> tag, Nat value) => value + tag[1];
+definition Nat Scale(Nat value) => ApplyTag(Tag, value);
+definition bool Wide() => Offsets[0] == 4294967297usize && Offsets[1] == 17usize;
+definition Nat Last() => Tag[2];
+""".encode(), observations=(("vela_d6_Scale 0", "195"), ("vela_d6_Scale 11", "206"),
+                            ("vela_d8_Wide tt", "true"), ("vela_d9_Last tt", "169")),
+                           freeze_expectations=(
+                               ("vela_d2_Tag_freeze", "vela_d1_TagBytes tt = vela_d2_Tag"),
+                               ("vela_d4_Offsets_freeze", "vela_d3_MakeOffsets tt = vela_d4_Offsets"),
+                               ("@vela_freeze_observe _ _ _ vela_d2_Tag_freeze "
+                                "(fun bytes => vela_Fin (S (vela_d5_ApplyTag bytes 11))) "
+                                "(fun bytes => vela_fzero (vela_d5_ApplyTag bytes 11))",
+                                "@eq_rect _ (vela_d1_TagBytes tt) (fun bytes => vela_Fin (S (vela_d5_ApplyTag bytes 11))) "
+                                "(vela_fzero 206) vela_d2_Tag vela_d2_Tag_freeze = vela_fzero 206"),
+                           ))
+    return (arithmetic, symbolic_wide, signed_sums, frozen_table,
+            Fixture("runtime-static-table-element", b"""module RuntimeElement;
+Nat Use(Nat runtime) {
+    const Vec<Nat,1> table = VCons(runtime, VNil<Nat>());
+    return table[0];
+}
+""", "type", refusal_contains="nonstatic binding 'runtime'"),
+            Fixture("runtime-static-table-layout", b"""module RuntimeExtent;
+Nat Use(Nat extent, Vec<Nat,extent> input) {
+    const Vec<Nat,extent> table = input;
+    return ByteLength(table);
+}
+""", "type", refusal_contains="nonstatic binding 'extent'"),
+            Fixture("static-table-budget", b'module TooLong; const Vec<Nat,65> Table = "'
+                    + b"x" * 65 + b'";', "limit", refusal_contains="64 vector slots"),
             *(Fixture(name, ("module WordNegative; " + source).encode(), expected, word_proofs=True)
               for name, source, expected in wide_refusals),
             *(Fixture(name, ("module SignedNegative; " + source).encode(), "type", word_proofs=True,
@@ -1780,6 +1816,10 @@ def _case(compiled: vela_parser.Build, case: Fixture, directory: Path, index: in
             _require(len(witnesses) == 1, f"{case.name}: missing unique word proof at {expression!r}")
             checks += (f"Lemma vela_word_consumer_{consumer} : {expected_type}.\n"
                        f"Proof. intros. apply {witnesses[0]}; assumption. Qed.\n")
+    if case.freeze_expectations:
+        checks += f"\nImport {module}.\n"
+        for consumer, (proof, equation) in enumerate(case.freeze_expectations):
+            checks += f"Example vela_freeze_consumer_{consumer} : {equation} := {proof}.\n"
     target = directory / f"{stem}.v"
     target.write_text(translated.gallina + checks, encoding="utf-8", newline="")
     _run(_opam(["rocq", "c", "-q", "-R", str(directory), "VelaElaboration", target.name]),
@@ -1794,6 +1834,7 @@ def _case(compiled: vela_parser.Build, case: Fixture, directory: Path, index: in
     audited = [f"{module}.{name}" for name in exports]
     audited.extend(f"vela_replay_check_{index}" for index in range(len(case.observations)))
     audited.extend(f"vela_word_consumer_{index}" for index in range(len(case.word_expectations)))
+    audited.extend(f"vela_freeze_consumer_{index}" for index in range(len(case.freeze_expectations)))
     query = directory / f"{stem}Assumptions.v"
     query.write_text(f"From VelaElaboration Require Import {stem}.\n"
                      + "".join(f"Print Assumptions {stem}.{name}.\n" for name in audited),
