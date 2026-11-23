@@ -196,8 +196,7 @@ open until the parent's acceptance conditions are met.
   - **Owner** `vela-first-slice`
   - **Start** Use the [authored validator](examples/first_slice.vela), its existing narrow lowering and independently checked first-client core, machine, compiler, security and admission receipts.
   - **Check** Bind the exact source, existing proof and emitted bytes to those receipts. Check independent expected outputs, aliasing and restoration, wrong operations, stale inputs and corruption. [First-slice qualification](docs/language/first-release.md#first-slice-qualification).
-  - For inputs satisfying the entry conditions, prove a public law for the exact error on each rejection, including guard precedence. For disjoint spans with an eight-byte destination, a complete header with bad flags and an oversized length must give `BadMagicOrFlags` and clear the work area. Returning `LengthOutOfBounds` with the same bytes must fail the provider's law. Replay an importing caller's error proof with the validator body opaque, then check the admitted image against the independent outcomes.
-  - All three source obligations replay in the kernel within their budgets. The closed source proofs and existing Sail/C runs have already been credited. Source correspondence and artifact admission remain open. [Partial evidence](docs/assurance/completion-log.md#q25ba-accept-the-synchronous-component-at-the-exact-artifact-endpoint).
+  - The [opaque caller](tools/tests/test_vela_packet_outcome.py) consumes the exact public error and copied-count law. Check the admitted image against the independent outcomes, including bad flags with an oversized length, zeroed work area and preserved suffix. Source correspondence and artifact admission remain open. [Partial evidence](docs/assurance/completion-log.md#q25ba-accept-the-synchronous-component-at-the-exact-artifact-endpoint).
 
 <a id="q25bb"></a>
 

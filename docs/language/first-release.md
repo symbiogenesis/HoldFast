@@ -447,6 +447,12 @@ the complete destination. Other protocol rejections clear the work area.
 Every exit preserves the bytes beyond that area.
 [Packet walkthrough](../tooling/packet-walkthrough.md)
 
+`SpecPacketOutcome` specifies what a caller observes from the returned result.
+It gives framing errors priority over header errors, then checks the payload
+length before the checksum. On success it gives the copied byte count. The
+validator exports the equality between this specification on the entry state
+and `PacketOutcome(result)`. Callers may use that equality with the body opaque.
+
 At this entry point, `ref dst` and `in pkt` initially loan the
 two descriptor places. Each descriptor must already identify live backing
 with valid provenance, bounds and the declared permissions. The backing

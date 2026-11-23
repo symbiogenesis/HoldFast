@@ -260,19 +260,33 @@ public definition u8 SpecPacketChecksum(in Span<byte> pkt, u8 rawLen, usize payl
     let c3 = if (2usize < payloadLen) c2 ^ pkt[6usize] else c2 in
     if (3usize < payloadLen) c3 ^ pkt[7usize] else c3;
 
-public definition bool SpecPacketValid(in Span<byte> dst, in Span<byte> pkt)
+public definition Result<usize, ValidationError> SpecPacketOutcome(in Span<byte> dst, in Span<byte> pkt)
     requires dst.CanRead && dst.CanWrite && pkt.CanRead
     =>
     if (dst.Length < 8usize || pkt.Length < 4usize || !Span.Disjoint(dst, pkt))
-        false
+        Err(FramingShort)
     else if (pkt[0usize] != 0x56u8 || pkt[3usize] != 0x01u8)
-        false
+        Err(BadMagicOrFlags)
     else if (usize.From(pkt[1usize]) > 4usize
         || 4usize + usize.From(pkt[1usize]) > pkt.Length
         || 4usize + usize.From(pkt[1usize]) > dst.Length)
-        false
+        Err(LengthOutOfBounds)
+    else if (SpecPacketChecksum(in pkt, pkt[1usize], usize.From(pkt[1usize])) != pkt[2usize])
+        Err(ChecksumRejected)
     else
-        SpecPacketChecksum(in pkt, pkt[1usize], usize.From(pkt[1usize])) == pkt[2usize];
+        Ok(usize.From(pkt[1usize]));
+
+public definition bool SpecPacketValid(in Span<byte> dst, in Span<byte> pkt)
+    requires dst.CanRead && dst.CanWrite && pkt.CanRead
+    => SpecPacketOutcome(in dst, in pkt) is Ok(_);
+
+public definition Result<usize, ValidationError> PacketOutcome<region 'dst>(
+    Result<ValidatedPacket<'dst>, ValidationError> actual)
+    => match (actual)
+    {
+        Ok(ValidatedPacket(copied, _)) => Ok(copied),
+        Err(reason) => Err(reason)
+    };
 
 private Unit CopyPacketToDst(ref Span<byte> dst, in Span<byte> pkt, usize payloadLen)
     requires dst.CanRead
@@ -347,6 +361,7 @@ public Result<ValidatedPacket<'dst>, ValidationError> PrepareAndValidatePacket<r
         Err(_) => true
     })
     ensures (forall (usize i) => (i >= 8 && i < dst.Length && i < old(dst.Length)) ==> dst[i] == old(dst)[i])
+    ensures PacketOutcome(result) == SpecPacketOutcome(in old(dst), in pkt)
 {
     if (dst.Length < 8 || pkt.Length < 4 || !Span.Disjoint(dst, pkt))
     {

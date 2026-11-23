@@ -1635,6 +1635,14 @@ The harness checks the destination address, base, length, tag and permissions
 for empty, partial and full payloads. At `-O0` and `-O2` the wrong backing
 fails at check 6 and a partial view with write permission fails at check 10.
 
+The [importing packet client](../../tools/tests/test_vela_packet_outcome.py)
+uses the public outcome law to prove that simultaneous bad flags and excessive
+length produce `BadMagicOrFlags`. Rocq checks the closed example with the
+validator opaque. Removing the law leaves the caller's assertion unprovable.
+Changing just the provider's error on that overlap fails its own law. C11
+check 20 exercises the same overlap with eight cleared bytes and a two-byte
+suffix that retains its entry contents.
+
 Q25ba remains open: checked source correspondence, concrete canonical-machine
 laws, retained compiler/contextual-security/admission receipts and exact final
 bytes are still missing. Local CompCert execution remains unavailable. No

@@ -510,8 +510,10 @@ def _clight_lowering_and_purecap_assembly() -> None:
     inv = vela_first_slice.build_foundation_inventory()
     ensure(len(cast("list[str]", inv["carrier_laws"])) == 12, "expected 12 carrier laws in foundation inventory")
     ensure(
-        len(cast("list[str]", inv["validator_contract_obligations"])) == 8,
-        "expected 8 validator contract obligations in foundation inventory",
+        cast("list[str]", inv["validator_contract_obligations"])
+        == [*(f"restores_0_{field}" for field in ("Base", "Length", "Tag", "PermRead", "PermWrite")),
+            *(f"ensures_{index}" for index in range(10))],
+        "foundation inventory omitted a validator obligation",
     )
     ensure(len(cast("list[str]", inv["scenario_theorems"])) == 7, "expected 7 scenario theorems in foundation inventory")
     blocking = cast("dict[str, str]", inv["blocking_dependencies"])
@@ -655,8 +657,13 @@ def _execute_generated_packet_c() -> None:
                 ensure(observed == expected, f"packet C {optimization} returned {observed}, expected {expected}")
 
         generated, checks = vela_first_slice.lower_to_c(source, parsed, checked=checked)
-        ensure(checks == 19, "emitted packet scenario check count changed")
+        ensure(checks == 20, "emitted packet scenario check count changed")
         check_program(generated, 0)
+        bad_header = "out->err = VOS_ERR_BadMagicOrFlags;"
+        ensure(generated.count(bad_header) == 1, "missing lowered bad-header return")
+        check_program(generated.replace(bad_header, """
+            if (payloadLen > 4UL) { out->err = VOS_ERR_LengthOutOfBounds; }
+            else { out->err = VOS_ERR_BadMagicOrFlags; }"""), 20)
         returned = "vela_span_copy_meta(&out->ok.PayloadView, &payloadView);"
         ensure(generated.count(returned) == 1, "packet regression lost the returned view assignment")
         for change, expected in (
@@ -758,7 +765,7 @@ def _packet_contextual_literals() -> None:
         parsed = parser.parse_source(compiled, source, surface=True)
         checked = vela_elaborate.elaborate(source, parsed)
         generated, count = vela_first_slice.lower_to_c(source, parsed)
-        ensure(count == 19 and generated != vela_first_slice.lower_to_c(source, parsed, checked=checked, perturb_check=7)[0],
+        ensure(count == 20 and generated != vela_first_slice.lower_to_c(source, parsed, checked=checked, perturb_check=7)[0],
                "kernel-subject packet failed to emit the behavioral harness and its seventh perturbation")
         ensure("vela_span_restore(dst, dst, &payloadView);" in generated and "CopyPacketToDst(" in generated,
                "checked lowering lost the mutating helper or the inferred restoration")

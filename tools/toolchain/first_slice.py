@@ -100,7 +100,7 @@ EXPECTED_CONTRACT_OBLIGATIONS: Final[tuple[str, ...]] = (
     "PrepareAndValidatePacket_restores_0_Tag",
     "PrepareAndValidatePacket_restores_0_PermRead",
     "PrepareAndValidatePacket_restores_0_PermWrite",
-    *(f"PrepareAndValidatePacket_ensures_{index}" for index in range(9)),
+    *(f"PrepareAndValidatePacket_ensures_{index}" for index in range(10)),
 )
 
 EXPECTED_SCENARIO_THEOREMS: Final[tuple[str, ...]] = (
@@ -977,14 +977,7 @@ def build_foundation_inventory() -> dict[str, object]:
         ),
         "carrier_laws": list(EXPECTED_LAWS),
         "validator_contract_obligations": [
-            "restores_0_Base",
-            "restores_0_Length",
-            "restores_0_Tag",
-            "restores_0_PermRead",
-            "restores_0_PermWrite",
-            "ensures_0",
-            "ensures_1",
-            "ensures_2",
+            name.removeprefix("PrepareAndValidatePacket_") for name in EXPECTED_CONTRACT_OBLIGATIONS
         ],
         "scenario_theorems": list(EXPECTED_SCENARIO_THEOREMS),
         "global_assumptions": "exactly the solver-trust ledger recorded at qualification",
@@ -1936,10 +1929,25 @@ int main(void)
             return 19;
     }}
 
+    /* Bad flags take precedence over the oversized length; preserve the suffix. */
+    vela_span_alloc_zeroed(&dst, arena, 64UL, 10UL);
+    vela_span_fill(&dst, &dst, 0UL, 10UL, 0xA5U);
+    vela_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
+    WritePacket8(&pkt, 0x56U, 0x05U, 0x00U, 0x00U, 0x11U, 0x22U, 0x33U, 0x44U);
+    PrepareAndValidatePacket(&out, &dst, &pkt);
+    if (out.is_ok != 0 || out.err != VOS_ERR_BadMagicOrFlags || out.ok.PayloadView.tag != 0)
+        return 20;
+    for (i = 0UL; i < 8UL; i++) {{
+        if (vela_span_read(&dst, i) != 0x00U)
+            return 20;
+    }}
+    if (vela_span_read(&dst, 8UL) != 0xA5U || vela_span_read(&dst, 9UL) != 0xA5U)
+        return 20;
+
     return 0;
 }}
 """
-    return c_source, 19
+    return c_source, 20
 
 
 def _linked_text(raw: bytes) -> memoryview:
