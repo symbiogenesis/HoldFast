@@ -41,6 +41,47 @@ copying comparison below. For release adoption, freeze the workloads, endpoint,
 resource envelope and decision thresholds for the actual clients before
 measurement.
 
+### What a caller can prove from the public contract
+
+Before the held-out package is built, its author records the observations a
+caller needs on each exit, with legal inputs and independently expected
+results. Include a boundary where two results differ in a way the caller can
+observe. Record any choice the contract intentionally leaves to the provider.
+Weaken one required public law and exhibit a legal input and two outcomes
+that satisfy the weaker contract. The independent expectation must reject
+the wrong outcome, and the caller's original proof must lose the missing
+guarantee. Restore the law and replay that same proof. The
+[copying trial's wrong-store case](#change-and-weakening-probes) illustrates
+the check for a byte-valued observation.
+
+Give the caller the published interface, including its laws and any definitions
+it exposes for computation. Build and check the caller before and after the
+provider changes its private representation. Renew the lock and artifact
+evidence for each build. Record which provider laws needed repair, whether the
+caller's executable source or proof needed edits, and any private facts the
+caller had to learn. Credit proof reuse across this change only when the same
+caller code and proof replay using the frozen interface. The
+[representation comparison](#representation-transfer-comparison) accounts for
+the provider's proof work.
+
+### Cost of the verified abstraction
+
+Compare the held-out client with a hand-written baseline that provides the
+same behavior, safety guarantees and resource bounds on the same target, ABI
+and backend configuration. Inventory which facts erase and which operations
+still run, including checks on incoming data, failure branches, copies and
+allocation. Tie each to its lowering and the [admitted image](compiler-route-contract.md#equivalent-artifact-endpoint).
+For an erased proof parameter, inspect its lowered call and the corresponding
+machine code, including the inlined body if the call disappears. An extra
+argument, stored witness or branch introduced solely to carry that proof
+fails its erasure claim.
+
+Report code bytes, stack, peak storage and per-case memory traffic and cycles
+for the agreed success and failure paths, with the instrument or checked bound
+for each. Keep proof-checking time in the developer measurements. If a target
+measurement or equivalent baseline is unavailable, leave that cost comparison
+open. Apply the client's frozen thresholds to the measured costs.
+
 ### Representation-transfer comparison
 
 The independent package trial's representation-change probe starts with ordinary

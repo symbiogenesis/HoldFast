@@ -24,7 +24,7 @@ the owner and the evidence needed to resume, then take another row whose inputs 
 | A producer publishes a checked result | Bind it to the exact inputs as it arrives ([Q25ar](#q25ar)). Join the first-client receipts to the existing narrow lowering to accept the validator ([Q25ba](#q25ba)). Wider frontend, admission and receipt coverage can stay open. |
 | Checked frontend results | Diagnostics can consume checked derivations ([Q25au](#q25au)). The repair trial constructs its fixture from the core laws, checked frontend and concrete resources ([Q25av](#q25av)). The mathematical frontend builds locked packages against the frozen module and instance rules ([Q25ax](#q25ax)). |
 | Accepted validator | Publish the scalar and text representations ([Q25aw](#q25aw)). Use the required primitive laws to build the ownership libraries ([Q25ay](#q25ay)). General lowering consumes published representation laws and returns a checked receipt for each operation, so each library can finish qualification ([Q25az](#q25az)). |
-| Locked packages, qualified libraries and general lowering | Freeze the independent second client's baseline and thresholds, run its trial and obtain its own admission receipt ([Q25bb](#q25bb)). Close shared coverage across both clients, publish the reproducible release, then rehearse one upgrade ([Q25bc](#q25bc), [Q25bd](#q25bd)). |
+| Independent second client and baseline | Freeze the public observations, resource envelope and benefit thresholds before adapting the client. When its packages, libraries and lowering qualify, run the trial and obtain its own admission receipt ([Q25bb](#q25bb)). Close shared coverage across both clients, publish the reproducible release, then rehearse one upgrade ([Q25bc](#q25bc), [Q25bd](#q25bd)). |
 
 Use each item's **Start** and **Check** for the precise inputs and acceptance decision.
 Existing parser, math and editor work can finish its frozen qualification. Broader
@@ -107,6 +107,7 @@ open until the parent's acceptance conditions are met.
   - **Owner** `context-preservation`
   - **Start** Use the [machine interpretation](#q25am), [retained compiler theorem](#q25ao) and an independently reviewed contract for observations and adversarial contexts.
   - **Check** Prove authority, confidentiality and contextual preservation at the selected endpoint, including linking, callbacks, leakage and resource assumptions.
+  - For the packet entry point, identify who establishes descriptor validity before the first metadata read. Prove the calling mechanism excludes invalid descriptors from untrusted linked callers, or qualify an adapter that checks them and charge its runtime costs. In the adapter case, supply an invalid descriptor and check the specified refusal or isolation outcome. [Validator entry contract](docs/language/first-release.md#first-slice-qualification)
 
 <a id="q25aq"></a>
 
@@ -195,6 +196,7 @@ open until the parent's acceptance conditions are met.
   - **Owner** `vela-first-slice`
   - **Start** Use the [authored validator](examples/first_slice.vela), its existing narrow lowering and independently checked first-client core, machine, compiler, security and admission receipts.
   - **Check** Bind the exact source, existing proof and emitted bytes to those receipts. Check independent expected outputs, aliasing and restoration, wrong operations, stale inputs and corruption. [First-slice qualification](docs/language/first-release.md#first-slice-qualification).
+  - For inputs satisfying the entry conditions, prove a public law for the exact error on each rejection, including guard precedence. For disjoint spans with an eight-byte destination, a complete header with bad flags and an oversized length must give `BadMagicOrFlags` and clear the work area. Returning `LengthOutOfBounds` with the same bytes must fail the provider's law. Replay an importing caller's error proof with the validator body opaque, then check the admitted image against the independent outcomes.
   - All three source obligations replay in the kernel within their budgets. The closed source proofs and existing Sail/C runs have already been credited. Source correspondence and artifact admission remain open. [Partial evidence](docs/assurance/completion-log.md#q25ba-accept-the-synchronous-component-at-the-exact-artifact-endpoint).
 
 <a id="q25bb"></a>
@@ -203,6 +205,7 @@ open until the parent's acceptance conditions are met.
   - **Owner** `vela-package-trial`
   - **Start** Select the second client and its intended behavior independently of the first API design. Freeze the baseline, target envelope and benefit thresholds before observing results. Run the trial once the [validator](#q25ba), [packages](#q25ax), represented-library runtime receipts and [general lowering](#q25az) are ready.
   - **Check** Exercise imports, instances, receiver snapshots, partial initialization, exhaustion and resource-returning success and error exits. At the same endpoint, measure annotations, first useful diagnostic, checking latency, review, repair and target costs for a contract change, a preserving refactor and a representation change using explicit Rocq relations. Obtain this client's own admission receipt before acceptance. [Adoption protocol](docs/assurance/workflow-contract.md#first-release-qualification-and-adoption).
+  - Run the [public-contract trial](docs/assurance/workflow-contract.md#what-a-caller-can-prove-from-the-public-contract) on the independent client. Check what the caller loses when a required law is weakened and whether its original proof survives a private representation change. Trace [proof erasure and remaining runtime costs](docs/assurance/workflow-contract.md#cost-of-the-verified-abstraction) through the admitted image and compare with the matched baseline on success and error paths.
   - Measured friction can open the [borrow-checker comparison](docs/language/loan-analysis.md#conditional-borrowing-comparison) or [proof-transfer experiment](docs/assurance/workflow-contract.md#representation-transfer-comparison).
 
 <a id="q25bc"></a>
@@ -570,6 +573,7 @@ unblock the codec. [Protocol contracts](docs/tooling/tooling-protocols.md) ·
 
 - [ ] **Q25db · Qualify complete proof authorship for the frozen proof inventory**
   - **Owner:** `vela-proofs`. **Start:** Checked frontend and independently reviewed proof subjects. **Check:** Meet the [proof-authorship boundary](docs/extensions/unified-source-contract.md#software-and-proof-boundary) for the frozen package inventory, including universes, inductive/coinductive reasoning and logical relations; reconstruct/audit kernel terms with no mandatory handwritten fallback. The underlying machine/security theorems retain their shared owners.
+  - When an inventory theorem exceeds the [mathematical fragment](docs/tooling/elaboration-prototype.md), retain the first missing rule and an importing client that needs it. Qualify the rule by replaying the original statement and its client and auditing both for added assumptions. Reject a case that violates the new rule, such as an inconsistent universe constraint for a polymorphic theorem or an invalid decrease for well-founded recursion.
 
 <a id="q25dc"></a>
 
