@@ -6231,22 +6231,40 @@ def _constructor_spelling_and_shadowed_patterns() -> None:
     bad = _Fixture("MisspelledConstructor")
     bad.union("State", (("ready", ()),))
     _refuses(bad, "name", "uppercase")
-    last = _Fixture("LastArm")
-    last.union("State", (("Ready", ()), ("Busy", ())))
-    last.definition("Read", _NAT, (("s", _type("State")),),
-                    _match_expr(_variable("s"), ((_pat_ctor("Busy"), _natural(0)), (_pat_bind("ready"), _natural(1)))))
-    last.definition("Other", _NAT, (("n", _NAT),),
-                    _match_expr(_variable("n"), ((_pat_bind("ready"), _natural(1)),)))
-    findings = inspect_source(*last.response()).findings
+    for possibly_misspelled in (_pat_bind("none"), _pat_group(_pat_bind("none"))):
+        last = _Fixture("LastArm")
+        last.union("State", (("Ready", ()), ("None", ())))
+        last.definition("Read", _NAT, (("s", _type("State")),), _match_expr(_variable("s"), (
+            (_pat_ctor("Ready"), _natural(0)), (possibly_misspelled, _natural(1)))))
+        _refuses(last, "type", "Use 'None' to match")
+    nested = _Fixture("PayloadNames")
+    nested.union("State", (("Ready", ()), ("Busy", ())))
+    nested.union("Envelope", (("Packed", (("Item", _type("State")),)),))
+    nested.definition("Read", _NAT, (("s", _type("Envelope")),), _match_expr(_variable("s"), (
+        (_pat_ctor("Packed", _pat_bind("ready")), _natural(1)),)))
+    nested.definition("Other", _NAT, (("n", _NAT),), _match_expr(_variable("n"), (
+        (_pat_bind("ready"), _variable("ready")),)))
+    findings = inspect_source(*nested.response()).findings
     ensure(len(findings) == 1 and findings[0].code == "HOLDFAST108" and "'Ready'" in findings[0].message,
-           "the final binding pattern warning must use the scrutinee's constructors")
-    for first, message in ((_pat_bind("ready"), "did you mean 'Ready'"), (_pat_ctor("Ready"), "covers this pattern")):
+           "nested pattern warning must use the payload's constructors")
+    for first, message in ((_pat_bind("ready"), "Use 'Ready' to match"), (_pat_ctor("Ready"), "covers this pattern")):
         fixture = _Fixture("ShadowedPattern")
         fixture.union("State", (("Ready", ()), ("Busy", ())))
         fixture.definition("Read", _NAT, (("s", _type("State")),), _match_expr(_variable("s"), (
             (first, _natural(1)), (_pat_ctor("Ready"), _natural(0)), (_pat_ctor("Busy"), _natural(0)),
         )))
         _refuses(fixture, "type", message)
+    provider, importer = _Fixture("States"), _Fixture("Importer")
+    provider.union("State", (("Ready", ()), ("Busy", ())))
+    _import_decl(importer, "States", items=(("State", None), ("Ready", "Available")))
+    importer.definition("OriginalName", _NAT, (("s", _type("State")),),
+                        _match_expr(_variable("s"), ((_pat_bind("ready"), _natural(1)),)))
+    elaborate_package([importer.response(), provider.response()])
+    importer.definition("MisspelledAlias", _NAT, (("s", _type("State")),),
+                        _match_expr(_variable("s"), ((_pat_bind("available"), _natural(1)),)))
+    with raises(HoldFastError, msg="renamed constructor allowed an accidentally exhaustive arm") as raised:
+        elaborate_package([importer.response(), provider.response()])
+    ensure("Use 'Available' to match" in raised.exception.message, "diagnostic lost the visible constructor name")
 
 
 def _qualified_imports() -> None:

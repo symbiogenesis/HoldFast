@@ -42,6 +42,11 @@ import-order input to parsing, and Menhir generation is strict and
 conflict-free ([no ambiguous syntax](../assurance/verification-strategy.md#permanent-language-exclusions)).
 In patterns, an identifier beginning with an uppercase letter is a constructor
 and a lowercase identifier binds.
+The mathematical checker rejects a whole-pattern binder whose spelling differs
+only in its initial capitalization from a visible union constructor of the
+matched type. For example, `none => ...` would accept every value of an
+`Option`. Write `None` for the case, `_` for an admissible discard, or a
+distinct binding name to retain the whole value. Parentheses preserve this rule.
 
 ## Declarations
 
