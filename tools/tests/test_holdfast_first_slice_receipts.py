@@ -230,7 +230,7 @@ def _proof_fixture(root: Path, outputs: Path, *, trusted: bool = False,
         "proof_corruption_refused": True, "assumption_exports_count": len(names),
         "solver_trusted_count": int(trusted),
         "solver_trusted_axioms": [f"{module}.{axiom}"] if trusted else [],
-        "inventory": {"solver_trusted_obligations": [
+        "inventory": {**slice_harness.build_foundation_inventory(), "solver_trusted_obligations": [
             {"export": names[16], "axiom": axiom, "line": 12, "column": 7,
              "reason": "retained test residual"}] if trusted else [],
             "global_assumptions": "1 solver-trusted axioms; no other assumptions" if trusted
@@ -401,6 +401,22 @@ def _binding_checks() -> None:
         ensure(result["status"] == "matched" and not result["proof_replayed"]
                and not result["artifact_accepted"] and not result["production_admission"],
                "binding check claimed fresh proof or admission authority")
+        claims = cast("dict[str, str]", result["missing_deployed_evidence"])
+        ensure(set(claims) == {"packet_functional_result", "returned_view_authority"}
+               and all("exact admitted image and entry point" in requirement for requirement in claims.values())
+               and "descriptor validity" in claims["returned_view_authority"],
+               "matched development receipt lost the two missing target claims")
+        host_substitution = copy.deepcopy(report)
+        inventory = cast("dict[str, object]", host_substitution["inventory"])
+        cast("dict[str, object]", inventory["missing_deployed_evidence"])["returned_view_authority"] = {
+            "producer": "packet-example", "result": "Ok", "view_base": 4, "view_length": 2, "can_write": False,
+        }
+        write(host_substitution)
+        with raises(ValueError, msg="host packet observation supplied exact-image view authority") as raised:
+            slice_harness.verify_bindings(root, receipt)
+        ensure("lacks exact-image evidence" in str(raised.exception)
+               and "returned_view_authority" in str(raised.exception),
+               "host evidence substitution lost its missing target claim")
         changed_map = copy.deepcopy(report)
         cast("dict[str, object]", changed_map["lowering_provenance"])["integer_arithmetic_and_literals"] = [
             {"kind": "assignment", "operation": "-", "width": "u8", "span": [0, 1], "c_expression": "(a - b)"}

@@ -874,6 +874,18 @@ def _retained_proof(root: Path, report: dict[str, object], directory: Path,
         raise ValueError("first-slice receipt source-proof status contradicts its retained assumption ledger")
 
 
+def _unqualified_deployed_claims() -> dict[str, str]:
+    return {
+        "packet_functional_result": (
+            "Checked packet outcome and destination byte effects for the exact admitted image and entry point"
+        ),
+        "returned_view_authority": (
+            "Checked descriptor validity at entry and read-only destination view bounds, origin and permissions "
+            "for the exact admitted image and entry point"
+        ),
+    }
+
+
 def _opam(arguments: list[str]) -> list[str]:
     return ["opam", "exec", "--switch", proofenv.ROCQ_SWITCH, "--", *arguments]
 
@@ -980,6 +992,7 @@ def build_foundation_inventory() -> dict[str, object]:
         ],
         "scenario_theorems": list(EXPECTED_SCENARIO_THEOREMS),
         "global_assumptions": "exactly the solver-trust ledger recorded at qualification",
+        "missing_deployed_evidence": _unqualified_deployed_claims(),
         "blocking_dependencies": {
             "Q35b / Q35o / Q35p": (
                 "Canonical Sail machine term rv64d.v refuses Rocq 9.3.0 compilation at "
@@ -2612,14 +2625,18 @@ def verify_bindings(root: Path, receipt_path: Path) -> dict[str, object]:
     except (ValueError, RecursionError) as error:
         raise ValueError("first-slice receipt is malformed") from error
     if (not isinstance(value, dict) or type(value.get("schema")) is not int or value["schema"] != 2
-            or value.get("scope") != "holdfast-first-slice-qualification" or value.get("status") != "passed"
-            or any(value.get(key) is not False for key in (
-                "artifact_accepted", "source_correspondence", "production_admission",
-                "full_machine_refinement_closed"))):
+            or value.get("scope") != "holdfast-first-slice-qualification" or value.get("status") != "passed"):
         raise ValueError("first-slice receipt has unsupported scope, schema or status")
     receipt = cast("dict[str, object]", value)
     if receipt.get("inputs") != _inputs(root) or receipt.get("producer_revision") != _revision(root):
         raise ValueError("first-slice receipt source inputs or producer revision changed")
+    missing = _unqualified_deployed_claims()
+    inventory = receipt.get("inventory")
+    if (any(receipt.get(key) is not False for key in (
+            "artifact_accepted", "source_correspondence", "production_admission", "full_machine_refinement_closed"))
+            or not isinstance(inventory, dict) or inventory.get("missing_deployed_evidence") != missing):
+        claims = ", ".join(missing)
+        raise ValueError(f"first-slice receipt lacks exact-image evidence for {claims}")
     execution = receipt.get("execution_inputs")
     if not isinstance(execution, dict) or not isinstance(execution.get("files"), dict):
         raise TypeError("first-slice receipt execution identities are malformed")
@@ -2681,4 +2698,5 @@ def verify_bindings(root: Path, receipt_path: Path) -> dict[str, object]:
             raise ValueError("first-slice receipt changed during binding check")
     return {"schema": 1, "scope": "holdfast-first-slice-binding-check", "status": "matched",
             "receipt": str(receipt_path), "receipt_sha256": _sha256(raw),
-            "proof_replayed": False, "artifact_accepted": False, "production_admission": False}
+            "proof_replayed": False, "artifact_accepted": False, "production_admission": False,
+            "missing_deployed_evidence": missing}

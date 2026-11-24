@@ -540,6 +540,11 @@ Missing or substituted artifacts, malformed or contradictory
 transcripts, and changes during verification refuse a match. Inventories are
 limited to 4,096 entries and 256 MiB in the checkout's local output lane.
 `status: matched` is a binding verdict with `proof_replayed: false`.
+The result lists the packet functional result and returned-view authority in
+`missing_deployed_evidence`. Each needs checked evidence for the exact admitted
+image and entry point. A receipt that substitutes a host packet observation
+for the deployed view evidence fails with the missing target claim.
+[Deployed evidence contract](../assurance/compiler-route-contract.md#evidence-for-each-deployed-claim)
 
 These checks qualify the symbolic source model and record concrete execution
 observations. Exact executable acceptance requires checked source correspondence,
