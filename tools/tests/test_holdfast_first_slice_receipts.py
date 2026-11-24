@@ -408,9 +408,13 @@ def _binding_checks() -> None:
                "matched development receipt lost the two missing target claims")
         host_substitution = copy.deepcopy(report)
         inventory = cast("dict[str, object]", host_substitution["inventory"])
-        cast("dict[str, object]", inventory["missing_deployed_evidence"])["returned_view_authority"] = {
-            "producer": "packet-example", "result": "Ok", "view_base": 4, "view_length": 2, "can_write": False,
-        }
+        cast("dict[str, object]", inventory["missing_deployed_evidence"])["returned_view_authority"] = (
+            "packet 56 02 6B 01 11 22\n"
+            "before CC CC CC CC CC CC CC CC A5\n"
+            "Ok copied=2 offset=4 length=2 read=1 write=0\n"
+            "payload 11 22\n"
+            "after  56 02 6B 01 11 22 00 00 A5\n"
+        )
         write(host_substitution)
         with raises(ValueError, msg="host packet observation supplied exact-image view authority") as raised:
             slice_harness.verify_bindings(root, receipt)

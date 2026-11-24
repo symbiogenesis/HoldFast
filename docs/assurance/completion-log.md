@@ -1598,6 +1598,15 @@ source/revision, execution/parser identities, retained outputs and the receipt
 bytes after the tool/runtime probes. Eight late-mutation controls refuse changes
 made during those probes.
 
+The packet development receipt and matching result record missing exact-image
+evidence for the functional result and returned-view authority. In the local
+replay, Rocq checked the source with zero solver-trusted obligations and all four
+Sail capability controls returned their expected verdicts. The binding command
+matched the retained receipt, then refused the successful
+[host walkthrough](../tooling/packet-walkthrough.md#success-returns-a-read-only-view-of-the-destination)
+substituted for deployed view evidence and named `returned_view_authority` in
+the diagnostic. [Receipt control](../../tools/tests/test_holdfast_first_slice_receipts.py)
+
 Q25ar remains open for external independently checked producer receipts and its
 complete declared coverage. Canonical-machine interpretation, compiler,
 contextual-security and exact-artifact evidence retain their named owners. No

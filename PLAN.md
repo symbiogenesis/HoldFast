@@ -8,10 +8,11 @@ solver-trusted obligations. [Authored validator](examples/first_slice.hf) · [Ar
 
 Start with the `machine-logic` owner. Check whether it can supply the canonical
 Sail term (`rv64d.v`) and Q35 compatibility evidence for [Q25am](#q25am).
-At [VerifiedOS revision e0029a0](https://github.com/symbiogenesis/VerifiedOS/blob/e0029a009d1bc0d389a2949e7310da49d904cfb7/docs/assurance/sail-rocq-emission.md),
+At [VerifiedOS revision fd6e2ba3](https://github.com/symbiogenesis/VerifiedOS/blob/fd6e2ba3fd862bc3c6baba08bcc772dbf3507ccd/docs/assurance/sail-rocq-emission.md#remaining-acceptance),
 the emitted-caller bridge covers bounded tag outcomes. Resume the machine
-interpretation when its producer supplies canonical-main replay with the
-selected bindings, the whole-term build and its assumption report.
+interpretation when `machine-logic` has canonical-main replay on the selected
+bindings, the strict whole-term build and assumption report, and qualified
+support carriage. [Q35p binding acceptance](https://github.com/symbiogenesis/VerifiedOS/blob/fd6e2ba3fd862bc3c6baba08bcc772dbf3507ccd/docs/assurance/sail-memory-bindings.md#bound-and-remaining-acceptance)
 The retained `holdfast-parser first-slice` result names the blocking producers in
 `inventory.blocking_dependencies`. [First-slice qualification](docs/language/first-release.md#first-slice-qualification)
 
@@ -129,7 +130,7 @@ open until the parent's acceptance conditions are met.
   - **Start** Identify the revisions of the local and externally supplied producers.
   - **Check** Bind each independently checked receipt to its source closure, canonical model, assumptions, tool versions and target. Replay locally and review applicable user-supplied Host CI and Guest CI verdicts. Missing receipts and skipped or canceled runs leave their guarantees pending. Publish the validator's receipts before the second-client trial. Close when every declared producer and client is covered.
   - Apply the [deployed-claim evidence](docs/assurance/compiler-route-contract.md#evidence-for-each-deployed-claim) binding at both client endpoints. Substitute a host packet run for view-authority evidence on the deployed image and require the report to identify the missing target claim.
-  - Local bindings check the capacity and control sources, proof-corruption refusal, Sail capability images and complete simulator traces, and optional CompCert processes, effective inputs and images. External producer receipts and artifact admission remain open. [Partial evidence](docs/assurance/completion-log.md#q25ar-integrate-and-recheck-prerequisite-producer-receipts).
+  - Local bindings check the capacity and control sources, proof-corruption refusal, Sail capability images and complete simulator traces, and optional CompCert processes, effective inputs and images. The packet binding result names the missing deployed functional and view-authority evidence. External producer receipts and artifact admission remain open. [Partial evidence](docs/assurance/completion-log.md#q25ar-integrate-and-recheck-prerequisite-producer-receipts).
 
 <a id="language-core-proposals"></a>
 
