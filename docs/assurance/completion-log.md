@@ -2123,6 +2123,13 @@ quick-fix-only request returned none. Applying the action changed `x == false`
 to `!(x)` in the unsaved buffer. Eglot preserved its Unicode comment, left
 the file on disk untouched and refused the old edit after the version changed.
 
+The pinned Neovim and Eglot clients also pass the shared versioned action
+qualification. Each edits only the selected comparison on the unsaved
+overlay, preserves the Unicode comment and disk source, and refuses replay
+of the edit at its old version. The qualifier joins the requested range,
+returned edit and post-application action requests to the wire transcript.
+[Two-client qualification](../tooling/authoring-tools.md#checked-boolean-comparison-previews)
+
 <a id="q25dr-complete-the-remaining-compiler-trace-qualification"></a>
 
 #### Q25dr · Complete the remaining compiler trace qualification

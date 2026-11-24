@@ -543,7 +543,7 @@ unblock the codec. [Protocol contracts](docs/tooling/tooling-protocols.md) ·
     - [x] **Q25du · Qualify completion at incomplete pure expression sites**
       - At a single empty or unfinished scalar expression, bounded compiler repairs recover current typed/static choices while preserving original diagnostics and source; ambiguous or unrelated failures refuse. [Landing evidence](docs/assurance/completion-log.md#q25du-qualify-completion-at-incomplete-pure-expression-sites).
     - [ ] **Q25dv · Complete the wider semantic editor and client qualification**
-      - Wider producers, workspace and proof services, general incomplete-source support and wider actions remain open. Two independent editors qualify versioned local rename. The pure server also offers a checked Boolean comparison edit against an unsaved overlay. [Semantic-edit evidence](docs/assurance/completion-log.md#q25dv-complete-the-wider-semantic-editor-and-client-qualification).
+      - Two independent editors qualify versioned local rename and the checked Boolean comparison edit against an unsaved overlay. Wider producers, workspace and proof services, general incomplete-source support and wider actions remain open. [Semantic-edit evidence](docs/assurance/completion-log.md#q25dv-complete-the-wider-semantic-editor-and-client-qualification).
 
 <a id="q25cj"></a>
 
