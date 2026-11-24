@@ -1900,32 +1900,67 @@ class _ProofsMixin:
         if self._prove_extracted_equality_with_domain_solver(
             goal, environment, facts
         ) or self._prove_bool_expr_with_domain_solver(self.node(node["value"]), environment):
-            if self.in_inline_proof:
-                if witness := self._inline_nat_bound(goal, (*facts, *environment.values())):
-                    return _Binding(witness, goal)
-                raise self.fail("type", "inline assertion needs a proof that can be replayed by the kernel", node)
             self.used_domain_solver_in_proof = True
             return _Binding(_apps(_constant("Refl"), _BOOL, _term("bool", value=1)), goal)
         return None
 
     def _inline_nat_bound(self: _Elaborator, goal: _Term, facts: tuple[_Binding, ...]) -> _Term | None:
-        def bounds(prop: _Term) -> tuple[_Term, _Term] | None:
+        def comparison(prop: _Term) -> tuple[_Term, _Term, bool, bool] | None:
             equality = self._extract_equality(prop)
-            if equality is not None and equality[0] == _BOOL and equality[2] == _term("bool", value=1):
+            if equality is not None and equality[0] == _BOOL and equality[2].kind == "bool":
                 head, args = self.spine(equality[1])
-                if head == _constant("<=") and len(args) == 2:
-                    return args[0], args[1]
+                if len(args) == 2:
+                    if head in {_constant("<="), _constant("<")}:
+                        return args[0], args[1], head == _constant("<"), bool(equality[2].value)
+                    if head in {_constant(">="), _constant(">")}:
+                        return args[1], args[0], head == _constant(">"), bool(equality[2].value)
             return None
 
-        target = bounds(goal)
-        if target is not None:
-            for fact in self._expand_fact_bindings(facts):
-                source = bounds(fact.type)
-                if source is not None and self.convertible(source[0], target[0]):
-                    upper = _apps(_constant("<="), source[1], target[1])
-                    if self.whnf(upper) == _term("bool", value=1):
-                        return _apps(_constant("holdfast_nat_leb_trans"), target[0], source[1], target[1],
-                                     fact.term, _apps(_constant("Refl"), _BOOL, upper))
+        def compare(left: _Term, right: _Term) -> _Term | None:
+            test = _apps(_constant("<="), left, right)
+            if self.whnf(test) == _term("bool", value=1):
+                return _apps(_constant("Refl"), _BOOL, test)
+            if right.kind == "app" and right.args[0] == _constant("Succ") and self.convertible(left, right.args[1]):
+                return _app(_constant("holdfast_nat_leb_succ_self"), left)
+            return None
+
+        target = comparison(goal)
+        if target is None or not target[3]:
+            return None
+        lower, upper, strict, _ = target
+        if strict:
+            lower = _app(_constant("Succ"), lower)
+        for fact in self._expand_fact_bindings(facts):
+            source = comparison(fact.type)
+            if source is None:
+                continue
+            start, end, strict, truth = source
+            witness = fact.term
+            if not truth:
+                lemma = "holdfast_nat_leb_of_ltb_false" if strict else "holdfast_nat_ltb_of_leb_false"
+                witness = _apps(_constant(lemma), start, end, witness)
+                start, end, strict = end, start, not strict
+            if strict:
+                start = _app(_constant("Succ"), start)
+            # Comparing two successors reduces to comparing their predecessors in Rocq.
+            _, smaller_start = self._peel_nat(self.whnf(start))
+            _, smaller_end = self._peel_nat(self.whnf(end))
+            forms = [(start, end), (_app(_constant("Succ"), start), _app(_constant("Succ"), end))]
+            if smaller_start is not None and smaller_end is not None:
+                forms.append((smaller_start, smaller_end))
+            for left, right in forms:
+                result = witness
+                if not self.convertible(lower, left):
+                    weaker_lower = compare(lower, left)
+                    if weaker_lower is None:
+                        continue
+                    result = _apps(_constant("holdfast_nat_leb_trans"), lower, left, right, weaker_lower, result)
+                if not self.convertible(right, upper):
+                    weaker_upper = compare(right, upper)
+                    if weaker_upper is None:
+                        continue
+                    result = _apps(_constant("holdfast_nat_leb_trans"), lower, right, upper, result, weaker_upper)
+                return result
         return None
 
     def _elaborate_assert(
@@ -1961,15 +1996,25 @@ class _ProofsMixin:
         goal = self.asserted_proposition(self.node(node["value"]), environment)
         by_raw = node["by"]
         if by_raw is None:
-            if self.in_post_env_theorem:
+            if self.in_post_env_theorem and not self.in_inline_proof:
                 solved = self._try_domain_solver_goal(node, goal, environment, facts)
                 if solved is not None:
                     return solved
             saved_prove_m = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
             try:
                 term = self._prove_proposition(goal, environment, facts, node)
-            except HoldFastError:
+            except HoldFastError as failure:
                 self.restore_metas(saved_prove_m)
+                if self.in_inline_proof and failure.kind == "type":
+                    if witness := self._inline_nat_bound(goal, (*facts, *environment.values())):
+                        return _Binding(witness, goal)
+                    start, end = cast("list[int]", self.node(node["value"])["span"])
+                    proposition = self.protocol.source[start:end].decode("utf-8")
+                    raise self.fail(
+                        "type", f"assertion could not be established: {proposition}; supply an explicit proof with 'by'", node,
+                    ) from failure
+                if self.in_inline_proof:
+                    raise
                 has_span_env = self.in_post_env_theorem or any(
                     self.spine(self.whnf(b.type))[0] == _constant("Span") for b in environment.values()
                 )

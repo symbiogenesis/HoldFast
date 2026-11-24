@@ -501,6 +501,9 @@ _GALLINA = {
     "holdfast_store_lookup_copy_ge": "holdfast_store_lookup_copy_ge",
     "holdfast_nat_add_assoc": "holdfast_nat_add_assoc",
     "holdfast_nat_leb_trans": "holdfast_nat_leb_trans",
+    "holdfast_nat_leb_succ_self": "holdfast_nat_leb_succ_self",
+    "holdfast_nat_leb_of_ltb_false": "holdfast_nat_leb_of_ltb_false",
+    "holdfast_nat_ltb_of_leb_false": "holdfast_nat_ltb_of_leb_false",
     "holdfast_gt_add_pos": "holdfast_gt_add_pos",
     "holdfast_int_add_assoc": "holdfast_int_add_assoc",
     **{
@@ -2041,6 +2044,17 @@ From Stdlib Require Import Arith.PeanoNat Lia.
 Lemma holdfast_nat_leb_trans (a b c : nat) :
   Nat.leb a b = true -> Nat.leb b c = true -> Nat.leb a c = true.
 Proof. rewrite !Nat.leb_le. apply Nat.le_trans. Qed.
+
+Lemma holdfast_nat_leb_succ_self (a : nat) : Nat.leb a (S a) = true.
+Proof. apply Nat.leb_le. apply Nat.le_succ_diag_r. Qed.
+
+Lemma holdfast_nat_leb_of_ltb_false (a b : nat) :
+  Nat.ltb a b = false -> Nat.leb b a = true.
+Proof. rewrite Nat.ltb_ge, Nat.leb_le. exact (fun h => h). Qed.
+
+Lemma holdfast_nat_ltb_of_leb_false (a b : nat) :
+  Nat.leb a b = false -> Nat.ltb b a = true.
+Proof. rewrite Nat.leb_gt, Nat.ltb_lt. exact (fun h => h). Qed.
 Unset Lia Cache.
 
 Lemma holdfast_bits_value_order : forall xs ys p q,

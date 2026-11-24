@@ -481,10 +481,13 @@ Each `assert` in an executable proof, including a step within `calc` or a
 justification block, emits a separate Gallina definition indexed by its source
 byte span. Its type exposes the values and local proofs on which the
 assertion depends. The assumption audit includes that definition even when
-the next instruction does not use it. For example, a requirement
-`n <= 4` supplies a witness for the weaker natural-number bound `n <= 5`.
-An inline assertion that only the prototype's domain solver can discharge
-requires an explicit proof unless the checker can reconstruct a kernel term.
+the next instruction does not use it. The natural-number bound checker can
+weaken a single comparison from a local proof or an ordinary executable
+`if` guard. It uses the exact Boolean value of that guard on the selected arm.
+For example, `if (n < 5)` supplies the premise for `n <= 4` on its true arm
+and `n > 3` on its false arm. If proof reconstruction cannot establish an
+inline assertion, the diagnostic names the outstanding assertion at its source
+site. An explicit proof supplied with `by` can establish it.
 
 Independent focused host tests exercise fresh polymorphic instantiations,
 explicit/inferred arguments, dependent substitution, vector lengths and finite
