@@ -69,6 +69,35 @@ class _StatementsMixin:
                 return self._elaborate_proof_statement(body, environment, facts)
             return self._elaborate_calc_statement(body, environment, facts)
 
+    def _branch_guard(self: _Elaborator, condition: _Term, truth: bool) -> tuple[_Binding, ...]:
+        if not self.in_executable_function:
+            return ()
+        head, _ = self.spine(condition)
+        if head not in {_constant("<="), _constant("<"), _constant(">="), _constant(">")}:
+            return ()
+        prop = _apps(_constant("Eq"), _BOOL, condition, _term("bool", value=int(truth)))
+        return (_Binding(self.fresh(prop), prop),)
+
+    def _branch_value(
+        self: _Elaborator, value_type: _Term, condition: _Term, yes: _Term, no: _Term,
+        yes_guard: tuple[_Binding, ...], no_guard: tuple[_Binding, ...],
+    ) -> _Term:
+        if yes_guard and no_guard:
+            positive, negative = yes_guard[0], no_guard[0]
+            yes_id, no_id = cast("int", positive.term.value), cast("int", negative.term.value)
+            if yes_id in self.free(yes) or no_id in self.free(no):
+                # Dependent elimination supplies the equality for the selected arm.
+                bit = self.fresh(_BOOL)
+                premise = _apps(_constant("Eq"), _BOOL, condition, bit)
+                motive = _term("lam", _BOOL, self.pi(premise, value_type), value=bit.value)
+                match = _term(
+                    "bool_match", motive, condition,
+                    _term("lam", positive.type, yes, value=yes_id),
+                    _term("lam", negative.type, no, value=no_id),
+                )
+                return _app(match, _apps(_constant("Refl"), _BOOL, condition))
+        return _term("if", value_type, condition, yes, no)
+
     @staticmethod
     def _unwrap_group(node: Node) -> Node:
         while node["kind"] == "group" and isinstance(node.get("value"), dict):
@@ -1582,10 +1611,12 @@ class _StatementsMixin:
                                 return extended, ctrl
                         continue
                     saved_uninit = set(self.uninitialized_out_params)
+                    yes_guard = self._branch_guard(condition, True)
+                    no_guard = self._branch_guard(condition, False)
                     self.active_facts.append(condition)
                     try:
                         then_env, then_ctrl = self._elaborate_non_returning_block(
-                            then_block, dict(extended), (*facts, *statement_facts)
+                            then_block, dict(extended), (*facts, *statement_facts, *yes_guard)
                         )
                         then_uninit = set(self.uninitialized_out_params)
                     finally:
@@ -1595,7 +1626,7 @@ class _StatementsMixin:
                         self.active_facts.append(_app(_constant("!"), condition))
                         try:
                             else_env, else_ctrl = self._elaborate_non_returning_block(
-                                else_block, dict(extended), (*facts, *statement_facts)
+                                else_block, dict(extended), (*facts, *statement_facts, *no_guard)
                             )
                             else_uninit = set(self.uninitialized_out_params)
                         finally:
@@ -1611,7 +1642,9 @@ class _StatementsMixin:
                         eb = else_env.get(k, orig_b)
                         if tb.term != eb.term:
                             extended[k] = _Binding(
-                                self.whnf(_term("if", orig_b.type, condition, self.whnf(tb.term), self.whnf(eb.term))),
+                                self.whnf(self._branch_value(
+                                    orig_b.type, condition, self.whnf(tb.term), self.whnf(eb.term), yes_guard, no_guard,
+                                )),
                                 orig_b.type,
                             )
                     if then_ctrl is not None and then_ctrl == else_ctrl:
@@ -2714,9 +2747,13 @@ class _StatementsMixin:
                     condition = self.check(cond_raw, _BOOL, extended)
                     self._consume_call_updates(extended, cond_raw)
                     saved_uninit = set(self.uninitialized_out_params)
+                    yes_guard = self._branch_guard(condition, True)
+                    no_guard = self._branch_guard(condition, False)
                     self.active_facts.append(condition)
                     try:
-                        yes = self.branch(self.node(cur_stmt["then"]), extended, expected, facts=combined_facts)
+                        yes = self.branch(
+                            self.node(cur_stmt["then"]), extended, expected, facts=(*combined_facts, *yes_guard),
+                        )
                         yes_refs = dict(self.final_ref_bindings)
                         yes_uninit = set(self.uninitialized_out_params)
                     finally:
@@ -2724,7 +2761,9 @@ class _StatementsMixin:
                     self.uninitialized_out_params = set(saved_uninit)
                     self.active_facts.append(_app(_constant("!"), condition))
                     try:
-                        no = self.branch(self.node(cur_stmt["else"]), extended, yes.type, facts=combined_facts)
+                        no = self.branch(
+                            self.node(cur_stmt["else"]), extended, yes.type, facts=(*combined_facts, *no_guard),
+                        )
                         no_refs = dict(self.final_ref_bindings)
                         no_uninit = set(self.uninitialized_out_params)
                     finally:
@@ -2736,13 +2775,15 @@ class _StatementsMixin:
                         nb = no_refs[rk]
                         if yb.term != nb.term:
                             merged_refs[rk] = _Binding(
-                                self.whnf(_term("if", yb.type, condition, yb.term, nb.term)),
+                                self.whnf(self._branch_value(yb.type, condition, yb.term, nb.term, yes_guard, no_guard)),
                                 yb.type,
                             )
                         else:
                             merged_refs[rk] = yb
                     self.final_ref_bindings = merged_refs
-                    return finish(_Binding(_term("if", yes.type, condition, yes.term, no.term), yes.type))
+                    return finish(_Binding(
+                        self._branch_value(yes.type, condition, yes.term, no.term, yes_guard, no_guard), yes.type,
+                    ))
                 if kind == "match":
                     lifted = lift_stmt_propagate(cur_stmt, "value", index)
                     if lifted is not None:
