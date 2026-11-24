@@ -2100,6 +2100,15 @@ include a signed increment whose guard admits the maximum and a decrement whose
 guard admits the minimum. The kernel audit reported zero solver-trusted
 assumptions. Full source-package correspondence remains open.
 
+The [inline assertion replay](../../tools/tests/test_holdfast_inline_witnesses.py)
+uses scoped Boolean equalities from ordinary `Nat` comparison guards. Five
+independent consumers compile and replay in Rocq with zero assumptions. They
+exercise strict bounds on both arms, guard evidence at the corresponding
+source site, and completion with an explicit lemma. The wrong arm, a fact
+reused after both arms join and an unsupported stronger bound refuse at the
+assertion. The [packet erasure controls](../../tools/tests/test_holdfast_packet_erasure.py)
+still regenerate identical guest executables at both optimization levels.
+
 <a id="q25dv-complete-the-wider-semantic-editor-and-client-qualification"></a>
 
 #### Q25dv · Complete the wider semantic editor and client qualification
