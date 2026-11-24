@@ -21,6 +21,7 @@ Run `python tools/run.py` on Windows and `python3 tools/run.py` on Linux. Guest-
 | `python tools/run.py holdfast sarif` | host | Export source-bound pure batch diagnostics and optional format previews as [SARIF 2.1.0](../docs/tooling/tooling-protocols.md#qualified-pure-batch-sarif), with an explicit external schema |
 | `python tools/run.py holdfast-lsp` | host | Pure HoldFast Language Server Protocol server over stdio, wire-transcript recorder, and two-client interoperability qualifier |
 | `python tools/run.py holdfast-lsp --qualify-rename` | Ubuntu ARM64 / WSL | Check versioned rename application and stale refusal in pinned Neovim and Emacs Eglot with [retained editor and wire evidence](../docs/tooling/lsp-prototype.md#local-rename-previews) |
+| `python tools/run.py holdfast-lsp --qualify-actions` | Ubuntu ARM64 / WSL | Check [versioned Boolean comparison action application and stale refusal](../docs/tooling/authoring-tools.md#checked-boolean-comparison-previews) in pinned Neovim and Emacs Eglot |
 | `python tools/run.py holdfast-highlight` | host / guest | Check/regenerate syntax-only editor assets; qualify pinned Tree-sitter and TextMate consumers in the guest |
 | `python tools/run.py holdfast-playground` | guest (`[wsl]`) | Unified HoldFast browser playground with dependent mathematics |
 | `python tools/run.py holdfast-parser` | guest (`[wsl]`) | Menhir parser build/qualification, syntax campaigns, dependent elaboration, first-slice harness, and Rocq kernel replay |

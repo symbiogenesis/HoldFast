@@ -3,6 +3,7 @@
 
 import json
 import sys
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -36,16 +37,24 @@ def _encoded(value: object) -> bytes:
     return json.dumps(value, sort_keys=True, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
 
 
+def _python_sources(directory: Path) -> Iterator[Path]:
+    for path in directory.iterdir():
+        if path.info.is_dir(follow_symlinks=False):
+            yield from _python_sources(path)
+        elif path.match("*.py") and path.info.is_file():
+            yield path
+
+
 def compiler_dependency_hashes() -> dict[str, str]:
     """Conservatively bind all local compiler sources and locked tool dependencies."""
     root = Path(__file__).resolve().parents[2]
-    paths = sorted((root / "tools/toolchain").rglob("*.py"))
-    paths.extend(sorted((root / "tools/toolchain/parser").glob("*")))
-    paths.extend(root / name for name in (
-        "tools/opam/rocq.lock", "tools/opam/sail.lock", "tools/pyproject.toml", "tools/uv.lock"))
-    paths.append(SCHEMA_PATH)
-    return {path.relative_to(root).as_posix(): file_sha256(path)
-            for path in paths if path.is_file()}
+    toolchain = root / "tools/toolchain"
+    paths = sorted(_python_sources(toolchain))
+    paths.extend(sorted(path for path in (toolchain / "parser").iterdir() if path.info.is_file()))
+    files = (root / "tools/opam/rocq.lock", root / "tools/opam/sail.lock", root / "tools/pyproject.toml",
+             root / "tools/uv.lock", SCHEMA_PATH)
+    paths.extend(path for path in files if path.is_file())
+    return {path.relative_to(root).as_posix(): file_sha256(path) for path in paths}
 
 
 def producer_identity() -> dict[str, object]:
