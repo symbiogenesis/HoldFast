@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 from filelock import FileLock
@@ -34,7 +35,7 @@ EMACS_PINS = {
         "7c53ecb9593b0f5d607c01b54afec4c756e230b10141451c1c3536dbaff9ff18",
 }
 
-NEOVIM = r"""
+NEOVIM_SETUP = r"""
 vim.cmd.edit(vim.fn.fnameescape(vim.env.HOLDFAST_FILE))
 local buf = vim.api.nvim_get_current_buf()
 vim.bo[buf].filetype = "holdfast"
@@ -50,16 +51,24 @@ local id = assert(vim.lsp.start({
 local client = assert(vim.lsp.get_client_by_id(id))
 assert(vim.wait(15000, function() return client.initialized and diagnostics end))
 local doc = {uri = vim.uri_from_bufnr(buf)}
+local function contents()
+  return table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n") .. "\n"
+end
+vim.api.nvim_buf_set_lines(buf, -1, -1, false, {"// unsaved"})
+"""
+
+NEOVIM_SHUTDOWN = r"""
+client:stop()
+assert(vim.wait(15000, function() return client:is_stopped() end))
+"""
+
+NEOVIM = NEOVIM_SETUP + r"""
 local function request(method, pos, new_name)
   local params = {textDocument = doc, position = pos, newName = new_name}
   local reply = assert(client:request_sync("textDocument/" .. method, params, 15000, buf))
   assert(not reply.err, vim.inspect(reply.err))
   return assert(reply.result)
 end
-local function contents()
-  return table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n") .. "\n"
-end
-vim.api.nvim_buf_set_lines(buf, -1, -1, false, {"// unsaved"})
 local selected = {line = 3, character = 9}
 local prepared = request("prepareRename", selected)
 local preview = request("rename", selected, "renamed")
@@ -78,11 +87,9 @@ local out = assert(io.open(vim.env.HOLDFAST_OBSERVATION, "wb"))
 out:write(vim.json.encode({prepared=prepared, preview=preview, fresh=fresh, stale=stale,
   definition=definition, again=again, stale_version=stale_version}))
 out:close()
-client:stop()
-assert(vim.wait(15000, function() return client:is_stopped() end))
-"""
+""" + NEOVIM_SHUTDOWN
 
-ELISP = r"""
+ELISP_SETUP = r"""
 (require 'eglot)
 (prefer-coding-system 'utf-8-unix)
 (define-derived-mode holdfast-mode prog-mode "HoldFast")
@@ -99,6 +106,13 @@ ELISP = r"""
   (goto-char (point-max))
   (insert "// unsaved\n")
   (eglot--signal-textDocument/didChange)
+"""
+
+ELISP_SHUTDOWN = r"""
+  (eglot-shutdown server))
+"""
+
+ELISP = ELISP_SETUP + r"""
   (goto-char (point-min)) (forward-line 3) (forward-char 9)
   (let* ((selected (eglot--TextDocumentPositionParams))
          (prepared (jsonrpc-request server :textDocument/prepareRename selected))
@@ -122,8 +136,7 @@ ELISP = r"""
           (insert (json-serialize (list :prepared prepared :preview preview :fresh fresh :stale stale
                                         :definition definition :again again
                                         :stale_version eglot-version)))))))
-  (eglot-shutdown server))
-"""
+""" + ELISP_SHUTDOWN
 
 
 def _range(line: int, start: int, end: int) -> dict[str, object]:
@@ -213,10 +226,11 @@ def verify_session(wire: dict[str, object], observation: dict[str, object], uri:
             "fresh application or stale refusal changed unexpected bytes")
 
 
-def _session(folder: Path, command: list[str], script: str, filename: str) -> dict[str, object]:
+def _session(folder: Path, command: list[str], script: str, filename: str, disk: str,
+             verify: Callable[[dict[str, object], dict[str, object], str], None]) -> dict[str, object]:
     folder.mkdir()
     target, wire, observation = (folder / name for name in ("editor.hf", "wire.json", "observation.json"))
-    target.write_bytes(DISK.encode())
+    target.write_bytes(disk.encode())
     harness = folder / filename
     harness.write_bytes(script.encode())
     env = {**os.environ, "HOLDFAST_FILE": str(target), "HOLDFAST_WIRE": str(wire),
@@ -226,34 +240,41 @@ def _session(folder: Path, command: list[str], script: str, filename: str) -> di
                           encoding="utf-8", errors="replace", timeout=90, check=False)
     clients._require(done.returncode == 0,
                      f"{filename} exited {done.returncode}: {done.stderr[-1500:]} {done.stdout[:1800]}")
-    clients._require(target.read_bytes() == DISK.encode(), "editor wrote the unsaved rename to disk")
+    clients._require(target.read_bytes() == disk.encode(), "editor wrote the unsaved edit to disk")
     wire_data, observed = (decode_message(path.read_bytes()) for path in (wire, observation))
-    verify_session(wire_data, observed, target.as_uri())
+    verify(wire_data, observed, target.as_uri())
     return {"wire": wire_data, "observation": observed, "uri": target.as_uri()}
 
 
 def qualify() -> dict[str, object]:
     """Run both independently pinned editors against the same source through stdio."""
+    return qualify_versioned_edits("--qualify-rename", "pure-local-rename-application", DISK, NEOVIM, ELISP,
+                                   verify_session)
+
+
+def qualify_versioned_edits(command: str, scope: str, disk: str, neovim: str, elisp: str,
+                            verify: Callable[[dict[str, object], dict[str, object], str], None]) -> dict[str, object]:
     if sys.platform == "win32":
-        result = subprocess.run(["wsl", "-u", "root", "-e", "python3", "tools/run.py", "holdfast-lsp", "--qualify-rename"],
+        result = subprocess.run(["wsl", "-u", "root", "-e", "python3", "tools/run.py", "holdfast-lsp", command],
                                 cwd=Path(__file__).resolve().parents[2], capture_output=True,
                                 timeout=420, check=False)
         if result.returncode:
             raise ValueError(result.stderr.decode("utf-8", errors="replace")[-3000:])
         return decode_message(result.stdout)
     if sys.platform != "linux" or clients._platform_key()[1] != "aarch64":
-        raise ValueError("the Emacs rename client requires Ubuntu 26.04 ARM64")
+        raise ValueError("the Emacs versioned-edit client requires Ubuntu 26.04 ARM64")
     for path, expected in EMACS_PINS.items():
         clients._require(file_sha256(path) == expected, f"unexpected Emacs qualification file: {path}")
     cache = clients._default_cache_root()
     cache.mkdir(parents=True, exist_ok=True)
     with (FileLock(cache / "clients.lock", timeout=clients.TIMEOUT_SECONDS),
-          tempfile.TemporaryDirectory(prefix="holdfast-rename-") as temp):
+          tempfile.TemporaryDirectory(prefix="holdfast-versioned-edit-") as temp):
         root = Path(temp)
         executable, nvim_pin = clients._stage_neovim(cache / "downloads", root)
-        emacs = _session(root / "eglot", [str(EMACS), "--batch", "-Q", "-l", str(EGLOT), "-l"], ELISP, "probe.el")
+        emacs = _session(root / "eglot", [str(EMACS), "--batch", "-Q", "-l", str(EGLOT), "-l"],
+                         elisp, "probe.el", disk, verify)
         nvim = _session(root / "vim-lsp", [str(executable), "--headless", "-u", "NONE", "-i", "NONE", "-n", "-l"],
-                        NEOVIM, "probe.lua")
-        return {"schema": 1, "scope": "pure-local-rename-application", "status": "passed",
+                        neovim, "probe.lua", disk, verify)
+        return {"schema": 1, "scope": scope, "status": "passed",
                 "clients": {"neovim": nvim_pin, "emacs_eglot": {str(p): sha for p, sha in EMACS_PINS.items()}},
                 "sessions": {"neovim": nvim, "emacs_eglot": emacs}}

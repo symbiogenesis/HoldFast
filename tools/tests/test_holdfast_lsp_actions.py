@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from tests.harness import Case, ensure
 from tests.test_holdfast_lsp_projection import _error_code, _notice, _request
-from toolchain import authoring_preview, lsp_actions, trace_runtime
+from toolchain import authoring_preview, lsp_action_clients, lsp_actions, trace_runtime
 from toolchain.lsp import Server
 from toolchain.protocol_json import decode_message, encode_message, read_frame
 
@@ -109,7 +109,53 @@ def _interpreter_mismatch() -> None:
     ensure(len(cast("list[object]", response["result"])) == 1, "restoring the interpreter failed to restore edits")
 
 
+def _editor_evidence(fault: str = "") -> None:
+    frames: list[dict[str, object]] = []
+
+    def send(direction: str, message: dict[str, object]) -> None:
+        frames.append({"direction": direction, "index": len(frames), "message": message})
+
+    def change(version: int, source: str) -> None:
+        send("client_to_server", _notice("textDocument/didChange", {"textDocument": {
+            "uri": _URI, "version": version}, "contentChanges": [{"text": source}]}))
+
+    send("client_to_server", _initialize())
+    send("server_to_client", {"jsonrpc": "2.0", "id": 1, "result": {"capabilities": {
+        "codeActionProvider": {"codeActionKinds": ["refactor.rewrite"]}}}})
+    send("client_to_server", _notice("textDocument/didOpen", {"textDocument": {
+        "uri": _URI, "version": 0, "text": lsp_action_clients.DISK}}))
+    change(2, lsp_action_clients.SOURCE)
+    preview = [{"title": "Simplify Boolean comparison (HOLDFAST103)", "kind": "refactor.rewrite",
+                "edit": {"documentChanges": [{"textDocument": {"uri": _URI, "version": 2},
+                                              "edits": [{"range": _range(2, 32, 45), "newText": "!(keep)"}]}]}}]
+    send("client_to_server", _action(2, 36 if fault == "selection" else 37, 37, only=["refactor.rewrite"]))
+    send("server_to_client", {"jsonrpc": "2.0", "id": 2, "result": preview})
+    change(4, lsp_action_clients.EDITED)
+    for identity in (3, 4):
+        if fault == "incomplete" and identity == 4:
+            break
+        send("client_to_server", _action(2, 37, 37, identity, only=["refactor.rewrite"]))
+        send("server_to_client", {"jsonrpc": "2.0", "id": identity, "result": []})
+    observation: dict[str, object] = {
+        "preview": preview if fault != "detached" else [], "fresh": lsp_action_clients.EDITED,
+        "stale": lsp_action_clients.SOURCE if fault == "reapplied" else lsp_action_clients.EDITED,
+        "stale_version": 2 if fault == "stale" else 4, "after": [], "again": [],
+    }
+    lsp_action_clients.verify_session({"frames": frames, "exit_code": 0}, observation, _URI)
+
+
+def _editor_evidence_refusals() -> None:
+    for fault in ("selection", "incomplete", "detached", "reapplied", "stale"):
+        try:
+            _editor_evidence(fault)
+        except ValueError:
+            continue
+        raise AssertionError(f"accepted editor action evidence with {fault}")
+
+
 def cases() -> list[Case]:
     return [Case("checked comparison actions over stdio and unsaved overlays", _stdio),
             Case("comparison selection, negotiation and generation refusal", _selection_and_lifecycle),
-            Case("mixed interpreter generations with an isolated comparison worker", _interpreter_mismatch)]
+            Case("mixed interpreter generations with an isolated comparison worker", _interpreter_mismatch),
+            Case("client application and stale refusal join editor and wire evidence", _editor_evidence),
+            Case("reject detached or stale comparison action evidence", _editor_evidence_refusals)]

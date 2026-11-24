@@ -247,6 +247,15 @@ for that document version. The editor chooses whether to apply it. Comments,
 ambiguous selections and excluded action kinds yield no edit. An invalidated
 generation or a failed worker prevents publication.
 
+`python tools/run.py holdfast-lsp --qualify-actions --output actions.json`
+checks application in the same [pinned editors](lsp-prototype.md#local-rename-previews)
+as the local rename qualification. Each editor requests one checked action
+against an unsaved Unicode buffer and applies the returned versioned edit.
+The next request checks the rewritten source, and replaying the earlier edit
+preserves the newer buffer. The report validates both bidirectional transcripts
+against the expected request, edit, source and document versions. The probes
+also check that the on-disk fixture retains its original bytes.
+
 ## Generic type parameter naming
 
 The [mathematical playground](playground.md#dependent-mathematics-increment)

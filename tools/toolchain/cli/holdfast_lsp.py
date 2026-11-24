@@ -7,7 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from toolchain import lsp_clients, lsp_rename_clients
+from toolchain import lsp_action_clients, lsp_clients, lsp_rename_clients
 from toolchain.atomic import atomic_path
 from toolchain.lsp import serve
 
@@ -23,11 +23,25 @@ def main(argv: list[str] | None = None) -> int:
     qualifiers = parser.add_mutually_exclusive_group()
     qualifiers.add_argument(
         "--qualify-clients",
-        action="store_true",
+        action="store_const",
+        dest="qualification",
+        const=lsp_clients.qualify_clients,
         help="Run the pinned two-client Neovim and Vim LSP interoperability qualification",
     )
-    qualifiers.add_argument("--qualify-rename", action="store_true",
-                            help="Qualify applied and stale versioned edits in Neovim and Emacs Eglot on Ubuntu ARM64")
+    qualifiers.add_argument(
+        "--qualify-rename",
+        action="store_const",
+        dest="qualification",
+        const=lsp_rename_clients.qualify,
+        help="Qualify applied and stale versioned edits in Neovim and Emacs Eglot on Ubuntu ARM64",
+    )
+    qualifiers.add_argument(
+        "--qualify-actions",
+        action="store_const",
+        dest="qualification",
+        const=lsp_action_clients.qualify,
+        help="Qualify applied and stale comparison actions in Neovim and Emacs Eglot on Ubuntu ARM64",
+    )
     parser.add_argument(
         "--output",
         type=Path,
@@ -35,11 +49,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Write the JSON qualification report to FILE instead of standard output",
     )
     args = parser.parse_args(argv)
-    if args.qualify_clients or args.qualify_rename:
+    if args.qualification is not None:
         if args.transcript is not None:
             parser.error("--transcript cannot be combined with client qualification")
         try:
-            report = lsp_rename_clients.qualify() if args.qualify_rename else lsp_clients.qualify_clients()
+            report = args.qualification()
             serialized = json.dumps(report, indent=2, ensure_ascii=False) + "\n"
             if args.output is not None:
                 with atomic_path(args.output) as pending:
