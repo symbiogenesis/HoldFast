@@ -7,9 +7,9 @@ Import ListNotations.
 Module GradedModal.
 Import GradedPure.
 
-(* This fragment packages stable natural values. Motives can inspect the
-   logical contents of a box, while runtime natural expressions use only
-   unboxed variables. See [modal elimination](../../docs/extensions/graded-foundation.md#dependent-data-and-elimination). *)
+(* A type index can refer to the contents of a box. Natural index expressions
+   look up variables in the natural-number part of the scope.
+   See [modal elimination](../../docs/extensions/graded-foundation.md#dependent-data-and-elimination). *)
 Inductive type_index :=
 | PlainIndex (value : index)
 | BoxContents (name : nat)
@@ -155,8 +155,8 @@ Proof.
       inversion checked; subst. constructor. now apply index_demand_sound.
 Qed.
 
-(* The motive binder occurs only in BoxContents nodes. Kinds have no binders,
-   so replacing that observation cannot capture an ambient name. *)
+(* A well-formed motive refers to its box binder through BoxContents. Since
+   kinds introduce no binders, replacement leaves the contents' free names in scope. *)
 Fixpoint specialize (binder : nat) (contents : type_index) (k : kind) : kind :=
   match k with
   | VecKind (BoxContents name) => if Nat.eqb name binder then VecKind contents else k

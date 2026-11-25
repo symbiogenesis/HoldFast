@@ -5,7 +5,8 @@ Import ListNotations.
 
 Module GradedPure.
 
-(* Each entry contributes a natural amount of demand on a stable binder. *)
+(* Each pair records a binder identifier and a contribution to its demand.
+   Multiple entries for the same binder are summed by uses. *)
 Definition demand := list (nat * nat).
 
 Fixpoint uses (d : demand) (x : nat) : nat :=
