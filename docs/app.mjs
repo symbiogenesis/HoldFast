@@ -23,20 +23,20 @@ export const EXAMPLES = {
     ],
     source: `module Playground;
 
-/// A small function with a mathematical result.
+/// Squares a natural number in a static evaluation or an ordinary call.
 public const Nat Square(Nat value) => value * value;
 
-/// A named value, computed during compilation.
+/// The value used by the Square(StartingPoint) console example.
 public const Nat StartingPoint = 7;
 
-/// Combine earlier functions with an immutable local.
+/// Adds the squares of both inputs.
 public Nat SumOfSquares(Nat left, Nat right)
 {
     let total = Square(left) + Square(right);
     return total;
 }
 
-/// Try this expression in the console, too.
+/// Evaluates to 25. Try Main() in the console.
 public Nat Main() => SumOfSquares(3, 4);
 `,
   },
@@ -51,10 +51,10 @@ public Nat Main() => SumOfSquares(3, 4);
     ],
     source: `module Decisions;
 
-/// The upper bound is an ordinary mathematical natural.
+/// Inclusive upper bound used by WithinLimit.
 public const Nat Limit = 10;
 
-/// Every branch returns a result of the declared type.
+/// Tests whether the value is at most Limit.
 public bool WithinLimit(Nat value)
 {
     if (value <= Limit)
@@ -67,7 +67,7 @@ public bool WithinLimit(Nat value)
     }
 }
 
-/// Natural-number comparison produces a boolean.
+/// Tests whether the two inputs have equal squares.
 public bool SameSquare(Nat left, Nat right)
 {
     let leftSquare = left * left;
@@ -87,13 +87,13 @@ public bool SameSquare(Nat left, Nat right)
     ],
     source: `module Logic;
 
-/// Boolean operators combine comparisons, checking the lower bound first.
+/// Tests whether the value is from 3 through 9.
 public bool InRange(Nat value) => value >= 3 && value < 10;
 
-/// Negation and disjunction describe the ordinary Boolean decision.
+/// Allows an unpaused request with a value in range or equal to 20.
 public bool CanProceed(Nat value, bool paused) => !paused && (InRange(value) || value == 20);
 
-/// Inequality works on both naturals and booleans.
+/// Tests whether either the natural number or the Boolean flag changed.
 public bool Changed(Nat before, Nat after, bool previous, bool current)
 {
     return before != after || previous != current;
@@ -114,10 +114,10 @@ public bool Main() => CanProceed(value: 8, paused: false);
     ],
     source: `module NaturalArithmetic;
 
-/// Explicit saturation gives zero if the used amount exceeds the total.
+/// Subtracts used from total, returning zero if used exceeds total.
 public Nat Remaining(Nat total, Nat used) => Nat.SaturatingSub(total, used);
 
-/// Subtract the fixed adjustment when the scaled value covers it.
+/// Scales the value, then subtracts four if the result is large enough. Otherwise returns zero.
 public Nat Adjusted(Nat value)
 {
     let scaled = value * 3 + 2;
@@ -131,7 +131,7 @@ public Nat Adjusted(Nat value)
     }
 }
 
-/// Ordering can decide whether any mathematical capacity remains.
+/// Tests whether the total strictly exceeds the used amount.
 public bool HasRoom(Nat total, Nat used) => total > used;
 
 /// Try Remaining(12, 5), Adjusted(4), and HasRoom(5, 8) in the console.
@@ -149,7 +149,7 @@ public Nat Main() => Remaining(total: 12, used: 5);
     ],
     source: `module Grouping;
 
-/// A zero size permits no complete groups.
+/// Counts complete groups, returning zero when the group size is zero.
 public Nat Groups(Nat count, Nat size)
 {
     if (size != 0)
@@ -162,7 +162,7 @@ public Nat Groups(Nat count, Nat size)
     }
 }
 
-/// At size zero every item stays ungrouped.
+/// Counts ungrouped items, returning the full count when the group size is zero.
 public Nat Leftover(Nat count, Nat size)
 {
     if (size != 0)
@@ -175,7 +175,7 @@ public Nat Leftover(Nat count, Nat size)
     }
 }
 
-/// Division and multiplication group from left to right.
+/// Doubles the complete group count. Division and multiplication associate to the left.
 public Nat Regroup(Nat count, Nat size)
 {
     if (size != 0)
@@ -205,20 +205,20 @@ public Nat Main() => Groups(count: 17, size: 5);
     ],
     source: `module Configuration;
 
-/// Available to both static evaluation and ordinary calls.
+/// Squares a natural number in a static evaluation or an ordinary call.
 public const Nat Square(Nat value) => value * value;
 
-/// The configuration is fixed before runtime data arrives.
+/// The gain used by Process.
 public const Nat Gain = 4;
 
-/// A static parameter can initialize a required constant.
+/// Multiplies a runtime sample by the square of the required-static gain.
 public Nat Scale(const Nat gain, Nat sample)
 {
     const Nat multiplier = Square(gain);
     return multiplier * sample;
 }
 
-/// Apply the configured multiplier to a sample.
+/// Multiplies a sample by the configured gain squared.
 public Nat Process(Nat sample) => Scale(gain: Gain, sample: sample);
 `,
   },
@@ -232,7 +232,7 @@ public Nat Process(Nat sample) => Scale(gain: Gain, sample: sample);
     ],
     source: `module Bindings;
 
-/// Immutable locals may carry explicit type annotations.
+/// Returns 1,000 for a selected item and zero otherwise.
 public Nat Count(bool selected)
 {
     let Nat count = 1_000;
@@ -264,7 +264,7 @@ public const Nat Base = 1_000;
 /// Parameter names document each value at a call site.
 public Nat Combine(Nat left, Nat right) => left + right;
 
-/// Named arguments and documented functions share ordinary compiler facts.
+/// Adds 24 to Base using a named-argument call to Combine.
 public Nat Total()
 {
     let Nat amount = Combine(left: Base, right: 8);
@@ -5532,8 +5532,8 @@ function readFormatTemplate(source, start, line, column, depth) {
   throw new HoldFastError("syntax", line, column, "unterminated format string");
 }
 
-// The right side of a short-circuited guard is checked in the scope it
-// would have after a successful match, without constructing any values.
+// Make names from successful pattern tests available to the static check
+// of later conjuncts. A null entry records a name without a runtime value.
 function guardScope(condition, env) {
   const scope = new Map(env);
   function declare(node) {
@@ -5850,13 +5850,13 @@ class MathElaborator {
     }
   }
 
-  // Check the type of skipped Boolean operands without reducing their calls.
+  // Infer enough operand types to check skipped Boolean branches without executing calls.
   scalarType(expr, env) {
     this.step(expr.site);
     if (expr.kind === "nat") return "Nat";
     if (expr.kind === "bool") return "bool";
     if (expr.kind === "name") {
-      // Bindings can hold samples for symbolic generic parameters.
+      // A local value can be a placeholder or a sample for a symbolic parameter.
       if (env.has(expr.name)) return null;
       if (this.constants.has(expr.name)) {
         const value = this.constants.get(expr.name);
