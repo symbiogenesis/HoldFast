@@ -506,6 +506,10 @@ _GALLINA = {
     "holdfast_nat_leb_succ_self": "holdfast_nat_leb_succ_self",
     "holdfast_nat_leb_of_ltb_false": "holdfast_nat_leb_of_ltb_false",
     "holdfast_nat_ltb_of_leb_false": "holdfast_nat_ltb_of_leb_false",
+    "holdfast_nat_leb_add_right": "holdfast_nat_leb_add_right",
+    "holdfast_nat_leb_add_left": "holdfast_nat_leb_add_left",
+    "holdfast_nat_ltb_add_right": "holdfast_nat_ltb_add_right",
+    "holdfast_nat_ltb_add_left": "holdfast_nat_ltb_add_left",
     "holdfast_gt_add_pos": "holdfast_gt_add_pos",
     "holdfast_int_add_assoc": "holdfast_int_add_assoc",
     **{
@@ -2057,6 +2061,23 @@ Proof. rewrite Nat.ltb_ge, Nat.leb_le. exact (fun h => h). Qed.
 Lemma holdfast_nat_ltb_of_leb_false (a b : nat) :
   Nat.leb a b = false -> Nat.ltb b a = true.
 Proof. rewrite Nat.leb_gt, Nat.ltb_lt. exact (fun h => h). Qed.
+
+Lemma holdfast_nat_leb_add_right (a b offset : nat) :
+  Nat.leb a b = true -> Nat.leb (a + offset) (b + offset) = true.
+Proof. rewrite !Nat.leb_le. intros H. now apply Nat.add_le_mono_r. Qed.
+
+Lemma holdfast_nat_leb_add_left (a b offset : nat) :
+  Nat.leb a b = true -> Nat.leb (offset + a) (offset + b) = true.
+Proof. rewrite !Nat.leb_le. intros H. now apply Nat.add_le_mono_l. Qed.
+
+Lemma holdfast_nat_ltb_add_right (a b offset : nat) :
+  Nat.ltb a b = true -> Nat.ltb (a + offset) (b + offset) = true.
+Proof. rewrite !Nat.ltb_lt. intros H. now apply Nat.add_lt_mono_r. Qed.
+
+Lemma holdfast_nat_ltb_add_left (a b offset : nat) :
+  Nat.ltb a b = true -> Nat.ltb (offset + a) (offset + b) = true.
+Proof. rewrite !Nat.ltb_lt. intros H. now apply Nat.add_lt_mono_l. Qed.
+
 Unset Lia Cache.
 
 Lemma holdfast_bits_value_order : forall xs ys p q,

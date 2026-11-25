@@ -2145,6 +2145,12 @@ reports the outstanding proposition at the assertion; an explicit proof
 argument replays at the same limit. Both emitted witnesses replay in Rocq
 with zero assumptions.
 
+The [common-addend replay](../../tools/tests/test_holdfast_inline_witnesses.py)
+checks three independent statements in Rocq with zero assumptions. A strict
+bound joins two path guards before adding nested common offsets. Non-strict
+bounds check both addition positions, including a false-guard premise. A
+reversed guard and unequal offsets each refuse at the assertion.
+
 The [locked-client replay](../../tools/tests/test_holdfast_locked_clients.py)
 instantiates public guarantees through opaque provider calls. Two independent
 Rocq consumers replay with zero assumptions. An isolated client applies the

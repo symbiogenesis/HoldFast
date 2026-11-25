@@ -2,6 +2,7 @@
 """Bounded equational reasoning, congruence closure, and proof-block elaboration for HoldFast."""
 
 from collections import deque
+from collections.abc import Iterator
 from typing import TYPE_CHECKING, cast
 
 from toolchain.ast import HoldFastError
@@ -1936,82 +1937,109 @@ class _ProofsMixin:
                 return _app(_constant("holdfast_nat_leb_succ_self"), left)
             return None
 
-        def finish(end: _Term, witness: _Term) -> _Term | None:
-            if self.convertible(end, upper):
-                return witness
-            suffix = compare(end, upper)
-            if suffix is not None:
-                return _apps(trans, lower, end, upper, witness, suffix)
-            return None
-
         target = comparison(goal)
         if target is None or not target[3]:
             return None
         lower, upper, strict, _ = target
-        if strict:
-            lower = _app(_constant("Succ"), lower)
         trans = _constant("holdfast_nat_leb_trans")
-        edges: list[tuple[_Term, _Term, _Term]] = []
-        reachable: dict[_Term, _Term] = {}
-        for fact in self._expand_fact_bindings(facts):
-            source = comparison(fact.type)
-            if source is None:
-                continue
-            start, end, strict, truth = source
-            witness = fact.term
-            if not truth:
-                lemma = "holdfast_nat_leb_of_ltb_false" if strict else "holdfast_nat_ltb_of_leb_false"
-                witness = _apps(_constant(lemma), start, end, witness)
-                start, end, strict = end, start, not strict
-            if strict:
-                start = _app(_constant("Succ"), start)
-            # Comparing two successors reduces to comparing their predecessors in Rocq.
-            _, smaller_start = self._peel_nat(self.whnf(start))
-            _, smaller_end = self._peel_nat(self.whnf(end))
-            forms = [(start, end), (_app(_constant("Succ"), start), _app(_constant("Succ"), end))]
-            if smaller_start is not None and smaller_end is not None:
-                forms.append((smaller_start, smaller_end))
-            for left, right in forms:
+        scoped_facts = self._expand_fact_bindings(facts)
+
+        def comparisons() -> Iterator[tuple[_Term, _Term, _Term]]:
+            for fact in scoped_facts:
+                source = comparison(fact.type)
+                if source is None:
+                    continue
+                start, end, strict_fact, truth = source
+                witness = fact.term
+                if not truth:
+                    lemma = "holdfast_nat_leb_of_ltb_false" if strict_fact else "holdfast_nat_ltb_of_leb_false"
+                    witness = _apps(_constant(lemma), start, end, witness)
+                    start, end, strict_fact = end, start, not strict_fact
+                if strict_fact:
+                    start = _app(_constant("Succ"), start)
+                # Comparing two successors reduces to comparing their predecessors in Rocq.
+                _, smaller_start = self._peel_nat(self.whnf(start))
+                _, smaller_end = self._peel_nat(self.whnf(end))
+                yield start, end, witness
+                yield _app(_constant("Succ"), start), _app(_constant("Succ"), end), witness
+                if smaller_start is not None and smaller_end is not None:
+                    yield smaller_start, smaller_end, witness
+
+        joins = 0
+
+        def find_path(start: _Term, end: _Term) -> _Term | None:
+            nonlocal joins
+
+            def finish(right: _Term, witness: _Term) -> _Term | None:
+                if self.convertible(right, end):
+                    return witness
+                if (suffix := compare(right, end)) is not None:
+                    return _apps(trans, start, right, end, witness, suffix)
+                return None
+
+            reachable: dict[_Term, _Term] = {}
+            edges: list[tuple[_Term, _Term, _Term]] = []
+            for left, right, witness in comparisons():
                 edges.append((left, right, witness))
-                if self.convertible(lower, left):
+                if self.convertible(start, left):
                     result = witness
-                elif (prefix := compare(lower, left)) is not None:
-                    result = _apps(trans, lower, left, right, prefix, witness)
+                elif (prefix := compare(start, left)) is not None:
+                    result = _apps(trans, start, left, right, prefix, witness)
                 else:
                     continue
                 if (proof := finish(right, result)) is not None:
                     return proof
                 reachable.setdefault(right, result)
 
-        # Single-premise proofs retain their ordinary elaboration budget. Bound the
-        # additional comparisons used to connect multiple in-scope premises.
-        pending = deque(reachable)
-        joins = 0
-        while pending:
-            middle = pending.popleft()
-            for left, right, witness in edges:
-                joins += 1
-                if joins > _MAX_NAT_BOUND_JOINS:
-                    start, end = cast("list[int]", self.node(node["value"])["span"])
-                    proposition = self.protocol.source[start:end].decode("utf-8")
-                    raise self.fail(
-                        "limit", f"assertion proof search exhausted {_MAX_NAT_BOUND_JOINS} Nat bound joins: "
-                        f"{proposition}; supply an explicit proof with 'by'", node,
-                    )
-                if right in reachable:
-                    continue
-                if self.convertible(middle, left):
-                    result = _apps(trans, lower, middle, right, reachable[middle], witness)
-                elif (bridge := compare(middle, left)) is not None:
-                    suffix = _apps(trans, middle, left, right, bridge, witness)
-                    result = _apps(trans, lower, middle, right, reachable[middle], suffix)
-                else:
-                    continue
-                if (proof := finish(right, result)) is not None:
-                    return proof
-                reachable[right] = result
-                pending.append(right)
-        return None
+            # Single-premise proofs retain their ordinary elaboration budget.
+            pending = deque(reachable)
+            while pending:
+                middle = pending.popleft()
+                for left, right, witness in edges:
+                    joins += 1
+                    if joins > _MAX_NAT_BOUND_JOINS:
+                        offset, stop = cast("list[int]", self.node(node["value"])["span"])
+                        proposition = self.protocol.source[offset:stop].decode("utf-8")
+                        raise self.fail(
+                            "limit", f"assertion proof search exhausted {_MAX_NAT_BOUND_JOINS} Nat bound joins: "
+                            f"{proposition}; supply an explicit proof with 'by'", node,
+                        )
+                    if right in reachable:
+                        continue
+                    if self.convertible(middle, left):
+                        result = _apps(trans, start, middle, right, reachable[middle], witness)
+                    elif (bridge := compare(middle, left)) is not None:
+                        suffix = _apps(trans, middle, left, right, bridge, witness)
+                        result = _apps(trans, start, middle, right, reachable[middle], suffix)
+                    else:
+                        continue
+                    if (proof := finish(right, result)) is not None:
+                        return proof
+                    reachable[right] = result
+                    pending.append(right)
+            return None
+
+        lifts: list[_Term] = []
+        operator = "ltb" if strict else "leb"
+        while True:
+            start = _app(_constant("Succ"), lower) if strict else lower
+            if (proof := find_path(start, upper)) is not None:
+                for lift in reversed(lifts):
+                    proof = _app(lift, proof)
+                return proof
+            lower_head, lower_args = self.spine(lower)
+            upper_head, upper_args = self.spine(upper)
+            if lower_head != _constant("+") or upper_head != lower_head or len(lower_args) != 2 or len(upper_args) != 2:
+                return None
+            if self.convertible(lower_args[1], upper_args[1]):
+                lower, upper = lower_args[0], upper_args[0]
+                lemma, addend = f"holdfast_nat_{operator}_add_right", lower_args[1]
+            elif self.convertible(lower_args[0], upper_args[0]):
+                lower, upper = lower_args[1], upper_args[1]
+                lemma, addend = f"holdfast_nat_{operator}_add_left", lower_args[0]
+            else:
+                return None
+            lifts.append(_apps(_constant(lemma), lower, upper, addend))
 
     def _elaborate_assert(
         self: _Elaborator, node: Node, environment: dict[str, _Binding], facts: tuple[_Binding, ...]

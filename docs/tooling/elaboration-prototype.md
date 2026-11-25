@@ -511,10 +511,13 @@ It uses the exact Boolean value of that guard on the selected arm. For
 example, `if (n < 5)` supplies the premise for `n <= 4` on its true arm and
 `n > 3` on its false arm. It can also join in-scope comparisons by
 transitivity. Given `n < m` and a false `k < m` guard, it can prove
-`n < k`. The additional search examines at most 256 candidate joins per
-assertion. If checking cannot establish an assertion or exhausts this
-allowance, the diagnostic reports the outstanding proposition at its source
-site. An explicit proof supplied with `by` can establish it.
+`n < k`. A strict or non-strict bound also survives adding the same term
+on either side of each operand. The checker reuses the scoped comparisons and
+constructs the corresponding Rocq monotonicity proof for each common addend.
+The search examines at most 256 candidate joins per assertion, including
+searches under common addends. If checking cannot establish an assertion or
+exhausts this allowance, the diagnostic reports the outstanding proposition at
+its source site. An explicit proof supplied with `by` can establish it.
 
 Independent focused host tests exercise fresh polymorphic instantiations,
 explicit/inferred arguments, dependent substitution, vector lengths and finite

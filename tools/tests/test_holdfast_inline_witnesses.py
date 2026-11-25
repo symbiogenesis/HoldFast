@@ -178,8 +178,66 @@ public Nat Observe(Nat n, Nat m, Nat k, Fn(Nat value) -> type[Eq<bool>(n < k, tr
     ))
 
 
+def _translated_branch_bounds() -> None:
+    source = b"""module TranslatedBounds;
+public Nat Strict(Nat n, Nat m, Nat k, Nat offset, Nat base) {
+    if (n < m) {
+        if (k < m) {
+            return n;
+        } else {
+            assert base + (n + offset) < base + (k + offset);
+            return n;
+        }
+    } else {
+        return n;
+    }
+}
+public Nat Left(Nat n, Nat m, Nat offset) {
+    if (n <= m) {
+        assert offset + n <= offset + m;
+    }
+    return n;
+}
+public Nat Right(Nat n, Nat m, Nat offset) {
+    if (m <= n) {
+        return n;
+    } else {
+        assert n + offset <= m + offset;
+        return n;
+    }
+}
+"""
+    strict = b"base + (n + offset) < base + (k + offset)"
+    with parser.cached_build(TOOLS.parent) as compiled:
+        def check(program: bytes) -> str:
+            return elaborate.elaborate(program, parser.parse_source(compiled, program, surface=True)).gallina
+
+        gallina = check(source)
+        mismatched = strict.replace(b"k + offset", b"k + m")
+        for program, outstanding in (
+            (source.replace(strict, mismatched), mismatched),
+            (source.replace(b"if (k < m)", b"if (m < k)"), strict),
+        ):
+            with raises(HoldFastError) as failure:
+                check(program)
+            ensure(failure.exception.line == 7
+                   and f"assertion could not be established: {outstanding.decode()}" in failure.exception.message,
+                   f"wrong translated bound refusal: {failure.exception}")
+
+    _replay_witnesses("TranslatedBounds", source, gallina, (
+        ("strict", b"assert " + strict + b";",
+         "forall n m k offset base, Nat.ltb n m = true -> Nat.ltb k m = false -> "
+         "Nat.ltb (Nat.add base (Nat.add n offset)) (Nat.add base (Nat.add k offset)) = true"),
+        ("on_left", b"assert offset + n <= offset + m;",
+         "forall n m offset, Nat.leb n m = true -> Nat.leb (Nat.add offset n) (Nat.add offset m) = true"),
+        ("on_right", b"assert n + offset <= m + offset;",
+         "forall n m offset, Nat.leb m n = false -> Nat.leb (Nat.add n offset) (Nat.add m offset) = true"),
+    ))
+
+
 def cases() -> list[Case]:
     return [Case("erased assertion exports its exact conditional proof", _unused_witness, lane="toolchain"),
             Case("strict branch bounds replay with their own guard", _branch_witnesses, lane="toolchain"),
             Case("strict bounds join only scoped premises within the search limit", _joined_branch_witnesses,
-                 lane="toolchain")]
+                 lane="toolchain"),
+            Case("Nat bounds preserve order under common addends", _translated_branch_bounds, lane="toolchain")]
