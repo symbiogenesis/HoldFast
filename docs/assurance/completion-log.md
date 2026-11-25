@@ -2173,6 +2173,13 @@ bound joins two path guards before adding nested common offsets. Non-strict
 bounds check both addition positions, including a false-guard premise. A
 reversed guard and unequal offsets each refuse at the assertion.
 
+The [offset cancellation replay](../../tools/tests/test_holdfast_inline_witnesses.py)
+checks four independent source-span statements in Rocq with zero assumptions.
+It removes shared left and right addends from strict and non-strict bounds,
+including false guard arms, and composes a nested cancellation with another
+path bound. Unequal offsets, reversed guards and reuse across a branch join
+each refuse at the assertion.
+
 The [locked-client replay](../../tools/tests/test_holdfast_locked_clients.py)
 instantiates public guarantees through opaque provider calls. Two independent
 Rocq consumers replay with zero assumptions. An isolated client applies the
@@ -2584,5 +2591,11 @@ Named call effects follow the resolved declaration through qualified and
 selective aliases. An identically named declaration in another module cannot
 satisfy that bound. The fixture also refuses omitted bounds on recursive and
 indirect helper calls and an omitted write on an `out` initializer.
+
+The locked record-method trial charges a receiver read when the caller
+discards the result. Omitting `reads(this)` is refused in both the provider
+and an importing record. A caller can discard a read-free method, and the
+importing result law replays in Rocq with the provider method opaque and zero
+assumptions. [Locked effect replay](../../tools/tests/test_holdfast_package_effects.py)
+
 Mandatory release export bounds and checked frontend correspondence remain open.
-[Locked effect replay](../../tools/tests/test_holdfast_package_effects.py)
