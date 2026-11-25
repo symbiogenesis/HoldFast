@@ -1666,31 +1666,37 @@ class _IntrinsicsMixin:
         return element, index.term
 
     def _check_indexed_argument_overlap(
-        self: _Elaborator, args: list[Node], positions: dict[int, _Term], environment: dict[str, _Binding]
+        self: _Elaborator, args: list[Node], positions: dict[int, _Term], shared_positions: dict[int, _Term],
+        environment: dict[str, _Binding],
     ) -> None:
         if not positions:
             return
-        roots: list[str | None] = []
+        places: list[tuple[str | None, str | None]] = []
         for arg in args:
             place = self._unwrap_group(self.node(arg["value"]))
             if place["kind"] == "unary":
                 place = self._unwrap_group(self.node(place["value"]))
             while place["kind"] in {"index", "member"}:
                 place = self._unwrap_group(self.node(place["value"]))
-            root = self.name(place["name"]) if place["kind"] == "name" else None
-            if root in self.local_borrows:
-                root = self.local_borrows[root][1]
-            roots.append(self.slice_views.get(root, root) if root is not None else None)
+            name = self.name(place["name"]) if place["kind"] == "name" else None
+            root = self.local_borrows[name][1] if name in self.local_borrows else name
+            places.append((name, self.slice_views.get(root, root) if root is not None else None))
         for i, pos in positions.items():
-            for j, other_root in enumerate(roots):
-                if i == j or roots[i] != other_root:
+            name, root = places[i]
+            for j, (other_name, other_root) in enumerate(places):
+                if i == j or root != other_root:
                     continue
-                if j in positions:
+                other = positions.get(j, shared_positions.get(j))
+                # An index is relative to its collection. Two views of one backing
+                # owner may use different coordinates for the same element.
+                if name == other_name and other is not None:
                     index_type = self.whnf(self.infer(pos))
                     ne = _constant("!=") if index_type == _NAT else _constant("int_ne_usize")
-                    if self._prove_bool_precondition(_apps(ne, pos, positions[j]), environment):
+                    if self.whnf(self.infer(other)) == index_type and self._prove_bool_precondition(
+                        _apps(ne, pos, other), environment
+                    ):
                         continue
-                raise self.fail("type", f"cannot prove indexed loan of '{roots[i]}' is disjoint from argument {j + 1}", args[i])
+                raise self.fail("type", f"cannot prove indexed loan of '{root}' is disjoint from argument {j + 1}", args[i])
 
     def _elaborate_interface_method_call(
         self: _Elaborator,
@@ -1727,6 +1733,7 @@ class _IntrinsicsMixin:
         arg_terms: list[_Term] = []
         loan_targets: dict[int, tuple[Node, _Term]] = {}
         indices: dict[int, _Term] = {}
+        shared_indices: dict[int, _Term] = {}
         seen_loan_names: set[str] = set()
         all_arg_var_names: set[str] = set()
         out_loan_names: set[str] = set()
@@ -1858,10 +1865,15 @@ class _IntrinsicsMixin:
                         if arg_mod in {"ref", "in", "move"}
                         else arg_val_node
                     )
-                    if is_ref_param and arg_ident_node["kind"] == "index":
-                        element, indices[idx] = self._indexed_call_loan(arg_ident_node, environment)
+                    if arg_mod in {"ref", "in"} and arg_ident_node["kind"] == "index":
+                        if is_ref_param:
+                            element, indices[idx] = self._indexed_call_loan(arg_ident_node, environment)
+                            loan_targets[idx] = (arg_ident_node, p_dom)
+                        else:
+                            element, index = self._read_indexed_place(arg_ident_node, environment)
+                            if self._unwrap_group(self.node(arg_ident_node["value"]))["kind"] == "name":
+                                shared_indices[idx] = index.term
                         self.unify(element.type, p_dom)
-                        loan_targets[idx] = (arg_ident_node, p_dom)
                         arg_terms.append(element.term)
                         continue
                     if is_ref_param and arg_ident_node["kind"] != "name":
@@ -1912,7 +1924,10 @@ class _IntrinsicsMixin:
                     expected_ret = self.substitute(expected_ret, cast("int", pv.value), arg_terms[j])
                 self._try_unify(expected_ret, self.expected_call_type)
         offset = int(pre_evaluated_recv is not None)
-        self._check_indexed_argument_overlap(call_args, {i - offset: pos for i, pos in indices.items()}, environment)
+        self._check_indexed_argument_overlap(
+            call_args, {i - offset: pos for i, pos in indices.items()},
+            {i - offset: pos for i, pos in shared_indices.items()}, environment,
+        )
         resolved_targs = tuple(self.whnf(t) for t in type_args)
         witness_dict, ensures_dict = self._resolve_single_interface_witness(
             iface.name, resolved_targs, environment, node

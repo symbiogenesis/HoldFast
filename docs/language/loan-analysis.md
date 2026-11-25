@@ -145,6 +145,20 @@ and Polonius Alpha modes, and validates diagnostic codes and source lines. It ru
 the observation tests for accepted configurations and emits the results with
 their fixture digests. [Recorded comparison](../assurance/completion-log.md#q25cc-compare-borrow-checking-alternatives-on-held-out-clients)
 
+The mathematical frontend checks same-collection indexed call arguments using
+scoped arithmetic facts. When an exclusive argument and another indexed
+argument share a collection, the frontend must establish that their indices
+differ. This covers exclusive pairs and shared/exclusive pairs. Distinct
+slice views of the same owner require separation in a common coordinate system
+before their relative indices can justify distinctness. In the ordered
+shared/exclusive trial, `i < j && j < 4` permits reading element `i` while
+writing back element `j`. The Rocq replay checks the returned value, the
+writeback, the frame and the unchanged failure state in the emitted
+`Span<byte>` model. The direct Rust call and coincident neighbor fail in the
+pinned modes, while the `split_at_mut` spelling passes the observations.
+[HoldFast replay](../../tools/tests/test_holdfast_loans.py#_mixed_indexed_loans) ·
+[Rust fixture](../../tools/tests/fixtures/mixed_indexed_loans.rs)
+
 If a client must restructure a loop whose last use of a view precedes a write
 to its owner, keep the original loop. Move one use past that write to produce
 the conflicting case. Freeze the accessed place, last use and expected

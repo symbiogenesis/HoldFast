@@ -1513,6 +1513,7 @@ class _Elaborator(
         val_args: list[_Term] = []
         loan_targets: dict[int, tuple[Node, _Term]] = {}
         indices: dict[int, _Term] = {}
+        shared_indices: dict[int, _Term] = {}
         by_value: list[tuple[Node, _Term]] = []
         runtime_domains: list[tuple[Node, _Term, bool]] = []
         seen_loan_names: set[str] = set()
@@ -1681,7 +1682,12 @@ class _Elaborator(
                         else self.node(node["value"])
                     )
                     if arg_mod in {"in", "ref"}:
-                        borrowed = self.expression(check_target, environment)
+                        if (arg_mod == "in" and check_target["kind"] == "index"
+                                and self._unwrap_group(self.node(check_target["value"]))["kind"] == "name"):
+                            borrowed, index = self._read_indexed_place(check_target, environment)
+                            shared_indices[idx] = index.term
+                        else:
+                            borrowed = self.expression(check_target, environment)
                         self.unify(borrowed.type, value_type.args[0])
                         argument = borrowed.term
                     else:
@@ -1698,7 +1704,7 @@ class _Elaborator(
                     specialized_term = _app(specialized_term, argument)
                 term = _app(term, argument)
                 value_type = self.substitute(value_type.args[1], param_var_id, argument)
-        self._check_indexed_argument_overlap(arguments, indices, environment)
+        self._check_indexed_argument_overlap(arguments, indices, shared_indices, environment)
         for arg_node, arg_type in by_value:
             if self._owns_fields(arg_type):
                 raise self.fail("type", "passing a value with owned fields requires an owned parameter and explicit move", arg_node)
