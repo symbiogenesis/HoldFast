@@ -21,6 +21,7 @@ from toolchain import (
     contract_diff,
     env,
     gallina_source_map,
+    graded_source,
     mathematical_authoring,
     mathematical_preview,
     packages,
@@ -302,6 +303,9 @@ def main(argv: list[str] | None = None) -> int:
     commands.add_parser("qualify", help="check independent AST/refusal fixtures and regeneration")
     arithmetic = commands.add_parser("check-arithmetic", help="kernel-check partial word operations against their checked variants")
     arithmetic.add_argument("source", type=Path)
+    grading = commands.add_parser("check-grades", help="replay a pure NatExact definition and report its binder demand")
+    grading.add_argument("source", type=Path)
+    grading.add_argument("definition", help="mathematical definition to check")
     mapping = commands.add_parser("source-map", help="publish mathematical Gallina, an ECMA-426 map and its bindings")
     mapping.add_argument("source", type=Path)
     mapping.add_argument("--output", type=Path, required=True, metavar="NEW_DIRECTORY")
@@ -469,6 +473,8 @@ def main(argv: list[str] | None = None) -> int:
             output = _lint_preview(root, args.source, args.line, args.column)
         elif args.command == "check-arithmetic":
             output = holdfast_elaboration_check.check_arithmetic(root, args.source)
+        elif args.command == "check-grades":
+            output = graded_source.check(root, args.source, args.definition)
         elif args.command == "source-map":
             output = gallina_source_map.export(root, args.source, args.output)
         elif args.command == "qualify-remarks":

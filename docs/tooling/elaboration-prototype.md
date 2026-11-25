@@ -12,6 +12,32 @@ The prototype supports type-valued parameters, definitional reduction and
 compositional constants. General descriptor reflection and generated
 declarations are part of the [metaprogramming design](../extensions/metaprogramming.md).
 
+## Pure graded source replay
+
+Run `python tools/run.py holdfast-parser check-grades tools/tests/fixtures/graded-dependent.hf Specialize`
+to check a definition and its same-module dependencies in the
+[pure graded calculus](../../tools/rocq/graded_pure.v). This investigation accepts
+lambdas with typed parameters and pure `Fn` telescopes over `Nat` and
+`Vec<Nat, n>` with explicit
+`@ NatExact(n)` computation allowances. Natural applications and type indices
+use variables, decimal literals and addition. Applications use positional
+arguments. The checker computes type use separately and compares the dependent
+signature up to renaming of binders.
+
+The report binds the source digest and declaration span to the generated Rocq
+replay and the digests of its support files. It gives each binder's exact
+computation and type demand, the dependencies in its annotation and the
+dependencies in the final result type. The replay proves equality with the
+reported rows. In `Specialize`, the argument `n + n` contributes zero
+computation uses and four type uses of `n`, with two in the returned parameter
+type and two in the returned result type.
+[Source fixture](../../tools/tests/fixtures/graded-dependent.hf) ·
+[Source replay predicate](../../tools/rocq/graded_source.v)
+
+The evidence covers the projected pure term under exact natural demand. The
+[extension qualification](../extensions/graded-foundation.md#extension-selection-and-qualification)
+owns source correspondence, evaluation, erasure and domain generalization.
+
 ## Client upgrade replay
 
 `python tools/run.py holdfast-parser check-upgrade old.hf new.hf --client client.hf`

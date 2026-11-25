@@ -1,0 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
+module GradedDependent;
+
+public definition Fn(Nat length @ NatExact(0), Vec<Nat, length> values @ NatExact(1)) -> Vec<Nat, length> PreserveLength() =>
+    (Nat size @ NatExact(0), Vec<Nat, size> items @ NatExact(1)) => items;
+
+public definition Fn(Vec<Nat, (n + n)> values @ NatExact(1)) -> Vec<Nat, (n + n)> Specialize(Nat n @ NatExact(0)) =>
+    PreserveLength()(n + n);
+
+public definition Nat Quadruple(Nat n @ NatExact(4)) =>
+    ((Nat x @ NatExact(2)) => x + x)(n + n);
