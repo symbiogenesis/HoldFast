@@ -2794,14 +2794,25 @@ write or an explicitly restored view.
 [HoldFast source](../../tools/tests/fixtures/conditional-view-return.hf) ·
 [Kernel replay](../../tools/tests/test_holdfast_loan_returns.py#_conditional_view_return)
 
+The common-return trial takes a view before a conditional and returns it
+after the owner writebacks join. Each arm establishes disjointness with its
+own index facts. Rocq checks the view's byte, both writebacks, the frame
+and the out-of-bounds exit with closed assumptions. A coincident write in
+either arm reaches the source check and is refused. All four pinned Rust
+modes reject the direct spelling and its coincident neighbor with `E0506`.
+The `get_disjoint_mut` rewrite passes the returned-byte and owner-state
+observations for all six indices in each mode.
+[HoldFast replay](../../tools/tests/test_holdfast_loan_returns.py#_joined_view_return) ·
+[Rust fixture](../../tools/tests/fixtures/joined_view_return.rs)
+
 Legacy also accepts the loop-carried conditional reborrow. Its executed test
 checks the visit counts when the cursor stays on a node, advances and reaches
 the end. NLL and Alpha report `E0499` and `E0503` at the loop reborrow. All
 three reject the neighbor that clears the cursor with the node loan still live.
 [Loop fixture](../../tools/tests/fixtures/loop_reborrowing.rs)
 
-`python tools/run.py holdfast-borrow-compare` replays all 64 Rust configurations
-and executes the 20 accepted observation tests. The unflagged default
+`python tools/run.py holdfast-borrow-compare` replays all 76 Rust configurations
+and executes the 24 accepted observation tests. The unflagged default
 agrees with Alpha on these fixtures. HoldFast loop source and restoration
 replay, held-out clients, checker cost measurements and checked runtime
 correspondence remain open.

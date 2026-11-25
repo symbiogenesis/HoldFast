@@ -1715,10 +1715,24 @@ class _IntrinsicsMixin:
         environment: dict[str, _Binding], site: Node,
     ) -> None:
         base = self.whnf(base)
-        owner = changed_owners.get(self._root_span(base))
-        if owner is None:
-            return
-        name, current = owner
+        backing: set[_Term] = set()
+        decisions: dict[int, _Term] = {}
+        pending = [base]
+        while pending:
+            root = self._root_span(pending.pop())
+            if root.kind == "if" and id(root) not in decisions:
+                decisions[id(root)] = root
+                pending.extend(root.args[2:])
+            elif root.kind == "var":
+                backing.add(root)
+        for root, (name, current) in changed_owners.items():
+            if root in backing:
+                self._check_returned_slice_history(base, start, length, name, current, environment, site)
+
+    def _check_returned_slice_history(
+        self: _Elaborator, base: _Term, start: _Term, length: _Term, name: str, current: _Term,
+        environment: dict[str, _Binding], site: Node,
+    ) -> None:
         while base != current:
             parent, operands = self.spine(base)
             if parent == _constant("Span_ReadOnly") and len(operands) == 2:
@@ -1729,21 +1743,37 @@ class _IntrinsicsMixin:
             start = self._add_usize_offset(operands[2], start)
             base = self.whnf(operands[1])
         one = _int_term(_INT_SPECS["usize"], 1)
-        while current != base:
-            update, operands = self.spine(current)
-            if update == _constant("Span_Write") and len(operands) == 4:
-                index = operands[2]
-                if self.whnf(length) == one:
-                    separate = _apps(_constant("int_ne_usize"), index, start)
-                else:
-                    end = self._add_usize_offset(start, length)
-                    before = _apps(_constant("int_lt_usize"), index, start)
-                    after = _apps(_constant("int_le_usize"), end, index)
-                    separate = _apps(_constant("||"), before, after)
-                if self._prove_bool_precondition(separate, environment):
-                    current = self.whnf(operands[1])
-                    continue
-            raise self.fail("type", f"cannot prove returned slice is disjoint from an update to '{name}'", site)
+        pending: list[tuple[_Term, tuple[_Term, ...]]] = [(current, ())]
+        saved_facts = len(self.active_facts)
+        try:
+            while pending:
+                self.tick()
+                current, guards = pending.pop()
+                self.active_facts[saved_facts:] = guards
+                while current != base:
+                    if current.kind == "if":
+                        _, condition, yes, no = current.args
+                        negative = self._negate_bool_term(condition)
+                        for guard, opposite, branch in ((condition, negative, yes), (negative, condition, no)):
+                            if not self._prove_bool_precondition(opposite, environment):
+                                pending.append((self.whnf(branch), (*guards, guard)))
+                        break
+                    update, operands = self.spine(current)
+                    if update == _constant("Span_Write") and len(operands) == 4:
+                        index = operands[2]
+                        if self.whnf(length) == one:
+                            separate = _apps(_constant("int_ne_usize"), index, start)
+                        else:
+                            end = self._add_usize_offset(start, length)
+                            before = _apps(_constant("int_lt_usize"), index, start)
+                            after = _apps(_constant("int_le_usize"), end, index)
+                            separate = _apps(_constant("||"), before, after)
+                        if self._prove_bool_precondition(separate, environment):
+                            current = self.whnf(operands[1])
+                            continue
+                    raise self.fail("type", f"cannot prove returned slice is disjoint from an update to '{name}'", site)
+        finally:
+            del self.active_facts[saved_facts:]
 
     def _check_indexed_argument_overlap(
         self: _Elaborator, args: list[Node], positions: dict[int, _Term], shared_positions: dict[int, _Term],

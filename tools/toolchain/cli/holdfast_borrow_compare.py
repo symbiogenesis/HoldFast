@@ -31,6 +31,7 @@ class Trial:
 def trials(mode: str) -> tuple[Trial, ...]:
     sibling = (("E0506", "sibling-write"),) if mode == "off" else ()
     loop = () if mode == "legacy" else (("E0499", "loop-reborrow"), ("E0503", "loop-reborrow"))
+    nonzero_write = ("E0506", "nonzero-write")
     return (
         Trial("indexed_loans.rs", "direct", (("E0499", "direct-conflict"),)),
         Trial("indexed_loans.rs", "coincident", (("E0499", "coincident-conflict"),)),
@@ -46,6 +47,9 @@ def trials(mode: str) -> tuple[Trial, ...]:
         Trial("composed_view_loans.rs", None),
         Trial("conditional_loans.rs", None, sibling),
         Trial("conditional_loans.rs", "live_conflict", (("E0506", "live-conflict"), *sibling)),
+        Trial("joined_view_return.rs", "direct", (("E0506", "disjoint-zero-write"), nonzero_write)),
+        Trial("joined_view_return.rs", "coincident", (("E0506", "coincident-zero-write"), nonzero_write)),
+        Trial("joined_view_return.rs", None),
         Trial("loop_reborrowing.rs", None, loop),
         Trial("loop_reborrowing.rs", "live_conflict", (("E0506", "live-conflict"),)),
     )
@@ -62,7 +66,7 @@ def _errors(output: str, fixture: str) -> list[tuple[str, int]]:
         if code is None and not spans and message["message"].startswith("aborting due to "):
             continue
         if code is None:
-            raise ValueError(message["message"])
+            raise ValueError((message.get("rendered") or message["message"]).strip())
         primary = [span for span in spans if span["is_primary"] and span["file_name"] == fixture]
         if len(primary) != 1:
             raise ValueError(f"unexpected error location: {message['message']}")
@@ -85,7 +89,7 @@ def _run_trial(compiler: list[str], mode: str, trial: Trial, work: Path) -> dict
     if trial.configuration is not None:
         argv.extend(("--cfg", trial.configuration))
     argv.append(trial.fixture)
-    binary = work / "borrow-observations.exe"
+    binary = work / f"{Path(trial.fixture).stem}-{mode}-{trial.configuration or 'plain'}.exe"
     argv.extend(("--emit=mir=-",) if trial.expected else ("-o", str(binary)))
     compiled = subprocess.run(argv, cwd=work, capture_output=True, text=True,
                               encoding="utf-8", check=False, timeout=TIMEOUT)

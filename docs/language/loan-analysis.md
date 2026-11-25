@@ -183,6 +183,17 @@ update the owner and return an error. The Rocq replay checks the returned byte,
 the owner post-state on each exit, and the untouched elements.
 [Source and replay](../../tools/tests/test_holdfast_loan_returns.py#_conditional_view_return)
 
+When owner updates join before a common return, the frontend checks each
+reachable write history using the facts on that branch. A view of `values[i]`
+can survive a write at index one when `i == 0` and a write at index zero
+when `i != 0`. Each alternative must preserve the view's extent, so a write
+at `i` in either branch is refused. The Rocq model checks the returned byte,
+the branch-specific writeback and the frame. The pinned Rust modes reject
+the same direct source pattern. The `get_disjoint_mut` spelling checks
+overlap at runtime and passes the observations in all four modes.
+[HoldFast replay](../../tools/tests/test_holdfast_loan_returns.py#_joined_view_return) ·
+[Rust fixture](../../tools/tests/fixtures/joined_view_return.rs)
+
 If a client must restructure a loop whose last use of a view precedes a write
 to its owner, keep the original loop. Move one use past that write to produce
 the conflicting case. Freeze the accessed place, last use and expected

@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: Apache-2.0
+module JoinedViewReturn;
+
+public record ByteView<region 'owner>(in<'owner> Span<byte> Bytes);
+
+public Result<ByteView<'owner>, bool> InspectAndPatch<region 'owner>(ref<'owner> Span<byte> values, usize i)
+    effects writes(values)
+    requires values.CanRead && values.CanWrite
+    requires values.Length == 4usize
+{
+    if (i < 4usize) {
+        let selected = Span.ReadOnly(Span.Slice(values, i, 1usize));
+        if (i == 0usize) {
+            values[1usize] = 8u8;
+        } else {
+            values[0usize] = 9u8;
+        }
+        return Ok(ByteView(in selected));
+    }
+    return Err(false);
+}
