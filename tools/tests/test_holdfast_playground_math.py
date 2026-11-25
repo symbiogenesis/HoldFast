@@ -723,6 +723,23 @@ const guardedSource = [
   "public definition Nat Pick(Nat v) => if (true && v is Succ(n) && n is Succ(rest)) rest else 10;",
   "public Nat Read(Nat v) { if (v is Succ(n) && n > 1) { return n; } else { return 0; } }",
 ].join("\n");
+for (const [expression, expected] of [
+  ["if (5 <= 2) 2 - 5 else Nat.SaturatingSub(2, 5)", "0"],
+  ["Nat.SaturatingSub(5, 2)", "3"],
+  ["17 / 5", "3"], ["17 % 5", "2"],
+]) {
+  const result = await mod.browserApi("/api/evaluate", { source: guardedSource, expression, valueType: "Nat" });
+  if (!result.ok || result.value !== expected) {
+    throw new Error(`Nat arithmetic preview evaluated ${expression} incorrectly: ${JSON.stringify(result)}`);
+  }
+}
+for (const [expression, diagnostic] of [["2 - 5", "Nat subtraction"],
+    ["17 / 0", "nonzero divisor"], ["17 % 0", "nonzero divisor"]]) {
+  const result = await mod.browserApi("/api/evaluate", { source: guardedSource, expression, valueType: "Nat" });
+  if (result.ok || result.error?.kind !== "type" || !result.error.message.includes(diagnostic)) {
+    throw new Error(`Nat arithmetic preview accepted ${expression}: ${JSON.stringify(result)}`);
+  }
+}
 for (const source of [ordinarySource, guardedSource]) {
   const result = await mod.browserApi("/api/evaluate", {
     source, expression: "if (4 is Succ(prev) && prev > 1) prev else 0", valueType: "Nat",

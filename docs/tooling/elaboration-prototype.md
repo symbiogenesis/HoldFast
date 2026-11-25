@@ -423,6 +423,21 @@ spellings before constructing terms. Hygienic generated names and a closed
 builtin mapping prevent Gallina injection. No raw Gallina, axiom, admission,
 unchecked hole or foreign proof escape is emitted.
 
+## Natural arithmetic
+
+The elaborator checks the [Nat operand requirements](../language/reference.md#expressions-and-operators)
+at each use of `-`, `/` or `%`. Closed operands, branch conditions and
+`requires` or `where` clauses can supply the necessary facts. For example,
+`requires used <= total` permits `total - used` in the function body and
+requires callers to establish the bound. An unproved requirement stops
+elaboration at the operation.
+
+`Nat.SaturatingSub(a, b)` is total and returns zero when `b > a`.
+Natural arithmetic emits the corresponding Rocq natural operations after
+elaboration checks their source conditions. Calls such as `(-)(a, b)`
+check the same requirements. To pass one of these operators as an
+unconstrained function, use a lambda that establishes the premise in its body.
+
 ## Frozen static tables
 
 A mathematical `const` can hold a length-indexed vector of static scalars or

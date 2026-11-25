@@ -456,6 +456,7 @@ _GALLINA = {
     "PrefixModel": "holdfast_PrefixModel",
     "NatFold": "holdfast_NatFold",
     "+": "Corelib.Init.Nat.add", "*": "Corelib.Init.Nat.mul", "-": "Corelib.Init.Nat.sub",
+    "Nat.SaturatingSub": "Corelib.Init.Nat.sub",
     "/": "Corelib.Init.Nat.div", "%": "Corelib.Init.Nat.modulo",
     "<=": "Corelib.Init.Nat.leb", "<": "Corelib.Init.Nat.ltb", ">=": "holdfast_ge", ">": "holdfast_gt",
     "eq_nat": "Corelib.Init.Nat.eqb", "ne_nat": "holdfast_ne_nat",

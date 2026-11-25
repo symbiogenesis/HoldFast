@@ -45,15 +45,19 @@ def fixtures(example: bytes) -> tuple[Fixture, ...]:
         ("boolean-logic-and-precedence", b"module M; public bool F(bool flag) => !flag || false && true;"),
         ("nested-negation", b"module M; public bool F(bool flag) => !!flag;"),
         ("natural-subtraction-and-precedence", b"module M; public Nat F() => 2 + 3 * 4 - 5 - 1;"),
-        ("natural-underflow", b"module M; public const Nat Underflow = 2 - 5;"),
+        ("natural-saturating-subtraction", b"module M; public const Nat Underflow = Nat.SaturatingSub(2, 5);"),
+        ("qualified-call-trivia", b"module M; public Nat F(Nat n) => Nat // before dot\r\n. "
+         b"// before member\r\nSaturatingSub(n, 2);"),
+        ("guarded-natural-subtraction", b"module M; public Nat F(Nat a, Nat b) { "
+         b"if (b <= a) { return a - b; } else { return 0; } }"),
         ("remaining-comparisons", b"module M; public bool F(Nat left, Nat right) => "
          b"left != right && left < right || left > right && left >= right;"),
         ("boolean-inequality", b"module M; public bool F(bool flag) => flag != false;"),
         ("division-remainder-precedence", b"module M; public Nat F(Nat value) => 2 + value / 3 % 4 * 2;"),
         ("division-remainder-static", b"module M; public const Nat Limit = 17 / 5; "
-         b"public Nat F(const Nat divisor, Nat value) { const Nat offset = 17 % divisor; "
-         b"return value / divisor + offset; } public Nat G(Nat value) => F(divisor: Limit, value: value);"),
-        ("division-zero", b"module M; public const Nat Quotient = 17 / 0; public const Nat Remainder = 17 % 0;"),
+         b"public Nat F(const Nat divisor, Nat value) { if (divisor != 0) { const Nat offset = 17 % divisor; "
+         b"return value / divisor + offset; } else { return 0; } } "
+         b"public Nat G(Nat value) => F(divisor: Limit, value: value);"),
         ("division-comment-boundary", b"module M; public Nat F() => 8// / in comment\r\n/2;"),
         ("short-circuit-static-arithmetic", b"module M; public const bool Ready = "
          b"false && (" + b"9" * 256 + b" * 2 == 0);"),
@@ -135,12 +139,18 @@ def fixtures(example: bytes) -> tuple[Fixture, ...]:
         ("conjunction-type", "public bool F() => 1 && true;", "type"),
         ("disjunction-dead-type", "public bool F() => true || 2;", "type"),
         ("subtraction-type", "public Nat F() => true - 1;", "type"),
+        ("natural-underflow", "public const Nat Underflow = 2 - 5;", "type"),
+        ("natural-unproved-subtraction", "public Nat F(Nat a, Nat b) => a - b;", "type"),
         ("division-type", "public Nat F() => true / 2;", "type"),
         ("remainder-type", "public Nat F() => 2 % false;", "type"),
-        ("division-zero-runtime-input", "public Nat F(Nat runtime) { "
-         "const Nat Wrong = runtime / 0; return Wrong; }", "unsupported"),
-        ("remainder-zero-runtime-input", "public Nat F(Nat runtime) { "
-         "const Nat Wrong = 0 % runtime; return Wrong; }", "unsupported"),
+        ("division-zero", "public const Nat Quotient = 17 / 0;", "type"),
+        ("remainder-zero", "public const Nat Remainder = 17 % 0;", "type"),
+        ("natural-unproved-division", "public Nat F(Nat a, Nat b) => a / b;", "type"),
+        ("unknown-natural-intrinsic", "public Nat F() => Nat.Missing();", "name"),
+        ("division-runtime-input", "public Nat F(Nat runtime) { "
+         "const Nat Wrong = runtime / 1; return Wrong; }", "unsupported"),
+        ("remainder-runtime-input", "public Nat F(Nat runtime) { "
+         "const Nat Wrong = runtime % 1; return Wrong; }", "unsupported"),
         ("ordering-type", "public bool F() => true < false;", "type"),
         ("inequality-type", "public bool F() => 1 != false;", "type"),
         ("short-circuit-dead-name", "public bool F() => false && missing;", "name"),

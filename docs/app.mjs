@@ -114,11 +114,22 @@ public bool Main() => CanProceed(value: 8, paused: false);
     ],
     source: `module NaturalArithmetic;
 
-/// Natural subtraction stops at zero: Remaining(5, 8) is zero.
-public Nat Remaining(Nat total, Nat used) => total - used;
+/// Explicit saturation gives zero if the used amount exceeds the total.
+public Nat Remaining(Nat total, Nat used) => Nat.SaturatingSub(total, used);
 
-/// Multiplication binds tighter; addition and subtraction group left to right.
-public Nat Adjusted(Nat value) => value * 3 + 2 - 4;
+/// Subtract the fixed adjustment when the scaled value covers it.
+public Nat Adjusted(Nat value)
+{
+    let scaled = value * 3 + 2;
+    if (4 <= scaled)
+    {
+        return scaled - 4;
+    }
+    else
+    {
+        return 0;
+    }
+}
 
 /// Ordering can decide whether any mathematical capacity remains.
 public bool HasRoom(Nat total, Nat used) => total > used;
@@ -134,27 +145,53 @@ public Nat Main() => Remaining(total: 12, used: 5);
       { expression: "Groups(count: 17, size: 5)", valueType: "Nat" },
       { expression: "Leftover(17, 5)", valueType: "Nat" },
       { expression: "Regroup(20, 3)", valueType: "Nat" },
-      { expression: "ZeroGroups == 0 && Unchanged == 17", valueType: "bool" },
+      { expression: "HasFullGroup(20, 0)", valueType: "bool" },
     ],
     source: `module Grouping;
 
-/// Divide a quantity into complete groups: Groups(17, 5) is 3.
-public Nat Groups(Nat count, Nat size) => count / size;
+/// A zero size permits no complete groups.
+public Nat Groups(Nat count, Nat size)
+{
+    if (size != 0)
+    {
+        return count / size;
+    }
+    else
+    {
+        return 0;
+    }
+}
 
-/// Keep the amount left over: Leftover(17, 5) is 2.
-public Nat Leftover(Nat count, Nat size) => count % size;
+/// At size zero every item stays ungrouped.
+public Nat Leftover(Nat count, Nat size)
+{
+    if (size != 0)
+    {
+        return count % size;
+    }
+    else
+    {
+        return count;
+    }
+}
 
-/// Multiplication, division and remainder group from left to right.
-/// Regroup(20, 3) is 12; 20 / (3 * 2) is 3.
-public Nat Regroup(Nat count, Nat size) => count / size * 2;
+/// Division and multiplication group from left to right.
+public Nat Regroup(Nat count, Nat size)
+{
+    if (size != 0)
+    {
+        return count / size * 2;
+    }
+    else
+    {
+        return 0;
+    }
+}
 
-/// Mathematical Nat division is total: 17 / 0 is 0.
-public const Nat ZeroGroups = Groups(17, 0);
+/// A full group needs a positive size and enough items.
+public bool HasFullGroup(Nat count, Nat size) => Groups(count, size) > 0;
 
-/// The remainder with a zero divisor preserves the original count.
-public const Nat Unchanged = Leftover(17, 0);
-
-/// Try Leftover(17, 5), Regroup(20, 3), ZeroGroups, and Unchanged.
+/// Try Leftover(17, 5), Regroup(20, 3), and HasFullGroup(20, 0).
 public Nat Main() => Groups(count: 17, size: 5);
 `,
   },
@@ -430,7 +467,7 @@ public lemma SmallBufferFailsClosed()
 public record Counter(Nat Value, Nat Limit)
 {
     public bool AtLimit => this.Value >= this.Limit;
-    public Nat Remaining => this.Limit - this.Value;
+    public Nat Remaining => Nat.SaturatingSub(this.Limit, this.Value);
 }
 
 /// Top-level expression properties are pure, parameterless computed reads.
@@ -598,6 +635,7 @@ const PURE_UNSUPPORTED = new Set([
 
 const PURE_TWO_CHAR_SYMBOLS = new Set(["=>", "==", "!=", "<=", ">=", "&&", "||"]);
 const PURE_ONE_CHAR_SYMBOLS = new Set([
+  ".",
   "{",
   "}",
   "(",
@@ -1147,7 +1185,16 @@ class PureParser {
       return makeExpr("group", "", tok.site, [inner]);
     }
     if (tok.kind === "word") {
-      const name = this.parseName("identifier");
+      const qualified = tok.text === "Nat" && this.peek().text === ".";
+      let name;
+      if (qualified) {
+        this.advance();
+        this.expect("symbol", ".");
+        const member = this.parseName("Nat operation");
+        name = { text: `Nat.${member.text}`, site: tok.site };
+      } else {
+        name = this.parseName("identifier");
+      }
       if (this.match("symbol", "(")) {
         const args = [];
         const labels = [];
@@ -1167,6 +1214,7 @@ class PureParser {
         }
         return makeExpr("call", name.text, name.site, args, labels);
       }
+      if (qualified) this.expect("symbol", "(");
       return makeExpr("name", name.text, name.site);
     }
     throw new HoldFastError(
@@ -1204,6 +1252,46 @@ const GALLINA_TYPES = Object.freeze({
 });
 const GALLINA_TRUE = "Corelib.Init.Datatypes.true";
 const GALLINA_FALSE = "Corelib.Init.Datatypes.false";
+const PURE_SATURATING_SUB = "Nat.SaturatingSub";
+const PURE_NAT_OPERATIONS = new Map([
+  ["+", "add"], ["-", "sub"], ["*", "mul"], ["/", "div"], ["%", "modulo"],
+  [PURE_SATURATING_SUB, "sub"],
+]);
+const NAT_PREMISES = new Map([
+  ["-", "Nat subtraction requires proof that the left operand is at least the right operand. Use Nat.SaturatingSub to clamp at zero"],
+  ["/", "Nat division requires proof of a nonzero divisor"],
+  ["%", "Nat remainder requires proof of a nonzero divisor"],
+]);
+
+function natArithmeticError(op, site) {
+  return new HoldFastError("type", site.line, site.column, NAT_PREMISES.get(op));
+}
+
+function natArithmeticResult(op, left, right) {
+  if (op === "+") return left + right;
+  if (op === "*") return left * right;
+  if (op === PURE_SATURATING_SUB) return left < right ? 0n : left - right;
+  if (op === "-") return left < right ? null : left - right;
+  if (right === 0n) return null;
+  return op === "/" ? left / right : left % right;
+}
+
+function purePremise(op, left, right) {
+  if ((op === "==" || op === "!=") && left > right) [left, right] = [right, left];
+  return JSON.stringify([op, left, right]);
+}
+
+function pureComparisonPremises(op, left, right) {
+  if (op === ">" || op === ">=") [op, left, right] = [op === ">" ? "<" : "<=", right, left];
+  let inverse;
+  if (op === "==" || op === "!=") inverse = purePremise(op === "==" ? "!=" : "==", left, right);
+  else inverse = purePremise(op === "<" ? "<=" : "<", right, left);
+  return { whenTrue: [purePremise(op, left, right)], whenFalse: [inverse] };
+}
+
+function pureProofTerm(rendered, decided) {
+  return decided?.natural == null ? rendered : gallinaStaticValue(decided.natural);
+}
 
 function gallinaType(valueType) {
   return GALLINA_TYPES[valueType];
@@ -1231,6 +1319,30 @@ function exprDependsOnSymbolic(expr, env) {
     }
   }
   return false;
+}
+
+function requirePureStatic(expr, runtimeNames) {
+  const stack = [expr];
+  while (stack.length) {
+    const current = stack.pop();
+    if (current.kind === "name" && runtimeNames.has(current.value)) {
+      throw new HoldFastError(
+        "unsupported", current.site.line, current.site.column,
+        `required-static expression cannot depend on runtime binding '${current.value}'`
+      );
+    }
+    for (let i = current.children.length - 1; i >= 0; i -= 1) stack.push(current.children[i]);
+  }
+}
+
+function checkPureSaturatingSub(item) {
+  if (item.children.length !== 2) {
+    throw new HoldFastError("type", item.site.line, item.site.column,
+      `'${item.value}' expects 2 arguments, got ${item.children.length}`);
+  }
+  if (item.labels.some((label) => label != null)) {
+    throw new HoldFastError("type", item.site.line, item.site.column, `'${item.value}' takes positional arguments`);
+  }
 }
 
 function checkPureCallArguments(item, sig, facts) {
@@ -1477,6 +1589,15 @@ class PureStaticEvaluator {
       }
       return !operand;
     }
+    if (item.kind === "call" && item.value === PURE_SATURATING_SUB) {
+      checkPureSaturatingSub(item);
+      const left = this.evalExpr(item.children[0], env, runtimeNames, facts);
+      const right = this.evalExpr(item.children[1], env, runtimeNames, facts);
+      if (typeof left !== "bigint" || typeof right !== "bigint") {
+        throw new HoldFastError("type", item.site.line, item.site.column, `'${item.value}' requires Nat operands`);
+      }
+      return natArithmeticResult(item.value, left, right);
+    }
     if (item.kind === "call") {
       const callee = String(item.value);
       const sig = this.functions.get(callee);
@@ -1540,23 +1661,6 @@ class PureStaticEvaluator {
         );
       }
       if ((op === "&&" && !left) || (op === "||" && left)) {
-        const rightType = inferPureExpression(
-          item.children[1],
-          env,
-          this.constants,
-          this.functions,
-          this,
-          runtimeNames,
-          null
-        )[0];
-        if (rightType !== "bool") {
-          throw new HoldFastError(
-            "type",
-            item.site.line,
-            item.site.column,
-            `operator '${op}' requires bool operands`
-          );
-        }
         return left;
       }
       const right = this.evalExpr(item.children[1], env, runtimeNames, facts);
@@ -1594,19 +1698,16 @@ class PureStaticEvaluator {
     if (op === "<=") return left <= right;
     if (op === ">") return left > right;
     if (op === ">=") return left >= right;
-    let value;
-    if (op === "+") value = left + right;
-    else if (op === "-") value = left > right ? left - right : 0n;
-    else if (op === "*") value = left * right;
-    else if (op === "/") value = right === 0n ? 0n : left / right;
-    else value = right === 0n ? left : left % right;
+    const value = natArithmeticResult(op, left, right);
+    if (value === null) throw natArithmeticError(op, item.site);
     return boundedNatural(value, item.site);
   }
 }
 
-function inferPureExpression(item, env, constants, functions, evaluator, runtimeNames, facts) {
+function inferPureExpression(item, env, constants, functions, evaluator, runtimeNames, facts, premises = []) {
   if (item.kind === "nat") {
-    return ["Nat", `(${BigInt(String(item.value).replace(/_/g, "")).toString()} : ${GALLINA_TYPES.Nat})`];
+    const natural = BigInt(String(item.value).replace(/_/g, ""));
+    return ["Nat", gallinaStaticValue(natural), { natural, minimum: natural }];
   }
   if (item.kind === "bool") {
     return ["bool", item.value ? GALLINA_TRUE : GALLINA_FALSE];
@@ -1619,7 +1720,8 @@ function inferPureExpression(item, env, constants, functions, evaluator, runtime
       functions,
       evaluator,
       runtimeNames,
-      facts
+      facts,
+      premises
     );
   }
   if (item.kind === "name") {
@@ -1627,16 +1729,21 @@ function inferPureExpression(item, env, constants, functions, evaluator, runtime
     const local = env.get(name);
     if (local !== undefined) {
       if (facts && local[2] >= 0) facts.reference(local[2], item.site);
-      return [local[0], local[4] || `v_${name}`];
+      const natural = local[0] === "Nat" && typeof local[1] === "bigint" ? local[1] : null;
+      const decided = natural === null ? local[5] : { natural, minimum: natural };
+      return [local[0], local[4] || `v_${name}`, decided];
     }
     const constant = constants.get(name);
     if (constant !== undefined) {
       if (facts && constant[2] >= 0) facts.reference(constant[2], item.site);
-      return [constant[0], `c_${name}`];
+      const decided = constant[0] === "Nat" ? { natural: constant[1], minimum: constant[1] } : undefined;
+      return [constant[0], `c_${name}`, decided];
     }
     throw new HoldFastError("name", item.site.line, item.site.column, `unknown variable '${name}'`, name);
   }
-  if (item.kind === "call") {
+  if (item.kind === "call" && item.value === PURE_SATURATING_SUB) {
+    checkPureSaturatingSub(item);
+  } else if (item.kind === "call") {
     const callee = String(item.value);
     const sig = functions.get(callee);
     if (!sig) {
@@ -1656,8 +1763,6 @@ function inferPureExpression(item, env, constants, functions, evaluator, runtime
     for (const [k, v] of env.entries()) {
       if (v[1] !== null && v[1] !== undefined) {
         staticEnv.set(k, [v[0], v[1], v[2]]);
-      } else if (v[3]) {
-        staticEnv.set(k, [v[0], v[0] === "Nat" ? 0n : false, v[2]]);
       }
     }
     const renderedArgs = [];
@@ -1673,7 +1778,8 @@ function inferPureExpression(item, env, constants, functions, evaluator, runtime
         functions,
         evaluator,
         runtimeNames,
-        facts
+        facts,
+        premises
       );
       if (actual !== expected) {
         throw new HoldFastError(
@@ -1684,8 +1790,9 @@ function inferPureExpression(item, env, constants, functions, evaluator, runtime
         );
       }
       if (sig.constIndices.has(i)) {
-        const val = evaluator.evalExpr(child, staticEnv, runtimeNames, false);
+        requirePureStatic(child, runtimeNames);
         if (!exprDependsOnSymbolic(child, env)) {
+          const val = evaluator.evalExpr(child, staticEnv, runtimeNames, false);
           closedStaticArgs.set(sig.parameterNames[i], val);
         } else {
           allConstClosed = false;
@@ -1728,14 +1835,15 @@ function inferPureExpression(item, env, constants, functions, evaluator, runtime
     return [sig.result, renderedArgs.length > 0 ? `(${target} ${renderedArgs.join(" ")})` : target];
   }
   if (item.kind === "unary") {
-    const [operandType, rendered] = inferPureExpression(
+    const [operandType, rendered, operand] = inferPureExpression(
       item.children[0],
       env,
       constants,
       functions,
       evaluator,
       runtimeNames,
-      facts
+      facts,
+      premises
     );
     if (operandType !== "bool") {
       throw new HoldFastError(
@@ -1745,28 +1853,37 @@ function inferPureExpression(item, env, constants, functions, evaluator, runtime
         "operator '!' requires a bool operand"
       );
     }
-    return ["bool", `(if ${rendered} then ${GALLINA_FALSE} else ${GALLINA_TRUE})`];
+    return ["bool", `(if ${rendered} then ${GALLINA_FALSE} else ${GALLINA_TRUE})`, {
+      whenTrue: operand?.whenFalse, whenFalse: operand?.whenTrue,
+    }];
   }
-  const [lt, lr] = inferPureExpression(
+  const op = String(item.value);
+  const [lt, lr, left] = inferPureExpression(
     item.children[0],
     env,
     constants,
     functions,
     evaluator,
     runtimeNames,
-    facts
+    facts,
+    premises
   );
-  const [rt, rr] = inferPureExpression(
+  let rightPremises = premises;
+  if (op === "&&" && left?.whenTrue) rightPremises = [...premises, ...left.whenTrue];
+  if (op === "||" && left?.whenFalse) rightPremises = [...premises, ...left.whenFalse];
+  const [rt, rr, right] = inferPureExpression(
     item.children[1],
     env,
     constants,
     functions,
     evaluator,
     runtimeNames,
-    facts
+    facts,
+    rightPremises
   );
-  const op = String(item.value);
-  if (op === "+" || op === "-" || op === "*" || op === "/" || op === "%") {
+  const a = pureProofTerm(lr, left);
+  const b = pureProofTerm(rr, right);
+  if (PURE_NAT_OPERATIONS.has(op)) {
     if (lt !== "Nat" || rt !== "Nat") {
       throw new HoldFastError(
         "type",
@@ -1775,14 +1892,33 @@ function inferPureExpression(item, env, constants, functions, evaluator, runtime
         `operator '${op}' requires Nat operands`
       );
     }
-    const fn = {
-      "+": "Corelib.Init.Nat.add",
-      "-": "Corelib.Init.Nat.sub",
-      "*": "Corelib.Init.Nat.mul",
-      "/": "Corelib.Init.Nat.div",
-      "%": "Corelib.Init.Nat.modulo",
-    }[op];
-    return ["Nat", `(${fn} ${lr} ${rr})`];
+    const compare = (relation, x, y) => premises.includes(purePremise(relation, x, y));
+    const closedValue = (child) => exprDependsOnSymbolic(child, env)
+      ? null : evaluator.evalExpr(child, env, runtimeNames, false);
+    const minLeft = left?.minimum ?? 0n;
+    const minRight = right?.minimum ?? 0n;
+    if (op === "-" && !(a === b || (right?.natural != null && minLeft >= right.natural)
+        || compare("<=", b, a) || compare("<", b, a) || compare("==", a, b))) {
+      const bound = closedValue(item.children[1]);
+      if (bound === null || (minLeft < bound && (closedValue(item.children[0]) ?? -1n) < bound)) {
+        throw natArithmeticError(op, item.site);
+      }
+    }
+    if (op === "/" || op === "%") {
+      const zero = gallinaStaticValue(0n);
+      const one = gallinaStaticValue(1n);
+      const proved = minRight > 0n || compare("<", zero, b) || compare("<=", one, b)
+        || compare("==", one, b) || compare("!=", zero, b);
+      if (!proved && (closedValue(item.children[1]) ?? 0n) === 0n) throw natArithmeticError(op, item.site);
+    }
+    let natural = left?.natural == null || right?.natural == null ? null
+      : natArithmeticResult(op, left.natural, right.natural);
+    if (natural > MAX_NAT_VALUE) natural = null;
+    let minimum = natural ?? 0n;
+    if (op === "+") minimum = minLeft + minRight;
+    if (op === "*") minimum = minLeft * minRight;
+    if (minimum > MAX_NAT_VALUE) minimum = MAX_NAT_VALUE;
+    return ["Nat", `(Corelib.Init.Nat.${PURE_NAT_OPERATIONS.get(op)} ${lr} ${rr})`, { natural, minimum }];
   }
   if (op === "<" || op === "<=" || op === ">" || op === ">=") {
     if (lt !== "Nat" || rt !== "Nat") {
@@ -1793,12 +1929,14 @@ function inferPureExpression(item, env, constants, functions, evaluator, runtime
         `operator '${op}' requires Nat operands`
       );
     }
-    if (op === "<") return ["bool", `(Corelib.Init.Nat.ltb ${lr} ${rr})`];
-    if (op === "<=") return ["bool", `(Corelib.Init.Nat.leb ${lr} ${rr})`];
+    const decided = pureComparisonPremises(op, a, b);
+    if (op === "<") return ["bool", `(Corelib.Init.Nat.ltb ${lr} ${rr})`, decided];
+    if (op === "<=") return ["bool", `(Corelib.Init.Nat.leb ${lr} ${rr})`, decided];
     const cmpFn = op === ">" ? "ltb" : "leb";
     return [
       "bool",
       `(let holdfast_cmp_left := ${lr} in let holdfast_cmp_right := ${rr} in Corelib.Init.Nat.${cmpFn} holdfast_cmp_right holdfast_cmp_left)`,
+      decided,
     ];
   }
   if (op === "==" || op === "!=") {
@@ -1817,6 +1955,7 @@ function inferPureExpression(item, env, constants, functions, evaluator, runtime
     return [
       "bool",
       op === "==" ? eqExpr : `(if ${eqExpr} then ${GALLINA_FALSE} else ${GALLINA_TRUE})`,
+      lt === "Nat" ? pureComparisonPremises(op, a, b) : undefined,
     ];
   }
   if (lt !== "bool" || rt !== "bool") {
@@ -1832,6 +1971,8 @@ function inferPureExpression(item, env, constants, functions, evaluator, runtime
     op === "&&"
       ? `(if ${lr} then ${rr} else ${GALLINA_FALSE})`
       : `(if ${lr} then ${GALLINA_TRUE} else ${rr})`,
+    op === "&&" ? { whenTrue: [...(left?.whenTrue ?? []), ...(right?.whenTrue ?? [])] }
+      : { whenFalse: [...(left?.whenFalse ?? []), ...(right?.whenFalse ?? [])] },
   ];
 }
 
@@ -1843,7 +1984,8 @@ function checkPureBlock(
   constants,
   functions,
   evaluator,
-  facts
+  facts,
+  premises = []
 ) {
   const localEnv = new Map(env);
   const localImmutable = new Set(immutable);
@@ -1869,20 +2011,24 @@ function checkPureBlock(
         `unknown variable '${stmt.name.text}'`
       );
     }
+    if (localEnv.has(stmt.name.text)) {
+      throw new HoldFastError("name", stmt.name.site.line, stmt.name.site.column,
+        `duplicate local binding '${stmt.name.text}'`);
+    }
     const staticEnv = new Map();
     for (const [k, v] of localEnv.entries()) {
       if (v[1] !== null && v[1] !== undefined) staticEnv.set(k, [v[0], v[1], v[2]]);
-      else if (v[3]) staticEnv.set(k, [v[0], v[0] === "Nat" ? 0n : false, v[2]]);
     }
     if (stmt.kind === "constant") {
-      const [inferredType, renderedInit] = inferPureExpression(
+      const [inferredType, renderedInit, decided] = inferPureExpression(
         stmt.value,
         localEnv,
         constants,
         functions,
         evaluator,
         runtimeNames,
-        facts
+        facts,
+        premises
       );
       if (inferredType !== stmt.valueType) {
         throw new HoldFastError(
@@ -1892,18 +2038,20 @@ function checkPureBlock(
           `constant '${stmt.name.text}' has type ${stmt.valueType}, got ${inferredType}`
         );
       }
-      const value = evaluator.evalExpr(stmt.value, staticEnv, runtimeNames, false);
+      requirePureStatic(stmt.value, runtimeNames);
       const dependsOnSymbolic = exprDependsOnSymbolic(stmt.value, localEnv);
-      const lit = typeof value === "boolean" ? (value ? "true" : "false") : value.toString();
+      const value = dependsOnSymbolic ? null : evaluator.evalExpr(stmt.value, staticEnv, runtimeNames, false);
       const detail = dependsOnSymbolic
         ? `const ${stmt.valueType} ${stmt.name.text}`
-        : `const ${stmt.valueType} ${stmt.name.text} = ${lit}`;
+        : `const ${stmt.valueType} ${stmt.name.text} = ${value}`;
       const symId = facts ? facts.declare(stmt.name, "constant", detail) : -1;
       localEnv.set(stmt.name.text, [
         stmt.valueType,
-        dependsOnSymbolic ? null : value,
+        value,
         symId,
         true,
+        null,
+        decided,
       ]);
       localImmutable.add(stmt.name.text);
       runtimeNames.delete(stmt.name.text);
@@ -1911,14 +2059,15 @@ function checkPureBlock(
       bindingPairs.push([stmt.name.text, rhs]);
       continue;
     }
-    const [vt, rendered] = inferPureExpression(
+    const [vt, rendered, decided] = inferPureExpression(
       stmt.value,
       localEnv,
       constants,
       functions,
       evaluator,
       runtimeNames,
-      facts
+      facts,
+      premises
     );
     if (stmt.annotation !== null && stmt.annotation !== undefined && vt !== stmt.annotation) {
       throw new HoldFastError(
@@ -1933,7 +2082,7 @@ function checkPureBlock(
           inferred: stmt.annotation === null ? null : false,
         })
       : -1;
-    localEnv.set(stmt.name.text, [vt, null, symId]);
+    localEnv.set(stmt.name.text, [vt, null, symId, false, null, decided]);
     localImmutable.add(stmt.name.text);
     runtimeNames.add(stmt.name.text);
     bindingPairs.push([stmt.name.text, rendered]);
@@ -1947,7 +2096,8 @@ function checkPureBlock(
       functions,
       evaluator,
       runtimeNames,
-      facts
+      facts,
+      premises
     );
     if (vt !== expected) {
       throw new HoldFastError(
@@ -1959,14 +2109,15 @@ function checkPureBlock(
     }
     body = rendered;
   } else {
-    const [condType, condRendered] = inferPureExpression(
+    const [condType, condRendered, condition] = inferPureExpression(
       block.terminal.condition,
       localEnv,
       constants,
       functions,
       evaluator,
       runtimeNames,
-      facts
+      facts,
+      premises
     );
     if (condType !== "bool") {
       throw new HoldFastError(
@@ -1984,7 +2135,8 @@ function checkPureBlock(
       constants,
       functions,
       evaluator,
-      facts
+      facts,
+      [...premises, ...(condition?.whenTrue ?? [])]
     );
     const noRendered = checkPureBlock(
       block.terminal.no,
@@ -1994,7 +2146,8 @@ function checkPureBlock(
       constants,
       functions,
       evaluator,
-      facts
+      facts,
+      [...premises, ...(condition?.whenFalse ?? [])]
     );
     body = `(if ${condRendered} then ${yesRendered} else ${noRendered})`;
   }
@@ -2086,6 +2239,7 @@ function runPureTranslate(sourceText, collectFacts = false, { sourceHash = "" } 
 
   for (const item of parsed.declarations) {
     if (item.kind === "constant") {
+      inferPureExpression(item.value, new Map(), evaluator.constants, functions, evaluator, new Set(), null);
       const value = evaluator.evaluateConstant(item);
       definitions.push(
         `Definition c_${item.name.text} : ${gallinaType(item.valueType)} :=\n  ${gallinaStaticValue(value)}.`
@@ -2102,17 +2256,13 @@ function runPureTranslate(sourceText, collectFacts = false, { sourceHash = "" } 
       paramEnv.set(pName.text, [pType, null, sig.parameterIds[i], isConstParam]);
       binders.push(` (v_${pName.text} : ${gallinaType(pType)})`);
     }
-    const bodyEnv = new Map(paramEnv);
-    for (const [cName] of evaluator.constants.entries()) {
-      bodyEnv.delete(cName);
-    }
     const immutableSet = new Set([
       ...paramEnv.keys(),
       ...evaluator.constants.keys(),
     ]);
     const bodyRendered = checkPureBlock(
       item.body,
-      bodyEnv,
+      paramEnv,
       immutableSet,
       item.result,
       evaluator.constants,
@@ -2249,15 +2399,15 @@ function renderPureParts(parts) {
         current = current.trimEnd() + ";";
         flush();
         complete = indent === 0;
-      } else if ([",", ":", ")"].includes(spelling)) {
-        current = current.trimEnd() + spelling + (spelling === ")" ? "" : " ");
+      } else if ([",", ":", ")", "."].includes(spelling)) {
+        current = current.trimEnd() + spelling + ([")", "."].includes(spelling) ? "" : " ");
       } else if (spelling === "(") {
         if (["if", "return"].includes(previous?.text)) current += " ";
         current += "(";
       } else if (["=", "=>", "+", "-", "*", "/", "%", "==", "!=", "<", "<=", ">", ">=", "&&", "||"].includes(spelling)) {
         current = current.trimEnd() + " " + spelling + " ";
       } else {
-        if (current && !/[ (!]$/.test(current)) current += " ";
+        if (current && !/[ (!.]$/.test(current)) current += " ";
         current += spelling;
       }
     }
@@ -5910,10 +6060,12 @@ class MathElaborator {
       if (op === ">") return left > right;
       if (op === ">=") return left >= right;
       if (op === "+") return boundedNatural(left + right, expr.site);
-      if (op === "-") return left > right ? left - right : 0n;
       if (op === "*") return boundedNatural(left * right, expr.site);
-      if (op === "/") return right === 0n ? 0n : left / right;
-      if (op === "%") return right === 0n ? left : left % right;
+      if (NAT_PREMISES.has(op)) {
+        const result = natArithmeticResult(op, left, right);
+        if (result === null) throw natArithmeticError(op, expr.site);
+        return result;
+      }
     }
     if (expr.kind === "call") {
       return this.evalCall(expr, env);
@@ -5922,6 +6074,24 @@ class MathElaborator {
   }
 
   evalCall(expr, env) {
+    if (
+      expr.callee.kind === "member" &&
+      expr.callee.object.kind === "name" &&
+      expr.callee.object.name === "Nat" &&
+      expr.callee.member === "SaturatingSub"
+    ) {
+      if (expr.typeArgs.length || expr.args.length !== 2 || expr.args.some(arg => arg.label !== null || arg.mode !== null)) {
+        throw new HoldFastError("type", expr.site.line, expr.site.column,
+          "Nat.SaturatingSub expects two positional Nat arguments");
+      }
+      const left = this.evalExpr(expr.args[0].value, env);
+      const right = this.evalExpr(expr.args[1].value, env);
+      if (typeof left !== "bigint" || typeof right !== "bigint" || left < 0n || right < 0n) {
+        throw new HoldFastError("type", expr.site.line, expr.site.column,
+          "Nat.SaturatingSub expects two positional Nat arguments");
+      }
+      return natArithmeticResult(PURE_SATURATING_SUB, left, right);
+    }
     if (
       expr.callee.kind === "member" &&
       expr.callee.object.kind === "name" &&

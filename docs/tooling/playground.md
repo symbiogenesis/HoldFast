@@ -116,13 +116,14 @@ navigation ranges. [Authoring contract](authoring-tools.md)
 
 ## Extended expression examples
 
-The examples and console exercise Boolean logic, comparisons and saturating
-natural subtraction. [Pure expressions](pure-prototype.md#extended-pure-expressions)
+The examples and console exercise Boolean logic, comparisons, guarded natural
+subtraction and `Nat.SaturatingSub`. [Pure expressions](pure-prototype.md#extended-pure-expressions)
 
 ## Division and remainder examples
 
-The arithmetic example exercises grouping, precedence and total natural
-division and remainder, including zero divisors.
+The arithmetic example exercises grouping, precedence and guards for natural
+division and remainder. The guard establishes a nonzero divisor before the
+operation runs.
 [Operation semantics](pure-prototype.md#natural-division-and-remainder)
 
 ## Acceptance

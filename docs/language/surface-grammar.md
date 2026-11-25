@@ -475,7 +475,8 @@ form: `(+)`, `(%)`, `(&)`, `(==>)` and `(!)` are examples. A located `operator`
 node retains its located `name`; its span includes parentheses while the name's
 span covers only the symbol. Unary and binary uses share `(-)`, `(*)` and `(&)`;
 elaboration determines the selected operation and arity under the pointer/loan
-rules below. Operator values compose with calls,
+rules below and applies the [natural arithmetic boundary](../tooling/elaboration-prototype.md#natural-arithmetic).
+Operator values compose with calls,
 members, generic application, tuples, lambdas, computed types and ordinary
 declaration contracts. Grade-domain entries use these same expressions, including
 their existing `(+)` and `(*)` spellings, without a separate domain-value grammar.

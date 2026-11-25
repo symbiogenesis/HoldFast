@@ -68,6 +68,7 @@ product   := unary (('*' | '/' | '%') unary)*
 unary     := '!' unary | atom
 atom      := decimal | 'true' | 'false' | name
            | name '(' arguments? ')' | '(' expression ')'
+           | 'Nat' '.' name '(' arguments? ')'
 arguments := argument (',' argument)* ','?
 argument  := (name ':')? expression
 ```
@@ -83,7 +84,9 @@ declared arity and argument types. A positional prefix may be followed by a
 labeled suffix; each label must name the next declared parameter. Reordered,
 duplicate or unknown labels, omitted arguments and positional arguments after a
 label are refused. Labels preserve once-only left-to-right evaluation and do
-not change the emitted application. Local annotations must match the initializer's
+not change the emitted application. The supported qualified call,
+`Nat.SaturatingSub(a, b)`, takes two positional `Nat` arguments.
+Local annotations must match the initializer's
 `Nat` or `bool` type exactly; unannotated locals infer it. Bare `type name = expression;`
 locals are refused as syntax, directing authors to explicit `let`.
 Duplicate functions, parameters, local bindings in an active
@@ -132,23 +135,17 @@ These are host parser limits, not target resource bounds or integer widths.
 ## Extended pure expressions
 
 The [pure grammar](#source-fragment) defines precedence. Comparisons require
-parentheses to nest. The pure types support binary natural subtraction and
-Boolean negation.
-
-`!`, `&&`, `||`, `!=`, `<`, `>`, `>=` and binary
-`-`, using the existing wider surface's spellings and precedence. From weakest
-to strongest, precedence is `||`, `&&`, a single comparison (`==`, `!=`, `<`,
-`<=`, `>`, `>=`), left-associative `+`/`-`, left-associative `*`, prefix `!`,
-then atoms/calls/grouping. Comparisons do not chain; parentheses are required.
-Repeated negation is permitted within the existing expression bounds. Unary
-minus and machine integer types remain outside this increment. Division and
-remainder have their own increment below.
+parentheses to nest. Repeated negation is permitted within the existing
+expression bounds.
 
 `!`, `&&` and `||` require Boolean operands. Equality and inequality require
-two operands of the same supported type; ordering and subtraction require
-naturals. Subtraction saturates at zero: `2 - 5` is `0`. Emission uses existing
-`Corelib.Init.Nat.sub`, `.ltb` and `.leb`, Boolean equality's once-only bindings,
-and Boolean conditionals for negation and short-circuit logic. Reversed ordering
+two operands of the same supported type. Ordering and subtraction require
+naturals. For `a - b` the checker establishes `b <= a` using a known
+operand bound or a matching fact from a branch or short-circuit condition.
+The true branch of `if (used <= total)` can return `total - used`. For intentional truncation,
+`Nat.SaturatingSub(2, 5)` evaluates to zero. Both forms emit
+`Corelib.Init.Nat.sub`. Ordering emits `.ltb` and `.leb`, while Boolean
+negation and short-circuit logic emit conditionals. Reversed ordering
 must preserve left-to-right once-only operand evaluation through fresh bindings.
 All generated binders remain disjoint from mapped source names.
 
@@ -220,13 +217,12 @@ They share multiplication's precedence and associate left to right.
 For example, `20 / 3 * 2` is `12`, `20 % 6 * 2` is `4` and
 `20 / (3 * 2)` is `3`.
 
-These operations denote `Corelib.Init.Nat.div` and `.modulo`. For a positive
-divisor, division is the natural quotient and remainder is the nonnegative
-remainder. The operations are total: `n / 0` is `0`, and `n % 0` is `n`.
-The static evaluator uses the same mathematical operations. Both operands
-are checked and evaluated once in source order, including for a zero divisor.
-[Represented arithmetic](../language/first-release.md#primitive-semantics) has
-its own nonzero-divisor and representability requirements.
+The checker must establish a nonzero divisor. A nonzero literal suffices,
+and the true branch of `if (size != 0)` can use `count / size` or
+`count % size`. Accepted expressions emit `Corelib.Init.Nat.div` and
+`.modulo` for the natural quotient and nonnegative remainder. The static
+evaluator uses the same mathematical operations. Both operands are checked
+and evaluated once in source order.
 
 The [division fixtures](../../tools/tests/test_holdfast_division.py) exercise
 values, rendering, operand types and static dependency checks. Native kernel
@@ -269,7 +265,7 @@ The [example](../../examples/pure.hf) defines a cube and Boolean
 selection: intended `Choose(true, 1)` is true, `Choose(true, 2)` false. Output is
 module `HoldFast_Oracle` with `f_Cube`/`f_Choose`. The
 [expression example](../../examples/expressions.hf) adds Boolean
-logic, comparisons and saturating natural subtraction. The playground console
+logic, comparisons and checked natural arithmetic. The playground console
 evaluates closed expressions through the bounded static evaluator; kernel
 acceptance requires the separate replay.
 

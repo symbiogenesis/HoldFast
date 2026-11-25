@@ -2461,7 +2461,8 @@ def _records_properties_updates_guards_and_expressions() -> None:
         (("Value", _NAT), ("Limit", _NAT)),
         properties=(
             ("AtLimit", _BOOL, _binary(">=", _member(_variable("this"), "Value"), _member(_variable("this"), "Limit"))),
-            ("Remaining", _NAT, _binary("-", _member(_variable("this"), "Limit"), _member(_variable("this"), "Value"))),
+            ("Remaining", _NAT, _call(_member(_variable("Nat"), "SaturatingSub"),
+                                      _member(_variable("this"), "Limit"), _member(_variable("this"), "Value"))),
         ),
     )
     fixture.property_decl("DefaultStep", _NAT, _natural(1))
@@ -7263,6 +7264,43 @@ def _unbounded_naturals() -> None:
            "a source bound failed to constrain the product")
 
 
+def _partial_natural_arithmetic() -> None:
+    fixture = _Fixture("NatArithmetic")
+    a, b = _variable("a"), _variable("b")
+    parameters = (("a", _NAT), ("b", _NAT))
+    fixture.definition(
+        "Difference", _NAT, parameters, _binary("-", a, b),
+        contracts=(_contract("requires", _binary("<=", b, a)),),
+    )
+    fixture.definition(
+        "Quotient", _NAT, parameters,
+        _if_expr(_binary("==", b, _natural(0)), _natural(99), _binary("/", a, b)),
+    )
+    fixture.definition(
+        "Remainder", _NAT, parameters, _binary("%", a, b),
+        contracts=(_contract("requires", _binary("!=", b, _natural(0))),),
+    )
+    fixture.definition(
+        "Guarded", _BOOL, parameters,
+        _binary("||", _binary("<", a, b), _binary("==", _binary("-", a, b), _natural(0))),
+    )
+    fixture.constant("Saturated", _NAT, _call(_member(_variable("Nat"), "SaturatingSub"), _natural(2), _natural(5)))
+    elaborated = elaborate(*fixture.response())
+    ensure("Definition holdfast_d4_Saturated : Corelib.Init.Datatypes.nat :=\n  (0 : Corelib.Init.Datatypes.nat)." in elaborated.gallina,
+           "named saturation did not freeze an intentional underflow")
+
+    for symbol, message in (("-", "Nat subtraction requires proof"), ("/", "nonzero divisor"), ("%", "nonzero divisor")):
+        symbolic = _Fixture("UnsafeNat")
+        symbolic.definition("Wrong", _NAT, parameters, _binary(symbol, a, b))
+        error = _refuses(symbolic, "type", message)
+        ensure(error.column == symbolic.text.splitlines()[-1].index(symbol) + 1,
+               f"Nat obligation for '{symbol}' lacks an operator location")
+
+        closed = _Fixture("InvalidNatConst")
+        closed.constant("Wrong", _NAT, _binary(symbol, _natural(2), _natural(5 if symbol == "-" else 0)))
+        _refuses(closed, "type", message)
+
+
 def _speculative_normalization_rollback() -> None:
     elaborator = language._Elaborator(language._Protocol(b""))
     unknown = elaborator.meta(terms._NAT, {})
@@ -7346,6 +7384,7 @@ def cases() -> list[Case]:
             Case("pattern-guard-conditional-loan-updates", _pattern_guard_mutation),
             Case("propagation-preserves-explicit-evaluation-order", _propagation_evaluation_order),
             Case("unbounded-mathematical-natural-parameters", _unbounded_naturals),
+            Case("natural-arithmetic-safety-preconditions-and-saturation", _partial_natural_arithmetic),
             Case("represented-integers-preconditions-and-conversions", _represented_integers_and_conversions),
             Case("pure-sequences-and-model-reasoning", _pure_sequences_and_model_reasoning),
             Case("mutable-locals-assignments-and-bounded-loops", _mutable_locals_assignments_and_bounded_loops),

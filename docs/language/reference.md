@@ -218,10 +218,12 @@ requires a representable quotient. The operation and its diagnostic use the
 operand type's limits. Named `Checked*`, `Wrapping*` and `Saturating*` operations
 have their own [primitive semantics](first-release.md#primitive-semantics).
 
-For mathematical `Nat` in both elaborators, subtraction stops at zero,
-`n / 0 == 0`, and `n % 0 == n`. A quantified natural ranges over all natural
-numbers. Computing a closed term can exceed the elaborator's resource limit.
-See [natural division and remainder](../tooling/pure-prototype.md#natural-division-and-remainder).
+For mathematical `Nat`, `a - b` requires evidence that `b <= a`, and both
+`a / b` and `a % b` require evidence that `b != 0`. Use
+`Nat.SaturatingSub(a, b)` to return zero when `b > a`. A quantified natural
+ranges over all natural numbers. Computing a closed term can exceed the
+elaborator's resource limit. [Pure arithmetic checks](../tooling/pure-prototype.md#extended-pure-expressions) ·
+[Mathematical elaboration](../tooling/elaboration-prototype.md#natural-arithmetic)
 
 | Form | Meaning | Status |
 | --- | --- | --- |
@@ -243,7 +245,13 @@ public Nat Clamp(Nat value, Nat limit)
 public bool InRange(Nat value, Nat low, Nat high)
     => low <= value && value < high;
 public Nat Headroom(Option<Nat> used, Nat capacity)
-    => match (used) { Some(count) => capacity - count, None => capacity, };
+    => match (used) {
+        Some(count) => Nat.SaturatingSub(capacity, count),
+        None => capacity,
+    };
+public Nat Groups(Nat count, Nat size)
+    requires size != 0
+    => count / size;
 ```
 
 ## Statements and control flow

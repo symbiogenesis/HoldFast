@@ -371,8 +371,15 @@ class _Elaborator(
         self.constants["FormatStep"] = _Binding(
             _constant("FormatStep"), telescope((n,), self.pi(tb, self.pi(byte_sequence, tb))), 1
         )
-        for name in ("+", "*", "-", "/", "%"):
+        for name in ("+", "*", "-", "/", "%", "Nat.SaturatingSub"):
             bind(name, self.pi(_NAT, self.pi(_NAT, _NAT)))
+        self.definitions["Nat.SaturatingSub"] = _constant("-")
+        lhs, rhs = self.fresh(_NAT), self.fresh(_NAT)
+        nat_binary_arguments = (cast("int", lhs.value), cast("int", rhs.value))
+        nonzero = _apps(_constant("ne_nat"), rhs, _term("nat", value=0))
+        self.callable_preconditions["-"] = [(nat_binary_arguments, _apps(_constant("<="), rhs, lhs))]
+        self.callable_preconditions["/"] = [(nat_binary_arguments, nonzero)]
+        self.callable_preconditions["%"] = [(nat_binary_arguments, nonzero)]
         for name in ("<=", "<", ">=", ">"):
             bind(name, self.pi(_NAT, self.pi(_NAT, _BOOL)))
         for name in ("&&", "||", "==>", "<==>"):

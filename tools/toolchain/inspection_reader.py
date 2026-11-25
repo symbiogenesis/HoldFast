@@ -105,11 +105,18 @@ def _inventory(value: dict[str, object], source: bytes) -> None:
     by_scope = tree(scopes, "module")
     by_symbol = {cast("str", symbol["id"]): symbol for symbol in symbols}
     for node in nodes:
-        if node["kind"] in {"identifier", "operator", "type", "nat", "bool"}:
+        if node["kind"] in {"identifier", "operator", "type", "nat", "bool", "builtin"}:
             first, last = _span(node)
             spelling = str(node["value"]).lower() if type(node["value"]) is bool else node["value"]
             if source[first:last].decode() != spelling:
                 raise ValueError("inspection syntax spelling differs from source")
+        if node["kind"] == "builtin" or node["role"] == "qualifier":
+            parent = by_node.get(cast("str", node["parent"]))
+            head = [] if parent is None else [by_node[item] for item in cast("list[str]", parent["children"])[:2]]
+            if (parent is None or parent["kind"] != "call" or len(head) != 2 or node not in head
+                    or [(part["kind"], part["role"], part["value"]) for part in head] != [
+                        ("type", "qualifier", "Nat"), ("builtin", "callee", "SaturatingSub")]):
+                raise ValueError("inspection builtin differs from its qualified call")
     expected_scope_nodes = [node["id"] for node in nodes
                             if node["kind"] in {"module", "function", "block", "expression-body"}]
     if [scope["node"] for scope in scopes] != expected_scope_nodes:

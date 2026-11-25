@@ -253,7 +253,8 @@ def _pure_semantic_negatives_and_inventory() -> None:
             ensure(raised.exception.kind == "syntax", "parsing refusal changed kind")
     fixtures = replay.fixtures(b"module M;", b"module WordCount;")
     operators = next(case for case in fixtures if case.name == "pure-expression-operators")
-    ensure(operators.pure and ("f_Difference 2 5", "0") in operators.observations
+    ensure(operators.pure and ("f_Difference 8 3", "5") in operators.observations
+           and ("c_Saturated", "0") in operators.observations
            and ("f_Precedence", "true") in operators.observations
            and ("c_Static", "true") in operators.observations,
            "hosted fixtures lack runtime, static or precedence observations")
@@ -261,12 +262,12 @@ def _pure_semantic_negatives_and_inventory() -> None:
                and case.expected == "unsupported" for case in fixtures),
            "hosted replay lost required-static checking of skipped operands")
     division = next(case for case in fixtures if case.name == "pure-division-remainder")
-    ensure(division.pure and ("f_Quotient 17 0", "0") in division.observations
-           and ("f_Remainder 17 0", "17") in division.observations
+    ensure(division.pure and ("f_Quotient 17 0", "99") in division.observations
+           and ("f_Remainder 17 0", "99") in division.observations
            and ("f_DivThenMul", "12") in division.observations
            and ("f_Specialized 23", "6") in division.observations
-           and ("c_ZeroRemainder", "17") in division.observations,
-           "hosted division replay lacks runtime, zero, precedence or static observations")
+           and ("c_StaticRemainder", "2") in division.observations,
+           "hosted division replay lacks guarded runtime, precedence or static observations")
     for case in fixtures:
         if not case.pure:
             continue

@@ -240,6 +240,8 @@ Kinds cover modules, functions, constants, parameters, types, blocks, bindings,
 local constants, returns, conditionals, expression bodies, literals, names,
 calls, arguments, binary/unary operators, groups and identifier/operator leaves.
 Source parentheses, named-argument labels and expression bodies remain explicit.
+The `Nat.SaturatingSub` call projects its type qualifier and builtin callee as
+separate source leaves. Builtin callees have no authored declaration handle.
 The tree supplies source structure, with no additional name resolution or semantic
 acceptance route. Syntax handles designate nodes
 only in their exact snapshot; they have the same lifetime as symbol handles.

@@ -213,6 +213,10 @@ atom:
 | callee=name LPAREN arguments=comma_list(call_argument(expression, name)) RPAREN
     { make "call" $startpos $endpos
         [("callee", callee); ("arguments", array arguments)] arguments }
+| qualifier=NAT DOT callee=name LPAREN arguments=comma_list(call_argument(expression, name)) RPAREN
+    { make "call" $startpos $endpos
+        [("qualifier", name $startpos(qualifier) $endpos(qualifier) "Nat"); ("callee", callee);
+         ("arguments", array arguments)] arguments }
 | LPAREN value=expression RPAREN
     { make "group" $startpos $endpos [("value", value.syntax)] [value] }
 

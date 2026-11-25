@@ -319,6 +319,8 @@ class _Decoder:
                   "group": {"value"}}.get(kind)
         if fields is None:
             raise ValueError(f"native parser returned an unknown expression kind: {kind}")
+        if kind == "call" and "qualifier" in raw:
+            fields.add("qualifier")
         node, span, site = self._node(raw, kind, fields, parent, depth)
         def child(value: object) -> Expression:
             return self._expression(value, span, depth + 1)
@@ -345,7 +347,17 @@ class _Decoder:
             name = self._text(node["callee"], span)
             arguments = self._list(node["arguments"])
             callee_span, *argument_spans = self._ordered([node["callee"], *arguments], span)
-            if callee_span[0] != span[0]:
+            if "qualifier" in node:
+                qualifier = self._text(node["qualifier"], span, identifier=False)
+                qualifier_span, _ = self._ordered([node["qualifier"], node["callee"]], span)
+                dot = trivia_end(self.source, qualifier_span[1])
+                if (qualifier.text != "Nat" or qualifier_span[0] != span[0]
+                        or self.source[dot:dot + 1] != b"."
+                        or trivia_end(self.source, dot + 1) != callee_span[0]):
+                    raise ValueError("native call qualifier differs from source delimiters")
+                self._identifier_edges(*qualifier_span)
+                name = Name(f"{qualifier.text}.{name.text}", qualifier.site)
+            elif callee_span[0] != span[0]:
                 raise ValueError("native call leaves source callee tokens uncovered")
             cursor = trivia_end(self.source, callee_span[1])
             if self.source[cursor:cursor + 1] != b"(":

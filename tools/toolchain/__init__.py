@@ -6,7 +6,7 @@ See the [pure prototype](../../docs/tooling/pure-prototype.md) for its scope.
 """
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from importlib import import_module
 from typing import TYPE_CHECKING, cast
 
@@ -47,10 +47,22 @@ _TYPES: dict[ValueType, str] = {
 }
 _TRUE = "Corelib.Init.Datatypes.true"
 _FALSE = "Corelib.Init.Datatypes.false"
+_SATURATING_SUB = "Nat.SaturatingSub"
+_NAT_ARITHMETIC = {"+": "add", "-": "sub", "*": "mul", "/": "div", "%": "modulo",
+                   _SATURATING_SUB: "sub"}
+_NAT_PREMISES = {"-": "Nat subtraction requires proof that the left operand is at least the right operand. "
+                       "Use Nat.SaturatingSub to clamp at zero",
+                 "/": "Nat division requires proof of a nonzero divisor",
+                 "%": "Nat remainder requires proof of a nonzero divisor"}
 MAX_STATIC_WORK = 20_000
 MAX_STATIC_DEPTH = 128
 MAX_STATIC_NAT = 10 ** MAX_LITERAL_DIGITS - 1
 MAX_OUTPUT_BYTES = 1_048_576
+type _Premises = frozenset[tuple[str, str, str]]
+
+
+def _nat_term(value: int) -> str:
+    return f"({value} : {_TYPES['Nat']})"
 
 
 @dataclass(frozen=True)
@@ -82,6 +94,14 @@ class _Expression:
     value_type: ValueType
     gallina: str
     depth: int = 1
+    natural: int | None = None
+    minimum: int = 0
+    when_true: _Premises = frozenset()
+    when_false: _Premises = frozenset()
+
+    @property
+    def proof_term(self) -> str:
+        return self.gallina if self.natural is None else _nat_term(self.natural)
 
 
 @dataclass(frozen=True)
@@ -141,7 +161,7 @@ def _tokens(source: bytes) -> list[_Token]:
             kind = "decimal"
         elif text[offset:offset + 2] in {"->", "=>", "==", "!=", "<=", ">=", "&&", "||"}:
             spelling, kind = text[offset:offset + 2], "symbol"
-        elif character in "();,:{}=+*/%-!<>":
+        elif character in "();,:.{}=+*/%-!<>":
             spelling, kind = character, "symbol"
         else:
             raise HoldFastError("syntax", line, column, f"unexpected character {character!r}")
@@ -154,6 +174,29 @@ def _tokens(source: bytes) -> list[_Token]:
 
 def _error(kind: str, message: str, site: syntax.Site) -> HoldFastError:
     return HoldFastError(kind, site.line, site.column, message)
+
+
+def _comparison_premises(op: str, left: str, right: str) -> tuple[_Premises, _Premises]:
+    if op in {">", ">="}:
+        op, left, right = ("<" if op == ">" else "<="), right, left
+    if op in {"==", "!="}:
+        left, right = sorted((left, right))
+        return frozenset({(op, left, right)}), frozenset({("!=" if op == "==" else "==", left, right)})
+    return frozenset({(op, left, right)}), frozenset({("<=" if op == "<" else "<", right, left)})
+
+
+def _natural_result(op: str, left: int, right: int) -> int | None:
+    if op == "+":
+        return left + right
+    if op == "*":
+        return left * right
+    if op == _SATURATING_SUB:
+        return max(0, left - right)
+    if op == "-":
+        return left - right if left >= right else None
+    if not right:
+        return None
+    return left // right if op == "/" else left % right
 
 
 class _Elaborator:
@@ -240,7 +283,7 @@ class _Elaborator:
     def _literal(self, value: _Static) -> str:
         if value.value_type == "bool":
             return _TRUE if value.value else _FALSE
-        return f"({value.value} : {_TYPES['Nat']})"
+        return _nat_term(int(value.value))
 
     def _require_static(self, expression: syntax.Expression, environment: dict[str, _Local]) -> None:
         pending = [expression]
@@ -272,8 +315,9 @@ class _Elaborator:
                      if local.static is not None}
         return self._evaluate(expression, available)
 
-    def _constant(self, declaration: syntax.Constant, environment: dict[str, _Local]) -> _Local:
-        checked = self._expression(declaration.value, environment)
+    def _constant(self, declaration: syntax.Constant, environment: dict[str, _Local],
+                  premises: _Premises = frozenset()) -> _Local:
+        checked = self._expression(declaration.value, environment, premises)
         if checked.value_type != declaration.value_type:
             raise _error("type", f"constant '{declaration.name.text}' must be {declaration.value_type}, "
                          f"got {checked.value_type}", declaration.name.site)
@@ -285,7 +329,7 @@ class _Elaborator:
             detail += f" = {spelling}"
         symbol = self._declare(declaration.name, "constant", detail, PureType(declaration.value_type))
         return _Local(declaration.value_type, symbol, value, True,
-                      initializer=checked if value is None else _Expression(value.value_type, self._literal(value)))
+                      initializer=checked if value is None else replace(checked, gallina=self._literal(value)))
 
     def constant(self, declaration: syntax.Constant) -> str:
         name = declaration.name
@@ -322,7 +366,7 @@ class _Elaborator:
                 return _Static("bool", True)
             return self._evaluate(expression.children[1], environment, depth + 1)
         arguments = tuple(self._evaluate(child, environment, depth + 1) for child in expression.children)
-        if kind == "call":
+        if kind == "call" and name != _SATURATING_SUB:
             signature = self.functions[name]
             inputs = {parameter.text: value for (parameter, _, _), value in zip(signature.parameters, arguments, strict=True)}
             captured = {label: local.static for label, local in signature.constants.items() if local.static is not None}
@@ -341,16 +385,13 @@ class _Elaborator:
             return _Static("bool", first >= second)
         if name == ">":
             return _Static("bool", first > second)
-        if name == "-":
-            return _Static("Nat", max(0, first - second))
-        if name == "/":
-            return _Static("Nat", first // second if second else 0)
-        if name == "%":
-            return _Static("Nat", first % second if second else first)
         if ((name == "+" and first > MAX_STATIC_NAT - second)
                 or (name == "*" and first != 0 and second > MAX_STATIC_NAT // first)):
             raise _error("limit", f"constant result exceeds {MAX_LITERAL_DIGITS} decimal digits", expression.site)
-        return _Static("Nat", first + second if name == "+" else first * second)
+        result = _natural_result(name, first, second)
+        if result is None:
+            raise _error("type", _NAT_PREMISES[name], expression.site)
+        return _Static("Nat", result)
 
     def _evaluate_block(self, block: syntax.Block, environment: dict[str, _Static], depth: int) -> _Static:
         self._static_tick(block.site, depth)
@@ -366,16 +407,18 @@ class _Elaborator:
         condition = self._evaluate(terminal.condition, extended, depth + 1)
         return self._evaluate_block(terminal.yes if condition.value else terminal.no, extended, depth + 1)
 
-    def _block(self, block: syntax.Block, environment: dict[str, _Local], nesting: int) -> _Expression:
+    def _block(self, block: syntax.Block, environment: dict[str, _Local], nesting: int,
+               premises: _Premises = frozenset()) -> _Expression:
         if self.facts is not None:
             self.facts.enter_scope("block", block.site)
         try:
-            return self._scoped_block(block, environment, nesting)
+            return self._scoped_block(block, environment, nesting, premises)
         finally:
             if self.facts is not None:
                 self.facts.leave_scope()
 
-    def _scoped_block(self, block: syntax.Block, environment: dict[str, _Local], nesting: int) -> _Expression:
+    def _scoped_block(self, block: syntax.Block, environment: dict[str, _Local], nesting: int,
+                      premises: _Premises) -> _Expression:
         if nesting + len(block.bindings) > MAX_BLOCK_DEPTH:
             raise _error("limit", f"block or binding nesting exceeds {MAX_BLOCK_DEPTH}", block.site)
         extended = dict(environment)
@@ -393,30 +436,30 @@ class _Elaborator:
             if binding.name.text in extended:
                 raise _error("name", f"duplicate local binding '{binding.name.text}'", binding.name.site)
             if isinstance(binding, syntax.Constant):
-                local = self._constant(binding, extended)
+                local = self._constant(binding, extended, premises)
                 extended[binding.name.text] = local
                 if local.initializer is None:
                     raise RuntimeError("local constant lost its checked expression")
                 values.append((binding, local.initializer))
                 continue
-            value = self._expression(binding.value, extended)
+            value = self._expression(binding.value, extended, premises)
             if binding.annotation is not None and binding.annotation != value.value_type:
                 raise _error("type", f"local '{binding.name.text}' requires {binding.annotation}, "
                              f"but its initializer has type {value.value_type}", binding.site)
             symbol = self._declare(binding.name, "variable", f"{binding.name.text}: {value.value_type}",
                                    PureType(value.value_type),
                                    inferred=False if binding.annotation is not None else None)
-            extended[binding.name.text] = _Local(value.value_type, symbol)
+            extended[binding.name.text] = _Local(value.value_type, symbol, initializer=value)
             values.append((binding, value))
         terminal = block.terminal
         if isinstance(terminal, syntax.Return):
-            body = self._expression(terminal.value, extended)
+            body = self._expression(terminal.value, extended, premises)
         else:
-            condition = self._expression(terminal.condition, extended)
+            condition = self._expression(terminal.condition, extended, premises)
             if condition.value_type != "bool":
                 raise _error("type", "if condition must be bool", terminal.site)
-            yes = self._block(terminal.yes, extended, nesting + len(values) + 1)
-            no = self._block(terminal.no, extended, nesting + len(values) + 1)
+            yes = self._block(terminal.yes, extended, nesting + len(values) + 1, premises | condition.when_true)
+            no = self._block(terminal.no, extended, nesting + len(values) + 1, premises | condition.when_false)
             if yes.value_type != no.value_type:
                 raise _error("type", "if branches must have the same type", terminal.site)
             body = self._bounded(yes.value_type,
@@ -429,8 +472,8 @@ class _Elaborator:
         return body
 
     def _expression(self, expression: syntax.Expression,
-                    environment: dict[str, _Local]) -> _Expression:
-        checked = self._checked_expression(expression, environment)
+                    environment: dict[str, _Local], premises: _Premises = frozenset()) -> _Expression:
+        checked = self._checked_expression(expression, environment, premises)
         if self.facts is not None:
             self.facts.expression(expression.kind, expression.site, checked.value_type)
             if self.facts.collect_completion_options and expression.kind in {"nat", "bool"}:
@@ -446,14 +489,15 @@ class _Elaborator:
         return checked
 
     def _checked_expression(self, expression: syntax.Expression,
-                            environment: dict[str, _Local]) -> _Expression:
+                            environment: dict[str, _Local], premises: _Premises) -> _Expression:
         kind, value, site = expression.kind, expression.value, expression.site
         if kind == "nat":
-            return _Expression("Nat", f"({int(cast('str', value).replace('_', ''))} : {_TYPES['Nat']})")
+            literal = int(cast("str", value).replace("_", ""))
+            return _Expression("Nat", _nat_term(literal), natural=literal, minimum=literal)
         if kind == "bool":
             return _Expression("bool", _TRUE if value else _FALSE)
         if kind == "group":
-            return self._expression(expression.children[0], environment)
+            return self._expression(expression.children[0], environment, premises)
         name = cast("str", value)
         if kind == "name":
             local = environment.get(name, self.constants.get(name))
@@ -467,20 +511,35 @@ class _Elaborator:
                                 and (not (local.required_static or local.static is not None)
                                      or candidate.required_static or candidate.static is not None))
                 self.facts.visible_values(site, choices)
-            return _Expression(local.value_type, local.gallina if local.gallina is not None
-                               else f"v_{name}" if name in environment else f"c_{name}")
+            term = local.gallina if local.gallina is not None else f"v_{name}" if name in environment else f"c_{name}"
+            defined = local.initializer or _Expression(local.value_type, term)
+            if local.static is not None and local.value_type == "Nat":
+                literal = int(local.static.value)
+                return replace(defined, gallina=term, depth=1, natural=literal, minimum=literal)
+            return replace(defined, gallina=term, depth=1)
         # Specialization may expand a short source argument into a large term.
         # Bound retained siblings before building the application's joined text.
         collected: list[_Expression] = []
         argument_bytes = 0
         for child in expression.children:
-            argument = self._expression(child, environment)
+            child_premises = premises
+            if collected and kind == "binary":
+                if name == "&&":
+                    child_premises |= collected[0].when_true
+                elif name == "||":
+                    child_premises |= collected[0].when_false
+            argument = self._expression(child, environment, child_premises)
             argument_bytes += len(argument.gallina)
             if argument_bytes > MAX_OUTPUT_BYTES:
                 raise _error("limit", "pure translation exceeds its output byte budget", site)
             collected.append(argument)
         arguments = tuple(collected)
-        if kind == "call":
+        if kind == "call" and name == _SATURATING_SUB:
+            if len(arguments) != 2:
+                raise _error("type", f"'{name}' expects 2 arguments, got {len(arguments)}", site)
+            if any(label is not None for label in expression.labels):
+                raise _error("type", f"'{name}' takes positional arguments", site)
+        elif kind == "call":
             signature = self.functions.get(name)
             if signature is None:
                 local = environment.get(name, self.constants.get(name))
@@ -541,19 +600,22 @@ class _Elaborator:
             operand, = arguments
             if operand.value_type != "bool":
                 raise _error("type", "'!' operand must be bool", site)
-            return self._bounded("bool", f"(if {operand.gallina} then {_FALSE} else {_TRUE})", arguments, site)
+            checked = self._bounded("bool", f"(if {operand.gallina} then {_FALSE} else {_TRUE})", arguments, site)
+            return replace(checked, when_true=operand.when_false, when_false=operand.when_true)
         left, right = arguments
         if name in {"&&", "||"}:
             if left.value_type != "bool" or right.value_type != "bool":
                 raise _error("type", f"'{name}' operands must be bool", site)
             term = (f"(if {left.gallina} then {right.gallina} else {_FALSE})" if name == "&&"
                     else f"(if {left.gallina} then {_TRUE} else {right.gallina})")
-            return self._bounded("bool", term, arguments, site)
-        if name in {"+", "-", "*", "/", "%"}:
+            checked = self._bounded("bool", term, arguments, site)
+            if name == "&&":
+                return replace(checked, when_true=left.when_true | right.when_true)
+            return replace(checked, when_false=left.when_false | right.when_false)
+        if name in _NAT_ARITHMETIC:
             if left.value_type != "Nat" or right.value_type != "Nat":
                 raise _error("type", f"'{name}' operands must be Nat", site)
-            operation = {"+": "add", "-": "sub", "*": "mul", "/": "div", "%": "modulo"}[name]
-            return self._bounded("Nat", f"(Corelib.Init.Nat.{operation} {left.gallina} {right.gallina})", arguments, site)
+            return self._natural_expression(name, expression, environment, premises, left, right)
         if left.value_type != right.value_type:
             raise _error("type", f"'{name}' operands must have the same type", site)
         if name in {"<", "<=", ">", ">="}:
@@ -576,7 +638,51 @@ class _Elaborator:
                     f"(if holdfast_eq_right then {_FALSE} else {_TRUE}))")
         if name == "!=":
             term = f"(if {term} then {_FALSE} else {_TRUE})"
-        return self._bounded("bool", term, arguments, site)
+        checked = self._bounded("bool", term, arguments, site)
+        if left.value_type == "Nat":
+            when_true, when_false = _comparison_premises(name, left.proof_term, right.proof_term)
+            return replace(checked, when_true=when_true, when_false=when_false)
+        return checked
+
+    def _natural_expression(self, op: str, expression: syntax.Expression, environment: dict[str, _Local],
+                            premises: _Premises, left: _Expression, right: _Expression) -> _Expression:
+        if op == "-":
+            a, b = left.proof_term, right.proof_term
+            proven = (a == b or (right.natural is not None and left.minimum >= right.natural)
+                      or ("<=", b, a) in premises or ("<", b, a) in premises
+                      or ("==", min(a, b), max(a, b)) in premises)
+            if not proven:
+                bound = self._static_value(expression.children[1], environment)
+                if bound is not None:
+                    proven = left.minimum >= bound.value
+                    if not proven:
+                        actual = self._static_value(expression.children[0], environment)
+                        proven = actual is not None and actual.value >= bound.value
+            if not proven:
+                raise _error("type", _NAT_PREMISES[op], expression.site)
+        elif op in {"/", "%"}:
+            zero, one, divisor = _nat_term(0), _nat_term(1), right.proof_term
+            proven = (right.minimum > 0 or ("<", zero, divisor) in premises
+                      or ("<=", one, divisor) in premises
+                      or ("==", min(one, divisor), max(one, divisor)) in premises
+                      or ("!=", min(zero, divisor), max(zero, divisor)) in premises)
+            if not proven:
+                bound = self._static_value(expression.children[1], environment)
+                if bound is None or bound.value == 0:
+                    raise _error("type", _NAT_PREMISES[op], expression.site)
+        natural = (_natural_result(op, left.natural, right.natural)
+                   if left.natural is not None and right.natural is not None else None)
+        if natural is not None and natural > MAX_STATIC_NAT:
+            natural = None
+        minimum = natural or 0
+        if op == "+":
+            minimum = min(MAX_STATIC_NAT, left.minimum + right.minimum)
+        elif op == "*":
+            minimum = min(MAX_STATIC_NAT, left.minimum * right.minimum)
+        operation = _NAT_ARITHMETIC[op]
+        term = f"(Corelib.Init.Nat.{operation} {left.gallina} {right.gallina})"
+        checked = self._bounded("Nat", term, (left, right), expression.site)
+        return replace(checked, natural=natural, minimum=minimum)
 
     def _specialize(self, signature: _Signature, arguments: tuple[_Expression, ...],
                     static_arguments: dict[str, _Static], site: syntax.Site) -> _Expression:

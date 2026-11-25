@@ -8,14 +8,14 @@ from toolchain import ast
 MAX_SYNTAX_NODES = 8192
 KINDS = frozenset({"module", "function", "constant", "parameter", "type", "block", "binding",
                    "local-constant", "return", "if", "expression-body", "nat", "bool", "name",
-                   "call", "argument", "binary", "unary", "group", "identifier", "operator"})
+                   "call", "argument", "binary", "unary", "group", "identifier", "operator", "builtin"})
 _FIELDS = {
     "file": ("name", "declarations"), "function": ("result", "name", "parameters", "body"),
     "constant": ("type", "name", "value"), "parameter": ("type", "name"),
     "type": (), "block": ("bindings", "exit"), "let": ("type", "name", "value"),
     "constant_local": ("type", "name", "value"), "return": ("value",),
     "if": ("condition", "then", "else"), "expression_body": ("value",),
-    "nat": (), "bool": (), "name": ("name",), "call": ("callee", "arguments"),
+    "nat": (), "bool": (), "name": ("name",), "call": ("qualifier", "callee", "arguments"),
     "argument": ("label", "value"), "binary": ("left", "operator", "right"),
     "unary": ("operator", "value"), "group": ("value",),
 }
@@ -58,7 +58,12 @@ def nodes(source: bytes, response: object, identity: str) -> list[dict[str, obje
                 for position, item in enumerate(child):
                     children.append(visit(cast("dict[str, object]", item), handle, field, position))
             else:
-                children.append(visit(cast("dict[str, object]", child), handle, field, None))
+                located = cast("dict[str, object]", child)
+                if field == "qualifier":
+                    located = {"kind": "type", "name": located["text"], "span": located["span"]}
+                elif field == "callee" and "qualifier" in raw:
+                    located = {**located, "kind": "builtin"}
+                children.append(visit(located, handle, field, None))
         return handle
 
     visit(module, None, "root", None)

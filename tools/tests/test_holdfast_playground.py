@@ -422,7 +422,7 @@ def _absolute_read_deadline() -> None:
 
 def _http_extended_expressions() -> None:
     source = ("module Expressions;\n"
-              "public Nat Remaining(Nat total,Nat used)=>total-used;\n"
+              "public Nat Remaining(Nat total,Nat used)=>Nat.SaturatingSub(total,used);\n"
               "public bool Allowed(Nat value,bool paused)=>!paused&&(value>=3&&value<10||value==20);\n"
               "public bool Changed(bool before,bool after)=>before!=after;\n")
     digest = hashlib.sha256(source.encode()).hexdigest()
@@ -455,6 +455,9 @@ def _http_extended_expressions() -> None:
             ensure(refused["ok"] is False and refused["sourceHash"] == digest
                    and cast("dict[str, object]", refused["error"])["kind"] == kind,
                    "extended expression refusal lost its kind or source binding")
+        refused = _post(server, "/api/evaluate", {"source": source, "expression": "5 - 8", "valueType": "Nat"})
+        ensure(refused["ok"] is False and "Nat subtraction" in str(refused["error"]),
+               "ordinary Nat subtraction accepted an underflow")
         authoring = _post(server, "/api/authoring", {"source": source})
         ensure(authoring["ok"] is True and authoring["bindingPreview"] == source,
                "authoring rejected or rewrote supported operator expressions")
@@ -477,11 +480,9 @@ def _http_extended_expressions() -> None:
 
 def _http_division_and_remainder() -> None:
     source = ("module Grouping;\r\n// supplementary comment: \U0001f680\r\n"
-              "public Nat Groups(Nat count,Nat size)=>count/size;\r\n"
-              "public Nat Leftover(Nat count,Nat size)=>count%size;\r\n"
-              "public Nat Regroup(Nat count,Nat size)=>count/size*2;\r\n"
-              "public const Nat ZeroGroups = 17/0;\r\n"
-              "public const Nat Unchanged = 17%0;\r\n")
+              "public Nat Groups(Nat count,Nat size){if(size!=0){return count/size;}else{return 0;}}\r\n"
+              "public Nat Leftover(Nat count,Nat size){if(size!=0){return count%size;}else{return count;}}\r\n"
+              "public Nat Regroup(Nat count,Nat size){if(size!=0){return count/size*2;}else{return 0;}}\r\n")
     digest = hashlib.sha256(source.encode()).hexdigest()
     with _native_running() as server:
         compiled = _post(server, "/api/compile", {"source": source})
@@ -493,13 +494,12 @@ def _http_division_and_remainder() -> None:
                "playground did not expose actual quotient/remainder terms")
         for expression, expected in (("Groups(count: 17, size: 5)", "3"),
                                      ("Leftover(17, 5)", "2"), ("Regroup(20, 3)", "12"),
-                                     ("20 / (3 * 2)", "3"), ("20 % 6 * 2", "4"),
-                                     ("ZeroGroups", "0"), ("Unchanged", "17")):
+                                     ("20 / (3 * 2)", "3"), ("20 % 6 * 2", "4")):
             response = _post(server, "/api/evaluate", {
                 "source": source, "expression": expression, "valueType": "Nat"})
             ensure(response == {"ok": True, "sourceHash": digest, "valueType": "Nat", "value": expected},
                    f"wrong isolated quotient/remainder value for {expression}: {response}")
-        for expression in ("17 / false", "true % 5"):
+        for expression in ("17 / false", "true % 5", "17 / 0", "17 % 0"):
             refused = _post(server, "/api/evaluate", {
                 "source": source, "expression": expression, "valueType": "Nat"})
             ensure(refused["ok"] is False and refused["sourceHash"] == digest
@@ -526,8 +526,10 @@ def _http_division_and_remainder() -> None:
             "textDocument": {"uri": _URI}, "position": {"line": 2, "character": 12}}, 2)
         ensure("Groups" in str(hovered[0].get("result")),
                "division body lost compiler-backed function signatures")
+        quotient_column = source.splitlines()[2].rindex("count")
+        remainder_column = source.splitlines()[3].rindex("%size") + 1
         defined = _rpc(server, session, "textDocument/definition", {
-            "textDocument": {"uri": _URI}, "position": {"line": 2, "character": 40}}, 3)
+            "textDocument": {"uri": _URI}, "position": {"line": 2, "character": quotient_column}}, 3)
         ensure(defined[0].get("result") == {"uri": _URI, "range": {
             "start": {"line": 2, "character": 22}, "end": {"line": 2, "character": 27}}},
             "division operand did not resolve to its original parameter span")
@@ -542,13 +544,13 @@ def _http_division_and_remainder() -> None:
             line += delta
             column = start if delta else column + start
             positions.append((line, column, length))
-        ensure((2, 39, 5) in positions and (3, 47, 4) in positions,
+        ensure((2, quotient_column, 5) in positions and (3, remainder_column, 4) in positions,
                "quotient/remainder operands lost source-bound semantic tokens")
         formatted = _rpc(server, session, "textDocument/formatting", {
             "textDocument": {"uri": _URI}, "options": {"tabSize": 4, "insertSpaces": True}}, 5)
         edits = cast("list[dict[str, object]]", formatted[0].get("result"))
-        ensure(len(edits) == 1 and "=> count / size;" in str(edits[0]["newText"])
-               and "=> count % size;" in str(edits[0]["newText"])
+        ensure(len(edits) == 1 and "return count / size;" in str(edits[0]["newText"])
+               and "return count % size;" in str(edits[0]["newText"])
                and "// supplementary comment: \U0001f680" in str(edits[0]["newText"]),
                "LSP formatting lost quotient/remainder spacing or original comments")
         broken = source.replace("count/size;", "count/false;", 1)

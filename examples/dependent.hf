@@ -127,7 +127,7 @@ public lemma ForwardProof<TProposition : Prop>(TProposition evidence)
 public record Counter(Nat Value, Nat Limit)
 {
     public bool AtLimit => this.Value >= this.Limit;
-    public Nat Remaining => this.Limit - this.Value;
+    public Nat Remaining => Nat.SaturatingSub(this.Limit, this.Value);
 }
 
 public Nat DefaultStep => Limit;

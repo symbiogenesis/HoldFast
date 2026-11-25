@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 module Expressions;
 
-/// Natural subtraction saturates at zero.
-public Nat Remaining(Nat total, Nat used) => total - used;
+/// Returns zero when the used amount exceeds the total.
+public Nat Remaining(Nat total, Nat used) => Nat.SaturatingSub(total, used);
 
 /// Negation binds tighter than comparisons, conjunction, then disjunction.
 public bool Allowed(Nat value, bool paused)
@@ -16,16 +16,45 @@ public bool Changed(bool before, bool after) => before != after;
 /// Reversed comparisons still evaluate their left operand first.
 public bool HasRoom(Nat total, Nat used) => total > used;
 
-/// Subtraction groups left to right after multiplication.
-public Nat Adjusted(Nat value) => value * 3 + 2 - 4;
+/// Subtracts the fixed adjustment when the scaled value covers it.
+public Nat Adjusted(Nat value)
+{
+    let scaled = value * 3 + 2;
+    if (4 <= scaled)
+    {
+        return scaled - 4;
+    }
+    else
+    {
+        return 0;
+    }
+}
 
-/// Natural division gives a quotient; remainder gives the ungrouped amount.
-public Nat Groups(Nat count, Nat size) => count / size;
-public Nat Leftover(Nat count, Nat size) => count % size;
+/// A zero size permits no complete groups.
+public Nat Groups(Nat count, Nat size)
+{
+    if (size != 0)
+    {
+        return count / size;
+    }
+    else
+    {
+        return 0;
+    }
+}
+
+/// At size zero every item stays ungrouped.
+public Nat Leftover(Nat count, Nat size)
+{
+    if (size != 0)
+    {
+        return count % size;
+    }
+    else
+    {
+        return count;
+    }
+}
 
 /// Division and remainder share multiplication's left-to-right precedence.
 public Nat Grouped(Nat count) => count / 3 % 4 * 2;
-
-/// The mathematical prototype uses total Nat operations at zero too.
-public const Nat ZeroQuotient = 17 / 0;
-public const Nat ZeroRemainder = 17 % 0;

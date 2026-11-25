@@ -73,7 +73,7 @@ THEOREMS = (
 )
 PURE_TERMINALS: tuple[str, ...] = (
     "MODULE", "PUBLIC", "NAT", "BOOL", "LET", "CONST", "RETURN", "IF", "ELSE", "TRUE", "FALSE",
-    "LPAREN", "RPAREN", "LBRACE", "RBRACE", "SEMICOLON", "COMMA", "COLON", "FATARROW",
+    "LPAREN", "RPAREN", "LBRACE", "RBRACE", "SEMICOLON", "COMMA", "COLON", "DOT", "FATARROW",
     "EQUAL", "PLUS", "MINUS", "STAR", "SLASH", "PERCENT",
     "EQ", "LE", "NE", "LT", "GT", "GE", "AND", "OR", "NOT", "EOF",
     "IDENT", "DECIMAL",
@@ -113,6 +113,7 @@ EXPECTED_PURE_SKELETON: dict[str, tuple[tuple[str, ...], ...]] = {
     "atom": (
         ("DECIMAL",), ("TRUE",), ("FALSE",), ("name",),
         ("name", "LPAREN", "comma_list(call_argument(expression,name))", "RPAREN"),
+        ("NAT", "DOT", "name", "LPAREN", "comma_list(call_argument(expression,name))", "RPAREN"),
         ("LPAREN", "expression", "RPAREN"),
     ),
     "call_argument(expression,identifier)": (
@@ -281,7 +282,7 @@ Open Scope string_scope.
 %}
 
 %token <HoldFastPureAst.span> MODULE PUBLIC NAT BOOL LET CONST RETURN IF ELSE TRUE FALSE
-%token <HoldFastPureAst.span> LPAREN RPAREN LBRACE RBRACE SEMICOLON COMMA COLON FATARROW
+%token <HoldFastPureAst.span> LPAREN RPAREN LBRACE RBRACE SEMICOLON COMMA COLON DOT FATARROW
 %token <HoldFastPureAst.span> EQUAL PLUS MINUS STAR SLASH PERCENT
 %token <HoldFastPureAst.span> EQ LE NE LT GT GE AND OR NOT EOF
 %token <HoldFastPureAst.span * String.string> IDENT DECIMAL
@@ -507,6 +508,12 @@ atom:
     { bind (sequence_outcomes arguments) (fun arg_nodes =>
       make_node "call" (loc_start callee) (snd close_p)
         [("callee", loc_json callee); ("arguments", array_json arg_nodes)]
+        arg_nodes) }
+| qualifier=NAT DOT callee=name LPAREN arguments=comma_list(call_argument(expression, name)) close_p=RPAREN
+    { bind (sequence_outcomes arguments) (fun arg_nodes =>
+      make_node "call" (fst qualifier) (snd close_p)
+        [("qualifier", loc_json (loc_text qualifier "Nat")); ("callee", loc_json callee);
+         ("arguments", array_json arg_nodes)]
         arg_nodes) }
 | open_p=LPAREN value=expression close_p=RPAREN
     { bind value (fun value_node =>
@@ -839,6 +846,7 @@ let convert_token start_pos end_pos (raw : Parser.token) : Holdfast_checked_pars
   | Parser.SEMICOLON -> Holdfast_checked_parser.SEMICOLON sp
   | Parser.COMMA -> Holdfast_checked_parser.COMMA sp
   | Parser.COLON -> Holdfast_checked_parser.COLON sp
+  | Parser.DOT -> Holdfast_checked_parser.DOT sp
   | Parser.FATARROW -> Holdfast_checked_parser.FATARROW sp
   | Parser.EQUAL -> Holdfast_checked_parser.EQUAL sp
   | Parser.PLUS -> Holdfast_checked_parser.PLUS sp

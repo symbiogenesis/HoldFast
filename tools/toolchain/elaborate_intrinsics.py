@@ -1294,8 +1294,8 @@ class _IntrinsicsMixin:
             return self._check_guard_value(guarded, environment, _BOOL)
         if operator in {"&&", "||", "==>", "<==>"}:
             left_b = _Binding(self.check(left_node, _BOOL, environment), _BOOL)
-            if operator in {"&&", "==>"}:
-                self.active_facts.append(left_b.term)
+            if operator in {"&&", "||", "==>"}:
+                self.active_facts.append(self._negate_bool_term(left_b.term) if operator == "||" else left_b.term)
                 try:
                     right_b = _Binding(self.check(right_node, _BOOL, environment), _BOOL)
                 finally:
@@ -1382,6 +1382,22 @@ class _IntrinsicsMixin:
         self.unify(left.type, signature.args[0])
         signature = self.whnf(signature.args[1])
         self.unify(right.type, signature.args[0])
+        if operator == "-":
+            condition = _apps(_constant("<="), right.term, left.term)
+            if not self._prove_bool_precondition(condition, environment):
+                raise self.fail(
+                    "type",
+                    "Nat subtraction requires proof that the left operand is at least the right operand. "
+                    "Use Nat.SaturatingSub to clamp at zero",
+                    cast("Node", node["operator"]),
+                )
+        elif operator in {"/", "%"}:
+            condition = _apps(_constant("ne_nat"), right.term, _term("nat", value=0))
+            if not self._prove_bool_precondition(condition, environment):
+                operation = "division" if operator == "/" else "remainder"
+                raise self.fail(
+                    "type", f"Nat {operation} requires proof of a nonzero divisor", cast("Node", node["operator"])
+                )
         return _Binding(_apps(binding.term, left.term, right.term), signature.args[1])
 
     def _structural_eq_bool(

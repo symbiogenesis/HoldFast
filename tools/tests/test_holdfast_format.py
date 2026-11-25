@@ -122,11 +122,11 @@ def _bounded_output() -> None:
 def _extended_expression_spacing() -> None:
     source = (b"module M;public bool Decide(bool flag,Nat value){"
               b"let ready=!!flag;return !(ready||value<2)&&value>=1&&value!=3||value>4;}"
-              b"public Nat Remaining(Nat total,Nat used)=>total-used+2*3;")
+              b"public Nat Remaining(Nat total,Nat used)=>Nat . SaturatingSub(total,used)-0+2*3;")
     expected = (b"module M;\n\npublic bool Decide(bool flag, Nat value)\n{\n"
                 b"    let ready = !!flag;\n"
                 b"    return !(ready || value < 2) && value >= 1 && value != 3 || value > 4;\n}\n\n"
-                b"public Nat Remaining(Nat total, Nat used) => total - used + 2 * 3;\n")
+                b"public Nat Remaining(Nat total, Nat used) => Nat.SaturatingSub(total, used) - 0 + 2 * 3;\n")
     ensure(format_source(source) == expected, "prefix or binary operator spacing changed")
     ensure(format_source(expected) == expected, "extended expressions are not idempotent")
     ensure(translate(source).gallina.splitlines()[2:] == translate(expected).gallina.splitlines()[2:],

@@ -6,7 +6,7 @@ from typing import cast
 from unittest.mock import patch
 
 from tests.harness import Case, ensure
-from toolchain import concrete, inspect_source, inspection, inspection_syntax
+from toolchain import concrete, inspect_source, inspection, inspection_reader, inspection_syntax
 from toolchain.schema import validate
 
 INDEPENDENT_CASES = True
@@ -220,8 +220,28 @@ def _semantic_inventory_corruption() -> None:
                    "incomplete producer inventory became a checked empty query")
 
 
+def _qualified_builtin() -> None:
+    source = b"module M; public Nat Remaining(Nat n) => Nat // qualifier\r\n . SaturatingSub(n, 1);"
+    snapshot = inspection.inspect(source)
+    publication = snapshot.export()
+    ensure(publication["status"] == "checked", "qualified Nat call did not publish checked syntax")
+    binding = cast("dict[str, object]", publication["binding"])
+    validate(inspection.SCHEMA_PATH, publication)
+    inspection_reader.read(snapshot.publication, source, binding=binding)
+    nodes = _nodes(publication)
+    call = next(node for node in nodes if node["kind"] == "call")
+    parts = [node for node in nodes if node["parent"] == call["id"]]
+    ensure([(node["kind"], node["role"], node["value"]) for node in parts[:2]] == [
+        ("type", "qualifier", "Nat"), ("builtin", "callee", "SaturatingSub")],
+        "qualified call tokens did not retain their individual roles")
+    for node in parts[:2]:
+        start, end = cast("list[int]", node["span"])
+        ensure(source[start:end].decode() == node["value"], "qualified call token lost its source span")
+
+
 def cases() -> list[Case]:
     return [Case("independent-pure-syntax-shape-source-spans-and-parent-links", _shape_consumer),
             Case("bounded-syntax-location-and-child-query-consumer", _query_consumer),
             Case("syntax-worker-corruption-stale-schema-and-node-bound-refusal", _worker_corruption_and_bounds),
-            Case("complete-source-declaration-and-reference-inventories", _semantic_inventory_corruption)]
+            Case("complete-source-declaration-and-reference-inventories", _semantic_inventory_corruption),
+            Case("qualified-builtin-syntax-and-typed-publication", _qualified_builtin)]

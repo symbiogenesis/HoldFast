@@ -71,6 +71,7 @@ PURE_TERMINALS: dict[str, str | None] = {
     "SEMICOLON": ";",
     "COMMA": ",",
     "COLON": ":",
+    "DOT": ".",
     "EQUAL": "=",
     "FATARROW": "=>",
     "OR": "||",
@@ -383,6 +384,7 @@ _SINGLE_CHAR_TOKENS: dict[str, str] = {
     ";": "SEMICOLON",
     ",": "COMMA",
     ":": "COLON",
+    ".": "DOT",
     "=": "EQUAL",
     "+": "PLUS",
     "-": "MINUS",
@@ -984,18 +986,23 @@ class IndependentPureAstOracle:
         if cur.terminal == "FALSE":
             tok = self._expect("FALSE")
             return self._make("bool", tok, tok.end_byte, [("value", False)], [])
-        if cur.terminal == "IDENT":
+        if cur.terminal in {"IDENT", "NAT"}:
+            qualifier = None
+            if cur.terminal == "NAT":
+                qualifier = self._expect("NAT")
+                self._expect("DOT")
             ident = self._expect("IDENT")
             nxt = self._current()
-            if nxt is not None and nxt.terminal == "LPAREN":
+            if qualifier is not None or (nxt is not None and nxt.terminal == "LPAREN"):
                 self._expect("LPAREN")
                 args = self._parse_call_arguments()
                 rparen = self._expect("RPAREN")
+                qualifier_field = [] if qualifier is None else [("qualifier", self._name_obj(qualifier))]
                 return self._make(
                     "call",
-                    ident,
+                    qualifier or ident,
                     rparen.end_byte,
-                    [
+                    [*qualifier_field,
                         ("callee", self._name_obj(ident)),
                         ("arguments", [a.syntax for a in args]),
                     ],
@@ -1198,7 +1205,7 @@ def qualify_renderer() -> dict[str, object]:
         "LBRACE", "RETURN", "FALSE", "SEMICOLON", "RBRACE",
         "RBRACE",
         "PUBLIC", "NAT", "IDENT", "LPAREN", "NAT", "IDENT", "RPAREN",
-        "FATARROW", "IDENT", "LPAREN", "IDENT", "COLON", "DECIMAL", "COMMA", "RPAREN", "SEMICOLON",
+        "FATARROW", "NAT", "DOT", "IDENT", "LPAREN", "IDENT", "COLON", "DECIMAL", "COMMA", "RPAREN", "SEMICOLON",
         "EOF",
     )
     covered = set(all_terminals_sentence)

@@ -434,7 +434,7 @@ public lemma ComputedWrites25Bytes() ensures Written(FormatComputed(5)) == 25 pr
         ("ergonomic-expressions-patterns-updates-guards-and-properties", """module ErgonomicsReplay;
 public record Counter(Nat Value, Nat Limit) {
     public bool AtLimit => this.Value >= this.Limit;
-    public Nat Remaining => this.Limit - this.Value;
+    public Nat Remaining => Nat.SaturatingSub(this.Limit, this.Value);
 }
 public Nat DefaultStep => 1;
 public definition Counter Advance(Counter counter, Nat step) =>
@@ -1005,8 +1005,10 @@ public Nat RoundTripOwned()
          "requires dst.CanRead && dst.CanWrite && dst.Length >= 6usize requires count <= 4usize "
          "ensures (forall (usize i) => (i >= 5usize && i < dst.Length && i < old(dst.Length)) "
          "==> dst[i] == old(dst)[i]) { Span.Fill(ref dst, 2usize, count, 9u8); }", "type"),
-        ("truncated-natural-headroom", "bool Guard(Nat a, Nat b, Nat k) requires a + b <= k => true; "
+        ("unguarded-natural-headroom", "bool Guard(Nat a, Nat b, Nat k) requires a + b <= k => true; "
          "bool Bad(Nat a, Nat b, Nat k) requires a <= k - b => Guard(a, b, k);", "type"),
+        ("saturating-natural-headroom", "bool Guard(Nat a, Nat b, Nat k) requires a + b <= k => true; "
+         "bool Bad(Nat a, Nat b, Nat k) requires a <= Nat.SaturatingSub(k, b) => Guard(a, b, k);", "type"),
         ("negative-signed-quotient-bound", "bool Guard(i8 x, i8 d) requires d >= 2i8 requires x / d <= x => true; "
          "bool Bad(i8 x, i8 d) requires d >= 2i8 => Guard(x, d);", "type"),
         ("static-parameter-runtime-input", "Nat F(const Nat value) => value; Nat Wrong(Nat runtime) => F(runtime);", "type"),
@@ -1301,7 +1303,9 @@ public Nat RoundTripOwned()
          "return Combine(Tick(ref count), count == 1 && None::<bool>?); }", "unsupported"),
     )
     pure = Fixture("pure-expression-operators", b"""module PureExpressions;
-public Nat Difference(Nat left, Nat right) => left - right;
+public Nat Difference(Nat left, Nat right) {
+    if (right <= left) { return left - right; } else { return 0; }
+}
 public bool Negate(bool value) => !value;
 public bool Both(bool left, bool right) => left && right;
 public bool Either(bool left, bool right) => left || right;
@@ -1314,7 +1318,7 @@ public bool Repeated(bool value) => !!value;
 public Nat Mixed() => 2 + 3 * 4 - 5;
 public Nat LeftAssociative() => 10 - 3 - 2;
 public bool Precedence() => !false || false && false;
-public const Nat Underflow = 2 - 5;
+public const Nat Saturated = Nat.SaturatingSub(2, 5);
 public const bool Static = !false && 2 < 3 || false;
 """, pure=True, observations=(
         ("f_Difference 2 5", "0"), ("f_Difference 8 3", "5"),
@@ -1328,37 +1332,38 @@ public const bool Static = !false && 2 < 3 || false;
         ("f_AtLeast 3 3", "true"), ("f_AtLeast 2 3", "false"),
         ("f_Repeated true", "true"), ("f_Mixed", "9"),
         ("f_LeftAssociative", "5"), ("f_Precedence", "true"),
-        ("c_Underflow", "0"), ("c_Static", "true")))
+        ("c_Saturated", "0"), ("c_Static", "true")))
     division = Fixture("pure-division-remainder", b"""module PureDivision;
-public Nat Quotient(Nat dividend, Nat divisor) => dividend / divisor;
-public Nat Remainder(Nat dividend, Nat divisor) => dividend % divisor;
+public Nat Quotient(Nat dividend, Nat divisor) {
+    if (divisor != 0) { return dividend / divisor; } else { return 99; }
+}
+public Nat Remainder(Nat dividend, Nat divisor) {
+    if (divisor == 0) { return 99; } else { return dividend % divisor; }
+}
 public Nat Mixed() => 2 + 19 % 6 * 3;
 public Nat LeftAssociative() => 30 / 4 % 3;
 public Nat Grouped() => 20 / (3 * 2);
 public Nat DivThenMul() => 20 / 3 * 2;
 public Nat ModThenMul() => 20 % 6 * 2;
 public Nat StaticDivisor(const Nat divisor, Nat value) {
-    const Nat offset = 17 % divisor;
-    return value / divisor + offset;
+    const Nat offset = 17 % (divisor + 1);
+    return value / (divisor + 1) + offset;
 }
-public Nat Specialized(Nat value) => StaticDivisor(divisor: 5, value: value);
+public Nat Specialized(Nat value) => StaticDivisor(divisor: 4, value: value);
 public const Nat StaticQuotient = 17 / 5;
 public const Nat StaticRemainder = 17 % 5;
-public const Nat ZeroQuotient = 17 / 0;
-public const Nat ZeroRemainder = 17 % 0;
 """, pure=True, observations=(
         ("f_Quotient 17 5", "3"), ("f_Remainder 17 5", "2"),
         ("f_Quotient 5 8", "0"), ("f_Remainder 5 8", "5"),
         ("f_Quotient 5 5", "1"), ("f_Remainder 5 5", "0"),
-        ("f_Quotient 17 0", "0"), ("f_Remainder 17 0", "17"),
-        ("f_Quotient 0 0", "0"), ("f_Remainder 0 0", "0"),
+        ("f_Quotient 17 0", "99"), ("f_Remainder 17 0", "99"),
+        ("f_Quotient 0 0", "99"), ("f_Remainder 0 0", "99"),
         ("f_Quotient 0 5", "0"), ("f_Remainder 0 5", "0"),
         ("f_Quotient 17 1", "17"), ("f_Remainder 17 1", "0"),
         ("f_Mixed", "5"), ("f_LeftAssociative", "1"),
         ("f_Grouped", "3"), ("f_DivThenMul", "12"), ("f_ModThenMul", "4"),
-        ("f_Specialized 23", "6"), ("f_StaticDivisor 0 23", "17"),
-        ("c_StaticQuotient", "3"), ("c_StaticRemainder", "2"),
-        ("c_ZeroQuotient", "0"), ("c_ZeroRemainder", "17")))
+        ("f_Specialized 23", "6"), ("f_StaticDivisor 0 23", "23"),
+        ("c_StaticQuotient", "3"), ("c_StaticRemainder", "2")))
     pure_negatives = (
         ("pure-negation-type", "public bool Wrong() => !1;", "type"),
         ("pure-logical-type", "public bool Wrong() => false || 2;", "type"),
@@ -1367,11 +1372,52 @@ public const Nat ZeroRemainder = 17 % 0;
         ("pure-subtraction-type", "public Nat Wrong() => true - 1;", "type"),
         ("pure-division-type", "public Nat Wrong() => true / 2;", "type"),
         ("pure-remainder-type", "public Nat Wrong() => 2 % false;", "type"),
+        ("pure-subtraction-underflow", "public const Nat Wrong = 2 - 5;", "type"),
+        ("pure-zero-divisor", "public const Nat Wrong = 17 / 0;", "type"),
+        ("pure-zero-remainder-divisor", "public const Nat Wrong = 17 % 0;", "type"),
         ("pure-division-static-dependency", "public Nat Wrong(Nat runtime) { "
-         "const Nat Value = runtime / 0; return Value; }", "unsupported"),
+         "const Nat Value = runtime / 1; return Value; }", "unsupported"),
         ("pure-skipped-name", "public bool Wrong() => false && missing;", "name"),
         ("pure-skipped-runtime-dependency", "public bool Wrong(bool runtime) { "
          "const bool Value = false && runtime; return Value; }", "unsupported"),
+    )
+    natural_arithmetic = Fixture("checked-natural-arithmetic", b"""module NatReplay;
+public Nat Difference(Nat left, Nat right) requires right <= left => left - right;
+public Nat Exact() => Difference(9, 2) + (-)(3, 1);
+public Nat Quotient(Nat count, Nat divisor) {
+    if (divisor == 0) { return 99; }
+    return count / divisor;
+}
+public Nat Remainder(Nat count, Nat divisor) requires divisor > 0 => count % divisor;
+public Nat LeftOver() => Remainder(17, 5);
+public bool AtCapacity(Nat count, Nat capacity) => count > capacity || capacity - count == 0;
+public const Nat Saturated = Nat.SaturatingSub(2, 5);
+""", observations=(
+        ("holdfast_d1_Exact tt", "9"), ("holdfast_d2_Quotient 17 5", "3"),
+        ("holdfast_d2_Quotient 17 0", "99"), ("holdfast_d4_LeftOver tt", "2"),
+        ("holdfast_d5_AtCapacity 5 2", "true"), ("holdfast_d5_AtCapacity 2 5", "false"),
+        ("holdfast_d6_Saturated", "0"),
+    ))
+    natural_negatives = (
+        ("unguarded-natural-subtraction", "Nat Wrong(Nat left, Nat right) => left - right;",
+         "Nat subtraction requires proof"),
+        ("unguarded-natural-division", "Nat Wrong(Nat dividend, Nat divisor) => dividend / divisor;",
+         "Nat division requires proof of a nonzero divisor"),
+        ("unguarded-natural-remainder", "Nat Wrong(Nat dividend, Nat divisor) => dividend % divisor;",
+         "Nat remainder requires proof of a nonzero divisor"),
+        ("constant-natural-subtraction-underflow", "const Nat Wrong = 2 - 5;", "Nat subtraction requires proof"),
+        ("constant-natural-zero-divisor", "const Nat Wrong = 17 / 0;", "Nat division requires proof of a nonzero divisor"),
+        ("constant-natural-zero-remainder-divisor", "const Nat Wrong = 17 % 0;",
+         "Nat remainder requires proof of a nonzero divisor"),
+        ("natural-subtraction-call-precondition",
+         "Nat Difference(Nat left, Nat right) requires right <= left => left - right; Nat Wrong() => Difference(2, 5);",
+         "call precondition"),
+        *((f"unconstrained-natural-{operation}-value", f"definition Fn(Nat,Nat) -> Nat Wrong() => ({symbol});",
+           "callback precondition")
+          for operation, symbol in (("subtraction", "-"), ("division", "/"), ("remainder", "%"))),
+        *((f"unsafe-natural-{operation}-operator-call", f"Nat Wrong(Nat a, Nat b) => ({symbol})(a, b);",
+           "call precondition")
+          for operation, symbol in (("subtraction", "-"), ("division", "/"), ("remainder", "%"))),
     )
     dependent_playground = Fixture("dependent-playground-observations", b'''module DependentPlaygroundReplay;
 public definition T Identity<T>(T value) => value;
@@ -1396,7 +1442,7 @@ public definition Nat PacketWritten() => Written(FormatPacket(42, true));
 public definition bool PacketFits() => Fits(FormatPacket(42, true));
 public record Counter(Nat Value, Nat Limit) {
     public bool AtLimit => this.Value >= this.Limit;
-    public Nat Remaining => this.Limit - this.Value;
+    public Nat Remaining => Nat.SaturatingSub(this.Limit, this.Value);
 }
 public Nat DefaultStep => 1;
 public definition Counter Advance(Counter counter, Nat step) =>
@@ -1616,7 +1662,9 @@ lemma First() ensures At(Table, FZero<0>()) == 5 proof { assert At(Table, FZero<
             *(Fixture(name, ("module SignedNegative; " + source).encode(), "type", word_proofs=True,
                       refusal_contains=f"integer {operation} may overflow") for name, source, operation in signed_refusals),
             Fixture("authored-example", example), Fixture("borrowed-word-count", word_count),
-            pure, division, dependent_playground, intervals, span_model, slots, capacity, widths,
+            pure, division, natural_arithmetic, dependent_playground, intervals, span_model, slots, capacity, widths,
+            *(Fixture(name, ("module NatNegativeReplay; " + source).encode(), "type", refusal_contains=message)
+              for name, source, message in natural_negatives),
             *(Fixture(name, ("module PureNegativeReplay; " + source).encode(), expected, pure=True)
               for name, source, expected in pure_negatives),
             *(Fixture(name, source.encode()) for name, source in positives),

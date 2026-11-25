@@ -62,9 +62,14 @@ def expressions(document: SourceSnapshot, raw: object, syntax: list[dict[str, ob
         value_type = cast("dict[str, object]", decided[handle]["type"])
         kind = node["kind"]
         if kind in {"name", "call"}:
-            child = by_handle[cast("list[str]", node["children"])[0]]
-            resolved = cast("dict[str, object]", reference_types[tuple(cast("list[int]", child["span"]))])
-            selected = resolved.get("name") if kind == "name" else resolved.get("result")
+            role = "name" if kind == "name" else "callee"
+            child = next(by_handle[item] for item in cast("list[str]", node["children"])
+                         if by_handle[item]["role"] == role)
+            if child["kind"] == "builtin":
+                selected = "Nat"
+            else:
+                resolved = cast("dict[str, object]", reference_types[tuple(cast("list[int]", child["span"]))])
+                selected = resolved.get("name") if kind == "name" else resolved.get("result")
             if selected != value_type["name"]:
                 raise ValueError("pure inspection expression type differs from its resolved symbol")
         elif kind == "group":

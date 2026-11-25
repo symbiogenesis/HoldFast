@@ -33,10 +33,10 @@
       "required": ["id", "kind", "span", "parent", "role", "index", "children", "value", "const"],
       "properties": {
         "id": {"$ref": "#/$defs/node_handle"},
-        "kind": {"enum": ["module", "function", "constant", "parameter", "type", "block", "binding", "local-constant", "return", "if", "expression-body", "nat", "bool", "name", "call", "argument", "binary", "unary", "group", "identifier", "operator"]},
+        "kind": {"enum": ["module", "function", "constant", "parameter", "type", "block", "binding", "local-constant", "return", "if", "expression-body", "nat", "bool", "name", "call", "argument", "binary", "unary", "group", "identifier", "operator", "builtin"]},
         "span": {"$ref": "#/$defs/span"},
         "parent": {"oneOf": [{"$ref": "#/$defs/node_handle"}, {"type": "null"}]},
-        "role": {"enum": ["root", "name", "declarations", "result", "parameters", "body", "type", "bindings", "exit", "value", "condition", "then", "else", "callee", "arguments", "label", "left", "operator", "right"]},
+        "role": {"enum": ["root", "name", "declarations", "result", "parameters", "body", "type", "bindings", "exit", "value", "condition", "then", "else", "qualifier", "callee", "arguments", "label", "left", "operator", "right"]},
         "index": {"type": ["integer", "null"], "minimum": 0},
         "children": {"type": "array", "maxItems": 8192, "items": {"$ref": "#/$defs/node_handle"}},
         "value": {"type": ["string", "boolean", "null"]},

@@ -28,8 +28,7 @@ def _refuses(source: str, kind: str, fragment: str = "") -> holdfast.HoldFastErr
 def _values() -> None:
     cases = {"17 / 5": 3, "17 % 5": 2, "0 / 5": 0, "0 % 5": 0,
              "5 / 8": 0, "5 % 8": 5, "5 / 5": 1, "5 % 5": 0,
-             "17 / 1": 17, "17 % 1": 0, "17 / 0": 0, "17 % 0": 17,
-             "0 / 0": 0, "0 % 0": 0,
+             "17 / 1": 17, "17 % 1": 0,
              "20 / 3 * 2": 12, "20 / (3 * 2)": 3,
              "20 % 6 * 2": 4, "20 % (6 * 2)": 8,
              "30 / 4 % 3": 1, "30 % 4 / 2": 1,
@@ -54,8 +53,9 @@ def _terms() -> None:
              ("a / b % c", "(Corelib.Init.Nat.modulo (Corelib.Init.Nat.div v_a v_b) v_c)"),
              ("a / (b * c)", "(Corelib.Init.Nat.div v_a (Corelib.Init.Nat.mul v_b v_c))"))
     for expression, expected in cases:
-        source = ("module Terms; public Nat F(Nat a, Nat b, Nat c) => " + expression + ";").encode()
-        ensure(f":=\n  {expected}.\n" in holdfast.translate(source).gallina,
+        source = ("module Terms; public Nat F(Nat a, Nat b, Nat c) { "
+                  "if (b != 0 && c != 0 && b * c != 0) { return " + expression + "; } else { return 0; } }").encode()
+        ensure(f" then {expected} else " in holdfast.translate(source).gallina,
                f"wrong emitted multiplicative grouping for {expression}")
     source = (b"module Calls; public Nat Left() => 17; public Nat Right() => 5; "
               b"public Nat Divide() => Left() / Right(); public Nat Remain() => Left() % Right();")
@@ -67,18 +67,16 @@ def _terms() -> None:
 
 def _constants_and_static_parameters() -> None:
     source = (b"module Static; public const Nat Groups = 17 / 5; public const Nat Tail = 17 % 5; "
-              b"public const Nat ZeroQuotient = 17 / 0; public const Nat ZeroRemainder = 17 % 0; "
               b"public Nat Bucket(const Nat width, Nat value) { "
               b"const Nat step = width % 3 + 1; return value / step; } "
               b"public Nat Forward(const Nat width, Nat value) => Bucket(width: width, value: value); "
               b"public Nat F(Nat value) => Forward(width: 5, value: value);")
-    for expression, expected in (("Groups", 3), ("Tail", 2), ("ZeroQuotient", 0),
-                                 ("ZeroRemainder", 17), ("F(17)", 5),
+    for expression, expected in (("Groups", 3), ("Tail", 2), ("F(17)", 5),
                                  ("Forward(width: 0, value: 17)", 17)):
         ensure(holdfast.evaluate(source, expression, "Nat").value == expected,
                f"constant or static specialization changed {expression}")
     emitted = holdfast.translate(source).gallina
-    for name, expected in (("Groups", 3), ("Tail", 2), ("ZeroQuotient", 0), ("ZeroRemainder", 17)):
+    for name, expected in (("Groups", 3), ("Tail", 2)):
         ensure(f"Definition c_{name} : {_NAT} :=\n  ({expected} : {_NAT})." in emitted,
                f"constant {name} did not normalize to its independent value")
     facts = holdfast.inspect_source(source)
@@ -92,11 +90,16 @@ def _semantic_and_syntax_refusals() -> None:
             _refuses(f"module M; public Nat F() => {expression};", "type", f"'{operation}'")
         _refuses(f"module M; public bool F() => 8 {operation} 3;", "type", "returns Nat")
         _refuses(f"module M; public Nat F() => missing {operation} 0;", "name", "unbound")
-        for expression in (f"runtime {operation} 0", f"0 {operation} runtime"):
+        for expression in (f"17 {operation} 0", f"0 {operation} 0", f"17 {operation} runtime"):
+            _refuses(f"module M; public Nat F(Nat runtime) => {expression};", "type", "nonzero divisor")
+        _refuses(f"module M; public const Nat Wrong = 17 {operation} 0;", "type", "nonzero divisor")
+        _refuses("module M; public Nat F(Nat value) { if (value == 0) "
+                 f"{{ return 1 {operation} value; }} else {{ return 0; }} }}", "type", "nonzero divisor")
+        for expression in (f"runtime {operation} 1", f"0 {operation} (runtime + 1)"):
             _refuses("module M; public Nat F(Nat runtime) { const Nat Wrong = "
                      + expression + "; return Wrong; }", "unsupported", "runtime binding 'runtime'")
         _refuses("module M; public bool F(Nat runtime) { "
-                 f"const bool Wrong = false && (runtime {operation} 0 == 0); return Wrong; }}",
+                 f"const bool Wrong = false && (runtime {operation} 1 == 0); return Wrong; }}",
                  "unsupported", "runtime binding 'runtime'")
         for expression in (f"{operation} 2", f"2 {operation}", f"2 {operation} {operation} 3",
                            f"2 {operation}= 3", f"2 {operation} * 3"):
@@ -108,14 +111,24 @@ def _semantic_and_syntax_refusals() -> None:
     _refuses("module M; public Nat F() => 1" + "/1" * 64 + ";", "limit")
 
 
+def _short_circuit_premises() -> None:
+    source = (b"module M; public bool HasGroup(Nat count, Nat size) => size != 0 && count / size > 0; "
+              b"public bool IsWholeOrZero(Nat count, Nat size) => size == 0 || count % size == 0;")
+    for expression, expected in (("HasGroup(17, 0)", False), ("HasGroup(17, 5)", True),
+                                 ("IsWholeOrZero(17, 0)", True), ("IsWholeOrZero(17, 5)", False)):
+        ensure(holdfast.evaluate(source, expression, "bool").value is expected,
+               f"guarded divisor produced the wrong value for {expression}")
+    _refuses("module M; public bool F(Nat size) => size != 0 || 17 / size > 0;", "type", "nonzero divisor")
+
+
 def _numeric_and_work_limits() -> None:
     maximum = "9" * holdfast.MAX_LITERAL_DIGITS
     ensure(holdfast.evaluate(_BASE, maximum + " / 1", "Nat").value == int(maximum),
            "division narrowed the existing numeric range")
-    ensure(holdfast.evaluate(_BASE, maximum + " % 0", "Nat").value == int(maximum),
-           "zero remainder narrowed the existing numeric range")
-    for expression in (f"({maximum} * 2) / 2", f"({maximum} * 2) / 0",
-                       f"({maximum} * 2) % 0", f"0 / ({maximum} * 2)", f"0 % ({maximum} * 2)"):
+    ensure(holdfast.evaluate(_BASE, maximum + " % (" + maximum + ")", "Nat").value == 0,
+           "remainder narrowed the existing numeric range")
+    for expression in (f"({maximum} * 2) / 2", f"({maximum} * 2) % 2",
+                       f"0 / ({maximum} * 2)", f"0 % ({maximum} * 2)"):
         with raises(holdfast.HoldFastError, msg="division hid a previously overflowing operand") as raised:
             holdfast.evaluate(_BASE, expression, "Nat")
         ensure(raised.exception.kind == "limit", "division changed an operand's numeric-limit refusal")
@@ -123,11 +136,11 @@ def _numeric_and_work_limits() -> None:
     declarations.extend(f"public Nat F{index}(Nat value) => F{index - 1}(value) + F{index - 1}(value);"
                         for index in range(1, 16))
     source = " ".join(declarations).encode()
-    for expression in ("F15(0) / 0", "F15(0) % 0", "0 / F15(0)", "0 % F15(0)"):
-        with raises(holdfast.HoldFastError, msg="zero division/remainder skipped an expensive operand") as raised:
+    for expression in ("F15(0) / 1", "F15(0) % 1", "0 / (F15(0) + 1)", "0 % (F15(0) + 1)"):
+        with raises(holdfast.HoldFastError, msg="division/remainder skipped an expensive operand") as raised:
             holdfast.evaluate(source, expression, "Nat")
-        ensure(raised.exception.kind == "limit", "zero operands changed the static work-limit refusal")
-    for expression, fragment in ((f"({maximum} * 2) / F15(0)", "constant result exceeds"),
+        ensure(raised.exception.kind == "limit", "operands changed the static work-limit refusal")
+    for expression, fragment in ((f"({maximum} * 2) / (F15(0) + 1)", "constant result exceeds"),
                                  (f"F15(0) / ({maximum} * 2)", "work or nesting budget")):
         with raises(holdfast.HoldFastError, msg="costly division operands escaped static limits") as raised:
             holdfast.evaluate(source, expression, "Nat")
@@ -230,17 +243,17 @@ def _refuses_native(source: bytes, tree: dict[str, object]) -> None:
 
 def _formatting() -> None:
     source = (b"module M;\r\n/// Quotient and remainder.\r\n"
-              b"public Nat F(Nat count,Nat width)=>count/width%3*2;")
+              b"public Nat F(Nat count,Nat width)=>count/(width+1)%3*2;")
     expected = (b"module M;\n\n/// Quotient and remainder.\n"
-                b"public Nat F(Nat count, Nat width) => count / width % 3 * 2;\n")
+                b"public Nat F(Nat count, Nat width) => count / (width + 1) % 3 * 2;\n")
     original = bytes(source)
     ensure(format_source(source) == expected, "division/remainder spacing changed canonical bytes")
     ensure(format_source(expected) == expected and source == original,
            "division formatting was not source-preserving and idempotent")
     ensure(holdfast.translate(source).gallina.splitlines()[2:] == holdfast.translate(expected).gallina.splitlines()[2:],
            "division formatting changed emitted terms")
-    for expression in (b"count / // quotient\nwidth", b"count // dividend\n/ width",
-                       b"count % // remainder\nwidth", b"count // dividend\n% width"):
+    for expression in (b"count / // quotient\n(width + 1)", b"count // dividend\n/ (width + 1)",
+                       b"count % // remainder\n(width + 1)", b"count // dividend\n% (width + 1)"):
         commented = b"module M; public Nat F(Nat count, Nat width) => " + expression + b";"
         formatted = format_source(commented)
         ensure(format_source(formatted) == formatted, "division comment formatting did not stabilize")
@@ -253,6 +266,7 @@ def cases() -> list[Case]:
             Case("natural-division-exact-terms-and-precedence", _terms),
             Case("natural-division-constants-static-parameters-and-facts", _constants_and_static_parameters),
             Case("natural-division-semantic-and-syntax-refusals", _semantic_and_syntax_refusals),
+            Case("natural-division-short-circuit-premises", _short_circuit_premises),
             Case("natural-division-numeric-work-limits-and-evaluation-order", _numeric_and_work_limits),
             Case("natural-division-independent-native-ast-source-binding", _native_source_binding),
             Case("natural-division-formatting-comments-and-source-preservation", _formatting)]

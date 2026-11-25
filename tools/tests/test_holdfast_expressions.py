@@ -25,7 +25,7 @@ def _refuses(source: str, kind: str, fragment: str = "") -> holdfast.HoldFastErr
 
 
 def _values() -> None:
-    naturals = {"10 - 3 - 2": 5, "2 - 8": 0, "0 - 0": 0,
+    naturals = {"10 - 3 - 2": 5, "Nat.SaturatingSub(2, 8)": 0, "0 - 0": 0,
                 "2 + 3 * 4 - 5": 9, "10 - (3 - 2)": 9,
                 "Id(value: 8) - Id(value: 3)": 5}
     booleans = {"!false": True, "!true": False, "!!true": True,
@@ -40,7 +40,7 @@ def _values() -> None:
                 "2 != 3": True, "2 != 2": False,
                 "true != false": True, "false != false": False,
                 "false != true": True, "true != true": False,
-                "2 - 8 == 0 && 5 >= 4": True,
+                "Nat.SaturatingSub(2, 8) == 0 && 5 >= 4": True,
                 "Echo(value: true) && !Echo(value: false)": True}
     for expression, expected in naturals.items():
         actual = holdfast.evaluate(_BASE, expression, "Nat")
@@ -69,7 +69,7 @@ def _terms() -> None:
         ("Nat", "bool", "left >= right",
          "(let holdfast_cmp_left := v_left in let holdfast_cmp_right := v_right in "
          "Corelib.Init.Nat.leb holdfast_cmp_right holdfast_cmp_left)"),
-        ("Nat", "Nat", "left - right", "(Corelib.Init.Nat.sub v_left v_right)"),
+        ("Nat", "Nat", "Nat.SaturatingSub(left, right)", "(Corelib.Init.Nat.sub v_left v_right)"),
     ]
     for parameter_type, result_type, expression, term in cases:
         source = (f"module Terms; public {result_type} F({parameter_type} left, "
@@ -106,6 +106,24 @@ def _semantic_refusals() -> None:
     _refuses("module M; public bool Static(const bool value) => value; "
              "public bool F(bool flag) => false && Static(flag);", "unsupported", "runtime binding 'flag'")
     _refuses("module M; public bool F() => true || (0 && false);", "type", "'&&'")
+
+
+def _checked_subtraction() -> None:
+    source = (b"module Checked; public Nat Difference(Nat left, Nat right) { "
+              b"let enough = left >= right; if (!enough) { return 0; } else { return left - right; } } "
+              b"public bool Positive(Nat left, Nat right) => left >= right && left - right > 0;")
+    ensure("(Corelib.Init.Nat.sub v_left v_right)" in holdfast.translate(source).gallina,
+           "checked subtraction lost its Gallina lowering")
+    for expression, value_type, expected in (("Difference(5, 3)", "Nat", 2), ("Difference(3, 5)", "Nat", 0),
+                                             ("Positive(5, 3)", "bool", True), ("Positive(3, 5)", "bool", False)):
+        ensure(holdfast.evaluate(source, expression, value_type).value == expected,
+               f"wrong result for guarded subtraction in {expression}")
+    for expression in ("3 - 5", "left - right"):
+        _refuses(f"module M; public Nat F(Nat left, Nat right) => {expression};", "type", "Nat subtraction")
+    _refuses("module M; public Nat F(Nat left, Nat right) { "
+             "if (left >= right) { return 0; } else { return left - right; } }", "type", "Nat subtraction")
+    _refuses("module M; public Nat F() => Nat.SaturatingSub(1);", "type", "expects 2 arguments")
+    _refuses("module M; public Nat F() => Nat.SaturatingSub(1, true);", "type", "operands must be Nat")
 
 
 def _syntax_and_limits() -> None:
@@ -167,6 +185,7 @@ def cases() -> list[Case]:
     return [Case("independent-operator-values", _values),
             Case("independent-operator-terms-and-hygiene", _terms),
             Case("operator-semantic-negative-neighbors", _semantic_refusals),
+            Case("checked-subtraction-guarded-success-and-nearby-refusals", _checked_subtraction),
             Case("operator-syntax-coordinates-and-bounds", _syntax_and_limits),
             Case("logical-short-circuit-numeric-and-work-budgets", _short_circuit),
             Case("operator-constants-static-parameters-and-facts", _constants_and_facts)]
