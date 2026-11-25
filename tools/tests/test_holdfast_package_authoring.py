@@ -5,11 +5,10 @@ import json
 import shlex
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from tempfile import TemporaryDirectory
 
 from tests.harness import TOOLS, Case, ensure
-from tests.test_holdfast_elaboration_cli import _invoke
 from toolchain import corpus
 
 ROOT = TOOLS.parent
@@ -38,14 +37,33 @@ def _documented_units() -> bytes:
     return example.source.encode()
 
 
-def _editor(source: bytes) -> subprocess.CompletedProcess[bytes]:
-    return subprocess.run([sys.executable, str(TOOLS / "run.py"), "holdfast-parser", "fmt", "-", "--syntax-only"],
-                          input=source, cwd=ROOT, capture_output=True, check=False, timeout=60)
+def _guest_workspace(workspace: Path) -> PurePosixPath:
+    if sys.platform != "win32":
+        return PurePosixPath(workspace)
+    result = subprocess.run(["wsl", "-u", "root", "-e", "wslpath", "-a", str(workspace)],
+                            cwd=ROOT, capture_output=True, check=True, timeout=30, encoding="utf-8")
+    return PurePosixPath(result.stdout.rstrip("\r\n"))
+
+
+def _run(arguments: list[str], source: bytes | None = None) -> tuple[int, bytes, str]:
+    result = subprocess.run([sys.executable, str(TOOLS / "run.py"), "holdfast-parser", *arguments],
+                            input=source, cwd=ROOT, capture_output=True, check=False, timeout=120)
+    diagnostics = result.stderr.decode("utf-8")
+    if sys.platform == "win32":
+        dispatch, _, diagnostics = diagnostics.partition("\n")
+        ensure(dispatch.rstrip("\r") == "== holdfast-parser runs in WSL; re-launching there",
+               f"Windows launcher did not dispatch to WSL: {result.stderr!r}")
+    return result.returncode, result.stdout, diagnostics
+
+
+def _editor(source: bytes) -> tuple[int, bytes, str]:
+    return _run(["fmt", "-", "--syntax-only"], source)
 
 
 def _authoring_defaults() -> None:
     with TemporaryDirectory(prefix="holdfast trail '") as temporary:
         workspace = Path(temporary)
+        guest_workspace = _guest_workspace(workspace)
         base = workspace / "trail" / "v1"
         base.mkdir(parents=True)
         manifest = base / "holdfast-package.toml"
@@ -65,40 +83,43 @@ inputs = []
         units.write_bytes(documented_units)
         lock, output = workspace / "lock.json", workspace / "bundle.json"
         output.write_bytes(b"previous bundle")
-        lock_args = ["lock-package", str(workspace), "trail", "v1", "--output", str(lock)]
-        build_args = ["build-package", str(workspace), str(lock), "--output", str(output)]
-        code, _, err = _invoke(lock_args)
+        guest_route = guest_workspace / route.relative_to(workspace).as_posix()
+        guest_units = guest_workspace / units.relative_to(workspace).as_posix()
+        guest_lock, guest_output = guest_workspace / lock.name, guest_workspace / output.name
+        lock_args = ["lock-package", str(guest_workspace), "trail", "v1", "--output", str(guest_lock)]
+        build_args = ["build-package", str(guest_workspace), str(guest_lock), "--output", str(guest_output)]
+        code, _, err = _run(lock_args)
         ensure(code == 0, f"locking the authored package failed: {err}")
         files = (manifest, route, units, lock)
         snapshots = [(path.read_bytes(), path.stat().st_mtime_ns) for path in files]
-        code, out, err = _invoke(build_args)
-        repair = shlex.join(["python3", "tools/run.py", "holdfast-parser", "fmt", str(route), "--syntax-only"])
+        code, out, err = _run(build_args)
+        repair = shlex.join(["python3", "tools/run.py", "holdfast-parser", "fmt", str(guest_route), "--syntax-only"])
         ensure(code == 1 and not out and "canonical mathematical layout" in err and repair in err,
                f"default build skipped the layout check or lost the repair command: {err}")
         ensure(output.read_bytes() == b"previous bundle" and
                [(path.read_bytes(), path.stat().st_mtime_ns) for path in files] == snapshots,
                "failed check modified its inputs or previous bundle")
 
-        edited = _editor(ROUGH)
-        ensure(edited.returncode == 0 and edited.stdout == LAYOUT and not edited.stderr
-               and route.read_bytes() == ROUGH, f"editor did not return the expected layout: {edited.stderr}")
-        malformed = _editor(b"module Trail.Route; public Nat")
-        ensure(malformed.returncode == 1 and not malformed.stdout and b"syntax" in malformed.stderr,
+        code, edited, err = _editor(ROUGH)
+        ensure(code == 0 and edited == LAYOUT and not err
+               and route.read_bytes() == ROUGH, f"editor did not return the expected layout: {err}")
+        code, out, err = _editor(b"module Trail.Route; public Nat")
+        ensure(code == 1 and not out and "syntax" in err,
                "invalid editor buffer produced a replacement")
         for separated, compact in ((b"? ?", b"??"), (b"? .Value", b"?.Value")):
-            refused = _editor(LAYOUT.replace(separated, compact))
-            ensure(refused.returncode == 1 and not refused.stdout and b"syntax" in refused.stderr,
+            code, out, err = _editor(LAYOUT.replace(separated, compact))
+            ensure(code == 1 and not out and "syntax" in err,
                    f"reserved contiguous spelling {compact!r} produced an editor replacement")
-        code, _, err = _invoke(shlex.split(repair)[3:])
-        ensure(code == 0 and route.read_bytes() == edited.stdout, f"repair diverged from editor layout: {err}")
-        code, _, err = _invoke(build_args)
+        code, _, err = _run(shlex.split(repair)[3:])
+        ensure(code == 0 and route.read_bytes() == edited, f"repair diverged from editor layout: {err}")
+        code, _, err = _run(build_args)
         ensure(code == 1 and "stale package lock" in err, "repair silently updated the source-bound lock")
-        code, _, err = _invoke(lock_args)
+        code, _, err = _run(lock_args)
         ensure(code == 0, f"relocking the formatted source failed: {err}")
         snapshots = [(path.read_bytes(), path.stat().st_mtime_ns) for path in files]
-        code, out, err = _invoke(build_args)
+        code, out, err = _run(build_args)
         ensure(code == 0 and json.loads(out)["build_order"] == ["TrailUnits", "Trail.Route"]
-               and f"{route}:13:31: warning HOLDFAST102:" in err and str(units) not in err,
+               and f"{guest_route}:13:31: warning HOLDFAST102:" in err and str(guest_units) not in err,
                f"canonical package lost its qualified import, attached docs or advisory lint: {err}")
         ensure([(path.read_bytes(), path.stat().st_mtime_ns) for path in files] == snapshots,
                "successful package build modified its inputs")
@@ -109,13 +130,14 @@ inputs = []
         client, provider = upgraded / route.name, upgraded / units.name
         client.write_bytes(LAYOUT)
         provider.write_bytes(documented_units.replace(b"Step = 2", b"Step = 3"))
-        code, out, err = _invoke(["diff-contract", str(units), str(provider)])
+        guest_provider = guest_workspace / provider.relative_to(workspace).as_posix()
+        code, out, err = _run(["diff-contract", str(guest_units), str(guest_provider)])
         ensure(code == 0 and not err and set(json.loads(out)["changed"]["Step"]) == {"value"},
                f"public constant upgrade lost its authored contract change: {err}")
         lock_args[3] = "v2"
-        code, _, err = _invoke(lock_args)
+        code, _, err = _run(lock_args)
         ensure(code == 0, f"relocking the upgraded package failed: {err}")
-        code, out, err = _invoke(build_args)
+        code, out, err = _run(build_args)
         ensure(code == 0 and json.loads(out)["build_order"] == ["TrailUnits", "Trail.Route"]
                and client.read_bytes() == LAYOUT, f"upgraded package or unchanged client failed authoring checks: {err}")
 
