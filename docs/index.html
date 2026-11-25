@@ -252,7 +252,7 @@
                     </div>
                     <p id="gallina-description" class="panel-description">Inspect the generated Gallina. <a href="#verification">Rocq checks the proof terms during kernel replay.</a></p>
                     <div id="compile-summary" class="output-summary">Compile the source to inspect its translation.</div>
-                    <pre id="gallina-output" class="gallina-code" tabindex="0" aria-label="Generated Gallina">// Generated output will appear here.</pre>
+                    <pre id="gallina-output" class="gallina-code" tabindex="0" aria-label="Generated Gallina">(* Generated output will appear here. *)</pre>
                 </section>
 
                 <section id="problems-panel" class="output-panel" role="tabpanel" aria-labelledby="problems-tab" hidden>
@@ -379,8 +379,8 @@ public definition Counter Advance(Counter counter, Nat step) =&gt;
 }</code></pre>
                     <div class="pillar-foot">
                         <button type="button" class="text-button" data-load-example="constants">Load Constants ↑</button>
-                        <button type="button" class="text-button" data-load-example="bindings">Let Preview ↑</button>
-                        <a class="spec-deep-link" href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/tooling/lsp-prototype.md" target="_blank" rel="noopener noreferrer">LSP contract ↗</a>
+                        <button type="button" class="text-button" data-load-example="bindings">Load Bindings ↑</button>
+                        <a class="spec-deep-link" href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/language/surface-grammar.md#required-static-constants" target="_blank" rel="noopener noreferrer">Constant syntax ↗</a>
                     </div>
                 </article>
             </div>
@@ -403,7 +403,7 @@ public definition Counter Advance(Counter counter, Nat step) =&gt;
                         <span class="expand-pill">Example ▾</span>
                     </summary>
                     <p class="tour-body">
-                        Ordinary arguments mark their modes with <code>in</code>, <code>ref</code>, <code>out</code>, or <code>move</code>. A method declaration supplies its receiver’s mode. <a href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/language/reference.md#loans-and-parameter-modes" target="_blank" rel="noopener noreferrer">Loan rules ↗</a>
+                        Mark loan arguments with <code>in</code>, <code>ref</code>, or <code>out</code>, and ownership transfers with <code>move</code>. A method declaration supplies its receiver’s mode. <a href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/language/reference.md#loans-and-parameter-modes" target="_blank" rel="noopener noreferrer">Loan rules ↗</a>
                     </p>
                     <pre class="compact-code"><code>public u32 SumInitializedBounds()
 {
@@ -420,7 +420,7 @@ public definition Counter Advance(Counter counter, Nat step) =&gt;
                         <span class="expand-pill">Example ▾</span>
                     </summary>
                     <p class="tour-body">
-                        The <code>open</code> block lifts only the named invariant during an update. HoldFast requires proof of the invariant at block exit. <a href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/language/reference.md#contracts" target="_blank" rel="noopener noreferrer">Contract rules ↗</a>
+                        The <code>open</code> block lifts the listed invariant clauses during an update. The closing brace requires each lifted clause to hold again. <a href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/language/reference.md#contracts" target="_blank" rel="noopener noreferrer">Contract rules ↗</a>
                     </p>
                     <pre class="compact-code"><code>public RangeWindow RebalanceWindow()
 {
@@ -529,7 +529,7 @@ public definition Counter Advance(Counter counter, Nat step) =&gt;
                         <a href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/tooling/elaboration-prototype.md" target="_blank" rel="noopener noreferrer" title="Generic dependent mathematics, first-class proofs, Rocq kernel replay">Mathematical Elaborator ↗</a>
                         <a href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/tooling/playground.md" target="_blank" rel="noopener noreferrer" title="Browser playground contract, console reducer, and security boundary">Playground Contract ↗</a>
                         <a href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/tooling/lsp-prototype.md" target="_blank" rel="noopener noreferrer" title="LSP diagnostics, hover, definition, references, symbols, inlay hints, formatting">LSP Server Prototype ↗</a>
-                        <a href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/tooling/authoring-tools.md" target="_blank" rel="noopener noreferrer" title="Canonical formatter, HOLDFAST100–HOLDFAST105 lints, and explicit-let previews">Authoring Tools ↗</a>
+                        <a href="https://github.com/symbiogenesis/HoldFast/blob/main/docs/tooling/authoring-tools.md" target="_blank" rel="noopener noreferrer" title="Canonical formatting, compiler lints, and checked edit previews">Authoring Tools ↗</a>
                     </div>
                 </div>
                 <div class="spec-col">
