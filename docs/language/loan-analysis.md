@@ -164,15 +164,15 @@ pinned modes, while the `split_at_mut` spelling passes the observations.
 [HoldFast replay](../../tools/tests/test_holdfast_loans.py#_mixed_indexed_loans) ·
 [Rust fixture](../../tools/tests/fixtures/mixed_indexed_loans.rs)
 
-The frontend also checks a call that shares `view[i]` from a named one-level
-`Span.Slice` and exclusively borrows `owner[j]` from its owner. The slice must
-derive from the current owner term, with no pending mutable updates during
-argument evaluation. The checker adds the slice offset to `i` before applying
-the scoped separation facts. At offset one, `j != 1usize + i` proves
-separation. The test with `j != i` leaves separation unresolved. A nested
-slice retains the backing identity, so a same-owner overlap still needs a
-proof. The Rocq replay checks the returned byte, owner writeback, framed
-elements and untouched failure state.
+The frontend also checks a call that shares `view[i]` from a named `Span.Slice`
+and exclusively borrows `owner[j]` from its owner. The slice chain must derive
+from the current owner term, with no pending mutable updates during argument
+evaluation. The checker adds each slice offset to `i` before applying the
+scoped separation facts. For two slices at offset one, `j != 2usize + i`
+proves separation. A coincident owner index, a guard using only one offset,
+or a view derived before an owner update leaves separation unproved. The
+Rocq replay checks the returned byte, owner writeback, framed elements and
+untouched failure state for single and nested slices.
 [Owner-coordinate replay](../../tools/tests/test_holdfast_loans.py#_owner_coordinate_indexed_loans)
 
 If a client must restructure a loop whose last use of a view precedes a write

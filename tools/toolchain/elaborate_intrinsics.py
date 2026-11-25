@@ -1665,13 +1665,29 @@ class _IntrinsicsMixin:
             raise self.fail("unsupported", "indexed call writeback requires a Nat or usize index", target)
         return element, index.term
 
+    def _span_index_in_owner(self: _Elaborator, span: _Term, owner: _Term, index: _Term) -> _Term | None:
+        span = self.whnf(span)
+        owner = self.whnf(owner)
+        offsets: list[_Term] = []
+        while span != owner:
+            head, args = self.spine(span)
+            if head != _constant("Span_Slice") or len(args) != 4:
+                return None
+            offsets.append(args[2])
+            span = self.whnf(args[1])
+        # The checked slice extents and element bound keep the composed index in range.
+        displacement = _int_term(_INT_SPECS["usize"], 0)
+        for offset in reversed(offsets):
+            displacement = self._add_usize_offset(displacement, offset)
+        return self._add_usize_offset(displacement, index)
+
     def _check_indexed_argument_overlap(
         self: _Elaborator, args: list[Node], positions: dict[int, _Term], shared_positions: dict[int, _Term],
         environment: dict[str, _Binding],
     ) -> None:
         if not positions:
             return
-        places: list[tuple[str | None, str | None, _Term | None, bool]] = []
+        places: list[tuple[str | None, set[str], set[_Term], bool]] = []
         for arg in args:
             place = self._unwrap_group(self.node(arg["value"]))
             if place["kind"] == "unary":
@@ -1681,31 +1697,37 @@ class _IntrinsicsMixin:
             name = self.name(place["name"]) if place["kind"] == "name" else None
             root = self.local_borrows[name][1] if name in self.local_borrows else name
             collection = environment.get(name) if name is not None else None
-            backing = None
+            ancestry: set[str] = set()
+            parent = root
+            while parent is not None and parent not in ancestry:
+                ancestry.add(parent)
+                parent = self.slice_views.get(parent)
+            backing: set[_Term] = set()
             is_view = root in self.slice_views
             if collection is not None and self.spine(self.whnf(collection.type))[0] == _constant("Span"):
                 span = self.whnf(collection.term)
-                backing = self._root_span(span)
                 is_view = is_view or self.spine(span)[0] == _constant("Span_Slice")
-            places.append((name, self.slice_views.get(root, root) if root is not None else None, backing, is_view))
+                pending = [span]
+                while pending:
+                    base = self._root_span(pending.pop())
+                    if base in backing:
+                        continue
+                    backing.add(base)
+                    # A conditional owner update can retain the view's old backing.
+                    if base.kind == "if":
+                        pending.extend(base.args[2:])
+            places.append((name, ancestry, backing, is_view))
         for i, pos in positions.items():
-            name, root, backing, is_view = places[i]
-            for j, (other_name, other_root, other_backing, other_is_view) in enumerate(places):
-                same_backing = (is_view or other_is_view) and backing is not None and backing == other_backing
-                if i == j or (root != other_root and not same_backing):
+            name, ancestry, backing, is_view = places[i]
+            for j, (other_name, other_ancestry, other_backing, other_is_view) in enumerate(places):
+                if i == j or (not (ancestry & other_ancestry) and not (backing & other_backing)):
                     continue
                 other = positions.get(j, shared_positions.get(j))
                 if (other is not None and name != other_name and j in shared_positions and not is_view
-                        and name is not None and name == root == other_root
-                        and other_name is not None and not self.last_call_updates):
-                    # A derived shared slice can be compared in the exclusive owner's
-                    # coordinates when both arguments use the same current owner state.
-                    slice_head, slice_args = self.spine(self.whnf(environment[other_name].term))
-                    if (slice_head == _constant("Span_Slice") and len(slice_args) == 4
-                            and self.whnf(slice_args[1]) == self.whnf(environment[name].term)):
-                        other = self._add_usize_offset(slice_args[2], other)
-                    else:
-                        other = None
+                        and name is not None and ancestry == {name}
+                        and other_name is not None and other_is_view and not self.last_call_updates):
+                    # Shared indices compare in the current exclusive owner's coordinates.
+                    other = self._span_index_in_owner(environment[other_name].term, environment[name].term, other)
                 elif name != other_name:
                     other = None
                 if other is not None:
@@ -1715,7 +1737,9 @@ class _IntrinsicsMixin:
                         _apps(ne, pos, other), environment
                     ):
                         continue
-                raise self.fail("type", f"cannot prove indexed loan of '{root}' is disjoint from argument {j + 1}", args[i])
+                root = self.local_borrows[name][1] if name in self.local_borrows else name
+                owner = self.slice_views.get(root, root) if root is not None else root
+                raise self.fail("type", f"cannot prove indexed loan of '{owner}' is disjoint from argument {j + 1}", args[i])
 
     def _elaborate_interface_method_call(
         self: _Elaborator,

@@ -1740,6 +1740,19 @@ public byte Client(ref Span<byte> values, usize i, usize j)
     return 0u8;
 }
 """
+    nested = source.replace(b"public byte Client", b"public byte Nested").replace(
+        b"i < 3usize", b"i < 2usize",
+    ).replace(b"j != 1usize + i", b"j != 2usize + i").replace(
+        b"return CopyPeer(in shifted[i], ref values[j]);",
+        b"let nested = Span.Slice(shifted, 1usize, 2usize);\n"
+        b"        return CopyPeer(in nested[i], ref values[j]);",
+    )
+    inline = nested.replace(b"public byte Nested", b"public byte Inline").replace(
+        b"let shifted = Span.Slice(values, 1usize, 3usize);\n        "
+        b"let nested = Span.Slice(shifted, 1usize, 2usize);",
+        b"let nested = Span.Slice(Span.Slice(values, 1usize, 3usize), 1usize, 2usize);",
+    )
+    combined = source + nested[nested.index(b"public byte Nested"):] + inline[inline.index(b"public byte Inline"):]
     effectful = source.replace(b"public byte Client", b"""private usize Pick(ref Span<byte> values, usize idx)
     requires values.CanRead && values.CanWrite
     requires values.Length == 4usize
@@ -1750,8 +1763,17 @@ public byte Client(ref Span<byte> values, usize i, usize j)
 
 public byte Client""").replace(b"ref values[j]", b"ref values[Pick(ref values, j)]")
     with parser.cached_build(TOOLS.parent) as compiled:
-        tree = parser.parse_source(compiled, source, surface=True)
-        gallina = elaborate(source, tree).gallina
+        tree = parser.parse_source(compiled, combined, surface=True)
+        gallina = elaborate(combined, tree).gallina
+        temporary = nested.replace(
+            b"in nested[i]",
+            b"in (Span.Slice(shifted, 1usize, 2usize))[i]",
+        )
+        with raises(HoldFastError, msg="temporary slice supplied an untracked call loan") as failure:
+            elaborate(temporary, parser.parse_source(compiled, temporary, surface=True))
+        error = failure.exception
+        ensure(error.kind == "type" and "an 'in' loan requires a place" in error.message,
+               f"wrong rejection for an unnamed slice loan: {error.line}:{error.column}: {error}")
         for invalid in (
             source.replace(b"ref values[j]", b"ref values[1usize + i]"),
             source.replace(b"j != 1usize + i", b"j != i"),
@@ -1759,14 +1781,16 @@ public byte Client""").replace(b"ref values[j]", b"ref values[Pick(ref values, j
                 b"return CopyPeer",
                 b"values[0usize] = 5u8;\n        return CopyPeer",
             ),
-            source.replace(b"i < 3usize", b"i < 2usize").replace(
-                b"return CopyPeer(in shifted[i], ref values[j]);",
-                b"let nested = Span.Slice(shifted, 1usize, 2usize);\n"
-                b"        return CopyPeer(in nested[i], ref values[2usize + i]);",
+            nested.replace(b"ref values[j]", b"ref values[2usize + i]"),
+            nested.replace(b"j != 2usize + i", b"j != 1usize + i"),
+            nested.replace(b"return CopyPeer", b"values[2usize] = 5u8;\n        return CopyPeer"),
+            inline.replace(b"ref values[j]", b"ref values[2usize + i]"),
+            inline.replace(b"return CopyPeer", b"values[2usize] = 5u8;\n        return CopyPeer"),
+            inline.replace(b"return CopyPeer", b"if (i == 0usize) { values[2usize] = 5u8; }\n        return CopyPeer"),
+            nested.replace(
+                b"return CopyPeer(in nested[i]",
+                b"let readOnly = Span.ReadOnly(nested);\n        return CopyPeer(in readOnly[i]",
             ),
-            source.replace(b"i < 3usize", b"i < 2usize").replace(
-                b"Span.Slice(values, 1usize, 3usize)", b"Span.Slice(Span.Slice(values, 1usize, 3usize), 1usize, 2usize)",
-            ).replace(b"ref values[j]", b"ref values[2usize + i]"),
             effectful,
             effectful.replace(b"CopyPeer(in byte source, ref byte target)", b"CopyPeer(ref byte target, in byte source)").replace(
                 b"CopyPeer(in shifted[i], ref values[Pick(ref values, j)])",
@@ -1787,15 +1811,39 @@ public byte Client""").replace(b"ref values[j]", b"ref values[Pick(ref values, j
 
     entries = solver_ledger.ledger(gallina)
     ensure(not entries, "owner-coordinate loans depended on a solver assumption")
-    [client] = re.findall(r"^Definition (holdfast_d\d+_Client) :", gallina, re.MULTILINE)
-    proof = rf"""
+    clients = {name: constant for constant, name in re.findall(
+        r"^Definition (holdfast_d\d+_(Client|Nested|Inline)) :", gallina, re.MULTILINE,
+    )}
+    proof = """
 Import HoldFast_OwnerCoordinateLoans.
+
+Local Lemma composed_slice_read : forall (values : holdfast_Span (holdfast_int 0))
+    outer inner outer_count inner_count i,
+  holdfast_Span_Read _ (holdfast_Span_Slice _
+    (holdfast_Span_Slice _ values outer outer_count) inner inner_count) i =
+  holdfast_Span_Read _ values (holdfast_int_add 4 (holdfast_int_add 4 outer inner) i).
+Proof.
+  intros.
+  change (holdfast_store_lookup (holdfast_Span_Store _ values)
+    (holdfast_int_add 4 outer (holdfast_int_add 4 inner i)) =
+    holdfast_store_lookup (holdfast_Span_Store _ values)
+    (holdfast_int_add 4 (holdfast_int_add 4 outer inner) i)).
+  now rewrite holdfast_int_add_assoc.
+Qed.
+"""
+    exports = solver_ledger.math_exports(gallina)
+    for name in ("Client", "Nested", "Inline"):
+        client = clients[name]
+        offset = 1 if name == "Client" else 2
+        compose_offsets = "rewrite !composed_slice_read. " if offset == 2 else ""
+        proof += rf"""
+Module {name}Trial.
 Local Definition trial_byte (n : nat) := holdfast_mk_int 0 (holdfast_nat_to_bits 8 n).
 Local Definition trial_index (n : nat) := holdfast_mk_int 4 (holdfast_nat_to_bits 64 n).
 Local Definition trial_read := holdfast_Span_Read (holdfast_int 0).
-Local Definition owner_index i := holdfast_int_add 4 (trial_index 1) i.
+Local Definition owner_index i := holdfast_int_add 4 (trial_index {offset}) i.
 Local Definition can_copy i j := holdfast_and
-  (holdfast_and (holdfast_int_lt 4 i (trial_index 3)) (holdfast_int_lt 4 j (trial_index 4)))
+  (holdfast_and (holdfast_int_lt 4 i (trial_index {4 - offset})) (holdfast_int_lt 4 j (trial_index 4)))
   (holdfast_int_ne 4 j (owner_index i)).
 
 Theorem owner_coordinate_writeback : forall values i j,
@@ -1815,7 +1863,7 @@ Proof.
   all: match type of allowed with
        | _ = ?outcome => change (can_copy i j = outcome) in allowed
        end; rewrite allowed.
-  - split.
+  - {compose_offsets}split.
     + intros _. unfold can_copy in allowed. apply holdfast_and_right in allowed.
       split; [reflexivity |]. unfold trial_read. split.
       * apply holdfast_Span_Read_write_same.
@@ -1828,17 +1876,18 @@ Qed.
 
 Local Definition trial_span :=
   holdfast_Span_Write _ (holdfast_mk_span (holdfast_int 0) (trial_index 0)
-    (trial_index 4) true true true holdfast_bs_empty) (trial_index 1) (trial_byte 7).
+    (trial_index 4) true true true holdfast_bs_empty) (trial_index {offset}) (trial_byte 7).
 Example owner_coordinate_entry_is_inhabited :
   holdfast_Span_CanRead _ trial_span = true /\
   holdfast_Span_CanWrite _ trial_span = true /\
   holdfast_Span_Length _ trial_span = trial_index 4 /\
   {client} trial_span (trial_index 0) (trial_index 0) = trial_byte 7 /\
-  {client} trial_span (trial_index 0) (trial_index 1) = trial_byte 0 /\
+  {client} trial_span (trial_index 0) (trial_index {offset}) = trial_byte 0 /\
   {client} trial_span (trial_index 0) (trial_index 4) = trial_byte 0.
 Proof. repeat split; reflexivity. Qed.
+End {name}Trial.
 """
-    exports = [*solver_ledger.math_exports(gallina), "owner_coordinate_writeback", "owner_coordinate_entry_is_inhabited"]
+        exports.extend((f"{name}Trial.owner_coordinate_writeback", f"{name}Trial.owner_coordinate_entry_is_inhabited"))
     audit = "".join(f"Print Assumptions {name}.\n" for name in exports)
     with TemporaryDirectory() as tmp:
         (Path(tmp) / "OwnerCoordinateLoans.v").write_text(gallina + proof + audit, encoding="utf-8")
