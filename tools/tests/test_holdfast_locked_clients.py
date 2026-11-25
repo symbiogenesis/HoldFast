@@ -235,14 +235,18 @@ public Fn(Nat) -> Nat MakeReader(Nat seed)
 """
         provider.write_text(source)
         client = workspace / "scale" / "v1" / "Calibration.hf"
-        client.write_text(client.read_text() + """
-public lemma KeptBound()
-    ensures (Keep(Keep(Seed())) >= 1) == true
-    proof { assert (Keep(Keep(Seed())) >= 1) == true; }
+        original = client.read_text()
+        returned_reader_bound = """
 public lemma ReturnedReaderBound()
     ensures (MakeReader(Seed())(7) >= 1) == true
     proof { assert (MakeReader(Seed())(7) >= 1) == true; }
-""")
+"""
+        composed = original + """
+public lemma KeptBound()
+    ensures (Keep(Keep(Seed())) >= 1) == true
+    proof { assert (Keep(Keep(Seed())) >= 1) == true; }
+""" + returned_reader_bound
+        client.write_text(composed)
         bundle = directory / "bundle.json"
         _command("build-package", workspace, _lock(workspace), "--output", bundle)
         accepted = bundle.read_bytes()
@@ -258,6 +262,14 @@ public lemma ReturnedReaderBound()
         report = _kernel(directory, ["rocq", "c", "-q", "Composed.v"])
         solver_ledger.audit(report, 2, subject, ())
         _kernel(directory, ["rocqchk", "-silent", "Composed"])
+
+        # The producer's precondition would pass if the checker used the returned function's argument as the seed.
+        client.write_text(original + returned_reader_bound.replace("MakeReader(Seed())", "MakeReader(0)"))
+        _command("build-package", workspace, _lock(workspace), "--output", bundle,
+                 refusal="module 'Scale.Calibration': call precondition")
+        ensure(bundle.read_bytes() == accepted, "the unproved producer precondition replaced the checked bundle")
+
+        client.write_text(composed)
         _upgrade(workspace, "v1", "v2", source.replace("Seed() ensures result >= 1", "Seed()"))
         _command("build-package", workspace, _lock(workspace), "--output", bundle, refusal="precondition")
         ensure(bundle.read_bytes() == accepted, "an unproved inner precondition replaced the checked bundle")
