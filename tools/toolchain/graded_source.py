@@ -25,7 +25,7 @@ class GradeDomain(StrEnum):
 
 _PRIMITIVES = frozenset({"Nat", "Vec", *GradeDomain})
 _ROCQ_FILES = ("graded_pure.v", "graded_domains.v", "graded_source.v")
-_MODAL_FILES = ("graded_pure.v", "graded_modal.v", "graded_modal_source.v")
+_MODAL_FILES = ("graded_pure.v", "graded_domains.v", "graded_modal.v", "graded_modal_source.v")
 _REPORT = re.compile(r"=\s*(\[[0-9\s;\[\]]*\])\s*:\s*list\s+\(list\s+\(list\s+nat\)\)")
 
 
@@ -221,7 +221,7 @@ def _plain_type(node: Node | None, name: str) -> bool:
     return node is not None and node["kind"] == "type" and _name(node["name"]) == name and not node["arguments"]
 
 
-def _valid_box_record(node: Node) -> bool:
+def _valid_box_record(node: Node, domain: GradeDomain) -> bool:
     if (node["kind"] != "record" or node["contracts"] or node["declarations"]
             or node["modifiers"] not in ([], ["public"])):
         return False
@@ -235,7 +235,7 @@ def _valid_box_record(node: Node) -> bool:
     annotation = cast("Node | None", field["grade"])
     return (element["mode"] == "type" and element["type"] is None and grade["mode"] == "grade"
             and element_name != grade_name and not {element_name, grade_name} & (_PRIMITIVES | {"Box", "_"})
-            and _plain_type(cast("Node | None", grade["type"]), "NatExact")
+            and _plain_type(cast("Node | None", grade["type"]), domain)
             and field["name"] is not None and _name(field["name"]) == "Value"
             and not field.get("const") and not field.get("label")
             and _plain_type(cast("Node", field["type"]), element_name)
@@ -356,8 +356,8 @@ class _ModalProjection(_Projection):
     def definition(self, name: str) -> _Definition:
         node = self._definition_node(name)
         record = self.declarations.get("Box")
-        if record is None or not _valid_box_record(record) or _span(record)[0] >= _span(node)[0]:
-            raise self.protocol.error("unsupported", "modal replay requires an earlier record Box<T, grade q : NatExact>(T Value @ q)", record or node)
+        if record is None or not _valid_box_record(record, self.domain) or _span(record)[0] >= _span(node)[0]:
+            raise self.protocol.error("unsupported", f"modal replay requires an earlier record Box<T, grade q : {self.domain}>(T Value @ q)", record or node)
         scope: dict[str, _Parameter] = {}
         parameters = self._telescope(node, scope)
         expected = self._type(cast("Node", node["result"]), scope)
@@ -387,7 +387,7 @@ def _certificate(definitions: list[_Definition], source_hash: str, domain: Grade
             lines.append(f"Definition source_context_{number} : list parameter := {definition.context}.")
             lines.append(f"Definition source_term_{number} : value := {definition.term}.")
             lines.append(f"Definition source_type_{number} : kind := {definition.expected}.")
-            reports.append(f"source_check source_context_{number} source_term_{number} source_type_{number}")
+            reports.append(f"{check_name} source_context_{number} source_term_{number} source_type_{number}")
         else:
             lines.append(f"Definition source_term_{number} : term := {definition.term}.")
             lines.append(f"Definition source_type_{number} : ty := {definition.expected}.")
@@ -460,8 +460,6 @@ def _dependency_row(parameters: list[_Parameter], counts: list[int]) -> list[dic
 
 def check(root: Path, path: Path, declaration: str, *, modal: bool = False,
           domain: GradeDomain = GradeDomain.EXACT) -> dict[str, object]:
-    if modal and domain != GradeDomain.EXACT:
-        raise ValueError("modal source replay uses NatExact")
     snapshot = read_source(path)
     with parser.cached_build(root) as compiled:
         parsed = parser.parse_source(compiled, snapshot.data, surface=True)

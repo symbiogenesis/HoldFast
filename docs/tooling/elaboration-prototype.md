@@ -74,7 +74,24 @@ the result type, with one use in each row.
 [Modal source fixture](../../tools/tests/fixtures/graded-modal.hf) ·
 [Modal source replay predicate](../../tools/rocq/graded_modal_source.v)
 
-The evidence covers the projected pure term under exact natural demand. The
+#### Bounded graded box replay
+
+Run `python tools/run.py holdfast-parser check-grades tools/tests/fixtures/graded-modal-bounded.hf OpenBounded --modal --domain NatBound`
+to check the same modal fragment with `record Box<T, grade q : NatBound>` and
+explicit `@ NatBound(n)` computation allowances. Rocq checks bounds at the
+definition parameters, lambda binders and the match payload. The
+`computation` field gives the declared allowance. Motive specialization and
+telescope and result type demand retain their exact natural counts.
+
+`OpenBounded` uses its box once with allowance two, reads the payload twice
+with allowance three and returns a function that uses its argument once with
+allowance two. The result type uses the box twice. `PromoteBounded` scales the
+computation demand of `n + n` by the box grade to six and records twelve uses
+of `n` in the result type. An over-budget branch, an inconsistent motive or
+an altered type-demand row fails replay.
+[Bounded modal fixture](../../tools/tests/fixtures/graded-modal-bounded.hf)
+
+These trials establish demand checking for the projected pure terms. The
 [extension qualification](../extensions/graded-foundation.md#extension-selection-and-qualification)
 owns source correspondence, evaluation, erasure and domain generalization.
 

@@ -1,0 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+module GradedBoundedModalTrial;
+
+record Box<T, grade q : NatBound>(T Value @ q);
+
+definition (Nat, Fn(Vec<Nat, (packed.Value)> values @ NatBound(2)) -> Vec<Nat, (packed.Value)>)
+OpenBounded(Box<Nat, 3> packed @ NatBound(2)) =>
+    match (packed) as whole :
+        (Nat, Fn(Vec<Nat, (whole.Value)> values @ NatBound(2)) -> Vec<Nat, (whole.Value)>) {
+        Box(n) => (n + n, (Vec<Nat, (Box<Nat, 3>(n).Value)> values @ NatBound(2)) => values),
+    };
+
+definition (Nat, Fn(Vec<Nat, (Box<Nat, 3>(n + n).Value)> values @ NatBound(2)) -> Vec<Nat, (Box<Nat, 3>(n + n).Value)>)
+PromoteBounded(Nat n @ NatBound(6)) =>
+    match (Box<Nat, 3>(n + n)) as whole :
+        (Nat, Fn(Vec<Nat, (whole.Value)> values @ NatBound(2)) -> Vec<Nat, (whole.Value)>) {
+        Box(x) => (x + x, (Vec<Nat, (Box<Nat, 3>(x).Value)> values @ NatBound(2)) => values),
+    };

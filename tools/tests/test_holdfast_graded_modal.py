@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Replay exact-natural modal introduction and dependent elimination in Rocq."""
+"""Replay exact and bounded modal introduction and dependent elimination in Rocq."""
 
 import contextlib
 import hashlib
@@ -17,15 +17,21 @@ from toolchain.cli.holdfast_parser import main as parser_main
 _AUDITED = (
     "check_sound",
     "checked_let_box_demands",
+    "bounded_check_sound",
+    "bounded_checked_let_box_demands",
     "promotion_scales_term_demand",
     "dependent_elimination_of_abstract_box",
     "dependent_elimination_of_promoted_box",
+    "bounded_elimination_keeps_exact_type_use",
+    "reject_exact_underuse",
+    "reject_bounded_overuse",
     "zero_use_keeps_logical_motive",
     "reject_wrong_exact_box_grade",
     "reject_wrong_motive_specialization",
     "reject_bypassing_open",
     "reject_computing_with_zero_use_payload",
 )
+_SUPPORT = ("graded_pure.v", "graded_domains.v", "graded_modal.v", "graded_modal_source.v")
 
 
 def _replay() -> None:
@@ -33,7 +39,7 @@ def _replay() -> None:
     compile_unit = [*launch, "rocq", "c", "-q"]
     with tempfile.TemporaryDirectory(prefix="holdfast-graded-modal-") as temporary:
         directory = Path(temporary)
-        for name in ("graded_pure.v", "graded_modal.v"):
+        for name in _SUPPORT[:-1]:
             shutil.copyfile(TOOLS / "rocq" / name, directory / name)
             subprocess.run([*compile_unit, name], cwd=directory, check=True, timeout=180)
         audit = directory / "ModalAudit.v"
@@ -46,11 +52,39 @@ def _replay() -> None:
                        check=True, timeout=180)
 
 
-def _source_command(path: Path, declaration: str) -> tuple[int, str, str]:
+def _source_command(path: Path, declaration: str, *options: str) -> tuple[int, str, str]:
     output, error = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
-        status = parser_main(["check-grades", str(path), declaration, "--modal"])
+        status = parser_main(["check-grades", str(path), declaration, "--modal", *options])
     return status, output.getvalue(), error.getvalue()
+
+
+def _audit_certificate(directory: Path, kernel_hashes: dict[str, str], certificate: str,
+                       theorem: str, stale_row: tuple[str, str]) -> None:
+    compiler = [*proofenv.rocq_command(), "-q"]
+    ensure(set(kernel_hashes) == set(_SUPPORT), "wrong Rocq support closure")
+    for name in _SUPPORT:
+        unit = TOOLS / "rocq" / name
+        ensure(hashlib.sha256(unit.read_bytes()).hexdigest() == kernel_hashes[name],
+               f"unbound Rocq support {name}")
+        shutil.copyfile(unit, directory / name)
+        subprocess.run([*compiler, name], cwd=directory, check=True, timeout=30)
+    unit = directory / "ModalSourceProof.v"
+    unit.write_text(certificate, encoding="utf-8")
+    subprocess.run([*compiler, unit.name], cwd=directory, capture_output=True, check=True, timeout=30)
+    audit = directory / "ModalSourceAudit.v"
+    audit.write_text("Require Import ModalSourceProof graded_modal_source.\n"
+                     f"Print Assumptions GradedModalSource.{theorem}.\n"
+                     "Print Assumptions source_rows_match.\n", encoding="utf-8")
+    replay = subprocess.run([*compiler, audit.name], cwd=directory, capture_output=True,
+                            text=True, encoding="utf-8", check=True, timeout=30)
+    solver_ledger.audit(replay.stdout, 2, "GradedModalSource", ())
+    stale = certificate.replace(*stale_row)
+    ensure(stale != certificate, "modal certificate control did not replace a type demand")
+    unit.write_text(stale, encoding="utf-8")
+    refused = subprocess.run([*compiler, unit.name], cwd=directory, capture_output=True,
+                             text=True, encoding="utf-8", check=False, timeout=30)
+    ensure(refused.returncode != 0 and "Unable to unify" in refused.stderr, refused.stderr)
 
 
 def _source_replay() -> None:
@@ -96,34 +130,57 @@ def _source_replay() -> None:
             status, output, error = _source_command(changed, declaration)
             ensure(status == 1 and not output and failure in error, error)
 
-        compiler = [*proofenv.rocq_command(), "-q"]
-        support = ("graded_pure.v", "graded_modal.v", "graded_modal_source.v")
-        ensure(set(result["kernel_sha256"]) == set(support), "wrong Rocq support closure")
-        for name in support:
-            unit = TOOLS / "rocq" / name
-            ensure(hashlib.sha256(unit.read_bytes()).hexdigest() == result["kernel_sha256"][name],
-                   f"unbound Rocq support {name}")
-            shutil.copyfile(unit, directory / name)
-            subprocess.run([*compiler, name], cwd=directory, check=True, timeout=30)
-        certificate = result["gallina"]
-        unit = directory / "ModalSourceProof.v"
-        unit.write_text(certificate, encoding="utf-8")
-        subprocess.run([*compiler, unit.name], cwd=directory, capture_output=True, check=True, timeout=30)
-        audit = directory / "ModalSourceAudit.v"
-        audit.write_text("Require Import ModalSourceProof graded_modal_source.\n"
-                         "Print Assumptions GradedModalSource.source_check_sound.\n"
-                         "Print Assumptions source_rows_match.\n", encoding="utf-8")
-        replay = subprocess.run([*compiler, audit.name], cwd=directory, capture_output=True,
-                                text=True, encoding="utf-8", check=True, timeout=30)
-        solver_ledger.audit(replay.stdout, 2, "GradedModalSource", ())
-        stale = certificate.replace("[0; 0; 2]", "[0; 0; 1]")
-        ensure(stale != certificate, "modal certificate control did not replace a type demand")
-        unit.write_text(stale, encoding="utf-8")
-        refused = subprocess.run([*compiler, unit.name], cwd=directory, capture_output=True,
-                                 text=True, encoding="utf-8", check=False, timeout=30)
-        ensure(refused.returncode != 0 and "Unable to unify" in refused.stderr, refused.stderr)
+        _audit_certificate(directory, result["kernel_sha256"], result["gallina"],
+                           "source_check_sound", ("[0; 0; 2]", "[0; 0; 1]"))
+
+
+def _bounded_source_replay() -> None:
+    source = TOOLS / "tests" / "fixtures" / "graded-modal-bounded.hf"
+    raw = source.read_bytes()
+    options = ("--domain", "NatBound")
+    status, output, error = _source_command(source, "OpenBounded", *options)
+    ensure(status == 0, error)
+    result = json.loads(output)
+    ensure(result["domain"] == "NatBound" and result["dependencies"] == ["Box"]
+           and result["source_sha256"] == hashlib.sha256(raw).hexdigest(),
+           "bounded modal replay lost its domain, dependency or source bytes")
+    [packed] = result["binders"]
+    ensure(packed["name"] == "packed" and packed["computation"] == 2 and packed["type"] == 2,
+           "bounded modal replay failed to separate computation allowance from type use")
+    ensure(result["result_type_uses"] == [{"name": "packed", "uses": 2, "span": packed["span"]}],
+           "bounded match lost the scrutinee's exact type-demand row")
+
+    status, output, error = _source_command(source, "PromoteBounded", *options)
+    ensure(status == 0, error)
+    promoted = json.loads(output)
+    [n] = promoted["binders"]
+    ensure(n["name"] == "n" and n["computation"] == 6 and n["type"] == 12,
+           "bounded promotion and the dependent motive did not scale their separate rows")
+
+    with tempfile.TemporaryDirectory(prefix="holdfast-bounded-modal-controls-") as temporary:
+        directory = Path(temporary)
+        changed = directory / source.name
+        for original, replacement, failure in (
+            (b"Box(n) => (n + n,", b"Box(n) => (n + n + n + n,", ": grade: "),
+            (b"Box<Nat, 3>(n).Value", b"Box<Nat, 2>(n).Value", ": grade: "),
+            (b"packed @ NatBound(2)", b"packed @ NatBound(0)", ": grade: "),
+            (b"values @ NatBound(2)", b"values @ NatBound(0)", ": grade: "),
+            (b"grade q : NatBound", b"grade q : NatExact", ": unsupported: "),
+        ):
+            ensure(original in raw, f"bounded modal control is absent: {original!r}")
+            changed.write_bytes(raw.replace(original, replacement))
+            status, output, error = _source_command(changed, "OpenBounded", *options)
+            ensure(status == 1 and not output and failure in error, error)
+
+        changed.write_bytes(raw.replace(b"NatBound(2)", b"NatExact(1)").replace(b"NatBound", b"NatExact"))
+        status, output, error = _source_command(changed, "OpenBounded", "--domain", "NatExact")
+        ensure(status == 1 and not output and "fails exact computation demand" in error, error)
+
+        _audit_certificate(directory, result["kernel_sha256"], result["gallina"],
+                           "bounded_source_check_sound", ("[0; 2; 2]", "[0; 2; 1]"))
 
 
 def cases() -> list[Case]:
-    return [Case("exact-natural box promotion and dependent elimination replay", _replay, lane="toolchain"),
-            Case("graded box declaration, motive and telescope source replay", _source_replay, lane="toolchain")]
+    return [Case("natural box promotion and dependent elimination replay", _replay, lane="toolchain"),
+            Case("graded box declaration, motive and telescope source replay", _source_replay, lane="toolchain"),
+            Case("bounded box declaration and dependent motive source replay", _bounded_source_replay, lane="toolchain")]

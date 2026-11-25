@@ -1,7 +1,7 @@
 (* SPDX-License-Identifier: Apache-2.0 *)
 
 From Stdlib Require Import Arith.PeanoNat Bool.Bool List.
-Require Import graded_pure.
+Require Import graded_pure graded_domains.
 Import ListNotations.
 
 Module GradedModal.
@@ -188,41 +188,43 @@ Definition used (k : kind) (u v : demand) : usage :=
 Definition binder_checks (scope : env) (name motive_name : nat) : bool :=
   is_fresh scope name && is_fresh scope motive_name && negb (Nat.eqb name motive_name).
 
-Inductive Derives (scope : env) : value -> usage -> Prop :=
+Inductive DerivesWith (allows : nat -> nat -> Prop) (scope : env) : value -> usage -> Prop :=
 | NameRule : forall name k row, find_kind scope name = Some k -> TypeUses scope k row ->
-    Derives scope (Name name) (used k [(name, 1)] row)
+    DerivesWith allows scope (Name name) (used k [(name, 1)] row)
 | NatRule : forall i d, IndexDemand (naturals scope) i d ->
-    Derives scope (NaturalValue i) (used NatKind d [])
+    DerivesWith allows scope (NaturalValue i) (used NatKind d [])
 | BoxRule : forall payload q d contents, BoxDerives scope payload q d contents ->
-    Derives scope (BoxValue payload) (used (BoxNat q) d [])
+    DerivesWith allows scope (BoxValue payload) (used (BoxNat q) d [])
 | LambdaRule : forall name allowance domain body codomain a u v row,
     is_fresh scope name = true -> TypeUses scope domain a ->
-    Derives ((name, domain) :: scope) body (used codomain u v) ->
-    uses u name = allowance -> TypeUses scope (ArrowKind allowance domain codomain) row ->
-    Derives scope (Lambda name allowance domain body)
+    DerivesWith allows ((name, domain) :: scope) body (used codomain u v) ->
+    allows (uses u name) allowance -> TypeUses scope (ArrowKind allowance domain codomain) row ->
+    DerivesWith allows scope (Lambda name allowance domain body)
       (used (ArrowKind allowance domain codomain) (without name u) row)
 | PairRule : forall left right a b u v w z,
-    Derives scope left (used a u v) -> Derives scope right (used b w z) ->
-    Derives scope (Pair left right) (used (ProductKind a b) (u ++ w) (v ++ z))
+    DerivesWith allows scope left (used a u v) -> DerivesWith allows scope right (used b w z) ->
+    DerivesWith allows scope (Pair left right) (used (ProductKind a b) (u ++ w) (v ++ z))
 | LetBoxRule : forall name motive_name subject motive body q z contents w body_row motive_row output,
     is_fresh scope name = true -> is_fresh scope motive_name = true -> name <> motive_name ->
     BoxDerives scope subject q z contents ->
     TypeUses ((motive_name, BoxNat q) :: scope) motive motive_row ->
-    Derives ((name, NatKind) :: scope) body
+    DerivesWith allows ((name, NatKind) :: scope) body
       (used (specialize motive_name (PromotedContents q (IndexVar name)) motive) w body_row) ->
-    uses w name = q ->
+    allows (uses w name) q ->
     same_demand body_row (substitute_demand motive_name (scale q [(name, 1)]) motive_row) ->
     TypeUses scope (specialize motive_name contents motive) output ->
     same_demand output (substitute_demand motive_name z motive_row) ->
-    Derives scope (LetBox name motive_name subject motive body)
+    DerivesWith allows scope (LetBox name motive_name subject motive body)
       (used (specialize motive_name contents motive) (without name w ++ z) output).
+
+Definition Derives := DerivesWith (@GradedDomains.allows GradedDomains.NatExact).
 
 Definition bind_option {A B : Type} (maybe : option A) (next : A -> option B) : option B :=
   match maybe with Some item => next item | None => None end.
 Local Notation "'let?' x ':=' a 'in' b" := (bind_option a (fun x => b))
   (at level 10, x name, a at level 100, b at level 200).
 
-Fixpoint infer (scope : env) (subject : value) : option usage :=
+Fixpoint infer_with (allowsb : nat -> nat -> bool) (scope : env) (subject : value) : option usage :=
   match subject with
   | Name name =>
       let? k := find_kind scope name in
@@ -234,15 +236,15 @@ Fixpoint infer (scope : env) (subject : value) : option usage :=
   | Lambda name allowance domain body =>
       if is_fresh scope name then
         let? _ := type_uses scope domain in
-        let? result := infer ((name, domain) :: scope) body in
+        let? result := infer_with allowsb ((name, domain) :: scope) body in
         let k := ArrowKind allowance domain (value_kind result) in
-        if Nat.eqb (uses (subject_uses result) name) allowance then
+        if allowsb (uses (subject_uses result) name) allowance then
           let? row := type_uses scope k in Some (used k (without name (subject_uses result)) row)
         else None
       else None
   | Pair first second =>
-      let? a := infer scope first in
-      let? b := infer scope second in
+      let? a := infer_with allowsb scope first in
+      let? b := infer_with allowsb scope second in
       Some (used (ProductKind (value_kind a) (value_kind b))
         (subject_uses a ++ subject_uses b) (result_type_uses a ++ result_type_uses b))
   | LetBox name motive_name payload motive body =>
@@ -250,12 +252,12 @@ Fixpoint infer (scope : env) (subject : value) : option usage :=
         let? data := infer_box scope payload in
         let '(q, z, contents) := data in
         let? motive_row := type_uses ((motive_name, BoxNat q) :: scope) motive in
-        let? result := infer ((name, NatKind) :: scope) body in
+        let? result := infer_with allowsb ((name, NatKind) :: scope) body in
         let expected := specialize motive_name (PromotedContents q (IndexVar name)) motive in
         let k := specialize motive_name contents motive in
         if kind_eq_dec (value_kind result) expected then
           let? output := type_uses scope k in
-          if Nat.eqb (uses (subject_uses result) name) q
+          if allowsb (uses (subject_uses result) name) q
              && demand_eqb (result_type_uses result)
                            (substitute_demand motive_name (scale q [(name, 1)]) motive_row)
              && demand_eqb output (substitute_demand motive_name z motive_row)
@@ -264,9 +266,12 @@ Fixpoint infer (scope : env) (subject : value) : option usage :=
       else None
   end.
 
-Lemma infer_sound : forall subject scope result,
-  infer scope subject = Some result -> Derives scope subject result.
+Lemma infer_with_sound : forall (allows : nat -> nat -> Prop) allowsb,
+  (forall actual allowance, allowsb actual allowance = true -> allows actual allowance) ->
+  forall subject scope result,
+    infer_with allowsb scope subject = Some result -> DerivesWith allows scope subject result.
 Proof.
+  intros allows allowsb admission_sound.
   induction subject as [name | i | payload | name allowance domain body IH | left IHl right IHr
     | name motive_name payload motive body IH]; intros scope result checked; cbn in checked.
   - destruct (find_kind scope name) eqn:found; try discriminate.
@@ -278,21 +283,20 @@ Proof.
       inversion checked; subst. econstructor. eapply infer_box_sound; eassumption.
   - destruct (is_fresh scope name) eqn:fresh; try discriminate.
     destruct (type_uses scope domain) eqn:typed; try discriminate.
-    cbn in checked. destruct (infer ((name, domain) :: scope) body) as [[k u v] |] eqn:body_ok;
+    cbn in checked. destruct (infer_with allowsb ((name, domain) :: scope) body) as [[k u v] |] eqn:body_ok;
       try discriminate.
-    cbn in checked. destruct (uses u name =? allowance) eqn:bound; try discriminate.
+    cbn in checked. destruct (allowsb (uses u name) allowance) eqn:bound; try discriminate.
     destruct (type_uses scope k) eqn:formed; inversion checked; subst.
-    apply Nat.eqb_eq in bound.
-    eapply LambdaRule; eauto using type_uses_sound, ArrowUses.
-  - destruct (infer scope left) as [[a u v] |] eqn:left_ok; try discriminate.
-    cbn in checked. destruct (infer scope right) as [[b w z] |] eqn:right_ok;
+    eapply LambdaRule; eauto using admission_sound, type_uses_sound, ArrowUses.
+  - destruct (infer_with allowsb scope left) as [[a u v] |] eqn:left_ok; try discriminate.
+    cbn in checked. destruct (infer_with allowsb scope right) as [[b w z] |] eqn:right_ok;
       inversion checked; subst. constructor; auto.
   - destruct (binder_checks scope name motive_name) eqn:fresh; try discriminate.
     destruct (infer_box scope payload) as [[[q z] contents] |] eqn:boxed_ok; try discriminate.
     cbn [bind_option] in checked. destruct (type_uses ((motive_name, BoxNat q) :: scope) motive)
       as [motive_row |] eqn:motive_ok; try discriminate.
     cbn [bind_option] in checked.
-    destruct (infer ((name, NatKind) :: scope) body) as [[k w row] |] eqn:body_ok;
+    destruct (infer_with allowsb ((name, NatKind) :: scope) body) as [[k w row] |] eqn:body_ok;
       try discriminate.
     cbn [bind_option value_kind subject_uses result_type_uses] in checked.
     destruct (kind_eq_dec k (specialize motive_name (PromotedContents q (IndexVar name)) motive))
@@ -300,12 +304,12 @@ Proof.
     destruct (type_uses scope (specialize motive_name contents motive)) as [output |] eqn:out_ok;
       try discriminate.
     cbn [bind_option] in checked.
-    change ((if (uses w name =? q)
+    change ((if allowsb (uses w name) q
       && demand_eqb row (substitute_demand motive_name (scale q [(name, 1)]) motive_row)
       && demand_eqb output (substitute_demand motive_name z motive_row)
       then Some (used (specialize motive_name contents motive) (without name w ++ z) output)
       else None) = Some result) in checked.
-    destruct ((uses w name =? q)
+    destruct (allowsb (uses w name) q
       && demand_eqb row (substitute_demand motive_name (scale q [(name, 1)]) motive_row)
       && demand_eqb output (substitute_demand motive_name z motive_row)) eqn:agrees;
       inversion checked; subst.
@@ -315,19 +319,36 @@ Proof.
     apply negb_true_iff, Nat.eqb_neq in distinct.
     apply andb_true_iff in agrees as [agrees out_demand].
     apply andb_true_iff in agrees as [bound body_demand].
-    apply Nat.eqb_eq in bound.
-    eapply LetBoxRule; eauto using infer_box_sound, type_uses_sound, demand_eqb_sound.
+    eapply LetBoxRule; eauto using admission_sound, infer_box_sound, type_uses_sound, demand_eqb_sound.
 Qed.
 
-Definition check (scope : env) (subject : value) : option usage :=
-  if well_formed scope then infer scope subject else None.
+Definition check_with (allowsb : nat -> nat -> bool) (scope : env) (subject : value) : option usage :=
+  if well_formed scope then infer_with allowsb scope subject else None.
+
+Definition check := check_with (@GradedDomains.allowsb GradedDomains.NatExact).
+Definition bounded_check := check_with (@GradedDomains.allowsb GradedDomains.NatBound).
+
+Theorem check_with_sound : forall (allows : nat -> nat -> Prop) allowsb,
+  (forall actual allowance, allowsb actual allowance = true -> allows actual allowance) ->
+  forall scope subject result,
+    check_with allowsb scope subject = Some result -> WellFormed scope /\ DerivesWith allows scope subject result.
+Proof.
+  intros allows allowsb admission_sound scope subject result checked. unfold check_with in checked.
+  destruct (well_formed scope) eqn:valid; try discriminate.
+  split; eauto using well_formed_sound, infer_with_sound.
+Qed.
 
 Theorem check_sound : forall scope subject result,
   check scope subject = Some result -> WellFormed scope /\ Derives scope subject result.
 Proof.
-  intros scope subject result checked. unfold check in checked.
-  destruct (well_formed scope) eqn:valid; try discriminate.
-  split; eauto using well_formed_sound, infer_sound.
+  unfold check, Derives. apply check_with_sound. intros. now apply Nat.eqb_eq.
+Qed.
+
+Theorem bounded_check_sound : forall scope subject result,
+  bounded_check scope subject = Some result ->
+  WellFormed scope /\ DerivesWith (@GradedDomains.allows GradedDomains.NatBound) scope subject result.
+Proof.
+  unfold bounded_check. apply check_with_sound. intros. now apply Nat.leb_le.
 Qed.
 
 Lemma uses_scale : forall q row name, uses (scale q row) name = q * uses row name.
@@ -376,14 +397,16 @@ Proof.
   - now rewrite uses_append, IHl, IHr.
 Qed.
 
-Theorem checked_let_box_demands : forall scope name motive_name payload motive body result,
-  check scope (LetBox name motive_name payload motive body) = Some result ->
+Theorem checked_let_box_demands_with : forall (allows : nat -> nat -> Prop) allowsb,
+  (forall actual allowance, allowsb actual allowance = true -> allows actual allowance) ->
+  forall scope name motive_name payload motive body result,
+  check_with allowsb scope (LetBox name motive_name payload motive body) = Some result ->
   exists q z contents w body_row motive_row,
     BoxDerives scope payload q z contents /\
     TypeUses ((motive_name, BoxNat q) :: scope) motive motive_row /\
-    Derives ((name, NatKind) :: scope) body
+    DerivesWith allows ((name, NatKind) :: scope) body
       (used (specialize motive_name (PromotedContents q (IndexVar name)) motive) w body_row) /\
-    uses w name = q /\
+    allows (uses w name) q /\
     uses body_row name = q * uses motive_row motive_name /\
     value_kind result = specialize motive_name contents motive /\
     (forall x, uses (subject_uses result) x =
@@ -391,8 +414,8 @@ Theorem checked_let_box_demands : forall scope name motive_name payload motive b
     (forall x, uses (result_type_uses result) x =
       (if x =? motive_name then 0 else uses motive_row x) + uses motive_row motive_name * uses z x).
 Proof.
-  intros scope name motive_name payload motive body result checked.
-  apply check_sound in checked as [_ derivation].
+  intros allows allowsb admission_sound scope name motive_name payload motive body result checked.
+  pose proof (check_with_sound allows allowsb admission_sound _ _ _ checked) as [_ derivation].
   inversion derivation as [| | | | | x p b m t q z contents w body_row motive_row output
     fresh_name fresh_motive distinct boxed_ok motive_ok body_ok bound body_demand out_kind out_demand];
     subst.
@@ -409,6 +432,16 @@ Proof.
   - intros. cbn [result_type_uses used]. rewrite (out_demand x).
     now unfold substitute_demand; rewrite uses_append, uses_without, uses_scale.
 Qed.
+
+Definition checked_let_box_demands := checked_let_box_demands_with
+  (@GradedDomains.allows GradedDomains.NatExact)
+  (@GradedDomains.allowsb GradedDomains.NatExact)
+  (fun actual allowance => proj1 (Nat.eqb_eq actual allowance)).
+
+Definition bounded_checked_let_box_demands := checked_let_box_demands_with
+  (@GradedDomains.allows GradedDomains.NatBound)
+  (@GradedDomains.allowsb GradedDomains.NatBound)
+  (fun actual allowance => proj1 (Nat.leb_le actual allowance)).
 
 Definition type_identity (length : type_index) : kind :=
   ArrowKind 1 (VecKind length) (VecKind length).
@@ -428,6 +461,17 @@ Definition dependent_use (q : nat) : value :=
   LetBox 1 2 (BoxName 0) (ProductKind NatKind (type_identity (BoxContents 2)))
     (Pair (NaturalValue (IndexAdd (IndexVar 1) (IndexVar 1)))
       (vec_identity (PromotedContents q (IndexVar 1)))).
+
+Example bounded_elimination_keeps_exact_type_use :
+  bounded_check [(0, BoxNat 3)] (dependent_use 3) =
+    Some (used (ProductKind NatKind (type_identity (BoxContents 0))) [(0, 1)] [(0, 1); (0, 1)]).
+Proof. reflexivity. Qed.
+
+Example reject_exact_underuse : check [(0, BoxNat 3)] (dependent_use 3) = None.
+Proof. reflexivity. Qed.
+
+Example reject_bounded_overuse : bounded_check [(0, BoxNat 1)] (dependent_use 1) = None.
+Proof. reflexivity. Qed.
 
 Example dependent_elimination_of_abstract_box :
   check [(0, BoxNat 2)] (dependent_use 2) =
