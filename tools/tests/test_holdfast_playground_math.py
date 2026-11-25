@@ -453,6 +453,17 @@ def _playground_formatting_example_assets() -> None:
            and "upload-artifact@v4" not in workflow
            and "upload-pages-artifact@v3" not in workflow,
            "GitHub Pages workflow must pin Node 24 actions by SHA without deprecated Node 20 artifacts")
+    build, _, deploy = workflow.partition("\n  deploy:\n")
+    ensure("\n  build:\n" in build
+           and "actions/upload-pages-artifact@" in build
+           and "needs: build" in deploy
+           and "actions/deploy-pages@" in deploy,
+           "GitHub Pages deployment must wait for the artifact upload job to finish")
+    ensure("PAGES_ARTIFACT: github-pages-${{ github.run_attempt }}" in build
+           and "artifact_name: ${{ env.PAGES_ARTIFACT }}" in build
+           and "\n          name: ${{ env.PAGES_ARTIFACT }}" in build
+           and "artifact_name: ${{ needs.build.outputs.artifact_name }}" in deploy,
+           "GitHub Pages deployment must use the artifact name from the build attempt")
 
 
 _NODE_RUNTIME_SCRIPT = r"""
