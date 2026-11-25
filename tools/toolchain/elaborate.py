@@ -123,6 +123,8 @@ class _Elaborator(
         self.hole_inspection: HoleInspection | None = None
         self.navigation: Navigation | None = None
         self.checked_receivers: dict[tuple[int, ...], loans._Receiver | None] = {}
+        self.checked_scalar_calls: set[tuple[int, ...]] = set()
+        self.scalar_callables: set[str] = set()
         self.require_word_proofs = False
         self.word_proofs: dict[tuple[int, int, str], str] = {}
         self.inline_assertions: list[tuple[tuple[int, int], str]] = []

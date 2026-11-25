@@ -1727,7 +1727,10 @@ class _IntrinsicsMixin:
                         raise self.fail("type", "an 'owned' interface parameter requires a qualified call with an explicit 'move' argument", node)
                     if receiver_mode in {"ref", "out", "in"}:
                         self.checked_receivers[tuple(cast("list[int]", node["span"]))] = loans._Receiver(
-                            "shared" if receiver_mode == "in" else "exclusive", None, mspec.returns_receiver_loan
+                            "shared" if receiver_mode == "in" else "exclusive",
+                            None,
+                            mspec.returns_receiver_loan,
+                            two_phase=receiver_mode == "ref",
                         )
                     if receiver_mode in {"ref", "out"}:
                         callee = self.node(node["callee"])
@@ -2494,7 +2497,10 @@ class _IntrinsicsMixin:
                             and member_name in {"LivePrefix", "VacantRange", "VacantSuffix", "PrefixModel", "Read", "Write"}
                         ):
                             self.checked_receivers[tuple(cast("list[int]", node["span"]))] = loans._Receiver(
-                                "exclusive" if member_name == "Write" else "shared", None, False
+                                "exclusive" if member_name == "Write" else "shared",
+                                None,
+                                False,
+                                two_phase=member_name == "Write",
                             )
                             return self._elaborate_slots_intrinsic(
                                 node, member_name, gen_args, call_args, environment, receiver=recv_b
@@ -2651,6 +2657,9 @@ class _IntrinsicsMixin:
                         self.navigation.bindings[target_head.value], tuple(str(arg.value) for arg in resolved))
             if target_head.kind == "const" and str(target_head.value) in self.declaration_sites:
                 self.call_declarations[cast("list[int]", node["span"])[0]] = self.declaration_sites[str(target_head.value)]
+            if (target_head.kind == "const" and str(target_head.value) in self.scalar_callables
+                    and self.whnf(application.type).kind != "pi"):
+                self.checked_scalar_calls.add(tuple(cast("list[int]", node["span"])))
             return application
         if kind in {"lambda", "typed_lambda"}:
             return self.lambda_(node, environment)

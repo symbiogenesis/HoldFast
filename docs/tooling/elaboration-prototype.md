@@ -166,7 +166,10 @@ and supports the following features.
   helper also requires accounting for each callback supplied to it. Unresolved
   indirect calls, record or interface dispatch, and invocation of a returned
   callable require a separate checked bound. Exported functions, including
-  `const` functions callable at runtime, keep their published bounds.
+  `const` functions callable at runtime, keep their published bounds. The
+  prototype also accepts unannotated functions outside the inferred subset
+  with an untracked footprint. The [release package contract](../language/first-release.md#package-effect-contracts)
+  requires explicit bounds at exports and specifies package-internal inference.
 - In executable bodies, a bare expression statement cannot discard the built-in
   `Result<T, E>`. The source control-flow check follows named by-value parameters
   and inferred or annotated locals through aliases, overwrites, branches, early
@@ -355,6 +358,11 @@ and supports the following features.
   invalidate stale current-value facts while preserving immutable snapshots
   (`let snap = ...`), `old(...)` pre-state references and proved-disjoint field
   facts.
+- The loan checker uses [two-phase borrowing](../language/core-design.md#two-phase-receiver-borrows)
+  for implicit `ref` interface receivers and `slots.Write(...)`. It permits
+  a receiver read that ends during argument evaluation and checks retained
+  overlapping loans at activation. Explicit `ref` and `out` retain their
+  ordinary grant timing.
 - Explicit nonoverlapping `interface Name<T, ...> { ... }` and
   `impl<...> Interface<...> { ... }` declarations, supporting abstract callable
   signatures with `requires`/`where`/`ensures` contracts and abstract

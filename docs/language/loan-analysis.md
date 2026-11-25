@@ -11,8 +11,9 @@ The Python API consumes an explicit finite control-flow graph with named
 owners, declared field projections, named invariant clauses, shared/exclusive
 loans and parent links, and also provides a schema-2 surface AST lowering pass
 (`lower_function`, `lower_module`, `analyze_function`, `analyze_module`).
-Events describe borrowing, access, resource moves, binding capture environments,
-uses, per-conjunct invariant opening and closing (`open ... lifts`),
+Events describe borrowing, receiver reservations and activations, access,
+resource moves, binding capture environments, uses, per-conjunct invariant
+opening and closing (`open ... lifts`),
 outcome-specific returns and unsupported suspension boundaries. Each
 operation's facts are explicit inputs: a library call does not obtain authority
 from its name. Boxes, optional values, cells, callbacks and protocol wrappers use
@@ -20,13 +21,13 @@ the same capture and loan facts, without dedicated cases for their type names.
 Owner identities and field partitions are supplied abstract facts, not inferred
 from source spelling or pointer inequality. Unknown overlap produces an unresolved obligation.
 
-A receiver loan starts before argument evaluation under the
-[first-release call rule](first-release.md#ownership-libraries). In `buf.Update(buf.length)`,
-a whole-buffer exclusive receiver conflicts with the `length` read. Saving
-`let n = buf.length;` before the call removes the overlap. A receiver restricted
-to the `payload` field permits the `length` read. Single-field receiver views
-identify a footprint. Compound and indexed views conservatively cover the whole
-receiver. [Receiver timing fixtures](../../tools/tests/test_holdfast_loans.py#_located_receiver_timing)
+For supported implicit `ref` receivers, the diagnostic models
+[reservation and activation](core-design.md#two-phase-receiver-borrows). In
+`buf.Update(buf.length)`, the receiver is reserved before the read and activated
+after it. A shared view retained into the call conflicts at activation if it
+overlaps the receiver. Single-field receiver views identify a footprint.
+Compound and indexed views conservatively cover the whole receiver.
+[Receiver timing fixtures](../../tools/tests/test_holdfast_loans.py#_located_receiver_timing)
 
 Names must be unambiguous within a path. A child loan must stay within its parent
 footprint; a shared parent cannot produce an exclusive child. Missing references,
@@ -183,24 +184,22 @@ Record graph size, branching, captures, configured budgets and budget refusals
 alongside successful cases. State each claimed improvement's objective and
 supported workload, including regressions and endpoint differences. Report conclusions for the tested workloads and evidence endpoints.
 
-### Two-phase receiver trial
+<a id="two-phase-receiver-trial"></a>
 
-The [two-phase trial](../../PLAN.md#q25cd) compares the ordinary exclusive
-receiver with a reservation restricted to implicit method receivers. The trial
-evaluates the receiver once, reserves its identity and footprint, then evaluates
-the arguments left-to-right. An overlapping by-value read may finish during
-the reservation. Activation immediately before entering the method requires
-exclusive access to that same footprint. A nested overlapping mutation, move
-or retained shared argument fails at the conflicting access or activation.
-Disjoint arguments retain their ordinary rights. A failure while evaluating
-an argument cancels the reservation and accounts for any earlier argument
-transfers on that exit. No method body has run.
+### Two-phase receiver qualification
 
-Use `buf.Update(buf.ReadCount())` with a whole-object exclusive receiver and a
-by-value count, plus versions with a nested mutation and an overlapping shared
-argument retained into the call. Compare events with a count snapshot when
-evaluating that snapshot at the earlier point preserves its meaning. Include
-an effectful argument before the read and a failure before activation. Check
-the observed order, the number of receiver evaluations and restoration on each
-exit. Explicit `ref` arguments keep the ordinary grant rule. Promotion requires
-source correspondence and the [core borrow obligations](core-design.md#borrow-analysis-promotion).
+[Release qualification](../../PLAN.md#q25cd) checks the
+[two-phase receiver rule](core-design.md#two-phase-receiver-borrows) with
+`buf.Update(buf.ReadCount())` on a whole-object receiver and a by-value count.
+Compare traces with a count snapshot where the earlier read observes the same
+state. Include a computed receiver, an effectful argument before the read, and
+a failure before activation after an earlier ownership transfer. Check that the
+receiver and each reached argument are evaluated once in source order, and
+replay the resource predicate on each exit.
+
+Use neighboring calls with an overlapping mutation or move during argument
+evaluation, a shared argument or capture live at activation, and an explicit
+`ref` argument followed by an overlapping read. Each fails at its responsible
+permission check. The corresponding disjoint named-view case succeeds even
+when the shared loan is retained. Promotion requires source correspondence and
+the [core borrow obligations](core-design.md#borrow-analysis-promotion).

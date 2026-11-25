@@ -12,6 +12,7 @@ from toolchain.ast import HoldFastError
 from toolchain.elaborate import elaborate
 from toolchain.loans import (
     Access,
+    Activate,
     AnalysisRefusalError,
     Bind,
     Borrow,
@@ -29,6 +30,7 @@ from toolchain.loans import (
     Owner,
     PathReport,
     Place,
+    Reserve,
     Return,
     Use,
     analyze,
@@ -104,6 +106,74 @@ def _nested_restoration_and_suspension() -> None:
         ensure("suspended-parent" in _kinds(neighbor), "live child did not suspend ancestor access")
         ensure(_ends(neighbor)[-2:] == [("n3", "reader", "writer"), ("n3", "writer", "workspace")],
                "rejected parent use prematurely restored a descendant")
+
+
+def _receiver_reservations() -> None:
+    receiver = Reserve(Loan("receiver", "workspace", _BYTES, "exclusive", scoped=True))
+    reader = Borrow(Loan("reader", "workspace", _BYTES))
+    path = _path(reader, receiver, Access(_AUDIT, "write"), Use("reader"), Activate("receiver"),
+                 Access(_BYTES, "write", via="receiver"), Return("done"))
+    ensure(not path.issues, f"a short shared loan or a disjoint write blocked the receiver: {path.issues}")
+    ensure(_ends(path) == [("n3", "reader", "workspace"), ("n5", "receiver", "workspace")],
+           "shared and exclusive grants did not restore in phase order")
+
+    retained = _path(receiver, reader, Bind("capture", ("reader",)), Activate("receiver", ("capture",)),
+                     Return("done"))
+    ensure(bool(retained.issues) and retained.issues[0].node == "n3"
+           and retained.issues[0].kind == "competing-loans",
+           f"alias retained by an argument did not conflict at activation: {retained.issues}")
+
+    for access in (Access(_BYTES, "write"), Access(_ROOT, "move")):
+        conflict = _path(receiver, access, Activate("receiver"), Return("done"))
+        ensure(bool(conflict.issues) and conflict.issues[0].node == "n1"
+               and conflict.issues[0].kind == "conflicting-receiver-reservation",
+               f"overlapping argument access did not conflict with the reservation: {conflict.issues}")
+
+    report = analyze((*_OWNERS, Owner("item")), Graph("reserve", (
+        Node("reserve", receiver, ("transfer",)),
+        Node("transfer", Access(Place("item"), "move"), ("ok", "error")),
+        Node("ok", Activate("receiver"), ("write",)),
+        Node("write", Access(_BYTES, "write", via="receiver"), ("return",)),
+        Node("return", Return("done")),
+        Node("error", Return("error")),
+    )))
+    success, failure = (next(path for path in report.paths if path.outcome == outcome)
+                        for outcome in ("done", "error"))
+    ensure(not success.issues and not failure.issues, f"receiver exit handling failed: {report.paths}")
+    ensure(_ends(success) == [("write", "receiver", "workspace")] and not failure.restorations,
+           "a cancellation introduced a receiver restoration or a successful call lost it")
+    ensure(failure.moved_owners == ("item",) and not failure.retained_loans and not failure.suspended,
+           "cancelled receiver changed another argument's ownership or retained a loan")
+
+    nested = Reserve(Loan("nested", "parent", _BYTES, "exclusive", scoped=True))
+    report = analyze(_OWNERS, Graph("parent", (
+        Node("parent", Borrow(Loan("parent", "workspace", _BYTES, "exclusive")), ("reserve",)),
+        Node("reserve", nested, ("branch",)),
+        Node("branch", Nop(), ("activate", "error")),
+        Node("activate", Activate("nested"), ("write",)),
+        Node("write", Access(_BYTES, "write", via="nested"), ("return",)),
+        Node("return", Return("done")),
+        Node("error", Return("error")),
+    )))
+    success, failure = (next(path for path in report.paths if path.outcome == outcome)
+                        for outcome in ("done", "error"))
+    ensure(not success.issues and not failure.issues, f"reservation lost its active parent: {report.paths}")
+    ensure(_ends(success) == [("write", "nested", "parent"), ("write", "parent", "workspace")]
+           and _ends(failure) == [("error", "parent", "workspace")],
+           "the parent must remain held through activation or cancellation")
+
+    report = analyze(_OWNERS, Graph("reserve", (
+        Node("reserve", receiver, ("read_bytes", "read_audit")),
+        Node("read_bytes", reader, ("activate",)),
+        Node("read_audit", Borrow(Loan("sibling", "workspace", _AUDIT)), ("activate",)),
+        Node("activate", Activate("receiver", possible_captures=("reader", "sibling")), ("write",)),
+        Node("write", Access(_BYTES, "write", via="receiver"), ("return",)),
+        Node("return", Return("done")),
+    )))
+    ensure(len(report.paths) == 2 and sum(not path.issues for path in report.paths) == 1
+           and all(path.issues[0].kind == "competing-loans" for path in report.paths if path.issues)
+           and all(issue.kind != "unavailable-name" for path in report.paths for issue in path.issues),
+           f"argument branch captures were merged or checked off-path: {report.paths}")
 
 
 def _field_partitions_and_unknowns() -> None:
@@ -1218,49 +1288,64 @@ public struct Buffer {
     public Nat payload;
     public view Data = payload;
     public Unit Update(ref this, Nat x);
+    public Unit WithRead(ref this, in Nat x);
+    public Nat ReadCount(in this);
     public Nat Mutate(ref this);
     public Unit WriteData(ref this.Data, Nat x);
     public in<'this.payload> Nat BorrowData(in this.Data);
 }
+public Unit Explicit(ref Buffer buf, Nat n);
 public Unit Direct(ref Buffer buf) { buf.Update(buf.length); }
 public Unit Snapshot(ref Buffer buf) { let n = buf.length; buf.Update(n); }
+public Unit Count(ref Buffer buf) { buf.Update(buf.ReadCount()); }
+public Unit Alias(ref Buffer buf) { let ref Buffer local = ref buf; local.Update(local.ReadCount()); }
 public Unit Nested(ref Buffer buf) { buf.Update(buf.Mutate()); }
 public Unit Disjoint(ref Buffer buf) { buf.WriteData(buf.length); }
-public Unit Overlap(ref Buffer buf) { buf.WriteData(buf.payload); }
+public Unit Retained(ref Buffer buf) { buf.WithRead(in buf.payload); }
 public Unit Hold(ref Buffer buf) { let in Nat loan = buf.BorrowData(); buf.Update(0); Observe(in loan); }
+public Unit Immediate(ref Buffer buf) { Explicit(ref buf, buf.length); }
 """
     with parser.cached_build(Path(__file__).resolve().parents[2]) as compiled:
         tree = parser.parse_source(compiled, source, surface=True)
-    for name, rejected in (("Direct", True), ("Snapshot", False), ("Nested", True),
-                           ("Disjoint", False), ("Overlap", True), ("Hold", True)):
+    expected = {
+        "Direct": None, "Snapshot": None, "Count": None, "Alias": None, "Disjoint": None,
+        "Nested": b"buf.Mutate", "Retained": b"buf.WithRead", "Hold": b"buf.Update",
+        "Immediate": b"buf.length",
+    }
+    for name, conflict_span in expected.items():
         lowered = lower_function(tree, name)
         report = analyze(lowered.owners, lowered.graph).paths[0]
-        ensure(bool(report.issues) == rejected, f"unexpected receiver result in {name}: {report.issues}")
-        for issue in report.issues:
-            span = cast("list[int]", lowered.node_sites[issue.node]["span"])
-            ensure(source[span[0]:span[1]] in {b"buf.length", b"buf.Mutate", b"buf.payload", b"buf.Update"},
+        ensure(bool(report.issues) == (conflict_span is not None),
+               f"unexpected receiver result in {name}: {report.issues}")
+        if conflict_span is not None:
+            span = cast("list[int]", lowered.node_sites[report.issues[0].node]["span"])
+            ensure(source[span[0]:span[1]] == conflict_span,
                    f"receiver conflict points outside its competing access in {name}: {source[span[0]:span[1]]!r}")
-        receiver_borrows = [node.event.loan for node in lowered.graph.nodes
-                            if isinstance(node.event, Borrow) and node.event.loan.name.startswith("_recv_")]
-        ensure(bool(receiver_borrows), f"missing receiver borrow in {name}")
         events = [node.event for node in lowered.graph.nodes]
         if name in {"Direct", "Snapshot"}:
             read = next(i for i, e in enumerate(events) if isinstance(e, Access) and e.place == Place("buf", ("length",)))
-            begin = next(i for i, e in enumerate(events) if isinstance(e, Borrow))
-            end = next(i for i, e in enumerate(events) if isinstance(e, Drop) and e.name == receiver_borrows[0].name)
-            ensure(read < begin < end if name == "Snapshot" else begin < read < end,
-                   f"incorrect order of the length read and receiver loan in {name}")
-        if name in {"Disjoint", "Overlap"}:
-            ensure(receiver_borrows[0].place == Place("buf", ("payload",)), "named receiver view lost its field footprint")
-        if name == "Nested":
-            ensure(len(receiver_borrows) == 2, "nested method receiver was evaluated more than once or skipped")
+            begin = next(i for i, e in enumerate(events) if isinstance(e, Reserve))
+            activate = next(i for i, e in enumerate(events) if isinstance(e, Activate))
+            ensure(read < begin < activate if name == "Snapshot" else begin < read < activate,
+                   f"incorrect order of the length read and receiver phases in {name}")
+        if name == "Disjoint":
+            reserved = next(e.loan.place for e in events if isinstance(e, Reserve))
+            ensure(reserved == Place("buf", ("payload",)), "named receiver view lost its field footprint")
+        if name == "Count":
+            phases = [type(e) for e in events if isinstance(e, (Reserve, Borrow, Activate))]
+            ensure(phases == [Reserve, Borrow, Activate], "nested read did not run once between receiver phases")
         if name == "Hold":
-            ensure(receiver_borrows[0].mode == "shared" and not receiver_borrows[0].scoped,
+            loan = next(e.loan for e in events if isinstance(e, Borrow))
+            ensure(loan.mode == "shared" and not loan.scoped,
                    "the source-declared receiver return loan was discarded at the call")
 
 
 def _receiver_view_representation_change() -> None:
-    client = "public Unit Client(ref Buffer buf) { buf.WriteData(buf.ReadCount()); }"
+    client = """public Unit Client(ref Buffer buf) {
+    let in Nat count = buf.BorrowCount();
+    buf.WriteData(0);
+    Observe(in count);
+}"""
     with parser.cached_build(Path(__file__).resolve().parents[2]) as compiled:
         for count_field, data_field, overlap in (
             ("length", "payload", False),
@@ -1274,7 +1359,7 @@ public struct Buffer {{
     private Nat {data_field};
     public view Count = {count_view};
     public view Data = {data_field};
-    public Nat ReadCount(in this.Count);
+    public in<'this.{count_view}> Nat BorrowCount(in this.Count);
     public Unit WriteData(ref this.Data, Nat n);
 }}
 {client}
@@ -1283,17 +1368,17 @@ public struct Buffer {{
             lowered = lower_function(tree, "Client")
             report = analyze(lowered.owners, lowered.graph).paths[0]
             if overlap:
-                issues = [issue for issue in report.issues if issue.kind == "competing-loans"]
-                ensure(len(issues) == 1, f"overlapping public views need a borrow conflict: {report.issues}")
-                span = cast("list[int]", lowered.node_sites[issues[0].node]["span"])
-                ensure(source[span[0]:span[1]] == b"buf.ReadCount", "conflict missed the nested receiver")
+                ensure(bool(report.issues) and report.issues[0].kind == "competing-loans",
+                       f"overlapping public views need a borrow conflict: {report.issues}")
+                span = cast("list[int]", lowered.node_sites[report.issues[0].node]["span"])
+                ensure(source[span[0]:span[1]] == b"buf.WriteData", "conflict missed the receiver activation")
             else:
                 ensure(not report.issues, f"disjoint public views conflicted: {report.issues}")
                 ensure(all(obligation.kind != "overlap" for obligation in report.obligations),
                        "disjoint private fields left a residual overlap obligation")
 
 
-def _checked_receiver_snapshot() -> None:
+def _checked_receiver_read() -> None:
     with parser.cached_build(Path(__file__).resolve().parents[2]) as compiled:
         for snapshot in (False, True):
             statements = (
@@ -1303,14 +1388,32 @@ def _checked_receiver_snapshot() -> None:
             source = (b"module ReceiverMath; public Slots<u8, 4> Fill() { "
                       b"let buf = Slots.AllocVacant<u8, 4>(); " + statements + b" }")
             tree = parser.parse_source(compiled, source, surface=True)
-            try:
-                elaborate(source, tree)
-            except HoldFastError as error:
-                ensure(not snapshot and "live exclusive loan of 'buf'" in str(error), str(error))
-                ensure(error.column == source.index(b"buf.LiveCount") + 1,
-                       f"receiver conflict has the wrong source column: {error}")
-            else:
-                ensure(snapshot, "semantic receiver dispatch skipped the overlapping slot index read")
+            translated = elaborate(source, tree)
+            ensure(not solver_ledger.ledger(translated.gallina), "receiver read relies on solver-trusted obligations")
+
+
+def _receiver_argument_view_captures() -> None:
+    source = b"""module ReceiverArguments;
+public struct Buffer {
+    public Nat value;
+    public Unit Update(ref this, Option<in Nat> retained);
+    public Option<in<'this> Nat> BorrowValue(in this);
+}
+public Option<in<'buf> Nat> Lend(in Buffer buf);
+public Unit Disjoint(ref Buffer target, in Buffer left, in Buffer right, bool pick) {
+    target.Update(if (pick) left.BorrowValue() else right.BorrowValue());
+}
+public Unit Retained(ref Buffer buf) { buf.Update(Lend(in buf)); }
+"""
+    with parser.cached_build(Path(__file__).resolve().parents[2]) as compiled:
+        tree = parser.parse_source(compiled, source, surface=True)
+    report = analyze_function(tree, "Disjoint")
+    ensure(len(report.paths) == 2 and all(not path.issues for path in report.paths),
+           f"one branch evaluated a sibling's argument capture: {report.paths}")
+    lowered = lower_function(tree, "Retained")
+    report = analyze(lowered.owners, lowered.graph)
+    ensure(all(path.issues and path.issues[0].kind == "competing-loans" for path in report.paths),
+           f"a possible view through a fresh helper input ended before activation: {report.paths}")
 
 
 def _element_loan_during_relocation() -> None:
@@ -1364,10 +1467,13 @@ def cases() -> list[Case]:
     return [
         Case("located receiver order, snapshots, views and retained loans", _located_receiver_timing, lane="toolchain"),
         Case("public receiver views across private field renaming", _receiver_view_representation_change, lane="toolchain"),
-        Case("checked receiver snapshot on actual slots", _checked_receiver_snapshot, lane="toolchain"),
+        Case("checked implicit receiver reads on actual slots", _checked_receiver_read, lane="toolchain"),
+        Case("receiver argument views through branch results and helper inputs", _receiver_argument_view_captures,
+             lane="toolchain"),
         Case("element loan and value snapshot across slot relocation", _element_loan_during_relocation, lane="toolchain"),
             Case("last-use restoration and unresolved facts", _last_use_and_residuals),
             Case("nested restoration and suspended ancestors", _nested_restoration_and_suspension),
+            Case("receiver reservation, activation and cancellation", _receiver_reservations),
             Case("declared field partitions and unknown overlap", _field_partitions_and_unknowns),
             Case("unknown footprints and containment without competing loans", _unknown_footprints_without_competitors),
             Case("shared/exclusive access and reborrow grants", _shared_and_exclusive_grants),

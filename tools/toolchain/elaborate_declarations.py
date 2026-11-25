@@ -1136,6 +1136,7 @@ class _DeclarationsMixin:
         self.callable_ref_updates.update(mod.sealed_updates)
         self.callable_where_constraints.update(mod.callable_where_constraints)
         self.callable_source_names.update(mod.callable_source_names)
+        self.scalar_callables.update(mod.scalar_callables)
         self.callable_has_effects.update(mod.callable_has_effects)
         self.callable_effect_calls.update(mod.callable_effect_calls)
         self.callable_effect_writes.update(mod.callable_effect_writes)
@@ -2315,6 +2316,7 @@ class _DeclarationsMixin:
         fn_name = self.name(fn_node["name"])
         lowerer = loans._FunctionLowerer(fn_name, fn_node, enclosing_type, structs)
         lowerer.checked_receivers = self.checked_receivers
+        lowerer.checked_scalar_calls = self.checked_scalar_calls
         if self.in_executable_function:
             lowerer.result_bindings = self.result_bindings
             for param in self.nodes(fn_node["parameters"]):
@@ -2326,28 +2328,38 @@ class _DeclarationsMixin:
             lowerer.result_names = lowerer.result_parameters.union(*lowerer.result_bindings.values())
         try:
             lowered = lowerer.build()
+            report = loans.analyze(lowered.owners, lowered.graph)
         except loans.AnalysisRefusalError as error:
             raise self.fail("unsupported", str(error), lowerer.current_site) from error
-        report = loans.analyze(lowered.owners, lowered.graph)
         if issue := lowerer.unexamined_result(lowered.graph):
             name, site = issue
             raise self.fail("type", f"unexamined Result '{name}': match it, propagate it with '?' or return it", site)
         borrow_origins = {
             event.loan.name: (event.loan, lowered.node_sites[cfg_node.name])
             for cfg_node in lowered.graph.nodes
-            if isinstance(event := cfg_node.event, loans.Borrow)
+            if isinstance(event := cfg_node.event, (loans.Borrow, loans.Reserve))
         }
         for path in report.paths:
             for issue in path.issues:
                 site = lowered.node_sites.get(issue.node, fn_node)
                 res = issue.resources
-                if issue.kind in {"suspended-parent", "conflicting-access", "competing-loans"}:
+                if issue.kind in {
+                    "suspended-parent", "conflicting-access", "competing-loans",
+                    "conflicting-receiver-reservation",
+                }:
                     loan, origin = borrow_origins[res[-1]]
                     start = self.fail("type", "", origin)
                     footprint = loan.place.owner + "".join(
                         "[*]" if part == "*" else f".{part}" for part in loan.place.fields
                     )
                     operation = "borrow" if issue.kind == "competing-loans" else "access"
+                    if issue.kind == "conflicting-receiver-reservation":
+                        raise self.fail(
+                            "type",
+                            f"operation conflicts with the reserved receiver '{footprint}' "
+                            f"selected at line {start.line}, column {start.column} ({issue.kind})",
+                            site,
+                        )
                     raise self.fail(
                         "type",
                         f"{operation} conflicts with a live {loan.mode} loan of '{footprint}' "
@@ -3206,6 +3218,8 @@ class _DeclarationsMixin:
                 self.callable_source_names[emitted] = name
                 self.callable_effect_arities[emitted] = max(1, len(parameters))
                 self.declaration_sites[emitted] = cast("list[int]", node["span"])[0]
+                if kind in {"definition", "function"} and loans._is_scalar_value_type(node.get("result")):
+                    self.scalar_callables.add(emitted)
                 if effects_clauses or infer_effects or summarize_definition:
                     self.callable_has_effects.add(emitted)
                     self.callable_effect_reads[emitted] = {

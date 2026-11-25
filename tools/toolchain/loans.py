@@ -54,6 +54,23 @@ class Borrow:
 
 
 @dataclass(frozen=True)
+class Reserve:
+    """Reserve an exclusive receiver without making its loan available."""
+
+    loan: Loan
+
+
+@dataclass(frozen=True)
+class Activate:
+    """Grant the reserved receiver while the call's arguments remain live."""
+
+    name: str
+    captures: tuple[str, ...] = ()
+    # Results of branch expressions may carry different handles on each path.
+    possible_captures: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class Access:
     place: Place
     kind: AccessKind = "read"
@@ -120,7 +137,7 @@ class Nop:
     pass
 
 
-type Event = (Borrow | Access | Bind | Use | Drop | Move | Return | Checkpoint
+type Event = (Borrow | Reserve | Activate | Access | Bind | Use | Drop | Move | Return | Checkpoint
               | OpenInvariant | CloseInvariant | Nop)
 
 
@@ -225,8 +242,10 @@ def _projection(value: tuple[str, ...]) -> None:
 
 def _references(event: Event) -> tuple[str, ...]:
     match event:
-        case Borrow(loan):
+        case Borrow(loan) | Reserve(loan):
             return (loan.parent,)
+        case Activate(name, captures, possible_captures):
+            return (name, *captures, *possible_captures)
         case Access(via=via) if via is not None:
             return (via,)
         case Bind(captures=names) | Return(captures=names):
@@ -241,7 +260,7 @@ def _references(event: Event) -> tuple[str, ...]:
 
 def _binder(event: Event) -> str | None:
     match event:
-        case Borrow(loan):
+        case Borrow(loan) | Reserve(loan):
             return loan.name
         case Bind(name, _) | Move(_, name):
             return name
@@ -301,6 +320,7 @@ def _validate(
 
     nodes: dict[str, Node] = {}
     known = set(owner_map)
+    reservations: set[str] = set()
     invariants: set[str] = set()
     opened_conjuncts: set[tuple[str, str]] = set()
     for owner in owners:
@@ -315,16 +335,24 @@ def _validate(
         if node.name in nodes:
             raise AnalysisRefusalError("duplicate graph identity")
         nodes[node.name] = node
-        if not isinstance(node.event, (Borrow, Access, Bind, Use, Drop, Move, Return,
+        if not isinstance(node.event, (Borrow, Reserve, Activate, Access, Bind, Use, Drop, Move, Return,
                                        Checkpoint, OpenInvariant, CloseInvariant, Nop)):
             raise AnalysisRefusalError("unknown event")
-        if isinstance(node.event, Borrow) and not isinstance(node.event.loan, Loan):
+        if isinstance(node.event, (Borrow, Reserve)) and not isinstance(node.event.loan, Loan):
             raise AnalysisRefusalError("borrow must contain an immutable Loan record")
+        if isinstance(node.event, Activate) and (
+            not isinstance(node.event.captures, tuple) or not isinstance(node.event.possible_captures, tuple)
+        ):
+            raise AnalysisRefusalError("activation captures must be immutable")
         binder = _binder(node.event)
-        if isinstance(node.event, (Borrow, Bind, Move)):
+        if isinstance(node.event, (Borrow, Reserve, Bind, Move)):
             _name(binder)
             if binder is not None:
                 known.add(binder)
+        if isinstance(node.event, Reserve):
+            if node.event.loan.name in reservations:
+                raise AnalysisRefusalError("duplicate receiver reservation identity")
+            reservations.add(node.event.loan.name)
         if isinstance(node.event, (OpenInvariant, CloseInvariant)):
             _name(node.event.name)
             if not isinstance(node.event.clauses, tuple) or len(node.event.clauses) > limits.captures:
@@ -375,21 +403,25 @@ def _validate(
             if reference not in known:
                 raise AnalysisRefusalError(f"missing resource reference: {reference}")
         event = node.event
-        if isinstance(event, (Borrow, Access)):
-            place = event.loan.place if isinstance(event, Borrow) else event.place
+        if isinstance(event, (Borrow, Reserve, Access)):
+            place = event.place if isinstance(event, Access) else event.loan.place
             if not isinstance(place, Place):
                 raise AnalysisRefusalError("footprint must be an immutable Place record")
             _name(place.owner)
             _projection(place.fields)
             if place.owner not in owner_map:
                 raise AnalysisRefusalError("missing place owner")
-        if isinstance(event, Borrow):
+        if isinstance(event, (Borrow, Reserve)):
             if event.loan.mode not in ("shared", "exclusive") or type(event.loan.scoped) is not bool:
                 raise AnalysisRefusalError("malformed loan mode")
+            if isinstance(event, Reserve) and event.loan.mode != "exclusive":
+                raise AnalysisRefusalError("receiver reservation requires an exclusive loan")
             if event.loan.invariant is not None:
                 _name(event.loan.invariant)
                 if event.loan.invariant not in invariants:
                     raise AnalysisRefusalError("missing invariant reference")
+        if isinstance(event, Activate) and event.name not in reservations:
+            raise AnalysisRefusalError("missing receiver reservation reference")
         if isinstance(event, Access) and event.kind not in ("read", "write", "move"):
             raise AnalysisRefusalError("unknown access kind")
         if isinstance(event, CloseInvariant):
@@ -577,9 +609,13 @@ def _transfer_demand_backward(node: Node, demanded_after: frozenset[str]) -> fro
         case Bind(name, captures):
             before.discard(name)
             before.update(captures)
-        case Borrow(loan):
+        case Borrow(loan) | Reserve(loan):
             before.discard(loan.name)
             before.add(loan.parent)
+        case Activate(name, captures, possible_captures):
+            before.add(name)
+            before.update(captures)
+            before.update(possible_captures)
         case Use(name):
             before.add(name)
         case Access(via=via) if via is not None:
@@ -645,6 +681,7 @@ class _State:
         self.last_demand_node: dict[str, str] = {}
         self.seen_binders: dict[str, str] = {}
         self.active: set[str] = set()
+        self.reserved: set[str] = set()
         self.opened: set[tuple[str, str]] = set()
         self.active_invariants: set[tuple[str, str]] = {
             (owner.name, clause)
@@ -677,6 +714,7 @@ class _State:
         copy.last_demand_node = dict(self.last_demand_node)
         copy.seen_binders = dict(self.seen_binders)
         copy.active = set(self.active)
+        copy.reserved = set(self.reserved)
         copy.opened = set(self.opened)
         copy.active_invariants = set(self.active_invariants)
         copy.explicit_invariants = dict(self.explicit_invariants)
@@ -689,6 +727,7 @@ class _State:
         return (
             frozenset(self.values.items()),
             frozenset(self.active),
+            frozenset(self.reserved),
             frozenset(self.opened),
             frozenset(self.active_invariants),
             frozenset(self.moved),
@@ -700,6 +739,8 @@ class _State:
 
     def merge_from(self, other: _State, live_refs: frozenset[str]) -> bool:
         self.budget.spend()
+        if self.reserved != other.reserved:
+            raise AnalysisRefusalError("incompatible receiver reservations at a control-flow join")
         before_sig = self.domain_signature()
         self.nodes = tuple(dict.fromkeys((*self.nodes, *other.nodes)))
         merged_values: dict[str, _Value] = {}
@@ -776,7 +817,7 @@ class _State:
         return frozenset(result)
 
     def live_loans(self, demanded_names: frozenset[str]) -> frozenset[str]:
-        seeds: set[str] = set()
+        seeds = set(self.reserved)
         for name in demanded_names:
             value = self.values.get(name)
             if value is not None:
@@ -797,11 +838,31 @@ class _State:
             self.obligation(node, "footprint-containment", grant, child.owner, *child.fields)
         return relation
 
-    def borrow(self, node: Node, name: str) -> None:
+    def check_reserved(self, node: Node, place: Place, *resources: str) -> None:
+        for other in sorted(self.reserved):
+            if self.compare(node, place, other) == "yes":
+                self.issue(node, "conflicting-receiver-reservation", *resources, other)
+
+    def check_reserved_transfer(self, node: Node, captures: frozenset[str]) -> None:
+        if self.reserved:
+            for name in sorted(captures):
+                self.budget.spend()
+                loan = self.loans[name]
+                if loan.mode == "exclusive":
+                    self.check_reserved(node, loan.place)
+
+    def cancel_reservations(self, node: Node, names: set[str]) -> None:
+        for ancestor in self.ancestors(names) & self.active:
+            self.last_demand_node[ancestor] = node.name
+        self.reserved -= names
+
+    def borrow(self, node: Node, name: str, *, reserve: bool = False) -> None:
         loan = self.loans[name]
         parent = self.parents[name]
         prior_issues = len(self.issues)
-        self.obligation(node, "loan-interpretation", name, parent)
+        self.obligation(
+            node, "receiver-reservation-interpretation" if reserve else "loan-interpretation", name, parent
+        )
         if "*" in loan.place.fields:
             self.obligation(node, "unknown-footprint", name, loan.place.owner, *loan.place.fields)
         if loan.place.owner in self.moved:
@@ -821,12 +882,14 @@ class _State:
             self.issue(node, "loan-invariant-not-open", name, loan.invariant)
         ancestors = self.ancestors({name}) - {name}
         for other in sorted(self.active - ancestors):
-            if loan.mode == "exclusive" or self.loans[other].mode == "exclusive":
+            if (loan.mode == "exclusive" and not reserve) or self.loans[other].mode == "exclusive":
                 overlap = self.compare(node, loan.place, other)
                 if overlap == "yes":
                     self.issue(node, "competing-loans", name, other)
+        if loan.mode == "exclusive":
+            self.check_reserved(node, loan.place, name)
         if len(self.issues) == prior_issues:
-            self.active.add(name)
+            (self.reserved if reserve else self.active).add(name)
         else:
             self.invalid.add(name)
 
@@ -837,6 +900,7 @@ class _State:
             self.obligation(node, "unknown-footprint", event.place.owner, *event.place.fields)
         if event.kind != "read":
             self.obligation(node, "content-refinement-invalidation", event.place.owner)
+            self.check_reserved(node, event.place)
         if event.place.owner in self.moved:
             self.issue(node, "use-after-owner-move", event.place.owner)
         if not event.place.fields:
@@ -902,7 +966,11 @@ class _State:
             self.nodes = (*self.nodes, node.name)
         event = node.event
         used: set[str] = set()
-        for name in _references(event):
+        references = (
+            (*event.captures, *(name for name in event.possible_captures if name in self.seen_binders))
+            if isinstance(event, Activate) else _references(event)
+        )
+        for name in references:
             self.budget.spend()
             if name in self.owners:
                 continue
@@ -923,7 +991,7 @@ class _State:
         creates: str | None = None
         route: str | None = None
         match event:
-            case Borrow(loan):
+            case Borrow(loan) | Reserve(loan):
                 if fresh:
                     parent = self.values.get(loan.parent)
                     if loan.parent in self.owners:
@@ -935,8 +1003,16 @@ class _State:
                     if route is not None:
                         self.loans[loan.name] = loan
                         self.parents[loan.name] = route
-                        self.values[loan.name] = _Value(frozenset({loan.name}), loan.name)
+                        if isinstance(event, Borrow):
+                            self.values[loan.name] = _Value(frozenset({loan.name}), loan.name)
                         creates = loan.name
+            case Activate(name):
+                if name not in self.reserved:
+                    self.issue(node, "receiver-reservation-unavailable", name)
+                else:
+                    self.reserved.remove(name)
+                    self.values[name] = _Value(frozenset({name}), name)
+                    creates = name
             case Access(via=via) if via is not None:
                 value = self.values.get(via)
                 if value is not None:
@@ -953,12 +1029,14 @@ class _State:
                 if source in self.owners:
                     self.issue(node, "owner-handle-move-unsupported", source)
                 elif fresh and source in self.values:
-                    self.values[target] = self.values.pop(source)
+                    value = self.values.pop(source)
+                    self.check_reserved_transfer(node, value.captures)
+                    self.values[target] = value
             case Drop(name):
                 if name in self.owners:
                     self.issue(node, "owner-drop-unsupported", name)
-                else:
-                    self.values.pop(name, None)
+                elif (value := self.values.pop(name, None)) is not None and value.handle is not None:
+                    self.check_reserved_transfer(node, value.captures)
             case Return(captures=names):
                 if set(names) & self.owners.keys():
                     self.issue(
@@ -977,13 +1055,15 @@ class _State:
             for anc in self.ancestors(used):
                 self.last_demand_node[anc] = node.name
 
+        if isinstance(event, Reserve) and creates is not None:
+            self.borrow(node, creates, reserve=True)
         live_after = (
             self.ancestors(self.returned)
             if not node.successors
             else self.live_loans(demanded_after)
         )
         match event:
-            case Borrow() if creates is not None:
+            case (Borrow() | Activate()) if creates is not None:
                 self.borrow(node, creates)
             case Access():
                 self.access(node, event, route)
@@ -1027,6 +1107,8 @@ class _State:
             case Checkpoint(kind):
                 self.issue(node, "unsupported-boundary", kind)
                 self.obligation(node, "boundary-interpretation", kind, *sorted(self.active))
+                for name in sorted(self.reserved):
+                    self.issue(node, "receiver-reservation-at-boundary", name)
                 for pair in sorted(self.opened):
                     self.issue(node, "open-invariant-at-boundary", *self._invariant_res(pair))
                 for loan in sorted(self.active & live_after):
@@ -1037,6 +1119,8 @@ class _State:
             case _:
                 pass
 
+        if not node.successors and self.reserved:
+            self.cancel_reservations(node, self.reserved)
         self.end_dead(node.name, live_after)
 
     def finalize(self, terminal: Node) -> PathReport:
@@ -1160,6 +1244,14 @@ def analyze(owners: tuple[Owner, ...], graph: Graph, limits: Limits | None = Non
 
         for index, successor in enumerate(reversed(node.successors)):
             branch = state if index == len(node.successors) - 1 else state.clone()
+            if branch.reserved and successor in dominators[node.name]:
+                enclosing = dominators[successor] - {successor}
+                local_reservations = {
+                    name for name in branch.reserved if branch.seen_binders[name] not in enclosing
+                }
+                if local_reservations:
+                    branch.issue(node, "receiver-reservation-at-loop-backedge", *sorted(local_reservations))
+                    branch.cancel_reservations(node, local_reservations)
             branch.end_dead(node.name, branch.live_loans(demanded_before[successor]))
             if in_degree[successor] > 1:
                 live_refs = reachable_refs[successor]
@@ -1167,7 +1259,7 @@ def analyze(owners: tuple[Owner, ...], graph: Graph, limits: Limits | None = Non
                 for key in list(branch.values):
                     if key not in live_refs and not (branch.values[key].captures & branch.active):
                         branch.values.pop(key, None)
-                env_key = frozenset(key for key in branch.values if key in live_refs)
+                env_key = frozenset(key for key in branch.values if key in live_refs) | branch.reserved
                 buckets = join_states[successor]
                 if env_key in buckets:
                     if not buckets[env_key].merge_from(branch, live_refs):
@@ -1198,6 +1290,8 @@ class _Receiver:
     mode: Mode
     view: str | None
     retained: bool
+    two_phase: bool = False
+    scalar_result: bool = False
 
 
 @dataclass
@@ -1395,9 +1489,10 @@ def _returns_borrow_from(type_node: object, owner: str | None) -> bool:
     return False
 
 
-def _receiver_parameter(param: dict[str, object]) -> tuple[Mode, str | None] | None:
+def _receiver_parameter(param: dict[str, object]) -> tuple[Mode, str | None, bool] | None:
     if param.get("kind") == "receiver_view_parameter":
-        return ("shared" if param.get("mode") == "in" else "exclusive", _id_text(param["view"]))
+        mode = param.get("mode")
+        return ("shared" if mode == "in" else "exclusive", _id_text(param["view"]), mode == "ref")
     if param.get("name") is not None:
         return None
     annotation = param.get("type")
@@ -1410,9 +1505,13 @@ def _receiver_parameter(param: dict[str, object]) -> tuple[Mode, str | None] | N
     if name != "this" and not name.startswith("this."):
         return None
     modifier = annotation.get("modifier", "in")
-    if modifier not in {"in", "ref", "out"}:
+    if not isinstance(modifier, str) or modifier not in {"in", "ref", "out"}:
         raise AnalysisRefusalError("unsupported receiver mode")
-    return ("shared" if modifier == "in" else "exclusive", name[5:] if "." in name else None)
+    return (
+        "shared" if modifier == "in" else "exclusive",
+        name[5:] if "." in name else None,
+        modifier == "ref",
+    )
 
 
 def _view_field(value: object) -> tuple[str, ...] | None:
@@ -1497,12 +1596,16 @@ def _collect_structs(declarations: list[dict[str, object]]) -> dict[str, _Struct
                 parameters = _ast_nodes(member.get("parameters", []))
                 receiver = _receiver_parameter(parameters[0]) if parameters else None
                 if receiver is None and kind == "record":
-                    receiver = ("shared", None)
-                retained = _returns_borrow_from(member.get("result") or member.get("return_type"), "this")
-                methods[method_name] = (
-                    _Receiver(*receiver, retained)
-                    if receiver is not None and method_name not in methods else None
-                )
+                    receiver = ("shared", None, False)
+                result = member.get("result") or member.get("return_type")
+                retained = _returns_borrow_from(result, "this")
+                if receiver is None or method_name in methods:
+                    methods[method_name] = None
+                else:
+                    mode, view, two_phase = receiver
+                    methods[method_name] = _Receiver(
+                        mode, view, retained, two_phase, scalar_result=_is_scalar_value_type(result)
+                    )
         for contract in _ast_nodes(decl.get("contracts", [])):
             ckind = contract.get("kind")
             if ckind == "invariant" or (ckind == "contract" and contract.get("role") == "invariant"):
@@ -1586,9 +1689,11 @@ class _FunctionLowerer:
         self.result_bindings: dict[int, set[str]] = {}
         self.result_events: dict[str, tuple[str, set[str]]] = {}
         self.in_proof = False
+        self.in_receiver_argument = False
         self.enclosing_type = enclosing_type
         self.structs = structs
         self.checked_receivers: dict[tuple[int, ...], _Receiver | None] = {}
+        self.checked_scalar_calls: set[tuple[int, ...]] = set()
         self.owners: dict[str, Owner] = {}
         self.owner_types: dict[str, str] = {}
         self.owner_fields: dict[str, set[tuple[str, ...]]] = {}
@@ -2310,13 +2415,15 @@ class _FunctionLowerer:
         while callee.get("kind") in {"generic_application", "group"}:
             callee = _ast_node(callee["value"])
         receiver_loan: Loan | None = None
+        reserve_receiver = False
+        span = tuple(cast("list[int]", expr.get("span", [])))
+        scalar_result = span in self.checked_scalar_calls
         receiver_site = callee
         if callee.get("kind") == "member":
             recv = _ast_node(callee.get("receiver") or callee["value"])
             place = self._try_place(recv)
             projection: tuple[str, ...] = ()
             signature: _Receiver | None = None
-            span = tuple(cast("list[int]", expr.get("span", [])))
             if span in self.checked_receivers:
                 signature = self.checked_receivers[span]
                 if signature is None:
@@ -2334,6 +2441,7 @@ class _FunctionLowerer:
             elif not _is_ident(recv) and _view_field(recv) is None:
                 raise AnalysisRefusalError("cannot resolve receiver of computed method call")
             if signature is not None:
+                scalar_result = scalar_result or signature.scalar_result
                 if place is not None:
                     current, parent, _ = self._resolve_borrow_target(current, recv)
                     base = place
@@ -2352,8 +2460,10 @@ class _FunctionLowerer:
                 self._add_owner_field(footprint.owner, footprint.fields)
                 receiver_loan = Loan(self._fresh_loan("recv"), parent, footprint, mode=signature.mode,
                                      scoped=not signature.retained)
+                reserve_receiver = signature.two_phase
                 self.current_site = receiver_site
-                current = self._emit(current, Borrow(receiver_loan), "call_recv")
+                event = Reserve(receiver_loan) if reserve_receiver else Borrow(receiver_loan)
+                current = self._emit(current, event, "call_recv")
                 self.current_site = expr
                 if signature.retained:
                     self.handle_places[receiver_loan.name] = footprint
@@ -2417,7 +2527,12 @@ class _FunctionLowerer:
                         transferred_results.append(_id_text(direct["name"]))
                     elif direct.get("kind") == "member" and (place := self._try_place(direct)) is not None and place.fields:
                         transferred_results.append(".".join((place.owner, *place.fields)))
-                    current, caps = self._lower_expr(current, aval)
+                    in_receiver_argument = self.in_receiver_argument
+                    self.in_receiver_argument = in_receiver_argument or reserve_receiver
+                    try:
+                        current, caps = self._lower_expr(current, aval)
+                    finally:
+                        self.in_receiver_argument = in_receiver_argument
                     for cap in caps:
                         if cap not in captured_handles:
                             captured_handles.append(cap)
@@ -2427,6 +2542,18 @@ class _FunctionLowerer:
         for name in transferred_results:
             current = self._use_result(current, name)
 
+        if reserve_receiver and receiver_loan is not None:
+            live_args = tuple(dict.fromkeys(name for name, _, _, _ in arg_loans))
+            possible_captures = tuple(
+                name for name in dict.fromkeys(captured_handles)
+                if name != receiver_loan.name and name not in live_args
+            )
+            self.current_site = receiver_site
+            current = self._emit(
+                current, Activate(receiver_loan.name, live_args, possible_captures), "call_activate"
+            )
+            self.current_site = expr
+
         # At the call execution point, demand all active `in`/`ref`/`out` argument loans.
         for loan_name, loan_mode, place, is_temp in arg_loans:
             if loan_mode == "shared":
@@ -2434,7 +2561,10 @@ class _FunctionLowerer:
             else:
                 current = self._emit(current, Access(place, "write", via=loan_name), "call_write")
             if is_temp:
-                current = self._emit(current, Drop(loan_name), "call_drop")
+                if loan_mode == "shared" and self.in_receiver_argument and not scalar_result:
+                    captured_handles.append(loan_name)
+                else:
+                    current = self._emit(current, Drop(loan_name), "call_drop")
 
         if receiver_loan is not None:
             self.current_site = receiver_site
@@ -2442,7 +2572,7 @@ class _FunctionLowerer:
             if receiver_loan.scoped:
                 current = self._emit(current, Drop(receiver_loan.name), "call_receiver_drop")
             self.current_site = expr
-        return current, tuple(captured_handles)
+        return current, () if scalar_result else tuple(captured_handles)
 
     def _lower_binding(
         self,
