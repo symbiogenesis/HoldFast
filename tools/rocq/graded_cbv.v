@@ -1,7 +1,7 @@
 (* SPDX-License-Identifier: Apache-2.0 *)
 
 From Stdlib Require Import List Arith.PeanoNat.
-Require Import graded_pure.
+Require Import graded_pure graded_domains.
 Import ListNotations GradedPure.
 
 Module GradedCbv.
@@ -139,6 +139,47 @@ Fixpoint natural_telescope (parameters : list (nat * nat)) (body : index) : term
       Lambda name allowance Natural (natural_telescope rest body)
   end.
 
+Lemma natural_telescope_reads_with : forall allows parameters env body checked,
+  DerivesWith allows env (natural_telescope parameters body) checked ->
+  forall values,
+    (forall name allowance, In (name, allowance) parameters ->
+      fresh env name = true /\
+      allows (count_occ Nat.eq_dec (snd (evaluate_index values body)) name) allowance) /\
+    (forall name, ~ In name (map fst parameters) ->
+      count_occ Nat.eq_dec (snd (evaluate_index values body)) name =
+        uses (computation_demand checked) name).
+Proof.
+  intros allows.
+  induction parameters as [| [x grade] rest IH]; intros env body checked typed values.
+  - inversion typed; subst. split.
+    + contradiction.
+    + intros name _. now erewrite index_reads_match_demand by eassumption.
+  - inversion typed as [| | name allowance domain inner codomain a u v
+      new typed_domain typed_inner admitted |]; subst.
+    inversion typed_domain; subst.
+    destruct (IH _ _ _ typed_inner values) as [bound unbound].
+    split.
+    + intros name allowance [head | tail].
+      * inversion head; subst name allowance. split; [exact new |].
+        assert (~ In x (map fst rest)) as absent.
+        { intro repeated.
+          apply in_map_iff in repeated as [[repeated_name repeated_grade] [same member]].
+          cbn in same. subst repeated_name.
+          destruct (bound x repeated_grade member) as [impossible _].
+          unfold fresh, lookup in impossible. cbn in impossible.
+          now rewrite Nat.eqb_refl in impossible. }
+        now rewrite (unbound x absent).
+      * destruct (bound name allowance tail) as [new_inner admitted_reads].
+        split; [| exact admitted_reads].
+        unfold fresh, lookup in new_inner. cbn in new_inner.
+        now destruct (Nat.eqb name x).
+    + intros name absent. cbn in absent.
+      cbn [computation_demand]. rewrite uses_without.
+      assert (Nat.eqb name x = false) as distinct.
+      { apply Nat.eqb_neq. intro same. apply absent. now left. }
+      rewrite distinct. apply unbound. intro present. apply absent. now right.
+Qed.
+
 Lemma natural_telescope_reads : forall parameters env body checked,
   Derives env (natural_telescope parameters body) checked ->
   forall values,
@@ -148,34 +189,7 @@ Lemma natural_telescope_reads : forall parameters env body checked,
     (forall name, ~ In name (map fst parameters) ->
       count_occ Nat.eq_dec (snd (evaluate_index values body)) name =
         uses (computation_demand checked) name).
-Proof.
-  induction parameters as [| [x grade] rest IH]; intros env body checked typed values.
-  - inversion typed; subst. split.
-    + contradiction.
-    + intros name _. now erewrite index_reads_match_demand by eassumption.
-  - inversion typed as [| | name allowance domain inner codomain a u v
-      new typed_domain typed_inner exact_use |]; subst.
-    inversion typed_domain; subst.
-    destruct (IH _ _ _ typed_inner values) as [bound unbound].
-    split.
-    + intros name allowance [head | tail].
-      * inversion head; subst name allowance. split; [exact new |].
-        apply (unbound x). intro repeated.
-        apply in_map_iff in repeated as [[repeated_name repeated_grade] [same member]].
-        cbn in same. subst repeated_name.
-        destruct (bound x repeated_grade member) as [impossible _].
-        unfold fresh, lookup in impossible. cbn in impossible.
-        now rewrite Nat.eqb_refl in impossible.
-      * destruct (bound name allowance tail) as [new_inner exact_reads].
-        split; [| exact exact_reads].
-        unfold fresh, lookup in new_inner. cbn in new_inner.
-        now destruct (Nat.eqb name x).
-    + intros name absent. cbn in absent.
-      cbn [computation_demand]. rewrite uses_without.
-      assert (Nat.eqb name x = false) as distinct.
-      { apply Nat.eqb_neq. intro same. apply absent. now left. }
-      rewrite distinct. apply unbound. intro present. apply absent. now right.
-Qed.
+Proof. exact (natural_telescope_reads_with (@eq nat)). Qed.
 
 Record natural_argument (State Event : Type) := {
   parameter : nat * nat;
@@ -251,6 +265,34 @@ Proof.
   cbn [evaluate_natural_sequence]. unfold sequence_argument. now rewrite failure.
 Qed.
 
+Theorem checked_sequence_preserves_arguments_with : forall (allows : nat -> nat -> Prop) allowsb,
+  (forall actual allowance, allowsb actual allowance = true -> allows actual allowance) ->
+  forall State Event
+    (arguments : list (natural_argument State Event)) env body checked
+    values initial ready final effects,
+  infer_with allowsb env (natural_telescope (map parameter arguments) body) = Some checked ->
+  ArgumentsReturned arguments values initial ready final effects ->
+  exists value reads,
+    evaluate_index ready body = (value, reads) /\
+    evaluate_natural_sequence arguments values body initial =
+      {| final_state := final; trace := effects ++ map BodyRead reads; result := Returned value |} /\
+    (forall name allowance, In (name, allowance) (map parameter arguments) ->
+      allows (count_occ Nat.eq_dec reads name) allowance).
+Proof.
+  intros allows allowsb sound State Event arguments env body checked values initial ready final effects
+    accepted returned.
+  apply (infer_with_sound allows allowsb sound) in accepted.
+  destruct (natural_telescope_reads_with _ _ _ _ _ accepted ready) as [bound _].
+  pose proof (sequence_preserves_returned_prefix State Event _ _ _ _ _ _ [] body returned)
+    as preserves.
+  rewrite app_nil_r in preserves.
+  cbn [evaluate_natural_sequence] in preserves. unfold evaluate_natural_body in preserves.
+  destruct (evaluate_index ready body) as [value reads].
+  exists value, reads. repeat split.
+  - exact preserves.
+  - intros name allowance present. now destruct (bound name allowance present).
+Qed.
+
 Theorem checked_sequence_preserves_arguments : forall State Event
     (arguments : list (natural_argument State Event)) env body checked
     values initial ready final effects,
@@ -263,17 +305,30 @@ Theorem checked_sequence_preserves_arguments : forall State Event
     (forall name allowance, In (name, allowance) (map parameter arguments) ->
       count_occ Nat.eq_dec reads name = allowance).
 Proof.
-  intros State Event arguments env body checked values initial ready final effects accepted returned.
-  apply infer_sound in accepted.
-  destruct (natural_telescope_reads _ _ _ _ accepted ready) as [bound _].
-  pose proof (sequence_preserves_returned_prefix State Event _ _ _ _ _ _ [] body returned)
-    as preserves.
-  rewrite app_nil_r in preserves.
-  cbn [evaluate_natural_sequence] in preserves. unfold evaluate_natural_body in preserves.
-  destruct (evaluate_index ready body) as [value reads].
-  exists value, reads. repeat split.
-  - exact preserves.
-  - intros name allowance present. now destruct (bound name allowance present).
+  apply (checked_sequence_preserves_arguments_with (@eq nat) Nat.eqb).
+  intros. now apply Nat.eqb_eq.
+Qed.
+
+Definition infer_bounded : context -> term -> option judgment :=
+  infer_with (@GradedDomains.allowsb GradedDomains.NatBound).
+
+Theorem checked_bounded_sequence_preserves_arguments : forall State Event
+    (arguments : list (natural_argument State Event)) env body checked
+    values initial ready final effects,
+  infer_bounded env (natural_telescope (map parameter arguments) body) = Some checked ->
+  ArgumentsReturned arguments values initial ready final effects ->
+  exists value reads,
+    evaluate_index ready body = (value, reads) /\
+    evaluate_natural_sequence arguments values body initial =
+      {| final_state := final; trace := effects ++ map BodyRead reads; result := Returned value |} /\
+    (forall name allowance, In (name, allowance) (map parameter arguments) ->
+      count_occ Nat.eq_dec reads name <= allowance).
+Proof.
+  apply (checked_sequence_preserves_arguments_with
+    (@GradedDomains.allows GradedDomains.NatBound) (@GradedDomains.allowsb GradedDomains.NatBound)).
+  intros actual allowance accepted.
+  destruct (GradedDomains.allows_reflect GradedDomains.NatBound actual allowance);
+    [assumption | discriminate].
 Qed.
 
 Definition incrementing_argument (state : nat) : execution nat nat :=
@@ -329,6 +384,23 @@ Proof. reflexivity. Qed.
 
 Example sequenced_telescope_rejects_wrong_exact_grade :
   infer [] (natural_telescope [(1, 0); (2, 1)] (twice 2)) = None.
+Proof. reflexivity. Qed.
+
+Example sequenced_bounds_admit_unused_and_repeated_values :
+  let arguments :=
+    [sample_argument 1 1 incrementing_argument; sample_argument 2 3 incrementing_argument] in
+  let subject := natural_telescope (map parameter arguments) (twice 2) in
+  (exists checked, infer_bounded [] subject = Some checked) /\
+  infer [] subject = None /\
+  evaluate_natural_sequence arguments (fun _ => 0) (twice 2) 3 =
+    {| final_state := 5;
+       trace := [ArgumentEvent 3; ArgumentReturned 10; ArgumentEvent 4; ArgumentReturned 11;
+         BodyRead 2; BodyRead 2];
+       result := Returned 22 |}.
+Proof. cbn. split; [eexists | split]; reflexivity. Qed.
+
+Example sequenced_bounds_reject_overuse :
+  infer_bounded [] (natural_telescope [(1, 1); (2, 1)] (twice 2)) = None.
 Proof. reflexivity. Qed.
 
 End GradedCbv.

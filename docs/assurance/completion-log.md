@@ -2646,11 +2646,13 @@ closed assumptions, and `rocqchk` checks the compiled module.
 [Call-by-value model and proofs](../../tools/rocq/graded_cbv.v)
 
 The sequencing trial extends this result to a checked telescope of natural
-arguments. Each binder's exact grade equals the number of body reads of its
-evaluated value. A failure keeps the completed prefix and the failing
-argument's state and events. The examples check zero and repeated demand, a
-failure before a later argument, and an incorrect allowance. All 15 audited
-declarations have closed assumptions, and `rocqchk` checks the compiled module.
+arguments. Each binder's `NatExact` grade equals the number of body reads of
+its evaluated value. A `NatBound` grade bounds that count from above. The
+examples replay unused and repeated body reads under relaxed bounds, the same
+allowances under exact checking, a bounded overuse, and a failure before a
+later argument. A failure keeps the completed prefix and the failing argument's
+state and events. All 20 audited declarations have closed assumptions, and
+`rocqchk` checks the compiled module.
 [Sequencing replay](../../tools/tests/test_holdfast_graded_cbv.py)
 
 General modal and indexed-data elimination, broader usage-aware interpretations,

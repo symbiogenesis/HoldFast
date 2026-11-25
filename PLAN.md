@@ -380,7 +380,7 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
   - The pure Rocq trial checks dependent functions, natural-index applications and telescope row substitution with exact natural demand. [Partial evidence](docs/assurance/completion-log.md#q25be-qualify-the-six-graded-foundation-law-packages)
   - The ordered domain trial checks `NatExact`, `NatBound` and Boolean presence. Extend the proved demand arithmetic with the selected value and type-use interpretations. [Domain laws and certificates](docs/extensions/graded-foundation.md#dimensions-and-lawful-domains)
   - The modal trial checks exact and bounded natural computation demand for promotion and dependent box elimination. Extend the checked rules to the selected general box, pair and indexed data constructors, then connect their demands to evaluation and erasure.
-  - The call-by-value trial relates exact natural-lambda demand to reads of values returned by a sequence of arguments. It preserves ordered effects and state through the first failure. Extend the interpretation to dependent modal values and the concrete resource exits. [Partial evidence](docs/assurance/completion-log.md#q25be-qualify-the-six-graded-foundation-law-packages)
+  - The call-by-value trial relates exact natural-lambda demand and bounded natural allowances to reads of values returned by a sequence of arguments. It preserves ordered effects and state through the first failure. Extend the interpretation to dependent modal values and the concrete resource exits. [Partial evidence](docs/assurance/completion-log.md#q25be-qualify-the-six-graded-foundation-law-packages)
 
 <a id="q25bf"></a>
 

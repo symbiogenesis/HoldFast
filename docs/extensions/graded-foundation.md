@@ -198,11 +198,12 @@ also cover the transitive environment and call mode of resource-carrying closure
 
 HoldFast computations evaluate left to right by value. Elaborate an effectful argument as `bind x <- c; call f x`: evaluate `c` once, record its trace/effects and resource exit, then apply the value rule to `x`. Parameter use zero does not erase `c`'s effects, failures or mandatory result. Parameter use two does not execute `c` twice. Moving this bind across a handler, mutation or cancellation checkpoint needs an explicit preservation proof.
 
-The Rocq call-by-value trial connects exact grades for natural lambdas with
-arithmetic bodies to an instrumented application model. Argument evaluations
-thread state and events in order. The body reads each returned argument value
-as many times as its binder's exact grade. The first failure preserves the
-completed prefix and the failing argument's state and events.
+The Rocq call-by-value trial connects exact and bounded grades for natural
+lambdas with arithmetic bodies to an instrumented application model. Argument
+evaluations thread state and events in order. The body reads each returned
+argument value as many times as its exact grade or at most as many times as
+its bounded allowance. The first failure preserves the completed prefix and the
+failing argument's state and events.
 [Execution model and proofs](../../tools/rocq/graded_cbv.v)
 
 The model takes the argument computation as a state transition. The source
