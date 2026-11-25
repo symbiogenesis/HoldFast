@@ -2637,7 +2637,15 @@ that bounded replay accepts, and both refuse a stale dependency row. The
 presence map loses the distinction between one and two uses. Rocq checks these
 results with closed assumptions. [Domain records and proofs](../../tools/rocq/graded_domains.v)
 
-General modal and indexed-data elimination, usage-aware interpretations,
+The call-by-value trial proves that a checked exact natural lambda reads its
+bound value the advertised number of times. Application sequences an abstract
+stateful argument once and preserves its state and events. The examples use
+the returned value zero and two times and preserve failure without evaluating
+the lambda body. Rocq 9.3.0 checks the four results and three examples with
+closed assumptions, and `rocqchk` checks the compiled module.
+[Call-by-value model and proofs](../../tools/rocq/graded_cbv.v)
+
+General modal and indexed-data elimination, broader usage-aware interpretations,
 erasure and the composed extension laws remain open.
 
 <a id="q25bj-reconstruct-checked-graded-domain-evidence"></a>
@@ -2662,8 +2670,18 @@ The controls refuse an incorrect branch demand, a mismatched motive, direct
 runtime access to a boxed value and a stale demand certificate.
 [Modal source](../../tools/tests/fixtures/graded-modal.hf)
 
+Bounded natural source replay admits a one-use vector parameter under an
+advertised allowance of two. Partial application at `n + n` checks zero
+computation demand and four type uses of `n`. A separate application scales
+its argument demand by the callee's advertised bound. The Rocq checker uses
+the `NatBound` order and refuses excess computation demand and stale type-use
+rows. The source projection refuses mixed domains within the dependency closure.
+[Bounded source](../../tools/tests/fixtures/graded-bounded.hf) ·
+[Replay predicate and soundness](../../tools/rocq/graded_source.v)
+
 These trials use checked kernel judgments over a trusted source projection.
-Checked source correspondence and general domain reconstruction remain open.
+Checked source correspondence and domain reconstruction for modal elimination
+remain open.
 
 <a id="q25by-compare-fixed-modes-with-a-bounded-grading-increment"></a>
 
@@ -2722,6 +2740,16 @@ the direct and coincident forms with E0502. Their safe `split_at_mut` rewrite
 passes all 36 index pairs. [HoldFast replay](../../tools/tests/test_holdfast_loans.py#_mixed_indexed_loans) ·
 [Rust fixture](../../tools/tests/fixtures/mixed_indexed_loans.rs)
 
+The owner-coordinate trial reads relative index `i` from a slice starting at
+offset one and writes the result at owner index `j`. The scoped bounds and
+`j != 1 + i` let HoldFast check both arguments. The emitted `Span` model
+checks the returned byte, the updated element, the untouched elements and the
+unchanged failure state. The direct Rust spelling and the coincident neighbor
+fail with E0502 in all four pinned modes. The `get_disjoint_mut` rewrite checks
+overlap at runtime and passes the 36 observation pairs in each mode.
+[HoldFast replay](../../tools/tests/test_holdfast_loans.py#_owner_coordinate_indexed_loans) ·
+[Rust fixture](../../tools/tests/fixtures/owner_coordinate_loans.rs)
+
 The same compiler accepts the conditional shared return in legacy and Alpha.
 The accepted runs return the indexed byte for each in-bounds index and update
 the owner on the out-of-bounds sibling. NLL rejects the sibling write with
@@ -2734,8 +2762,8 @@ the end. NLL and Alpha report `E0499` and `E0503` at the loop reborrow. All
 three reject the neighbor that clears the cursor with the node loan still live.
 [Loop fixture](../../tools/tests/fixtures/loop_reborrowing.rs)
 
-`python tools/run.py holdfast-borrow-compare` replays all 40 Rust configurations
-and executes the 12 accepted observation tests. The unflagged default
+`python tools/run.py holdfast-borrow-compare` replays all 52 Rust configurations
+and executes the 16 accepted observation tests. The unflagged default
 agrees with Alpha on these fixtures. The conditional return and
 loop cases establish Rust baseline decisions. The corresponding HoldFast
 source and restoration replays, held-out clients, checker cost measurements
