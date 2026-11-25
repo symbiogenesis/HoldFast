@@ -52,22 +52,10 @@ public bool ObserveSpan(ref Span<byte> input) effects reads(input) => API.ReadSp
 """
 
 
-def _replay_opaque(gallina: str) -> None:
-    [provider] = re.findall(r"^Definition (\w+_Copy) :", gallina, re.MULTILINE)
-    [client] = re.findall(r"^Definition (\w+_Observe) :", gallina, re.MULTILINE)
-    [postcondition] = re.findall(r"^Definition (\w+_Copy_ensures_0)\b", gallina, re.MULTILINE)
-    [span_post] = re.findall(r"^Definition (\w+_ObserveSpan_post_input) :", gallina, re.MULTILINE)
-    [module] = re.findall(r"^Module (HoldFastPackage_\w+)\.$", gallina, re.MULTILINE)
-    ensure(f"Opaque {provider}." in gallina, "the client could unfold its provider")
+def _replay_gallina(gallina: str, consumer: str) -> None:
     ensure(not solver_ledger.ledger(gallina), "the package depended on a solver assumption")
     with TemporaryDirectory() as temporary:
         directory = Path(temporary)
-        consumer = f"""
-Example copied input output : {module}.{client} input output = true :=
-  {module}.{postcondition} input output.
-Print Assumptions copied.
-Example span_preserved input : {module}.{span_post} input = input := eq_refl.
-"""
         (directory / "Consumer.v").write_text(gallina + consumer, encoding="utf-8")
         for command in (["rocq", "c", "-q", "Consumer.v"], ["rocqchk", "-silent", "Consumer"]):
             result = subprocess.run(["opam", "exec", "--switch", proofenv.ROCQ_SWITCH, "--", *command],
@@ -76,6 +64,21 @@ Example span_preserved input : {module}.{span_post} input = input := eq_refl.
             if command[0] == "rocq":
                 ensure(b"Closed under the global context" in result.stdout,
                        f"the client postcondition has kernel assumptions: {result.stdout[-2000:]!r}")
+
+
+def _replay_opaque(gallina: str) -> None:
+    [provider] = re.findall(r"^Definition (\w+_Copy) :", gallina, re.MULTILINE)
+    [client] = re.findall(r"^Definition (\w+_Observe) :", gallina, re.MULTILINE)
+    [postcondition] = re.findall(r"^Definition (\w+_Copy_ensures_0)\b", gallina, re.MULTILINE)
+    [span_post] = re.findall(r"^Definition (\w+_ObserveSpan_post_input) :", gallina, re.MULTILINE)
+    [module] = re.findall(r"^Module (HoldFastPackage_\w+)\.$", gallina, re.MULTILINE)
+    ensure(f"Opaque {provider}." in gallina, "the client could unfold its provider")
+    _replay_gallina(gallina, f"""
+Example copied input output : {module}.{client} input output = true :=
+  {module}.{postcondition} input output.
+Print Assumptions copied.
+Example span_preserved input : {module}.{span_post} input = input := eq_refl.
+""")
 
 
 def _locked_refactor() -> None:
@@ -263,10 +266,78 @@ public definition Fn(Fn(u32 value) -> u32 callback) -> u32 Partial(Runner runner
                f"an unapplied method callback missed the closed signature refusal: {partial.exception}")
 
 
+def _locked_record_receiver_read() -> None:
+    with TemporaryDirectory() as temporary:
+        workspace = Path(temporary)
+        provider = _write(workspace, "provider", "v1", {}, "Provider") / "module.hf"
+        client = _write(workspace, "client", "v1", {"provider": "v1"}, "Client") / "module.hf"
+        source = """module Provider;
+public record Counter(u32 Value) {
+    public u32 Peek() effects reads(this) => Value;
+    public u32 DefaultValue() effects none => 0u32;
+    public bool Observe() effects reads(this)
+        ensures result == true
+    {
+        this.Peek();
+        return true;
+    }
+    public bool Ignore() effects none {
+        this.DefaultValue();
+        return true;
+    }
+}
+"""
+        provider.write_text(source, encoding="utf-8")
+        client_source = """module Client;
+import Provider as API;
+public bool Inspect(in API.Counter counter) effects reads(counter) => counter.Observe();
+public record Watcher(API.Counter Counter) {
+    public bool Check() effects reads(this) {
+        this.Counter.Observe();
+        return true;
+    }
+}
+"""
+        client.write_text(client_source, encoding="utf-8")
+        lock, output = workspace / "lock.json", workspace / "bundle.json"
+
+        def build() -> None:
+            packages.lock_package(ROOT, workspace, "client", "v1", lock)
+            packages.build_package(ROOT, workspace, lock, output)
+
+        build()
+        retained = output.read_bytes()
+        gallina = json.loads(retained)["modules"]["Client"]
+        [method] = re.findall(r"^Definition (\w+_Counter_Observe) :", gallina, re.MULTILINE)
+        [client_definition] = re.findall(r"^Definition (\w+_Inspect) :", gallina, re.MULTILINE)
+        [postcondition] = re.findall(r"^Definition (\w+_Counter_Observe_ensures_0)\b", gallina, re.MULTILINE)
+        [module] = re.findall(r"^Module (HoldFastPackage_\w+)\.$", gallina, re.MULTILINE)
+        ensure(f"Opaque {method}." in gallina, "the client could unfold its provider method")
+        _replay_gallina(gallina, f"""
+Example observed counter : {module}.{client_definition} counter = true :=
+  {module}.{postcondition} counter tt.
+Print Assumptions observed.
+""")
+        for path, original, method_name, module_name in (
+            (provider, source, "Observe", "Provider"),
+            (client, client_source, "Check", "Client"),
+        ):
+            lacking_bound = original.replace(f"{method_name}() effects reads(this)", f"{method_name}() effects none")
+            path.write_text(lacking_bound, encoding="utf-8")
+            with raises(HoldFastError) as missing_read:
+                build()
+            ensure(f"module '{module_name}': callable reads parameter 'this'" in missing_read.exception.message,
+                   f"a discarded method call missed its receiver read: {missing_read.exception}")
+            ensure(output.read_bytes() == retained, "a refused receiver effect replaced the retained bundle")
+            path.write_text(original, encoding="utf-8")
+
+
 def cases() -> list[Case]:
     return [Case("locked internal effect refactor preserves an opaque importing proof", _locked_refactor,
                  lane="toolchain"),
             Case("locked named effects follow resolved callable identities across aliases", _locked_named_effects,
                  lane="toolchain"),
             Case("record methods resolve callable field and argument effects", _record_method_effect_targets,
+                 lane="toolchain"),
+            Case("locked record effects retain receiver reads when discarding results", _locked_record_receiver_read,
                  lane="toolchain")]

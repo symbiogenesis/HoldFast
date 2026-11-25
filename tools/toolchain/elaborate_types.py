@@ -253,6 +253,7 @@ class _RecordInvariant:
 @dataclass(frozen=True)
 class _RecordMethod:
     returns_receiver_loan: bool
+    reads_receiver: bool
     name: str
     method_const: str
     binding: _Binding
@@ -510,6 +511,10 @@ _GALLINA = {
     "holdfast_nat_leb_add_left": "holdfast_nat_leb_add_left",
     "holdfast_nat_ltb_add_right": "holdfast_nat_ltb_add_right",
     "holdfast_nat_ltb_add_left": "holdfast_nat_ltb_add_left",
+    "holdfast_nat_leb_cancel_right": "holdfast_nat_leb_cancel_right",
+    "holdfast_nat_leb_cancel_left": "holdfast_nat_leb_cancel_left",
+    "holdfast_nat_ltb_cancel_right": "holdfast_nat_ltb_cancel_right",
+    "holdfast_nat_ltb_cancel_left": "holdfast_nat_ltb_cancel_left",
     "holdfast_gt_add_pos": "holdfast_gt_add_pos",
     "holdfast_int_add_assoc": "holdfast_int_add_assoc",
     **{
@@ -2077,6 +2082,22 @@ Proof. rewrite !Nat.ltb_lt. intros H. now apply Nat.add_lt_mono_r. Qed.
 Lemma holdfast_nat_ltb_add_left (a b offset : nat) :
   Nat.ltb a b = true -> Nat.ltb (offset + a) (offset + b) = true.
 Proof. rewrite !Nat.ltb_lt. intros H. now apply Nat.add_lt_mono_l. Qed.
+
+Lemma holdfast_nat_leb_cancel_right (a b offset : nat) :
+  Nat.leb (a + offset) (b + offset) = true -> Nat.leb a b = true.
+Proof. rewrite !Nat.leb_le. intros H. now apply Nat.add_le_mono_r in H. Qed.
+
+Lemma holdfast_nat_leb_cancel_left (a b offset : nat) :
+  Nat.leb (offset + a) (offset + b) = true -> Nat.leb a b = true.
+Proof. rewrite !Nat.leb_le. intros H. now apply Nat.add_le_mono_l in H. Qed.
+
+Lemma holdfast_nat_ltb_cancel_right (a b offset : nat) :
+  Nat.ltb (a + offset) (b + offset) = true -> Nat.ltb a b = true.
+Proof. rewrite !Nat.ltb_lt. intros H. now apply Nat.add_lt_mono_r in H. Qed.
+
+Lemma holdfast_nat_ltb_cancel_left (a b offset : nat) :
+  Nat.ltb (offset + a) (offset + b) = true -> Nat.ltb a b = true.
+Proof. rewrite !Nat.ltb_lt. intros H. now apply Nat.add_lt_mono_l in H. Qed.
 
 Unset Lia Cache.
 
