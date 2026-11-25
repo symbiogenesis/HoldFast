@@ -211,6 +211,7 @@ class _Elaborator(
         self.local_instances: list[tuple[str, _ImplInstance]] = []
         self.emission_prefix = "holdfast"
         self.public_symbols: set[str] = set()
+        self.internal_symbols: set[str] = set()
         self.sealed_bodies: set[str] = set()
         self.imported_postconditions: dict[str, tuple[str, ...]] = {}
         self.sealed_updates: dict[str, tuple[tuple[int, ...], dict[int, _Term]]] = {}
@@ -1767,8 +1768,12 @@ class _Elaborator(
                 and callee_head.value in self.callable_ref_updates
             ):
                 u_param_ids, idx_to_term = self.callable_ref_updates[callee_head.value]
+            signature_writes = self.callable_effect_writes.get(str(callee_head.value))
             for idx, (t_node, t_dom) in loan_targets.items():
-                if idx in idx_to_term and len(full_args) >= len(u_param_ids):
+                writes = signature_writes is None or idx in signature_writes
+                if not writes:
+                    upd_term = val_args[idx]
+                elif idx in idx_to_term and len(full_args) >= len(u_param_ids):
                     upd_term = idx_to_term[idx]
                     for pid, aval in zip(u_param_ids, full_args, strict=False):
                         upd_term = self.substitute(upd_term, pid, aval)
@@ -1779,9 +1784,7 @@ class _Elaborator(
                 else:
                     upd_term = self.fresh(t_dom)
                 post_loan_terms[idx] = upd_term
-                signature_writes = self.callable_effect_writes.get(str(callee_head.value))
-                self._record_call_update(t_node, _Binding(upd_term, t_dom),
-                                         writes=signature_writes is None or idx in signature_writes, index=indices.get(idx))
+                self._record_call_update(t_node, _Binding(upd_term, t_dom), writes=writes, index=indices.get(idx))
         if (
             callee_head.kind == "const"
             and isinstance(callee_head.value, str)
