@@ -520,6 +520,10 @@ transitivity. Given `n < m` and a false `k < m` guard, it can prove
 `n < k`. A strict or non-strict bound also survives adding the same term
 on either side of each operand. The checker reuses the scoped comparisons and
 constructs the corresponding Rocq monotonicity proof for each common addend.
+It can also cancel common addends in a scoped premise. For example, a guard
+`base + used < base + limit` supplies `used < limit` on its true arm and
+`limit <= used` on its false arm. The resulting relative comparisons can join
+other in-scope bounds.
 The search examines at most 256 candidate joins per assertion, including
 searches under common addends. If checking cannot establish an assertion or
 exhausts this allowance, the diagnostic reports the outstanding proposition at

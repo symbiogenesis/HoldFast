@@ -1938,6 +1938,17 @@ class _ProofsMixin:
                 return _app(_constant("holdfast_nat_leb_succ_self"), left)
             return None
 
+        def common_addend(left: _Term, right: _Term) -> tuple[_Term, _Term, _Term, str] | None:
+            left_head, left_args = self.spine(left)
+            right_head, right_args = self.spine(right)
+            if left_head != _constant("+") or right_head != left_head or len(left_args) != 2 or len(right_args) != 2:
+                return None
+            if self.convertible(left_args[1], right_args[1]):
+                return left_args[0], right_args[0], left_args[1], "right"
+            if self.convertible(left_args[0], right_args[0]):
+                return left_args[1], right_args[1], left_args[0], "left"
+            return None
+
         target = comparison(goal)
         if target is None or not target[3]:
             return None
@@ -1956,15 +1967,22 @@ class _ProofsMixin:
                     lemma = "holdfast_nat_leb_of_ltb_false" if strict_fact else "holdfast_nat_ltb_of_leb_false"
                     witness = _apps(_constant(lemma), start, end, witness)
                     start, end, strict_fact = end, start, not strict_fact
-                if strict_fact:
-                    start = _app(_constant("Succ"), start)
-                # Comparing two successors reduces to comparing their predecessors in Rocq.
-                _, smaller_start = self._peel_nat(self.whnf(start))
-                _, smaller_end = self._peel_nat(self.whnf(end))
-                yield start, end, witness
-                yield _app(_constant("Succ"), start), _app(_constant("Succ"), end), witness
-                if smaller_start is not None and smaller_end is not None:
-                    yield smaller_start, smaller_end, witness
+                operator = "ltb" if strict_fact else "leb"
+                while True:
+                    edge_start = _app(_constant("Succ"), start) if strict_fact else start
+                    # Comparing two successors reduces to comparing their predecessors in Rocq.
+                    _, smaller_start = self._peel_nat(self.whnf(edge_start))
+                    _, smaller_end = self._peel_nat(self.whnf(end))
+                    yield edge_start, end, witness
+                    yield _app(_constant("Succ"), edge_start), _app(_constant("Succ"), end), witness
+                    if smaller_start is not None and smaller_end is not None:
+                        yield smaller_start, smaller_end, witness
+                    relative = common_addend(start, end)
+                    if relative is None:
+                        break
+                    start, end, addend, side = relative
+                    lemma = _constant(f"holdfast_nat_{operator}_cancel_{side}")
+                    witness = _apps(lemma, start, end, addend, witness)
 
         joins = 0
 
@@ -2029,19 +2047,12 @@ class _ProofsMixin:
                 for lift in reversed(lifts):
                     proof = _app(lift, proof)
                 return proof
-            lower_head, lower_args = self.spine(lower)
-            upper_head, upper_args = self.spine(upper)
-            if lower_head != _constant("+") or upper_head != lower_head or len(lower_args) != 2 or len(upper_args) != 2:
+            relative = common_addend(lower, upper)
+            if relative is None:
                 return None
-            if self.convertible(lower_args[1], upper_args[1]):
-                lower, upper = lower_args[0], upper_args[0]
-                lemma, addend = f"holdfast_nat_{operator}_add_right", lower_args[1]
-            elif self.convertible(lower_args[0], upper_args[0]):
-                lower, upper = lower_args[1], upper_args[1]
-                lemma, addend = f"holdfast_nat_{operator}_add_left", lower_args[0]
-            else:
-                return None
-            lifts.append(_apps(_constant(lemma), lower, upper, addend))
+            lower, upper, addend, side = relative
+            lemma = _constant(f"holdfast_nat_{operator}_add_{side}")
+            lifts.append(_apps(lemma, lower, upper, addend))
 
     def _elaborate_assert(
         self: _Elaborator, node: Node, environment: dict[str, _Binding], facts: tuple[_Binding, ...]

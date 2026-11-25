@@ -235,9 +235,75 @@ public Nat Right(Nat n, Nat m, Nat offset) {
     ))
 
 
+def _cancelled_branch_bounds() -> None:
+    source = b"""module RelativeBounds;
+public Nat Observe(Nat used, Nat limit, Nat capacity, Nat base, Nat offset) {
+    if (base + (used + offset) < base + (limit + offset)) {
+        if (limit <= capacity) {
+            assert used < capacity;
+        }
+    }
+    return limit;
+}
+public Nat Remaining(Nat first, Nat last, Nat base) {
+    if (last + base <= first + base) {
+        return last;
+    } else {
+        assert first < last;
+        return first;
+    }
+}
+public Nat Ordered(Nat first, Nat last, Nat base) {
+    if (base + last < base + first) {
+        return last;
+    } else {
+        assert first <= last;
+        return first;
+    }
+}
+public Nat Within(Nat used, Nat limit, Nat base) {
+    if (used + base <= limit + base) {
+        assert used <= limit;
+    }
+    return used;
+}
+"""
+    with parser.cached_build(TOOLS.parent) as compiled:
+        def check(program: bytes) -> str:
+            return elaborate.elaborate(program, parser.parse_source(compiled, program, surface=True)).gallina
+
+        gallina = check(source)
+        for program, assertion in (
+            (source.replace(b"limit + offset", b"limit + capacity"), b"used < capacity"),
+            (source.replace(b"last + base <= first + base", b"first + base <= last + base"), b"first < last"),
+            (source.replace(b"        assert used <= limit;\n    }", b"    }\n    assert used <= limit;"),
+             b"used <= limit"),
+        ):
+            with raises(HoldFastError) as failure:
+                check(program)
+            line = program[:program.index(b"assert " + assertion + b";")].count(b"\n") + 1
+            ensure(failure.exception.line == line
+                   and f"assertion could not be established: {assertion.decode()}" in failure.exception.message,
+                   f"wrong relative bound refusal: {failure.exception}")
+
+    _replay_witnesses("RelativeBounds", source, gallina, (
+        ("strict_nested", b"assert used < capacity;",
+         "forall used limit capacity base offset, "
+         "Nat.ltb (base + (used + offset)) (base + (limit + offset)) = true -> "
+         "Nat.leb limit capacity = true -> Nat.ltb used capacity = true"),
+        ("strict_false", b"assert first < last;",
+         "forall first last base, Nat.leb (last + base) (first + base) = false -> Nat.ltb first last = true"),
+        ("non_strict_false", b"assert first <= last;",
+         "forall first last base, Nat.ltb (base + last) (base + first) = false -> Nat.leb first last = true"),
+        ("non_strict", b"assert used <= limit;",
+         "forall used limit base, Nat.leb (used + base) (limit + base) = true -> Nat.leb used limit = true"),
+    ))
+
+
 def cases() -> list[Case]:
     return [Case("erased assertion exports its exact conditional proof", _unused_witness, lane="toolchain"),
             Case("strict branch bounds replay with their own guard", _branch_witnesses, lane="toolchain"),
             Case("strict bounds join only scoped premises within the search limit", _joined_branch_witnesses,
                  lane="toolchain"),
-            Case("Nat bounds preserve order under common addends", _translated_branch_bounds, lane="toolchain")]
+            Case("Nat bounds preserve order under common addends", _translated_branch_bounds, lane="toolchain"),
+            Case("Nat bounds cancel common addends from scoped guards", _cancelled_branch_bounds, lane="toolchain")]
