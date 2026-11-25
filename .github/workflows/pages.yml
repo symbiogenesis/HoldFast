@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Publish the [static playground](../../docs/tooling/playground.md) from docs/.
+# Serve the browser-only playground documented in the [playground guide](../../docs/tooling/playground.md#scope-and-launch).
 
 name: pages
 

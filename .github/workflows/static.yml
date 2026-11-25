@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Stock runners check Python and Markdown without the native proof toolchain.
+# Use the [static validation profile](../../tools/README.md#validation-profiles) for Python and Markdown.
 
 name: static
 
