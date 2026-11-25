@@ -60,6 +60,31 @@ unchanged. This uses exact natural addition and the checked dependency row.
 The optimization comparison still requires representative checking and replay
 measurements. [Irrelevance theorem](../../tools/rocq/graded_type_irrelevance.v)
 
+### Audio routing candidate
+
+`StereoRoute` specializes a pure router to a stereo frame with one
+extra tick and an independent channel-label count. The result must be the
+original stereo samples, with length `(period + 1) + (period + 1)`.
+The ordinary elaboration baseline deletes the twelve grade annotations and
+checks a pointwise equation for this result in Rocq. The graded replay checks
+the same dependent signature and reports these demands.
+
+| Binder | Computation | Type | Type dependencies |
+| --- | --- | --- | --- |
+| `period` | 0 | 4 | Twice in the stereo input and twice in the result |
+| `labelCount` | 0 | 1 | Once in the channel-label input |
+| `stereo` | 1 | 0 | n/a |
+| `channelLabels` | 0 | 0 | n/a |
+
+Both checkers reject an application specialized to the old period.
+The graded checker also rejects a zero computation allowance on the returned
+samples. This candidate establishes the observable distinction between the two
+counts. The ordinary baseline already checks the dependent shape and behavior,
+so a selection trial needs a client obligation that benefits from exact counts
+and a common evidence endpoint for measuring that benefit.
+[Source fixture](../../tools/tests/fixtures/graded-audio-route.hf) ·
+[Paired replay](../../tools/tests/test_holdfast_graded_client.py)
+
 ### Conditional usability producers
 
 Granule's [derived distributive combinators](https://arxiv.org/abs/2112.14966)
