@@ -7,18 +7,19 @@ rules, and the [surface grammar](surface-grammar.md) for syntax.
 
 ## How to read this reference
 
-Each construct carries one implementation-status marker, derived from the
-prototype contracts:
+The status column gives the supported form of each construct. A row can carry
+several markers when support varies by form.
 
 | Marker | Status | Owner |
 | --- | --- | --- |
 | **P** | Checked by the pure prototype and emitted as Gallina over `Nat` and `bool` | [Pure prototype](../tooling/pure-prototype.md#source-fragment) |
 | **M** | Accepted by the opt-in mathematical elaborator, which emits CIC terms for kernel replay | [Mathematical elaborator](../tooling/elaboration-prototype.md#supported-mathematical-increment) |
-| **S** | Parsed as located syntax by the development parser, with no semantic consumer | [Surface grammar](surface-grammar.md#required-syntax) |
-| **D** | Specified by a design contract with no checking implementation for that behavior | The linked contract |
+| **S** | Parsed as located syntax by the development parser | [Surface grammar](surface-grammar.md#required-syntax) |
+| **D** | Specified by a design contract. Prototype checking may cover narrower forms. | The linked contract |
 
-P implies M unless the row says otherwise, and M implies S. These markers describe
-prototype support. Production requirements are in the [delivery plan](../../PLAN.md#holdfast-first-release-delivery).
+P and M describe their respective checkers. The mathematical elaborator consumes
+the surface parser's output. Production requirements are in the
+[delivery plan](../../PLAN.md#holdfast-first-release-delivery).
 The mathematical elaborator tracks solver-discharged obligations in its
 [solver-trust ledger](../tooling/elaboration-prototype.md#supported-mathematical-increment).
 
@@ -30,18 +31,19 @@ show features outside the relevant prototype's supported subset.
 
 | Element | Rule | Status |
 | --- | --- | --- |
-| Source text | Strict UTF-8; identifiers are ASCII `[A-Za-z_][A-Za-z0-9_]*`; string and character contents may be Unicode ([bytes and text](first-release.md#bytes-and-text)) | P |
-| Comments | `//` to end of line; consecutive `///` lines before a declaration are its [documentation](../tooling/authoring-tools.md#documentation-comments) | P |
-| Keywords | Reserved by the [lexer](../../tools/toolchain/parser/lexer.mll); extension keywords are reserved even where no consumer accepts them | S |
+| Source text | Strict UTF-8. Identifiers are ASCII `[A-Za-z_][A-Za-z0-9_]*`. | P |
+| Comments | `//` to end of line. Consecutive `///` lines can attach [documentation](../tooling/authoring-tools.md#documentation-comments) to a declaration. The surface entry also accepts nested `/* ... */` comments. | P (line comments), M (block comments) |
+| Keywords | Reserved or contextual according to the [surface grammar](surface-grammar.md#required-syntax) and [lexer](../../tools/toolchain/parser/lexer.mll) | S |
 | Naming | Types, constructors, members and type parameters use PascalCase; locals and parameters use camelCase ([common style](../tooling/authoring-tools.md#common-style)) | M |
 | Integer literals | Decimal, `0x` hexadecimal and `0b` binary digits with `_` [separators](../tooling/authoring-tools.md#numeric-separators); a representation suffix (`0usize`, `0byte`) or the expected type selects the type | P (decimal `Nat`), M |
-| Other literals | `true`, `false`, `()`, characters `'a'` with escapes, strings `"..."`, raw strings `"""..."""` and format templates `$"...{hole}..."` | P (`true`, `false`), M |
+| Other literals | `true`, `false`, `()`, characters `'a'` with escapes, strings `"..."`, raw strings `"""..."""` and format templates `$"...{hole}..."`. Character and string contents may be Unicode. [Bytes and text](first-release.md#bytes-and-text) | P (`true`, `false`), M |
 
 Token shape alone decides the syntax tree: there is no symbol table, type or
 import-order input to parsing, and Menhir generation is strict and
 conflict-free ([no ambiguous syntax](../assurance/verification-strategy.md#permanent-language-exclusions)).
-In patterns, an identifier beginning with an uppercase letter is a constructor
-and a lowercase identifier binds.
+In patterns, a path whose final segment begins with an uppercase letter is a
+constructor. An unqualified name beginning with a lowercase letter or `_`
+binds, except for the wildcard `_`.
 The mathematical checker rejects a whole-pattern binder whose spelling differs
 only in its initial capitalization from a visible union constructor of the
 matched type. For example, `none => ...` would accept every value of an
@@ -52,9 +54,9 @@ distinct binding name to retain the whole value. Parentheses preserve this rule.
 
 | Construct | Syntax | Status |
 | --- | --- | --- |
-| Module | `module Name.Path;` opens every file | P |
+| Module | `module Name;` or, in the surface entry, `module Name.Path;`. The declaration opens every file. | P (single name), M (qualified path) |
 | Import | `import Module.Path;` binds namespace `Path` in a locked `math-2` package and opens exports in `math-1` or stand-alone source. `import Module.Path as M;` binds a namespace and `import Module.Path { T, F as G };` selects names. [Package editions](first-release.md#modules-and-packages) | M |
-| Visibility | `public` or `private` on declarations. `internal` grants package visibility to eligible [runtime helpers](first-release.md#package-effect-contracts). | M (`public`, `private`), S (located `internal`), D (package visibility) |
+| Visibility | `public` or `private` on declarations. `internal` grants eligible [runtime helpers](first-release.md#package-effect-contracts) visibility to sibling modules in the same locked package instance. | M |
 | Constant | `const T Name = expression;` at module or local scope, evaluated during compilation ([required-static constants](surface-grammar.md#required-static-constants)) | P |
 | Function | Type-first `T Name(T1 a, T2 b) { ... }` or `=> expression;` | P |
 | Constant-compatible function and static parameter | `const T Name(...)`; `T Name(const U config, V value)` | P |
@@ -129,7 +131,7 @@ Use the implementing type or a receiver value to call an interface method.
 | `bool`, `Unit` | Exactly `false`/`true`, and the single value `()`; no integer truthiness | P (`bool`), M |
 | `Nat` | Unbounded mathematical natural number. Runtime use needs a selected representation and range relation | P, M |
 | `u8`…`u64`, `i8`…`i64`, `byte`, `usize` | Fixed-width target integers; `usize` has the target's XLEN width ([primitive semantics](first-release.md#primitive-semantics)) | M (closed values) |
-| `int`, `uint`, `long`, `ulong` | Exact aliases exported by `HoldFast.Numerics`, requiring import or qualification | M |
+| `int`, `uint`, `long`, `ulong` | Exact aliases exported by `HoldFast.Numerics`. Use the module rules to bring them into scope. [Numeric aliases](first-release.md#primitive-semantics) | M |
 | `char` | One Unicode scalar value | M |
 | Tuples `(A, B)` | Products, eliminated by tuple patterns | M |
 | `Option<T>`, `Result<T, E>` | Library unions with `Some(v)`/`None` and `Ok(v)`/`Err(e)`; absence and failure are explicit cases | M |
@@ -270,7 +272,7 @@ public Nat Groups(Nat count, Nat size)
 | While loop | `while (c) invariant P decreases m { ... }` | M |
 | `break`, `continue` | Leave or restart the innermost loop, closing local loans | M |
 | Assignment | `x = e;`, `x += e;` and the other compound forms, on `var` locals, fields and indexed elements | M |
-| Propagation | `e?` returns `Err(e)` or `None` from the enclosing function; it is not C#'s `?.` | M |
+| Propagation | `e?` yields the payload of `Ok` or `Some`. On `Err` or `None`, it returns the failure from the enclosing function. | M |
 
 A range loop supplies its bound, a representable increment and its decreasing
 measure; only the functional invariant is authored. Every loop exit closes the
@@ -331,14 +333,14 @@ Executable calls that take or return potentially affine values require a
 constructor or a function body checked for executable ownership. A mathematical
 definition that manipulates such values remains available to specifications.
 
-Each ordinary loan argument repeats its mode at the call site. A loan ends at
-its last use on each branch, with restoration inferred. An implicit `ref`
-receiver is reserved before argument evaluation and becomes exclusive at the
-call. See [receiver borrows](core-design.md#two-phase-receiver-borrows) and
-[iteration boundaries](core-design.md#loans-and-control-flow). The
-[loan diagnostic](loan-analysis.md) proposes ends over explicit flow facts. The
-[core rules](core-design.md#borrow-analysis-promotion) specify checked source
-correspondence and resource derivations.
+Each ordinary loan argument repeats its mode at the call site. The
+[loan diagnostic](loan-analysis.md) proposes path-specific ends over explicit
+flow facts. The [synchronous core](core-design.md#loans-and-control-flow) defines
+restoration, iteration boundaries and when a loan can escape. Its
+[receiver rule](core-design.md#two-phase-receiver-borrows) reserves an implicit
+`ref` receiver before argument evaluation and activates the exclusive loan at
+the call. [Borrow-analysis promotion](core-design.md#borrow-analysis-promotion)
+specifies the evidence required to use these rules for source acceptance.
 
 **Design example** (a place-named result view, after the
 [primary design](../assurance/verification-strategy.md#dependent-results-and-place-named-loans)):
@@ -368,7 +370,7 @@ public Result<PacketView<'input>, ParseError> ParsePrefix(in Span<byte> input)
 | `invariant Name: P` | Named record or struct invariant conjunct, or a loop invariant | M |
 | `decreases m` | Termination measure of a recursive definition or loop | M |
 | `effects reads(a), writes(b), calls(f)` | Closed upper bound on reads, writes and calls, including transitive callees and captures; no allocation | M |
-| `open (ref this, ref d) lifts A, B { ... }` | Opens only the listed invariant conjuncts; unlifted conjuncts stay in force, and the block must re-establish the lifted ones before any exit | M |
+| `open (ref this, ref d) lifts A, B { ... }` | Opens only the listed invariant conjuncts. Unlifted conjuncts stay in force. The block re-establishes the lifted ones at its closing brace and forbids early exits. | M |
 
 A `ref` view parameter's descriptor metadata (base, length and permissions) is
 preserved by the call as an implied property of the mode; contracts state
@@ -383,8 +385,8 @@ eligible file-private and package-internal functions. See
 visibility and inference eligibility.
 See [refinement, effects and staging](core-design.md#refinement-effects-and-staging).
 
-Each `Ok(slot)` test below introduces `slot` for its own clause's consequent.
-[Pattern test scope](surface-grammar.md#pattern-test-scope)
+The `Ok(slot)` pattern introduces `slot` separately in the consequent of each
+clause. [Pattern test scope](surface-grammar.md#pattern-test-scope)
 
 **Design example** (a returned exclusive loan with `restores` and `final`):
 
@@ -490,9 +492,12 @@ public Result<u32, ArithmeticError> AddTwice(u32 a, u32 b)
 
 ## Extensions outside the first release
 
-These constructs are parsed or designed for consumer-gated extensions. They
-define nothing in the first release; the [extension index](../extensions/README.md)
-lists their owners.
+The [extension index](../extensions/README.md) lists the designs outside the
+first-release boundary. The separate
+[`check-grades` investigations](../tooling/elaboration-prototype.md#pure-graded-source-replay)
+replay restricted `NatExact` and `NatBound` definitions and a pure `NatExact`
+box fragment in Rocq. The [graded selection protocol](../extensions/graded-foundation.md#extension-selection-and-qualification)
+governs qualification beyond those experiments.
 
 | Construct | Extension | Status |
 | --- | --- | --- |

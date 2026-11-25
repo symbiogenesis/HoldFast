@@ -10,8 +10,8 @@
 | [language/systems-profile.md](language/systems-profile.md) | Device ownership, low-level target guarantees, artifact costs, and secret processing |
 | [language/core-design.md](language/core-design.md) | Core design, explicit loan and mutation rules, refinement/domain tier, and proof obligations |
 | [language/surface-grammar.md](language/surface-grammar.md) | Concrete grammar, precedence, and layout |
-| [language/loan-analysis.md](language/loan-analysis.md) | Path-sensitive loan-end inference over explicit flow facts |
-| [language/language-landscape.md](language/language-landscape.md) | Language landscape behind HoldFast's handler, async, and surface decisions |
+| [language/loan-analysis.md](language/loan-analysis.md) | Loan-end inference over explicit flow facts and checked indexed-call comparisons |
+| [language/language-landscape.md](language/language-landscape.md) | Related designs for handlers, async lifecycles, unions, and spans |
 
 ## Toolchain and IDE
 
@@ -35,7 +35,7 @@
 | [assurance/verification-strategy.md](assurance/verification-strategy.md) | Proof boundaries, language design constraints, and research |
 | [assurance/compiler-route-contract.md](assurance/compiler-route-contract.md) | Retained compiler route and source-to-artifact correspondence contract |
 | [assurance/workflow-contract.md](assurance/workflow-contract.md) | Release adoption and workflow comparison criteria |
-| [assurance/completion-log.md](assurance/completion-log.md) | Landing evidence for completed `Q25` items |
+| [assurance/completion-log.md](assurance/completion-log.md) | Landing evidence and partial qualification records for `Q25` items |
 
 ## Extensions
 

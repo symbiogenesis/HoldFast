@@ -94,8 +94,11 @@ The [e-means numerical research candidate](../extensions/numerical-workloads.md)
 retains separate consumer and arithmetic qualification gates beyond this runtime
 scope; it adds no primitive or first-release client.
 
-Numeric aliases follow the [module rules](#modules-and-packages): use an explicit
-`import HoldFast.Numerics;` or the fully qualified name, such as `HoldFast.Numerics.int`.
+Numeric aliases follow the [module rules](#modules-and-packages). Use
+`import HoldFast.Numerics { int };` for an unqualified `int` in either package
+edition. A plain `import HoldFast.Numerics;` binds `Numerics.int` in `math-2`
+and opens `int` in `math-1` or stand-alone source. An explicit namespace alias
+also works, as does the fully qualified `HoldFast.Numerics.int`.
 The dependency lock binds the standard library package and its definitions;
 there is no implicit prelude or import-order precedence. A duplicate local or
 imported alias name is diagnosed under the same rules as another duplicate
@@ -175,19 +178,16 @@ or use a checked byte-range slice whose endpoints are UTF-8 boundaries. Text
 equality compares exact encoded bytes; canonically equivalent but differently
 encoded scalar sequences remain distinct. Normalization, locale collation and
 grapheme segmentation require separately specified libraries. Runtime-built
-text uses explicit bounded storage, capacity outcomes and validation; literals'
-read-only backing is charged to the composed image. Instead of C#/Kotlin's
-heap-allocating `$"..."` string interpolation, runtime `Object.ToString()`
-reflection or ambient `CultureInfo` locale formatting, HoldFast provides an explicit
-buffer-writing interpolation and format surface (comparable to C# 10's
-`InterpolatedStringHandler` or Rust's `write!`) such as
-`Format.Write(ref builder, $"...")` that targets an explicit
-`ref TextBuilder<capacity>` or `ref Span<byte>`, resolves a coherent static
-`IFormat<T>` interface per interpolation hole (`{value}` or compile-time checked
-`{value:spec}`) without runtime reflection, boxing or ambient locale, and
-returns an explicit `Result<usize, CapacityError>`. Standalone `$"..."`
-expressions without an explicit destination buffer are rejected; capacity
-exhaustion returns `Err(CapacityError)` and preserves the builder's previous length and bytes. The direct span API must declare its rollback or prefix contract.
+text uses explicit bounded storage, validation, and capacity outcomes. Literal
+backing is read-only and counts toward the composed image. An interpolation
+template belongs to a buffer-writing call such as `Format.Write(ref builder, $"...")`.
+The destination is a `ref TextBuilder<capacity>` or `ref Span<byte>`.
+Each hole resolves a static `IFormat<T>` implementation. `{value:spec}` also
+checks its format specification at compile time. The call returns
+`Result<usize, CapacityError>` and requires no runtime reflection, boxing, or
+ambient locale. When a builder write runs out of capacity, it returns
+`Err(CapacityError)` and preserves the builder's previous length and bytes.
+The span overload declares whether failure rolls back or retains a prefix.
 
 ## Modules and packages
 

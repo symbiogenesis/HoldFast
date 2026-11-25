@@ -12,8 +12,9 @@ The execution profile selects available runtime services. Independently, the
 [assurance preset](../extensions/assurance-profiles.md#the-three-presets) selects
 which claims need evidence. Choose both at package composition. A library that
 declares an allocator or event loop as a dependency can enter a composition
-only if the profile supplies it. A change from Safe to Contracted can add a
-proof of an exported property while retaining the same executable operations.
+only if the profile supplies it. A change from Safe to Contracted can require
+additional properties while retaining the same executable operations. Authored
+exported contracts require evidence under either preset.
 Ordinary arithmetic, evaluation order, loan and move semantics, observable
 failure and authored contracts have the same meaning in shared code. Compare
 the two profiles on admitted inputs with the same represented widths.

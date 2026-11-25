@@ -49,7 +49,7 @@ uses these dimensions to state its own lifecycle and resource rules.
 
 | System | Relevant behavior in the cited design |
 | --- | --- |
-| Java | Closing a structured scope waits for subtasks. An unresponsive interrupt can delay closing indefinitely. [JEP 533](https://openjdk.org/jeps/533) |
+| Java | Closing a structured scope waits for subtasks. A subtask that fails to respond to interruption can delay closing indefinitely. [JEP 533](https://openjdk.org/jeps/533) |
 | Python | `TaskGroup` cancels siblings on failure, waits for them and aggregates non-cancellation exceptions, with special handling for `KeyboardInterrupt` and `SystemExit`. [`asyncio.TaskGroup`](https://docs.python.org/3/library/asyncio-task.html) |
 | Swift | A cancellation shield delays observation of cancellation within a lexical block. An awaited `defer` runs before leaving its scope. [Cancellation shields](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0504-task-cancellation-shields.md) · [Awaited `defer`](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0493-defer-async.md) |
 | Kotlin | Prompt cancellation can supersede a ready result. A resource in that result needs an explicit cancellation handler. [Prompt cancellation](https://kotlinlang.org/api/kotlinx.coroutines/kotlinx-coroutines-core/kotlinx.coroutines/suspend-cancellable-coroutine.html) |

@@ -33,8 +33,9 @@ Replay completion racing with cancellation, a second submission using the same
 backing too early, a late completion after reuse, a descriptor with the wrong
 extent, and a doorbell published before its payload becomes visible. A device
 which can continue writing indefinitely permits a timeout result that keeps
-the backing unavailable. An upper bound on reclaim time needs independent
-evidence from that device. The [publication and reclamation contract](../extensions/interior-mutability.md#immutable-publication-and-reclamation)
+the backing unavailable. A reclamation deadline requires a bound on device
+quiescence or on a containment mechanism that ends its access. The
+[publication and reclamation contract](../extensions/interior-mutability.md#immutable-publication-and-reclamation)
 owns the memory-order and quiescence laws.
 
 ## Low-level operations and portability

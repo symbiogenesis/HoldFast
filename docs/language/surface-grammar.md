@@ -11,10 +11,9 @@ and quotation/splicing are [metaprogramming designs](../extensions/metaprogrammi
 
 ## Entry points
 
-One authored Menhir grammar owns two public entry points and uses an internal
-generic-application prefix probe sharing its generic-argument productions. The internal
-probe is not an input/output protocol or a second syntax authority. The `file` entry and
-schema 1 serve the pure prototype and its parser comparison. The
+One authored Menhir grammar owns two public entry points. Its internal
+generic-application probe shares the surface entry's generic-argument productions.
+The `file` entry and schema 1 serve the pure prototype and its parser comparison. The
 `surface_file` entry, selected with `holdfast-parser parse --surface SOURCE`, emits
 schema 2 and a `surface_file` node with a module name and declarations. It has no
 translation fallback. Pure translation continues to reject wider constructs.
@@ -22,9 +21,11 @@ All syntax nodes and names carry original-byte, half-open spans; numeric literal
 retain their spelling, including underscores between digits of one base. The
 [separator contract](../tooling/authoring-tools.md#numeric-separators) owns placement and
 suffix boundaries; only actual digits count toward the literal bound. The
-existing UTF-8, source-byte, literal-digit, delimiter,
-syntax-depth, duration and output bounds apply to both entries. Save source as UTF-8
-without an initial byte-order mark. Both entries identify the mark at line 1, column 1.
+UTF-8, source-byte, literal-digit, delimiter, syntax-depth, duration and output
+bounds apply to both entries. Save source as UTF-8 without an initial byte-order
+mark, which both entries reject at line 1, column 1. Both entries skip `//` line
+comments. The surface entry also skips nested `/* ... */` comments subject to
+the nesting limit.
 
 ## Required syntax
 
@@ -40,8 +41,8 @@ per-name alias, as in `import Storage.Blocks { Block, Empty as Free };`. The
 list is nonempty and permits a trailing comma. Each alias is a located identifier. The
 [module contract](first-release.md#modules-and-packages) defines its scope.
 
-The surface entry must express the following features. Grammar actions only
-construct syntax, including syntactically valid programs with semantic errors.
+The surface entry recognizes the following forms. Grammar actions construct
+located syntax. Semantic consumers check well-formedness and meaning.
 
 | Area | Syntax acceptance |
 | --- | --- |
@@ -485,9 +486,9 @@ Include malformed neighbors, bounded nesting and syntactically valid semantic er
 
 ### Shared operators and local elimination
 
-Parenthesized symbolic operators are ordinary expression atoms. Every binary
-operator in the surface precedence table, plus unary `!` and `~`, accepts this
-form: `(+)`, `(%)`, `(&)`, `(==>)` and `(!)` are examples. A located `operator`
+Parenthesized symbolic arithmetic, bitwise, comparison, and Boolean operators
+are ordinary expression atoms. Unary `!` and `~` also accept this form.
+Examples include `(+)`, `(%)`, `(&)`, `(==>)` and `(!)`. A located `operator`
 node retains its located `name`; its span includes parentheses while the name's
 span covers only the symbol. Unary and binary uses share `(-)`, `(*)` and `(&)`;
 elaboration determines the selected operation and arity under the pointer/loan
@@ -508,9 +509,10 @@ tests. Local pattern bindings retain `let_pattern`/`var_pattern` with `pattern`
 and `value` fields. A bare lowercase local name retains the existing inferred binding form;
 a local nullary constructor pattern uses a qualified uppercase path, as in `let Result.Empty = outcome;`.
 Union and inductive constructor declarations start with an uppercase letter.
-Lowercase or `_` pattern names bind, and uppercase names are constructors; nullary
-constructors are written bare without `()`, such as `None`, while empty-argument
-constructor patterns `None()` are refused. Component grades remain in their data types. Refutability, constructor arity,
+An unqualified name starting with a lowercase letter or `_` binds, except for
+the wildcard `_`. A final segment starting with an uppercase letter identifies
+a constructor. Write a nullary case such as `None` without parentheses in a
+pattern. Component grades remain in their data types. Refutability, constructor arity,
 exhaustiveness, ownership and resource disposal are elaboration obligations, so
 syntactically valid mistakes still parse.
 
@@ -523,20 +525,11 @@ original UTF-8 byte spans, higher-order application and domain compatibility;
 exercise every operator spelling and malformed neighboring forms, syntax-valid
 resource mistakes and nesting limits.
 
-Equivalent grammar refactors share named-type application, parenthesized type
-construction, literal payloads, binary-expression construction, generic-binder
-construction and typed local initializers across their existing contexts.
-Generic binders retain all six explicit modes and their name/type roles; typed
-initializers share their fields and children while the enclosing statement or
-expression binding owns its node kind and span. No helper adds a syntax node.
-Context-specific tokens and AST roles remain explicit: local
-annotations retain lexical disambiguation, literal patterns retain pattern kinds,
-and the pure entry retains schema 1. Preserve the exact accepted/refused language,
-JSON fields, original byte spans and syntax-depth accounting. Check composed types, literal roles,
-quantifiers, lambda boundaries, all generic-binder modes and typed initializer
-roles/spans under strict conflict-free generation. Compose erased indices, grade
-parameters, callable captures and library-defined resource types in these cases;
-syntax-valid name, domain and resource mistakes must remain accepted syntax.
+Typed local initializers share fields and children across contexts. The
+enclosing statement or expression binding supplies the node kind and span.
+Local annotations use lexical disambiguation, and literal patterns have their
+own node kinds. The [native fixtures](#native-qualification) cover these roles
+alongside nested types, generic binders, quantifiers, and lambda boundaries.
 
 #### Pattern test scope
 
@@ -596,32 +589,30 @@ fix the semantic design. This syntax-only increment preserves the distinctions
 needed to check them; no grammar action performs conversion, proves exhaustive
 matching, grants write authority or repairs a missing argument modifier.
 
-Ordinary type-first parameters pass values. Extend the shared type-modifier and
-prefix-expression productions with `out`, alongside `in` and `ref`, retaining
-modifier order, optional place-named lifetime and original byte spans. The AST
-uses the `modified_type` and `unary` nodes. The pure entry diagnoses `out`
-as unsupported, alongside the other loan modes.
-Add prefix `*` (dereference) and `&` (address/loan derivation) through the shared
-unary production, keeping multiplication, bitwise conjunction and parenthesized
-operator values distinct. Prefixes associate right; postfix indexing/calls bind
+Ordinary type-first parameters pass values. The surface entry parses `in`,
+`ref` and `out` as `modified_type` nodes in types and `unary` nodes in
+expressions, with an optional place-named lifetime on the type. The pure
+entry diagnoses loan modes as unsupported. Prefix `*` dereferences and prefix
+`&` derives an address or loan. Multiplication, bitwise conjunction, and
+parenthesized operator values use distinct AST forms. Prefixes associate right.
+Postfix indexing and calls bind
 more tightly. Pointer arithmetic uses the existing additive and indexing forms.
 Named library types carry pointer representations; no C declarator or `T*` type
 suffix is introduced. `->` remains a function-type arrow.
 
 Member calls retain ordinary member/call syntax. The
-[receiver rule](../assurance/verification-strategy.md#permanent-language-exclusions) supplies
+[receiver rule](core-design.md#two-phase-receiver-borrows) supplies
 the selected declaration's receiver loan, including a named view such as
 `ref this.Tail`; other arguments retain explicit loan modifiers. Resolution,
 once-only receiver evaluation, argument order and overlap remain semantic
 obligations. A call rejected for an overlapping argument or an ineligible receiver
 still parses; the parser neither chooses a view nor delays a loan.
 
-`let` and `var` locals retain distinct existing AST roles, and bare `T name = value;`
-local declarations are refused as syntax (`let` or `var` is mandatory). `Option<T>`, `Some(value)`, `None` and
-their constructor patterns use ordinary library syntax. Reserve bare `null` in
-the surface lexer and refuse it as syntax, without changing pure tokenization.
-Refuse `T?` annotations, null-forgiving postfix `!`, `??` and `?.`. Existing
-postfix `?` denotes explicit propagation; prefix `?name` remains a named hole.
+`let` and `var` locals have distinct AST roles. A nonconstant local with a type
+annotation starts with `let T` or `var T`. `Option<T>`, `Some(value)`, `None`
+and their constructor patterns use ordinary library syntax. The surface entry
+rejects bare `null`, `T?` annotations, null-forgiving postfix `!`, `??` and `?.`.
+Postfix `?` denotes explicit propagation. Prefix `?name` denotes a named hole.
 Propagation followed by member access uses `(Read()?).Value`.
 The contiguous spelling `Read()?.Value` is refused with a diagnostic explaining
 that `?` is early-return propagation rather than C# null-conditional `?.` and
@@ -629,7 +620,7 @@ offering `(Read()?).Value` (to propagate) or a `match` skeleton (to handle
 locally) under the [assist-don't-coerce tooling](../tooling/authoring-tools.md#compiler-verified-assist-dont-coerce-tooling).
 The parser still accepts incomplete option matches, immutable writes, mistyped
 arithmetic, missing/mismatched loan modifiers and forbidden sharing as located
-syntax so the future semantic consumer can report the appropriate obligation.
+syntax for the semantic consumer to report the appropriate obligation.
 
 Use the symbol families consistently:
 
@@ -732,14 +723,10 @@ overlapping/shared-mutation attempts. Their acceptance is no semantic verdict.
   includes callable, constructor and pattern argument lists. Empty lists with
   a comma and doubled commas are refused. Products keep at least two elements;
   `(value,)` acquires no new tuple or grouping meaning.
-- Pattern binders and constructors are distinguished by token shape without
-  symbol-table or import-dependent lookup: an unqualified lowercase identifier
-  binds a value, `_` remains a discard whose resource admissibility requires
-  checking, and an identifier whose final segment begins with an ASCII uppercase
-  letter is a constructor (`None`, `BorrowConflict`, `Some(x)`, `Result.Empty`).
-  Nullary constructors are written bare without `()` in patterns and expressions;
-  empty-argument constructor patterns `Ctor()` (such as `None()`) and uppercase
-  pattern binders are refused as syntax. Thus local elimination is
+- Token shape distinguishes [bindings and constructors](#shared-operators-and-local-elimination)
+  without consulting a symbol table. A bare `_` discards subject to resource
+  checking. Write nullary cases such as `None` without `()` in patterns and
+  expressions. Local elimination uses
   `let (owner, receipt) = pair;` or `let Ready(buffer, receipt) = outcome;`, and
   both expression and statement matches use `Pattern => ...` arms without `case`
   (`Ok(value) => value,` in an expression match or `Ok(value) => { ... },` /

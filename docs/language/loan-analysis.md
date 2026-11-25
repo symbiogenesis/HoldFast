@@ -8,9 +8,10 @@ additional checks needed for source acceptance.
 ## Input and composition
 
 The Python API consumes an explicit finite control-flow graph with named
-owners, declared field projections, named invariant clauses, shared/exclusive
-loans and parent links, and also provides a schema-2 surface AST lowering pass
-(`lower_function`, `lower_module`, `analyze_function`, `analyze_module`).
+owners, declared field projections, named invariant clauses, shared and
+exclusive loans, and parent links. `lower_function` and `lower_module` build
+graphs from schema-2 surface ASTs. `analyze_function` and `analyze_module`
+combine lowering and analysis.
 Events describe borrowing, receiver reservations and activations, access,
 resource moves, binding capture environments, uses, per-conjunct invariant
 opening and closing (`open ... lifts`),
@@ -29,12 +30,14 @@ overlaps the receiver. Single-field receiver views identify a footprint.
 Compound and indexed views conservatively cover the whole receiver.
 [Receiver timing fixtures](../../tools/tests/test_holdfast_loans.py#_located_receiver_timing)
 
-Names must be unambiguous within a path. A child loan must stay within its parent
-footprint; a shared parent cannot produce an exclusive child. Missing references,
-duplicate graph identities, malformed edges, irreducible or non-terminating
-cycles and exhausted node/path/work budgets refuse analysis. No partial
-exploration may produce a complete result. Reducible natural loops with an exit
-edge are analyzed by Kleene fixpoint iteration over the loop header.
+Names must be unambiguous within a path. A child loan must stay within its
+parent footprint, and a shared parent can grant only a shared child. Graph
+validation rejects missing references, duplicate node identities, malformed
+edges, self-loops, irreducible cycles, and nodes with no path to a graph exit.
+For supported natural loops, the analyzer iterates the abstract states at the
+header to a fixpoint. The presence of an exit edge is a graph requirement.
+Termination of the source loop requires the separate
+[loop resource and termination rules](core-design.md#loans-and-control-flow).
 
 The [analyzer](../../tools/toolchain/loans.py) computes backward
 demand over the control-flow graph and performs forward abstract interpretation
@@ -42,11 +45,11 @@ with join-point state merging at join nodes and loop headers. Compatible branch
 states merge when the available handles, loan routes and footprints, invariant
 debts, owner availability, and relevant binder history agree. A sequence of
 conditionals whose local loans end before each join therefore needs one state per
-join. `Limits` bounds nodes, distinct states per join, terminal reports, captures,
-and work. Exhaustion refuses the complete analysis without
-returning partial success. This diagnostic establishes neither production
-scalability nor a choice of production algorithm; the
-[promotion contract](core-design.md#borrow-analysis-promotion) retains that decision.
+join. `Limits` bounds owners, nodes, captures, and work. Its path limit
+bounds distinct states at a join and the number of terminal reports.
+Exhaustion raises `AnalysisRefusalError` before publishing a result. The
+[promotion contract](core-design.md#borrow-analysis-promotion) governs using
+the diagnostic's findings in a checked source analysis.
 
 ## Inference and obligations
 
@@ -73,17 +76,18 @@ error sibling restores locally. Local-owner and exclusive escapes produce
 diagnostics. Closure returns must include their transitive captures. Suspension and open-invariant cases
 remain unsupported or unresolved; syntactic availability is no proof of safety.
 
-The result distinguishes structural refusal, detected conflicts, unresolved
-obligations and path-specific proposed ends/escapes. A graph with no detected
-conflict still needs every restoration, capture, effect and interpretation proof.
-The API must not expose an admitted-program or memory-safe verdict.
+Each report identifies detected conflicts, unresolved obligations, and
+path-specific proposed ends and escapes. Source acceptance still requires
+checked restoration, capture, effect and interpretation proofs.
 
 ## Using the diagnostic
 
 [loans.py](../../tools/toolchain/loans.py) exposes immutable graph/event
 records and `analyze(owners, graph, limits)`. Run its focused behavioral checks
-with `python tools/run.py test --only test_holdfast_loans --jobs 1` on Windows.
-An explicit result split can be modeled as follows:
+with `python tools/run.py test --only test_holdfast_loans --jobs 1` on Windows
+or `python3 tools/run.py test --only test_holdfast_loans --jobs 1` on Linux.
+The graph below models one path that returns a view and another that writes
+to its backing after the view becomes dead.
 
 ```python
 from toolchain.loans import Access, Borrow, Graph, Loan, Node, Owner, Place, Return, analyze
@@ -104,8 +108,9 @@ outcomes separate. `Issue` describes a detected conflict or unsupported operatio
 `Obligation` and `Restoration` retain unresolved premises. `AnalysisRefusalError`
 means malformed input or incomplete exploration and returns no report.
 
-`Use` means reading through a handle's retained loans. `Bind` retains captures
-without accessing their contents; `Move` transfers a descriptor's availability.
+`Use` reads through a handle's retained loans or reads an owner root. `Bind`
+retains captures without accessing their contents. `Move` transfers a
+descriptor's availability.
 `Drop` removes availability without running resource disposal or extending a
 dead loan's demand. Moving an owner root is an explicit `Access(..., "move")`;
 partial owner moves remain unsupported. Array projections use `"*"` and retain
@@ -159,15 +164,15 @@ pinned modes, while the `split_at_mut` spelling passes the observations.
 [HoldFast replay](../../tools/tests/test_holdfast_loans.py#_mixed_indexed_loans) ·
 [Rust fixture](../../tools/tests/fixtures/mixed_indexed_loans.rs)
 
-The frontend also checks a shared element loan from a named `Span.Slice`
-and an exclusive element loan directly from its owner. The slice must derive
-from the current owner term, and argument evaluation must complete without
-pending mutable updates. The checker adds the slice offset to the shared
-index before applying the scoped separation facts. At offset one,
-`j != 1usize + i` separates the loans and `j != i` leaves their separation
-unproved. A nested slice retains its backing identity and leaves a same-owner
-cross-view overlap unresolved. The Rocq replay checks the returned byte,
-owner writeback, framed elements and untouched failure state.
+The frontend also checks a call that shares `view[i]` from a named one-level
+`Span.Slice` and exclusively borrows `owner[j]` from its owner. The slice must
+derive from the current owner term, with no pending mutable updates during
+argument evaluation. The checker adds the slice offset to `i` before applying
+the scoped separation facts. At offset one, `j != 1usize + i` proves
+separation. The test with `j != i` leaves separation unresolved. A nested
+slice retains the backing identity, so a same-owner overlap still needs a
+proof. The Rocq replay checks the returned byte, owner writeback, framed
+elements and untouched failure state.
 [Owner-coordinate replay](../../tools/tests/test_holdfast_loans.py#_owner_coordinate_indexed_loans)
 
 If a client must restructure a loop whose last use of a view precedes a write
