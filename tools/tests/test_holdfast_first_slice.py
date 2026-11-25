@@ -522,6 +522,9 @@ def _clight_lowering_and_purecap_assembly() -> None:
     machine = blocking["Q35b / Q35o / Q35p"]
     ensure("private tag-outcome support" in machine and "F-480" in machine,
            "foundation inventory omitted the candidate replay's assumption boundary")
+    ensure("sequential emulator isolation check passed for its frozen inputs" in machine
+           and "Q35p semantic binding qualification" in machine,
+           "foundation inventory omitted the completed isolation check or remaining binding qualification")
     pending = cast("list[str]", inv["unrun_or_pending_checks"])
     ensure(any("rv64d.v" in check and "qualified production support" in check for check in pending),
            "foundation inventory omitted the canonical machine replay on qualified support")
