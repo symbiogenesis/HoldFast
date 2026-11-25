@@ -3,15 +3,18 @@
 
 import json
 import re
+import shlex
 import sys
 import tomllib
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-from toolchain import parser
+from toolchain import mathematical, mathematical_authoring, parser
 from toolchain.ast import MAX_SOURCE_BYTES
 from toolchain.atomic import atomic_path
+from toolchain.authoring import OPT_IN_MATHEMATICAL_LINTS, Finding
 from toolchain.elaborate import FRONTEND_SOURCES, elaborate_package
 from toolchain.elaborate_types import CheckedElaboration, PackageScope
 from toolchain.hashing import file_sha256
@@ -37,6 +40,7 @@ PRODUCER_INPUTS = (
     "run.py", "pyproject.toml", "uv.lock", "opam/rocq.lock", "opam/sail.lock", "toolchain/atomic.py",
     "toolchain/cli/__init__.py", "toolchain/cli/holdfast_parser.py", "toolchain/packages.py", "toolchain/commands.py", "toolchain/pyversion.py",
     "toolchain/toolenv.py", "toolchain/corpus.py", "toolchain/env.py", "toolchain/proofenv.py",
+    "toolchain/mathematical.py", "toolchain/mathematical_authoring.py", "toolchain/syntax_campaigns.py",
 )
 
 
@@ -220,34 +224,71 @@ def read_lock(lock_path: Path) -> tuple[bytes, Object, str, str]:
     return raw, lock, name, revision
 
 
+def _authoring_paths(workspace: Path, lock: Object, name: str, revision: str) -> dict[str, Path]:
+    row = _object(_object(lock["packages"], "packages")[name], "root package")
+    if row["edition"] != "math-2":
+        return {}
+    base = workspace.resolve(strict=True) / name / revision
+    return {module: _path(base, rel) for module, rel in _object(row["modules"], "root modules").items()}
+
+
+def _check_authoring(compiled: parser.Build, path: Path, source: bytes, document: mathematical_authoring.Document,
+                     checked: CheckedElaboration) -> tuple[Finding, ...]:
+    candidate, _ = mathematical_authoring.format_document(compiled, document)
+    if candidate != source:
+        repair = shlex.join(["python3", "tools/run.py", "holdfast-parser", "fmt", str(path), "--syntax-only"])
+        raise ValueError(f"{path}: source differs from canonical mathematical layout; run {repair}")
+    checked_findings, _ = mathematical.inspect_checked(source, document.ast, checked)
+    return tuple(finding for finding in mathematical_authoring.lint_document(source, document, checked_findings)
+                 if finding.code not in OPT_IN_MATHEMATICAL_LINTS)
+
+
 def checked_modules(root: Path, workspace: Path, lock_path: Path, *, navigation: Navigation | None = None,
+                    build_findings: dict[Path, tuple[Finding, ...]] | None = None,
                     ) -> tuple[bytes, Closure, dict[str, CheckedElaboration]]:
     raw, lock, name, revision = read_lock(lock_path)
     with parser.cached_build(root) as compiled:
         closure = resolve(workspace, name, revision, _producer(root, compiled), locked=lock)
+        authoring_paths = _authoring_paths(workspace, closure.lock, name, revision) if build_findings is not None else {}
         modules = []
+        documents = {}
         for module, source in closure.sources.items():
-            parsed = parser.parse_source(compiled, source, surface=True)
+            if module in authoring_paths:
+                documents[module] = document = mathematical_authoring.Document.read(compiled, source)
+                parsed = document.parsed
+            else:
+                parsed = parser.parse_source(compiled, source, surface=True)
             ast = _object(parsed["ast"], "parsed source")
             if _object(ast["name"], "module name").get("text") != module:
                 raise ValueError(f"manifest module {module} differs from the source declaration")
             modules.append((source, parsed))
         outputs = elaborate_package(modules, scopes=closure.scopes, require_word_proofs=True,
                                     output_limit=MAX_GENERATED_BYTES, navigation=navigation)
+        findings = {
+            path: _check_authoring(compiled, path, closure.sources[module], documents[module], outputs[module])
+            for module, path in authoring_paths.items()
+        }
         _recheck_parser(root, compiled)
         resolve(workspace, name, revision, _producer(root, compiled), locked=lock)
         if raw != _read(lock_path, MAX_INPUT_BYTES):
             raise ValueError("package lock changed during the build")
+        if build_findings is not None:
+            build_findings.update(findings)
     return raw, closure, outputs
 
 
-def build_package(root: Path, workspace: Path, lock_path: Path, destination: Path | None) -> Object:
-    raw, closure, outputs = checked_modules(root, workspace, lock_path)
+def build_package(root: Path, workspace: Path, lock_path: Path, destination: Path | None, *,
+                  report_lints: Callable[[Path, tuple[Finding, ...]], None] | None = None) -> Object:
+    findings: dict[Path, tuple[Finding, ...]] = {}
+    raw, closure, outputs = checked_modules(root, workspace, lock_path, build_findings=findings)
     binding = _sha(raw)
     if destination is not None:
         _publish(destination, {"schema": 1, "lock_sha256": binding,
                                "modules": {module: result.gallina for module, result in outputs.items()}},
                  closure.files | {lock_path.resolve()})
+    if report_lints is not None:
+        for path, warnings in findings.items():
+            report_lints(path, warnings)
     return {"status": "elaborated", "lock_sha256": binding, "build_order": list(outputs),
             "modules": {module: {"instance": closure.scopes[module].instance, "source_sha256": output.source_sha256,
                                  "gallina_sha256": _sha(output.gallina.encode())} for module, output in outputs.items()}}

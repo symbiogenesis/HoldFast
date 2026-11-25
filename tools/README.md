@@ -27,6 +27,7 @@ Run `python tools/run.py` on Windows and `python3 tools/run.py` on Linux. Guest-
 | `python tools/run.py holdfast-parser` | guest (`[wsl]`) | Menhir parser build/qualification, syntax campaigns, dependent elaboration, first-slice harness, and Rocq kernel replay |
 | `python tools/run.py holdfast-parser fmt FILE --check` | guest | Check [canonical mathematical layout](../docs/tooling/authoring-tools.md#formatting-and-linting-mathematical-source). Omit `--check` to apply the checked formatting. |
 | `python tools/run.py holdfast-parser fmt FILE --syntax-only` | guest | Apply canonical mathematical layout during semantic or proof repair. Add `--check` to leave the source untouched. |
+| `python tools/run.py holdfast-parser fmt - --syntax-only` | guest | Read a UTF-8 editor buffer from standard input and return its canonical layout on standard output. |
 | `python tools/run.py holdfast-parser lint FILE` | guest | Inspect mathematical source for declaration, binding, documentation, pattern, expression and contract warnings |
 | `python tools/run.py holdfast-parser lock-package WORKSPACE NAME REVISION --output LOCK` | guest | Resolve and bind the explicit local dependency closure for the [mathematical batch target](../docs/tooling/elaboration-prototype.md#locked-mathematical-packages) |
 | `python tools/run.py holdfast-parser build-package WORKSPACE LOCK [--output BUNDLE]` | guest | Check the lock and module graph, elaborate in dependency order and optionally publish the bound Gallina bundle |

@@ -55,6 +55,7 @@ from toolchain import (
 from toolchain import (
     syntax_campaigns as holdfast_syntax_campaigns,
 )
+from toolchain.ast import MAX_SOURCE_BYTES
 from toolchain.atomic import atomic_path
 from toolchain.authoring import MATHEMATICAL_LINT_CODES, OPT_IN_MATHEMATICAL_LINTS, Finding
 from toolchain.cli import report_findings
@@ -206,6 +207,17 @@ def _with_annotations(
 
 
 def _authoring(root: Path, args: argparse.Namespace, allowed: set[str], denied: set[str], annotations: bool) -> int:
+    if args.command == "fmt" and args.source == Path("-"):
+        if not args.syntax_only:
+            raise ValueError("fmt - requires --syntax-only for an editor buffer")
+        source = sys.stdin.buffer.read(MAX_SOURCE_BYTES + 1)
+        with holdfast_parser.cached_build(root) as compiled:
+            formatted = mathematical_authoring.format_syntax(compiled, source)
+        if not args.check:
+            sys.stdout.buffer.write(formatted)
+        elif formatted != source:
+            raise HoldFastError("format", 1, 1, "source differs from canonical mathematical layout")
+        return 0
     snapshot = read_source(args.source)
     with holdfast_parser.cached_build(root) as compiled:
         if args.command == "lint":
@@ -393,7 +405,7 @@ def main(argv: list[str] | None = None) -> int:
     elaborate.add_argument("--warn", action="append", choices=sorted(OPT_IN_MATHEMATICAL_LINTS), default=[],
                            help="enable an opt-in mathematical lint (repeatable)")
     fmt = commands.add_parser("fmt", help="check and format a mathematically elaborated source")
-    fmt.add_argument("source", type=Path)
+    fmt.add_argument("source", type=Path, help="source file, or - for an editor buffer with --syntax-only")
     fmt.add_argument("--check", action="store_true", help="report a style difference without writing")
     fmt.add_argument("--syntax-only", action="store_true", help="check syntax and preservation without elaborating")
     lint = commands.add_parser("lint", help="check mathematical declarations, documentation and expression lints")
@@ -495,7 +507,10 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "scip-check":
             output = scip.check(root, args.workspace, args.lock, args.directory, require_complete=args.require_complete)
         elif args.command == "build-package":
-            output = packages.build_package(root, args.workspace, args.lock, args.output)
+            def report_package_lints(path: Path, findings: tuple[Finding, ...]) -> None:
+                report_findings(path, findings, set(), set())
+
+            output = packages.build_package(root, args.workspace, args.lock, args.output, report_lints=report_package_lints)
         elif args.command == "elaborate-qualify":
             output = holdfast_elaboration_check.qualify(root)
         elif args.command == "first-slice":

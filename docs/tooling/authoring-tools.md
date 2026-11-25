@@ -76,10 +76,9 @@ comments carry no semantic or proof authority.
 
 ## Compiler commands and publication
 
-The [new-package authoring policy](../../PLAN.md#q25el) calls for a single
-canonical formatter in the default release checks, with a repair command
-alongside a layout finding. Builds check without writing authored source.
-Editors may use the same formatter on save according to their edit policy.
+The default build of a [locked `math-2` root package](#locked-package-authoring)
+checks canonical layout and reports advisory lints. Editors can send buffers to
+the same formatter on demand.
 
 | Command or mode | Source policy |
 | --- | --- |
@@ -247,6 +246,25 @@ targets, inferred literal types and integer operations across the edit. Public
 contract and effect findings are advisory by default. An exported bound or
 guarantee can carry compatibility obligations for dependent clients.
 [Public API evolution](../language/first-release.md#public-api-evolution)
+
+### Locked package authoring
+
+`holdfast-parser build-package WORKSPACE LOCK` checks the declared modules of
+a `math-2` root package for canonical layout by default. It elaborates the locked
+graph in its own import context and reports advisory lints using those checked
+facts. The checks preserve package inputs and lock bytes. A layout difference
+fails the build before bundle publication and prints the command to format the
+affected source file from the Linux or WSL checkout. Regenerate the lock after
+applying a source edit. The authoring defaults follow the selected root package's
+edition. Imported dependencies are checked for elaboration under their own
+editions. [Locked builds](elaboration-prototype.md#locked-mathematical-packages)
+
+For an editor formatting request, send the unsaved buffer as UTF-8 on standard
+input to `python tools/run.py holdfast-parser fmt - --syntax-only` on Windows,
+or use `python3` on Linux. Standard output carries the complete replacement
+on success. A rejected buffer produces a diagnostic on standard error. The
+editor owns application of the result to the matching buffer version. Syntactic
+formatting works for files with imports and gives a layout verdict.
 
 ## Checked Boolean comparison previews
 
