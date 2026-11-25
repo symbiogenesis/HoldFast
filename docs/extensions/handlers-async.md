@@ -152,7 +152,16 @@ async Result<Data, Error> Load()
 }
 ```
 
-This illustrates the proposed rule, not currently supported elaboration. Construction of `ReadAndValidate()` moves its captures without running body effects. The direct await first takes the enclosing task's checkpoint. For an ordinary-work helper, cancellation accepted before entry selects its unstarted disposal contract, which returns or retires those captures without a body step. Otherwise control enters its admitted subgraph. A pending helper stores its local PC and retained resources and returns at the same task's poll site; the next activation resumes that subgraph before the caller. A ready helper still takes the checkpoint. Returning transfers the declared value and resources to the caller without publishing a child terminal record. A helper has no independently observable task outcome: any control exit selecting the enclosing task's declared failure must be explicit in the helper's contract.
+In this design example, `ReadAndValidate()` moves its captures into the dormant
+value. Direct `await` takes the enclosing task's checkpoint before entering
+the helper, including when the helper would be ready immediately. If that
+checkpoint accepts cancellation of ordinary work, the helper's unstarted
+disposal contract returns or retires its captures. Otherwise the helper starts
+executing. A pending helper saves its program counter and retained resources
+and returns at the task's poll site. The next activation resumes the helper
+before the caller. A return transfers the declared value and resources directly
+to the caller. Any exit selecting the enclosing task's declared failure must
+appear in the helper's contract.
 
 Extracting ordinary synchronous work into an immediately ready async helper
 adds an observable checkpoint. To preserve behavior, extract a synchronous
@@ -162,7 +171,15 @@ the distinguishing trace, latch cancellation before that new checkpoint and
 observe whether the next body write occurs. On the async route cleanup starts
 before the write. Compare both routes again with cancellation clear.
 
-Specialization accounts for the complete bounded call nesting, local PC/result storage, captures, loans and cleanup state in the task's reserved representation. Inlining is an optional proved lowering, not a source requirement. An out-of-line state-machine call has the same contract. Recursive helper calls require a static depth bound and proved storage/cost composition; an unbounded call chain is unsupported. A returned view must name still-live caller backing or a declared pinned region, and cannot outlive the helper storage that represents it. No child-pool capacity request is introduced just by extracting a sequential helper; any resource request the helper itself performs remains explicit and fallible.
+Specialization accounts for the bounded call nesting, local program counters,
+result storage, captures, loans and cleanup state in the task's reserved
+representation. Inlining and out-of-line calls satisfy the same source
+contract. Recursive helpers require a static depth bound and a proof that
+their storage and cost fit the task's bounds. A returned view must point into
+caller backing or a declared pinned region that outlives the view. Any helper
+storage that represents the view after return must also outlive it. The
+sequential helper uses the enclosing task's reserved storage. Any resource
+request in its body remains explicit and fallible.
 
 The caller and helper share the task's latched cancellation state and declared commit phase. A precommit helper cannot silently commit an independent enclosing operation: a commit-capable signature explicitly consumes the enclosing operation's unique commit permission and returns the corresponding phase/receipt. Following that commit, both caller and helper follow the declared bounded postcommit continuation; another cancellation request cannot undo the committed action or restart precommit cleanup. Independent service requests retain their own declared commit/cancellation contracts and quiescence, and composition does not turn them into one transaction.
 
@@ -170,7 +187,9 @@ An accepted cancellation closes the active helper's local loans and runs its dec
 
 ### Task completion and scope failure
 
-Use the following semantic outcome algebra with resources indexed by the case. These names describe the source contract, not new IDL wire tags or implemented syntax. The concrete source API exposes named elimination or explicit propagation of every outcome and retains any stricter must-examine obligation of its payload.
+The proposed source API indexes resources by the task outcome. A caller
+examines the outcome by name or explicitly propagates it, and any stricter
+obligation to examine the payload still applies.
 
 | Outcome | Meaning and scope effect |
 | --- | --- |

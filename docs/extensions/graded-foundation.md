@@ -18,6 +18,9 @@ that image. [Frontend admission](full-language-review.md#frontend-admission)
 
 The [graded research comparison](../assurance/verification-strategy.md#reading-the-graded-type-claims)
 describes the roles and limits of GrTT, GraD and the Agda erasure development.
+The [source replay experiments](../tooling/elaboration-prototype.md#pure-graded-source-replay)
+check a pure fragment with `NatExact` and `NatBound`, and a separate `NatExact`
+box fragment. Their results inform the selection protocol below.
 
 ## Extension selection and qualification
 
@@ -65,9 +68,9 @@ measurements. [Irrelevance theorem](../../tools/rocq/graded_type_irrelevance.v)
 `StereoRoute` specializes a pure router to a stereo frame with one
 extra tick and an independent channel-label count. The result must be the
 original stereo samples, with length `(period + 1) + (period + 1)`.
-The ordinary elaboration baseline deletes the twelve grade annotations and
-checks a pointwise equation for this result in Rocq. The graded replay checks
-the same dependent signature and reports these demands.
+The ordinary baseline removes the grade annotations, elaborates the remaining
+source, and checks a pointwise equation for the result in Rocq. The graded
+replay checks the dependent signature and reports these demands.
 
 | Binder | Computation | Type | Type dependencies |
 | --- | --- | --- | --- |
@@ -187,7 +190,11 @@ APP: J(M; w; a+b; Gamma |- f : Pi x:(s,r) A.B)
      J(M; w+s*z; b+r*z; Gamma |- f v : B[v/x])
 ```
 
-Application type use is `b+r*z`: codomain substitution removes the domain demand `a`. The producer must reconstruct this equation and its meaning for the elaborated application; it is not an extra kernel conversion rule. Combined substitution/preservation of interpreted images remain debts below. Resource-carrying closures also record transitive environment and call mode; grade arithmetic alone cannot justify capture duplication.
+Application type use is `b+r*z` because the result type is the codomain with
+`v` substituted for `x`. The producer reconstructs the demand equation for
+that elaborated application under the existing conversion rules. The
+[substitution and resource obligations](#proof-and-qualification-obligations)
+also cover the transitive environment and call mode of resource-carrying closures.
 
 HoldFast computations evaluate left to right by value. Elaborate an effectful argument as `bind x <- c; call f x`: evaluate `c` once, record its trace/effects and resource exit, then apply the value rule to `x`. Parameter use zero does not erase `c`'s effects, failures or mandatory result. Parameter use two does not execute `c` twice. Moving this bind across a handler, mutation or cancellation checkpoint needs an explicit preservation proof.
 

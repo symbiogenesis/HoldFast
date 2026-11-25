@@ -14,13 +14,11 @@ The [admission requirements](#frontend-admission) apply to their composition.
 
 ## Composed client and inhabited entry
 
-This multi-shot/async/counter client is a retained extension-interaction probe,
-not the first-release acceptance client. The [delivery sequence](../../PLAN.md#holdfast-first-release-delivery)
-first uses a concrete synchronous buffer operation and an independent package.
-The later [service qualification](handlers-async.md#qualification) must exercise
-ordinary sequential async composition and one child before any optional cloning
-or concurrent-counter demonstration is commissioned. All tables in this section
-retain their conditional research scope.
+This proposed client exercises the interaction of multi-shot handlers, async,
+and concurrent scalar mutation. The [first-release delivery plan](../../PLAN.md#holdfast-first-release-delivery)
+qualifies a synchronous buffer operation and an independent package first. The
+[first async service](handlers-async.md#qualification) exercises sequential
+async composition and one child before optional cloning or a concurrent counter.
 
 The client uses one declared child slot, a private packet frame and the mutability dossier's scalar accepted-byte counter. Its packet has represented length `n`, capacity `N`, and immutable `xs` satisfying `length(xs)=n` and `n<=N`. The child owns the packet, live frame identity/generation, request identity and a linear allowance to add `n`. Other children require disjoint frames/allowances. The counter stores no capability.
 
@@ -57,7 +55,7 @@ data while changing the stated resource premise.
 | Permit two resumptions but supply a one-call exact budget | Computation-use reconstruction cannot establish the required demand. The callback's duplicable memory environment does not duplicate its declared usage budget. |
 | Reuse an old cell snapshot as a proposition about its current value | The operation lacks the current invariant/snapshot agreement premise. A stable historical value is not evidence that interference has not occurred. |
 | Suspend or perform a capturing effect with a dynamic exclusive guard open | The suspension/capture rule lacks a closed invariant and transferable exit account. A ready result does not remove that checkpoint duty. |
-| Release the parent frame on cancellation acknowledgment | The terminal/quiescence and outstanding-reference premises remain unfulfilled. `too_late` does not imply completion. |
+| Release the parent frame after a cancellation control reply such as `cancel_cancelled` or `too_late` | Release requires terminal completion, quiescence and the end of outstanding references. |
 | Ignore the child failure or capacity verdict | The branch cannot eliminate its mandatory outcome obligation. Affine ownership disposal supplies no verdict-elimination rule. |
 | Replace the scalar increment by conditional capability CAS | The operation lacks an admitted primitive and violates the shared-mutable-capability restriction. No source wrapper authorizes it. |
 | Return an allowance as unused after the atomic increment | The counter invariant loses conservation of committed value and outstanding allowances. Cancellation cannot roll back the commit point. |

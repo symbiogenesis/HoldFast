@@ -79,7 +79,10 @@ A scoped callback cannot suspend, capture control, call unknown/reentrant code, 
 | Release read guard | Consume its identity once, remove exactly that reader, and restore `Idle` only when no reader remains. |
 | Release write guard | End descendants, prove the invariant of the final value, consume guard and close debt, and restore `Idle`. |
 
-Public `with_try_read`/`with_try_write` bracket nonescaping library guards. Clients must examine conflict/capacity results. Resource checking rejects missing drop, duplicate guard/release and forged decrement; even an affine guard owes release, with no GC or unwinding fallback.
+Public `with_try_read` and `with_try_write` bracket nonescaping library guards.
+Clients must examine conflict and capacity results. Each successful acquisition
+creates a release obligation. The checker rejects a missing or duplicate
+release, a duplicated guard, or a forged decrement.
 
 Reader guards permit compatible reads and forbid footprint mutation; writer guards exclude all overlapping parent, wrapper, device and closure access. Reborrows suspend parents until descendants end. Both scopes forbid suspension/capture, including ready `await`; a future stable read-guard extension needs its own `Suspend`, represented lifetime and cancellation release proof. A conflict branch runs only the sealed state operation, with no callback or second opening.
 

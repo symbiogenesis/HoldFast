@@ -13,7 +13,9 @@ The policy first applies to the [bounded synchronous release](../language/first-
 Async, general handlers, extensible grade domains and other extensions need their
 own consumer and qualification; presets cannot enable unsupported features.
 
-Presets classify source-closure evidence off device. The platform's [numeric assurance tiers](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-13-011) instead classify binary admission at install according to code's trust role; [landing tiers](../../PLAN.md#checklist-conventions) classify document review. A preset confers no admission authority and changes no [refuse-uncertified-code policy](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-13-014).
+Presets select the evidence required for a source closure. Binary admission
+still follows the platform's [numeric assurance tiers](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-13-011)
+and [certification requirements](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-13-014).
 
 ## Four concerns that one strictness setting conflates
 

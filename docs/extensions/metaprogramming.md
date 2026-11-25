@@ -123,10 +123,8 @@ must be discharged before its interface is accepted. Exploratory unproved claims
 stay in the separate non-exported scratch channel; they cannot justify
 optimization, a caller's proof or an accepted `requires`/`ensures` declaration.
 
-The following is a library API sketch inside a generation context. The names and
-context are illustrative, unimplemented interfaces, not additions to the current
-grammar or executable examples. Its generic call uses the selected
-[familiar authoring syntax](../language/surface-grammar.md#bindings-match-arms-and-generic-calls):
+This proposed library API uses ordinary
+[generic-call syntax](../language/surface-grammar.md#bindings-match-arms-and-generic-calls).
 
 ```text
 let schema = Meta.SchemaOf<Packet<Capacity>>();
@@ -170,9 +168,9 @@ cross stages only through admitted representations and provenance checks.
 | Security and resources | Preserve requested relational observations, cost and storage bounds as well as functional results; specialization is not permission to declassify or drop failure paths. |
 | Machine and hardware authorship | Generated state, schedules and RTL retain their admitted architectural/cycle interpretations, finite representations and independent refinement subjects. Shared generation supplies no hardware theorem. |
 
-When a generator accepts an effectful argument, emit a binding at the
-argument's original evaluation point. Splice a reference to the bound value at
-each use. For example, generating zero or two references to the value of
+When a generator receives code for an effectful argument, it emits a binding
+at the argument's original evaluation point in the generated program. Each
+use refers to the bound value. For example, generating zero or two references to the value of
 `ReadAndAdvance(ref cursor)` must advance the cursor once on either successful
 path. If the read fails, both generated programs propagate or examine that
 failure before subsequent work. Two uses of an owned value require its
