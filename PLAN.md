@@ -14,16 +14,16 @@ and the stock and patched emissions have identical readings for all 3,533
 main-module declarations on that support. [Producer record check](docs/assurance/completion-log.md#q25ar-integrate-and-recheck-prerequisite-producer-receipts)
 
 Two runs per plugin set reproduce the C++ source, header and configuration
-schema with sequential generation. Under the default settings, the source and
-header differ even on a stock-plugin repeat. Default byte agreement remains a
-Q35p prerequisite. [Producer record check](docs/assurance/completion-log.md#q25ar-integrate-and-recheck-prerequisite-producer-receipts)
+schema with sequential generation. VerifiedOS accepts this comparison for
+the frozen emulator-isolation inputs and requires another pair when they change.
+[Emulator isolation check](https://github.com/symbiogenesis/VerifiedOS/blob/314bd47d6e5ab398afe9f4af636a54b1a58502dd/docs/implementation/contracts/canonical-tag-outcomes.md#emulator-isolation-check)
 
 Resume [Q25am](#q25am) when `machine-logic` supplies Q35p binding qualification,
 Q35o immutable emitter qualification, Q35n and Q35q production support, and
 Q35b's whole-term replay and assumption closure on that support. The decision
 on the 31 floating-point axioms remains open under F-480 (R-05-164).
 [Q35 emission requirements](https://github.com/symbiogenesis/VerifiedOS/blob/fd6e2ba3fd862bc3c6baba08bcc772dbf3507ccd/docs/assurance/sail-rocq-emission.md#remaining-acceptance) ·
-[Q35p binding requirements](https://github.com/symbiogenesis/VerifiedOS/blob/fd6e2ba3fd862bc3c6baba08bcc772dbf3507ccd/docs/assurance/sail-memory-bindings.md#bound-and-remaining-acceptance)
+[Q35p binding requirements](https://github.com/symbiogenesis/VerifiedOS/blob/314bd47d6e5ab398afe9f4af636a54b1a58502dd/docs/assurance/sail-memory-bindings.md#bound-and-remaining-acceptance)
 
 The retained `holdfast-parser first-slice` result names the blocking producers in
 `inventory.blocking_dependencies`. [First-slice qualification](docs/language/first-release.md#first-slice-qualification)

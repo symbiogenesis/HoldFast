@@ -1626,8 +1626,10 @@ equal configuration schemas and different C++ source and header digests for
 the default pair and the stock repeat. The sequential pair matches all
 three. The follow-up VerifiedOS revision `04c84ab6c6213474e32b8b6db85d7a157a485724`
 adds four manifest-bound files. Each new sequential run reproduces all three
-prior output digests for its plugin set. Default-generation agreement remains
-open under Q35p.
+prior output digests for its plugin set. The local record check matches both
+prior-record links and the recorded digests of all 136 tracked model inputs.
+VerifiedOS accepts the sequential comparison as emulator isolation for
+those frozen inputs. [Emulator isolation check](https://github.com/symbiogenesis/VerifiedOS/blob/314bd47d6e5ab398afe9f4af636a54b1a58502dd/docs/implementation/contracts/canonical-tag-outcomes.md#emulator-isolation-check)
 
 Q25ar remains open for external independently checked producer receipts and its
 complete declared coverage. Canonical-machine interpretation, compiler,
