@@ -331,34 +331,23 @@ public Result<ValidatedPacket<'dst>, ValidationError> PrepareAndValidatePacket<r
     requires dst.CanRead
     requires dst.CanWrite
     requires pkt.CanRead
-    ensures match (result)
-    {
-        Ok(ValidatedPacket(copied, payloadView)) =>
-            copied <= 4 && payloadView.Length == copied && payloadView.CanRead && !payloadView.CanWrite,
-        Err(_) =>
-            dst.Length == old(dst.Length) && dst.CanRead && dst.CanWrite
-    }
+    ensures (if (result is Ok(ValidatedPacket(copied, payloadView)))
+        copied <= 4 && payloadView.Length == copied && payloadView.CanRead && !payloadView.CanWrite
+    else dst.Length == old(dst.Length) && dst.CanRead && dst.CanWrite)
     ensures SpecPacketValid(in old(dst), in pkt) <==> (result is Ok(_))
-    ensures (result is Ok(_)) ==> (dst[0] == pkt[0] && dst[1] == pkt[1] && dst[2] == pkt[2] && dst[3] == pkt[3])
     ensures (result is Err(FramingShort)) ==> dst == old(dst)
     ensures ((result is Err(_)) && !(result is Err(FramingShort)) && dst.Length >= 8) ==>
-        (dst[0] == 0x00 && dst[1] == 0x00 && dst[2] == 0x00 && dst[3] == 0x00
-        && dst[4] == 0x00 && dst[5] == 0x00 && dst[6] == 0x00 && dst[7] == 0x00)
+        Span.Slice(dst, 0, 8).Model.All(b => b == 0x00)
+    ensures (result is Ok(_)) ==> Span.Slice(dst, 0, 4).Model == Span.Slice(pkt, 0, 4).Model
     ensures ((result is Ok(_)) && dst.Length >= 8 && pkt.Length >= 4 && usize.From(pkt[1]) <= 4
-        && 4 + usize.From(pkt[1]) <= dst.Length) ==> result == Ok(ValidatedPacket(
-            usize.From(pkt[1]), in Span.ReadOnly(Span.Slice(dst, 4, usize.From(pkt[1])))))
-    ensures (forall (usize i) => match (result)
-    {
-        Ok(ValidatedPacket(copied, _)) =>
-            if (copied <= 4 && i >= 4 && i < 4 + copied && i < dst.Length && i < pkt.Length) dst[i] == pkt[i] else true,
-        Err(_) => true
-    })
-    ensures (forall (usize i) => match (result)
-    {
-        Ok(ValidatedPacket(copied, _)) =>
-            if (copied <= 4 && i >= 4 + copied && i >= 4 && i < 8 && i < dst.Length) dst[i] == 0x00 else true,
-        Err(_) => true
-    })
+        && 4 + usize.From(pkt[1]) <= dst.Length) ==>
+        result == Ok(ValidatedPacket(usize.From(pkt[1]), in Span.ReadOnly(Span.Slice(dst, 4, usize.From(pkt[1])))))
+    ensures (forall (usize i) =>
+        if ((result is Ok(ValidatedPacket(copied, _))) && copied <= 4
+            && i >= 4 && i < 4 + copied && i < dst.Length && i < pkt.Length) dst[i] == pkt[i] else true)
+    ensures (forall (usize i) =>
+        if ((result is Ok(ValidatedPacket(copied, _))) && copied <= 4
+            && i >= 4 + copied && i >= 4 && i < 8 && i < dst.Length) dst[i] == 0x00 else true)
     ensures (forall (usize i) => (i >= 8 && i < dst.Length && i < old(dst.Length)) ==> dst[i] == old(dst)[i])
     ensures PacketOutcome(result) == SpecPacketOutcome(in old(dst), in pkt)
 {
