@@ -1,12 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The one way into the HoldFast repository's tools.
+"""Run the HoldFast repository tools.
 
-    python tools/run.py                      run the behavioral test suite
-    python tools/run.py test                 run the behavioral test suite
-    python tools/run.py holdfast --help          pure HoldFast CLI, formatter, linter and Gallina emitter
-    python tools/run.py holdfast-lsp --help      pure HoldFast language server over stdio
-    python tools/run.py holdfast-playground      unified HoldFast browser playground [wsl]
-    python tools/run.py holdfast-parser --help   Menhir parser, dependent elaborator and Rocq replay [wsl]
+Without a command, run the behavioral test suite. Use --help to list commands
+or COMMAND --help for command options.
 """
 
 import io
@@ -45,7 +41,7 @@ def _utf8_output() -> None:
 
 
 def _usage() -> str:
-    """Every command, what it decides, and the lane it decides it in."""
+    """List commands, their purpose, and which require WSL on Windows."""
     width = max(len(command.name) for command in COMMANDS)
     lines = [__doc__.split("\n\n")[0], "", "commands:"]
     for command in COMMANDS:

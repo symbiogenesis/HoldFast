@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Serve unqualified pure HoldFast diagnostics and navigation over standard input/output."""
+"""Serve editor requests for pure HoldFast over stdio or run a pinned client qualification."""
 
 import argparse
 import json
