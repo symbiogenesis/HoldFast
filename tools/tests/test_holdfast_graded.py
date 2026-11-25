@@ -8,13 +8,14 @@ import json
 import shutil
 import subprocess
 import tempfile
+from functools import partial
 from pathlib import Path
 
 from tests.harness import TOOLS, Case, ensure
 from toolchain import proofenv, solver_ledger
 from toolchain.cli.holdfast_parser import main as parser_main
 
-_AUDITED = (
+_PURE_PROOFS = (
     "check_sound",
     "substitute_telescope_sound",
     "separate_computation_and_type_use",
@@ -27,23 +28,41 @@ _AUDITED = (
     "reject_stale_type_use_certificate",
     "reject_stale_substitution_row",
 )
+_DOMAIN_PROOFS = (
+    "NatExact",
+    "NatBound",
+    "Presence",
+    "exact_to_bound",
+    "bound_to_presence",
+    "substitution_commutes_with_translation",
+    "exact_substitution_agrees_with_pure",
+    "check_rows_spec",
+    "exact_reconstructs_containing_telescope",
+    "exact_rejects_relaxation",
+    "bound_accepts_relaxation",
+    "exact_rejects_stale_dependency",
+    "bound_rejects_stale_dependency",
+    "presence_reconstructs_dependency",
+    "presence_cannot_recover_counts",
+)
 
 
-def _replay() -> None:
-    source = TOOLS / "rocq" / "graded_pure.v"
+def _replay(unit: str, module: str, proofs: tuple[str, ...], dependencies: tuple[str, ...] = ()) -> None:
     launch = ["opam", "exec", "--switch", proofenv.ROCQ_SWITCH, "--"]
     compile_unit = [*launch, "rocq", "c", "-q"]
     with tempfile.TemporaryDirectory(prefix="holdfast-graded-") as temporary:
         directory = Path(temporary)
-        shutil.copyfile(source, directory / source.name)
-        subprocess.run([*compile_unit, source.name], cwd=directory, check=True, timeout=180)
+        for name in (*dependencies, unit):
+            source = TOOLS / "rocq" / f"{name}.v"
+            shutil.copyfile(source, directory / source.name)
+            subprocess.run([*compile_unit, source.name], cwd=directory, check=True, timeout=180)
         audit = directory / "GradeAudit.v"
-        audit.write_text("Require Import graded_pure.\n" + "".join(
-            f"Print Assumptions GradedPure.{name}.\n" for name in _AUDITED), encoding="utf-8")
+        audit.write_text(f"Require Import {unit}.\n" + "".join(
+            f"Print Assumptions {module}.{name}.\n" for name in proofs), encoding="utf-8")
         report = subprocess.run([*compile_unit, audit.name], cwd=directory, capture_output=True,
                                 text=True, encoding="utf-8", check=True, timeout=180)
-        solver_ledger.audit(report.stdout, len(_AUDITED), "GradedPure", ())
-        subprocess.run([*launch, "rocqchk", "-silent", source.stem], cwd=directory,
+        solver_ledger.audit(report.stdout, len(proofs), module, ())
+        subprocess.run([*launch, "rocqchk", "-silent", unit], cwd=directory,
                        check=True, timeout=180)
 
 
@@ -133,5 +152,9 @@ def _source_replay() -> None:
 
 
 def cases() -> list[Case]:
-    return [Case("pure dependent usage and telescope substitution replay", _replay, lane="toolchain"),
+    return [Case("pure dependent usage and telescope substitution replay",
+                 partial(_replay, "graded_pure", "GradedPure", _PURE_PROOFS), lane="toolchain"),
+            Case("ordered grade domains and dependent row certificates",
+                 partial(_replay, "graded_domains", "GradedDomains", _DOMAIN_PROOFS, ("graded_pure",)),
+                 lane="toolchain"),
             Case("source-bound exact grades and dependent partial application replay", _source_replay, lane="toolchain")]
