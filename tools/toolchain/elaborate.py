@@ -142,6 +142,7 @@ class _Elaborator(
         self.parameter_names: dict[int, str] = {}
         self.argument_labels: dict[int, str] = {}
         self.constructor_suggestions: dict[int, str] = {}
+        self.redundant_ref_ensures: dict[int, str] = {}
         self.nullary_parameters: set[int] = set()
         self.constant_parameters: set[int] = set()
         self.readonly_span_vars: set[int] = set()
@@ -2434,6 +2435,7 @@ def _checked_elaboration(
                                   MappingProxyType(elaborator.call_declarations.copy()),
                                   recursive_declarations=frozenset(elaborator.recursive_declarations),
                                   constructor_suggestions=MappingProxyType(elaborator.constructor_suggestions.copy()),
+                                  redundant_ref_ensures=MappingProxyType(elaborator.redundant_ref_ensures.copy()),
                                   integer_operations=MappingProxyType(elaborator.integer_operations.copy())), elaborator
     except RecursionError as error:
         raise protocol.error("limit", "elaboration nesting exceeds the host stack bound") from error

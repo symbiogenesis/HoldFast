@@ -44,6 +44,7 @@ class CheckedElaboration(Elaboration):
     call_declarations: Mapping[int, int]
     recursive_declarations: frozenset[int]
     constructor_suggestions: Mapping[int, str]
+    redundant_ref_ensures: Mapping[int, str]
     integer_operations: Mapping[int, tuple[str, str]]
 
     @staticmethod

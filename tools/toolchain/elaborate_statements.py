@@ -104,8 +104,7 @@ class _StatementsMixin:
             node = cast("Node", node["value"])
         return node
 
-    def _pattern_conjuncts(self: _Elaborator, condition: Node) -> list[Node]:
-        """Find the positive pattern tests on a short-circuit conjunction's spine."""
+    def _conjuncts(self: _Elaborator, condition: Node) -> list[Node]:
         pending = [condition]
         operands: list[Node] = []
         while pending:
@@ -114,6 +113,11 @@ class _StatementsMixin:
                 pending.extend((self.node(operand["right"]), self.node(operand["left"])))
             else:
                 operands.append(operand)
+        return operands
+
+    def _pattern_conjuncts(self: _Elaborator, condition: Node) -> list[Node]:
+        """Find the positive pattern tests on a short-circuit conjunction's spine."""
+        operands = self._conjuncts(condition)
         return operands if len(operands) > 1 and any(op["kind"] == "is" for op in operands) else []
 
     @staticmethod

@@ -195,6 +195,24 @@ def _worker_mathematical_routing() -> None:
            "worker lost original mathematical diagnostic positions or source identity")
 
 
+def _mathematical_ref_contract_reply_validation() -> None:
+    source = ("module Contracts;\npublic Unit Keep(ref Span<byte> pkt)\n"
+              "    ensures pkt.Base == old(pkt.Base)\n{ return (); }\n")
+    finding: dict[str, object] = {
+        "code": "HOLDFAST109", "message": "ref preserves pkt.Base", "line": 3, "column": 13}
+    reply: dict[str, object] = {"ok": True, "sourceHash": hashlib.sha256(source.encode()).hexdigest(),
+                                "module": "Contracts", "gallina": "checked-source terms", "editorServices": False,
+                                "findings": [finding]}
+    with _running() as server:
+        with patch.object(playground.subprocess, "run", return_value=_process(reply)):
+            ensure(_post(server, "/api/compile", {"source": source}) == reply,
+                   "valid ref contract warning prevented mathematical compilation")
+        misplaced = {**reply, "findings": [{**finding, "column": 12}]}
+        with patch.object(playground.subprocess, "run", return_value=_process(misplaced)):
+            result = _post(server, "/api/compile", {"source": source})
+        ensure(result["ok"] is False and "findings" not in result, "a warning in whitespace reached the browser")
+
+
 def _full_language_in_ordinary_modules() -> None:
     prepared = Path("/prepared/native/holdfast-parser")
     digest = hashlib.sha256(_PURE.encode()).hexdigest()
@@ -1307,6 +1325,7 @@ def cases() -> list[Case]:
             Case("mathematical-worker-reuses-elaborator-and-preserves-refusals", _worker_mathematical_routing),
             Case("full-language-compilation-and-evaluation-in-ordinary-modules", _full_language_in_ordinary_modules),
             Case("mathematical-naming-findings-source-shape-budget-and-recovery", _mathematical_naming_reply_validation),
+            Case("mathematical-ref-contract-finding-reply-validation", _mathematical_ref_contract_reply_validation),
             Case("pure-authoring-refuses-mathematical-only-naming-finding", _pure_authoring_rejects_mathematical_lint),
             Case("mathematical-cli-prepares-native-parser-once-and-refuses-missing-tools", _native_cli_startup),
             Case("playground-formatting-example-assets", _playground_formatting_example_assets),

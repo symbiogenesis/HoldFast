@@ -148,6 +148,10 @@ def _validate_findings(findings: object, source: str, *, mathematical: bool = Fa
                     raise ValueError("mathematical precedence finding does not identify a bitwise operator")
                 continue
             name = IDENTIFIER.match(line, column)
+            if finding["code"] == "HOLDFAST109":
+                if name is None and line[column:column + 1] != "(":
+                    raise ValueError("mathematical postcondition finding does not identify a conjunct")
+                continue
             if (name is None or is_pascal_case(name.group())
                     or (column and (line[column - 1].isascii()
                                     and (line[column - 1].isalnum() or line[column - 1] == "_")))):

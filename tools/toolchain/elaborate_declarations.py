@@ -40,6 +40,25 @@ if TYPE_CHECKING:
     from toolchain.elaborate import _Elaborator
 
 
+_RESTORED_SPAN_FIELDS = (
+    ("Base", _USIZE),
+    ("Length", _USIZE),
+    ("Tag", _BOOL),
+    ("PermRead", _BOOL),
+    ("PermWrite", _BOOL),
+)
+_RESTORED_SLOTS_FIELDS = (
+    ("Base", _USIZE),
+    ("Tag", _BOOL),
+    ("PermRead", _BOOL),
+    ("PermWrite", _BOOL),
+    ("Capacity", _NAT),
+)
+_ACCESS_PROPERTIES = frozenset({"CanRead", "CanWrite"})
+_RESTORED_SPAN_PROPERTIES = _ACCESS_PROPERTIES.union(field for field, _ in _RESTORED_SPAN_FIELDS)
+_RESTORED_SLOTS_PROPERTIES = _ACCESS_PROPERTIES.union(field for field, _ in _RESTORED_SLOTS_FIELDS)
+
+
 class _DeclarationsMixin:
     def _record_input_propositions(self: _Elaborator, parameters: list[_Term]) -> list[_Term]:
         propositions: list[_Term] = []
@@ -3458,6 +3477,7 @@ class _DeclarationsMixin:
                 self.callable_preconditions[emitted] = self.var_preconditions[cast("int", self_var.value)]
             span_u8 = _app(_constant("Span"), _U8)
             auto_restores_params: list[tuple[str, Node]] = []
+            restored_properties: dict[str, frozenset[str]] = {}
             if kind in {"definition", "function"}:
                 for p_node in parameters:
                     if p_node["name"] is not None:
@@ -3467,6 +3487,10 @@ class _DeclarationsMixin:
                             p_head, p_args = self.spine(p_ty_w)
                             if p_ty_w == span_u8 or (p_head == _constant("Slots") and len(p_args) == 2):
                                 auto_restores_params.append((pname, p_node))
+                                if pname != "result" and pname not in self.out_param_names:
+                                    restored_properties[pname] = (
+                                        _RESTORED_SPAN_PROPERTIES if p_ty_w == span_u8 else _RESTORED_SLOTS_PROPERTIES
+                                    )
             if (ensures_clauses or restores_clauses or auto_restores_params) and kind in {"definition", "function"}:
                 post_env = dict(environment)
                 for pname in ref_param_names:
@@ -3536,6 +3560,9 @@ class _DeclarationsMixin:
                             post_state_images=post_state_images,
                         )
                         next_rest_idx += 1
+                    if restored_properties and ensures_clauses:
+                        self._lint_ref_postconditions(requires_clauses, ensures_clauses, restored_properties,
+                                                      old_intrinsic="old" not in environment)
                     sym_post_env = dict(environment)
                     sym_res_var = self.fresh(result)
                     sym_post_env["result"] = _Binding(sym_res_var, result)
@@ -3628,6 +3655,65 @@ class _DeclarationsMixin:
             self.uninitialized_out_params.clear()
             self.last_call_updates.clear()
 
+    def _old_contract_argument(self: _Elaborator, node: Node) -> Node | None:
+        if node["kind"] == "call":
+            callee = self.node(node["callee"])
+            if callee["kind"] == "name" and self.name(callee["name"]) == "old":
+                args = self.nodes(node["arguments"])
+                if len(args) == 1 and args[0]["label"] is None:
+                    return self._unwrap_group(self.node(args[0]["value"]))
+        return None
+
+    def _descriptor_member(self: _Elaborator, expr: Node, *, old_intrinsic: bool = False) -> tuple[str, str, bool] | None:
+        member = self._unwrap_group(expr)
+        old_member = self._old_contract_argument(member) if old_intrinsic else None
+        if old_member is not None:
+            member = old_member
+        if member["kind"] != "member":
+            return None
+        receiver = self._unwrap_group(self.node(member["value"]))
+        old_receiver = self._old_contract_argument(receiver) if old_intrinsic and old_member is None else None
+        if old_receiver is not None:
+            receiver = old_receiver
+        if receiver["kind"] != "name":
+            return None
+        return self.name(receiver["name"]), self.name(member["name"]), old_member is not None or old_receiver is not None
+
+    def _lint_ref_postconditions(
+        self: _Elaborator, requires: list[Node], ensures: list[Node], properties: dict[str, frozenset[str]],
+        *, old_intrinsic: bool,
+    ) -> None:
+        entry_access: set[tuple[str, str, bool]] = set()
+        for requirement in requires:
+            if requirement["role"] != "requires":
+                continue
+            conjuncts = self._conjuncts(self.node(requirement["value"]))
+            if any(conjunct["kind"] == "is" for conjunct in conjuncts):
+                continue
+            for conjunct in conjuncts:
+                member = self._descriptor_member(conjunct)
+                if member is not None and member[0] in properties and member[1] in _ACCESS_PROPERTIES:
+                    entry_access.add(member)
+        for guarantee in ensures:
+            conjuncts = self._conjuncts(self.node(guarantee["value"]))
+            # A pattern test in a conjunction can bind names in later operands.
+            if any(conjunct["kind"] == "is" for conjunct in conjuncts):
+                continue
+            for conjunct in conjuncts:
+                member = self._descriptor_member(conjunct)
+                if member is not None and member not in entry_access:
+                    member = None
+                if old_intrinsic and conjunct["kind"] == "binary" and self.operator(conjunct["operator"]) == "==":
+                    left = self._descriptor_member(self.node(conjunct["left"]), old_intrinsic=True)
+                    right = self._descriptor_member(self.node(conjunct["right"]), old_intrinsic=True)
+                    if (left is not None and right is not None and left[:2] == right[:2] and left[2] != right[2]
+                            and left[0] in properties and left[1] in properties[left[0]]):
+                        member = left
+                if member is not None:
+                    param, field, _ = member
+                    offset = cast("list[int]", conjunct["span"])[0]
+                    self.redundant_ref_ensures[offset] = f"{param}.{field}"
+
     def _emit_param_descriptor_restores(
         self: _Elaborator,
         *,
@@ -3674,13 +3760,7 @@ class _DeclarationsMixin:
             raise self.fail("type", f"cannot identify a unique restored descriptor for '{target_param_name}'; "
                             "specify its restoration predicate on the result explicitly", rest_site)
         if param_ty_w == span_u8:
-            for field_tag, eq_ty in (
-                ("Base", _USIZE),
-                ("Length", _USIZE),
-                ("Tag", _BOOL),
-                ("PermRead", _BOOL),
-                ("PermWrite", _BOOL),
-            ):
+            for field_tag, eq_ty in _RESTORED_SPAN_FIELDS:
                 self.reset_budget()
                 lhs_f = _apps(_constant(f"Span_{field_tag}"), _U8, restored)
                 rhs_f = _apps(_constant(f"Span_{field_tag}"), _U8, param_b.term)
@@ -3699,13 +3779,7 @@ class _DeclarationsMixin:
                 )
         elif p_head == _constant("Slots") and len(p_args) == 2:
             elem_t, cap_t = p_args
-            for field_tag, eq_ty in (
-                ("Base", _USIZE),
-                ("Tag", _BOOL),
-                ("PermRead", _BOOL),
-                ("PermWrite", _BOOL),
-                ("Capacity", _NAT),
-            ):
+            for field_tag, eq_ty in _RESTORED_SLOTS_FIELDS:
                 self.reset_budget()
                 if field_tag == "Capacity":
                     lhs_f = cap_t

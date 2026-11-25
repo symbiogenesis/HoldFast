@@ -130,6 +130,7 @@ The compiler reports these advisory lint IDs.
 | `HOLDFAST105` | A generic type parameter name does not use a capital initial and ASCII alphanumeric words |
 | `HOLDFAST107` | An unparenthesized bitwise expression is an operand of a comparison in checked mathematical source |
 | `HOLDFAST108` | An otherwise legal binding pattern differs only in its initial capitalization from a constructor of the scrutinee type. A confusable whole match pattern is a [type error](../language/reference.md#lexical-structure). |
+| `HOLDFAST109` | An `ensures` conjunct repeats a descriptor guarantee implied by a `ref Span<byte>` or `ref Slots<T, capacity>` parameter |
 
 The mathematical CLI and native playground report `HOLDFAST107` for accepted
 expressions such as `flags & mask == 0u8`. Write `(flags & mask) == 0u8` to
@@ -199,12 +200,19 @@ ordered spellings, and checks that a second
 formatting pass yields identical bytes. Both compilers use the same source
 identity checks and atomic file replacement. [Formatter](../../tools/toolchain/mathematical_authoring.py)
 
-`holdfast-parser lint FILE` reports the mathematical expression and pattern rules
-alongside public member naming, local and parameter naming, and missing
+`holdfast-parser lint FILE` reports mathematical expression, pattern and contract
+findings alongside public member naming, local and parameter naming, and missing
 documentation on public functions, definitions and constants. Use `--allow ID`
 to suppress a rule or `--deny ID` to fail on its findings. The locations identify
 the original source. The [bitwise grouping preview](#lint-policy) consumes the
 reported operator coordinates.
+
+`HOLDFAST109` points to a top-level `ensures` conjunct that equates a preserved descriptor
+property of a `ref Span<byte>` or `ref Slots<T, capacity>` parameter with its entry
+value. It recognizes both `buf.Base == old(buf.Base)` and `buf.Base == old(buf).Base`,
+including reversed operands. A bare `CanRead` or `CanWrite` assertion is also
+redundant when a matching `requires` conjunct establishes that permission at entry.
+[Descriptor preservation](../language/reference.md#contracts)
 
 ## Checked Boolean comparison previews
 

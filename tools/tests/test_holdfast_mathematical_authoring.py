@@ -126,6 +126,71 @@ def _native() -> None:
         ensure(code == 1 and path.read_bytes() == bad_syntax, "syntax-only mode rewrote malformed input")
 
 
+def _ref_contract_redundancy() -> None:
+    source = b"""module RefContractLint;
+
+/// Writes one byte through a mutable view.
+public Unit WriteByte(ref Span<byte> pkt, byte value)
+    effects writes(pkt)
+    requires pkt.CanRead && pkt.CanWrite && pkt.Length >= 8
+    ensures pkt.Base == old(pkt.Base)
+        && pkt.Length == old(pkt.Length)
+        && pkt.CanRead
+        && pkt.CanWrite
+        && pkt[0] == value
+{
+    pkt[0] = value;
+}
+
+/// Checks metadata through a read-only view.
+public Unit Inspect(in Span<byte> input)
+    requires input.CanRead
+    ensures input.Base == old(input.Base) && input.CanRead
+{
+    return ();
+}
+
+/// Retains the slot descriptor.
+public Unit KeepSlots(ref Slots<byte, 4> slots)
+    ensures old(slots).Capacity == slots.Capacity
+{
+    return ();
+}
+
+/// Reports whether the view is writable.
+public bool WriteAccess(ref Span<byte> pkt)
+    ensures result ==> pkt.CanWrite
+{
+    return pkt.CanWrite;
+}
+
+/// States a permission established by a Boolean comparison.
+public Unit KeepReadAccess(ref Span<byte> pkt)
+    requires pkt.CanRead == true
+    ensures pkt.CanRead
+{
+    return ();
+}
+"""
+    with tempfile.TemporaryDirectory() as temp:
+        path = Path(temp) / "contracts.hf"
+        path.write_bytes(source)
+        before = path.stat().st_mtime_ns
+        code, out, err = _invoke(["lint", str(path)])
+        sites = ((7, 13), (8, 12), (9, 12), (10, 12), (26, 13))
+        expected = [f"{path}:{line}:{column}: warning HOLDFAST109:" for line, column in sites]
+        warnings = err.splitlines()
+        ensure(code == 0 and not out and len(warnings) == len(expected)
+               and all(warning.startswith(prefix) for warning, prefix in zip(warnings, expected, strict=True)),
+               f"mathematical lint did not locate exactly the redundant ref conjuncts: {err}")
+        code, out, err = _invoke(["lint", str(path), "--deny", "HOLDFAST109"])
+        ensure(code == 1 and not out and err.count("error HOLDFAST109:") == len(sites),
+               f"denied ref-contract lint did not fail: {err}")
+        code, out, err = _invoke(["lint", str(path), "--allow", "HOLDFAST109"])
+        ensure(code == 0 and not out and not err, f"allowed ref-contract lint was reported: {err}")
+        ensure(path.read_bytes() == source and path.stat().st_mtime_ns == before, "contract lint rewrote source")
+
+
 def _proofs() -> None:
     with tempfile.TemporaryDirectory() as temp:
         path = Path(temp) / "layout.hf"
@@ -152,6 +217,7 @@ def cases() -> list[Case]:
     return [Case("reject detached mathematical lexical ranges", _protocol),
             Case("mathematical source rewrite refuses concurrent edit", _edit_race),
             Case("mathematical canonical bytes, diagnostics and preview lifecycle", _native, lane="toolchain"),
+            Case("ref descriptor redundancy reports only implied conjuncts", _ref_contract_redundancy, lane="guest"),
             Case("mathematical canonical and original proofs replay", _proofs, slow=True, lane="toolchain"),
             Case("format and recheck the accepted mathematical replay corpus", _accepted_corpus,
                  slow=True, lane="toolchain")]

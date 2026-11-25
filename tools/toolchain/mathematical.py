@@ -75,6 +75,10 @@ def inspect_source(source: bytes, parsed: object) -> Compilation:
         site = position(source[:offset].decode("utf-8"))
         findings.append(Finding("HOLDFAST108", f"this pattern binds every value. Use '{spelling}' to match the constructor",
                                 site.line, site.column))
+    for offset, field in translation.redundant_ref_ensures.items():
+        site = position(source[:offset].decode("utf-8"))
+        findings.append(Finding("HOLDFAST109", f"postcondition for '{field}' follows from ref descriptor preservation",
+                                site.line, site.column))
     names.sort(key=lambda item: item[0])
     findings.extend(generic_type_findings(tuple(name for _, name in names)))
     findings.sort(key=lambda item: (item.line, item.column, item.code))
