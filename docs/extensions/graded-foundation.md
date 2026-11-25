@@ -54,6 +54,12 @@ commission a separate verification tool solely for speed.
 Retaining that optimization is not a prerequisite for adopting useful type-use
 reasoning, and its donor measurements establish no HoldFast speedup.
 
+The pure `NatExact` calculus proves that substitution for a variable with
+checked zero type demand leaves the inferred type and all its demand counts
+unchanged. This uses exact natural addition and the checked dependency row.
+The optimization comparison still requires representative checking and replay
+measurements. [Irrelevance theorem](../../tools/rocq/graded_type_irrelevance.v)
+
 ### Conditional usability producers
 
 Granule's [derived distributive combinators](https://arxiv.org/abs/2112.14966)
