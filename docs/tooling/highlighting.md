@@ -83,9 +83,10 @@ actions. Canonical positive cases parse without recovery. Some refused source
 retains an editor tree, including
 reserved words in contextual identifier positions, declaration modifiers and
 constant or proof-signature restrictions, constructor-pattern spellings and
-binding shape, unsupported null spellings, bare typed locals, raw-string layout,
-and empty interpolation expressions or specifiers. The
-[recovery fixtures](../../tools/editor/recovery.json) define those dispositions. Invalid
+binding shape, unsupported null spellings, bare typed locals, generic applications
+before [operators outside the follow set](../language/surface-grammar.md#bindings-match-arms-and-generic-calls),
+raw-string layout, and malformed interpolation expressions or specifiers.
+The [recovery fixtures](../../tools/editor/recovery.json) define those dispositions. Invalid
 UTF-8 and compiler resource-limit cases retain their canonical refusals and are
 outside the projected editor envelope.
 

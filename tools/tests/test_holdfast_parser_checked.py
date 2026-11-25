@@ -129,7 +129,7 @@ def _pure_grammar_view_and_assumptions() -> None:
     mly_text = (root / "tools/toolchain/parser/parser.mly").read_text(encoding="utf-8")
     pure_mly, token_stub = checked._pure_grammar_view(mly_text)
     ensure(pure_mly == checked.HOLDFAST_PURE_GRAMMAR_MLY, "pure grammar view differed from checked specification")
-    ensure("type token =" in token_stub and "let generic_call_prefix _ _ : unit = raise Error" in token_stub,
+    ensure("type token =" in token_stub and "let generic_application_prefix _ _ : unit = raise Error" in token_stub,
            "token stub omitted token definitions or prefix entry")
     for mutated in (
         mly_text.replace("MODULE module_name=name SEMICOLON", "MODULE module_name=name"),

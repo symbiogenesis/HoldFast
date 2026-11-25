@@ -551,6 +551,41 @@ if (!read.ok || read.value !== "42") {
   throw new Error(`Dependent builtins failed in an ordinary function: ${JSON.stringify(read)}`);
 }
 const ordinarySource = "module Ordinary; public Nat Value() => 42;";
+const genericSource = [
+  "module Generics;",
+  "public definition T Identity<T>(T value) => value;",
+  "public bool Both(bool left, bool right) => left && right;",
+  "public Nat First => 1;",
+  "public Nat Middle => 2;",
+  "public Nat Last => 8;",
+].join("\n");
+for (const [expression, valueType, value] of [
+  ["Identity /* trivia */ <Nat>(42)", "Nat", "42"],
+  ["Both(First < Middle, Last > 7)", "bool", "true"],
+]) {
+  const outcome = await mod.browserApi("/api/evaluate", { source: genericSource, expression, valueType });
+  if (!outcome.ok || outcome.value !== value) {
+    throw new Error(`Browser angle disambiguation changed ${expression}: ${JSON.stringify(outcome)}`);
+  }
+}
+for (const [expression, kind, detail] of [
+  ["Identity::<Nat>(42)", "syntax", "write F<T>"],
+  ["Identity<Nat> + 1", "syntax", "after expression"],
+  ["(Identity<Nat>) + 1", "unsupported", "require the native compiler"],
+  ["Both(Identity<Nat>, true)", "unsupported", "require the native compiler"],
+  ["Identity<Vec<Nat, 1>>.Value()", "unsupported", "require the native compiler"],
+]) {
+  const outcome = await mod.browserApi("/api/evaluate", { source: genericSource, expression, valueType: "Nat" });
+  if (outcome.ok || outcome.error?.kind !== kind || !outcome.error.message.includes(detail)) {
+    throw new Error(`Browser angle application ${expression} produced ${JSON.stringify(outcome)}`);
+  }
+}
+const legacyFormat = await mod.browserApi("/api/compile", {
+  source: 'module LegacyFormat; public Format F() => $"value {Identity::<Nat>(42)}";',
+});
+if (legacyFormat.ok || legacyFormat.error?.kind !== "syntax" || !legacyFormat.error.message.includes("write F<T>")) {
+  throw new Error(`Browser interpolation accepted the legacy generic marker: ${JSON.stringify(legacyFormat)}`);
+}
 for (const [source, detail] of [["\uFEFF" + ordinarySource, "byte-order mark"],
                                 [ordinarySource + "\n//\uD800", "surrogate"]]) {
   const refusal = await mod.browserApi("/api/evaluate", { source, expression: "Value()", valueType: "Nat" });

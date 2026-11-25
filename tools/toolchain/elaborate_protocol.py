@@ -131,6 +131,16 @@ _OPERATORS = {
     "==", "!=", "<", "<=", ">", ">=", "&&", "||", "!", "==>", "<==>",
 }
 _ASSIGN_OPERATORS = {"=", "+=", "-=", "*=", "/=", "%="}
+# Match the [generic follower](../../docs/language/surface-grammar.md#bindings-match-arms-and-generic-calls)
+# without accepting prefixes of longer lexer tokens.
+_GENERIC_APPLICATION_FOLLOW = re.compile(
+    rb"""
+    [()\[\]};,^] | \|\|? | &&? | \.(?!\.) | :(?!:<) | \?(?![?.A-Za-z_])
+  | ==(?!>) | != | <=(?!=>) | >= | => | <(?!=)
+  | (?:is|as)(?![A-Za-z_0-9])
+    """,
+    re.VERBOSE,
+)
 _SYNTAX_WORDS = {
     "function_type": ("mode", {"Fn", "FnMut", "FnOnce"}),
     "generic_parameter": ("mode", {"type", "ghost", "region", "effect", "captures", "grade"}),
@@ -693,14 +703,14 @@ class _Protocol:
                 cursor = self._token(node, cursor, b"}")
         elif kind == "generic_application":
             cursor = self._child(node, span, cursor, node["value"])
-            cursor = trivia_end(self.source, cursor, block_comments=True)
-            explicit = self.source[cursor:cursor + 3] == b"::<"
             if not node["arguments"]:
                 raise self.error("protocol", "generic application requires nonempty arguments", node)
-            cursor = self._list(node, span, cursor, node["arguments"], b"::<" if explicit else b"<", b">")
+            cursor = self._list(node, span, cursor, node["arguments"], b"<", b">")
+            if self.source[cursor:cursor + 1] == b"=":
+                raise self.error("protocol", "generic application requires a standalone '>' token", node)
             following = trivia_end(self.source, cursor, block_comments=True)
-            if not explicit and self.source[following:following + 1] != b"(":
-                raise self.error("protocol", "ordinary generic application must be followed by a call", node)
+            if following < 0 or _GENERIC_APPLICATION_FOLLOW.match(self.source, following) is None:
+                raise self.error("protocol", "generic application has an invalid following token", node)
         elif kind == "let_expression":
             binding = node["binding"]
             if not isinstance(binding, dict) or binding.get("kind") not in {"let", "typed_local", "let_pattern"}:

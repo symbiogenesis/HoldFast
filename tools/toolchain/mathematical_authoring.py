@@ -118,7 +118,7 @@ def _space(left: Part, right: Part, roles: dict[int, str]) -> bool:
     if left.comment or right.comment:
         return True
     before, after = left.spelling, right.spelling
-    if after in (b";", b",", b".", b":", b")", b"]", b"?", b"::<") or before in (b".", b"(", b"[", b"::<"):
+    if after in (b";", b",", b".", b":", b")", b"]", b"?") or before in (b".", b"(", b"["):
         return False
     if roles.get(left.start) == "unary":
         return before.isalpha()

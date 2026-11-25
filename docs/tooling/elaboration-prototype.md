@@ -45,7 +45,7 @@ accounts for separately compiled consumers, ABI, and replayed kernel evidence.
 The elaborator uses the [surface grammar](../language/surface-grammar.md)
 and supports the following features.
 
-- Generic type and stable ghost-value telescopes, ordinary generic calls and explicit `::<...>` application
+- Generic type and stable ghost-value telescopes, explicit generic application
   and fresh inferred instantiation at each use. Generic variables in a
   declaration are rigid; inference cannot specialize its promised signature.
   Executable function bodies reject dependencies on erased values and on
@@ -604,9 +604,10 @@ a dependent callable and equality proofs. `elaborate` prints Gallina or writes
 toolchain; `elaborate-qualify` additionally requires the locked proof switch.
 Only the latter command supplies a kernel verdict for its declared fixtures.
 
-Generic parameters default to `Type`; `<TElement, ghost Nat length>` quantifies a type and
-stable natural index. Each call infers new arguments, while `::<...>` supplies
-them explicitly and `_` requests an inferred argument. A contextual lambda can
+Generic parameters default to `Type`. The telescope `<TElement, ghost Nat length>`
+quantifies a type and stable natural index. Each call infers new arguments by
+default. The [generic application syntax](../language/surface-grammar.md#bindings-match-arms-and-generic-calls)
+supplies them explicitly, and `_` requests an inferred argument. A contextual lambda can
 use `value => ...` or `(left, right) => ...`; omitted parameter annotations use
 the same bounded expected-type inference as annotation holes. Missing type
 information remains an error. Ordinary value-returning functions may use
@@ -622,5 +623,5 @@ needs an explicit theorem. Inside `proof` blocks, `assert expr;`,
 `assert expr by Lemma(args);` and `assert expr by { ... }` guide verification
 using ordinary lemma calls and intermediate assertions rather than hand-built
 proof combinators. Concrete product projections and finite lookup reduce during checking,
-so the example proves its lookup result. `type[Eq::<T>(left, right)]` lets an
+so the example proves its lookup result. `type[Eq<T>(left, right)]` lets an
 ordinary parameter carry that proof.

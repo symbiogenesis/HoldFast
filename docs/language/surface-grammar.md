@@ -12,7 +12,7 @@ and quotation/splicing are [metaprogramming designs](../extensions/metaprogrammi
 ## Entry points
 
 One authored Menhir grammar owns two public entry points and uses an internal
-generic-call prefix probe sharing its generic-argument productions. The internal
+generic-application prefix probe sharing its generic-argument productions. The internal
 probe is not an input/output protocol or a second syntax authority. The `file` entry and
 schema 1 serve the pure prototype and its parser comparison. The
 `surface_file` entry, selected with `holdfast-parser parse --surface SOURCE`, emits
@@ -57,12 +57,11 @@ construct syntax, including syntactically valid programs with semantic errors.
 | Architecture and hardware | Machine/hardware containers, state/register declarations, transitions/rules, guards, next-state assignments and explicit schedules/cycles |
 
 The surface uses type-first declarations and braced containers.
-Ordinary explicit generic calls use `F<T>(arguments)` under the
-[token-only call rule](#bindings-match-arms-and-generic-calls); explicit generic expression
-application retains `::<...>` for function values and disambiguation.
-Nested type arguments close with individual `>`
-tokens; shifts may use named operations. Generic arguments admit values and
-lifetimes. A parenthesized generic value disambiguates relational expressions.
+Generic expressions such as `F<T>(arguments)` and `Foo<T>.Bar` use the
+[token-only angle-argument rule](#bindings-match-arms-and-generic-calls).
+Nested type arguments close with individual `>` tokens. Shifts may use named
+operations. Generic arguments admit values and lifetimes. Parentheses delimit
+relational expressions used as generic values.
 Loop bodies use braces. A function type returning another function type puts that
 result in parentheses. Lambdas use `=>`; function types use `->`. Quantifiers use
 typed binders followed by `=>`. Proof commands end in semicolons. Architecture/hardware
@@ -622,7 +621,7 @@ Use the symbol families consistently:
 | `(...)` | Calls, parameter telescopes, grouping, products and parenthesized operator values; grammar context fixes the role |
 | `{...}` | Declaration/statement/proof bodies, match arms, handler clauses and explicitly introduced callable contracts |
 | `[...]` | Indexing; `type[...]` explicitly introduces a computed type |
-| `<...>`, `::<...>` | Type/generic parameters and arguments, including ordinary generic calls under the token-only rule; explicit generic expression application |
+| `<...>` | Generic parameters and arguments. Expression `<...>` follows the [token-only rule](#bindings-match-arms-and-generic-calls). |
 | `->`, `=>`, `==>`, `<==>` | Callable result, lambda/operation/quantifier/match/handler body, implication and equivalence respectively |
 | `\|`, `\|\|`, `&`, `&&`, `^`, `~` | Bitwise and Boolean operators with separate fixed precedence; prefix `&` derives an address/loan |
 | `*`, `+`, `-` | Multiplication and additive operators; prefix `*` dereferences a pointer and prefix `-` negates |
@@ -752,7 +751,7 @@ Editor hints follow the [hint contract](../tooling/lsp-prototype.md#authoring-hi
 ### Bindings, match arms, and generic calls
 
 The development parser accepts typed `let`/`var`, comma-separated expression
-arms, mathematical `=>` bodies and ordinary generic calls. The pure prototype
+arms, mathematical `=>` bodies and generic applications. The pure prototype
 checks typed immutable `Nat`/`bool` locals.
 
 **Bindings and aliases.** Local declarations use `let [T] name = value` and
@@ -770,55 +769,66 @@ refused), and mathematical definitions use `definition ... => EXPR;` while
 value initializers, constants, type aliases, associated-type definitions and
 grade-domain equations retain `=`.
 
-**Ordinary generic calls.** At a postfix expression followed by `<`, perform a
-bounded token-only probe for one complete nonempty generic-argument list ending
-in its matching `>`, followed by `(`. Whitespace and comments between these
-tokens do not affect the decision. Arguments reuse the existing generic-argument
-grammar, including dependent values, lifetimes, explicit structural types,
-computed types, optional trailing commas and parenthesized value expressions.
-If that complete shape exists, select generic application followed by a call.
-Otherwise `<` belongs to the ordinary operator grammar. This is an explicit
-lexical classification rule, never a parser conflict default or a choice made
-by name resolution, inferred types or import order. Once selected, a malformed
-call or semantic error cannot retry as comparisons.
+**Generic applications in expressions.** At a postfix expression followed by
+`<`, probe for one complete nonempty generic-argument list ending in its matching
+`>`. Select generic application if the next token is one of these.
 
-Thus `Outer(F<A, B>(7))` contains one generic call argument, while
-`Outer(F < A, B > 7)` contains two comparison arguments. `f < n > (x)` selects a
-generic call even if `f` and `n` do not resolve to suitable declarations;
-whitespace cannot request another reading. Use parentheses to express the
-comparison structure, as in `(f < n) > x`, leaving type validity to checking.
-Relational expressions used as generic values remain parenthesized, as in
-`Choose<(a < b)>(value)`. Member and computed callees follow the same rule,
+```text
+( ) ] } : ; , . ? == != | ^ && || & [ => < <= >= is as
+```
+
+Otherwise `<` belongs to the ordinary operator grammar. HoldFast uses C#'s
+fixed follower tokens with its own postfix expressions and generic argument
+grammar.
+[C# grammar ambiguities](https://learn.microsoft.com/dotnet/csharp/language-reference/language-specification/lexical-structure#625-grammar-ambiguities)
+
+The lexer skips whitespace and comments between tokens and recognizes the
+longest token at each position. For example, `F<T>>=x` has a closing `>` followed
+by `>=`. Write `F<T> == x` with a space so the closer and equality operator
+are separate tokens. A named hole such as `?name` has its own token.
+
+Arguments use the same grammar as in types, including dependent values,
+lifetimes, explicit structural types, computed types, optional trailing commas
+and parenthesized value expressions. Type positions accept angle arguments
+regardless of the token after the closer. The probe is bounded and uses token
+shape alone. Its classification is final even when the remaining syntax is
+malformed or a name, type or other semantic check fails.
+
+`Outer(F<A, B>(7))` contains one generic call argument, and
+`Outer(F < A, B > 7)` contains two comparison arguments. The `&` follower makes
+`Outer(F < A, B > &value)` one bitwise expression argument. Write
+`Outer((F < A), B > &value)` for two comparisons. To express a grouped
+comparison where `f < n > (x)` selects a generic call, write `(f < n) > x`.
+Relational expressions inside generic arguments use parentheses, as in
+`Choose<(a < b)>(value)`. The rule also applies to member and computed callees,
 including `Library.F<T>(value)` and `factory()<T>(value)`.
 
-`::<...>` remains explicit generic application, including non-call values such
-as `Apply(Identity::<Nat>, value)` and explicitly disambiguated calls. Canonical
-ordinary calls use `<...>`. Neither spelling changes inference, argument order,
-dependent substitution, loans, ownership, effects or evaluation counts. Both
-produce the same `generic_application` and enclosing call structure, while
-retaining the actual source spelling through original-byte spans. Nested type
-closers remain individual `>` tokens; no shift operator is introduced.
+Write `Foo<T>.Bar` for member access and `Apply(Identity<Nat>, value)` to pass a
+specialized function value. Parenthesize the application before a token outside
+the follow set, as in `(F<T>) > x`. The closing `)` selects the generic parse.
+The resulting `generic_application` retains its original-byte span and follows
+the ordinary inference, dependent substitution, evaluation, loan, ownership and
+effect rules.
 
 Every probe shares the existing source, delimiter, syntax-depth and duration
 bounds, plus a declared aggregate token-inspection budget covering unsuccessful
 and nested probes. Exhaustion is a resource refusal for the whole parse, never
 permission to reinterpret the source as comparisons. No speculative AST or
-token rewrite may leak into a failed probe. The implementation freezes the
-aggregate bound at 200,000 inspected tokens per parse. Use `F::<T>(...)` to
-bypass the prefix probe at that application. The budget is shared across
-recursive probes, with boundary fixtures before qualification, retaining the
-current source-consumption and diagnostic bounds.
+token rewrite may leak into a failed probe. All probes share the aggregate
+bound of 200,000 inspected tokens per parse. Qualification checks the boundary
+and the source-consumption and diagnostic bounds.
 
 **Qualification.** Independently expected fixtures cover all
 four local forms, their AST roles and reassignment diagnostics; aliases versus
 underlying types, exact boundary values, explicit conversion refusals, import/name
 collisions and alias source identity beside target-type identity; empty,
 single and multiple match arms, nested patterns/motives and malformed separators;
-mathematical body arrows beside contracts and alias/constant `=`, and both
-generic-application spellings beside comparisons. Include nested generic calls,
-computed and member callees, higher-order values, parenthesized relational
-arguments, all generic-argument modes, trailing commas, comments/newlines,
-Unicode byte spans, incomplete delimiters and probe-budget boundaries. Name,
+mathematical body arrows beside contracts and alias/constant `=`, and generic
+applications and comparisons with and without grouping. Include nested generic calls,
+computed and member callees, member access on a generic receiver, higher-order
+values, parenthesized relational arguments, all generic-argument modes, trailing
+commas, comments/newlines, Unicode byte spans, incomplete delimiters and
+probe-budget boundaries. Name,
 type, purity, grade and resource mistakes must reach their semantic consumer
 after successful parsing where their token shape is valid.
 

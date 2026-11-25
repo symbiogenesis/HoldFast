@@ -88,7 +88,7 @@ public definition Option<bool> Combine(bool first, bool second) => Some(second);
 public Option<bool> Sequenced() {
     var count = 0;
     let first = Tick(ref count);
-    return Combine(first, count == 1 && None::<bool>?);
+    return Combine(first, count == 1 && None<bool>?);
 }
 public Option<bool> GuardOnce() {
     var count = 0;
@@ -96,30 +96,30 @@ public Option<bool> GuardOnce() {
     return Some(count == 1);
 }
 public lemma TruthTable()
-    ensures AndOption(false, None::<bool>) == Some(false)
-    ensures OrOption(true, None::<bool>) == Some(true)
-    ensures AndOption(true, None::<bool>) == None::<bool>
-    ensures OrOption(false, None::<bool>) == None::<bool>
+    ensures AndOption(false, None<bool>) == Some(false)
+    ensures OrOption(true, None<bool>) == Some(true)
+    ensures AndOption(true, None<bool>) == (None<bool>)
+    ensures OrOption(false, None<bool>) == (None<bool>)
     ensures AndResult(false, Err<bool,Nat>(7)) == Ok(false)
     ensures OrResult(true, Err<bool,Nat>(7)) == Ok(true)
     ensures AndResult(true, Err<bool,Nat>(7)) == Err<bool,Nat>(7)
     ensures OrResult(false, Err<bool,Nat>(7)) == Err<bool,Nat>(7)
-    ensures Nested(false, None::<bool>) == Some(false)
-    ensures Nested(true, None::<bool>) == None::<bool>
-    ensures Sequenced() == None::<bool>
+    ensures Nested(false, None<bool>) == Some(false)
+    ensures Nested(true, None<bool>) == (None<bool>)
+    ensures Sequenced() == (None<bool>)
     ensures GuardOnce() == Some(true)
     proof {
-        assert AndOption(false, None::<bool>) == Some(false);
-        assert OrOption(true, None::<bool>) == Some(true);
-        assert AndOption(true, None::<bool>) == None::<bool>;
-        assert OrOption(false, None::<bool>) == None::<bool>;
+        assert AndOption(false, None<bool>) == Some(false);
+        assert OrOption(true, None<bool>) == Some(true);
+        assert AndOption(true, None<bool>) == None<bool>;
+        assert OrOption(false, None<bool>) == None<bool>;
         assert AndResult(false, Err<bool,Nat>(7)) == Ok(false);
         assert OrResult(true, Err<bool,Nat>(7)) == Ok(true);
         assert AndResult(true, Err<bool,Nat>(7)) == Err<bool,Nat>(7);
         assert OrResult(false, Err<bool,Nat>(7)) == Err<bool,Nat>(7);
-        assert Nested(false, None::<bool>) == Some(false);
-        assert Nested(true, None::<bool>) == None::<bool>;
-        assert Sequenced() == None::<bool>;
+        assert Nested(false, None<bool>) == Some(false);
+        assert Nested(true, None<bool>) == None<bool>;
+        assert Sequenced() == None<bool>;
         assert GuardOnce() == Some(true);
     }
 """),
@@ -179,12 +179,15 @@ definition Nat Number() => Identity(3);
 definition bool Flag() => Identity(true);
 definition Nat Explicit() => Identity<Nat>(4);
 """),
-        ("retained-explicit-generic-values-and-calls", """module ExplicitReplay;
+        ("generic-values-and-calls", """module GenericApplicationReplay;
 definition T Identity<T>(T value) => value;
 definition U Apply<T,U>(Fn(T value) -> U function,T value) => function(value);
-definition Nat Value() => Apply(Identity::<Nat>,7);
-definition Nat Call() => Identity::<Nat>(8);
+definition Nat Value() => Apply(Identity<Nat>,7);
+definition Nat GroupedValue() => Apply((Identity<Nat>),7);
+definition Nat Call() => Identity<Nat>(8);
 lemma ValueCorrect() ensures Value() == 7 proof { assert Value() == 7; }
+lemma GroupedValueCorrect() ensures GroupedValue() == Value()
+    proof { assert GroupedValue() == Value(); }
 lemma CallCorrect() ensures Call() == 8 proof { assert Call() == 8; }
 """),
         ("record-entry-invariant-evidence", """module InvariantReplay;
@@ -551,19 +554,19 @@ public lemma GuardedSome()
     proof { assert UnwrapGuarded(Some(5), 0) == 10; }
 public lemma OptionRoundTrip(Option<Nat> item)
     ensures (match (item) {
-        None => None::<Nat>,
+        None => None<Nat>,
         Some(value) => Some<Nat>(value),
     }) == item
     proof {
         match (item) {
             None =>
-                assert (match (None::<Nat>) {
-                    None => None::<Nat>,
+                assert (match (None<Nat>) {
+                    None => None<Nat>,
                     Some(value) => Some<Nat>(value),
-                }) == None::<Nat>;
+                }) == None<Nat>;
             Some(value) =>
                 assert (match (Some<Nat>(value)) {
-                    None => None::<Nat>,
+                    None => None<Nat>,
                     Some(inner) => Some<Nat>(inner),
                 }) == Some<Nat>(value);
         }
@@ -666,8 +669,8 @@ public Result<Nat, bool> AddResults(Result<Nat, bool> left, Result<Nat, bool> ri
 }
 public lemma PropagateSome() ensures AddOptions(Some(3), Some(4)) == Some(7)
     proof { assert AddOptions(Some(3), Some(4)) == Some(7); }
-public lemma PropagateNone() ensures AddOptions(None::<Nat>, Some(4)) == None::<Nat>
-    proof { assert AddOptions(None::<Nat>, Some(4)) == None::<Nat>; }
+public lemma PropagateNone() ensures AddOptions(None<Nat>, Some(4)) == (None<Nat>)
+    proof { assert AddOptions(None<Nat>, Some(4)) == None<Nat>; }
 public lemma PropagateOk() ensures AddResults(Ok<Nat, bool>(2), Ok<Nat, bool>(5)) == Ok<Nat, bool>(7)
     proof { assert AddResults(Ok<Nat, bool>(2), Ok<Nat, bool>(5)) == Ok<Nat, bool>(7); }
 public lemma PropagateErr() ensures AddResults(Err<Nat, bool>(true), Ok<Nat, bool>(5)) == Err<Nat, bool>(true)
@@ -872,6 +875,7 @@ public interface Second<T> { T Step(T x); }
 public impl First<Nat> { public definition Nat Step(Nat x) => x + 1; }
 public impl Second<bool> { public definition bool Step(bool x) => x; }
 public definition Nat Number() => First.Step(5);
+public definition Nat GenericReceiver() => First<Nat> /* café */ .Step(5);
 public definition bool Flag() => Second.Step(true);
 public record Callbacks(Fn(Nat value) -> Nat Invoke);
 public definition Nat Apply(Callbacks callbacks) => callbacks.Invoke(5);
@@ -881,6 +885,7 @@ public lemma Values()
     ensures Receiver(5) == 6
     ensures ReceiverBinary(5) == 8
     ensures Number() == 6
+    ensures GenericReceiver() == Number()
     ensures Flag() == true
     proof {
         assert UnaryCall() == 6;
@@ -888,6 +893,7 @@ public lemma Values()
         assert Receiver(5) == 6;
         assert ReceiverBinary(5) == 8;
         assert Number() == 6;
+        assert GenericReceiver() == Number();
         assert Flag() == true;
     }
 """),
@@ -1250,6 +1256,10 @@ public Nat RoundTripOwned()
          "public impl First<Nat> { public definition Nat Step(Nat x) => x + 1; } "
          "public impl Second<bool> { public definition bool Step(bool x) => x; } "
          "public definition Nat Wrong(Nat x) => Step(x);", "type"),
+        ("generic-interface-receiver-without-implementation",
+         "public interface First<T> { T Step(T x); } "
+         "public impl First<Nat> { public definition Nat Step(Nat x) => x + 1; } "
+         "public definition bool Wrong() => First<bool>.Step(true);", "type"),
         ("interface-unsatisfied-where",
          "public interface Steppable<T> { T Step(T x); } "
          "public definition T UseStep<T>(T x) where Steppable(type T) => Steppable.Step(x); "
@@ -1300,7 +1310,7 @@ public Nat RoundTripOwned()
          "public bool Tick(ref Nat count) { count = count + 1; return true; } "
          "public definition Option<bool> Combine(bool first, bool second) => Some(second); "
          "public Option<bool> Wrong() { var count = 0; "
-         "return Combine(Tick(ref count), count == 1 && None::<bool>?); }", "unsupported"),
+         "return Combine(Tick(ref count), count == 1 && None<bool>?); }", "unsupported"),
     )
     pure = Fixture("pure-expression-operators", b"""module PureExpressions;
 public Nat Difference(Nat left, Nat right) {

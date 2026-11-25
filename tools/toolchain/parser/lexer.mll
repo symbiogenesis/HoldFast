@@ -23,23 +23,23 @@ let opening state lexbuf token =
 let closing state token = state.delimiters <- max 0 (state.delimiters - 1); token
 (* Prefix classification reuses the authored generic-argument grammar. Clones
    share only immutable source bytes, memoized decisions and the work budget. *)
-let generic_call next state lexbuf =
+let generic_application next state lexbuf =
   let offset = Lexing.lexeme_start lexbuf in
   match Hashtbl.find_opt state.generic_probes offset with
   | Some decision -> decision
   | None ->
       if state.probe_depth >= Ast.max_delimiter_depth then
-        refuse "limit" lexbuf "generic-call probe nesting exceeds 256";
+        refuse "limit" lexbuf "generic-application probe nesting exceeds 256";
       let probe_state = { state with probe_depth = state.probe_depth + 1 } in
       let probe = { lexbuf with Lexing.lex_mem = Array.copy lexbuf.Lexing.lex_mem } in
       let inspect input =
         incr state.probe_tokens;
         if !(state.probe_tokens) > Ast.max_generic_probe_tokens then
-          raise (Ast.Refusal ("limit", offset, "generic-call probes exceed 200000 inspected tokens. Use F::<T>(...) for explicit generic calls."));
+          raise (Ast.Refusal ("limit", offset, "generic-application probes exceed 200000 inspected tokens"));
         next probe_state input
       in
       let decision =
-        try Parser.generic_call_prefix inspect probe; true with
+        try Parser.generic_application_prefix inspect probe; true with
         | Parser.Error -> false
         | Ast.Refusal ("syntax", _, _) -> false
       in
@@ -580,7 +580,9 @@ rule token state = parse
       lexbuf.Lexing.lex_curr_p <- { lexbuf.Lexing.lex_curr_p with
         Lexing.pos_cnum = lexbuf.Lexing.lex_start_p.Lexing.pos_cnum + 1 };
       QUESTION }
-  | '@' { AT } | '?' { QUESTION } | ".." { RANGE } | "::<" { GENERIC_OPEN }
+  | '@' { AT } | '?' { QUESTION } | ".." { RANGE }
+  | "::<" {
+      refuse "syntax" lexbuf "generic applications use F<T>. Group the application as (F<T>) where needed." }
   | "==>" { IMPLIES } | "<==>" { IFF } | "=>" { FATARROW } | "->" { ARROW }
   | "==" { EQ } | "<=" { LE } | ">=" { GE } | "!=" { NE }
   | "&&" { AND } | "||" { OR } | "!" { NOT }
@@ -589,7 +591,7 @@ rule token state = parse
   | "/=" { SLASH_ASSIGN } | "%=" { MOD_ASSIGN }
   | '=' { EQUAL } | '+' { PLUS } | '*' { STAR } | '-' { MINUS }
   | '/' { SLASH } | '%' { PERCENT }
-  | '<' { if state.surface && generic_call token state lexbuf then CALL_GENERIC_OPEN else LT }
+  | '<' { if state.surface && generic_application token state lexbuf then ANGLE_GENERIC_OPEN else LT }
   | '>' { GT }
   | eof { EOF }
   | _ { refuse "syntax" lexbuf "unexpected character" }

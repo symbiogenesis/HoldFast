@@ -28,7 +28,7 @@
     },
     {
       "name": "interpolation-lifetime-apostrophe",
-      "source": "module Lifetime;\npublic definition Format Message() => $\"value {Check::<'a>()}\";\n",
+      "source": "module Lifetime;\npublic definition Format Message() => $\"value {Check<'a>()}\";\n",
       "scopes": [
         {"text": "'a", "scope": "entity.name.type.lifetime.holdfast", "tree_scope": "string"},
         {"text": "Check", "scope": "meta.interpolation.holdfast"}

@@ -105,8 +105,20 @@ void Calls() {
     let groupedComparison = (f < n) > x;
     let memberCall = Library.F<List<T>, (a < b), 'input, type (T, U),>(x);
     let computedCall = factory()<T>(x);
-    let explicitValue = Apply(Identity::<Nat>, value);
-    let explicitCall = Identity::<Nat>(value);
+    let staticMember = Foo<List<T>> /* café */ .Bar;
+    let angleValue = Apply(Identity<Nat>, value);
+    let standaloneValue = Identity<Nat>;
+    let indexed = Values<Nat>[0];
+    let propagated = None<Nat>?;
+    let patternTest = None<bool> is None;
+    let lower = Limit<Nat> < value;
+    let atLeast = Limit<bool>>=value;
+    let greater = (Limit<Nat>) > value;
+    let negative = Outer(F < A, B > -value);
+    let hole = Outer(F < A, B > ?choice);
+    let bitwise = Outer(F<A, B> & value);
+    let groupedBorrow = Outer((F < A), B > &value);
+    let format = $"{Identity<Nat>:tag}/{Foo<T>}";
     let nestedValue = Choose<(Identity<T>(value))>(x);
     let typed = Build<type[Family<T>(true)]>(x);
     let Box<type[Family<T>(true)]> annotated = value;
@@ -213,7 +225,7 @@ public void Use() {
     let combine = (left, right,) => left + right;
     let typed = (Nat amount,) => amount;
     let graded = (scoped ref byte slot @ NatExact(1),) => Read(in slot);
-    let instance = Build::<Nat,>(1,);
+    let instance = Build<Nat,>(1,);
     let (owner, receipt) = pair;
     var Some((nested, _),) = candidate;
     match (candidate) {
@@ -338,10 +350,10 @@ definition Nat Partial(Option<Nat> choice) => match (choice) {
 module LocalExpressions;
 universe u;
 definition Type<u> Family<T : Type<u>>(bool pair) =>
-    let chosen = Select::<T>(pair) in chosen;
-alias Shared = type[let chosen = Family::<Nat>(true) in chosen];
+    let chosen = Select<T>(pair) in chosen;
+alias Shared = type[let chosen = Family<Nat>(true) in chosen];
 definition Type<u> Inject<T : Type<u>>(bool pair) =>
-    let chosen = Select::<T>(pair) in type type[chosen];
+    let chosen = Select<T>(pair) in type type[chosen];
 public Nat Read(scoped in<'source> Nat source)
     requires (let amount = Limit(source) in amount <= 10)
     ensures (let expected = old(source) in result == expected)
@@ -404,11 +416,11 @@ public Nat Use(Nat left, Nat right) requires Law((+)) {
                (&&), (||), (&), (|), (^), (==>), (<==>), (!), (~));
     let direct = (+)(left, right);
     let projected = (*).Apply(left, right);
-    let specialised = (%)::<Nat>(left, right);
+    let specialised = (%)<Nat>(left, right);
     let higher = Fold((+), 0, values);
     let callback = (Nat item) => (-)(item);
-    let directGeneric = Apply::<(+)>();
-    let groupedGeneric = Apply::<((+))>();
+    let directGeneric = Apply<(+)>();
+    let groupedGeneric = Apply<((+))>();
     return direct;
 }
 domain Arithmetic {
@@ -463,7 +475,7 @@ public void InvalidMeaning() {
     var Ready(missing) = 0;
     let Some(_) = trackedToken;
     let applyWrongArity = (+)();
-    let nonCallable = (~).Missing::<bool>(true, false);
+    let nonCallable = (~).Missing<bool>(true, false);
 }
 """, ("let_pattern", "var_pattern", "constructor_pattern", "group_pattern", "tuple_pattern", "unit_pattern", "wildcard_pattern", "match", "is", "let", "var")),
     Fixture("computed-types-and-family-application", """// café: computed types retain their expression and original byte span.
@@ -490,7 +502,7 @@ public type[ResultType(value)] Select(type[InputType()] value) {
     let Box<type[GenericType(value)]> boxed = source;
     let Box<type[match (flag) { true => type Nat, false => type bool, }]> choiceBox = source;
     let nestedCallback = (Box<type[match (callbackFlag) { true => type Nat, false => type bool, }]> item) => item;
-    let generic = Apply::<type[CallType(value)]>(local);
+    let generic = Apply<type[CallType(value)]>(local);
     return local;
 }
 """, ("computed_type", "match_expression", "type_expression", "let", "lambda", "typed_lambda", "generic_application")),
@@ -573,7 +585,7 @@ public void Bind<grade q : NatExact>(ref Buffer source) {
     let scoped ref<'source> byte direct @ q = ref source[1];
     let callback @ Grade.Of(Fn(Nat probe) -> Nat => probe) = Fn(Nat item) -> Nat => item;
     let Nat dormant @ NatExact(0) = Effects.Read();
-    let Nat genericGrade @ Grade.Of::<T, U>() = source;
+    let Nat genericGrade @ Grade.Of<T, U>() = source;
     let Nat typeGrade @ type Box<Fn() -> Nat with { requires Ready(); }, U> = source;
     let plain = 7;
     let (left, right) = Pair();
@@ -763,7 +775,7 @@ module StableArguments;
 alias Flags = FlagsOf<true, false>;
 alias Label = Named<"wire", 'x', ?missing>;
 alias Mixed = Indexed<0002usize, true, (n + 1), type (owned Packet, tracked Receipt)>;
-public void Use() { Select::<true, "tag", 'z', ?choice>(value); }
+public void Use() { Select<true, "tag", 'z', ?choice>(value); }
 """, ("bool", "string", "character", "hole", "type_argument", "generic_application")),
     Fixture("typed-resource-errors-remain-syntax", """module InvalidTypedResources;
 universe u;
@@ -1023,7 +1035,7 @@ alias Function = Box<type Fn(Nat n) -> Vec<byte, n>>;
 alias Grouped = Box<type (Nat)>;
 alias UnitBox = Box<Unit>;
 alias Value = Indexed<((a, b))>;
-public void Use() { Construct::<type (Nat, bool)>(value); }
+public void Use() { Construct<type (Nat, bool)>(value); }
 """, ("tuple_type", "function_type", "group_type", "type", "tuple", "generic_application")),
     Fixture("structural-local-and-lambda-annotations", """module StructuralAnnotations;
 public void Use(ref Span<byte> text) {
@@ -1245,7 +1257,7 @@ public void F() {
     Fixture("expressions-and-closures", """module Expressions;
 public void Compute() {
     let tuple = (0001usize, true, false);
-    let mapped = Map::<byte>(input, (byte x) => x + 1);
+    let mapped = Map<byte>(input, (byte x) => x + 1);
     let dormant = (() => Ready());
     let selected = input[1..4];
     let result = (Read()?).Value;
@@ -1528,8 +1540,8 @@ NEGATIVE: tuple[tuple[str, bytes, str], ...] = (
     ("operator-value-range", b"module M; definition T F() => (..);", "syntax"),
     ("operator-value-propagation", b"module M; definition T F() => (?);", "syntax"),
     ("operator-value-keyword", b"module M; definition T F() => (await);", "syntax"),
-    ("operator-generic-missing-close", b"module M; definition T F() => Apply::<(+>();", "syntax"),
-    ("operator-generic-doubled-comma", b"module M; definition T F() => Apply::<(+),,>();", "syntax"),
+    ("operator-generic-missing-close", b"module M; definition T F() => Apply<(+>();", "syntax"),
+    ("operator-generic-doubled-comma", b"module M; definition T F() => Apply<(+),,>();", "syntax"),
     ("operator-group-depth", b"module M; definition T F() => " + b"(" * 257
      + b"(+)" + b")" * 257 + b";", "limit"),
     ("local-constructor-incomplete-argument", b"module M; void F() { let Some(let) = value; }", "syntax"),
@@ -1711,6 +1723,11 @@ NEGATIVE: tuple[tuple[str, bytes, str], ...] = (
     ("chained-comparison", b"module M; public bool F() { return a < b < c; }", "syntax"),
     ("generic-looking-comparison-group", b"module M; public bool F() { return (a < b > c); }", "syntax"),
     ("generic-looking-comparison-argument", b"module M; public void F() { Call(a < b > c, x); }", "syntax"),
+    ("bare-generic-before-greater", b"module M; public bool F() { return Identity<Nat> > value; }", "syntax"),
+    ("bare-generic-before-plus", b"module M; public Nat F() { return Identity<Nat> + value; }", "syntax"),
+    ("incomplete-bare-generic-member", b"module M; public Nat F() { return Identity<Nat>.; }", "syntax"),
+    ("retired-generic-call", b"module M; public Nat F() { return Identity::<Nat>(value); }", "syntax"),
+    ("retired-generic-member", b"module M; public Nat F() { return Identity::<Nat>.Value; }", "syntax"),
     ("if-expression-missing-else", b"module M; definition Nat F(bool c) => if (c) 1;", "syntax"),
     ("if-expression-missing-condition", b"module M; definition Nat F() => if () 1 else 2;", "syntax"),
     ("if-expression-missing-then", b"module M; definition Nat F(bool c) => if (c) else 2;", "syntax"),
@@ -2414,8 +2431,8 @@ def _expression_binding_roles(source: bytes, result: dict[str, Json]) -> None:
     if (_texts(family_binding.get("name")) != ["chosen"]
             or family_body.get("kind") != "name" or _texts(family_body.get("name")) != ["chosen"]):
         raise ValueError("surface expression binding lost its dependent type computation")
-    _exact_span(source, family, b"let chosen = Select::<T>(pair) in chosen")
-    _exact_span(source, family_binding, b"let chosen = Select::<T>(pair)")
+    _exact_span(source, family, b"let chosen = Select<T>(pair) in chosen")
+    _exact_span(source, family_binding, b"let chosen = Select<T>(pair)")
     shared = _object(_named(tree, "alias", "Shared").get("type"), "computed shared type")
     if shared.get("kind") != "computed_type" or _object(shared.get("value"), "type-local expression").get("kind") != "let_expression":
         raise ValueError("surface computed type lost its local expression")
@@ -2911,7 +2928,7 @@ def _local_grade_roles(source: bytes, result: dict[str, Json]) -> None:
     generic_grade = _object(_named(function, "let", "genericGrade").get("grade"), "generic local allowance")
     if _object(generic_grade.get("callee"), "generic allowance operation").get("kind") != "generic_application":
         raise ValueError("surface local allowance ended at a generic argument comma")
-    _exact_span(source, generic_grade, b"Grade.Of::<T, U>()")
+    _exact_span(source, generic_grade, b"Grade.Of<T, U>()")
     type_grade = _object(_named(function, "let", "typeGrade").get("grade"), "type-valued allowance")
     if type_grade.get("kind") != "type_expression":
         raise ValueError("surface syntax removed a semantically invalid type-valued allowance")
@@ -4134,7 +4151,7 @@ def _shared_operator_roles(source: bytes, result: dict[str, Json]) -> None:
         if grouped:
             if argument.get("kind") != "group":
                 raise ValueError("surface explicitly grouped generic operator lost its group")
-            start = source.index(b"Apply::<((+))>") + len(b"Apply::<")
+            start = source.index(b"Apply<((+))>") + len(b"Apply<")
             if argument.get("span") != [start, start + len(b"((+))")]:
                 raise ValueError("surface grouped generic operator span differs from its application")
             argument = _object(argument.get("value"), "grouped operator")
@@ -4425,14 +4442,43 @@ def _familiar_call_roles(source: bytes, result: dict[str, Json]) -> None:
     if (local("ambiguous").get("kind") != "call" or local("groupedComparison").get("kind") != "binary"
             or local("computedCall").get("kind") != "call"):
         raise ValueError("generic classification depends on whitespace, resolution or callee spelling")
-    for name, spelling in (("ambiguous", b"f /* comment */ < n >"), ("explicitCall", b"Identity::<Nat>")):
-        application = _object(local(name).get("callee"), "source-bound application")
-        binding_start = _sequence(_named(tree, "let", name).get("span"), "generic local span")[0]
-        if type(binding_start) is not int:
-            raise ValueError("generic local has no byte offset")
-        start = source.index(spelling, binding_start)
-        if application.get("kind") != "generic_application" or application.get("span") != [start, start + len(spelling)]:
-            raise ValueError("ordinary/explicit generic application lost original UTF-8 spans")
+    for name, kind, field, spelling in (
+        ("staticMember", "member", "value", b"Foo<List<T>>"),
+        ("indexed", "index", "value", b"Values<Nat>"),
+        ("propagated", "propagate", "value", b"None<Nat>"),
+        ("patternTest", "is", "value", b"None<bool>"),
+        ("lower", "binary", "left", b"Limit<Nat>"),
+        ("atLeast", "binary", "left", b"Limit<bool>"),
+    ):
+        enclosing = local(name)
+        application = _object(enclosing.get(field), "bare generic application")
+        if enclosing.get("kind") != kind or application.get("kind") != "generic_application":
+            raise ValueError(f"generic application lost its {kind} context")
+        _exact_span(source, application, spelling)
+    if local("standaloneValue").get("kind") != "generic_application":
+        raise ValueError("semicolon did not disambiguate the generic value")
+    for name, kinds in (("angleValue", ["generic_application", "name"]),
+                        ("negative", ["binary", "binary"]), ("hole", ["binary", "binary"]),
+                        ("bitwise", ["binary"]), ("groupedBorrow", ["group", "binary"])):
+        args = _sequence(local(name).get("arguments"), "outer call arguments")
+        values = [_object(arg, "outer argument value") for arg in args]
+        if [value.get("kind") for value in values] != kinds:
+            raise ValueError(f"generic follower changed the argument grouping for {name}")
+        if name == "bitwise" and (_texts(values[0].get("operator")) != ["&"]
+                or _object(values[0].get("left"), "bitwise left operand").get("kind") != "generic_application"):
+            raise ValueError("ampersand did not select the generic application")
+    greater = local("greater")
+    group = _object(greater.get("left"), "grouped generic application")
+    if (_texts(greater.get("operator")) != [">"] or group.get("kind") != "group"
+            or _object(group.get("value"), "grouped value").get("kind") != "generic_application"):
+        raise ValueError("parentheses did not resolve the generic application before greater-than")
+    holes = _sequence(local("format").get("holes"), "interpolation holes")
+    if [_object(hole, "interpolation hole").get("kind") for hole in holes] != ["generic_application"] * 2:
+        raise ValueError("interpolation colon or brace did not disambiguate the generic application")
+    application = _object(local("ambiguous").get("callee"), "source-bound application")
+    if application.get("kind") != "generic_application":
+        raise ValueError("generic call lost its source-bound callee")
+    _exact_span(source, application, b"f /* comment */ < n >")
     match = next(node for node in nodes(tree) if node.get("kind") == "match_expression")
     cases = _sequence(match.get("cases"), "familiar expression arms")
     if len(cases) != 2 or any(_object(value, "expression arm").get("kind") != "expression_case" for value in cases):
@@ -4568,9 +4614,6 @@ def _generic_probe_limits(parse: Callable[[bytes], dict[str, Json]]) -> None:
         except HoldFastError as error:
             if count <= 200_000 or error.kind != "limit" or "200000 inspected tokens" not in error.message:
                 raise ValueError("generic probe inspection boundary has the wrong refusal") from error
-            if "F::<T>" not in error.message:
-                raise ValueError("generic probe refusal lacks the explicit application spelling") from error
-            parse(source.replace(b"F<T>()", b"F::<T>()", 1))
         else:
             if count > 200_000:
                 raise ValueError("generic probe inspection exhaustion reinterpreted source or published syntax")
@@ -4787,6 +4830,11 @@ def qualify(parse: Callable[[bytes], dict[str, Json]]) -> list[str]:
                 raise ValueError(f"surface refusal {name}: expected {kind}, got {error.kind}") from error
             if name == "null-conditional" and ("(expr?).Member" not in error.message or "match" not in error.message):
                 raise ValueError(f"surface refusal {name} omitted propagation/match assist guidance: {error.message}") from error
+            if name.startswith("retired-generic-") and (
+                (error.line, error.column) != (1, source.index(b"::<") + 1)
+                or "F<T>" not in error.message or "(F<T>)" not in error.message
+            ):
+                raise ValueError(f"surface refusal {name} lost its location or migration guidance") from error
         else:
             raise ValueError(f"surface refusal {name} unexpectedly parsed")
         passed.append(f"surface:refusal:{name}:{kind}")

@@ -204,13 +204,13 @@ Operators from weakest to strongest binding, as fixed by the
 | 11 | `*`, `/`, `%` | Left | P |
 | 12 | Record update `e with { Field = v, ... }` | Left | M |
 | 13 | Prefix `!`, `-`, `~`, `*p`, `&place`, `move`, `in`, `ref`, `out` | Right | P (`!`), M (`-`, `~`, `move`, `in`, `ref`, `out`), S (rest) |
-| 14 | Postfix call `f(...)`, member `.Name`, index `e[i]`, generic `F<T>(...)`, `F::<T>`, propagation `e?` | Left | P (calls), M |
+| 14 | Postfix call `f(...)`, member `.Name`, index `e[i]`, generic `F<T>`, propagation `e?` | Left | P (calls), M |
 | 15 | Literals, names, `(e)`, tuples, `match`, holes `?name`, operator values `(+)` | n/a | P (literals, names, grouping), M |
 
 Comparisons do not chain; parenthesize them. Short-circuit `&&` and `||`
-evaluate the right operand only when needed. A `<` begins a generic call only
-when a complete argument list closes and is followed by `(`
-([token-only rule](surface-grammar.md#bindings-match-arms-and-generic-calls)).
+evaluate the right operand only when needed. In expressions such as `Foo<T>.Bar`,
+the token after the complete angle list selects generic application.
+[Token-only rule](surface-grammar.md#bindings-match-arms-and-generic-calls)
 
 For represented integers, ordinary `+`, `-` and `*` require a representable
 result. Both `/` and `%` require a nonzero divisor. Signed division also

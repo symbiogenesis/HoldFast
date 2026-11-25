@@ -17,6 +17,7 @@ from toolchain import elaborate_types as terms
 from toolchain.ast import HoldFastError
 from toolchain.elaborate import elaborate, elaborate_package
 from toolchain.elaborate_holes import OpenGoalsError
+from toolchain.elaborate_protocol import _Protocol
 from toolchain.mathematical import inspect_source
 
 type Node = dict[str, object]
@@ -345,7 +346,7 @@ def _variable(name: str, *generics: Form) -> Form:
         start = fixture.offset
         base = fixture.node("name", start, name=fixture.name(name))
         if generics:
-            fixture.write("::<")
+            fixture.write("<")
             gen_nodes = fixture.forms(generics)
             fixture.write(">")
             return fixture.node("generic_application", start, value=base, arguments=gen_nodes)
@@ -380,13 +381,12 @@ def _group(value: Form) -> Form:
 
 
 def _call(name: str | Form, *arguments: Form, generics: tuple[Form, ...] = (),
-          labels: tuple[str | None, ...] | None = None, trailing: bool = False,
-          explicit: bool = False) -> Form:
+          labels: tuple[str | None, ...] | None = None, trailing: bool = False) -> Form:
     def form(fixture: _Fixture) -> Node:
         start = fixture.offset
         callee = (_variable(name) if isinstance(name, str) else name)(fixture)
         if generics:
-            fixture.write("::<" if explicit else "<")
+            fixture.write("<")
             generic_nodes = fixture.forms(generics)
             fixture.write(">")
             callee = fixture.node("generic_application", start, value=callee, arguments=generic_nodes)
@@ -693,22 +693,13 @@ def _polymorphism_and_higher_order() -> None:
            "generic inference emitted an unchecked assumption")
 
 
-def _familiar_generic_spellings() -> None:
-    def candidate(explicit: bool) -> _Fixture:
-        fixture = _Fixture("GenericSpellings")
-        _identity(fixture)
-        fixture.definition("Value", _NAT, (),
-                           _call("Identity", _natural(7), generics=(_NAT,), explicit=explicit))
-        return fixture
-
-    canonical_source, canonical_tree = candidate(False).response()
-    explicit_source, explicit_tree = candidate(True).response()
-    canonical = elaborate(canonical_source, canonical_tree).gallina
-    explicit = elaborate(explicit_source, explicit_tree).gallina
-    ensure(b"Identity<Nat>(7)" in canonical_source and b"Identity::<Nat>(7)" in explicit_source,
-           "generic spelling controls do not independently select both markers")
-    ensure(canonical.split("\n", 2)[2] == explicit.split("\n", 2)[2],
-           "ordinary and explicit generic calls changed interpreted terms")
+def _generic_application_source_binding() -> None:
+    call = _Fixture("GenericCall")
+    _identity(call)
+    call.definition("Value", _NAT, (), _call("Identity", _natural(7), generics=(_NAT,)))
+    canonical_source, canonical_tree = call.response()
+    ensure("holdfast_d0_Identity" in elaborate(canonical_source, canonical_tree).gallina,
+           "specialized call lost its declaration")
 
     for marker in (b"= ", b"==", b"->"):
         source = canonical_source.replace(b"=>", marker, 1)
@@ -719,26 +710,58 @@ def _familiar_generic_spellings() -> None:
             elaborate(source, tree)
         ensure(raised.exception.kind == "protocol", "a forged mathematical body marker reached semantics")
 
-    def generic_value(explicit: bool) -> Form:
-        def form(fixture: _Fixture) -> Node:
-            start = fixture.offset
-            value = _variable("Identity")(fixture)
-            fixture.write("::<" if explicit else "<")
-            argument = _NAT(fixture)
-            fixture.write(">")
-            return fixture.node("generic_application", start, value=value, arguments=[argument])
-        return form
-
-    for explicit in (False, True):
+    generic_value = _variable("Identity", _NAT)
+    values = []
+    for body in (generic_value, _group(generic_value)):
         fixture = _Fixture("GenericValues")
         _identity(fixture)
-        fixture.definition("Value", _function_type((("value", _NAT),), _NAT), (),
-                           generic_value(explicit))
-        if explicit:
-            ensure("holdfast_d0_Identity" in elaborate(*fixture.response()).gallina,
-                   "explicit generic function values lost their interpretation")
-        else:
-            _refuses(fixture, "protocol", "followed by a call")
+        fixture.definition("Value", _function_type((("value", _NAT),), _NAT), (), body)
+        gallina = elaborate(*fixture.response()).gallina
+        ensure("holdfast_d0_Identity" in gallina, "generic function value lost its declaration")
+        values.append(gallina.split("\n", 2)[2])
+    ensure(values[0] == values[1], "grouping the generic function value changed interpreted terms")
+
+    def retired_value(fixture: _Fixture) -> Node:
+        start = fixture.offset
+        value = _variable("Identity")(fixture)
+        fixture.write("::<")
+        argument = _NAT(fixture)
+        fixture.write(">")
+        return fixture.node("generic_application", start, value=value, arguments=[argument])
+
+    retired = _Fixture("RetiredGenericValue")
+    _identity(retired)
+    retired.definition("Wrong", _function_type((("value", _NAT),), _NAT), (), retired_value)
+    _refuses(retired, "protocol", "syntax delimiter or keyword differs from source")
+
+    forged = _Fixture("ForgedGenericValue")
+    _identity(forged)
+    forged.definition("Wrong", _NAT, (), _binary("+", generic_value, _natural(1)))
+    _refuses(forged, "protocol", "invalid following token")
+
+    def application_with_suffix(suffix: str) -> tuple[_Protocol, Node, int]:
+        fixture = _Fixture("GenericSuffix")
+        application = generic_value(fixture)
+        fixture.write(suffix)
+        source = fixture.text.encode()
+        return _Protocol(source), application, len(source)
+
+    for token in ("(", ")", "[", "]", "}", ":", ";", ",", ".", "?", "==", "!=", "|", "^",
+                  "&&", "||", "&", "=>", "<", "<=", ">=", "is", "as"):
+        protocol, application, end = application_with_suffix(" /* café /* nested */ */\n" + token)
+        protocol.visit(application, (0, end), 0)
+    for token in ("??", "?.", "?hole", "..", "::<", "==>", "<==>", "ascent", "is2", ">", ""):
+        protocol, application, end = application_with_suffix(" " + token)
+        with raises(HoldFastError, msg=f"forged generic application accepted before {token!r}") as raised:
+            protocol.visit(application, (0, end), 0)
+        ensure(raised.exception.kind == "protocol" and "invalid following token" in raised.exception.message,
+               "generic follower refusal changed category or cause")
+
+    protocol, application, end = application_with_suffix("== 7")
+    with raises(HoldFastError, msg="forged generic application split a '>=' token") as raised:
+        protocol.visit(application, (0, end), 0)
+    ensure(raised.exception.kind == "protocol" and "standalone '>'" in raised.exception.message,
+           "fused generic close refusal changed category or cause")
 
 
 def _canonical_named_call_terms() -> None:
@@ -2365,7 +2388,7 @@ def _pattern_conjunctions() -> None:
     )
     for index, (value, flag, expected) in enumerate((
         (0, _variable("None", _BOOL), _call("Some", _boolean(False))),
-        (2, _variable("None", _BOOL), _variable("None", _BOOL)),
+        (2, _variable("None", _BOOL), _group(_variable("None", _BOOL))),
         (3, _call("Some", _boolean(True)), _call("Some", _boolean(True))),
     )):
         equality = _binary("==", _call("GuardOptional", _natural(value), flag), expected)
@@ -3160,7 +3183,7 @@ def _early_return_propagation() -> None:
         _binary(
             "==",
             _call("AddOptions", _variable("None", _NAT), _call("Some", _natural(4))),
-            _variable("None", _NAT),
+            _group(_variable("None", _NAT)),
         ),
         _assert(
             _binary(
@@ -3241,7 +3264,7 @@ def _short_circuit_propagation() -> None:
                     if (operator == "&&" and not left) or (operator == "||" and left):
                         expected = _call(constructor, _boolean(left))
                     else:
-                        expected = failure if right is None else _call(constructor, _boolean(right))
+                        expected = _group(failure) if right is None else _call(constructor, _boolean(right))
                     claim = _binary("==", _call(name, _boolean(left), argument), expected)
                     fixture.theorem(f"{name}{left}{right}", (), claim, _assert(claim))
         nested_name = union_name + "Nested"
@@ -3262,7 +3285,7 @@ def _short_circuit_propagation() -> None:
         )):
             arguments = tuple(failure if value is None else _call(constructor, _boolean(value))
                               for value in (left, middle, right))
-            outcome = failure if expected is None else _call(constructor, _boolean(expected))
+            outcome = _group(failure) if expected is None else _call(constructor, _boolean(expected))
             claim = _binary("==", _call(nested_name, *arguments), outcome)
             fixture.theorem(f"{nested_name}{index}", (), claim, _assert(claim))
     source, response = fixture.response()
@@ -3332,7 +3355,7 @@ def _propagation_evaluation_order() -> None:
     )
     fixture.definition("PureOperands", _type("Option", _NAT), (("value", _type("Option", _NAT)),),
                        _call("Some", _binary("+", _natural(3), _propagate(_variable("value")))))
-    for name, expected in (("Sequenced", _variable("None", _BOOL)),
+    for name, expected in (("Sequenced", _group(_variable("None", _BOOL))),
                            ("GuardOnce", _call("Some", _boolean(True)))):
         claim = _binary("==", _call(name), expected)
         fixture.theorem(name + "Correct", (), claim, _assert(claim))
@@ -7345,7 +7368,7 @@ def cases() -> list[Case]:
             Case("selective-imports-and-renamed-constructors", _selective_imports),
             Case("constructor-case-and-redundant-patterns", _constructor_spelling_and_shadowed_patterns),
             Case("fresh-polymorphism-and-higher-order-inference", _polymorphism_and_higher_order),
-            Case("familiar-generic-markers-and-mathematical-body-source-binding", _familiar_generic_spellings),
+            Case("generic-application-and-mathematical-body-source-binding", _generic_application_source_binding),
             Case("canonical-named-dependent-call-term-agreement", _canonical_named_call_terms),
             Case("required-static-values-and-dependent-indices", _required_static_constants),
             Case("static-dependencies-types-and-numeric-bounds", _static_dependency_refusals),

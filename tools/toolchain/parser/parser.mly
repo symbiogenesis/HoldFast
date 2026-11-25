@@ -83,7 +83,7 @@ let rec is_range = function
 %token LBRACKET RBRACKET DOT COLON AT QUESTION RANGE ARROW FATARROW IMPLIES IFF
 %token MINUS SLASH PERCENT LT GT GE NE AND OR NOT AMP BAR CARET TILDE
 %token PLUS_ASSIGN MINUS_ASSIGN STAR_ASSIGN SLASH_ASSIGN MOD_ASSIGN
-%token GENERIC_OPEN CALL_GENERIC_OPEN
+%token ANGLE_GENERIC_OPEN
 %token ANNOTATION_OPEN LAMBDA_OPEN
 %token <string * string> NUMBER
 %token <string> LIFETIME STRING CHARACTER HOLE ANNOTATION_NAME
@@ -91,7 +91,7 @@ let rec is_range = function
 %start <Ast.node * int * bool> format_expression
 %start <Ast.node> file
 %start <Ast.node> surface_file
-%start <unit> generic_call_prefix
+%start <unit> generic_application_prefix
 
 %%
 
@@ -100,8 +100,14 @@ format_expression:
   value=s_expression RBRACE { value, $endpos.Lexing.pos_cnum, false }
 | value=s_expression COLON { value, $endpos.Lexing.pos_cnum, true }
 
-generic_call_prefix:
-  comma_nonempty_list(s_type_argument) GT s_open_paren { () }
+generic_application_prefix:
+  comma_nonempty_list(s_type_argument) GT s_generic_follower { () }
+
+/* See [generic disambiguation](../../../docs/language/surface-grammar.md#bindings-match-arms-and-generic-calls). */
+s_generic_follower:
+  s_open_paren | RPAREN | RBRACKET | RBRACE | COLON | SEMICOLON | COMMA | DOT | QUESTION
+| EQ | NE | BAR | CARET | AND | OR | AMP | LBRACKET | FATARROW
+| LT | ANGLE_GENERIC_OPEN | LE | GE | IS | AS { () }
 
 file:
   MODULE module_name=name SEMICOLON declarations=nonempty_list(pure_declaration) EOF
@@ -450,7 +456,7 @@ s_resumes:
 s_generics:
   { [] } | s_generic_open values=comma_nonempty_list(s_generic_parameter) GT { values }
 %inline s_generic_open:
-  LT | CALL_GENERIC_OPEN { () }
+  LT | ANGLE_GENERIC_OPEN { () }
 s_generic_parameter:
   binder=s_generic_binder
     { let mode, generic_name, value_type = binder in
@@ -862,7 +868,7 @@ s_postfix_with(opening):
     { make "member" $startpos $endpos [("value", value.syntax); ("name", member)] [value] }
 | value=s_postfix_with(opening) LBRACKET index=s_expression RBRACKET
     { make "index" $startpos $endpos [("value", value.syntax); ("index", index.syntax)] [value; index] }
-| value=s_postfix_with(opening) s_expression_generic_open arguments=comma_nonempty_list(s_type_argument) GT
+| value=s_postfix_with(opening) ANGLE_GENERIC_OPEN arguments=comma_nonempty_list(s_type_argument) GT
     { make "generic_application" $startpos $endpos [("value", value.syntax); ("arguments", array arguments)] (value :: arguments) }
 | value=s_postfix_with(opening) QUESTION
     { make "propagate" $startpos $endpos [("value", value.syntax)] [value] }
@@ -870,8 +876,6 @@ s_argument_value:
   value=s_expression { value }
 | OUT VAR binder=s_identifier
     { make "out_variable" $startpos $endpos [("name", binder)] [] }
-%inline s_expression_generic_open:
-  GENERIC_OPEN | CALL_GENERIC_OPEN { () }
 s_atom_with(opening):
   value=s_literal { value }
 | value=INTERPOLATED_STRING

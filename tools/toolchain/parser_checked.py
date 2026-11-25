@@ -1133,7 +1133,7 @@ type token =
 {"\n".join(constructors)}
 
 exception Error
-let generic_call_prefix _ _ : unit = raise Error
+let generic_application_prefix _ _ : unit = raise Error
 let format_expression _ _ : Ast.node * int * bool = raise Error
 """
     return HOLDFAST_PURE_GRAMMAR_MLY, token_stub

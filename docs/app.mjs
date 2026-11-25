@@ -3044,7 +3044,6 @@ export const HOLDFAST_GRAMMAR = Object.freeze({
     "*=",
     "/=",
     "%=",
-    "::",
   ]),
   singleOperators: Object.freeze([
     "=",
@@ -3084,6 +3083,14 @@ const HOLDFAST_GRAMMAR_TYPE_KEYWORD_SET = new Set(HOLDFAST_GRAMMAR.typeKeywords)
 const HOLDFAST_GRAMMAR_CONSTANT_SET = new Set(HOLDFAST_GRAMMAR.constants);
 
 const MATH_MULTI_SYMBOLS = [...HOLDFAST_GRAMMAR.multiOperators];
+// Follow the [expression rule](language/surface-grammar.md#bindings-match-arms-and-generic-calls)
+// for the argument forms the preview supports.
+const MATH_GENERIC_FOLLOW_SYMBOLS = new Set([
+  "(", ")", "]", "}", ":", ";", ",", ".", "?", "==", "!=", "|", "^", "&&", "||", "&", "[",
+  "=>", "<", "<=", ">=",
+]);
+const MAX_MATH_GENERIC_PROBE_TOKENS = 200_000;
+const MAX_MATH_GENERIC_PROBE_DEPTH = 256;
 
 const MATH_SINGLE_SYMBOLS = new Set([
   "{",
@@ -3184,9 +3191,12 @@ function mathTokenize(sourceText, { allowSemicolon = true, hole = null } = {}) {
 
   while (index < sourceText.length) {
     const ch = sourceText[index];
+    if (sourceText.startsWith("::<", index)) {
+      throw new HoldFastError("syntax", line, column, "write F<T> for generic application, or (F<T>) to disambiguate");
+    }
     if (hole) {
       if (ch === "\r" || ch === "\n" || line !== hole.line) throw new HoldFastError("syntax", line, column, "newline in interpolation hole");
-      if (!nested && (ch === "}" || (ch === ":" && !sourceText.startsWith("::", index)))) break;
+      if (!nested && (ch === "}" || ch === ":")) break;
       if ("([{".includes(ch)) nested += 1;
       if (")]}".includes(ch)) nested -= 1;
       if (nested < 0) throw new HoldFastError("syntax", line, column, "mismatched interpolation delimiter");
@@ -3366,7 +3376,8 @@ function mathTokenize(sourceText, { allowSemicolon = true, hole = null } = {}) {
     }
     throw new HoldFastError("syntax", line, column, `unexpected character '${ch}'`);
   }
-  tokens.push({ kind: "eof", text: "<eof>", site: { line, column }, offset: index });
+  const follower = hole ? sourceText[index] : allowSemicolon ? undefined : ";";
+  tokens.push({ kind: "eof", text: "<eof>", site: { line, column }, offset: index, follower });
   return tokens;
 }
 
@@ -3381,6 +3392,8 @@ class MathParser {
     this.index = 0;
     this.genericTypeBinders = [];
     this.declarations = [];
+    this.genericProbeDepth = 0;
+    this.genericProbeTokens = 0;
   }
 
   get current() {
@@ -3393,6 +3406,9 @@ class MathParser {
 
   advance() {
     const tok = this.current;
+    if (this.genericProbeDepth && ++this.genericProbeTokens > MAX_MATH_GENERIC_PROBE_TOKENS) {
+      throw new HoldFastError("limit", tok.site.line, tok.site.column, "generic-application probes exceed 200000 inspected tokens");
+    }
     this.index = Math.min(this.index + 1, this.tokens.length - 1);
     return tok;
   }
@@ -3462,8 +3478,11 @@ class MathParser {
     return params;
   }
 
-  parseType() {
+  parseType(depth = 0) {
     const site = this.current.site;
+    if (this.genericProbeDepth && depth + this.genericProbeDepth > MAX_MATH_GENERIC_PROBE_DEPTH) {
+      throw new HoldFastError("limit", site.line, site.column, "generic-argument type nesting exceeds 256");
+    }
     if (this.current.kind === "word" && ["in", "ref", "out", "owned", "ghost", "tracked"].includes(this.current.text)) {
       const mode = this.advance().text;
       if (this.match("symbol", "<")) {
@@ -3471,7 +3490,7 @@ class MathParser {
         this.parseDottedName("region");
         this.expect("symbol", ">");
       }
-      const inner = this.parseType();
+      const inner = this.parseType(depth + 1);
       return { kind: "mode_type", mode, inner, site };
     }
     if (this.current.kind === "word" && (this.current.text === "Fn" || this.current.text === "FnMut" || this.current.text === "FnOnce")) {
@@ -3480,7 +3499,7 @@ class MathParser {
       const params = [];
       if (!this.match("symbol", ")")) {
         while (true) {
-          const pType = this.parseType();
+          const pType = this.parseType(depth + 1);
           let pName = null;
           let pSite = null;
           if (this.current.kind === "word") {
@@ -3495,7 +3514,7 @@ class MathParser {
         }
       }
       if (this.match("symbol", "->") || (this.match("symbol", "-") && this.match("symbol", ">"))) {
-        const result = this.parseType();
+        const result = this.parseType(depth + 1);
         return { kind: "fn_type", fnKind, params, result, site };
       }
       return { kind: "fn_type", fnKind, params, result: { kind: "named_type", name: "Unit", args: [], site }, site };
@@ -3504,10 +3523,10 @@ class MathParser {
       if (this.match("symbol", ")")) {
         return { kind: "named_type", name: "Unit", args: [], site };
       }
-      const items = [this.parseType()];
+      const items = [this.parseType(depth + 1)];
       while (this.match("symbol", ",")) {
         if (this.current.text === ")") break;
-        items.push(this.parseType());
+        items.push(this.parseType(depth + 1));
       }
       this.expect("symbol", ")");
       return items.length === 1 ? items[0] : { kind: "tuple_type", items, site };
@@ -3534,7 +3553,7 @@ class MathParser {
             const expr = this.parsePostfix();
             args.push({ kind: "expr_index", expr, site: expr.site });
           } else {
-            const tArg = this.parseType();
+            const tArg = this.parseType(depth + 1);
             args.push(tArg);
           }
           if (this.match("symbol", ">")) break;
@@ -4332,26 +4351,53 @@ class MathParser {
     return this.parsePostfix();
   }
 
-  hasGenericCallAhead() {
-    let startIdx = this.index;
-    if (this.current.text === "::" && this.peek().text === "<") {
-      startIdx += 1;
+  genericFollower() {
+    const tok = this.current;
+    if (tok.kind === "eof") return MATH_GENERIC_FOLLOW_SYMBOLS.has(tok.follower);
+    if (tok.kind === "word") return tok.text === "is" || tok.text === "as";
+    if (tok.kind !== "symbol" || !MATH_GENERIC_FOLLOW_SYMBOLS.has(tok.text)) return false;
+    if (tok.text === "?") {
+      const next = this.peek();
+      if (next.site.line === tok.site.line && next.site.column === tok.site.column + 1 &&
+          (next.kind === "word" || [".", "?"].includes(next.text))) return false;
     }
-    if (!this.tokens[startIdx] || this.tokens[startIdx].text !== "<") return false;
-    let depth = 0;
-    for (let i = startIdx; i < this.tokens.length; i += 1) {
-      const t = this.tokens[i].text;
-      if (t === "<") depth += 1;
-      else if (t === ">") {
-        depth -= 1;
-        if (depth === 0) {
-          return this.tokens[i + 1] && this.tokens[i + 1].text === "(";
+    return true;
+  }
+
+  tryGenericArguments() {
+    if (this.current.kind !== "symbol" || this.current.text !== "<") return null;
+    const start = this.index;
+    const { line, column } = this.current.site;
+    if (this.genericProbeDepth >= MAX_MATH_GENERIC_PROBE_DEPTH) {
+      throw new HoldFastError("limit", line, column, "generic-application probe nesting exceeds 256");
+    }
+    this.genericProbeDepth += 1;
+    let accepted = false;
+    try {
+      this.advance();
+      const args = [];
+      do {
+        const tok = this.current;
+        if (this.match("symbol", "'")) {
+          const region = this.parseDottedName("region");
+          args.push({ kind: "region_arg", name: region.text, site: region.site });
+        } else if (this.match("nat")) {
+          args.push({ kind: "nat_index", value: parseMathBigInt(tok.text), site: tok.site });
+        } else {
+          args.push(this.parseType());
         }
-      } else if ([";", "{", "}", "==", "!=", "<=", ">=", "&&", "||"].includes(t)) {
-        return false;
-      }
+        if (this.match("symbol", ">")) break;
+        this.expect("symbol", ",");
+      } while (!this.match("symbol", ">"));
+      accepted = this.genericFollower();
+      return accepted ? args : null;
+    } catch (err) {
+      if (!(err instanceof HoldFastError) || err.kind !== "syntax") throw err;
+      return null;
+    } finally {
+      this.genericProbeDepth -= 1;
+      if (!accepted) this.index = start;
     }
-    return false;
   }
 
   parsePostfix() {
@@ -4368,39 +4414,18 @@ class MathParser {
         };
         continue;
       }
-      if (this.hasGenericCallAhead()) {
-        const typeArgs = [];
-        this.match("symbol", "::");
-        this.expect("symbol", "<");
-        if (!this.match("symbol", ">")) {
-          while (true) {
-            if (this.current.kind === "nat") {
-              const nt = this.advance();
-              typeArgs.push({ kind: "nat_index", value: parseMathBigInt(nt.text), site: nt.site });
-            } else {
-              typeArgs.push(this.parseType());
-            }
-            if (this.match("symbol", ">")) break;
-            this.expect("symbol", ",");
-            if (this.match("symbol", ">")) break;
-          }
-        }
-        const callArgs = this.parseCallArguments();
-        target = {
-          kind: "call",
-          callee: target,
-          typeArgs,
-          args: callArgs,
-          site: target.site,
-        };
+      const typeArgs = this.tryGenericArguments();
+      if (typeArgs) {
+        target = { kind: "generic_application", target, typeArgs, site: target.site };
         continue;
       }
       if (this.current.text === "(") {
+        const specialization = target.kind === "generic_application" ? target : null;
         const callArgs = this.parseCallArguments();
         target = {
           kind: "call",
-          callee: target,
-          typeArgs: [],
+          callee: specialization?.target ?? target,
+          typeArgs: specialization?.typeArgs ?? [],
           args: callArgs,
           site: target.site,
         };
@@ -4757,6 +4782,11 @@ export function projectGrammarSemanticTokens(sourceText) {
       }
       return;
     }
+    if (expr.kind === "generic_application") {
+      walkExpr(expr.target, typeParams, valueParams, locals);
+      for (const tArg of expr.typeArgs) walkType(tArg, typeParams, valueParams, locals);
+      return;
+    }
     if (expr.kind === "unary" || expr.kind === "loan_arg" || expr.kind === "try_expr") {
       walkExpr(expr.operand, typeParams, valueParams, locals);
       return;
@@ -5042,7 +5072,7 @@ const HOLDFAST_GENERIC_ANGLE_SOURCE =
 const HOLDFAST_CALL_SUFFIX_SOURCE = `\\s*(?:${HOLDFAST_GENERIC_ANGLE_SOURCE}(?:->|-(?!>)|[^<>=\\r\\n;{}&|-]|<[^<>=\\r\\n;{}&|]*>)*>\\s*\\(|\\()`;
 const HOLDFAST_NUM_SUFFIX_SOURCE = "(?:u8|u16|u32|u64|usize|byte|i8|i16|i32|i64)?\\b";
 const HOLDFAST_OPERATOR_SOURCE =
-  "<==>|==>|::|\\.\\.|=>|->|==|!=|<=|>=|&&|\\|\\||\\+=|-=|\\*=|\\/=|%=|[+*\\/%!=<>~^&|?-]";
+  "<==>|==>|\\.\\.|=>|->|==|!=|<=|>=|&&|\\|\\||\\+=|-=|\\*=|\\/=|%=|[+*\\/%!=<>~^&|?-]";
 
 export const HOLDFAST_LEXICAL_PATTERNS = Object.freeze({
   regionParam: /'[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*/,
@@ -5087,7 +5117,6 @@ export function buildHoldFastMonarchLanguage() {
         [HOLDFAST_LEXICAL_PATTERNS.hexNumber, "number"],
         [HOLDFAST_LEXICAL_PATTERNS.binNumber, "number"],
         [HOLDFAST_LEXICAL_PATTERNS.decNumber, "number"],
-        [/::</, { token: "delimiter.angle", next: "@genericArgs" }],
         [HOLDFAST_LEXICAL_PATTERNS.genericOpen, { token: "delimiter.angle", next: "@genericArgs" }],
         [
           /\b(?:record|struct|union|inductive|coinductive|interface|type|alias)\b(?=\s+[A-Za-z_][A-Za-z0-9_]*)/,
@@ -5899,6 +5928,9 @@ class MathElaborator {
       return this.evalCondition(expr, new Map(env));
     }
     this.step(expr.site);
+    if (expr.kind === "generic_application") {
+      throw new HoldFastError("unsupported", expr.site.line, expr.site.column, "generic values and generic member receivers require the native compiler");
+    }
     if (expr.kind === "nat") return boundedNatural(expr.value, expr.site);
     if (expr.kind === "bool") return expr.value;
     if (expr.kind === "string") return expr.value;

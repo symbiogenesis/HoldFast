@@ -33,7 +33,7 @@ PUNCTUATION = {
     "PERCENT": "%", "LT": "<", "GT": ">", "GE": ">=", "NE": "!=", "AND": "&&", "OR": "||",
     "NOT": "!", "AMP": "&", "BAR": "|", "CARET": "^", "TILDE": "~", "PLUS_ASSIGN": "+=",
     "MINUS_ASSIGN": "-=", "STAR_ASSIGN": "*=", "SLASH_ASSIGN": "/=", "MOD_ASSIGN": "%=",
-    "GENERIC_OPEN": "::<", "CALL_GENERIC_OPEN": "<", "ANNOTATION_OPEN": "(", "LAMBDA_OPEN": "(",
+    "ANGLE_GENERIC_OPEN": "<", "ANNOTATION_OPEN": "(", "LAMBDA_OPEN": "(",
 }
 
 

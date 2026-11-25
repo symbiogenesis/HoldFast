@@ -11,8 +11,9 @@ syntax. Separate consumers resolve names, check types and elaborate terms.
 The syntax entries consume the complete source before semantic checking.
 Duplicate declarations and `true + 1` parse before semantic diagnostics.
 Unsupported keywords, invalid UTF-8, incomplete input and resource exhaustion
-produce located refusals. Both entries share a bounded token-only probe for
-generic calls.
+produce located refusals. The surface entry uses a bounded, token-only probe for
+generic applications in expressions.
+[Angle-argument rule](../language/surface-grammar.md#bindings-match-arms-and-generic-calls)
 
 The authored OCaml grammar and AST types own syntax; actions construct located
 syntax only. Nodes carry half-open original-source byte spans. Diagnostics use

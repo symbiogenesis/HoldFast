@@ -112,10 +112,10 @@ def _navigate(documents: dict[str, _Document], workspace: Path, bundle: Path, ma
 
     global_units = _at(scale, _site(client, "Nat |() => 5", "units"), DEFINITION)
     parameter = _at(scale, _site(client, "Echo(Nat |)", "units"), DEFINITION)
-    parameter_use = _at(scale, _site(client, "Identity::<Nat>(|)", "units"), 0)
+    parameter_use = _at(scale, _site(client, "Identity<Nat>(|)", "units"), 0)
     generic = _at(scale, _site(client, "T |<T>(T", "Identity"), DEFINITION)
-    generic_use = _at(scale, _site(client, "=> |::<Nat>(", "Identity"), 0)
-    application = _at(scale, _site(client, "=> |;", "Identity::<Nat>(units)"), GENERATED_DEFINITION)
+    generic_use = _at(scale, _site(client, "=> |<Nat>(", "Identity"), 0)
+    application = _at(scale, _site(client, "=> |;", "Identity<Nat>(units)"), GENERATED_DEFINITION)
     if parameter == global_units or parameter != parameter_use or generic != generic_use:
         raise ValueError("offline shadowed-parameter or generic definition query disagreed")
     if generic not in _related(scale, application, "is_reference"):
@@ -174,7 +174,7 @@ def qualify(root: Path, reader: Path) -> dict[str, object]:
         client.write_bytes(client.read_bytes() + (
             b"\npublic definition Nat units() => 5;\n"
             b"public definition T Identity<T>(T value) => value;\n"
-            b"public definition Nat Echo(Nat units) => Identity::<Nat>(units);\n"
+            b"public definition Nat Echo(Nat units) => Identity<Nat>(units);\n"
         ))
         lock = directory / "packages.lock"
         bundle = directory / "index"
