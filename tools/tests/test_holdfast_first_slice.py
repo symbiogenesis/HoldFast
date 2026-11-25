@@ -728,14 +728,14 @@ def _packet_compound_updates() -> None:
         "    pkt[0usize] = 1u8;\n"
         "    pkt[0usize] += 1u8;\n"
         "    if (pkt[0usize] != 2u8) { return; }\n",
-        b"    pkt[0usize] = b0;",
+        b"    pkt[0] = b0;",
     )
 
 
 def _packet_affine_index_and_neutral_update() -> None:
     _check_packet_statements(
         "            acc = acc ^ pkt[i + 4usize];\n            acc += 0u8;",
-        b"            acc = acc ^ pkt[4usize + i];",
+        b"            acc = acc ^ pkt[4 + i];",
         replace=True,
     )
 
@@ -743,25 +743,7 @@ def _packet_affine_index_and_neutral_update() -> None:
 def _packet_contextual_literals() -> None:
     root = TOOLS.parent
     source = (root / "examples/first_slice.hf").read_bytes()
-    explicit = source
-    for inferred, suffixed in (
-        (b"magic = pkt[0];", b"magic = pkt[0usize];"),
-        (b"magic != 0x56 ||", b"magic != 0x56u8 ||"),
-        (b"0..4usize", b"0usize..4usize"),
-        (b"0x5A ^ rawLen", b"0x5Au8 ^ rawLen"),
-        (b"Span.Fill(ref dst, 0, 8, 0x00)", b"Span.Fill(ref dst, 0usize, 8usize, 0x00u8)"),
-    ):
-        ensure(inferred in explicit, f"missing contextual packet example {inferred!r}")
-        explicit = explicit.replace(inferred, suffixed)
-
-    outputs: list[tuple[str, str, int]] = []
     with parser.cached_build(root) as compiled:
-        for variant in (source, explicit):
-            parsed = parser.parse_source(compiled, variant, surface=True)
-            checked = holdfast_elaborate.elaborate(variant, parsed)
-            generated, checks = holdfast_first_slice.lower_to_c(variant, parsed, checked=checked)
-            outputs.append((checked.gallina.replace(checked.source_sha256, "SOURCE"),
-                            generated.replace(checked.source_sha256, "SOURCE"), checks))
         parsed = parser.parse_source(compiled, source, surface=True)
         checked = holdfast_elaborate.elaborate(source, parsed)
         generated, count = holdfast_first_slice.lower_to_c(source, parsed)
@@ -787,8 +769,17 @@ def _packet_contextual_literals() -> None:
                 raise AssertionError("checked literal offset did not identify a numeral")
             end = start + literal.end()
             explicit_source[end:end] = width.encode()
-        invalid = bytes(explicit_source).replace(b"acc = acc ^ pkt[4usize + i];", b"acc = true;")
-        ensure(invalid != explicit_source, "missing fully suffixed source neighbor")
+        explicit = bytes(explicit_source)
+        explicit_parsed = parser.parse_source(compiled, explicit, surface=True)
+        explicit_checked = holdfast_elaborate.elaborate(explicit, explicit_parsed)
+        explicit_c, explicit_count = holdfast_first_slice.lower_to_c(explicit, explicit_parsed, checked=explicit_checked)
+        explicit_gallina = explicit_checked.gallina.replace(explicit_checked.source_sha256, checked.source_sha256)
+        explicit_c = explicit_c.replace(explicit_checked.source_sha256, checked.source_sha256)
+        ensure((checked.gallina, generated, count) == (explicit_gallina, explicit_c, explicit_count),
+               "contextual literals changed the packet proof terms, C body or checks")
+
+        invalid = explicit.replace(b"acc = acc ^ pkt[4usize + i];", b"acc = true;")
+        ensure(invalid != explicit, "missing fully suffixed source neighbor")
         parsed = parser.parse_source(compiled, invalid, surface=True)
         with raises(HoldFastError, msg="fully suffixed source bypassed semantic checking") as raised:
             holdfast_first_slice.lower_to_c(invalid, parsed)
@@ -812,8 +803,6 @@ def _packet_contextual_literals() -> None:
         error = raised.exception
         ensure("requires an explicit type annotation or suffix" in str(error), f"unexpected width error: {error}")
 
-    ensure(outputs[0] == outputs[1], "contextual literals changed the packet proof terms, C body or checks")
-    _, generated, _ = outputs[0]
     ensure("magic = holdfast_span_read(pkt, 0UL);" in generated and "(magic != 0x56U)" in generated,
            "packet lowering lost contextual index or byte widths")
 

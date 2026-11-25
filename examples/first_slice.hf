@@ -25,15 +25,15 @@ public definition Span<byte> MakePacket8(
     byte b6,
     byte b7)
     =>
-    let s0 = Span.AllocZeroed(base, 8usize) in
-    let s1 = Span.Write(s0, 0usize, b0) in
-    let s2 = Span.Write(s1, 1usize, b1) in
-    let s3 = Span.Write(s2, 2usize, b2) in
-    let s4 = Span.Write(s3, 3usize, b3) in
-    let s5 = Span.Write(s4, 4usize, b4) in
-    let s6 = Span.Write(s5, 5usize, b5) in
-    let s7 = Span.Write(s6, 6usize, b6) in
-    Span.Write(s7, 7usize, b7);
+    let s0 = Span.AllocZeroed(base, 8) in
+    let s1 = Span.Write(s0, 0, b0) in
+    let s2 = Span.Write(s1, 1, b1) in
+    let s3 = Span.Write(s2, 2, b2) in
+    let s4 = Span.Write(s3, 3, b3) in
+    let s5 = Span.Write(s4, 4, b4) in
+    let s6 = Span.Write(s5, 5, b5) in
+    let s7 = Span.Write(s6, 6, b6) in
+    Span.Write(s7, 7, b7);
 
 public Unit WritePacket8(
     ref Span<byte> pkt,
@@ -46,40 +46,40 @@ public Unit WritePacket8(
     byte b6,
     byte b7)
     effects writes(pkt)
-    requires pkt.CanRead && pkt.CanWrite && pkt.Length >= 8usize
+    requires pkt.CanRead && pkt.CanWrite && pkt.Length >= 8
     ensures pkt.Base == old(pkt.Base) && pkt.Length == old(pkt.Length) && pkt.CanRead && pkt.CanWrite
-    ensures pkt[0usize] == b0 && pkt[1usize] == b1 && pkt[2usize] == b2 && pkt[3usize] == b3
-    ensures pkt[4usize] == b4 && pkt[5usize] == b5 && pkt[6usize] == b6 && pkt[7usize] == b7
+    ensures pkt[0] == b0 && pkt[1] == b1 && pkt[2] == b2 && pkt[3] == b3
+    ensures pkt[4] == b4 && pkt[5] == b5 && pkt[6] == b6 && pkt[7] == b7
 {
-    pkt[0usize] = b0;
-    pkt[1usize] = b1;
-    pkt[2usize] = b2;
-    pkt[3usize] = b3;
-    pkt[4usize] = b4;
-    pkt[5usize] = b5;
-    pkt[6usize] = b6;
-    pkt[7usize] = b7;
+    pkt[0] = b0;
+    pkt[1] = b1;
+    pkt[2] = b2;
+    pkt[3] = b3;
+    pkt[4] = b4;
+    pkt[5] = b5;
+    pkt[6] = b6;
+    pkt[7] = b7;
 }
 
 public definition Span<byte> InhabitedByteSpan()
     =>
-    Span.Write(Span.AllocZeroed(0x1000usize, 8usize), 0usize, 0x56u8);
+    Span.Write(Span.AllocZeroed(0x1000, 8), 0, 0x56);
 
 public theorem LawInhabitedByteCase()
     ensures exists (Span<byte> s) =>
-        (s.CanRead && s.CanWrite && s.Length == 8usize && s[0usize] == 0x56u8) == true
+        (s.CanRead && s.CanWrite && s.Length == 8 && s[0] == 0x56) == true
     proof
     {
         assert exists (Span<byte> s) =>
-            (s.CanRead && s.CanWrite && s.Length == 8usize && s[0usize] == 0x56u8) == true
+            (s.CanRead && s.CanWrite && s.Length == 8 && s[0] == 0x56) == true
             by InhabitedByteSpan();
     }
 
 public theorem LawAllocZeroedRead(usize base, usize idx)
-    ensures (if (idx < 8usize) Span.AllocZeroed(base, 8usize)[idx] == 0x00u8 else true) == true
+    ensures (if (idx < 8) Span.AllocZeroed(base, 8)[idx] == 0x00 else true) == true
     proof
     {
-        assert (if (idx < 8usize) Span.AllocZeroed(base, 8usize)[idx] == 0x00u8 else true) == true;
+        assert (if (idx < 8) Span.AllocZeroed(base, 8)[idx] == 0x00 else true) == true;
     }
 
 public theorem LawReadOverWriteSame(ref Span<byte> s, usize idx, byte val)
@@ -107,7 +107,7 @@ public theorem LawLoopFramePreservesDisjointSuffix(ref Span<byte> s, usize bound
     ensures (s.Base == old(s.Base) && s.Length == old(s.Length) && s.CanRead && s.CanWrite && s[frameIdx] == old(s[frameIdx])) == true
     proof
     {
-        foreach (let i in 0usize..bound)
+        foreach (let i in 0..bound)
             invariant i <= bound
             invariant s.CanRead && s.CanWrite && s.Base == old(s.Base) && s.Length == old(s.Length)
             invariant s[frameIdx] == old(s[frameIdx])
@@ -119,49 +119,49 @@ public theorem LawLoopFramePreservesDisjointSuffix(ref Span<byte> s, usize bound
     }
 
 public theorem LawFillAndFrame(ref Span<byte> s, usize frameIdx, byte fillVal)
-    requires s.CanRead && s.CanWrite && s.Length >= 8usize
-    requires frameIdx >= 6usize && frameIdx < s.Length
-    ensures (s[1usize] == old(s[1usize])
-        && s[2usize] == fillVal
-        && s[5usize] == fillVal
+    requires s.CanRead && s.CanWrite && s.Length >= 8
+    requires frameIdx >= 6 && frameIdx < s.Length
+    ensures (s[1] == old(s[1])
+        && s[2] == fillVal
+        && s[5] == fillVal
         && s[frameIdx] == old(s[frameIdx])) == true
     proof
     {
-        Span.Fill(ref s, 2usize, 4usize, fillVal);
-        assert (s[1usize] == old(s[1usize])
-            && s[2usize] == fillVal
-            && s[5usize] == fillVal
+        Span.Fill(ref s, 2, 4, fillVal);
+        assert (s[1] == old(s[1])
+            && s[2] == fillVal
+            && s[5] == fillVal
             && s[frameIdx] == old(s[frameIdx])) == true;
     }
 
 public theorem LawSymbolicFillFrame(ref Span<byte> s, usize count, usize i)
     requires s.CanRead && s.CanWrite
-    requires count <= 1_000_000_000usize && 4usize + count <= s.Length
-    requires i >= 1_000_000_004usize && i < s.Length
+    requires count <= 1_000_000_000 && 4 + count <= s.Length
+    requires i >= 1_000_000_004 && i < s.Length
     ensures s[i] == old(s)[i]
     proof
     {
-        Span.Fill(ref s, 4usize, count, 0u8);
+        Span.Fill(ref s, 4, count, 0);
         assert s[i] == old(s)[i];
     }
 
 public theorem LawSliceMetadataAndRead(in Span<byte> s, usize idx)
-    requires s.CanRead && s.Base <= 0xFFFF_0000usize && s.Length >= 8usize && idx < 3usize
+    requires s.CanRead && s.Base <= 0xFFFF_0000 && s.Length >= 8 && idx < 3
     ensures
-        let sub = Span.Slice(s, 4usize, 3usize) in
-        (sub.Base == s.Base + 4usize
-            && sub.Length == 3usize
+        let sub = Span.Slice(s, 4, 3) in
+        (sub.Base == s.Base + 4
+            && sub.Length == 3
             && sub.CanRead
             && sub.CanWrite == s.CanWrite
-            && sub[idx] == s[4usize + idx]) == true
+            && sub[idx] == s[4 + idx]) == true
     proof
     {
-        let sub = Span.Slice(s, 4usize, 3usize);
-        assert (sub.Base == s.Base + 4usize
-            && sub.Length == 3usize
+        let sub = Span.Slice(s, 4, 3);
+        assert (sub.Base == s.Base + 4
+            && sub.Length == 3
             && sub.CanRead
             && sub.CanWrite == s.CanWrite
-            && sub[idx] == s[4usize + idx]) == true;
+            && sub[idx] == s[4 + idx]) == true;
     }
 
 public theorem LawReadOnlyAndInvalidate(in Span<byte> s)
@@ -179,25 +179,25 @@ public theorem LawReadOnlyAndInvalidate(in Span<byte> s)
 
 public theorem LawDisjointCopyAndFrame(ref Span<byte> dst, in Span<byte> src, usize frameIdx)
     requires dst.CanRead && dst.CanWrite && src.CanRead
-    requires dst.Length >= 8usize && src.Length >= 6usize
+    requires dst.Length >= 8 && src.Length >= 6
     requires Span.Disjoint(dst, src)
-    requires frameIdx >= 6usize && frameIdx < dst.Length
+    requires frameIdx >= 6 && frameIdx < dst.Length
     ensures (dst.Base == old(dst.Base)
         && dst.Length == old(dst.Length)
-        && dst[3usize] == old(dst[3usize])
-        && dst[4usize] == src[4usize]
-        && dst[5usize] == src[5usize]
+        && dst[3] == old(dst[3])
+        && dst[4] == src[4]
+        && dst[5] == src[5]
         && dst[frameIdx] == old(dst[frameIdx])) == true
     proof
     {
-        var dstSub = Span.Slice(dst, 4usize, 2usize);
-        let srcSub = Span.Slice(src, 4usize, 2usize);
-        Span.CopyPrefix(ref dstSub, srcSub, 2usize);
+        var dstSub = Span.Slice(dst, 4, 2);
+        let srcSub = Span.Slice(src, 4, 2);
+        Span.CopyPrefix(ref dstSub, srcSub, 2);
         assert (dst.Base == old(dst.Base)
             && dst.Length == old(dst.Length)
-            && dst[3usize] == old(dst[3usize])
-            && dst[4usize] == src[4usize]
-            && dst[5usize] == src[5usize]
+            && dst[3] == old(dst[3])
+            && dst[4] == src[4]
+            && dst[5] == src[5]
             && dst[frameIdx] == old(dst[frameIdx])) == true;
     }
 
@@ -205,76 +205,76 @@ public Span<byte> PrepareSliceHeader(ref Span<byte> dst)
     effects writes(dst)
     requires dst.CanRead
     requires dst.CanWrite
-    requires dst.Length >= 8usize
+    requires dst.Length >= 8
     ensures dst.Length == old(dst.Length)
-    ensures result.Length == 4usize
+    ensures result.Length == 4
     ensures !result.CanWrite
 {
-    foreach (let i in 0usize..dst.Length)
+    foreach (let i in 0..dst.Length)
         invariant i <= dst.Length
         invariant dst.CanRead && dst.CanWrite && dst.Base == old(dst.Base) && dst.Length == old(dst.Length)
         decreases dst.Length - i
     {
-        dst[i] = 0x00u8;
+        dst[i] = 0x00;
     }
-    dst[0usize] = 0x56u8;
-    dst[3usize] = 0x01u8;
-    let roView = Span.ReadOnly(Span.Slice(dst, 0usize, 4usize));
+    dst[0] = 0x56;
+    dst[3] = 0x01;
+    let roView = Span.ReadOnly(Span.Slice(dst, 0, 4));
     return roView;
 }
 
 public theorem LawCapacityInvarianceSmall(ref Span<byte> s)
-    requires s.CanRead && s.CanWrite && s.Length == 8usize
-    ensures (s.Length == 8usize && s[0usize] == 0x56u8 && s[3usize] == 0x01u8) == true
+    requires s.CanRead && s.CanWrite && s.Length == 8
+    ensures (s.Length == 8 && s[0] == 0x56 && s[3] == 0x01) == true
     proof
     {
         let roView = PrepareSliceHeader(ref s);
-        assert (s.Length == 8usize
-            && roView.Length == 4usize
+        assert (s.Length == 8
+            && roView.Length == 4
             && !roView.CanWrite
-            && s[0usize] == 0x56u8
-            && s[3usize] == 0x01u8) == true;
+            && s[0] == 0x56
+            && s[3] == 0x01) == true;
     }
 
 public theorem LawCapacityInvarianceLarge(ref Span<byte> s)
-    requires s.CanRead && s.CanWrite && s.Length == 1_000_000_000usize
-    ensures (s.Length == 1_000_000_000usize && s[0usize] == 0x56u8 && s[3usize] == 0x01u8) == true
+    requires s.CanRead && s.CanWrite && s.Length == 1_000_000_000
+    ensures (s.Length == 1_000_000_000 && s[0] == 0x56 && s[3] == 0x01) == true
     proof
     {
         let roView = PrepareSliceHeader(ref s);
-        assert (s.Length == 1_000_000_000usize
-            && roView.Length == 4usize
+        assert (s.Length == 1_000_000_000
+            && roView.Length == 4
             && !roView.CanWrite
-            && s[0usize] == 0x56u8
-            && s[3usize] == 0x01u8) == true;
+            && s[0] == 0x56
+            && s[3] == 0x01) == true;
     }
 
 public definition u8 SpecPacketChecksum(in Span<byte> pkt, u8 rawLen, usize payloadLen)
     requires pkt.CanRead
-    requires payloadLen <= 4usize
-    requires 4usize + payloadLen <= pkt.Length
+    requires payloadLen <= 4
+    requires 4 + payloadLen <= pkt.Length
     =>
-    let c0 = 0x5Au8 ^ rawLen in
-    let c1 = if (0usize < payloadLen) c0 ^ pkt[4usize] else c0 in
-    let c2 = if (1usize < payloadLen) c1 ^ pkt[5usize] else c1 in
-    let c3 = if (2usize < payloadLen) c2 ^ pkt[6usize] else c2 in
-    if (3usize < payloadLen) c3 ^ pkt[7usize] else c3;
+    let c0 = 0x5A ^ rawLen in
+    let c1 = if (0 < payloadLen) c0 ^ pkt[4] else c0 in
+    let c2 = if (1 < payloadLen) c1 ^ pkt[5] else c1 in
+    let c3 = if (2 < payloadLen) c2 ^ pkt[6] else c2 in
+    if (3 < payloadLen) c3 ^ pkt[7] else c3;
 
 public definition Result<usize, ValidationError> SpecPacketOutcome(in Span<byte> dst, in Span<byte> pkt)
     requires dst.CanRead && dst.CanWrite && pkt.CanRead
     =>
-    if (dst.Length < 8usize || pkt.Length < 4usize || !Span.Disjoint(dst, pkt))
+    if (dst.Length < 8 || pkt.Length < 4 || !Span.Disjoint(dst, pkt))
         Err(FramingShort)
-    else if (pkt[0usize] != 0x56u8 || pkt[3usize] != 0x01u8)
+    else if (pkt[0] != 0x56 || pkt[3] != 0x01)
         Err(BadMagicOrFlags)
-    else if (usize.From(pkt[1usize]) > 4usize
-        || 4usize + usize.From(pkt[1usize]) > pkt.Length
-        || 4usize + usize.From(pkt[1usize]) > dst.Length)
+    else if (usize.From(pkt[1]) > 4
+        || 4 + usize.From(pkt[1]) > pkt.Length
+        || 4 + usize.From(pkt[1]) > dst.Length)
         Err(LengthOutOfBounds)
-    else if (SpecPacketChecksum(in pkt, pkt[1usize], usize.From(pkt[1usize])) != pkt[2usize])
+    else if (SpecPacketChecksum(in pkt, pkt[1], usize.From(pkt[1])) != pkt[2])
         Err(ChecksumRejected)
     else
-        Ok(usize.From(pkt[1usize]));
+        Ok(usize.From(pkt[1]));
 
 public definition bool SpecPacketValid(in Span<byte> dst, in Span<byte> pkt)
     requires dst.CanRead && dst.CanWrite && pkt.CanRead
@@ -292,34 +292,34 @@ private Unit CopyPacketToDst(ref Span<byte> dst, in Span<byte> pkt, usize payloa
     requires dst.CanRead
     requires dst.CanWrite
     requires pkt.CanRead
-    requires dst.Length >= 8usize
-    requires pkt.Length >= 4usize
+    requires dst.Length >= 8
+    requires pkt.Length >= 4
     requires Span.Disjoint(dst, pkt)
-    requires payloadLen <= 4usize
-    requires 4usize + payloadLen <= pkt.Length
-    requires 4usize + payloadLen <= dst.Length
+    requires payloadLen <= 4
+    requires 4 + payloadLen <= pkt.Length
+    requires 4 + payloadLen <= dst.Length
 {
-    foreach (let i in 0usize..4usize)
+    foreach (let i in 0..4usize)
         invariant dst.CanRead && dst.CanWrite && dst.Base == old(dst.Base) && dst.Length == old(dst.Length)
     {
         dst[i] = pkt[i];
     }
-    var payloadView = Span.Slice(dst, 4usize, payloadLen);
-    let pktPayload = Span.Slice(pkt, 4usize, payloadLen);
+    var payloadView = Span.Slice(dst, 4, payloadLen);
+    let pktPayload = Span.Slice(pkt, 4, payloadLen);
     Span.CopyPrefix(ref payloadView, pktPayload, payloadLen);
 }
 
 private u8 ComputePacketChecksum(in Span<byte> pkt, u8 rawLen, usize payloadLen)
     requires pkt.CanRead
-    requires payloadLen <= 4usize
-    requires 4usize + payloadLen <= pkt.Length
+    requires payloadLen <= 4
+    requires 4 + payloadLen <= pkt.Length
 {
     var u8 acc = 0x5A ^ rawLen;
     foreach (let i in 0..4usize)
     {
         if (i < payloadLen)
         {
-            acc = acc ^ pkt[4usize + i];
+            acc = acc ^ pkt[4 + i];
         }
     }
     return acc;
@@ -343,8 +343,8 @@ public Result<ValidatedPacket<'dst>, ValidationError> PrepareAndValidatePacket<r
     ensures (result is Ok(_)) ==> (dst[0] == pkt[0] && dst[1] == pkt[1] && dst[2] == pkt[2] && dst[3] == pkt[3])
     ensures (result is Err(FramingShort)) ==> dst == old(dst)
     ensures ((result is Err(_)) && !(result is Err(FramingShort)) && dst.Length >= 8) ==>
-        (dst[0] == 0x00u8 && dst[1] == 0x00u8 && dst[2] == 0x00u8 && dst[3] == 0x00u8
-        && dst[4] == 0x00u8 && dst[5] == 0x00u8 && dst[6] == 0x00u8 && dst[7] == 0x00u8)
+        (dst[0] == 0x00 && dst[1] == 0x00 && dst[2] == 0x00 && dst[3] == 0x00
+        && dst[4] == 0x00 && dst[5] == 0x00 && dst[6] == 0x00 && dst[7] == 0x00)
     ensures ((result is Ok(_)) && dst.Length >= 8 && pkt.Length >= 4 && usize.From(pkt[1]) <= 4
         && 4 + usize.From(pkt[1]) <= dst.Length) ==> result == Ok(ValidatedPacket(
             usize.From(pkt[1]), in Span.ReadOnly(Span.Slice(dst, 4, usize.From(pkt[1])))))
@@ -357,7 +357,7 @@ public Result<ValidatedPacket<'dst>, ValidationError> PrepareAndValidatePacket<r
     ensures (forall (usize i) => match (result)
     {
         Ok(ValidatedPacket(copied, _)) =>
-            if (copied <= 4 && i >= 4 + copied && i >= 4 && i < 8 && i < dst.Length) dst[i] == 0x00u8 else true,
+            if (copied <= 4 && i >= 4 + copied && i >= 4 && i < 8 && i < dst.Length) dst[i] == 0x00 else true,
         Err(_) => true
     })
     ensures (forall (usize i) => (i >= 8 && i < dst.Length && i < old(dst.Length)) ==> dst[i] == old(dst)[i])
@@ -393,21 +393,21 @@ public Result<ValidatedPacket<'dst>, ValidationError> PrepareAndValidatePacket<r
 }
 
 public theorem ValidateEmptyPacketOk(ref Span<byte> dst, in Span<byte> pkt, usize frameIdx)
-    requires dst.CanRead && dst.CanWrite && dst.Base <= 0xFFFF_0000usize && dst.Length >= 8usize
-    requires pkt.CanRead && pkt.Length >= 4usize
+    requires dst.CanRead && dst.CanWrite && dst.Base <= 0xFFFF_0000 && dst.Length >= 8
+    requires pkt.CanRead && pkt.Length >= 4
     requires Span.Disjoint(dst, pkt)
-    requires pkt[0usize] == 0x56u8 && pkt[1usize] == 0x00u8 && pkt[2usize] == 0x5Au8 && pkt[3usize] == 0x01u8
-    requires frameIdx >= 8usize && frameIdx < dst.Length
+    requires pkt[0] == 0x56 && pkt[1] == 0x00 && pkt[2] == 0x5A && pkt[3] == 0x01
+    requires frameIdx >= 8 && frameIdx < dst.Length
     ensures (dst.Base == old(dst.Base)
         && dst.Length == old(dst.Length)
         && dst.CanRead
         && dst.CanWrite
-        && dst[0usize] == 0x56u8
-        && dst[1usize] == 0x00u8
-        && dst[2usize] == 0x5Au8
-        && dst[3usize] == 0x01u8
-        && dst[4usize] == 0x00u8
-        && dst[7usize] == 0x00u8
+        && dst[0] == 0x56
+        && dst[1] == 0x00
+        && dst[2] == 0x5A
+        && dst[3] == 0x01
+        && dst[4] == 0x00
+        && dst[7] == 0x00
         && dst[frameIdx] == old(dst[frameIdx])) == true
     proof
     {
@@ -416,9 +416,9 @@ public theorem ValidateEmptyPacketOk(ref Span<byte> dst, in Span<byte> pkt, usiz
             && match (outcome)
             {
                 Ok(ValidatedPacket(copied, payloadView)) =>
-                    copied == 0usize
-                    && payloadView.Base == dst.Base + 4usize
-                    && payloadView.Length == 0usize
+                    copied == 0
+                    && payloadView.Base == dst.Base + 4
+                    && payloadView.Length == 0
                     && payloadView.CanRead
                     && !payloadView.CanWrite,
                 Err(_) => false
@@ -427,12 +427,12 @@ public theorem ValidateEmptyPacketOk(ref Span<byte> dst, in Span<byte> pkt, usiz
             && dst.Length == old(dst.Length)
             && dst.CanRead
             && dst.CanWrite
-            && dst[0usize] == 0x56u8
-            && dst[1usize] == 0x00u8
-            && dst[2usize] == 0x5Au8
-            && dst[3usize] == 0x01u8
-            && dst[4usize] == 0x00u8
-            && dst[7usize] == 0x00u8
+            && dst[0] == 0x56
+            && dst[1] == 0x00
+            && dst[2] == 0x5A
+            && dst[3] == 0x01
+            && dst[4] == 0x00
+            && dst[7] == 0x00
             && dst[frameIdx] == old(dst[frameIdx])) == true;
     }
 
@@ -444,19 +444,19 @@ public theorem ValidateFullPacketOk(
     byte b2,
     byte b3,
     usize frameIdx)
-    requires dst.CanRead && dst.CanWrite && dst.Base <= 0xFFFF_0000usize && dst.Length >= 8usize
-    requires pkt.CanRead && pkt.Length >= 8usize
+    requires dst.CanRead && dst.CanWrite && dst.Base <= 0xFFFF_0000 && dst.Length >= 8
+    requires pkt.CanRead && pkt.Length >= 8
     requires Span.Disjoint(dst, pkt)
-    requires pkt[0usize] == 0x56u8 && pkt[1usize] == 0x04u8 && pkt[3usize] == 0x01u8
-    requires pkt[4usize] == b0 && pkt[5usize] == b1 && pkt[6usize] == b2 && pkt[7usize] == b3
-    requires pkt[2usize] == ((0x5Au8 ^ 0x04u8) ^ (b0 ^ b1 ^ b2 ^ b3))
-    requires frameIdx >= 8usize && frameIdx < dst.Length
+    requires pkt[0] == 0x56 && pkt[1] == 0x04 && pkt[3] == 0x01
+    requires pkt[4] == b0 && pkt[5] == b1 && pkt[6] == b2 && pkt[7] == b3
+    requires pkt[2] == ((0x5A ^ 0x04) ^ (b0 ^ b1 ^ b2 ^ b3))
+    requires frameIdx >= 8 && frameIdx < dst.Length
     ensures (dst.Base == old(dst.Base)
         && dst.Length == old(dst.Length)
-        && dst[4usize] == b0
-        && dst[5usize] == b1
-        && dst[6usize] == b2
-        && dst[7usize] == b3
+        && dst[4] == b0
+        && dst[5] == b1
+        && dst[6] == b2
+        && dst[7] == b3
         && dst[frameIdx] == old(dst[frameIdx])) == true
     proof
     {
@@ -465,23 +465,23 @@ public theorem ValidateFullPacketOk(
             && match (outcome)
             {
                 Ok(ValidatedPacket(copied, payloadView)) =>
-                    copied == 4usize
-                    && payloadView.Base == dst.Base + 4usize
-                    && payloadView.Length == 4usize
+                    copied == 4
+                    && payloadView.Base == dst.Base + 4
+                    && payloadView.Length == 4
                     && payloadView.CanRead
                     && !payloadView.CanWrite
-                    && payloadView[0usize] == b0
-                    && payloadView[1usize] == b1
-                    && payloadView[2usize] == b2
-                    && payloadView[3usize] == b3,
+                    && payloadView[0] == b0
+                    && payloadView[1] == b1
+                    && payloadView[2] == b2
+                    && payloadView[3] == b3,
                 Err(_) => false
             }) == true;
         assert (dst.Base == old(dst.Base)
             && dst.Length == old(dst.Length)
-            && dst[4usize] == b0
-            && dst[5usize] == b1
-            && dst[6usize] == b2
-            && dst[7usize] == b3
+            && dst[4] == b0
+            && dst[5] == b1
+            && dst[6] == b2
+            && dst[7] == b3
             && dst[frameIdx] == old(dst[frameIdx])) == true;
     }
 
@@ -491,17 +491,17 @@ public theorem ValidatePartialPacketScrubsStaleAndTrailingBytes(
     byte b0,
     byte b1,
     usize frameIdx)
-    requires dst.CanRead && dst.CanWrite && dst.Length >= 8usize
-    requires pkt.CanRead && pkt.Length >= 6usize
+    requires dst.CanRead && dst.CanWrite && dst.Length >= 8
+    requires pkt.CanRead && pkt.Length >= 6
     requires Span.Disjoint(dst, pkt)
-    requires pkt[0usize] == 0x56u8 && pkt[1usize] == 0x02u8 && pkt[3usize] == 0x01u8
-    requires pkt[4usize] == b0 && pkt[5usize] == b1
-    requires pkt[2usize] == ((0x5Au8 ^ 0x02u8) ^ (b0 ^ b1))
-    requires frameIdx >= 8usize && frameIdx < dst.Length
-    ensures (dst[4usize] == b0
-        && dst[5usize] == b1
-        && dst[6usize] == 0x00u8
-        && dst[7usize] == 0x00u8
+    requires pkt[0] == 0x56 && pkt[1] == 0x02 && pkt[3] == 0x01
+    requires pkt[4] == b0 && pkt[5] == b1
+    requires pkt[2] == ((0x5A ^ 0x02) ^ (b0 ^ b1))
+    requires frameIdx >= 8 && frameIdx < dst.Length
+    ensures (dst[4] == b0
+        && dst[5] == b1
+        && dst[6] == 0x00
+        && dst[7] == 0x00
         && dst[frameIdx] == old(dst[frameIdx])) == true
     proof
     {
@@ -510,24 +510,24 @@ public theorem ValidatePartialPacketScrubsStaleAndTrailingBytes(
             && match (outcome)
             {
                 Ok(ValidatedPacket(copied, payloadView)) =>
-                    copied == 2usize
-                    && payloadView.Length == 2usize
+                    copied == 2
+                    && payloadView.Length == 2
                     && payloadView.CanRead
                     && !payloadView.CanWrite
-                    && payloadView[0usize] == b0
-                    && payloadView[1usize] == b1,
+                    && payloadView[0] == b0
+                    && payloadView[1] == b1,
                 Err(_) => false
             }) == true;
-        assert (dst[4usize] == b0
-            && dst[5usize] == b1
-            && dst[6usize] == 0x00u8
-            && dst[7usize] == 0x00u8
+        assert (dst[4] == b0
+            && dst[5] == b1
+            && dst[6] == 0x00
+            && dst[7] == 0x00
             && dst[frameIdx] == old(dst[frameIdx])) == true;
     }
 
 public theorem RejectFramingShort(ref Span<byte> dst, in Span<byte> pkt, usize idx)
     requires dst.CanRead && dst.CanWrite
-    requires pkt.CanRead && pkt.Length < 4usize
+    requires pkt.CanRead && pkt.Length < 4
     requires idx < dst.Length
     ensures (dst.Base == old(dst.Base)
         && dst.Length == old(dst.Length)
@@ -545,33 +545,33 @@ public theorem RejectFramingShort(ref Span<byte> dst, in Span<byte> pkt, usize i
     }
 
 public theorem RejectBadMagic(ref Span<byte> dst, in Span<byte> pkt, usize frameIdx)
-    requires dst.CanRead && dst.CanWrite && dst.Length >= 8usize
-    requires pkt.CanRead && pkt.Length >= 4usize
+    requires dst.CanRead && dst.CanWrite && dst.Length >= 8
+    requires pkt.CanRead && pkt.Length >= 4
     requires Span.Disjoint(dst, pkt)
-    requires pkt[0usize] != 0x56u8
-    requires frameIdx >= 8usize && frameIdx < dst.Length
-    ensures (dst[0usize] == 0x00u8
-        && dst[7usize] == 0x00u8
+    requires pkt[0] != 0x56
+    requires frameIdx >= 8 && frameIdx < dst.Length
+    ensures (dst[0] == 0x00
+        && dst[7] == 0x00
         && dst[frameIdx] == old(dst[frameIdx])) == true
     proof
     {
         let outcome = PrepareAndValidatePacket(ref dst, in pkt);
         assert (!SpecPacketValid(in old(dst), in pkt)
             && (outcome is Err(BadMagicOrFlags))) == true;
-        assert (dst[0usize] == 0x00u8
-            && dst[7usize] == 0x00u8
+        assert (dst[0] == 0x00
+            && dst[7] == 0x00
             && dst[frameIdx] == old(dst[frameIdx])) == true;
     }
 
 public theorem RejectLengthOutOfBounds(ref Span<byte> dst, in Span<byte> pkt, usize frameIdx)
-    requires dst.CanRead && dst.CanWrite && dst.Length >= 8usize
-    requires pkt.CanRead && pkt.Length >= 4usize
+    requires dst.CanRead && dst.CanWrite && dst.Length >= 8
+    requires pkt.CanRead && pkt.Length >= 4
     requires Span.Disjoint(dst, pkt)
-    requires pkt[0usize] == 0x56u8 && pkt[3usize] == 0x01u8 && pkt[1usize] > 0x04u8
-    requires frameIdx >= 8usize && frameIdx < dst.Length
+    requires pkt[0] == 0x56 && pkt[3] == 0x01 && pkt[1] > 0x04
+    requires frameIdx >= 8 && frameIdx < dst.Length
     ensures (dst.Length == old(dst.Length)
-        && dst[0usize] == 0x00u8
-        && dst[7usize] == 0x00u8
+        && dst[0] == 0x00
+        && dst[7] == 0x00
         && dst[frameIdx] == old(dst[frameIdx])) == true
     proof
     {
@@ -579,8 +579,8 @@ public theorem RejectLengthOutOfBounds(ref Span<byte> dst, in Span<byte> pkt, us
         assert (!SpecPacketValid(in old(dst), in pkt)
             && (outcome is Err(LengthOutOfBounds))) == true;
         assert (dst.Length == old(dst.Length)
-            && dst[0usize] == 0x00u8
-            && dst[7usize] == 0x00u8
+            && dst[0] == 0x00
+            && dst[7] == 0x00
             && dst[frameIdx] == old(dst[frameIdx])) == true;
     }
 
@@ -590,20 +590,20 @@ public theorem RejectChecksumScrubsDestinationAndRestores(
     byte b0,
     byte b1,
     usize frameIdx)
-    requires dst.CanRead && dst.CanWrite && dst.Length >= 8usize
-    requires pkt.CanRead && pkt.Length >= 6usize
+    requires dst.CanRead && dst.CanWrite && dst.Length >= 8
+    requires pkt.CanRead && pkt.Length >= 6
     requires Span.Disjoint(dst, pkt)
-    requires pkt[0usize] == 0x56u8 && pkt[1usize] == 0x02u8 && pkt[3usize] == 0x01u8
-    requires pkt[4usize] == b0 && pkt[5usize] == b1
-    requires pkt[2usize] != ((0x5Au8 ^ 0x02u8) ^ (b0 ^ b1))
-    requires frameIdx >= 8usize && frameIdx < dst.Length
+    requires pkt[0] == 0x56 && pkt[1] == 0x02 && pkt[3] == 0x01
+    requires pkt[4] == b0 && pkt[5] == b1
+    requires pkt[2] != ((0x5A ^ 0x02) ^ (b0 ^ b1))
+    requires frameIdx >= 8 && frameIdx < dst.Length
     ensures (dst.Base == old(dst.Base)
         && dst.Length == old(dst.Length)
         && dst.CanWrite
-        && dst[0usize] == 0x00u8
-        && dst[4usize] == 0x00u8
-        && dst[5usize] == 0x00u8
-        && dst[7usize] == 0x00u8
+        && dst[0] == 0x00
+        && dst[4] == 0x00
+        && dst[5] == 0x00
+        && dst[7] == 0x00
         && dst[frameIdx] == old(dst[frameIdx])) == true
     proof
     {
@@ -613,9 +613,9 @@ public theorem RejectChecksumScrubsDestinationAndRestores(
         assert (dst.Base == old(dst.Base)
             && dst.Length == old(dst.Length)
             && dst.CanWrite
-            && dst[0usize] == 0x00u8
-            && dst[4usize] == 0x00u8
-            && dst[5usize] == 0x00u8
-            && dst[7usize] == 0x00u8
+            && dst[0] == 0x00
+            && dst[4] == 0x00
+            && dst[5] == 0x00
+            && dst[7] == 0x00
             && dst[frameIdx] == old(dst[frameIdx])) == true;
     }

@@ -31,9 +31,10 @@ def _walkthrough_outputs() -> None:
 def _walkthrough_edits() -> None:
     root = TOOLS.parent
     validator = (root / EXAMPLE).read_text(encoding="utf-8")
+    framing_guard = "    if (dst.Length < 8 || pkt.Length < 4 || !Span.Disjoint(dst, pkt))\n    {"
     view = "let payloadView = Span.ReadOnly(Span.Slice(dst, 4, payloadLen));"
     edits = (
-        ("if (dst.Length < 8 || pkt.Length < 4 ||", "if (dst.Length < 8 || pkt.Length < 3 ||",
+        (framing_guard, framing_guard.replace("pkt.Length < 4", "pkt.Length < 3"),
          "Span index is within Span.Length bounds"),
         ("        Span.Fill(ref dst, 0, 8, 0x00);", "        Span.Fill(ref dst, 0, 9, 0x00);",
          "Span.Fill subrange"),
