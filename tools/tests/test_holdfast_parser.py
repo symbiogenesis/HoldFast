@@ -265,6 +265,7 @@ def _qualification_freshness() -> None:
             with patch.object(parser, "_work_root", return_value=root), \
                     patch.object(parser, "build", return_value=compiled), \
                     patch.object(parser, "_fixtures", return_value=["independent"]), \
+                    patch.object(parser, "_surface_layout_fixture", return_value="original-surface-tokens-and-comments"), \
                     patch.object(parser.holdfast_surface, "qualify", return_value=["surface-independent"]), \
                     patch.object(parser, "parse_source", side_effect=parse_example), \
                     patch.object(parser, "_inputs", return_value={"source": "changed"} if change == "source" else inputs), \
