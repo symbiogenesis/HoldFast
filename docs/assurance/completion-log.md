@@ -2418,7 +2418,13 @@ Through the [native playground](../tooling/playground.md), changing the bound
 in a dependent equality changes the displayed goal. The
 [interaction controls](../../tools/tests/test_holdfast_playground_math.py) verify
 repair, dependency replacement and a late success arriving after an invalid
-edit. Q25au remains open for the copy-prefix guard, cleanup token and suspended
+edit. The native worker also reports an inline assertion's exact proposition
+and current typed branch context at its source span. A long chain exhausts the
+256-join allowance and retains unresolved status. The shorter chain and an
+explicit proof under the same allowance replay in Rocq with empty assumption
+audits. Reversing a consumed guard withdraws the prior output. A late response
+from the previous source leaves the current unresolved goal in place.
+Q25au remains open for the copy-prefix guard, cleanup token and suspended
 parent in the [composed release fixture](../language/core-design.md#typed-holes-and-invalidation).
 
 <a id="q25co-export-optimization-decisions-and-explanations"></a>
@@ -2536,7 +2542,7 @@ entry. Tests exercise shadowing, reordered imports and same-tail collisions.
 
 <a id="q25el-publish-canonical-authoring-defaults-for-new-packages"></a>
 
-## Q25el ? Publish canonical authoring defaults for new packages
+## Q25el · Publish canonical authoring defaults for new packages
 
 The [locked package authoring checks](../tooling/authoring-tools.md#locked-package-authoring)
 share one formatter between `math-2` root builds, explicit file repair and
@@ -2544,6 +2550,24 @@ stdin editor formatting. Builds report advisory lint findings from the
 locked module context. The [two-module trial](../../tools/tests/test_holdfast_package_authoring.py)
 checks a qualified sibling import and a public constant upgrade. It exercises
 layout refusal, byte and timestamp preservation, repair, and stale-lock
-refusal. The Windows runner dispatches the editor stream to the guest
-formatter. The minimized generated failure, package-trial marked documentation
-and fresh Windows and Linux installation runs remain open.
+refusal. The minimized propagation-token failure replays through the locked
+build and explicit format commands. Both preserve the separation in `? ?`
+and `? .`, and the parser refuses their contiguous spellings. The trial uses
+the marked `TrailUnits` documentation module as the imported sibling.
+The Windows runner dispatches the same package and editor commands to WSL.
+Fresh Windows and Linux installation runs remain open.
+
+<a id="q25em-qualify-closed-effect-inference-within-release-packages"></a>
+
+## Q25em · Qualify closed effect inference within release packages
+
+The locked mathematical build checks calls to unannotated package-internal
+sibling helpers. Splitting the provider into separate read and write helpers
+retains the exported bound. An importing proof replays against both provider
+revisions with the executable implementation opaque and zero assumptions.
+The read-only `ref Span` case preserves the read view's post-state.
+The controls reject the stale lock and retained bundle, a hidden read, a write
+followed by restoration, the unchanged caller after widening the provider,
+and an out-of-package internal call. A caller with the widened bound replays.
+Checked release frontend correspondence remains open.
+[Locked effect replay](../../tools/tests/test_holdfast_package_effects.py)

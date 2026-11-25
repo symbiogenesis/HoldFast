@@ -184,6 +184,7 @@ open until the parent's acceptance conditions are met.
   - **Check** In the existing interaction path, show each typed hole's location, exact outstanding proposition and status. A dependency change or invalid edit withdraws stale evidence, including late results from the previous generation. [Typed holes and invalidation](docs/language/core-design.md#typed-holes-and-invalidation).
   - The local mathematical playground shows named goals from the elaborator and withdraws them after source or compiler changes. The copy guard, cleanup and post-match loan diagnostics still need the checked release fixture. [Partial evidence](docs/assurance/completion-log.md#q25au-qualify-contextual-diagnostics-and-invalidation).
   - Replay a goal with sufficient and exhausted budgets. Preserve its pending status when exhaustion occurs and withdraw reused evidence after a consumed fact changes. [Proof search and replay](docs/assurance/workflow-contract.md#proof-search-and-replay-under-change)
+  - The native playground reports an outstanding inline assertion with its proposition, branch facts and unresolved status. The same assertion replays with enough search or an explicit proof. A premise edit withdraws the previous result even when the assertion text stays fixed. [Interaction evidence](docs/assurance/completion-log.md#q25au-qualify-contextual-diagnostics-and-invalidation).
 
 <a id="q25av"></a>
 
@@ -215,6 +216,7 @@ open until the parent's acceptance conditions are met.
   - **Start** Reuse the existing [closed footprint elaboration](docs/assurance/completion-log.md#q25al-elaborate-consuming-ownership-owned-parameters-and-move-transfers-general-in-ref-runtime-value-loans-and-closed-effects-footprints-reads-writes-calls) and [locked package closure](#q25ax). Bind the inferred summaries through [checked frontend correspondence](#q25at).
   - **Check** Exercise [package effect contracts](docs/language/first-release.md#package-effect-contracts) through a locked package and an independent importing client. Infer read, write and named call bounds for eligible direct helpers across sibling modules. Verify effect identity under import aliases and distinguish same-spelled callables from different modules. Reject omitted export bounds, out-of-package access to an `internal` helper, and recursive and indirect calls without explicit bounds.
   - Replay a provider that reads one `ref` input and writes another. Move the work into unannotated sibling helpers, keep the exported bound fixed and replay the unchanged client with the provider implementation opaque. Require the old lock and receipts to fail freshness against the revised closure. In the neighboring revision, write and restore the input covered only by `reads`. Reject that body under the old bound. Widen the provider's bound and refuse the unchanged client's call at its effect check. Replay a client whose bound covers the new write.
+  - The locked mathematical trial infers sibling-helper reads and writes, preserves the `ref` post-state across a read-only helper, and replays the opaque client across the refactor. The controls exercise stale evidence, effect widening and package visibility. [Partial evidence](docs/assurance/completion-log.md#q25em-qualify-closed-effect-inference-within-release-packages).
 
 <a id="q25ay"></a>
 
@@ -322,7 +324,7 @@ applicable and refuse stale edits. [Diagnostics](#q25au) · [Inspection](#q25ch)
   - **Owner** `package-authoring`
   - **Start** Qualify canonical layout and relevant lints on an independent multi-module package in the selected edition.
   - **Check** Use one canonical formatter in the package's default release checks and explicit editor formatting path. Report layout differences with a single repair command and keep build checks source-preserving. Exercise marked docs, the minimized fixture from a generated failure, and an upgrade that changes a public declaration. Apply the same checks on fresh Windows and Linux installations. [Authoring contract](docs/tooling/authoring-tools.md#qualification)
-  - `math-2` root package builds use the canonical formatter and package-context advisory lints. The two-module trial covers explicit buffer formatting, stale locks and a public declaration upgrade. The minimized generated failure and fresh Windows and Linux installation trials remain open. [Partial evidence](docs/assurance/completion-log.md#q25el-publish-canonical-authoring-defaults-for-new-packages).
+  - `math-2` root package builds use the canonical formatter and package-context advisory lints. The locked trial covers explicit buffer formatting, the minimized postfix-token failure, a marked documentation module, stale locks and a public declaration upgrade. Fresh Windows and Linux installation trials remain open. [Partial evidence](docs/assurance/completion-log.md#q25el-publish-canonical-authoring-defaults-for-new-packages).
 
 ### Language extensions
 
