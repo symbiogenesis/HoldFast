@@ -192,14 +192,20 @@ For both clients freeze declaration-owned capacity `C`, a stable readable source
 
 ### P: composed positive client
 
-P combines the selected mechanisms in one executable definition and theorem under this behavior contract; the steps define neither implementation syntax nor existing code:
+P combines the selected mechanisms in one executable definition and theorem.
+Use the following behavior to compare implementations.
 
 1. Enter a scoped callback with the destination owner, the stable source read authority and a runtime length `n`. Validate `n` against the source extent and `C` before using it for a source access, destination index or pointer calculation.
 2. Fill the entire destination with zero using a total repeatable callback returning the zero byte. The callback captures only stable public values, holds no competing destination loan and has no allocation or external effect. Its invocation count follows the destination bound, while capture and write permissions are proved separately.
 3. If the length is rejected, return the declared invalid result with the initialized destination owner restored. Otherwise copy the selected source prefix into the private destination once, then check the staged header using the existing descriptor-check interpretation. Every validation read after copying is from the private destination.
 4. Return success carrying the runtime `n`, its bound witness and the initialized destination owner, or invalid carrying the same initialized owner and the appropriate failure evidence. The original scoped loan cannot escape in either result. No branch changes destination capacity. The success result does not claim session-table validation that `DescriptorCheck` leaves to the receiver at use.
 
-Every exit preserves source and unrelated frame, fully initializes the destination and restores ownership exactly once. For admitted `n`, the destination contains the sampled prefix followed by zeros, even on an invalid header, and status agrees with `Descriptor.descriptor_check` on that prefix. A rejected length leaves an all-zero destination and reads no source byte. Reconcile any different failure writes before freezing; candidates must implement the same program.
+Every exit preserves the source and unrelated frame, fully initializes the
+destination and restores ownership exactly once. For admitted `n`, the destination
+contains the sampled prefix followed by zeros, including when the header is
+invalid. The status agrees with `Descriptor.descriptor_check` on that prefix.
+A rejected length leaves an all-zero destination and reads no source byte.
+Resolve any differences in failure writes before freezing the comparison.
 
 This exercises R-05-124's destination initialization, R-12-012a's receiver validation and selected descriptor encodings. Complete parser, session-validation, cross-compartment initialization, Byzantine-peer and atomic-snapshot theorems remain outside this immutable-source sequential pilot.
 

@@ -51,11 +51,11 @@ For each retained handwritten or compiler-produced Sail run, the receipt
 checker starts at the harness entry and requires consecutive retirement
 numbers. Each recorded PC must address the recorded word in the linked
 executable segment, including startup and trap-handler PCs.
-The harness checks each handwritten control's executable ELF segment against its scalar
-instruction family. The native regression inserts a vector instruction in an
-untaken failure branch. The checker must report the offending word and
-address even when the passing Sail trace matches. This covers the control
-images. [Compiler image admission](../../PLAN.md#q25ba)
+The harness checks the executable ELF segment of each handwritten control
+against the scalar instruction family. A regression inserts a vector
+instruction in an untaken failure branch and checks that the checker reports
+its word and address even when the execution trace matches. Compiler-produced
+images have their own [admission requirements](../../PLAN.md#q25ba).
 
 ### Evidence for each deployed claim
 

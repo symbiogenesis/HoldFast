@@ -13,9 +13,10 @@ execution profiles. A profile defines the permitted runtime behavior, the
 assurance policy defines the required properties, and each result names the
 representation its evidence actually covers. [Assurance policy](docs/extensions/assurance-profiles.md#scope-and-the-governing-rule)
 
-The first release qualifies the exact packet executable and an independently
-authored systems package. The hosted application profile has its own runtime,
-foreign bindings and comparison against a host-native application.
+Acceptance of the first systems release requires evidence for the exact packet
+validator executable and an independently authored systems package. The hosted
+application profile requires qualification of its runtime and foreign bindings
+and a comparison with a host-native application.
 [Release delivery](PLAN.md#holdfast-first-release-delivery)
 
 Try the [interactive playground](https://symbiogenesis.github.io/HoldFast/) or
@@ -25,8 +26,8 @@ marks the boundaries between the development tools and the language design.
 
 ## Development tools
 
-- The [pure compiler](docs/tooling/pure-prototype.md) checks `Nat` and `bool`
-  programs through a Rocq-extracted parser and emits Gallina. The
+- The [pure compiler](docs/tooling/pure-prototype.md) parses `Nat` and `bool`
+  programs with a Rocq-extracted parser, typechecks them, and emits Gallina. The
   [language server](docs/tooling/lsp-prototype.md) provides editor feedback
   for that subset.
 - The [Menhir parser](docs/tooling/parser.md) recognizes a wider surface. The

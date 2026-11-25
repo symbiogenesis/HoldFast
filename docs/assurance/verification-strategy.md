@@ -30,9 +30,9 @@ source span, local hypotheses, resource state and expected result. Distinguish
 refutation, unsupported input, and unfinished checking.
 [Typed holes and invalidation](../language/core-design.md#typed-holes-and-invalidation)
 
-The same semantic facts support batch diagnostics, editor navigation and
-interchange. The [tooling contracts](../tooling/tooling-protocols.md) define
-qualified subsets, result identities and independent-client checks.
+Batch diagnostics, editor navigation and interchange use semantic facts from
+their source checker. The [tooling contracts](../tooling/tooling-protocols.md)
+define qualified subsets, result identities and independent-client checks.
 
 ### Progress at a component boundary
 
@@ -826,7 +826,11 @@ public void SetFirst<ghost Nat count>(ref Span<byte, count> target, byte value)
 }
 ```
 
-A loan returned on one branch leaves the owner writable on the other, the conditional return [Polonius Alpha](#research-that-changes-the-experiments) accepts on nightly. A returned exclusive loan also needs a contract for the moment it ends, which [Creusot writes with a prophecy and Prusti with a pledge](#what-the-rust-verifiers-contribute). HoldFast states it with `restores`, where `final(slot)` is the value the caller leaves in the slot:
+A conditional return can transfer a loan on success and restore the owner's
+write permission on error. A returned exclusive loan also needs to specify what
+the lender receives when the loan ends. In this design, `restores` states that
+predicate and `final(slot)` denotes the value the caller leaves in the slot.
+[Comparable Rust proof constructs](#what-the-rust-verifiers-contribute)
 
 ```text
 public Result<ref<'table> Value, TableFull> FindOrInsert<ghost Nat capacity>(
@@ -842,7 +846,11 @@ public Result<ref<'table> Value, TableFull> FindOrInsert<ghost Nat capacity>(
 }
 ```
 
-One `restores` clause covers both ways to succeed, since `Set` replaces a found value and adds an inserted one. The [synchronous slice](../language/core-design.md#loans-and-control-flow) admits only the shared form of this return, and it excludes the loop-carried variant, a conditional reborrow inside a loop, which is also the program the Polonius Alpha announcement shows it rejecting.
+One `restores` clause covers both success paths because `Set` handles both
+replacement and insertion. The [synchronous design](../language/core-design.md#loans-and-control-flow)
+covers branch-sensitive returns of shared loans. The
+[borrowing comparison](../language/loan-analysis.md#conditional-borrowing-comparison)
+records which shared return and loop-carried reborrow cases have executable evidence.
 
 A signature can also lend part of a record. `Log` names two views: its initialized entries, and a tail granting a write to the next slot and permission only to increase the length. Appending then needs only the tail, so loans on existing entries survive it. That is the case [Goose's append](#research-that-changes-the-experiments) types as a write at the current length:
 
@@ -1144,8 +1152,8 @@ distinguishes host time, target model cycles and hardware measurements.
 ### From the library to bytes
 
 Instantiate the generic component theorem with checked CHERI operation and
-representation laws. The [compiler pipeline](#proposed-architecture) binds
-that checked interpretation to the authored source through the final image.
+representation laws. The [compiler pipeline](#proposed-architecture) requires
+evidence connecting that interpretation to the authored source and the final image.
 
 The final functional theorem relates every permitted execution of the exact
 image to the reviewed source contract under declared platform assumptions,
@@ -1182,7 +1190,7 @@ This benefit requires independently authored or suitably licensed compiler and p
 
 #### Mechanically Produced Evidence
 
-The eventual frontend's mandatory output has this schematic shape:
+A qualified frontend must produce a package of this form.
 
 ```text
 SourcePackage(sourceClosure) = {
@@ -1197,7 +1205,11 @@ The reviewed elaboration relation covers checked parsing or parse validation, bi
 
 Linking is a typed proof boundary. Generated required/provided contracts state calling convention, preserved registers, stack shape, memory/capability authority, relocations, callbacks and reentrancy, effects and observations. Discharge them through existing TAL judgments where applicable and CIC proofs for deeper composition, not new TAL grade axes or an on-device solver. Independently compiled verified-C, Rust and generated components must agree, and their composition must retain required robust properties. An unchecked linker assumption cannot replace that evidence. The compiler-side precedent for composing separately compiled modules is CompCertO's open-module refinement: [CompCertOC](https://pldi25.sigplan.org/details/pldi-2025-papers/27), PLDI 2025, carries threaded Kripke memory relations through 18 CompCert passes, horizontally and vertically composable, for cooperative threads sharing stacks. The selected HoldFast target's linkage and preservation work is priced in the [shared retained-route allowances](../../PLAN.md#shared-foundation-and-retained-route); this precedent supplies no inherited CHERI theorem or implied adoption of CompCertOC.
 
-The [proposed pipeline](#proposed-architecture) binds these packages through optimization, typed linkage and final image validation. The decoder's required route goes through Clight; a direct explicit-memory capability-IR branch is conditional. Both must terminate at the same pinned Sail term, never a machine semantics generated by the compiler.
+Optimization, typed linkage and final image validation extend the evidence
+chain from the source package to the admitted image. The
+[compiler route contract](compiler-route-contract.md#equivalent-artifact-endpoint)
+requires both the retained route and any direct capability-IR route to prove
+their image claims over the same pinned Sail term.
 
 A promoted artifact's evidence package retains source and independent contract, elaborated program and correspondence, representation and ABI, functional/resource/observation proofs, solver certificates and actual transitive assumptions, optimization evidence, link contracts and composition, source/build/dependency/layout/byte identities, semantic pin and guarantee theorems, and measurements on those exact bytes. This organizes existing evidence rather than introducing a replacement admission format. A semantic dependency change reopens affected obligations even when displayed goal identities remain stable.
 

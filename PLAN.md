@@ -6,16 +6,16 @@
 Its source proofs already cover byte values and the returned view with zero
 solver-trusted obligations. [Authored validator](examples/first_slice.hf) · [Artifact acceptance](#q25ba)
 
-The local VerifiedOS producer records at
-`e1a50804e5d487500d44bc4e8484adeead307e5c` report a strict Rocq 9.3.0 replay
-of the canonical hart-0 Sail term (`rv64d.v`) with private tag-outcome support.
+The VerifiedOS producer records at commit
+`e1a50804e5d487500d44bc4e8484adeead307e5c` report a strict Rocq 9.3.0 replay of
+the canonical hart-0 Sail term (`rv64d.v`) with private tag-outcome support.
 The recursive kernel context matches the 31 classified floating-point axioms,
 and the stock and patched emissions have identical readings for all 3,533
 main-module declarations on that support. [Producer record check](docs/assurance/completion-log.md#q25ar-integrate-and-recheck-prerequisite-producer-receipts)
 
-Two runs per plugin set reproduce the C++ source, header and configuration
-schema with sequential generation. VerifiedOS accepts this comparison for
-the frozen emulator-isolation inputs and requires another pair when they change.
+Two sequential generation runs for each plugin set reproduced the C++ source,
+header and configuration schema. VerifiedOS accepts the comparison for the
+frozen emulator-isolation inputs and requires a repeat for any revised inputs.
 [Emulator isolation check](https://github.com/symbiogenesis/VerifiedOS/blob/314bd47d6e5ab398afe9f4af636a54b1a58502dd/docs/implementation/contracts/canonical-tag-outcomes.md#emulator-isolation-check)
 
 Resume [Q25am](#q25am) when `machine-logic` supplies Q35p binding qualification,
@@ -28,13 +28,12 @@ on the 31 floating-point axioms remains open under F-480 (R-05-164).
 The retained `holdfast-parser first-slice` result names the blocking producers in
 `inventory.blocking_dependencies`. [First-slice qualification](docs/language/first-release.md#first-slice-qualification)
 
-Run graded source reconstruction, graded interpretation laws and borrowing
-precision in parallel alongside artifact qualification. Take bounded source
-replay into dependent modal elimination and connect graded demand to sequenced
-evaluation. Use proof-backed owner coordinates and pinned Rust comparisons to
-drive source cases, then extend source checking and restoration to conditional
-returns and loop-carried loans. The release and extension promotion gates define
-when this evidence supports broader source or target use.
+Graded source reconstruction, graded interpretation laws and borrowing
+precision can progress in parallel with artifact qualification. Extend bounded
+source replay to dependent modal elimination and connect graded demand to
+sequenced evaluation. Use proof-backed owner coordinates and pinned Rust
+comparisons to select the source cases for conditional returns and loop-carried
+loans, including their restoration obligations.
 [Graded laws](#q25be) · [Graded frontend](#q25bj) · [Borrow comparison](#q25cc)
 
 ### HoldFast first-release delivery
@@ -86,11 +85,9 @@ same acceptance boundary. Include setup, review and upkeep when adopting a depen
 then pin and qualify the selected version. [Tool reuse criteria](docs/assurance/verification-strategy.md#where-time-might-be-saved) ·
 [Dependency policy](tools/README.md#dependency-and-version-policy)
 
-Before merging the combined change, run `python tools/run.py validate` for the static
-gate and behavioral suite. Check reported skips against the affected guarantee. Run the
-owning native or independent-client qualification when that guarantee changes.
-`validate --full` groups broader local development checks. Each client still needs its
-own artifact evidence. [Validation profiles](tools/README.md#validation-profiles) ·
+Check reported skips against the affected guarantee. Run the owning native or
+independent-client qualification when that guarantee changes. Each client needs
+its own artifact evidence. [Validation profiles](tools/README.md#validation-profiles) ·
 [Local handoff](AGENTS.md#tool-execution-and-validation)
 
 <a id="checklist-conventions"></a>
