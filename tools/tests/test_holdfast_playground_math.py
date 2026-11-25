@@ -200,9 +200,10 @@ def _mathematical_ref_contract_reply_validation() -> None:
               "    ensures pkt.Base == old(pkt.Base)\n{ return (); }\n")
     finding: dict[str, object] = {
         "code": "HOLDFAST109", "message": "ref preserves pkt.Base", "line": 3, "column": 13}
+    additional = {**finding, "code": "HOLDFAST112", "message": "the checked descriptor supplies this fact"}
     reply: dict[str, object] = {"ok": True, "sourceHash": hashlib.sha256(source.encode()).hexdigest(),
                                 "module": "Contracts", "gallina": "checked-source terms", "editorServices": False,
-                                "findings": [finding]}
+                                "findings": [finding, additional]}
     with _running() as server:
         with patch.object(playground.subprocess, "run", return_value=_process(reply)):
             ensure(_post(server, "/api/compile", {"source": source}) == reply,
@@ -211,6 +212,11 @@ def _mathematical_ref_contract_reply_validation() -> None:
         with patch.object(playground.subprocess, "run", return_value=_process(misplaced)):
             result = _post(server, "/api/compile", {"source": source})
         ensure(result["ok"] is False and "findings" not in result, "a warning in whitespace reached the browser")
+        for extra in ([finding, finding], [additional, finding], [{**finding, "code": "HOLDFAST134"}]):
+            with patch.object(playground.subprocess, "run", return_value=_process({**reply, "findings": extra})):
+                result = _post(server, "/api/compile", {"source": source})
+            ensure(result["ok"] is False and "findings" not in result,
+                   "invalid finding order or an opt-in finding reached the browser")
 
 
 def _full_language_in_ordinary_modules() -> None:

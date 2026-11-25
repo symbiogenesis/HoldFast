@@ -16,7 +16,7 @@ from toolchain import (
 from toolchain import (
     mathematical as holdfast_mathematical,
 )
-from toolchain.authoring import lint_source, preview_bindings
+from toolchain.authoring import OPT_IN_MATHEMATICAL_LINTS, lint_source, preview_bindings
 from toolchain.elaborate_holes import OpenGoalsError
 from toolchain.hashing import file_sha256
 from toolchain.protocol_json import MAX_BODY_BYTES, decode_message, encode_body
@@ -55,7 +55,7 @@ def compile_request(request: dict[str, object], *, mathematical_parser: Path) ->
                     "editorServices": isinstance(editor, Translation),
                     "findings": [{"code": finding.code, "message": finding.message,
                                   "line": finding.line, "column": finding.column}
-                                 for finding in compiled.findings]}
+                                 for finding in compiled.findings if finding.code not in OPT_IN_MATHEMATICAL_LINTS]}
         if request["action"] != "evaluate":
             raise ValueError("Unknown compiler request")
         result = holdfast_mathematical.evaluate_source(

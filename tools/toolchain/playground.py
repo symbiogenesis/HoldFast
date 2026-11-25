@@ -17,7 +17,12 @@ from pathlib import Path
 from typing import cast, override
 
 from toolchain.ast import IDENTIFIER, MAX_SOURCE_BYTES
-from toolchain.authoring import LINT_CODES, MATHEMATICAL_LINT_CODES, is_pascal_case
+from toolchain.authoring import (
+    LINT_CODES,
+    MATHEMATICAL_LINT_CODES,
+    OPT_IN_MATHEMATICAL_LINTS,
+    is_pascal_case,
+)
 from toolchain.elaborate import FRONTEND_SOURCES
 from toolchain.elaborate_holes import MAX_GOAL_BYTES, MAX_HOLES
 from toolchain.hashing import file_sha256
@@ -128,8 +133,10 @@ def _validate_findings(findings: object, source: str, *, mathematical: bool = Fa
         raise ValueError("compiler worker returned oversized or invalid findings")
     snapshot = SourceSnapshot("holdfast:playground-findings", 0, source, 1)
     lines = source.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-    previous = (0, 0)
-    allowed = set(MATHEMATICAL_LINT_CODES) if mathematical else LINT_CODES - {"HOLDFAST105"}
+    previous = (0, 0, "")
+    allowed = (
+        set(MATHEMATICAL_LINT_CODES) - OPT_IN_MATHEMATICAL_LINTS if mathematical else LINT_CODES - {"HOLDFAST105"}
+    )
     for finding in findings:
         if (not isinstance(finding, dict) or set(finding) != {"code", "message", "line", "column"}
                 or not isinstance(finding["code"], str) or finding["code"] not in allowed
@@ -138,24 +145,28 @@ def _validate_findings(findings: object, source: str, *, mathematical: bool = Fa
             raise ValueError("authoring worker returned an invalid finding")
         snapshot.diagnostic_position(finding["line"], finding["column"])
         if mathematical:
-            site = (finding["line"], finding["column"])
+            code = finding["code"]
+            site = (finding["line"], finding["column"], code)
             line, column = lines[site[0] - 1], site[1] - 1
             if site <= previous:
                 raise ValueError("mathematical findings must be in source order")
             previous = site
-            if finding["code"] == "HOLDFAST107":
+            if code == "HOLDFAST107":
                 if line[column:column + 1] not in {"&", "^", "|"} or line[column:column + 2] in {"&&", "||"}:
                     raise ValueError("mathematical precedence finding does not identify a bitwise operator")
                 continue
-            name = IDENTIFIER.match(line, column)
-            if finding["code"] == "HOLDFAST109":
-                if name is None and line[column:column + 1] != "(":
-                    raise ValueError("mathematical postcondition finding does not identify a conjunct")
+            if code == "HOLDFAST103":
+                if line[column:column + 2] not in {"==", "!="}:
+                    raise ValueError("mathematical comparison finding does not identify an equality operator")
                 continue
-            if (name is None or is_pascal_case(name.group())
-                    or (column and (line[column - 1].isascii()
-                                    and (line[column - 1].isalnum() or line[column - 1] == "_")))):
-                raise ValueError("mathematical naming finding does not identify a source name")
+            if code in {"HOLDFAST105", "HOLDFAST108"}:
+                name = IDENTIFIER.match(line, column)
+                if (name is None or is_pascal_case(name.group())
+                        or (column and (line[column - 1].isascii()
+                                        and (line[column - 1].isalnum() or line[column - 1] == "_")))):
+                    raise ValueError("mathematical naming finding does not identify a source name")
+            elif not line[column:column + 1] or line[column].isspace():
+                raise ValueError("mathematical finding does not identify a source token")
 
 
 def _compiler_response(request: dict[str, object], digest: str, *,
