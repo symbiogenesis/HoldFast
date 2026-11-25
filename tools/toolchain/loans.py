@@ -6,7 +6,7 @@ the graph inputs, abstract interpretation, and limits of the result.
 """
 
 import re
-from collections import deque
+from collections import Counter, deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Literal, cast
@@ -16,7 +16,6 @@ type AccessKind = Literal["read", "write", "move"]
 type Overlap = Literal["yes", "no", "unknown"]
 
 _NAME = re.compile(r"[A-Za-z_][A-Za-z_0-9]*\Z")
-_MAX_JOIN_STATES = 2
 
 
 class AnalysisRefusalError(ValueError):
@@ -632,9 +631,12 @@ def _compute_cfg_liveness(
 ) -> tuple[dict[str, frozenset[str]], dict[str, frozenset[str]], dict[str, frozenset[str]]]:
     demanded_before: dict[str, frozenset[str]] = dict.fromkeys(nodes, frozenset())
     demanded_after: dict[str, frozenset[str]] = dict.fromkeys(nodes, frozenset())
-    reachable_refs: dict[str, frozenset[str]] = {
-        name: frozenset(_references(node.event)) for name, node in nodes.items()
-    }
+    local_names = {}
+    for name, node in nodes.items():
+        references = frozenset(_references(node.event))
+        binder = _binder(node.event)
+        local_names[name] = references if binder is None else references | {binder}
+    reachable_names = local_names.copy()
     ordered = tuple(reversed(graph.nodes))
     changed = True
     while changed:
@@ -643,17 +645,17 @@ def _compute_cfg_liveness(
             budget.spend()
             after = frozenset().union(*(demanded_before[succ] for succ in node.successors))
             before = _transfer_demand_backward(node, after)
-            refs = frozenset(_references(node.event)).union(
-                *(reachable_refs[succ] for succ in node.successors)
+            names = local_names[node.name].union(
+                *(reachable_names[succ] for succ in node.successors)
             )
             if (after != demanded_after[node.name]
                     or before != demanded_before[node.name]
-                    or refs != reachable_refs[node.name]):
+                    or names != reachable_names[node.name]):
                 demanded_after[node.name] = after
                 demanded_before[node.name] = before
-                reachable_refs[node.name] = refs
+                reachable_names[node.name] = names
                 changed = True
-    return demanded_before, demanded_after, reachable_refs
+    return demanded_before, demanded_after, reachable_names
 
 
 class _State:
@@ -670,6 +672,7 @@ class _State:
         self.nodes: tuple[str, ...] = ()
         self.outcome = "fallthrough"
         self.issues: list[Issue] = []
+        self.issues_emitted = 0
         self.obligations: list[Obligation] = [
             Obligation(entry_name, "supplied-interpretation", tuple(owners)),
             Obligation(entry_name, "supplied-separation", tuple(owners)),
@@ -706,6 +709,7 @@ class _State:
         copy.nodes = self.nodes
         copy.outcome = self.outcome
         copy.issues = list(self.issues)
+        copy.issues_emitted = self.issues_emitted
         copy.obligations = list(self.obligations)
         copy.restorations = list(self.restorations)
         copy.values = dict(self.values)
@@ -723,47 +727,34 @@ class _State:
         copy.invalid = set(self.invalid)
         return copy
 
-    def domain_signature(self) -> object:
+    def join_key(self, relevant_names: frozenset[str], history_names: set[str]) -> tuple[object, ...]:
+        self.budget.spend(len(relevant_names) + len(self.active) + len(self.reserved))
+        relevant_values = {name: self.values[name] for name in relevant_names if name in self.values}
+        relevant_loans = self.ancestors(self.active | self.reserved | {
+            loan for value in relevant_values.values() for loan in value.captures
+        })
+        relevant_binders = (relevant_names & history_names) | self.reserved
         return (
-            frozenset(self.values.items()),
+            frozenset(relevant_values.items()),
+            frozenset((name, self.loans[name], self.parents[name], self.last_demand_node.get(name))
+                      for name in relevant_loans),
+            frozenset((name, self.seen_binders[name]) for name in relevant_binders if name in self.seen_binders),
             frozenset(self.active),
             frozenset(self.reserved),
             frozenset(self.opened),
             frozenset(self.active_invariants),
+            frozenset(self.explicit_invariants.items()),
             frozenset(self.moved),
-            frozenset(self.invalid),
-            frozenset(self.issues),
-            frozenset(self.obligations),
-            frozenset(self.restorations),
+            frozenset(self.invalid & relevant_loans),
         )
 
-    def merge_from(self, other: _State, live_refs: frozenset[str]) -> bool:
-        self.budget.spend()
-        if self.reserved != other.reserved:
-            raise AnalysisRefusalError("incompatible receiver reservations at a control-flow join")
-        before_sig = self.domain_signature()
+    def merge_evidence(self, other: _State) -> bool:
+        # The join key already fixes every retained input to the remaining CFG.
+        # Combine the reports from earlier paths without combining grants.
+        self.budget.spend(len(other.nodes) + len(other.issues)
+                          + len(other.obligations) + len(other.restorations))
+        before = (len(self.nodes), len(self.issues), len(self.obligations), len(self.restorations))
         self.nodes = tuple(dict.fromkeys((*self.nodes, *other.nodes)))
-        merged_values: dict[str, _Value] = {}
-        for key in self.values.keys() | other.values.keys():
-            if key in self.values and key in other.values:
-                left = self.values[key]
-                right = other.values[key]
-                handle = left.handle if left.handle == right.handle else (left.handle or right.handle)
-                merged_values[key] = _Value(left.captures | right.captures, handle)
-            elif key not in live_refs:
-                merged_values[key] = self.values.get(key) or other.values[key]
-        self.values = merged_values
-        self.loans.update(other.loans)
-        self.parents.update(other.parents)
-        self.last_demand_node.update(other.last_demand_node)
-        self.seen_binders.update(other.seen_binders)
-        self.active |= other.active
-        self.opened |= other.opened
-        self.active_invariants &= other.active_invariants
-        self.explicit_invariants.update(other.explicit_invariants)
-        self.returned |= other.returned
-        self.moved |= other.moved
-        self.invalid |= other.invalid
         seen_issues = set(self.issues)
         for issue in other.issues:
             if issue not in seen_issues:
@@ -779,9 +770,11 @@ class _State:
             if restoration not in seen_restorations:
                 self.restorations.append(restoration)
                 seen_restorations.add(restoration)
-        return self.domain_signature() != before_sig
+        return before != (len(self.nodes), len(self.issues), len(self.obligations), len(self.restorations))
 
     def issue(self, node: Node, kind: str, *resources: str) -> None:
+        # Repeated rejection at a loop site still rejects the current grant.
+        self.issues_emitted += 1
         item = Issue(node.name, kind, resources)
         if item not in self.issues:
             self.issues.append(item)
@@ -859,7 +852,7 @@ class _State:
     def borrow(self, node: Node, name: str, *, reserve: bool = False) -> None:
         loan = self.loans[name]
         parent = self.parents[name]
-        prior_issues = len(self.issues)
+        prior_issues = self.issues_emitted
         self.obligation(
             node, "receiver-reservation-interpretation" if reserve else "loan-interpretation", name, parent
         )
@@ -888,7 +881,8 @@ class _State:
                     self.issue(node, "competing-loans", name, other)
         if loan.mode == "exclusive":
             self.check_reserved(node, loan.place, name)
-        if len(self.issues) == prior_issues:
+        if self.issues_emitted == prior_issues:
+            self.invalid.discard(name)
             (self.reserved if reserve else self.active).add(name)
         else:
             self.invalid.add(name)
@@ -1180,7 +1174,12 @@ def analyze(owners: tuple[Owner, ...], graph: Graph, limits: Limits | None = Non
         raise AnalysisRefusalError("limits must be an immutable Limits record")
     budget = _Budget(limits.work)
     nodes, dominators = _validate(owners, graph, limits, budget)
-    demanded_before, demanded_after, reachable_refs = _compute_cfg_liveness(graph, nodes, budget)
+    demanded_before, demanded_after, reachable_names = _compute_cfg_liveness(graph, nodes, budget)
+    binder_counts = Counter(_binder(node.event) for node in graph.nodes)
+    # Binder history matters for ambiguous identities and conditional captures.
+    history_names = {name for name, count in binder_counts.items() if name is not None and count > 1}
+    history_names.update(name for node in graph.nodes if isinstance(node.event, Activate)
+                         for name in node.event.possible_captures)
     owner_map = {owner.name: owner for owner in owners}
     budget.spend(sum(len(owner.fields) for owner in owners))
     fields = {owner.name: frozenset(owner.fields) for owner in owners}
@@ -1206,18 +1205,20 @@ def analyze(owners: tuple[Owner, ...], graph: Graph, limits: Limits | None = Non
     _dfs_rpo(graph.entry)
     rpo_index = {name: idx for idx, name in enumerate(reversed(postorder))}
 
-    # Forward abstract interpretation with join-point and loop-header merging.
-    join_states: dict[str, dict[frozenset[str], _State]] = {
+    # Retain distinct incoming grants and routes at joins, including loop headers.
+    join_states: dict[str, dict[tuple[object, ...], _State]] = {
         name: {} for name, deg in in_degree.items() if deg > 1
     }
-    pending_joins: dict[str, deque[frozenset[str]]] = {
+    pending_joins: dict[str, deque[tuple[object, ...]]] = {
         name: deque() for name in join_states
     }
     initial = _State(owner_map, fields, budget, graph.entry)
+    entry_key = ()
     if graph.entry in join_states:
-        join_states[graph.entry][frozenset()] = initial.clone()
-    branch_worklist: list[tuple[str, _State, frozenset[str]]] = [(graph.entry, initial, frozenset())]
-    terminal_reports: dict[tuple[str, frozenset[str]], PathReport] = {}
+        entry_key = initial.join_key(reachable_names[graph.entry], history_names)
+        join_states[graph.entry][entry_key] = initial.clone()
+    branch_worklist: list[tuple[str, _State, tuple[object, ...]]] = [(graph.entry, initial, entry_key)]
+    terminal_reports: dict[tuple[str, tuple[object, ...]], PathReport] = {}
 
     while branch_worklist or any(pending_joins.values()):
         budget.spend()
@@ -1254,26 +1255,17 @@ def analyze(owners: tuple[Owner, ...], graph: Graph, limits: Limits | None = Non
                     branch.cancel_reservations(node, local_reservations)
             branch.end_dead(node.name, branch.live_loans(demanded_before[successor]))
             if in_degree[successor] > 1:
-                live_refs = reachable_refs[successor]
-                # Prune dead local bindings before join comparison.
-                for key in list(branch.values):
-                    if key not in live_refs and not (branch.values[key].captures & branch.active):
-                        branch.values.pop(key, None)
-                env_key = frozenset(key for key in branch.values if key in live_refs) | branch.reserved
+                env_key = branch.join_key(reachable_names[successor], history_names)
                 buckets = join_states[successor]
                 if env_key in buckets:
-                    if not buckets[env_key].merge_from(branch, live_refs):
+                    if not buckets[env_key].merge_evidence(branch):
                         continue
-                    queued_key = env_key
-                elif len(buckets) < _MAX_JOIN_STATES:
+                elif len(buckets) < limits.paths:
                     buckets[env_key] = branch.clone()
-                    queued_key = env_key
                 else:
-                    queued_key = next(iter(buckets))
-                    if not buckets[queued_key].merge_from(branch, live_refs):
-                        continue
-                if queued_key not in pending_joins[successor]:
-                    pending_joins[successor].append(queued_key)
+                    raise AnalysisRefusalError("complete path budget exhausted at control-flow join")
+                if env_key not in pending_joins[successor]:
+                    pending_joins[successor].append(env_key)
             else:
                 branch_worklist.append((successor, branch, join_env))
 

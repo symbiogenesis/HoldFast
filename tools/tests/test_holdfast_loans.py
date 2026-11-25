@@ -775,11 +775,60 @@ def _cfg_join_merging_and_bounded_loops() -> None:
             Node("exit", Return("done")),
         ),
     )
-    move_path = analyze(_OWNERS, move_in_loop).paths[0]
-    ensure(
-        "use-after-owner-move" in _kinds(move_path),
-        "kleene fixpoint over loop header missed loop-carried use-after-owner-move",
-    )
+    moves = {path.moved_owners: _kinds(path) for path in analyze(_OWNERS, move_in_loop).paths}
+    ensure(moves == {(): set(), ("workspace",): {"use-after-owner-move"}},
+           f"loop fixpoint lost the zero-iteration exit or loop-carried conflict: {moves}")
+
+    rejected_loan = Graph("moved", (
+        Node("moved", Access(_ROOT, "move"), ("header",)),
+        Node("header", successors=("borrow", "done")),
+        Node("borrow", Borrow(Loan("view", "workspace", _BYTES)), ("use",)),
+        Node("use", Use("view"), ("drop",)),
+        Node("drop", Drop("view"), ("header",)),
+        Node("done", Return("done")),
+    ))
+    [path] = analyze(_OWNERS, rejected_loan).paths
+    ensure("use-after-owner-move" in _kinds(path) and not path.restorations,
+           "a repeated rejection at the loop site installed a grant")
+
+
+def _correlated_loan_origins_at_join() -> None:
+    arms = ("left", "middle", "right")
+    nodes = [Node("choose", successors=arms)]
+    for arm in arms:
+        moved = f"move_{arm}"
+        nodes.extend((
+            Node(arm, Borrow(Loan(arm, "workspace", _BYTES, "exclusive")), (moved,)),
+            Node(moved, Move(arm, "handle"), ("use",)),
+        ))
+    nodes.extend((Node("use", Access(_BYTES, "write", via="handle"), ("done",)),
+                  Node("done", Return("done"))))
+    graph = Graph("choose", tuple(nodes))
+    paths = analyze(_OWNERS, graph, Limits(paths=3)).paths
+    ensure(len(paths) == 3 and all(not path.issues for path in paths),
+           "a grant conflicted with an alternative grant from the same join")
+    ensure([_ends(path) for path in paths] == [[("use", arm, "workspace")] for arm in arms],
+           "the common write failed to restore the selected origin in each alternative")
+    _refuses(lambda: analyze(_OWNERS, graph, Limits(paths=2)), "path budget exhausted at control-flow join")
+
+    for order in (("audit", "bytes"), ("bytes", "audit")):
+        sibling_footprints = Graph("choose", (
+            Node("choose", successors=order),
+            Node("audit", Borrow(Loan("view", "workspace", _AUDIT)), ("write",)),
+            Node("bytes", Borrow(Loan("view", "workspace", _BYTES)), ("write",)),
+            Node("write", Access(_BYTES, "write"), ("use",)),
+            Node("use", Use("view"), ("done",)),
+            Node("done", Return("done")),
+        ))
+        paths = analyze(_OWNERS, sibling_footprints).paths
+        by_place = {path.restorations[0].place: path for path in paths}
+        ensure(set(by_place) == {_AUDIT, _BYTES}
+               and all(_ends(path) == [("use", "view", "workspace")] for path in paths),
+               "a branch-local identity overwrote its sibling's footprint or restoration")
+        ensure(not by_place[_AUDIT].issues
+               and [(issue.node, issue.kind, issue.resources) for issue in by_place[_BYTES].issues]
+               == [("write", "suspended-parent", ("view",))],
+               "a branch-local identity hid a conflicting access or tainted the disjoint branch")
 
 
 def _loop_entry_and_conditional_view() -> None:
@@ -789,9 +838,11 @@ def _loop_entry_and_conditional_view() -> None:
         Node("body", Access(_ROOT, "move"), ("header",)),
         Node("exit", Return("done")),
     ))
-    paths = analyze(_OWNERS, entry_loop, Limits(paths=1)).paths
-    ensure(len(paths) == 1 and "use-after-owner-move" in _kinds(paths[0]),
-           "loop at entry failed to converge with the loop-carried owner move")
+    paths = analyze(_OWNERS, entry_loop, Limits(paths=2)).paths
+    ensure({path.moved_owners: _kinds(path) for path in paths}
+           == {(): set(), ("workspace",): {"use-after-owner-move"}},
+           "loop at entry lost a zero-iteration path or a loop-carried owner move")
+    _refuses(lambda: analyze(_OWNERS, entry_loop, Limits(paths=1)), "path budget")
     _refuses(lambda: analyze(_OWNERS, entry_loop, Limits(work=1)), "work budget")
 
     for order in (("skip", "lend"), ("lend", "skip")):
@@ -1403,16 +1454,23 @@ public struct Buffer {
     public Option<in<'this> Nat> BorrowValue(in this);
 }
 public Option<in<'buf> Nat> Lend(in Buffer buf);
-public Unit Disjoint(ref Buffer target, in Buffer left, in Buffer right, bool pick) {
-    target.Update(if (pick) left.BorrowValue() else right.BorrowValue());
+public Unit Disjoint(ref Buffer target, in Buffer left, in Buffer right, in Buffer third, bool pick, bool backup) {
+    target.Update(if (pick) left.BorrowValue() else if (backup) right.BorrowValue() else third.BorrowValue());
 }
 public Unit Retained(ref Buffer buf) { buf.Update(Lend(in buf)); }
 """
     with parser.cached_build(Path(__file__).resolve().parents[2]) as compiled:
         tree = parser.parse_source(compiled, source, surface=True)
+        invalid = source.replace(b"else third.BorrowValue()", b"else target.BorrowValue()")
+        bad_tree = parser.parse_source(compiled, invalid, surface=True)
     report = analyze_function(tree, "Disjoint")
-    ensure(len(report.paths) == 2 and all(not path.issues for path in report.paths),
+    ensure(len(report.paths) == 3 and all(not path.issues for path in report.paths),
            f"one branch evaluated a sibling's argument capture: {report.paths}")
+    report = analyze_function(bad_tree, "Disjoint")
+    rejected = [path for path in report.paths if path.issues]
+    ensure(len(report.paths) == 3 and len(rejected) == 1
+           and rejected[0].issues[0].kind == "competing-loans",
+           "receiver activation lost the retained overlap or rejected a disjoint sibling")
     lowered = lower_function(tree, "Retained")
     report = analyze(lowered.owners, lowered.graph)
     ensure(all(path.issues and path.issues[0].kind == "competing-loans" for path in report.paths),
@@ -1596,6 +1654,8 @@ def cases() -> list[Case]:
             Case("complete deterministic exploration and bounded refusal", _complete_exploration_and_budgets),
             Case("selective per-conjunct invariant lifting and unlifted active clauses", _selective_invariant_lifting),
             Case("cfg join-point state merging and bounded loop fixpoint", _cfg_join_merging_and_bounded_loops),
+            Case("moved routes and branch-local loan footprints stay correlated at joins",
+                 _correlated_loan_origins_at_join),
             Case("entry loop and branch-specific view diagnostics", _loop_entry_and_conditional_view),
             Case("schema-2 surface ast to loan graph lowering pass", _surface_ast_to_loan_graph_lowering),
             Case("holdfast_parser schema-2 surface ast lowering and site mapping", _holdfast_parser_schema2_surface_ast_lowering)]
