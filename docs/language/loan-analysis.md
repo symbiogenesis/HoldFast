@@ -39,9 +39,11 @@ edge are analyzed by Kleene fixpoint iteration over the loop header.
 The [analyzer](../../tools/toolchain/loans.py) computes backward
 demand over the control-flow graph and performs forward abstract interpretation
 with join-point state merging at join nodes and loop headers. Compatible branch
-states merge at join points rather than enumerating $2^k$ paths across sequential
-conditionals. `Limits` owns the bounded node,
-path, capture and work budgets. Exhaustion refuses the complete analysis without
+states merge when the available handles, loan routes and footprints, invariant
+debts, owner availability, and relevant binder history agree. A sequence of
+conditionals whose local loans end before each join therefore needs one state per
+join. `Limits` bounds nodes, distinct states per join, terminal reports, captures,
+and work. Exhaustion refuses the complete analysis without
 returning partial success. This diagnostic establishes neither production
 scalability nor a choice of production algorithm; the
 [promotion contract](core-design.md#borrow-analysis-promotion) retains that decision.
@@ -50,8 +52,9 @@ scalability nor a choice of production algorithm; the
 
 Abstract states along the control-flow graph track their own capture
 environments, active/suspended loans and per-conjunct invariant debt sets,
-merging compatible states at join points and loop headers without unioning
-mutually exclusive branch loans into a single unconditional grant. Backward demand follows transitive
+and retain separate states when the same handle denotes different grants on
+incoming edges. For equivalent states, the analyzer combines prior issue and
+restoration evidence while sharing the remaining flow. Backward demand follows transitive
 captures and loan ancestry; forward analysis detects competing access, use before
 creation, use after move and invalid reborrows. Loan ends are inferred at last
 use, with descendants ended before ancestors. Each inferred end records a
@@ -117,7 +120,10 @@ than proved source semantics.
 
 The [loan tests](../../tools/tests/test_holdfast_loans.py) check structural refusals,
 path-local demand, move and transitive capture accounting, symbolic overlap,
-restoration order and returned outcomes. An
+restoration order and returned outcomes. The
+[join fixtures](../../tools/tests/test_holdfast_loans.py#_correlated_loan_origins_at_join)
+exercise three alternative exclusive routes and a write that conflicts with
+only one incoming footprint. An
 [independent branch-demand oracle](../../tools/tests/test_holdfast_loans.py#_generated_branch_demand_oracle)
 checks conflict and restoration locations while varying each branch's reads and
 writes. Unsupported operations and budget exhaustion have distinct refusal cases.
