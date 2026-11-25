@@ -162,7 +162,7 @@ class _Elaborator(
         self.call_declarations: dict[int, int] = {}
         self.recursive_declarations: set[int] = set()
         self.callable_has_effects: set[str] = set()
-        self.callable_effect_calls: dict[str, set[str]] = {}
+        self.callable_effect_calls: dict[str, set[_Term]] = {}
         self.callable_effect_writes: dict[str, set[int]] = {}
         self.callable_effect_reads: dict[str, set[int]] = {}
         self.callable_callback_effects: dict[str, set[int]] = {}
@@ -170,13 +170,13 @@ class _Elaborator(
         self.definition_effect_parameters: dict[int, int] | None = None
         self.definition_callback_uses: set[int] = set()
         self.definition_effects_closed = False
-        self.inferred_effect_calls: set[str] | None = None
+        self.inferred_effect_calls: set[_Term] | None = None
         self.runtime_reads: set[str] = set()
         self.runtime_writes: set[str] = set()
         self.result_bindings: dict[int, set[str]] = {}
         self.checked_resource_consumers: set[str] = set()
         self.untracked_effect_functions: set[str] = set()
-        self.active_effect_calls: set[str] | None = None
+        self.active_effect_calls: set[_Term] | None = None
         self.callable_ensures: dict[
             str, list[tuple[tuple[int, ...], tuple[tuple[int, int], ...], int | None, _Term]]
         ] = {}
@@ -1379,6 +1379,10 @@ class _Elaborator(
                 return False
         return True
 
+    def _call_arity_matches(self, callee: str, supplied: int, arguments: int) -> bool:
+        arity = self.callable_effect_arities.get(callee)
+        return arity is None or (supplied == self.constants[callee].generics and arguments == arity)
+
     def _check_call_effects(self, head: _Term, supplied: int, arguments: list[Node],
                             terms: list[_Term], site: Node | None) -> None:
         if site is not None and not self._static_call_permitted(head, arguments, terms):
@@ -1400,19 +1404,18 @@ class _Elaborator(
                     self._unresolved_effect_call("private helper with a recursive or indirect call needs explicit effects", site)
             elif head != self.current_rec_var and head.kind == "var" and ident in self.parameter_names:
                 name = self.parameter_names[ident]
-                if bound is not None and name not in bound:
+                if bound is not None and head not in bound:
                     raise self.fail("type", f"callable invokes parameter '{name}' not declared in effects calls(...)", site)
             return
         callee = str(head.value)
         name = self.callable_source_names.get(callee, callee)
-        arity = self.callable_effect_arities.get(callee)
-        if arity is not None and (supplied != self.constants[callee].generics or len(terms) != arity):
+        if not self._call_arity_matches(callee, supplied, len(terms)):
             self._unresolved_effect_call("partial application or invocation of a returned callable needs a closed callable signature", site)
             return
         if collecting is not None and callee in self.callable_source_names and callee not in self.callable_has_effects:
             self._unresolved_effect_call("private effect inference requires a direct callee with closed effects", site)
             return
-        named_in_bound = bound is not None and (name in bound or name.split(".")[-1] in bound)
+        named_in_bound = bound is not None and head in bound
         if bound is not None and callee in self.untracked_effect_functions and not named_in_bound:
             raise self.fail("type", f"callable invokes function '{name}' not declared in effects calls(...)", site)
         required = set() if named_in_bound else set(self.callable_effect_calls.get(callee, ()))
@@ -1426,16 +1429,20 @@ class _Elaborator(
             elif collecting is not None:
                 self._unresolved_effect_call("private effect inference requires a callback with closed, empty effects", site)
                 return
-            elif actual.kind == "var" and ident in self.parameter_names:
-                required.add(self.parameter_names[ident])
-            elif actual.kind == "const" and str(actual.value) in self.callable_source_names:
-                required.add(self.callable_source_names[str(actual.value)])
+            elif ((actual.kind == "var" and ident in self.parameter_names)
+                  or (actual.kind == "const" and str(actual.value) in self.callable_source_names)):
+                required.add(actual)
             else:
                 raise self.fail("unsupported", "callback effects require a known callable or a checked pure lambda", site)
         if collecting is not None:
             collecting.update(required)
-        if bound is not None and (missing := sorted(required - bound)):
-            raise self.fail("type", f"callable transitively invokes '{missing[0]}' via '{name}' not declared in effects calls(...)", site)
+        if bound is not None and (missing := required - bound):
+            target = min(
+                self.callable_source_names.get(str(effect.value), str(effect.value))
+                if effect.kind == "const" else self.parameter_names[cast("int", effect.value)]
+                for effect in missing
+            )
+            raise self.fail("type", f"callable transitively invokes '{target}' via '{name}' not declared in effects calls(...)", site)
 
     def _has_static_effects(self, callee: str) -> bool:
         return (callee in self.nonstatic_callables or bool(self.callable_effect_calls.get(callee))
@@ -1447,7 +1454,7 @@ class _Elaborator(
         index = cast("int", value.value)
         return (index in self.constant_parameters or index in self.fn_contracts or
                 (self.definition_effect_parameters is not None and index in self.definition_effect_parameters) or
-                (self.active_effect_calls is not None and self.parameter_names.get(index) in self.active_effect_calls))
+                (self.active_effect_calls is not None and value in self.active_effect_calls))
 
     def _static_call_permitted(self, head: _Term, arguments: list[Node], terms: list[_Term]) -> bool:
         if head.kind == "if":
@@ -1762,13 +1769,11 @@ class _Elaborator(
             full_args = callee_gen_args + val_args
             u_param_ids: tuple[int, ...] = ()
             idx_to_term: dict[int, _Term] = {}
-            if (
-                callee_head.kind == "const"
-                and isinstance(callee_head.value, str)
-                and callee_head.value in self.callable_ref_updates
-            ):
-                u_param_ids, idx_to_term = self.callable_ref_updates[callee_head.value]
-            signature_writes = self.callable_effect_writes.get(str(callee_head.value))
+            signature_writes = None
+            callee = str(callee_head.value)
+            if callee_head.kind == "const" and self._call_arity_matches(callee, len(callee_gen_args), len(val_args)):
+                u_param_ids, idx_to_term = self.callable_ref_updates.get(callee, ((), {}))
+                signature_writes = self.callable_effect_writes.get(callee)
             for idx, (t_node, t_dom) in loan_targets.items():
                 writes = signature_writes is None or idx in signature_writes
                 if not writes:
