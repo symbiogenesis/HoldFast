@@ -28,6 +28,13 @@ on the 31 floating-point axioms remains open under F-480 (R-05-164).
 The retained `holdfast-parser first-slice` result names the blocking producers in
 `inventory.blocking_dependencies`. [First-slice qualification](docs/language/first-release.md#first-slice-qualification)
 
+Two language investigations run alongside artifact qualification. Start the pure
+graded laws with exact natural usage and separate computation and type demand.
+Start the borrowing comparison with disjoint symbolic indices into one owner and
+an overlapping neighbor. The release and extension promotion gates apply when
+these results are proposed for supported source or target use.
+[Graded laws](#q25be) · [Borrow comparison](#q25cc)
+
 ### HoldFast first-release delivery
 
 Take the smallest checked result a release client can use. A consumer can start as soon
@@ -46,9 +53,10 @@ the owner and the evidence needed to resume, then take another row whose inputs 
 | Independent hosted application and pinned host | Freeze the application, ABI and baseline ([Q25eh](#q25eh)). Use the common language rules and qualify the hosted runtime and bindings through their own evidence endpoint. Exercise the actual application workflow and recovery once those interfaces qualify ([Q25ei](#q25ei)). |
 
 Use each item's **Start** and **Check** for the precise inputs and acceptance decision.
-Existing parser, math and editor work can finish its frozen qualification. Broader
-language and adapter work needs the synchronous component and a named consumer that
-meets the option's entry conditions. The [release boundary](docs/language/first-release.md#release-boundary)
+Existing parser, math and editor work can finish its frozen qualification. A language
+investigation can start with the inputs for its declared evidence endpoint. Promotion
+to broader language and adapter support needs the synchronous component and a named
+consumer that meets the option's entry conditions. The [release boundary](docs/language/first-release.md#release-boundary)
 and [qualification criteria](docs/language/first-release.md#qualification) define the supported endpoint.
 
 ### Feedback while implementing a slice
@@ -368,7 +376,8 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
 <a id="q25be"></a>
 
 - [ ] **Q25be · Qualify the six graded-foundation law packages**
-  - **Owner:** `graded-laws`. **Start:** Released synchronous resources and the independently selected graded client. **Check:** Discharge GF-domain, GF-substitution, GF-elimination, GF-cbv, GF-control-mutation and GF-erasure-source under the [reviewed extension predicates](docs/extensions/full-language-review.md#reviewed-implementation-pricing). This single cell aggregates their six existing ranges without extending core-soundness's baseline.
+  - **Owner:** `graded-laws`. **Start:** Exercise the pure GF-domain and GF-substitution rules with exact natural grades and a dependent function fixture. Release synchronous resources and select the independent graded client for extension qualification. **Check:** Discharge GF-domain, GF-substitution, GF-elimination, GF-cbv, GF-control-mutation and GF-erasure-source under the [reviewed extension predicates](docs/extensions/full-language-review.md#reviewed-implementation-pricing). This single cell aggregates their six existing ranges without extending core-soundness's baseline.
+  - In the pure investigation, reconstruct separate computation and type demand and update the rows of later dependent declarations under substitution. Replay a binder with zero computation demand and nonzero type demand. Independently vary each allowance and exercise a stale dependency row. Connect the executable checks to declarative rules in Rocq. [Pure dependent identity](docs/extensions/graded-foundation.md#pure-dependent-identity)
 
 <a id="q25bf"></a>
 
@@ -393,7 +402,8 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
 <a id="q25bj"></a>
 
 - [ ] **Q25bj · Reconstruct checked graded-domain evidence**
-  - **Owner:** `graded-frontend`. **Start:** graded-laws and core-frontend. **Check:** Implement the existing reviewed elaboration/domain/grade reconstruction row, carrying dictionaries, substitutions and replayable certificates; unresolved or exhausted solver work remains an explicit goal.
+  - **Owner:** `graded-frontend`. **Start:** Use the pure derivations as they become available to project a parsed dependent function and its applications into Rocq. Use the graded laws and checked core frontend for extension qualification. **Check:** Implement the existing reviewed elaboration/domain/grade reconstruction row, carrying dictionaries, substitutions and replayable certificates; unresolved or exhausted solver work remains an explicit goal.
+  - Start with `PreserveLength` in the [dependent example](examples/dependent.hf). Check a zero-use length binder, a once-used vector and an application at an open index. Bind the result and each reconstructed dependency row to the source and exercise altered allowances and a changed argument or dependency.
 
 <a id="q25bk"></a>
 
@@ -476,7 +486,7 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
 <a id="q25by"></a>
 
 - [ ] **Q25by · Compare fixed modes with a bounded grading increment**
-  - **Owner:** `grading-trial`. **Start:** Independent client and frozen baseline/benefit threshold. **Check:** Run the [graded selection protocol](docs/extensions/graded-foundation.md#extension-selection-and-qualification), separately justifying general domains and type-use accounting; retain the smaller supported account when prerequisite or material benefit is absent.
+  - **Owner:** `grading-trial`. **Start:** Prepare an independent client candidate, its baseline and benefit thresholds alongside the pure investigation. Select the client when synchronous resources qualify. **Check:** Run the [graded selection protocol](docs/extensions/graded-foundation.md#extension-selection-and-qualification), separately justifying general domains and type-use accounting. Retain the smaller supported account when prerequisite laws or material benefit are absent.
 
 <a id="q25bz"></a>
 
@@ -496,7 +506,8 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
 <a id="q25cc"></a>
 
 - [ ] **Q25cc · Compare borrow-checking alternatives on held-out clients**
-  - **Owner:** `borrow-comparison`. **Start:** Package-trial friction measurements and pinned equivalent comparison modes. **Check:** Run the [borrow comparison boundary](docs/language/loan-analysis.md#conditional-borrowing-comparison) with fixed behavior and evidence endpoints. Include conditional returned borrows, lending iteration and higher-ranked or associated-item composition, comparing pinned default and experimental Rust modes on identical positives and invalid neighbors. Report unsupported cases and budget exhaustion.
+  - **Owner:** `borrow-comparison`. **Start:** Compare proof-backed disjoint symbolic indices against pinned Rust modes on a paired source fixture. Use package-trial friction measurements to select held-out clients for qualification. **Check:** Run the [borrow comparison boundary](docs/language/loan-analysis.md#conditional-borrowing-comparison) with fixed behavior and evidence endpoints. Include conditional returned borrows, lending iteration and higher-ranked or associated-item composition, comparing pinned default and experimental Rust modes on identical positives and invalid neighbors. Report unsupported cases and budget exhaustion.
+  - Hold two exclusive element loans from one owner under scoped evidence that the indices differ. Write through both and check the restored owner contents. Exercise an equal-index neighbor at the second loan. Report direct Rust acceptance and any safe rewrite separately, including its source edits and additional runtime checks.
 
 <a id="q25ce"></a>
 
