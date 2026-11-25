@@ -308,7 +308,8 @@ def main(argv: list[str] | None = None) -> int:
     grading.add_argument("definition", help="mathematical definition to check")
     grading.add_argument("--domain", type=graded_source.GradeDomain, choices=tuple(graded_source.GradeDomain),
                          default=graded_source.GradeDomain.EXACT, help="select the computation grade domain (default: NatExact)")
-    grading.add_argument("--modal", action="store_true", help="replay natural-valued promotion and explicit Box motives")
+    grading.add_argument("--modal", action="store_true",
+                         help="replay natural-valued box promotion and explicitly motivated box and dependent pair matches")
     mapping = commands.add_parser("source-map", help="publish mathematical Gallina, an ECMA-426 map and its bindings")
     mapping.add_argument("source", type=Path)
     mapping.add_argument("--output", type=Path, required=True, metavar="NEW_DIRECTORY")

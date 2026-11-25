@@ -267,7 +267,11 @@ match p as (x,y) in body : C(p)      subject w+s*z
                                     type c+kappa*z
 ```
 
-The premise includes the full well-formed telescope, in particular the dependency `r` of `y`'s type on `x`, and the checked motive substitution. A desired asymmetric use of fields needs explicit graded modalities or another separately proved eliminator. An erased weak pair cannot supply a runtime witness, tag or projection. Constructor inspection at runtime always needs a represented scrutinee; a domain where zero denotes a security level cannot authorize erased matching.
+The premise includes the full well-formed telescope, in particular the dependency `r` of `y`'s type on `x`, and the checked motive substitution. Independent field allowances need explicit graded modalities or a separately proved eliminator. An erased weak pair cannot supply a runtime witness, tag or projection. Constructor inspection at runtime always needs a represented scrutinee; a domain where zero denotes a security level cannot authorize erased matching.
+
+The natural-grade dependent pair trial checks a length paired with a vector
+at that length. The fields share a computation allowance, with exact type-use
+rows for both motive specializations. [Dependent pair replay](../tooling/elaboration-prototype.md#graded-dependent-pair-replay)
 
 `Box_q A` packages a pure value for demand `q`. Introduction scales the value's subject vector by `q` and leaves the type vector fixed. Elimination uses a body with bound-variable subject demand `q`; if the motive depends on the box with demand `kappa`, the body's type demand for its unboxed variable is `q*kappa`. Eliminating a box of demand `z` adds `z` to the body's remaining subject vector and `kappa*z` to its remaining type vector. Promotion cannot hide evaluation effects or manufacture `Dup` for captured owners. Field representations and box erasure remain explicit in `rho`.
 

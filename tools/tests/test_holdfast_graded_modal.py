@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Replay exact and bounded modal introduction and dependent elimination in Rocq."""
+"""Replay exact and bounded modal and dependent-pair elimination in Rocq."""
 
 import contextlib
 import hashlib
@@ -19,6 +19,8 @@ _AUDITED = (
     "checked_let_box_demands",
     "bounded_check_sound",
     "bounded_checked_let_box_demands",
+    "checked_let_indexed_demands",
+    "bounded_checked_let_indexed_demands",
     "promotion_scales_term_demand",
     "dependent_elimination_of_abstract_box",
     "dependent_elimination_of_promoted_box",
@@ -180,7 +182,60 @@ def _bounded_source_replay() -> None:
                            "bounded_source_check_sound", ("[0; 2; 2]", "[0; 2; 1]"))
 
 
+def _dependent_pair_source_replay() -> None:
+    source = TOOLS / "tests" / "fixtures" / "graded-dependent-pair.hf"
+    raw = source.read_bytes()
+    for declaration, domain in (("OpenIndexed", "NatExact"), ("OpenBounded", "NatBound")):
+        status, output, error = _source_command(source, declaration, "--domain", domain)
+        ensure(status == 0, error)
+        result = json.loads(output)
+        ensure(result["domain"] == domain and result["dependencies"] == ["Indexed"]
+               and result["source_sha256"] == hashlib.sha256(raw).hexdigest(),
+               "dependent pair replay lost its domain, record or source identity")
+        [packed] = result["binders"]
+        ensure(packed["name"] == "packed" and packed["computation"] == packed["type"] == 2,
+               "incorrect pair demand after tensor elimination")
+        ensure(result["result_type_uses"] == [{"name": "packed", "uses": 2, "span": packed["span"]}],
+               "the motive's type demand did not reach the named pair")
+
+    status, output, error = _source_command(source, "BuildAndOpen")
+    ensure(status == 0, error)
+    result = json.loads(output)
+    n, payload = result["binders"]
+    ensure(n["name"] == "n" and n["computation"] == 0 and n["type"] == 6
+           and payload["name"] == "payload" and payload["computation"] == 0 and payload["type"] == 2,
+           "record fields used in a type leaked into computation demand")
+    ensure(payload["annotation_type_uses"] == [{"name": "n", "uses": 2, "span": n["span"]}]
+           and result["result_type_uses"] == [{"name": "payload", "uses": 2, "span": payload["span"]},
+                                             {"name": "n", "uses": 4, "span": n["span"]}],
+           "dependent pair specialization lost a constructed field or annotation demand")
+
+    with tempfile.TemporaryDirectory(prefix="holdfast-dependent-pair-controls-") as temporary:
+        directory = Path(temporary)
+        changed = directory / source.name
+        for declaration, domain, original, replacement, failure in (
+            ("OpenBounded", "NatBound", b"packed @ NatBound(2)", b"packed @ NatBound(1)", ": grade: "),
+            ("BuildAndOpen", "NatExact", b"match (Indexed(n + n, payload))", b"match (Indexed(n + 1, payload))", ": grade: "),
+            ("BuildAndOpen", "NatExact", b"(Indexed(length, values).Length)> same", b"length> same", ": grade: "),
+            ("OpenIndexed", "NatExact", b"Vec<Nat, (Length)> Payload", b"Vec<Nat, (Length + 1)> Payload", ": unsupported: "),
+        ):
+            ensure(raw.count(original) == 1, f"pair control does not identify one occurrence: {original!r}")
+            changed.write_bytes(raw.replace(original, replacement))
+            status, output, error = _source_command(changed, declaration, "--domain", domain)
+            ensure(status == 1 and not output and failure in error, error)
+
+        asymmetric = raw.replace(b"packed @ NatExact(2)", b"packed @ NatExact(3)").replace(
+            b"=> (1, ((Indexed(length, payload)", b"=> (length, ((Indexed(length, payload)")
+        ensure(asymmetric != raw, "missing asymmetric pair control")
+        changed.write_bytes(asymmetric)
+        status, output, error = _source_command(changed, "OpenIndexed")
+        ensure(status == 1 and not output and ": grade: " in error, error)
+        _audit_certificate(directory, result["kernel_sha256"], result["gallina"],
+                           "source_check_sound", ("[0; 0; 6]", "[0; 0; 5]"))
+
+
 def cases() -> list[Case]:
     return [Case("natural box promotion and dependent elimination replay", _replay, lane="toolchain"),
             Case("graded box declaration, motive and telescope source replay", _source_replay, lane="toolchain"),
-            Case("bounded box declaration and dependent motive source replay", _bounded_source_replay, lane="toolchain")]
+            Case("bounded box declaration and dependent motive source replay", _bounded_source_replay, lane="toolchain"),
+            Case("graded dependent pair tensor and motive source replay", _dependent_pair_source_replay, lane="toolchain")]

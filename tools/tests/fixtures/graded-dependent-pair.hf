@@ -1,0 +1,24 @@
+// SPDX-License-Identifier: Apache-2.0
+module GradedDependentPairTrial;
+
+record Indexed(Nat Length, Vec<Nat, (Length)> Payload);
+
+definition (Nat, ((Indexed, Indexed), Fn(Vec<Nat, (packed.Length)> values @ NatExact(1)) -> Vec<Nat, (packed.Length)>))
+OpenIndexed(Indexed packed @ NatExact(2)) =>
+    match (packed) as whole : (Nat, ((Indexed, Indexed), Fn(Vec<Nat, (whole.Length)> values @ NatExact(1)) -> Vec<Nat, (whole.Length)>)) {
+        Indexed(length, payload) => (1, ((Indexed(length, payload), Indexed(length, payload)),
+            (Vec<Nat, (Indexed(length, payload).Length)> values @ NatExact(1)) => values)),
+    };
+
+definition Fn(Vec<Nat, (Indexed(n + n, payload).Length)> values @ NatExact(1)) -> Vec<Nat, (Indexed(n + n, payload).Length)>
+BuildAndOpen(Nat n @ NatExact(0), Vec<Nat, (n + n)> payload @ NatExact(0)) =>
+    match (Indexed(n + n, payload)) as whole : Fn(Vec<Nat, (whole.Length)> values @ NatExact(1)) -> Vec<Nat, (whole.Length)> {
+        Indexed(length, values) => (Vec<Nat, (Indexed(length, values).Length)> same @ NatExact(1)) => same,
+    };
+
+definition (Nat, (Indexed, Fn(Vec<Nat, (packed.Length)> values @ NatBound(1)) -> Vec<Nat, (packed.Length)>))
+OpenBounded(Indexed packed @ NatBound(2)) =>
+    match (packed) as whole : (Nat, (Indexed, Fn(Vec<Nat, (whole.Length)> values @ NatBound(1)) -> Vec<Nat, (whole.Length)>)) {
+        Indexed(length, payload) => (length, (Indexed(length, payload),
+            (Vec<Nat, (Indexed(length, payload).Length)> values @ NatBound(1)) => values)),
+    };

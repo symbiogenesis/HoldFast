@@ -30,8 +30,9 @@ The retained `holdfast-parser first-slice` result names the blocking producers i
 
 Run graded source reconstruction, graded interpretation laws and borrowing
 precision in parallel with artifact qualification. Extend checked natural-grade
-elimination from boxes to dependent pairs and indexed data. Carry the sequenced
-natural-argument laws into dependent modal values and concrete resource exits.
+elimination from boxes and the selected dependent pair to broader indexed data.
+Carry the sequenced natural-argument laws into dependent modal values and
+concrete resource exits.
 Use the composed-view and conditional-return trials to check path-dependent
 restoration and select a loop-carried loan case.
 [Graded laws](#q25be) · [Graded frontend](#q25bj) · [Borrow comparison](#q25cc)
@@ -379,7 +380,7 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
   - In the pure investigation, reconstruct separate computation and type demand and update the rows of later dependent declarations under substitution. Replay a binder with zero computation demand and nonzero type demand. Reject an incorrect computation allowance and a stale type-demand certificate. Connect the executable checks to declarative rules in Rocq. [Pure dependent identity](docs/extensions/graded-foundation.md#pure-dependent-identity)
   - The pure Rocq trial checks dependent functions, natural-index applications and telescope row substitution with exact natural demand. [Partial evidence](docs/assurance/completion-log.md#q25be-qualify-the-six-graded-foundation-law-packages)
   - The ordered domain trial checks `NatExact`, `NatBound` and Boolean presence. Extend the proved demand arithmetic with the selected value and type-use interpretations. [Domain laws and certificates](docs/extensions/graded-foundation.md#dimensions-and-lawful-domains)
-  - The modal trial checks exact and bounded natural computation demand for promotion and dependent box elimination. Extend the checked rules to the selected general box, pair and indexed data constructors, then connect their demands to evaluation and erasure.
+  - The modal trial checks exact and bounded natural computation demand for promotion, dependent box elimination and a dependent length/vector pair. Extend the rules to broader indexed data, then connect their demands to evaluation and erasure.
   - The call-by-value trial relates exact natural-lambda demand and bounded natural allowances to reads of values returned by a sequence of arguments. It preserves ordered effects and state through the first failure. Extend the interpretation to dependent modal values and the concrete resource exits. [Partial evidence](docs/assurance/completion-log.md#q25be-qualify-the-six-graded-foundation-law-packages)
 
 <a id="q25bf"></a>
@@ -408,7 +409,7 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
   - **Owner:** `graded-frontend`. **Start:** Use the pure derivations as they become available to project a parsed dependent function and its applications into Rocq. Use the graded laws and checked core frontend for extension qualification. **Check:** Implement the existing reviewed elaboration/domain/grade reconstruction row, carrying dictionaries, substitutions and replayable certificates; unresolved or exhausted solver work remains an explicit goal.
   - Start with `PreserveLength` in the [dependent example](examples/dependent.hf). Check a zero-use length binder, a once-used vector and partial application at `n + n` for an open index `n`. Bind the result function's domain, codomain and reconstructed dependency rows to the source. Exercise altered allowances and a changed argument or dependency.
   - The opt-in graded source trial replays exact natural demands for dependent functions, box promotion and explicit match motives over natural payloads. Extend checked source correspondence and domain reconstruction from these fragments. [Partial evidence](docs/assurance/completion-log.md#q25bj-reconstruct-checked-graded-domain-evidence)
-  - The bounded natural trial uses the checked `NatBound` admission order for dependent functions, natural application and dependent box elimination while retaining exact type-use rows. Extend this reconstruction to the selected data eliminators and bind it through checked source correspondence. [Partial evidence](docs/assurance/completion-log.md#q25bj-reconstruct-checked-graded-domain-evidence)
+  - The bounded natural trial uses the checked `NatBound` admission order for dependent functions, natural application, box elimination and a dependent length/vector record while retaining exact type-use rows. Exact pair replay requires equal field counts. Extend reconstruction to broader indexed data and bind it through checked source correspondence. [Partial evidence](docs/assurance/completion-log.md#q25bj-reconstruct-checked-graded-domain-evidence)
 
 <a id="q25bk"></a>
 

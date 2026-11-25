@@ -2655,8 +2655,14 @@ state and events. All 20 audited declarations have closed assumptions, and
 `rocqchk` checks the compiled module.
 [Sequencing replay](../../tools/tests/test_holdfast_graded_cbv.py)
 
-General modal and indexed-data elimination, broader usage-aware interpretations,
-erasure and the composed extension laws remain open.
+The dependent pair trial checks a telescope whose vector field depends on
+its preceding length field. Its elimination judgment checks the common
+computation grade, scales the scrutinee's computation demand and checks
+the independent type-demand substitutions for the branch and result.
+[Pair rules and proofs](../../tools/rocq/graded_modal.v)
+
+Broader indexed-data elimination, usage-aware interpretations, erasure and
+the composed extension laws remain open.
 
 <a id="q25bj-reconstruct-checked-graded-domain-evidence"></a>
 
@@ -2697,6 +2703,16 @@ mode refuses the relaxed uses. Rocq audits the bounded soundness and motive
 demand results with closed assumptions.
 [Bounded modal replay](../../tools/tests/test_holdfast_graded_modal.py) ·
 [Modal source predicate](../../tools/rocq/graded_modal_source.v)
+
+The dependent pair source trial reconstructs a checked match on a named
+`Indexed` record or a constructed pair. Exact replay checks two shared
+computation uses and two type uses of the named scrutinee. A second case
+checks zero computation demand for the constructed pair's inputs while
+retaining their demand in the returned function type. Bounded replay admits
+unequal field counts under a common bound. Controls refuse exact asymmetry,
+bounded overuse, an inconsistent motive and a stale certified type row.
+[Dependent pair source](../../tools/tests/fixtures/graded-dependent-pair.hf) ·
+[Kernel replay](../../tools/tests/test_holdfast_graded_modal.py)
 
 These trials use checked kernel judgments over a trusted source projection.
 Checked source correspondence and reconstruction for broader dependent data

@@ -57,6 +57,7 @@ class _Definition:
     term: str
     expected: str
     context: str | None = None
+    records: tuple[str, ...] = ()
 
 
 class _Projection:
@@ -242,11 +243,50 @@ def _valid_box_record(node: Node, domain: GradeDomain) -> bool:
             and annotation is not None and annotation["kind"] == "name" and _name(annotation["name"]) == grade_name)
 
 
+def _valid_indexed_record(node: Node) -> bool:
+    if (node["kind"] != "record" or node["generics"] or node["contracts"] or node["declarations"]
+            or node["modifiers"] not in ([], ["public"])):
+        return False
+    fields = cast("list[Node]", node["parameters"])
+    if len(fields) != 2 or any(field.get("const") or field.get("label") or field["grade"] for field in fields):
+        return False
+    length, payload = fields
+    if (length["name"] is None or _name(length["name"]) != "Length" or not _plain_type(cast("Node", length["type"]), "Nat")
+            or payload["name"] is None or _name(payload["name"]) != "Payload"):
+        return False
+    payload_type = cast("Node", payload["type"])
+    if payload_type["kind"] != "type" or _name(payload_type["name"]) != "Vec":
+        return False
+    arguments = cast("list[Node]", payload_type["arguments"])
+    if len(arguments) != 2 or not _plain_type(arguments[0], "Nat"):
+        return False
+    index = arguments[1]
+    while index["kind"] == "group":
+        index = cast("Node", index["value"])
+    return index["kind"] == "name" and _name(index["name"]) == "Length"
+
+
 class _ModalProjection(_Projection):
-    reserved = _PRIMITIVES | {"Box"}
+    reserved = _PRIMITIVES | {"Box", "Indexed"}
+
+    def __init__(self, source: bytes, parsed: object, domain: GradeDomain) -> None:
+        super().__init__(source, parsed, domain)
+        self.records: set[str] = set()
+
+    def _record(self, name: str, node: Node) -> None:
+        record = self.declarations.get(name)
+        expected = (f"Box<T, grade q : {self.domain}>(T Value @ q)" if name == "Box"
+                    else "Indexed(Nat Length, Vec<Nat, (Length)> Payload)")
+        if record is None or _span(record)[0] >= _span(node)[0]:
+            raise self.protocol.error("unsupported", f"modal replay requires an earlier record {expected}", node)
+        valid = _valid_box_record(record, self.domain) if name == "Box" else _valid_indexed_record(record)
+        if not valid:
+            raise self.protocol.error("unsupported", f"modal replay requires record {expected}", record)
+        self.records.add(name)
 
     def _box_grade(self, arguments: list[Node], node: Node) -> int:
         if len(arguments) == 2 and _plain_type(arguments[0], "Nat"):
+            self._record("Box", node)
             return self._literal(arguments[1])
         raise self.protocol.error("unsupported", "modal replay requires Box<Nat, q> with a natural literal q", node)
 
@@ -269,6 +309,22 @@ class _ModalProjection(_Projection):
         grade, index = self._promote(node, scope)
         return f"(PromoteNat {grade} {index})"
 
+    def _indexed(self, node: Node, scope: dict[str, _Parameter]) -> str:
+        if node["kind"] == "group":
+            return self._indexed(cast("Node", node["value"]), scope)
+        self._record("Indexed", node)
+        if node["kind"] == "name" and _name(node["name"]) in scope:
+            return f"(IndexedName {scope[_name(node['name'])].index})"
+        if node["kind"] == "call":
+            callee = cast("Node", node["callee"])
+            arguments = cast("list[Node]", node["arguments"])
+            if (callee["kind"] == "name" and _name(callee["name"]) == "Indexed"
+                    and len(arguments) == 2 and all(argument["label"] is None for argument in arguments)):
+                length, payload = [cast("Node", argument["value"]) for argument in arguments]
+                if payload["kind"] == "name" and (binding := scope.get(_name(payload["name"]))) is not None:
+                    return f"(BuildIndexed {self._index(length, scope)} {binding.index})"
+        raise self.protocol.error("unsupported", "modal replay requires a named Indexed value or Indexed(length, payload) with a named vector payload", node)
+
     def _type_index(self, node: Node, scope: dict[str, _Parameter]) -> str:
         if node["kind"] == "group":
             return self._type_index(cast("Node", node["value"]), scope)
@@ -278,6 +334,9 @@ class _ModalProjection(_Projection):
                 return f"(BoxContents {scope[_name(box['name'])].index})"
             grade, index = self._promote(box, scope)
             return f"(PromotedContents {grade} {index})"
+        if node["kind"] == "member" and _name(node["name"]) == "Length":
+            subject = cast("Node", node["value"])
+            return f"(IndexedLength {self._indexed(subject, scope)})"
         return f"(PlainIndex {self._index(node, scope)})"
 
     @override
@@ -292,6 +351,9 @@ class _ModalProjection(_Projection):
                 return "NatKind"
             if name == "Box":
                 return f"(BoxNat {self._box_grade(arguments, node)})"
+            if name == "Indexed" and not arguments:
+                self._record("Indexed", node)
+                return "IndexedKind"
             if name == "Vec" and len(arguments) == 2 and _plain_type(arguments[0], "Nat"):
                 return f"(VecKind {self._type_index(arguments[1], scope)})"
         if (kind == "function_type" and node["mode"] == "Fn" and node["parameters"]
@@ -304,28 +366,35 @@ class _ModalProjection(_Projection):
             return codomain
         if kind == "tuple_type" and len(types := cast("list[Node]", node["types"])) == 2:
             return f"(ProductKind {self._type(types[0], scope)} {self._type(types[1], scope)})"
-        raise self.protocol.error("unsupported", "modal replay supports Nat, Box<Nat, q>, Vec<Nat, n>, pairs and pure Fn types", node)
+        raise self.protocol.error("unsupported", "modal replay supports Nat, Box<Nat, q>, Indexed, Vec<Nat, n>, pairs and pure Fn types", node)
 
     def _match(self, node: Node, scope: dict[str, _Parameter], declaration: Node) -> str:
         motive = cast("Node | None", node["motive"])
         cases = cast("list[Node]", node["cases"])
         if motive is None or len(cases) != 1:
-            raise self.protocol.error("unsupported", "modal replay requires an explicit motive and one Box arm", node)
+            raise self.protocol.error("unsupported", "modal replay requires an explicit motive and one record arm", node)
         [case] = cases
         pattern = cast("Node", case["pattern"])
-        if pattern["kind"] != "constructor_pattern" or _name(pattern["name"]) != "Box":
-            raise self.protocol.error("unsupported", "modal replay requires a Box binder pattern", pattern)
+        if pattern["kind"] != "constructor_pattern" or (name := _name(pattern["name"])) not in {"Box", "Indexed"}:
+            raise self.protocol.error("unsupported", "modal replay requires a Box or Indexed binder pattern", pattern)
+        self._record(name, pattern)
         arguments = cast("list[Node]", pattern["arguments"])
-        if len(arguments) != 1 or arguments[0]["kind"] != "binding_pattern":
-            raise self.protocol.error("unsupported", "modal replay requires a single named Box field", pattern)
-        boxed = self._boxed(cast("Node", node["value"]), scope)
+        if len(arguments) != (1 if name == "Box" else 2) or any(arg["kind"] != "binding_pattern" for arg in arguments):
+            raise self.protocol.error("unsupported", f"modal replay requires named {name} fields", pattern)
+        subject = cast("Node", node["value"])
         motive_scope = scope.copy()
         motive_parameter = self._bind(motive, motive_scope, "", 0)
         motive_type = self._type(cast("Node", motive["type"]), motive_scope)
         extended = scope.copy()
-        field = self._bind(arguments[0], extended, "NatKind", 0)
-        body = self._term(cast("Node", case["value"]), extended, declaration)
-        return f"(LetBox {field.index} {motive_parameter.index} {boxed} {motive_type} {body})"
+        first = self._bind(arguments[0], extended, "NatKind", 0)
+        body = cast("Node", case["value"])
+        if name == "Box":
+            boxed = self._boxed(subject, scope)
+            return f"(LetBox {first.index} {motive_parameter.index} {boxed} {motive_type} {self._term(body, extended, declaration)})"
+        payload = self._bind(arguments[1], extended, f"(payload_kind (IndexVar {first.index}))", 0)
+        indexed = self._indexed(subject, scope)
+        return (f"(LetIndexed {first.index} {payload.index} {motive_parameter.index} {indexed} {motive_type} "
+                f"{self._term(body, extended, declaration)})")
 
     @override
     def _term(self, node: Node, scope: dict[str, _Parameter], declaration: Node) -> str:
@@ -349,22 +418,22 @@ class _ModalProjection(_Projection):
         if kind == "match_expression":
             return self._match(node, scope, declaration)
         if kind == "call":
+            callee = cast("Node", node["callee"])
+            if callee["kind"] == "name" and _name(callee["name"]) == "Indexed":
+                return f"(IndexedValue {self._indexed(node, scope)})"
             return f"(BoxValue {self._boxed(node, scope)})"
         return f"(NaturalValue {self._index(node, scope)})"
 
     @override
     def definition(self, name: str) -> _Definition:
         node = self._definition_node(name)
-        record = self.declarations.get("Box")
-        if record is None or not _valid_box_record(record, self.domain) or _span(record)[0] >= _span(node)[0]:
-            raise self.protocol.error("unsupported", f"modal replay requires an earlier record Box<T, grade q : {self.domain}>(T Value @ q)", record or node)
         scope: dict[str, _Parameter] = {}
         parameters = self._telescope(node, scope)
         expected = self._type(cast("Node", node["result"]), scope)
         term = self._term(cast("Node", node["value"]), scope, node)
         context = "; ".join(f"{{| name := {parameter.index}; domain := {parameter.domain}; allowance := {parameter.allowance} |}}"
                             for parameter in reversed(parameters))
-        result = _Definition(0, name, node, term, expected, f"[{context}]")
+        result = _Definition(0, name, node, term, expected, f"[{context}]", tuple(sorted(self.records)))
         self.completed[name] = result
         return result
 
@@ -477,7 +546,7 @@ def check(root: Path, path: Path, declaration: str, *, modal: bool = False,
         "source_sha256": source_hash,
         "declaration": declaration,
         "span": _span(selected.source),
-        "dependencies": ["Box"] if modal else [definition.name for definition in definitions[:-1]],
+        "dependencies": list(selected.records) if modal else [definition.name for definition in definitions[:-1]],
         "kernel_sha256": kernel_hashes,
         "gallina": certificate,
         "binders": [
