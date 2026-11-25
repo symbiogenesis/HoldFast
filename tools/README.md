@@ -40,6 +40,7 @@ Run `python tools/run.py` on Windows and `python3 tools/run.py` on Linux. Guest-
 | `python tools/run.py holdfast-parser qualify-bsp-client` | guest | Run the pinned Neovim build client against successful, failed, cancelled and stale builds |
 | `python tools/run.py holdfast-parser debug-simulator --qualify` | guest | Check the [packet assembly simulator](../docs/tooling/tooling-protocols.md#packet-assembly-simulator) against expected stops, registers, capability observations and fault paths |
 | `python tools/run.py holdfast-parser check-arithmetic SOURCE` | guest | Replay [partial word-operation equations](../docs/tooling/elaboration-prototype.md) and audit their kernel assumptions |
+| `python tools/run.py holdfast-parser check-grades SOURCE DEFINITION` | guest | Check a pure `NatExact` definition and report its [computation and type demand](../docs/tooling/elaboration-prototype.md#pure-graded-source-replay) |
 | `python tools/run.py holdfast-parser emit-web SOURCE FUNCTION --output MODULE.mjs` | guest | Export one [Boolean function](../docs/tooling/pure-prototype.md#boolean-web-output) after exhaustive Node execution and kernel replay |
 | `python tools/run.py holdfast-parser qualify-web` | guest | Check four independent Boolean web-client tables and two corrupted output modules |
 | `python tools/run.py holdfast-parser source-map SOURCE --output NEW_DIRECTORY` | guest | Export mathematical Gallina and its [generated-source map](../docs/tooling/tooling-protocols.md#generated-source-maps) for source and proof lookup |

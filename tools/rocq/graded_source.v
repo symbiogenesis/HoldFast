@@ -1,0 +1,97 @@
+(* SPDX-License-Identifier: Apache-2.0 *)
+From Corelib Require Import Init.Datatypes.
+From Stdlib Require Import Lists.List Arith.PeanoNat.
+Require Import graded_pure.
+Import ListNotations GradedPure.
+
+Module GradedSource.
+
+Definition canonical_index (names : list (nat * nat)) (x : nat) : nat :=
+  match find (fun binding => Nat.eqb x (fst binding)) names with
+  | Some binding => 2 * snd binding
+  | None => 2 * x + 1
+  end.
+
+Fixpoint canonical_value (names : list (nat * nat)) (value : index) : index :=
+  match value with
+  | IndexVar x => IndexVar (canonical_index names x)
+  | IndexLit _ => value
+  | IndexAdd lhs rhs => IndexAdd (canonical_value names lhs) (canonical_value names rhs)
+  end.
+
+Fixpoint canonical_type (names : list (nat * nat)) (kind : ty) : ty :=
+  match kind with
+  | Natural => Natural
+  | Vector size => Vector (canonical_value names size)
+  | Pi x allowance domain codomain =>
+      let depth := length names in
+      Pi (2 * depth) allowance (canonical_type names domain)
+        (canonical_type ((x, depth) :: names) codomain)
+  end.
+
+Scheme Equality for index.
+Scheme Equality for ty.
+
+Fixpoint row_entries (env : context) (used : demand) : list nat :=
+  match env with
+  | [] => []
+  | entry :: earlier =>
+      let rest := row_entries earlier used in
+      match uses used (binder entry) with
+      | 0 => rest
+      | count => binder entry :: count :: rest
+      end
+  end.
+
+Fixpoint signature_demands (env : context) (kind : ty) : list (list nat) :=
+  match kind with
+  | Pi x allowance domain codomain =>
+      match type_demand env domain with
+      | Some row =>
+          let extended := {| binder := x; annotation := domain; type_uses := row |} :: env in
+          match type_demand extended codomain with
+          | Some used =>
+              (x :: allowance :: uses used x :: row_entries env row) ::
+                signature_demands extended codomain
+          | None => []
+          end
+      | None => []
+      end
+  | _ => match type_demand env kind with
+         | Some used => [row_entries env used]
+         | None => []
+         end
+  end.
+
+Definition source_check (subject : term) (expected : ty) : list (list nat) :=
+  match check [] subject with
+  | None => [[0]]
+  | Some result =>
+      match type_demand [] expected with
+      | None => [[1]]
+      | Some _ =>
+          if ty_eq_dec (canonical_type [] (result_type result)) (canonical_type [] expected)
+          then [2] :: signature_demands [] expected
+          else [[1]]
+      end
+  end.
+
+Definition accepted (summary : list (list nat)) : bool :=
+  match summary with [2] :: _ => true | _ => false end.
+
+Theorem source_check_sound : forall subject expected,
+  accepted (source_check subject expected) = true ->
+  exists result row,
+    Derives [] subject result /\ TypeDemand [] expected row /\
+    canonical_type [] (result_type result) = canonical_type [] expected.
+Proof.
+  intros subject expected verified. unfold source_check in verified.
+  destruct (check [] subject) as [result |] eqn:checked; try discriminate.
+  destruct (type_demand [] expected) as [row |] eqn:typed; try discriminate.
+  destruct (ty_eq_dec (canonical_type [] (result_type result)) (canonical_type [] expected))
+    as [matches |]; try discriminate.
+  unfold check in checked. cbn in checked.
+  exists result, row. auto using infer_sound, type_demand_sound.
+Qed.
+
+End GradedSource.
