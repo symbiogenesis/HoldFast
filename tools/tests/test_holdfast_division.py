@@ -121,6 +121,27 @@ def _short_circuit_premises() -> None:
     _refuses("module M; public bool F(Nat size) => size != 0 || 17 / size > 0;", "type", "nonzero divisor")
 
 
+def _guarded_static_specialization() -> None:
+    source = (b"module StaticGuard; public Nat Read(Nat size) => size; "
+              b"public Nat Quotient(const Nat size) { "
+              b"let nonzero = Read(size) != 0; if (!nonzero) { return 0; } else { "
+              b"const Nat groupCount = 17 / Read(size); return groupCount; } } "
+              b"public Nat Empty() => Quotient(0); public Nat Nonempty() => Quotient(5); "
+              b"public Nat Choose(const Nat size, bool flag) { "
+              b"if (flag || size != 0) { return 11; } else { return 7; } } "
+              b"public Nat Dynamic(bool flag) => Choose(0, flag);")
+    for expression, expected in (("Empty()", 0), ("Nonempty()", 3), ("Dynamic(true)", 11), ("Dynamic(false)", 7)):
+        ensure(holdfast.evaluate(source, expression, "Nat").value == expected,
+               f"guarded specialization changed the result of {expression}")
+    emitted = holdfast.translate(source).gallina
+    empty, rest = emitted.split("Definition f_Empty")[1].split("Definition f_Nonempty", 1)
+    dynamic = rest.split("Definition f_Dynamic")[1]
+    ensure("Corelib.Init.Nat.div" not in empty and f"(0 : {_NAT})" in empty,
+           "specializing a zero divisor kept the unreachable local constant")
+    ensure(f"then (11 : {_NAT}) else (7 : {_NAT})" in dynamic,
+           "specialization decided a branch that depended on a runtime argument")
+
+
 def _numeric_and_work_limits() -> None:
     maximum = "9" * holdfast.MAX_LITERAL_DIGITS
     ensure(holdfast.evaluate(_BASE, maximum + " / 1", "Nat").value == int(maximum),
@@ -267,6 +288,7 @@ def cases() -> list[Case]:
             Case("natural-division-constants-static-parameters-and-facts", _constants_and_static_parameters),
             Case("natural-division-semantic-and-syntax-refusals", _semantic_and_syntax_refusals),
             Case("natural-division-short-circuit-premises", _short_circuit_premises),
+            Case("natural-division-guarded-static-specialization", _guarded_static_specialization),
             Case("natural-division-numeric-work-limits-and-evaluation-order", _numeric_and_work_limits),
             Case("natural-division-independent-native-ast-source-binding", _native_source_binding),
             Case("natural-division-formatting-comments-and-source-preservation", _formatting)]

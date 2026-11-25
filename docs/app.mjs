@@ -1293,6 +1293,15 @@ function pureProofTerm(rendered, decided) {
   return decided?.natural == null ? rendered : gallinaStaticValue(decided.natural);
 }
 
+function pureKnownComparison(op, left, right) {
+  if (left == null || right == null) return undefined;
+  if (op === "<") return left < right;
+  if (op === "<=") return left <= right;
+  if (op === ">") return left > right;
+  if (op === ">=") return left >= right;
+  return op === "==" ? left === right : left !== right;
+}
+
 function gallinaType(valueType) {
   return GALLINA_TYPES[valueType];
 }
@@ -1454,6 +1463,8 @@ class PureStaticEvaluator {
     this.facts = facts;
     this.steps = 0;
     this.freshArgument = 0;
+    this.specializationDepth = 0;
+    this.guardEvaluationExhausted = false;
   }
 
   step(site) {
@@ -1470,6 +1481,22 @@ class PureStaticEvaluator {
 
   record(facts) {
     return facts ? this.facts : null;
+  }
+
+  guardNatural(item, env, runtimeNames) {
+    if (this.guardEvaluationExhausted || exprDependsOnSymbolic(item, env)) return null;
+    const steps = this.steps;
+    try {
+      return this.evalExpr(item, env, runtimeNames, false);
+    } catch (error) {
+      if (!(error instanceof HoldFastError)) throw error;
+      if (error.kind === "limit") {
+        // Required static evaluation can still use its remaining work.
+        this.steps = steps;
+        this.guardEvaluationExhausted = true;
+      } else if (![...NAT_PREMISES.values()].includes(error.message)) throw error;
+      return null;
+    }
   }
 
   evaluateConstant(declaration, facts = true) {
@@ -1710,7 +1737,7 @@ function inferPureExpression(item, env, constants, functions, evaluator, runtime
     return ["Nat", gallinaStaticValue(natural), { natural, minimum: natural }];
   }
   if (item.kind === "bool") {
-    return ["bool", item.value ? GALLINA_TRUE : GALLINA_FALSE];
+    return ["bool", item.value ? GALLINA_TRUE : GALLINA_FALSE, { boolean: item.value }];
   }
   if (item.kind === "group") {
     return inferPureExpression(
@@ -1730,13 +1757,15 @@ function inferPureExpression(item, env, constants, functions, evaluator, runtime
     if (local !== undefined) {
       if (facts && local[2] >= 0) facts.reference(local[2], item.site);
       const natural = local[0] === "Nat" && typeof local[1] === "bigint" ? local[1] : null;
-      const decided = natural === null ? local[5] : { natural, minimum: natural };
+      let decided = natural === null ? local[5] : { natural, minimum: natural };
+      if (local[0] === "bool" && typeof local[1] === "boolean") decided = { ...decided, boolean: local[1] };
       return [local[0], local[4] || `v_${name}`, decided];
     }
     const constant = constants.get(name);
     if (constant !== undefined) {
       if (facts && constant[2] >= 0) facts.reference(constant[2], item.site);
-      const decided = constant[0] === "Nat" ? { natural: constant[1], minimum: constant[1] } : undefined;
+      const decided = constant[0] === "Nat" ? { natural: constant[1], minimum: constant[1] }
+        : { boolean: constant[1] };
       return [constant[0], `c_${name}`, decided];
     }
     throw new HoldFastError("name", item.site.line, item.site.column, `unknown variable '${name}'`, name);
@@ -1815,16 +1844,14 @@ function inferPureExpression(item, env, constants, functions, evaluator, runtime
           specEnv.set(pName.text, [pType, null, -1, false, fresh]);
         }
       }
-      let specBody = checkPureBlock(
-        sig.decl.body,
-        specEnv,
-        new Set(specEnv.keys()),
-        sig.result,
-        sig.capturedConstants,
-        functions,
-        evaluator,
-        null
-      );
+      let specBody;
+      evaluator.specializationDepth += 1;
+      try {
+        specBody = checkPureBlock(sig.decl.body, specEnv, new Set(specEnv.keys()), sig.result,
+          sig.capturedConstants, functions, evaluator, null);
+      } finally {
+        evaluator.specializationDepth -= 1;
+      }
       for (let i = argBindings.length - 1; i >= 0; i -= 1) {
         const [fresh, argGallina] = argBindings[i];
         specBody = `(let ${fresh} := ${argGallina} in ${specBody})`;
@@ -1854,6 +1881,7 @@ function inferPureExpression(item, env, constants, functions, evaluator, runtime
       );
     }
     return ["bool", `(if ${rendered} then ${GALLINA_FALSE} else ${GALLINA_TRUE})`, {
+      boolean: operand?.boolean == null ? undefined : !operand.boolean,
       whenTrue: operand?.whenFalse, whenFalse: operand?.whenTrue,
     }];
   }
@@ -1920,6 +1948,15 @@ function inferPureExpression(item, env, constants, functions, evaluator, runtime
     if (minimum > MAX_NAT_VALUE) minimum = MAX_NAT_VALUE;
     return ["Nat", `(Corelib.Init.Nat.${PURE_NAT_OPERATIONS.get(op)} ${lr} ${rr})`, { natural, minimum }];
   }
+  const decideNaturalComparison = () => {
+    let first = left?.natural;
+    let second = right?.natural;
+    if (evaluator.specializationDepth) {
+      first ??= evaluator.guardNatural(item.children[0], env, runtimeNames);
+      if (first != null) second ??= evaluator.guardNatural(item.children[1], env, runtimeNames);
+    }
+    return { ...pureComparisonPremises(op, a, b), boolean: pureKnownComparison(op, first, second) };
+  };
   if (op === "<" || op === "<=" || op === ">" || op === ">=") {
     if (lt !== "Nat" || rt !== "Nat") {
       throw new HoldFastError(
@@ -1929,7 +1966,7 @@ function inferPureExpression(item, env, constants, functions, evaluator, runtime
         `operator '${op}' requires Nat operands`
       );
     }
-    const decided = pureComparisonPremises(op, a, b);
+    const decided = decideNaturalComparison();
     if (op === "<") return ["bool", `(Corelib.Init.Nat.ltb ${lr} ${rr})`, decided];
     if (op === "<=") return ["bool", `(Corelib.Init.Nat.leb ${lr} ${rr})`, decided];
     const cmpFn = op === ">" ? "ltb" : "leb";
@@ -1955,7 +1992,8 @@ function inferPureExpression(item, env, constants, functions, evaluator, runtime
     return [
       "bool",
       op === "==" ? eqExpr : `(if ${eqExpr} then ${GALLINA_FALSE} else ${GALLINA_TRUE})`,
-      lt === "Nat" ? pureComparisonPremises(op, a, b) : undefined,
+      lt === "Nat" ? decideNaturalComparison()
+        : { boolean: pureKnownComparison(op, left?.boolean, right?.boolean) },
     ];
   }
   if (lt !== "bool" || rt !== "bool") {
@@ -1966,13 +2004,16 @@ function inferPureExpression(item, env, constants, functions, evaluator, runtime
       `operator '${op}' requires bool operands`
     );
   }
+  const truths = [left?.boolean, right?.boolean];
+  const boolean = op === "&&" ? (truths.includes(false) ? false : truths.every((value) => value === true) || undefined)
+    : (truths.includes(true) ? true : truths.every((value) => value === false) ? false : undefined);
   return [
     "bool",
     op === "&&"
       ? `(if ${lr} then ${rr} else ${GALLINA_FALSE})`
       : `(if ${lr} then ${GALLINA_TRUE} else ${rr})`,
-    op === "&&" ? { whenTrue: [...(left?.whenTrue ?? []), ...(right?.whenTrue ?? [])] }
-      : { whenFalse: [...(left?.whenFalse ?? []), ...(right?.whenFalse ?? [])] },
+    op === "&&" ? { boolean, whenTrue: [...(left?.whenTrue ?? []), ...(right?.whenTrue ?? [])] }
+      : { boolean, whenFalse: [...(left?.whenFalse ?? []), ...(right?.whenFalse ?? [])] },
   ];
 }
 
@@ -2127,8 +2168,8 @@ function checkPureBlock(
         "if condition must have type bool"
       );
     }
-    const yesRendered = checkPureBlock(
-      block.terminal.yes,
+    const checkBranch = (branch, guard) => checkPureBlock(
+      branch,
       localEnv,
       localImmutable,
       expected,
@@ -2136,20 +2177,17 @@ function checkPureBlock(
       functions,
       evaluator,
       facts,
-      [...premises, ...(condition?.whenTrue ?? [])]
+      [...premises, ...(guard ?? [])]
     );
-    const noRendered = checkPureBlock(
-      block.terminal.no,
-      localEnv,
-      localImmutable,
-      expected,
-      constants,
-      functions,
-      evaluator,
-      facts,
-      [...premises, ...(condition?.whenFalse ?? [])]
-    );
-    body = `(if ${condRendered} then ${yesRendered} else ${noRendered})`;
+    if (evaluator.specializationDepth && condition?.boolean != null) {
+      // The source definition has already checked both branches.
+      body = condition.boolean ? checkBranch(block.terminal.yes, condition.whenTrue)
+        : checkBranch(block.terminal.no, condition.whenFalse);
+    } else {
+      const yesRendered = checkBranch(block.terminal.yes, condition?.whenTrue);
+      const noRendered = checkBranch(block.terminal.no, condition?.whenFalse);
+      body = `(if ${condRendered} then ${yesRendered} else ${noRendered})`;
+    }
   }
   for (let i = bindingPairs.length - 1; i >= 0; i -= 1) {
     const [bName, rhs] = bindingPairs[i];
@@ -2247,7 +2285,6 @@ function runPureTranslate(sourceText, collectFacts = false, { sourceHash = "" } 
       continue;
     }
     const sig = functions.get(item.name.text);
-    sig.capturedConstants = new Map(evaluator.constants);
     const paramEnv = new Map();
     const binders = [];
     for (let i = 0; i < item.parameters.length; i += 1) {
@@ -2287,6 +2324,7 @@ function runPureTranslate(sourceText, collectFacts = false, { sourceHash = "" } 
         );
       }
     }
+    sig.capturedConstants = new Map(evaluator.constants);
     definitions.push(
       `Definition f_${item.name.text}${binders.join("")} : ${gallinaType(item.result)} :=\n  ${bodyRendered}.`
     );

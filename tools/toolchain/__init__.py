@@ -96,6 +96,7 @@ class _Expression:
     depth: int = 1
     natural: int | None = None
     minimum: int = 0
+    boolean: bool | None = None
     when_true: _Premises = frozenset()
     when_false: _Premises = frozenset()
 
@@ -206,6 +207,7 @@ class _Elaborator:
         self.functions: dict[str, _Signature] = {}
         self.constants: dict[str, _Local] = {}
         self.static_work = MAX_STATIC_WORK
+        self.guard_evaluation_exhausted = False
         self.specialization_depth = 0
         self.fresh_argument = 0
         self.facts = facts
@@ -216,6 +218,7 @@ class _Elaborator:
         cloned.functions = dict(self.functions)
         cloned.constants = dict(self.constants)
         cloned.static_work = self.static_work
+        cloned.guard_evaluation_exhausted = self.guard_evaluation_exhausted
         cloned.specialization_depth = self.specialization_depth
         cloned.fresh_argument = self.fresh_argument
         return cloned
@@ -458,13 +461,20 @@ class _Elaborator:
             condition = self._expression(terminal.condition, extended, premises)
             if condition.value_type != "bool":
                 raise _error("type", "if condition must be bool", terminal.site)
-            yes = self._block(terminal.yes, extended, nesting + len(values) + 1, premises | condition.when_true)
-            no = self._block(terminal.no, extended, nesting + len(values) + 1, premises | condition.when_false)
-            if yes.value_type != no.value_type:
-                raise _error("type", "if branches must have the same type", terminal.site)
-            body = self._bounded(yes.value_type,
-                                 f"(if {condition.gallina} then {yes.gallina} else {no.gallina})",
-                                 (condition, yes, no), terminal.site)
+            branch_depth = nesting + len(values) + 1
+            if self.specialization_depth and condition.boolean is not None:
+                # The source definition has already checked both branches.
+                branch, guard = ((terminal.yes, condition.when_true) if condition.boolean
+                                 else (terminal.no, condition.when_false))
+                body = self._block(branch, extended, branch_depth, premises | guard)
+            else:
+                yes = self._block(terminal.yes, extended, branch_depth, premises | condition.when_true)
+                no = self._block(terminal.no, extended, branch_depth, premises | condition.when_false)
+                if yes.value_type != no.value_type:
+                    raise _error("type", "if branches must have the same type", terminal.site)
+                body = self._bounded(yes.value_type,
+                                     f"(if {condition.gallina} then {yes.gallina} else {no.gallina})",
+                                     (condition, yes, no), terminal.site)
         for binding, value in reversed(values):
             body = self._bounded(body.value_type,
                                  f"(let v_{binding.name.text} := {value.gallina} in {body.gallina})",
@@ -495,7 +505,7 @@ class _Elaborator:
             literal = int(cast("str", value).replace("_", ""))
             return _Expression("Nat", _nat_term(literal), natural=literal, minimum=literal)
         if kind == "bool":
-            return _Expression("bool", _TRUE if value else _FALSE)
+            return _Expression("bool", _TRUE if value else _FALSE, boolean=bool(value))
         if kind == "group":
             return self._expression(expression.children[0], environment, premises)
         name = cast("str", value)
@@ -516,6 +526,8 @@ class _Elaborator:
             if local.static is not None and local.value_type == "Nat":
                 literal = int(local.static.value)
                 return replace(defined, gallina=term, depth=1, natural=literal, minimum=literal)
+            if local.static is not None:
+                return replace(defined, gallina=term, depth=1, boolean=bool(local.static.value))
             return replace(defined, gallina=term, depth=1)
         # Specialization may expand a short source argument into a large term.
         # Bound retained siblings before building the application's joined text.
@@ -601,7 +613,8 @@ class _Elaborator:
             if operand.value_type != "bool":
                 raise _error("type", "'!' operand must be bool", site)
             checked = self._bounded("bool", f"(if {operand.gallina} then {_FALSE} else {_TRUE})", arguments, site)
-            return replace(checked, when_true=operand.when_false, when_false=operand.when_true)
+            return replace(checked, boolean=None if operand.boolean is None else not operand.boolean,
+                           when_true=operand.when_false, when_false=operand.when_true)
         left, right = arguments
         if name in {"&&", "||"}:
             if left.value_type != "bool" or right.value_type != "bool":
@@ -609,9 +622,12 @@ class _Elaborator:
             term = (f"(if {left.gallina} then {right.gallina} else {_FALSE})" if name == "&&"
                     else f"(if {left.gallina} then {_TRUE} else {right.gallina})")
             checked = self._bounded("bool", term, arguments, site)
+            truths = left.boolean, right.boolean
             if name == "&&":
-                return replace(checked, when_true=left.when_true | right.when_true)
-            return replace(checked, when_false=left.when_false | right.when_false)
+                boolean = False if False in truths else True if truths == (True, True) else None
+                return replace(checked, boolean=boolean, when_true=left.when_true | right.when_true)
+            boolean = True if True in truths else False if truths == (False, False) else None
+            return replace(checked, boolean=boolean, when_false=left.when_false | right.when_false)
         if name in _NAT_ARITHMETIC:
             if left.value_type != "Nat" or right.value_type != "Nat":
                 raise _error("type", f"'{name}' operands must be Nat", site)
@@ -641,8 +657,35 @@ class _Elaborator:
         checked = self._bounded("bool", term, arguments, site)
         if left.value_type == "Nat":
             when_true, when_false = _comparison_premises(name, left.proof_term, right.proof_term)
-            return replace(checked, when_true=when_true, when_false=when_false)
+            a, b = left.natural, right.natural
+            if self.specialization_depth:
+                if a is None:
+                    a = self._guard_natural(expression.children[0], environment)
+                if b is None and a is not None:
+                    b = self._guard_natural(expression.children[1], environment)
+            boolean = None if a is None or b is None else {
+                "<": a < b, "<=": a <= b, ">": a > b, ">=": a >= b, "==": a == b, "!=": a != b,
+            }[name]
+            return replace(checked, boolean=boolean, when_true=when_true, when_false=when_false)
+        if left.boolean is not None and right.boolean is not None:
+            return replace(checked, boolean=(left.boolean == right.boolean) == (name == "=="))
         return checked
+
+    def _guard_natural(self, expression: syntax.Expression, environment: dict[str, _Local]) -> int | None:
+        if self.guard_evaluation_exhausted:
+            return None
+        work = self.static_work
+        try:
+            value = self._static_value(expression, environment)
+        except HoldFastError as error:
+            if error.kind == "limit":
+                # Required static evaluation can still use its remaining work.
+                self.static_work = work
+                self.guard_evaluation_exhausted = True
+            elif error.message not in _NAT_PREMISES.values():
+                raise
+            return None
+        return None if value is None else int(value.value)
 
     def _natural_expression(self, op: str, expression: syntax.Expression, environment: dict[str, _Local],
                             premises: _Premises, left: _Expression, right: _Expression) -> _Expression:

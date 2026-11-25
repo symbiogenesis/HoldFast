@@ -740,6 +740,25 @@ for (const [expression, diagnostic] of [["2 - 5", "Nat subtraction"],
     throw new Error(`Nat arithmetic preview accepted ${expression}: ${JSON.stringify(result)}`);
   }
 }
+const staticGuardSource = [
+  "module StaticGuard;",
+  "public Nat Read(Nat size) => size;",
+  "public Nat Quotient(const Nat size) { let nonzero = Read(size) != 0; if (!nonzero) { return 0; }",
+  "else { const Nat groupCount = 17 / Read(size); return groupCount; } }",
+  "public Nat Empty() => Quotient(0);",
+  "public Nat Nonempty() => Quotient(5);",
+  "public Nat Choose(const Nat size, bool flag) { if (flag || size != 0) { return 11; } else { return 7; } }",
+  "public Nat Dynamic(bool flag) => Choose(0, flag);",
+].join("\n");
+const staticGuard = await mod.browserApi("/api/compile", { source: staticGuardSource });
+if (!staticGuard.ok || staticGuard.sourceStatus !== "pure-translation"
+    || !staticGuard.gallina.split("Definition f_Dynamic")[1]?.includes("then (11 : Corelib.Init.Datatypes.nat) else (7 : Corelib.Init.Datatypes.nat)")) {
+  throw new Error(`Guarded static specialization changed pure emission: ${JSON.stringify(staticGuard)}`);
+}
+for (const [expression, expected] of [["Empty()", "0"], ["Nonempty()", "3"]]) {
+  const result = await mod.browserApi("/api/evaluate", { source: staticGuardSource, expression, valueType: "Nat" });
+  if (!result.ok || result.value !== expected) throw new Error(`Guarded static evaluation failed: ${JSON.stringify(result)}`);
+}
 for (const source of [ordinarySource, guardedSource]) {
   const result = await mod.browserApi("/api/evaluate", {
     source, expression: "if (4 is Succ(prev) && prev > 1) prev else 0", valueType: "Nat",

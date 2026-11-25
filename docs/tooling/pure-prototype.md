@@ -111,8 +111,10 @@ outside this pure prototype.
 The function modifier records constant-evaluation support without restricting
 runtime calls. A static parameter is checked symbolically in its definition and
 requires a static argument at every call. Instantiation substitutes that argument
-and computes the required local constants, leaving ordinary data arguments in
-their original order. Forwarding a static parameter preserves its availability;
+and computes the required local constants. The definition checks both branches
+before instantiation, which computes local constants only in the reachable branch
+when the condition is known. Ordinary data arguments retain their original order.
+Forwarding a static parameter preserves its availability;
 neither a ghost binder nor a runtime local acquires that availability implicitly.
 Logical template definitions may retain symbolic static expressions; this host
 prototype establishes no target erasure or source-correspondence theorem.
