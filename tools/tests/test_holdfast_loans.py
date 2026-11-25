@@ -1747,6 +1747,15 @@ public byte Client(ref Span<byte> values, usize i, usize j)
     return 0u8;
 }
 """
+    effectful = source.replace(b"public byte Client", b"""private usize Pick(ref Span<byte> values, usize idx)
+    requires values.CanRead && values.CanWrite
+    requires values.Length == 4usize
+{
+    values[1usize] = 5u8;
+    return idx;
+}
+
+public byte Client""").replace(b"ref values[j]", b"ref values[Pick(ref values, j)]")
     with parser.cached_build(TOOLS.parent) as compiled:
         tree = parser.parse_source(compiled, source, surface=True)
         gallina = elaborate(source, tree).gallina
@@ -1757,15 +1766,30 @@ public byte Client(ref Span<byte> values, usize i, usize j)
                 b"return CopyPeer",
                 b"values[0usize] = 5u8;\n        return CopyPeer",
             ),
+            source.replace(b"i < 3usize", b"i < 2usize").replace(
+                b"return CopyPeer(in shifted[i], ref values[j]);",
+                b"let nested = Span.Slice(shifted, 1usize, 2usize);\n"
+                b"        return CopyPeer(in nested[i], ref values[2usize + i]);",
+            ),
+            source.replace(b"i < 3usize", b"i < 2usize").replace(
+                b"Span.Slice(values, 1usize, 3usize)", b"Span.Slice(Span.Slice(values, 1usize, 3usize), 1usize, 2usize)",
+            ).replace(b"ref values[j]", b"ref values[2usize + i]"),
+            effectful,
+            effectful.replace(b"CopyPeer(in byte source, ref byte target)", b"CopyPeer(ref byte target, in byte source)").replace(
+                b"CopyPeer(in shifted[i], ref values[Pick(ref values, j)])",
+                b"CopyPeer(ref values[Pick(ref values, j)], in shifted[i])",
+            ),
         ):
             bad_tree = parser.parse_source(compiled, invalid, surface=True)
             with raises(HoldFastError, msg="unproven owner-coordinate separation reached Gallina emission") as failure:
                 elaborate(invalid, bad_tree)
             error = failure.exception
             line = next(n for n, row in enumerate(invalid.splitlines(), 1) if b"return CopyPeer" in row)
-            column = invalid.splitlines()[line - 1].index(b"ref values") + 1
+            call = invalid.splitlines()[line - 1]
+            column = call.index(b"ref values") + 1
+            other_argument = 1 if call.index(b"in ") < column else 2
             ensure(error.kind == "type" and (error.line, error.column) == (line, column)
-                   and "cannot prove indexed loan of 'values' is disjoint from argument 1" in error.message,
+                   and f"cannot prove indexed loan of 'values' is disjoint from argument {other_argument}" in error.message,
                    f"wrong rejection for an unresolved owner-coordinate loan: {error.line}:{error.column}: {error}")
 
     entries = solver_ledger.ledger(gallina)
