@@ -446,7 +446,7 @@ def _validate(
     if reached != set(nodes):
         raise AnalysisRefusalError("unreachable graph nodes")
 
-    # Refuse direct self-loops, non-terminating cycles, or irreducible cycles.
+    # Reject self-edges and require a graph path from every node to a terminal.
     predecessors: dict[str, list[str]] = {name: [] for name in nodes}
     for node in graph.nodes:
         if node.name in node.successors:
@@ -466,7 +466,7 @@ def _validate(
     if can_terminate != set(nodes):
         raise AnalysisRefusalError("cyclic control flow requires an invariant interpretation")
 
-    # Compute dominators to ensure any cycle is a reducible natural loop.
+    # A successor that dominates its predecessor identifies a natural-loop header.
     all_names = frozenset(nodes)
     dominators: dict[str, frozenset[str]] = {
         name: frozenset({graph.entry}) if name == graph.entry else all_names
@@ -493,7 +493,7 @@ def _validate(
 
     for node in graph.nodes:
         for successor in node.successors:
-            # Natural loop back-edge: header `successor` must have an exit edge.
+            # Require a branch at each loop header.
             if successor in dominators[node.name] and len(nodes[successor].successors) < 2:
                 raise AnalysisRefusalError(
                     "cyclic control flow requires an invariant interpretation"
@@ -1273,7 +1273,7 @@ def analyze(owners: tuple[Owner, ...], graph: Graph, limits: Limits | None = Non
 
 
 # ---------------------------------------------------------------------------
-# AST-to-Loan-Graph Lowering Pass (Schema-2 Surface AST -> holdfast_loans.Graph)
+# Loan graph lowering from the schema-2 surface AST
 # ---------------------------------------------------------------------------
 
 
@@ -2471,8 +2471,8 @@ class _FunctionLowerer:
                     self.handle_modes[receiver_loan.name] = signature.mode
                     captured_handles.append(receiver_loan.name)
 
-        # Evaluate arguments left-to-right; create scoped borrows for `in`/`ref`/`out` args first
-        # as each argument is reached, keeping them live until the call step completes.
+        # Evaluate arguments in source order. Reuse matching handles or create
+        # scoped loans, then demand them together at the call.
         for arg in args:
             prev_site = self.current_site
             self.current_site = arg

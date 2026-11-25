@@ -155,7 +155,7 @@ class _StatementsMixin:
         self: _Elaborator, site: Node, operands: list[Node], yes: Node, no: Node,
         environment: dict[str, _Binding],
     ) -> Node:
-        # A failed later test leaves every binder introduced by earlier tests.
+        # A failed test evaluates the fallback in the scope from before the guard.
         fallback: Node = {"kind": "guard_scope", "span": no["span"], "locals": tuple(environment), "value": no}
         result = yes
         for operand in reversed(operands):
@@ -1833,7 +1833,7 @@ class _StatementsMixin:
         self.mutable_locals.discard(var_name)
         self.in_loop_depth += 1
         try:
-            # Verify loop invariants on entry (var_name = start_term)
+            # Check the loop invariants with the iteration variable at the lower bound.
             entry_env = dict(extended)
             entry_env[var_name] = _Binding(start_term, elem_type)
             self._check_loop_invariants(contracts, entry_env, statement, "entry")
@@ -2283,7 +2283,7 @@ class _StatementsMixin:
                 self.active_facts.extend(proved)
                 return cur_env
 
-            # Symbolic induction for while loop (also checks 0-trip concrete loops)
+            # Check the symbolic induction step even for a concrete zero-trip loop.
             saved_uninit = set(self.uninitialized_out_params)
             sym_env = dict(extended)
             for mname in list(self.mutable_locals):

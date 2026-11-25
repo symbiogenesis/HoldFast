@@ -1117,7 +1117,6 @@ def parse_interpreter_cst(raw_output: str) -> list[CstNode | None]:
         if verdict != "ACCEPT":
             raise ValueError(f"unexpected Menhir interpreter line: {verdict!r}")
         idx += 1
-        # Collect balanced bracket block for the CST
         cst_lines: list[str] = []
         depth = 0
         while idx < len(lines):
@@ -1339,7 +1338,7 @@ def apply_seeded_fault(
         return corrupted
 
     if fault_name == "expression-body-excludes-arrow-or-semicolon-span":
-        # Corrupt expression_body span to match its inner value span rather than `=> value;`:
+        # Drop the arrow and terminator from the expression-body span.
         decls = ast.get("declarations")
         if isinstance(decls, list):
             for decl in decls:
@@ -1477,7 +1476,6 @@ def _candidate_reductions(terminals: tuple[str, ...]) -> list[tuple[str, ...]]:
                     depth -= 1
                     if depth == 0:
                         if ret_idx != -1:
-                            # Replace LBRACE ... RETURN expr; RBRACE with FATARROW expr;
                             candidates.append(
                                 (*toks[:i], "FATARROW", *toks[ret_idx + 1 : j], *toks[j + 1 :])
                             )
@@ -1485,7 +1483,6 @@ def _candidate_reductions(terminals: tuple[str, ...]) -> list[tuple[str, ...]]:
                 elif depth == 1 and toks[j] == "RETURN":
                     ret_idx = j
 
-    # Deduplicate and sort shortest first:
     seen: set[tuple[str, ...]] = set()
     unique: list[tuple[str, ...]] = []
     for cand in sorted(candidates, key=len):
@@ -1607,7 +1604,7 @@ def evaluate_seeded_fault(
 
     shrunk = shrink_failing_sentence(initial_sentence, fails)
     replay = build_replay_record(shrunk)
-    # Verify unmutated baseline passes on the shrunk replay record:
+    # The minimized input must still pass the unmutated parser.
     replay_sentence_case(replay)
 
     return {
@@ -1722,10 +1719,9 @@ def qualify(
         menhir = _menhir_binary(root, toolchain_receipt)
         grammar = build_dir / "parser.mly"
 
-        # 1. Qualify renderer before sending generated source to the lexer/parser:
+        # Qualify the renderer before feeding its source to the parser.
         renderer_report = qualify_renderer()
 
-        # 2. Generate deterministic sentences from locked Menhir:
         seeds = list(range(seed_start, seed_start + count))
         generated_sentences: list[tuple[int, tuple[str, ...]]] = []
         raw_lines: list[str] = []
@@ -1736,7 +1732,6 @@ def qualify(
             generated_sentences.append((seed, terminals))
             raw_lines.append(f"{ENTRY_POINT}: {' '.join(terminals)}")
 
-        # 3. Batch CST interpretation + negative interpreter controls:
         negative_lines = [
             f"{ENTRY_POINT}: MODULE SEMICOLON EOF",
             f"{ENTRY_POINT}: MODULE IDENT SEMICOLON PUBLIC NAT IDENT LPAREN RPAREN FATARROW DECIMAL PLUS SEMICOLON EOF",
@@ -1752,7 +1747,8 @@ def qualify(
             if neg_cst is not None:
                 raise ValueError("Menhir interpreter unexpectedly accepted a malformed negative sentence")
 
-        # 4. Render each sentence across trivia/payload variants and verify native holdfast-parser against IndependentPureAstOracle:
+        # Vary spelling and trivia, then compare the parser output with the
+        # independently interpreted tree and locations.
         accepted_sentences = 0
         action_refused_sentences = 0
         variant_checks = 0
@@ -1793,7 +1789,7 @@ def qualify(
             if idx < 3 or first_status == "refused":
                 sample_replays.append(build_replay_record(terminals, seed=seed))
 
-        # 5. Evaluate seeded defects, shrinking, and deterministic replay on native parser:
+        # Require each seeded defect to survive shrinking and replay.
         fault_reports: dict[str, object] = {}
         for fault_name in SEEDED_FAULTS:
             verdict = evaluate_seeded_fault(
@@ -1811,7 +1807,6 @@ def qualify(
             )
             fault_reports[fault_name] = verdict
 
-        # 6. Recheck inputs, toolchain, and generated build outputs:
         elapsed = round(time.monotonic() - started, 3)
         if elapsed > MAX_CAMPAIGN_SECONDS:
             raise RuntimeError(f"syntax campaign exceeded {MAX_CAMPAIGN_SECONDS}s wall-time bound")
