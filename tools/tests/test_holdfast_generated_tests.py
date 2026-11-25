@@ -4,6 +4,7 @@
 import json
 import subprocess
 from contextlib import redirect_stderr, redirect_stdout
+from dataclasses import replace
 from io import StringIO
 from pathlib import Path
 from typing import cast
@@ -213,6 +214,7 @@ def _pure_formatting_template_oracle() -> None:
     )
     for tmpl in templates:
         verify_format_template(tmpl)
+    verify_format_template(replace(templates[0], operator="-", literal="1"))
 
 
 def _seeded_faults_shrinking_and_mutation_vocabulary() -> None:

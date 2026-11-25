@@ -1115,8 +1115,10 @@ class FormatTemplate:
         parts.append(
             f"{pad}public{gap}Nat{gap}{self.fn_name} ( Nat{gap}{self.param_name} ){gap}{{"
         )
+        bound = f"{gap}+{gap}{self.literal}" if self.operator == "-" else ""
         parts.append(
-            f"{pad}  let{gap}{self.local_name}{gap}={gap}{self.param_name}{gap}{self.operator}{gap}{self.literal} ;{inline}"
+            f"{pad}  let{gap}{self.local_name}{gap}={gap}{self.param_name}{bound}"
+            f"{gap}{self.operator}{gap}{self.literal} ;{inline}"
         )
         parts.append(f"{pad}  return{gap}{self.local_name} ;")
         parts.append(f"{pad}}}")
@@ -1139,7 +1141,8 @@ class FormatTemplate:
         inline = f" {self.inline_comment}" if self.inline_comment is not None else ""
         lines.append(f"public Nat {self.fn_name}(Nat {self.param_name})")
         lines.append("{")
-        lines.append(f"    let {self.local_name} = {self.param_name} {self.operator} {self.literal};{inline}")
+        bound = f" + {self.literal}" if self.operator == "-" else ""
+        lines.append(f"    let {self.local_name} = {self.param_name}{bound} {self.operator} {self.literal};{inline}")
         lines.append(f"    return {self.local_name};")
         lines.append("}")
         return ("\n".join(lines) + "\n").encode("utf-8")
@@ -1158,6 +1161,7 @@ class FormatTemplate:
                 (val_kind, c_val),
                 ("symbol", ";"),
             ))
+        bound = (("symbol", "+"), ("decimal", self.literal)) if self.operator == "-" else ()
         tokens.extend((
             ("keyword", "public"),
             ("keyword", "Nat"),
@@ -1171,6 +1175,7 @@ class FormatTemplate:
             ("name", self.local_name),
             ("symbol", "="),
             ("name", self.param_name),
+            *bound,
             ("symbol", self.operator),
             ("decimal", self.literal),
             ("symbol", ";"),
