@@ -2599,3 +2599,54 @@ importing result law replays in Rocq with the provider method opaque and zero
 assumptions. [Locked effect replay](../../tools/tests/test_holdfast_package_effects.py)
 
 Mandatory release export bounds and checked frontend correspondence remain open.
+
+<a id="q25be-qualify-the-six-graded-foundation-law-packages"></a>
+
+## Q25be · Qualify the six graded-foundation law packages
+
+The pure Rocq checker reconstructs exact natural computation demand and a
+separate type-demand row for a fragment with dependent functions, vectors
+indexed by naturals and application to natural indices. Its soundness theorem
+connects accepted terms to the declarative judgment. A second theorem checks
+the original and rewritten telescope, including each later declaration's type
+and demand row. [Calculus and proofs](../../tools/rocq/graded_pure.v)
+
+In the `PreserveLength` model, applying the length argument `n + n` yields
+zero computation uses of `n` and four type uses across the returned function's
+domain and codomain. Controls reject an incorrect exact allowance, an unbound
+type index, binder capture and stale type-demand rows. The behavioral test uses
+Rocq 9.3.0, checks both principal theorems and all nine examples for closed
+assumptions, and runs `rocqchk`.
+[Native replay](../../tools/tests/test_holdfast_graded.py)
+
+This is evidence for the pure calculus and checked substitution step.
+[Source projection](../../PLAN.md#q25bj), usage-aware evaluation, modal
+elimination and the composed extension laws remain open.
+
+<a id="q25cc-compare-borrow-checking-alternatives-on-held-out-clients"></a>
+
+## Q25cc · Compare borrow-checking alternatives on held-out clients
+
+The symbolic-index trial takes a four-byte owner and two indices. It writes
+`9` and `8` through two simultaneous exclusive call arguments on distinct
+in-bounds indices. Equal or out-of-bounds inputs return `false` and preserve
+the owner. The HoldFast prototype uses the scoped guard to accept the call.
+Rocq 9.3.0 replays both writes, the untouched elements and the unchanged failure
+state in the emitted `Span` model with closed assumptions. Replacing the
+second argument with the first index is refused during elaboration at the call.
+[Source case and replay](../../tools/tests/test_holdfast_loans.py)
+
+The paired Rust fixture uses edition 2024 and `nightly-2026-11-20` on Windows
+ARM64 (`6905905bb7727fd0f9223f5fdc9ad4e62236d5a2`). With each of
+`-Zpolonius=off`, `-Zpolonius=legacy` and `-Zpolonius=next`, both `--cfg direct`
+and `--cfg coincident` fail with E0499 at the second mutable borrow. The safe
+rewrite uses `get_disjoint_mut` to check bounds and overlap at runtime. It
+builds in all three modes and passes the expected observations for all 36
+index pairs in `0..=5`. [Rust fixture](../../tools/tests/fixtures/indexed_loans.rs) ·
+[Slice API](https://doc.rust-lang.org/std/primitive.slice.html#method.get_disjoint_mut)
+
+For each mode and source form, pass `--edition 2024 --test` to `rustc` on the
+fixture. Use `--emit=mir=-` with the two refusal configurations. Omit the
+configuration for the safe rewrite and execute the resulting test binary.
+The result concerns direct same-owner symbolic indexing. Held-out clients,
+checker cost measurements and checked runtime correspondence remain open.

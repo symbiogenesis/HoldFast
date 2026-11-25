@@ -377,7 +377,8 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
 
 - [ ] **Q25be · Qualify the six graded-foundation law packages**
   - **Owner:** `graded-laws`. **Start:** Exercise the pure GF-domain and GF-substitution rules with exact natural grades and a dependent function fixture. Release synchronous resources and select the independent graded client for extension qualification. **Check:** Discharge GF-domain, GF-substitution, GF-elimination, GF-cbv, GF-control-mutation and GF-erasure-source under the [reviewed extension predicates](docs/extensions/full-language-review.md#reviewed-implementation-pricing). This single cell aggregates their six existing ranges without extending core-soundness's baseline.
-  - In the pure investigation, reconstruct separate computation and type demand and update the rows of later dependent declarations under substitution. Replay a binder with zero computation demand and nonzero type demand. Independently vary each allowance and exercise a stale dependency row. Connect the executable checks to declarative rules in Rocq. [Pure dependent identity](docs/extensions/graded-foundation.md#pure-dependent-identity)
+  - In the pure investigation, reconstruct separate computation and type demand and update the rows of later dependent declarations under substitution. Replay a binder with zero computation demand and nonzero type demand. Reject an incorrect computation allowance and a stale type-demand certificate. Connect the executable checks to declarative rules in Rocq. [Pure dependent identity](docs/extensions/graded-foundation.md#pure-dependent-identity)
+  - The pure Rocq trial checks dependent functions, natural-index applications and telescope row substitution with exact natural demand. [Partial evidence](docs/assurance/completion-log.md#q25be-qualify-the-six-graded-foundation-law-packages)
 
 <a id="q25bf"></a>
 
@@ -403,7 +404,7 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
 
 - [ ] **Q25bj · Reconstruct checked graded-domain evidence**
   - **Owner:** `graded-frontend`. **Start:** Use the pure derivations as they become available to project a parsed dependent function and its applications into Rocq. Use the graded laws and checked core frontend for extension qualification. **Check:** Implement the existing reviewed elaboration/domain/grade reconstruction row, carrying dictionaries, substitutions and replayable certificates; unresolved or exhausted solver work remains an explicit goal.
-  - Start with `PreserveLength` in the [dependent example](examples/dependent.hf). Check a zero-use length binder, a once-used vector and an application at an open index. Bind the result and each reconstructed dependency row to the source and exercise altered allowances and a changed argument or dependency.
+  - Start with `PreserveLength` in the [dependent example](examples/dependent.hf). Check a zero-use length binder, a once-used vector and partial application at `n + n` for an open index `n`. Bind the result function's domain, codomain and reconstructed dependency rows to the source. Exercise altered allowances and a changed argument or dependency.
 
 <a id="q25bk"></a>
 
@@ -507,7 +508,8 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
 
 - [ ] **Q25cc · Compare borrow-checking alternatives on held-out clients**
   - **Owner:** `borrow-comparison`. **Start:** Compare proof-backed disjoint symbolic indices against pinned Rust modes on a paired source fixture. Use package-trial friction measurements to select held-out clients for qualification. **Check:** Run the [borrow comparison boundary](docs/language/loan-analysis.md#conditional-borrowing-comparison) with fixed behavior and evidence endpoints. Include conditional returned borrows, lending iteration and higher-ranked or associated-item composition, comparing pinned default and experimental Rust modes on identical positives and invalid neighbors. Report unsupported cases and budget exhaustion.
-  - Hold two exclusive element loans from one owner under scoped evidence that the indices differ. Write through both and check the restored owner contents. Exercise an equal-index neighbor at the second loan. Report direct Rust acceptance and any safe rewrite separately, including its source edits and additional runtime checks.
+  - Hold two exclusive element loans from one owner under scoped evidence that the indices differ. Write through both and check the restored owner contents. Force the second loan to reuse the first index and require rejection at the call. Report direct Rust acceptance and any safe rewrite separately, including its source edits and required runtime checks.
+  - The symbolic-index trial replays both writes and the frame in the HoldFast mathematical model. All three pinned Rust modes reject the direct indexing form and accept the safe slice API version. [Partial evidence](docs/assurance/completion-log.md#q25cc-compare-borrow-checking-alternatives-on-held-out-clients)
 
 <a id="q25ce"></a>
 
