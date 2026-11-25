@@ -1,6 +1,8 @@
 # HoldFast Tools
 
-Run `python tools/run.py` on Windows and `python3 tools/run.py` on Linux. Guest-only commands automatically use WSL on Windows. See `--help` for the full command list and append `--help` to a command for its options.
+Run `python tools/run.py` on Windows and `python3 tools/run.py` on Linux. The
+runner dispatches guest-only commands to WSL on Windows. Run the runner with
+`--help` to list commands, or append `--help` to a command to see its options.
 
 ## Commands
 
@@ -10,22 +12,24 @@ Run `python tools/run.py` on Windows and `python3 tools/run.py` on Linux. Guest-
 | `python tools/run.py validate --full` | host + guest | Run the complete local development qualification profile with native prerequisites required |
 | `python tools/run.py validate --static` | host / guest | Run Python and Markdown checks |
 | `python tools/run.py gate` | host / guest | Run `check`, `markdown`, and `typecheck` in one verdict |
-| `python tools/run.py check` | host / guest | Check [licensing](../COPYRIGHT.md#file-markings), EditorConfig, glyph hygiene, source-comment links, JavaScript/playground asset bindings, and plan-summary arithmetic |
+| `python tools/run.py check` | host / guest | Check [licensing](../COPYRIGHT.md#file-markings), encoding and whitespace, source-comment links, pure source and Markdown examples, JavaScript and editor assets, and plan-summary arithmetic |
 | `python tools/run.py check --fix` | host / guest | Refresh only the generated estimate table in [PLAN.md](../PLAN.md#current-summary), then run all `check` rules |
 | `python tools/run.py markdown` | host / guest | Validate `tools/rumdl.toml` and run closed-world `rumdl` Markdown linting across the corpus |
 | `python tools/run.py typecheck` | host / guest | Typecheck and lint `tools/` under pinned `ty` (`linux` + `win32`) and `ruff` |
-| `python tools/run.py prepare python` | host / guest | Order imports in explicitly selected `tools/*.py` files with locked `ruff` |
-| `python tools/run.py prepare markdown` | host / guest | Format explicitly selected `.md` files with locked `rumdl` |
+| `python tools/run.py prepare python --path FILE` | host / guest | Order imports in the selected Python files under `tools/` with locked `ruff` |
+| `python tools/run.py prepare markdown --path FILE` | host / guest | Format the selected `.md` files with locked `rumdl` |
 | `python tools/run.py test` | host / guest | Run the `test_*.py` behavioral test suite |
 | `python tools/run.py holdfast` | host | Pure HoldFast prototype checker, formatter, linter, Gallina emitter, and generated-test runner |
 | `python tools/run.py holdfast-borrow-compare` | host / guest | Replay pinned Rust decisions and execute accepted observations for the [borrowing comparison](../docs/language/loan-analysis.md#conditional-borrowing-comparison) |
 | `python tools/run.py holdfast sarif` | host | Export source-bound pure batch diagnostics and optional format previews as [SARIF 2.1.0](../docs/tooling/tooling-protocols.md#qualified-pure-batch-sarif), with an explicit external schema |
-| `python tools/run.py holdfast-lsp` | host | Pure HoldFast Language Server Protocol server over stdio, wire-transcript recorder, and two-client interoperability qualifier |
+| `python tools/run.py holdfast-lsp` | host / guest | Serve pure HoldFast editor features over stdio, with optional wire-transcript recording |
+| `python tools/run.py holdfast-lsp --qualify-clients` | host / guest | Check [editor interoperability](../docs/tooling/lsp-prototype.md#acceptance-and-remaining-qualification) with pinned Neovim and Vim clients |
 | `python tools/run.py holdfast-lsp --qualify-rename` | Ubuntu ARM64 / WSL | Check versioned rename application and stale refusal in pinned Neovim and Emacs Eglot with [retained editor and wire evidence](../docs/tooling/lsp-prototype.md#local-rename-previews) |
 | `python tools/run.py holdfast-lsp --qualify-actions` | Ubuntu ARM64 / WSL | Check [versioned Boolean comparison action application and stale refusal](../docs/tooling/authoring-tools.md#checked-boolean-comparison-previews) in pinned Neovim and Emacs Eglot |
 | `python tools/run.py holdfast-highlight` | host / guest | Check/regenerate syntax-only editor assets; qualify pinned Tree-sitter and TextMate consumers in the guest |
 | `python tools/run.py holdfast-playground` | guest (`[wsl]`) | Unified HoldFast browser playground with dependent mathematics |
 | `python tools/run.py holdfast-parser` | guest (`[wsl]`) | Menhir parser build/qualification, syntax campaigns, dependent elaboration, first-slice harness, and Rocq kernel replay |
+| `python tools/run.py holdfast-parser parse SOURCE [--surface]` | guest | Emit the development parser's [located JSON syntax](../docs/tooling/parser.md#acceptance-and-commands) using the pure grammar by default or the wider grammar with `--surface` |
 | `python tools/run.py holdfast-parser fmt FILE --check` | guest | Check [canonical mathematical layout](../docs/tooling/authoring-tools.md#formatting-and-linting-mathematical-source). Omit `--check` to apply the checked formatting. |
 | `python tools/run.py holdfast-parser fmt FILE --syntax-only` | guest | Apply canonical mathematical layout during semantic or proof repair. Add `--check` to leave the source untouched. |
 | `python tools/run.py holdfast-parser fmt - --syntax-only` | guest | Read a UTF-8 editor buffer from standard input and return its canonical layout on standard output. |
@@ -41,25 +45,27 @@ Run `python tools/run.py` on Windows and `python3 tools/run.py` on Linux. Guest-
 | `python tools/run.py holdfast-parser qualify-bsp-client` | guest | Run the pinned Neovim build client against successful, failed, cancelled and stale builds |
 | `python tools/run.py holdfast-parser debug-simulator --qualify` | guest | Check the [packet assembly simulator](../docs/tooling/tooling-protocols.md#packet-assembly-simulator) against expected stops, registers, capability observations and fault paths |
 | `python tools/run.py holdfast-parser check-arithmetic SOURCE` | guest | Replay [partial word-operation equations](../docs/tooling/elaboration-prototype.md) and audit their kernel assumptions |
-| `python tools/run.py holdfast-parser check-grades SOURCE DEFINITION [--domain NatExact/NatBound or --modal]` | guest | Report [graded computation and type demand](../docs/tooling/elaboration-prototype.md#pure-graded-source-replay), with [bounded computation allowances](../docs/tooling/elaboration-prototype.md#bounded-natural-grades) under `--domain NatBound` and [graded box replay](../docs/tooling/elaboration-prototype.md#graded-box-source-replay) under `--modal` |
+| `python tools/run.py holdfast-parser check-grades SOURCE DEFINITION` | guest | Report [graded computation and type demand](../docs/tooling/elaboration-prototype.md#pure-graded-source-replay) under `NatExact`. Select [bounded allowances](../docs/tooling/elaboration-prototype.md#bounded-natural-grades) with `--domain NatBound` or [graded box replay](../docs/tooling/elaboration-prototype.md#graded-box-source-replay) with `--modal`. |
 | `python tools/run.py holdfast-parser emit-web SOURCE FUNCTION --output MODULE.mjs` | guest | Export one [Boolean function](../docs/tooling/pure-prototype.md#boolean-web-output) after exhaustive Node execution and kernel replay |
 | `python tools/run.py holdfast-parser qualify-web` | guest | Check four independent Boolean web-client tables and two corrupted output modules |
 | `python tools/run.py holdfast-parser source-map SOURCE --output NEW_DIRECTORY` | guest | Export mathematical Gallina and its [generated-source map](../docs/tooling/tooling-protocols.md#generated-source-maps) for source and proof lookup |
 | `python tools/run.py holdfast-parser packet-example HEX` | guest | Execute the [packet walkthrough](../docs/tooling/packet-walkthrough.md) on up to eight input bytes using the lowered C and a local C11 compiler |
 
-The test runner reports executed cases and skips separately. By default it omits
-`--slow` cases and cases requiring another execution lane or an unavailable
-toolchain. `--slow` includes slow cases in the current lane; it does not enable
-guest or kernel checks on Windows. Parser and elaborator qualification commands
-retain their own native build and replay requirements.
+Repeat `--path` to prepare multiple files in one run. Add `--check` to report
+formatting findings without writing.
+
+The test runner reports executed and skipped cases separately. It skips slow
+cases by default and skips cases whose lane or toolchain is unavailable. Use
+`test --slow` to include slow cases in the current lane. On Windows, run the
+test command inside WSL to exercise guest and kernel cases.
 
 ## Validation profiles
 
 `validate` combines the usual `gate` and `test` handoff. It runs one command at a
 time and defaults to four test workers; `--jobs N` selects another positive
 worker count. The gate shares one indexed document corpus between repository
-and Markdown checks. It retains sequential checker execution: overlapping proof
-and editor jobs can exhaust the editor workers' independent time budgets.
+and Markdown checks. Sequential execution keeps proof and editor checks from
+competing for the editor workers' time budgets.
 Each run writes per-step logs under `out/validation/`. A failed or timed-out step
 stops the profile and prints its log path and a bounded tail for diagnosis.
 
@@ -68,18 +74,19 @@ It includes slow behavioral cases, live editor interoperability, isolated
 generated tests, fresh checked-parser support qualification, syntax campaigns
 and elaboration/kernel replay. Syntax campaigns already include parser
 qualification and the
-[pure parser comparison](../docs/tooling/parser.md#pure-parser-comparison). On Windows it also runs the guest behavioral suite in WSL; on Linux
-the current suite supplies that coverage once. Required toolchain cases cannot
-silently become skips. These are development-tool verdicts; the first-slice
-artifact and external compiler/admission requirements retain their own owners.
+[pure parser comparison](../docs/tooling/parser.md#pure-parser-comparison). On
+Windows, the full profile runs the guest behavioral suite in WSL as a separate
+step. On Linux, the local suite supplies guest coverage. The guest test step
+requires the native toolchain. The
+[first-slice qualification](../docs/language/first-release.md#first-slice-qualification)
+defines separate executable and admission evidence.
 
 `validate --static` runs only `typecheck` and `markdown`. The broader `gate` also
 checks authored HoldFast examples through the checked parser and therefore needs the
 native runtime, including WSL on Windows. The
 [static CI workflow](../.github/workflows/static.yml) uses the narrower profile
 on Ubuntu and Windows stock runners. It provides automatic Python and Markdown
-regression checks; it supplies no behavioral or native qualification verdict.
-Hosted execution remains user-managed under the
+regression checks. Hosted execution follows the
 [shared workflow](../AGENTS.md#git-workflow-and-worktrees).
 
 ## Dependency and version policy
