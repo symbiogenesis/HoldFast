@@ -1622,6 +1622,112 @@ Proof. repeat split; reflexivity. Qed.
                 solver_ledger.audit(result.stdout.decode("utf-8"), len(exports), "HoldFast_IndexedLoans", entries)
 
 
+def _mixed_indexed_loans() -> None:
+    source = b"""module MixedIndexedLoans;
+
+private byte CopyPeer(in byte source, ref byte target) {
+    target = source;
+    return source;
+}
+
+public byte Client(ref Span<byte> values, usize i, usize j)
+    requires values.CanRead && values.CanWrite
+    requires values.Length == 4usize
+{
+    if (i < j && j < 4usize) {
+        return CopyPeer(in values[i], ref values[j]);
+    }
+    return 0u8;
+}
+"""
+    with parser.cached_build(TOOLS.parent) as compiled:
+        tree = parser.parse_source(compiled, source, surface=True)
+        gallina = elaborate(source, tree).gallina
+        for invalid in (
+            source.replace(b"ref values[j]", b"ref values[i]"),
+            source.replace(b"i < j", b"i <= j"),
+            source.replace(
+                b"return CopyPeer(in values[i], ref values[j]);",
+                b"let shifted = Span.Slice(values, 1usize, 3usize);\n"
+                b"        return CopyPeer(in shifted[0usize], ref values[1usize]);",
+            ),
+        ):
+            bad_tree = parser.parse_source(compiled, invalid, surface=True)
+            with raises(HoldFastError, msg="possibly overlapping mixed loans reached Gallina emission") as failure:
+                elaborate(invalid, bad_tree)
+            error = failure.exception
+            line = next(n for n, row in enumerate(invalid.splitlines(), 1) if b"return CopyPeer" in row)
+            column = invalid.splitlines()[line - 1].index(b"ref values") + 1
+            ensure(error.kind == "type" and (error.line, error.column) == (line, column)
+                   and "cannot prove indexed loan of 'values' is disjoint from argument 1" in error.message,
+                   f"wrong rejection for possibly overlapping mixed loans: {error.line}:{error.column}: {error}")
+
+    entries = solver_ledger.ledger(gallina)
+    ensure(not entries, "mixed indexed loans depended on a solver assumption")
+    [client] = re.findall(r"^Definition (holdfast_d\d+_Client) :", gallina, re.MULTILINE)
+    proof = rf"""
+Import HoldFast_MixedIndexedLoans.
+Local Definition trial_byte (n : nat) := holdfast_mk_int 0 (holdfast_nat_to_bits 8 n).
+Local Definition trial_index (n : nat) := holdfast_mk_int 4 (holdfast_nat_to_bits 64 n).
+Local Definition trial_read := holdfast_Span_Read (holdfast_int 0).
+Local Definition ordered i j := holdfast_and (holdfast_int_lt 4 i j)
+  (holdfast_int_lt 4 j (trial_index 4)).
+
+Theorem mixed_writeback : forall values i j,
+  (ordered i j = true ->
+    {client} values i j = trial_read values i /\
+    trial_read ({client}_post_values values i j) j = trial_read values i /\
+    trial_read ({client}_post_values values i j) i = trial_read values i) /\
+  (ordered i j = false ->
+    {client} values i j = trial_byte 0 /\ {client}_post_values values i j = values) /\
+  (forall k, holdfast_int_ne 4 j k = true ->
+    trial_read ({client}_post_values values i j) k = trial_read values k).
+Proof.
+  intros values i j. unfold {client}, {client}_post_values. cbv beta.
+  match goal with
+  | |- context [if ?guard then _ else _] => destruct guard eqn:allowed
+  end.
+  all: match type of allowed with
+       | _ = ?outcome => change (ordered i j = outcome) in allowed
+       end; rewrite allowed.
+  - split.
+    + intros _. unfold ordered in allowed. apply holdfast_and_left in allowed.
+      assert (separate : holdfast_int_ne 4 j i = true).
+      {{ unfold holdfast_int_ne. destruct (holdfast_int_eq 4 j i) eqn:equal; [|reflexivity].
+         exact (holdfast_int_lt_ge_false _ i j j allowed (holdfast_usize_le_refl j) equal). }}
+      split; [reflexivity |]. unfold trial_read. split.
+      * apply holdfast_Span_Read_write_same.
+      * now apply holdfast_Span_Read_write_other_ne.
+    + split.
+      * discriminate.
+      * intros k outside. now apply holdfast_Span_Read_write_other_ne.
+  - split; [discriminate | split; intros; repeat split; reflexivity].
+Qed.
+
+Local Definition trial_span :=
+  holdfast_Span_Write _ (holdfast_mk_span (holdfast_int 0) (trial_index 0)
+    (trial_index 4) true true true holdfast_bs_empty) (trial_index 0) (trial_byte 7).
+Example mixed_entry_is_inhabited :
+  holdfast_Span_CanRead _ trial_span = true /\
+  holdfast_Span_CanWrite _ trial_span = true /\
+  holdfast_Span_Length _ trial_span = trial_index 4 /\
+  {client} trial_span (trial_index 0) (trial_index 1) = trial_byte 7 /\
+  {client} trial_span (trial_index 0) (trial_index 0) = trial_byte 0 /\
+  {client} trial_span (trial_index 0) (trial_index 4) = trial_byte 0.
+Proof. repeat split; reflexivity. Qed.
+"""
+    exports = [*solver_ledger.math_exports(gallina), "mixed_writeback", "mixed_entry_is_inhabited"]
+    audit = "".join(f"Print Assumptions {name}.\n" for name in exports)
+    with TemporaryDirectory() as tmp:
+        (Path(tmp) / "MixedIndexedLoans.v").write_text(gallina + proof + audit, encoding="utf-8")
+        for command in (["rocq", "c", "-q", "MixedIndexedLoans.v"], ["rocqchk", "-silent", "MixedIndexedLoans"]):
+            result = subprocess.run(["opam", "exec", "--switch", proofenv.ROCQ_SWITCH, "--", *command],
+                                    cwd=tmp, capture_output=True, timeout=180, check=False)
+            ensure(result.returncode == 0, f"{command} refused the mixed writeback proof: {result.stderr[:3600]!r}")
+            if command[0] == "rocq":
+                solver_ledger.audit(result.stdout.decode("utf-8"), len(exports), "HoldFast_MixedIndexedLoans", entries)
+
+
 def cases() -> list[Case]:
     return [
         Case("located receiver order, snapshots, views and retained loans", _located_receiver_timing, lane="toolchain"),
@@ -1632,6 +1738,7 @@ def cases() -> list[Case]:
         Case("element loan and value snapshot across slot relocation", _element_loan_during_relocation, lane="toolchain"),
         Case("symbolically disjoint indexed call loans and coincident control", _indexed_symbolic_disjointness,
              lane="toolchain"),
+        Case("ordered mixed indexed call loans and possible alias controls", _mixed_indexed_loans, lane="toolchain"),
             Case("last-use restoration and unresolved facts", _last_use_and_residuals),
             Case("nested restoration and suspended ancestors", _nested_restoration_and_suspension),
             Case("receiver reservation, activation and cancellation", _receiver_reservations),
