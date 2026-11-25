@@ -14,6 +14,7 @@ from toolchain.elaborate_types import (
     _BOOL,
     _INT_SPECS,
     _NAT,
+    _PROP,
     _U8,
     _UNIT,
     _USIZE,
@@ -122,6 +123,20 @@ class _StatementsMixin:
         """Find the positive pattern tests on a short-circuit conjunction's spine."""
         operands = self._conjuncts(condition)
         return operands if len(operands) > 1 and any(op["kind"] == "is" for op in operands) else []
+
+    def _binding_implication(
+        self: _Elaborator, node: Node, environment: dict[str, _Binding], expected: _Term,
+    ) -> _Term | None:
+        operands = self._conjuncts(self.node(node["left"]))
+        if not any(op["kind"] == "is" and self._pattern_names(self.node(op["pattern"])) for op in operands):
+            return None
+        consequent = self.node(node["right"])
+        fallback: Node = {"kind": "bool", "span": node["span"], "value": True}
+        if expected == _PROP:
+            consequent = {"kind": "guard_proposition", "span": consequent["span"], "value": consequent}
+            fallback = {"kind": "guard_proposition", "span": fallback["span"], "value": fallback}
+        guarded = self._guard_conditional(node, operands, consequent, fallback, environment)
+        return self._check_guard_value(guarded, environment, expected).term
 
     @staticmethod
     def _guard_environment(scope: Node, environment: dict[str, _Binding]) -> dict[str, _Binding]:

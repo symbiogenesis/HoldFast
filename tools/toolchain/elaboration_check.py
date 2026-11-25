@@ -1670,6 +1670,23 @@ definition i32 Previous(i32 value) requires value != i32.Min => value + -1i32;
     )
     static_effects = ("module StaticEffects; public Nat Base() => 5; "
                       "public Nat Dynamic() effects calls(Base) => Base(); ")
+    pattern_implication = Fixture("pattern-implication-scope", b"""module PatternImplication;
+public Nat Lift(Nat value)
+    ensures result is Succ(previous) ==> previous == value
+    => Succ(value);
+public Nat Zero()
+    ensures result is Succ(previous) ==> previous == 5
+    => 0;
+public definition bool Agree(Nat left, Nat right) =>
+    (left is Succ(x) && (right is Succ(y) && x > 0)) ==> (x == y || y == 0);
+""", observations=(
+        ("holdfast_d4_Agree 3 3", "true"),
+        ("holdfast_d4_Agree 3 2", "false"),
+        ("holdfast_d4_Agree 3 1", "true"),
+        ("holdfast_d4_Agree 3 0", "true"),
+        ("holdfast_d4_Agree 0 3", "true"),
+        ("holdfast_d4_Agree 1 3", "true"),
+    ))
     frozen_table = Fixture("target-static-table-and-text", """module FrozenTable;
 definition Type Layout(Nat width) => type Vec<Nat,width>;
 definition Vec<Nat,3> TagBytes() => "Aé";
@@ -1691,7 +1708,17 @@ definition Nat Last() => Tag[2];
                                 "@eq_rect _ (holdfast_d1_TagBytes tt) (fun bytes => holdfast_Fin (S (holdfast_d5_ApplyTag bytes 11))) "
                                 "(holdfast_fzero 206) holdfast_d2_Tag holdfast_d2_Tag_freeze = holdfast_fzero 206"),
                            ))
-    return (arithmetic, symbolic_wide, signed_sums, frozen_table,
+    return (arithmetic, symbolic_wide, signed_sums, frozen_table, pattern_implication,
+            Fixture("pattern-implication-disjunction-no-binding", b"""module PatternDisjunction;
+Nat Wrong(Nat value)
+    ensures (result is Succ(previous) || result == 0) ==> previous == value
+    => Succ(value);
+""", "name", refusal_contains="previous"),
+            Fixture("pattern-implication-does-not-export-bindings", b"""module PatternEscape;
+Nat Wrong(Nat value)
+    ensures (result is Succ(previous) ==> previous == value) && previous == value
+    => Succ(value);
+""", "name", refusal_contains="previous"),
             Fixture("runtime-static-table-element", b"""module RuntimeElement;
 Nat Use(Nat runtime) {
     const Vec<Nat,1> table = VCons(runtime, VNil<Nat>());

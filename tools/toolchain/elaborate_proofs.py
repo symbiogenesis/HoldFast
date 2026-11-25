@@ -1653,6 +1653,8 @@ class _ProofsMixin:
             if operator == "==":
                 return self.proposition(node, environment)
             if operator == "==>":
+                if (guarded_implication := self._binding_implication(node, environment, _PROP)) is not None:
+                    return guarded_implication
                 domain = self.asserted_proposition(self.node(node["left"]), environment)
                 dom_facts = self._fact_bool_terms((_Binding(_term("unit"), domain),), environment)
                 self.active_facts.extend(dom_facts)
