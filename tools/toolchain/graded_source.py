@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Project bounded NatExact source into the pure graded Rocq checker."""
+"""Project bounded NatExact source into the dependent and modal Rocq checkers."""
 
 import hashlib
 import json
@@ -9,7 +9,7 @@ import tempfile
 from dataclasses import dataclass
 from itertools import batched
 from pathlib import Path
-from typing import cast
+from typing import cast, override
 
 from toolchain import parser, proofenv
 from toolchain.elaborate_protocol import _Protocol
@@ -18,6 +18,7 @@ from toolchain.source_file import ensure_unchanged, read_source
 
 _PRIMITIVES = frozenset({"Nat", "Vec", "NatExact"})
 _ROCQ_FILES = ("graded_pure.v", "graded_source.v")
+_MODAL_FILES = ("graded_pure.v", "graded_modal.v", "graded_modal_source.v")
 _REPORT = re.compile(r"=\s*(\[[0-9\s;\[\]]*\])\s*:\s*list\s+\(list\s+\(list\s+nat\)\)")
 
 
@@ -48,9 +49,12 @@ class _Definition:
     source: Node
     term: str
     expected: str
+    context: str | None = None
 
 
 class _Projection:
+    reserved = _PRIMITIVES
+
     def __init__(self, source: bytes, parsed: object) -> None:
         self.protocol = _Protocol(source)
         syntax = self.protocol.decode(parsed)
@@ -92,13 +96,14 @@ class _Projection:
     def _parameter(self, node: Node, scope: dict[str, _Parameter]) -> _Parameter:
         if node["name"] is None or node["type"] is None or node.get("const") or node.get("label"):
             raise self.protocol.error("unsupported", "graded replay requires named parameters with plain types", node)
+        return self._bind(node, scope, self._type(cast("Node", node["type"]), scope), self._grade(node))
+
+    def _bind(self, node: Node, scope: dict[str, _Parameter], domain: str, allowance: int) -> _Parameter:
         name = _name(node["name"])
-        if name in _PRIMITIVES:
+        if name in self.reserved:
             raise self.protocol.error("grade", f"graded binder shadows primitive '{name}'", node)
         if name == "_" or "." in name or name in scope:
             raise self.protocol.error("grade", f"duplicate or invalid graded binder '{name}'", node)
-        domain = self._type(cast("Node", node["type"]), scope)
-        allowance = self._grade(node)
         if len(self.parameters) == 256:
             raise self.protocol.error("limit", "graded source replay is bounded at 256 binders", node)
         parameter = _Parameter(len(self.parameters), name, _span(node), domain, allowance)
@@ -180,14 +185,18 @@ class _Projection:
             raise self.protocol.error("unsupported", "graded replay accepts earlier nullary definitions and positional natural applications", node)
         return f"(NatValue {self._index(node, scope)})"
 
-    def definition(self, name: str) -> _Definition:
-        if name in self.completed:
-            return self.completed[name]
+    def _definition_node(self, name: str) -> Node:
         node = self.declarations.get(name)
         if node is None or node["kind"] != "definition":
             raise self.protocol.error("grade", f"graded definition '{name}' was not found", node)
         if node["generics"] or node["contracts"] or node["modifiers"] not in ([], ["public"]):
             raise self.protocol.error("unsupported", "graded replay requires a plain mathematical definition", node)
+        return node
+
+    def definition(self, name: str) -> _Definition:
+        if name in self.completed:
+            return self.completed[name]
+        node = self._definition_node(name)
         scope: dict[str, _Parameter] = {}
         parameters = self._telescope(node, scope)
         expected = self._type(cast("Node", node["result"]), scope)
@@ -200,19 +209,180 @@ class _Projection:
         return result
 
 
+def _plain_type(node: Node | None, name: str) -> bool:
+    return node is not None and node["kind"] == "type" and _name(node["name"]) == name and not node["arguments"]
+
+
+def _valid_box_record(node: Node) -> bool:
+    if (node["kind"] != "record" or node["contracts"] or node["declarations"]
+            or node["modifiers"] not in ([], ["public"])):
+        return False
+    generics = cast("list[Node]", node["generics"])
+    fields = cast("list[Node]", node["parameters"])
+    if len(generics) != 2 or len(fields) != 1:
+        return False
+    element, grade = generics
+    [field] = fields
+    element_name, grade_name = _name(element["name"]), _name(grade["name"])
+    annotation = cast("Node | None", field["grade"])
+    return (element["mode"] == "type" and element["type"] is None and grade["mode"] == "grade"
+            and element_name != grade_name and not {element_name, grade_name} & (_PRIMITIVES | {"Box", "_"})
+            and _plain_type(cast("Node | None", grade["type"]), "NatExact")
+            and field["name"] is not None and _name(field["name"]) == "Value"
+            and not field.get("const") and not field.get("label")
+            and _plain_type(cast("Node", field["type"]), element_name)
+            and annotation is not None and annotation["kind"] == "name" and _name(annotation["name"]) == grade_name)
+
+
+class _ModalProjection(_Projection):
+    reserved = _PRIMITIVES | {"Box"}
+
+    def _box_grade(self, arguments: list[Node], node: Node) -> int:
+        if len(arguments) == 2 and _plain_type(arguments[0], "Nat"):
+            return self._literal(arguments[1])
+        raise self.protocol.error("unsupported", "modal replay requires Box<Nat, q> with a natural literal q", node)
+
+    def _promote(self, node: Node, scope: dict[str, _Parameter]) -> tuple[int, str]:
+        if node["kind"] == "call":
+            callee = cast("Node", node["callee"])
+            arguments = cast("list[Node]", node["arguments"])
+            if callee["kind"] == "generic_application" and len(arguments) == 1 and arguments[0]["label"] is None:
+                head = cast("Node", callee["value"])
+                if head["kind"] == "name" and _name(head["name"]) == "Box":
+                    grade = self._box_grade(cast("list[Node]", callee["arguments"]), callee)
+                    return grade, self._index(cast("Node", arguments[0]["value"]), scope)
+        raise self.protocol.error("unsupported", "modal replay promotes a natural index with Box<Nat, q>(value)", node)
+
+    def _boxed(self, node: Node, scope: dict[str, _Parameter]) -> str:
+        if node["kind"] == "group":
+            return self._boxed(cast("Node", node["value"]), scope)
+        if node["kind"] == "name" and _name(node["name"]) in scope:
+            return f"(BoxName {scope[_name(node['name'])].index})"
+        grade, index = self._promote(node, scope)
+        return f"(PromoteNat {grade} {index})"
+
+    def _type_index(self, node: Node, scope: dict[str, _Parameter]) -> str:
+        if node["kind"] == "group":
+            return self._type_index(cast("Node", node["value"]), scope)
+        if node["kind"] == "member" and _name(node["name"]) == "Value":
+            box = cast("Node", node["value"])
+            if box["kind"] == "name" and _name(box["name"]) in scope:
+                return f"(BoxContents {scope[_name(box['name'])].index})"
+            grade, index = self._promote(box, scope)
+            return f"(PromotedContents {grade} {index})"
+        return f"(PlainIndex {self._index(node, scope)})"
+
+    @override
+    def _type(self, node: Node, scope: dict[str, _Parameter]) -> str:
+        kind = node["kind"]
+        if kind in {"type_argument", "group_type"}:
+            return self._type(cast("Node", node["type"]), scope)
+        if kind == "type":
+            name = _name(node["name"])
+            arguments = cast("list[Node]", node["arguments"])
+            if name == "Nat" and not arguments:
+                return "NatKind"
+            if name == "Box":
+                return f"(BoxNat {self._box_grade(arguments, node)})"
+            if name == "Vec" and len(arguments) == 2 and _plain_type(arguments[0], "Nat"):
+                return f"(VecKind {self._type_index(arguments[1], scope)})"
+        if (kind == "function_type" and node["mode"] == "Fn" and node["parameters"]
+                and not any(node[field] for field in ("generics", "captures", "effects", "contracts"))):
+            extended = scope.copy()
+            parameters = self._telescope(node, extended)
+            codomain = self._type(cast("Node", node["result"]), extended)
+            for parameter in reversed(parameters):
+                codomain = f"(ArrowKind {parameter.allowance} {parameter.domain} {codomain})"
+            return codomain
+        if kind == "tuple_type" and len(types := cast("list[Node]", node["types"])) == 2:
+            return f"(ProductKind {self._type(types[0], scope)} {self._type(types[1], scope)})"
+        raise self.protocol.error("unsupported", "modal replay supports Nat, Box<Nat, q>, Vec<Nat, n>, pairs and pure Fn types", node)
+
+    def _match(self, node: Node, scope: dict[str, _Parameter], declaration: Node) -> str:
+        motive = cast("Node | None", node["motive"])
+        cases = cast("list[Node]", node["cases"])
+        if motive is None or len(cases) != 1:
+            raise self.protocol.error("unsupported", "modal replay requires an explicit motive and one Box arm", node)
+        [case] = cases
+        pattern = cast("Node", case["pattern"])
+        if pattern["kind"] != "constructor_pattern" or _name(pattern["name"]) != "Box":
+            raise self.protocol.error("unsupported", "modal replay requires a Box binder pattern", pattern)
+        arguments = cast("list[Node]", pattern["arguments"])
+        if len(arguments) != 1 or arguments[0]["kind"] != "binding_pattern":
+            raise self.protocol.error("unsupported", "modal replay requires a single named Box field", pattern)
+        boxed = self._boxed(cast("Node", node["value"]), scope)
+        motive_scope = scope.copy()
+        motive_parameter = self._bind(motive, motive_scope, "", 0)
+        motive_type = self._type(cast("Node", motive["type"]), motive_scope)
+        extended = scope.copy()
+        field = self._bind(arguments[0], extended, "NatKind", 0)
+        body = self._term(cast("Node", case["value"]), extended, declaration)
+        return f"(LetBox {field.index} {motive_parameter.index} {boxed} {motive_type} {body})"
+
+    @override
+    def _term(self, node: Node, scope: dict[str, _Parameter], declaration: Node) -> str:
+        kind = node["kind"]
+        if kind == "group":
+            return self._term(cast("Node", node["value"]), scope, declaration)
+        if kind == "name":
+            name = _name(node["name"])
+            if name in scope:
+                return f"(Name {scope[name].index})"
+            raise self.protocol.error("grade", f"unbound value '{name}'", node)
+        if kind == "lambda" and node["parameters"]:
+            extended = scope.copy()
+            parameters = self._telescope(node, extended)
+            body = self._term(cast("Node", node["body"]), extended, declaration)
+            for parameter in reversed(parameters):
+                body = parameter.abstract("Lambda", body)
+            return body
+        if kind == "tuple" and len(values := cast("list[Node]", node["values"])) == 2:
+            return f"(Pair {self._term(values[0], scope, declaration)} {self._term(values[1], scope, declaration)})"
+        if kind == "match_expression":
+            return self._match(node, scope, declaration)
+        if kind == "call":
+            return f"(BoxValue {self._boxed(node, scope)})"
+        return f"(NaturalValue {self._index(node, scope)})"
+
+    @override
+    def definition(self, name: str) -> _Definition:
+        node = self._definition_node(name)
+        record = self.declarations.get("Box")
+        if record is None or not _valid_box_record(record) or _span(record)[0] >= _span(node)[0]:
+            raise self.protocol.error("unsupported", "modal replay requires an earlier record Box<T, grade q : NatExact>(T Value @ q)", record or node)
+        scope: dict[str, _Parameter] = {}
+        parameters = self._telescope(node, scope)
+        expected = self._type(cast("Node", node["result"]), scope)
+        term = self._term(cast("Node", node["value"]), scope, node)
+        context = "; ".join(f"{{| name := {parameter.index}; domain := {parameter.domain}; allowance := {parameter.allowance} |}}"
+                            for parameter in reversed(parameters))
+        result = _Definition(0, name, node, term, expected, f"[{context}]")
+        self.completed[name] = result
+        return result
+
+
 def _certificate(definitions: list[_Definition], source_hash: str) -> str:
+    modal = definitions[-1].context is not None
+    files = _MODAL_FILES if modal else _ROCQ_FILES
+    modules = "GradedPure GradedModal GradedModalSource" if modal else "GradedPure GradedSource"
     lines = [
         f"(* Source SHA-256 {source_hash} *)",
         "From Stdlib Require Import Lists.List.",
-        "Require Import graded_pure graded_source.",
-        "Import ListNotations GradedPure GradedSource.",
+        f"Require Import {' '.join(Path(name).stem for name in files)}.",
+        f"Import ListNotations {modules}.",
     ]
     reports = []
     for definition in definitions:
         number = definition.index
-        lines.append(f"Definition source_term_{number} : term := {definition.term}.")
-        lines.append(f"Definition source_type_{number} : ty := {definition.expected}.")
-        reports.append(f"source_check source_term_{number} source_type_{number}")
+        if definition.context is not None:
+            lines.append(f"Definition source_context_{number} : list parameter := {definition.context}.")
+            lines.append(f"Definition source_term_{number} : value := {definition.term}.")
+            lines.append(f"Definition source_type_{number} : kind := {definition.expected}.")
+            reports.append(f"source_check source_context_{number} source_term_{number} source_type_{number}")
+        else:
+            lines.append(f"Definition source_term_{number} : term := {definition.term}.")
+            lines.append(f"Definition source_type_{number} : ty := {definition.expected}.")
+            reports.append(f"source_check source_term_{number} source_type_{number}")
     lines.extend([
         f"Definition source_reports := [{'; '.join(reports)}].",
         "Set Printing Width 100000.",
@@ -236,7 +406,9 @@ def _verdict(projection: _Projection, replay: subprocess.CompletedProcess[str]) 
     rows = cast("list[list[list[int]]]", json.loads(match[1].replace(";", ",")))
     for definition, row in zip(projection.completed.values(), rows, strict=True):
         if row == [[0]]:
-            raise projection.protocol.error("grade", "term fails exact computation demand or natural-index checking", definition.source)
+            problem = ("term fails exact computation demand, modal motive specialization or natural-index checking"
+                       if definition.context is not None else "term fails exact computation demand or natural-index checking")
+            raise projection.protocol.error("grade", problem, definition.source)
         if row == [[1]]:
             raise projection.protocol.error("grade", "inferred graded type differs from the declared dependent type", definition.source)
         if len(row) < 2 or row[0] != [2]:
@@ -246,11 +418,11 @@ def _verdict(projection: _Projection, replay: subprocess.CompletedProcess[str]) 
     return rows
 
 
-def _replay(root: Path, projection: _Projection, certificate: str) -> tuple[dict[str, str], list[list[int]], str]:
+def _replay(root: Path, projection: _Projection, certificate: str, *, modal: bool) -> tuple[dict[str, str], list[list[int]], str]:
     with tempfile.TemporaryDirectory(prefix="holdfast-graded-source-") as temporary:
         directory = Path(temporary)
         hashes = {}
-        for name in _ROCQ_FILES:
+        for name in _MODAL_FILES if modal else _ROCQ_FILES:
             source = (root / "tools" / "rocq" / name).read_bytes()
             hashes[name] = hashlib.sha256(source).hexdigest()
             (directory / name).write_bytes(source)
@@ -276,24 +448,24 @@ def _dependency_row(parameters: list[_Parameter], counts: list[int]) -> list[dic
             for index, uses in batched(counts, 2, strict=True)]
 
 
-def check(root: Path, path: Path, declaration: str) -> dict[str, object]:
+def check(root: Path, path: Path, declaration: str, *, modal: bool = False) -> dict[str, object]:
     snapshot = read_source(path)
     with parser.cached_build(root) as compiled:
         parsed = parser.parse_source(compiled, snapshot.data, surface=True)
-    projection = _Projection(snapshot.data, parsed)
+    projection = (_ModalProjection if modal else _Projection)(snapshot.data, parsed)
     selected = projection.definition(declaration)
     definitions = list(projection.completed.values())
     source_hash = hashlib.sha256(snapshot.data).hexdigest()
     certificate = _certificate(definitions, source_hash)
-    kernel_hashes, demand, certificate = _replay(root, projection, certificate)
+    kernel_hashes, demand, certificate = _replay(root, projection, certificate, modal=modal)
     ensure_unchanged(snapshot)
     return {
         "status": "checked",
-        "scope": "pure-natural-graded-source-trial",
+        "scope": "pure-natural-modal-source-trial" if modal else "pure-natural-graded-source-trial",
         "source_sha256": source_hash,
         "declaration": declaration,
         "span": _span(selected.source),
-        "dependencies": [definition.name for definition in definitions[:-1]],
+        "dependencies": ["Box"] if modal else [definition.name for definition in definitions[:-1]],
         "kernel_sha256": kernel_hashes,
         "gallina": certificate,
         "binders": [
