@@ -1,0 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
+module GradedBounded;
+
+public definition Fn(Nat length @ NatBound(0), Vec<Nat, length> values @ NatBound(2)) -> Vec<Nat, length> PreserveLength() =>
+    (Nat size @ NatBound(0), Vec<Nat, size> items @ NatBound(2)) => items;
+
+public definition Fn(Vec<Nat, (n + n)> values @ NatBound(2)) -> Vec<Nat, (n + n)> Specialize(Nat n @ NatBound(0)) =>
+    PreserveLength()(n + n);
+
+public definition Nat ScalePublishedBound(Nat n @ NatBound(4)) =>
+    ((Nat x @ NatBound(2)) => x)(n + n);

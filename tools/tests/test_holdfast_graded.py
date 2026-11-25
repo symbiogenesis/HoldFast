@@ -66,15 +66,43 @@ def _replay(unit: str, module: str, proofs: tuple[str, ...], dependencies: tuple
                        check=True, timeout=180)
 
 
-def _source_command(path: Path, declaration: str) -> tuple[int, str, str]:
+def _source_command(path: Path, declaration: str, *options: str) -> tuple[int, str, str]:
     output, error = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
-        status = parser_main(["check-grades", str(path), declaration])
+        status = parser_main(["check-grades", str(path), declaration, *options])
     return status, output.getvalue(), error.getvalue()
 
 
 def _demand(bindings: list[dict[str, object]]) -> list[tuple[object, object, object]]:
     return [(binding["name"], binding["computation"], binding["type"]) for binding in bindings]
+
+
+def _verify_source_certificate(directory: Path, kernel_hashes: dict[str, str], certificate: str,
+                               soundness_theorem: str, stale_row: tuple[str, str]) -> None:
+    compiler = [*proofenv.rocq_command(), "-q"]
+    support = ("graded_pure.v", "graded_domains.v", "graded_source.v")
+    ensure(set(kernel_hashes) == set(support), "wrong Rocq support closure")
+    for name in support:
+        unit = TOOLS / "rocq" / name
+        ensure(hashlib.sha256(unit.read_bytes()).hexdigest() == kernel_hashes[name], f"unbound Rocq support {name}")
+        shutil.copyfile(unit, directory / name)
+        subprocess.run([*compiler, name], cwd=directory, check=True, timeout=30)
+    unit = directory / "SourceProof.v"
+    unit.write_text(certificate, encoding="utf-8")
+    subprocess.run([*compiler, unit.name], cwd=directory, capture_output=True, check=True, timeout=30)
+    audit = directory / "SourceAudit.v"
+    audit.write_text("Require Import SourceProof graded_source.\n"
+                     f"Print Assumptions GradedSource.{soundness_theorem}.\n"
+                     "Print Assumptions source_rows_match.\n", encoding="utf-8")
+    replay = subprocess.run([*compiler, audit.name], cwd=directory, capture_output=True,
+                            text=True, encoding="utf-8", check=True, timeout=30)
+    solver_ledger.audit(replay.stdout, 2, "GradedSource", ())
+    stale = certificate.replace(*stale_row)
+    ensure(stale != certificate, "certificate control left the alleged demand unchanged")
+    unit.write_text(stale, encoding="utf-8")
+    refused = subprocess.run([*compiler, unit.name], cwd=directory, capture_output=True,
+                             text=True, encoding="utf-8", check=False, timeout=30)
+    ensure(refused.returncode != 0 and "Unable to unify" in refused.stderr, refused.stderr)
 
 
 def _source_replay() -> None:
@@ -90,6 +118,7 @@ def _source_replay() -> None:
     status, output, error = _source_command(source, "Specialize")
     ensure(status == 0, error)
     result = json.loads(output)
+    ensure(result["domain"] == "NatExact", "default source grade domain changed")
     ensure(result["source_sha256"] == hashlib.sha256(raw).hexdigest(), "source bytes were lost")
     n, values = result["binders"]
     ensure(_demand([n, values]) == [("n", 0, 4), ("values", 1, 0)], "wrong specialized grades")
@@ -126,29 +155,51 @@ def _source_replay() -> None:
             status, output, error = _source_command(changed, "Invalid")
             ensure(status == 1 and not output and "duplicate or invalid graded binder" in error, error)
 
-        compiler = [*proofenv.rocq_command(), "-q"]
-        for name, digest in result["kernel_sha256"].items():
-            unit = TOOLS / "rocq" / name
-            ensure(hashlib.sha256(unit.read_bytes()).hexdigest() == digest, f"unbound Rocq support {name}")
-            shutil.copyfile(unit, directory / name)
-            subprocess.run([*compiler, name], cwd=directory, check=True, timeout=30)
-        certificate = result["gallina"]
-        unit = directory / "SourceProof.v"
-        unit.write_text(certificate, encoding="utf-8")
-        subprocess.run([*compiler, unit.name], cwd=directory, capture_output=True, check=True, timeout=30)
-        audit = directory / "SourceAudit.v"
-        audit.write_text("Require Import SourceProof graded_source.\n"
-                         "Print Assumptions GradedSource.source_check_sound.\n"
-                         "Print Assumptions source_rows_match.\n", encoding="utf-8")
-        replay = subprocess.run([*compiler, audit.name], cwd=directory, capture_output=True,
-                                text=True, encoding="utf-8", check=True, timeout=30)
-        solver_ledger.audit(replay.stdout, 2, "GradedSource", ())
-        stale = certificate.replace("[0; 0; 4]", "[0; 0; 3]")
-        ensure(stale != certificate, "certificate control left the alleged type demand unchanged")
-        unit.write_text(stale, encoding="utf-8")
-        refused = subprocess.run([*compiler, unit.name], cwd=directory, capture_output=True,
-                                 text=True, encoding="utf-8", check=False, timeout=30)
-        ensure(refused.returncode != 0 and "Unable to unify" in refused.stderr, refused.stderr)
+        _verify_source_certificate(directory, result["kernel_sha256"], result["gallina"],
+                                   "source_check_sound", ("[0; 0; 4]", "[0; 0; 3]"))
+
+
+def _bounded_source_replay() -> None:
+    source = TOOLS / "tests" / "fixtures" / "graded-bounded.hf"
+    raw = source.read_bytes()
+    domain = ("--domain", "NatBound")
+    status, output, error = _source_command(source, "Specialize", *domain)
+    ensure(status == 0, error)
+    result = json.loads(output)
+    ensure(result["domain"] == "NatBound" and result["source_sha256"] == hashlib.sha256(raw).hexdigest(),
+           "bounded certificate lost its grade domain or source bytes")
+    n, values = result["binders"]
+    ensure(_demand([n, values]) == [("n", 0, 4), ("values", 2, 0)], "wrong bounded signature")
+    row = [{"name": "n", "uses": 2, "span": n["span"]}]
+    ensure(values["annotation_type_uses"] == row and result["result_type_uses"] == row,
+           "bounded checking changed exact type dependencies")
+    ensure(result["dependencies"] == ["PreserveLength"], "bounded source dependency was lost")
+
+    status, output, error = _source_command(source, "ScalePublishedBound", *domain)
+    ensure(status == 0, error)
+    ensure(_demand(json.loads(output)["binders"]) == [("n", 4, 0)], "wrong published application bound")
+    status, output, error = _source_command(source, "Specialize")
+    ensure(status == 1 and not output and "explicit @ NatExact(n) allowance" in error, error)
+
+    with tempfile.TemporaryDirectory(prefix="holdfast-bounded-source-controls-") as temporary:
+        directory = Path(temporary)
+        changed = directory / source.name
+        for declaration, original, replacement, failure in (
+            ("Specialize", b"Nat size @ NatBound(0)", b"Nat size @ NatExact(0)", "explicit @ NatBound(n) allowance"),
+            ("Specialize", b"items @ NatBound(2)", b"items @ NatBound(0)", "bounded computation demand"),
+            ("ScalePublishedBound", b"=> x)(n + n)", b"=> x + x + x)(n + n)", "bounded computation demand"),
+            ("ScalePublishedBound", b"Nat n @ NatBound(4)", b"Nat n @ NatBound(3)", "bounded computation demand"),
+        ):
+            ensure(raw.count(original) == 1, f"source control does not identify one occurrence: {original!r}")
+            changed.write_bytes(raw.replace(original, replacement))
+            status, output, error = _source_command(changed, declaration, *domain)
+            ensure(status == 1 and not output and failure in error, error)
+
+        changed.write_bytes(raw.replace(b"NatBound", b"NatExact"))
+        status, output, error = _source_command(changed, "Specialize")
+        ensure(status == 1 and not output and "exact computation demand" in error, error)
+        _verify_source_certificate(directory, result["kernel_sha256"], result["gallina"],
+                                   "bounded_source_check_sound", ("[0; 0; 4]", "[0; 0; 3]"))
 
 
 def cases() -> list[Case]:
@@ -157,4 +208,5 @@ def cases() -> list[Case]:
             Case("ordered grade domains and dependent row certificates",
                  partial(_replay, "graded_domains", "GradedDomains", _DOMAIN_PROOFS, ("graded_pure",)),
                  lane="toolchain"),
-            Case("source-bound exact grades and dependent partial application replay", _source_replay, lane="toolchain")]
+            Case("source-bound exact grades and dependent partial application replay", _source_replay, lane="toolchain"),
+            Case("source-bound natural bounds and exact type dependencies", _bounded_source_replay, lane="toolchain")]
