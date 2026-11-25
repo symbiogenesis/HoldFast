@@ -236,33 +236,33 @@ Record judgment := {
   type_demand_row : demand;
 }.
 
-Inductive Derives (env : context) : term -> judgment -> Prop :=
+Inductive DerivesWith (allows : nat -> nat -> Prop) (env : context) : term -> judgment -> Prop :=
 | GradeVar : forall x entry row,
     lookup env x = Some entry -> TypeDemand env (annotation entry) row ->
     same_demand (type_uses entry) row ->
-    Derives env (Var x) {| result_type := annotation entry;
+    DerivesWith allows env (Var x) {| result_type := annotation entry;
       computation_demand := [(x, 1)]; type_demand_row := type_uses entry |}
 | GradeNat : forall i d, IndexDemand env i d ->
-    Derives env (NatValue i) {| result_type := Natural;
+    DerivesWith allows env (NatValue i) {| result_type := Natural;
       computation_demand := d; type_demand_row := [] |}
 | GradeLambda : forall x allowance domain body codomain a u v,
     fresh env x = true -> TypeDemand env domain a ->
-    Derives ({| binder := x; annotation := domain; type_uses := a |} :: env) body
+    DerivesWith allows ({| binder := x; annotation := domain; type_uses := a |} :: env) body
       {| result_type := codomain; computation_demand := u; type_demand_row := v |} ->
-    uses u x = allowance ->
-    Derives env (Lambda x allowance domain body) {| result_type := Pi x allowance domain codomain;
+    allows (uses u x) allowance ->
+    DerivesWith allows env (Lambda x allowance domain body) {| result_type := Pi x allowance domain codomain;
       computation_demand := without x u; type_demand_row := a ++ without x v |}
 | GradeApplyNat : forall callee argument x allowance codomain w v z b output,
-    Derives env callee {| result_type := Pi x allowance Natural codomain;
+    DerivesWith allows env callee {| result_type := Pi x allowance Natural codomain;
       computation_demand := w; type_demand_row := v |} ->
     fresh env x = true -> IndexDemand env argument z ->
     TypeDemand ({| binder := x; annotation := Natural; type_uses := [] |} :: env) codomain b ->
     TypeDemand env (substitute_type x argument codomain) output ->
     same_demand (substitute_demand x z b) output ->
-    Derives env (ApplyNat callee argument) {| result_type := substitute_type x argument codomain;
+    DerivesWith allows env (ApplyNat callee argument) {| result_type := substitute_type x argument codomain;
       computation_demand := w ++ scale allowance z; type_demand_row := substitute_demand x z b |}.
 
-Fixpoint infer (env : context) (subject : term) : option judgment :=
+Fixpoint infer_with (allowsb : nat -> nat -> bool) (env : context) (subject : term) : option judgment :=
   match subject with
   | Var x =>
       match lookup env x with
@@ -284,9 +284,9 @@ Fixpoint infer (env : context) (subject : term) : option judgment :=
         match type_demand env domain with
         | None => None
         | Some a =>
-            match infer ({| binder := x; annotation := domain; type_uses := a |} :: env) body with
+            match infer_with allowsb ({| binder := x; annotation := domain; type_uses := a |} :: env) body with
             | Some result =>
-                if Nat.eqb (uses (computation_demand result) x) allowance then
+                if allowsb (uses (computation_demand result) x) allowance then
                   Some {| result_type := Pi x allowance domain (result_type result);
                     computation_demand := without x (computation_demand result);
                     type_demand_row := a ++ without x (type_demand_row result) |}
@@ -296,7 +296,7 @@ Fixpoint infer (env : context) (subject : term) : option judgment :=
         end
       else None
   | ApplyNat callee argument =>
-      match infer env callee with
+      match infer_with allowsb env callee with
       | Some {| result_type := Pi x allowance Natural codomain; computation_demand := w |} =>
           if fresh env x then
             let specialized := substitute_type x argument codomain in
@@ -315,9 +315,12 @@ Fixpoint infer (env : context) (subject : term) : option judgment :=
       end
   end.
 
-Lemma infer_sound : forall subject env result,
-  infer env subject = Some result -> Derives env subject result.
+Lemma infer_with_sound : forall (allows : nat -> nat -> Prop) allowsb,
+  (forall demand allowance, allowsb demand allowance = true -> allows demand allowance) ->
+  forall subject env result,
+    infer_with allowsb env subject = Some result -> DerivesWith allows env subject result.
 Proof.
+  intros allows allowsb admission_sound.
   induction subject as [x | i | x allowance domain body IH | callee IH argument];
     intros env result checked; cbn in checked.
   - destruct (lookup env x) as [entry |] eqn:found; try discriminate.
@@ -328,12 +331,12 @@ Proof.
     constructor. now apply index_demand_sound.
   - destruct (fresh env x) eqn:new; try discriminate.
     destruct (type_demand env domain) as [a |] eqn:typed; try discriminate.
-    destruct (infer ({| binder := x; annotation := domain; type_uses := a |} :: env)
+    destruct (infer_with allowsb ({| binder := x; annotation := domain; type_uses := a |} :: env)
       body) as [[codomain u v] |] eqn:body_checked; try discriminate.
-    cbn in checked. destruct (Nat.eqb (uses u x) allowance) eqn:exact_use;
-      inversion checked; subst. apply Nat.eqb_eq in exact_use.
+    cbn in checked. destruct (allowsb (uses u x) allowance) eqn:admitted;
+      inversion checked; subst.
     constructor; eauto using type_demand_sound.
-  - destruct (infer env callee) as [[kind w v] |] eqn:callee_checked; try discriminate.
+  - destruct (infer_with allowsb env callee) as [[kind w v] |] eqn:callee_checked; try discriminate.
     destruct kind as [| | x allowance domain codomain]; try discriminate.
     destruct domain; try discriminate.
     destruct (fresh env x) eqn:new; try discriminate.
@@ -347,11 +350,11 @@ Proof.
     eapply GradeApplyNat; eauto using index_demand_sound, type_demand_sound, demand_eqb_sound.
 Qed.
 
-Lemma derives_type_demand : forall env subject result,
-  Derives env subject result ->
+Lemma derives_type_demand : forall allows env subject result,
+  DerivesWith allows env subject result ->
   exists row, TypeDemand env (result_type result) row /\ same_demand (type_demand_row result) row.
 Proof.
-  intros env subject result derivation. induction derivation; cbn.
+  intros allows env subject result derivation. induction derivation; cbn.
   - exists row. auto.
   - exists []. split; [apply TypeNatural | intros name; reflexivity].
   - destruct IHderivation as [codomain_row [typed agrees]].
@@ -362,21 +365,31 @@ Proof.
   - exists output. auto.
 Qed.
 
-Definition check (entries : list binding) (subject : term) : option judgment :=
+Definition check_with (allowsb : nat -> nat -> bool) (entries : list binding) (subject : term) : option judgment :=
   match check_telescope [] entries with
-  | Some env => infer env subject
+  | Some env => infer_with allowsb env subject
   | None => None
   end.
+
+Definition Derives := DerivesWith (@eq nat).
+Definition infer := infer_with Nat.eqb.
+Definition check := check_with Nat.eqb.
+
+Lemma infer_sound : forall subject env result,
+  infer env subject = Some result -> Derives env subject result.
+Proof.
+  apply infer_with_sound. intros. now apply Nat.eqb_eq.
+Qed.
 
 Theorem check_sound : forall entries subject result,
   check entries subject = Some result ->
   exists env row, Extends [] entries env /\ Derives env subject result /\
     TypeDemand env (result_type result) row /\ same_demand (type_demand_row result) row.
 Proof.
-  intros entries subject result checked. unfold check in checked.
+  intros entries subject result checked. unfold check, check_with in checked.
   destruct (check_telescope [] entries) as [env |] eqn:telescope; try discriminate.
   apply infer_sound in checked.
-  destruct (derives_type_demand env subject result checked) as [row [typed agrees]].
+  destruct (derives_type_demand _ env subject result checked) as [row [typed agrees]].
   exists env, row. auto using check_telescope_sound.
 Qed.
 

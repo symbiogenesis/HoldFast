@@ -34,6 +34,24 @@ type and two in the returned result type.
 [Source fixture](../../tools/tests/fixtures/graded-dependent.hf) ·
 [Source replay predicate](../../tools/rocq/graded_source.v)
 
+### Bounded natural grades
+
+Run `python tools/run.py holdfast-parser check-grades tools/tests/fixtures/graded-bounded.hf Specialize --domain NatBound`
+to replay the same fragment with the checked [`NatBound` admission order](../extensions/graded-foundation.md#dimensions-and-lawful-domains).
+Each binder in the selected definition and its dependencies carries an explicit
+`@ NatBound(n)` allowance. Rocq checks that the reconstructed computation demand
+is at most that allowance. The report's `domain` identifies the order and each
+binder's `computation` entry gives its advertised allowance. Application scales
+computation demand by the callee's advertised bound. Type-use counts and
+telescope dependency rows remain exact under either natural domain.
+
+In `Specialize`, `n` has a zero computation bound and four type uses. The
+returned function advertises two uses of `values` and its implementation uses
+the argument once. The replay rejects a third use against that bound and catches
+changed type-demand rows through its row equality certificate.
+[Bounded source fixture](../../tools/tests/fixtures/graded-bounded.hf) ·
+[Source replay predicate](../../tools/rocq/graded_source.v)
+
 ### Graded box source replay
 
 Run `python tools/run.py holdfast-parser check-grades tools/tests/fixtures/graded-modal.hf PromoteAndOpen --modal`

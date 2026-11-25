@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Project bounded NatExact source into the dependent and modal Rocq checkers."""
+"""Project natural-graded source into the dependent and modal Rocq checkers."""
 
 import hashlib
 import json
@@ -7,6 +7,7 @@ import re
 import subprocess
 import tempfile
 from dataclasses import dataclass
+from enum import StrEnum
 from itertools import batched
 from pathlib import Path
 from typing import cast, override
@@ -16,8 +17,14 @@ from toolchain.elaborate_protocol import _Protocol
 from toolchain.elaborate_types import Node
 from toolchain.source_file import ensure_unchanged, read_source
 
-_PRIMITIVES = frozenset({"Nat", "Vec", "NatExact"})
-_ROCQ_FILES = ("graded_pure.v", "graded_source.v")
+
+class GradeDomain(StrEnum):
+    EXACT = "NatExact"
+    BOUND = "NatBound"
+
+
+_PRIMITIVES = frozenset({"Nat", "Vec", *GradeDomain})
+_ROCQ_FILES = ("graded_pure.v", "graded_domains.v", "graded_source.v")
 _MODAL_FILES = ("graded_pure.v", "graded_modal.v", "graded_modal_source.v")
 _REPORT = re.compile(r"=\s*(\[[0-9\s;\[\]]*\])\s*:\s*list\s+\(list\s+\(list\s+nat\)\)")
 
@@ -55,8 +62,9 @@ class _Definition:
 class _Projection:
     reserved = _PRIMITIVES
 
-    def __init__(self, source: bytes, parsed: object) -> None:
+    def __init__(self, source: bytes, parsed: object, domain: GradeDomain) -> None:
         self.protocol = _Protocol(source)
+        self.domain = domain
         syntax = self.protocol.decode(parsed)
         self.declarations: dict[str, Node] = {}
         self.parameters: list[_Parameter] = []
@@ -87,11 +95,11 @@ class _Projection:
         if grade is not None and grade["kind"] == "call":
             callee = cast("Node", grade["callee"])
             arguments = cast("list[Node]", grade["arguments"])
-            if callee["kind"] == "name" and _name(callee["name"]) == "NatExact" and len(arguments) == 1:
+            if callee["kind"] == "name" and _name(callee["name"]) == self.domain and len(arguments) == 1:
                 [argument] = arguments
                 if argument["label"] is None:
                     return self._literal(cast("Node", argument["value"]))
-        raise self.protocol.error("unsupported", "graded binders require an explicit @ NatExact(n) allowance", node)
+        raise self.protocol.error("unsupported", f"graded binders require an explicit @ {self.domain}(n) allowance", node)
 
     def _parameter(self, node: Node, scope: dict[str, _Parameter]) -> _Parameter:
         if node["name"] is None or node["type"] is None or node.get("const") or node.get("label"):
@@ -361,10 +369,11 @@ class _ModalProjection(_Projection):
         return result
 
 
-def _certificate(definitions: list[_Definition], source_hash: str) -> str:
+def _certificate(definitions: list[_Definition], source_hash: str, domain: GradeDomain) -> str:
     modal = definitions[-1].context is not None
     files = _MODAL_FILES if modal else _ROCQ_FILES
     modules = "GradedPure GradedModal GradedModalSource" if modal else "GradedPure GradedSource"
+    check_name = "bounded_source_check" if domain == GradeDomain.BOUND else "source_check"
     lines = [
         f"(* Source SHA-256 {source_hash} *)",
         "From Stdlib Require Import Lists.List.",
@@ -382,7 +391,7 @@ def _certificate(definitions: list[_Definition], source_hash: str) -> str:
         else:
             lines.append(f"Definition source_term_{number} : term := {definition.term}.")
             lines.append(f"Definition source_type_{number} : ty := {definition.expected}.")
-            reports.append(f"source_check source_term_{number} source_type_{number}")
+            reports.append(f"{check_name} source_term_{number} source_type_{number}")
     lines.extend([
         f"Definition source_reports := [{'; '.join(reports)}].",
         "Set Printing Width 100000.",
@@ -406,8 +415,9 @@ def _verdict(projection: _Projection, replay: subprocess.CompletedProcess[str]) 
     rows = cast("list[list[list[int]]]", json.loads(match[1].replace(";", ",")))
     for definition, row in zip(projection.completed.values(), rows, strict=True):
         if row == [[0]]:
-            problem = ("term fails exact computation demand, modal motive specialization or natural-index checking"
-                       if definition.context is not None else "term fails exact computation demand or natural-index checking")
+            order = "bounded" if projection.domain == GradeDomain.BOUND else "exact"
+            motive = ", modal motive specialization" if definition.context is not None else ""
+            problem = f"term fails {order} computation demand{motive} or natural-index checking"
             raise projection.protocol.error("grade", problem, definition.source)
         if row == [[1]]:
             raise projection.protocol.error("grade", "inferred graded type differs from the declared dependent type", definition.source)
@@ -448,20 +458,24 @@ def _dependency_row(parameters: list[_Parameter], counts: list[int]) -> list[dic
             for index, uses in batched(counts, 2, strict=True)]
 
 
-def check(root: Path, path: Path, declaration: str, *, modal: bool = False) -> dict[str, object]:
+def check(root: Path, path: Path, declaration: str, *, modal: bool = False,
+          domain: GradeDomain = GradeDomain.EXACT) -> dict[str, object]:
+    if modal and domain != GradeDomain.EXACT:
+        raise ValueError("modal source replay uses NatExact")
     snapshot = read_source(path)
     with parser.cached_build(root) as compiled:
         parsed = parser.parse_source(compiled, snapshot.data, surface=True)
-    projection = (_ModalProjection if modal else _Projection)(snapshot.data, parsed)
+    projection = (_ModalProjection if modal else _Projection)(snapshot.data, parsed, domain)
     selected = projection.definition(declaration)
     definitions = list(projection.completed.values())
     source_hash = hashlib.sha256(snapshot.data).hexdigest()
-    certificate = _certificate(definitions, source_hash)
+    certificate = _certificate(definitions, source_hash, domain)
     kernel_hashes, demand, certificate = _replay(root, projection, certificate, modal=modal)
     ensure_unchanged(snapshot)
     return {
         "status": "checked",
         "scope": "pure-natural-modal-source-trial" if modal else "pure-natural-graded-source-trial",
+        "domain": domain.value,
         "source_sha256": source_hash,
         "declaration": declaration,
         "span": _span(selected.source),
