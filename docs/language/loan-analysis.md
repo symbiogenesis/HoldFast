@@ -175,6 +175,14 @@ Rocq replay checks the returned byte, owner writeback, framed elements and
 untouched failure state for single and nested slices.
 [Owner-coordinate replay](../../tools/tests/test_holdfast_loans.py#_owner_coordinate_indexed_loans)
 
+In the conditional-return trial, the mathematical frontend checks a returned
+slice against the current `ref Span<byte>` on its return path. For a slice
+derived from an earlier state of that owner, an intervening element write needs
+scoped evidence that its index lies outside the slice. A sibling branch can
+update the owner and return an error. The Rocq replay checks the returned byte,
+the owner post-state on each exit, and the untouched elements.
+[Source and replay](../../tools/tests/test_holdfast_loan_returns.py#_conditional_view_return)
+
 If a client must restructure a loop whose last use of a view precedes a write
 to its owner, keep the original loop. Move one use past that write to produce
 the conflicting case. Freeze the accessed place, last use and expected

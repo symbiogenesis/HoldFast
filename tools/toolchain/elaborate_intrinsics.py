@@ -1681,6 +1681,70 @@ class _IntrinsicsMixin:
             displacement = self._add_usize_offset(displacement, offset)
         return self._add_usize_offset(displacement, index)
 
+    def _check_returned_span_views(
+        self: _Elaborator, result: _Term, environment: dict[str, _Binding], site: Node,
+    ) -> None:
+        span_u8 = _app(_constant("Span"), _U8)
+        changed_owners = {
+            entry.term: (name, self.whnf(environment[name].term))
+            for name, entry in self.entry_env.items()
+            if (name in environment and entry.term.kind == "var" and entry.term.value in self.ref_parameters
+                and environment[name].term != entry.term and self.whnf(entry.type) == span_u8)
+        }
+        if not changed_owners:
+            return
+        # Follow returned payloads. A scalar computed from an earlier read is a value snapshot.
+        pending = [result]
+        while pending:
+            returned = self.whnf(pending.pop())
+            head, args = self.spine(returned)
+            if head == _constant("Span_ReadOnly") and len(args) == 2:
+                pending.append(args[1])
+            elif head == _constant("Span_Slice") and len(args) == 4:
+                self._check_returned_slice(args[1], args[2], args[3], changed_owners, environment, site)
+            elif returned.kind in {"pair", "existT", "inl", "inr", "if"}:
+                pending.extend(returned.args[2:])
+            elif record := self.records_by_ctor.get(str(head.value)):
+                pending.extend(args[len(record.generic_vars):])
+            elif union_ctor := self.unions_by_ctor.get(str(head.value)):
+                union, _ = union_ctor
+                pending.extend(args[len(union.generic_vars):])
+
+    def _check_returned_slice(
+        self: _Elaborator, base: _Term, start: _Term, length: _Term, changed_owners: dict[_Term, tuple[str, _Term]],
+        environment: dict[str, _Binding], site: Node,
+    ) -> None:
+        base = self.whnf(base)
+        owner = changed_owners.get(self._root_span(base))
+        if owner is None:
+            return
+        name, current = owner
+        while base != current:
+            parent, operands = self.spine(base)
+            if parent == _constant("Span_ReadOnly") and len(operands) == 2:
+                base = self.whnf(operands[1])
+                continue
+            if parent != _constant("Span_Slice") or len(operands) != 4:
+                break
+            start = self._add_usize_offset(operands[2], start)
+            base = self.whnf(operands[1])
+        one = _int_term(_INT_SPECS["usize"], 1)
+        while current != base:
+            update, operands = self.spine(current)
+            if update == _constant("Span_Write") and len(operands) == 4:
+                index = operands[2]
+                if self.whnf(length) == one:
+                    separate = _apps(_constant("int_ne_usize"), index, start)
+                else:
+                    end = self._add_usize_offset(start, length)
+                    before = _apps(_constant("int_lt_usize"), index, start)
+                    after = _apps(_constant("int_le_usize"), end, index)
+                    separate = _apps(_constant("||"), before, after)
+                if self._prove_bool_precondition(separate, environment):
+                    current = self.whnf(operands[1])
+                    continue
+            raise self.fail("type", f"cannot prove returned slice is disjoint from an update to '{name}'", site)
+
     def _check_indexed_argument_overlap(
         self: _Elaborator, args: list[Node], positions: dict[int, _Term], shared_positions: dict[int, _Term],
         environment: dict[str, _Binding],

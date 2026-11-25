@@ -2746,6 +2746,8 @@ class _StatementsMixin:
                             "cannot return a view borrowed from a span that was already restored",
                             cur_stmt,
                         )
+                    if self.in_executable_function and not self.in_inline_proof:
+                        self._check_returned_span_views(result.term, extended, cur_stmt)
                     if self.uninitialized_out_params:
                         uninit_list = ", ".join(sorted(self.uninitialized_out_params))
                         raise self.fail(
