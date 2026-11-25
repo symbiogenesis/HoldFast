@@ -7158,8 +7158,8 @@ function initPlaygroundUi() {
     if (!current(captured)) return;
     const error = result.error;
     const position = error ? compilerPosition(error.line, error.column) : null;
-    if (error && result.goals) {
-      const diagnostics = result.goals.map((goal) => ({
+    if (error && (result.goals || result.assertionGoal)) {
+      const diagnostics = (result.goals || []).map((goal) => ({
         range: {
           start: compilerPosition(goal.line, goal.column),
           end: compilerPosition(goal.line, goal.column + goal.name.length),
@@ -7168,7 +7168,15 @@ function initPlaygroundUi() {
         message: `${goal.name} (${goal.status}): ${goal.expected || "expected type unavailable"}. ${goal.context}`,
         source: "HoldFast elaborator",
       }));
-      if (error.kind !== "open-goals") {
+      if (result.assertionGoal) {
+        const goal = result.assertionGoal;
+        diagnostics.unshift({
+          range: { start: position, end: compilerPosition(error.line, error.column + "assert".length) },
+          severity: 1,
+          message: `Assertion (${goal.status}): ${goal.expected}. ${goal.context}\n${error.message}`,
+          source: "HoldFast elaborator",
+        });
+      } else if (error.kind !== "open-goals") {
         diagnostics.unshift({ range: { start: position, end: position }, severity: 1,
           message: errorText(error), source: "HoldFast compiler" });
       }

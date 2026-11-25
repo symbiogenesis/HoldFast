@@ -45,7 +45,11 @@ old diagnostics and inspection. Asynchronous replies bind the source and
 connection, and console replies also bind the expression and result type.
 
 The local Problems panel highlights each [named goal](elaboration-prototype.md#named-goals)
-and shows its status, expected type and available context. The native service
+and shows its status, expected type and available context. An inline assertion
+that remains unproved has an unresolved marker at `assert`. The marker shows
+the proposition and available local facts, and gives the search limit when it
+was reached. An edit to a premise withdraws the previous result even when the
+assertion text is identical. The native service
 checks its prepared parser, bytecode interpreter, Python executable and
 mathematical frontend inputs around each compile or evaluation. The connected
 page checks that generation every three seconds. A dependency change clears
@@ -85,6 +89,10 @@ with `kind`, `message`, `line` and `column`. Compile refusals also return
 `editorServices`. Position fields use one-based compiler coordinates.
 Named-goal refusals carry an ordered `goals` array. Its entries have
 `name`, `line`, `column`, `status`, nullable `expected` and `context`.
+An unresolved inline assertion can carry `assertionGoal` with `status`,
+`expected` and `context`. Its location comes from the `error` object and
+identifies the `assert` keyword. The goal stays `unresolved` when the error
+kind is `limit`.
 Compile and evaluation replies carry the prepared input digest in the
 `X-HoldFast-Compiler-Generation` header.
 Expression diagnostics identify expression context. Transport refusals use
@@ -133,7 +141,10 @@ authentication, session isolation, real editor requests, bounded failures
 and stale-result handling. The
 [mathematical controls](../../tools/tests/test_holdfast_playground_math.py)
 exercise compile/evaluate, injection refusal, response validation and the
-browser assets. They require every built-in example to pass the browser and
+browser assets. They check a proof through the native HTTP worker with
+sufficient and exhausted search budgets, a changed premise, and an explicit
+repair under the same limit. Rocq independently replays the emitted assertions.
+The controls require every built-in example to pass the browser and
 native mathematical lints, as well as the pure authoring lints where the pure
 compiler supports the example. Browser interaction and independent editor
 interoperability use their own checks. [Local validation](../../AGENTS.md#tool-execution-and-validation) · [Editor qualification](lsp-prototype.md#acceptance-and-remaining-qualification)

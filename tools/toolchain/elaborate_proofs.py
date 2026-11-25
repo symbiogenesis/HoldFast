@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, cast
 
 from toolchain.ast import HoldFastError
 from toolchain.elaborate_flow_lints import observe
+from toolchain.elaborate_holes import HoleInspection
 from toolchain.elaborate_types import (
     _BOOL,
     _CHAR,
@@ -1916,7 +1917,7 @@ class _ProofsMixin:
         return None
 
     def _inline_nat_bound(
-        self: _Elaborator, goal: _Term, facts: tuple[_Binding, ...], node: Node,
+        self: _Elaborator, goal: _Term, environment: dict[str, _Binding], facts: tuple[_Binding, ...], node: Node,
     ) -> _Term | None:
         def comparison(prop: _Term) -> tuple[_Term, _Term, bool, bool] | None:
             equality = self._extract_equality(prop)
@@ -1942,7 +1943,7 @@ class _ProofsMixin:
             return None
         lower, upper, strict, _ = target
         trans = _constant("holdfast_nat_leb_trans")
-        scoped_facts = self._expand_fact_bindings(facts)
+        scoped_facts = self._expand_fact_bindings((*facts, *environment.values()))
 
         def comparisons() -> Iterator[tuple[_Term, _Term, _Term]]:
             for fact in scoped_facts:
@@ -2000,10 +2001,11 @@ class _ProofsMixin:
                     if joins > _MAX_NAT_BOUND_JOINS:
                         offset, stop = cast("list[int]", self.node(node["value"])["span"])
                         proposition = self.protocol.source[offset:stop].decode("utf-8")
-                        raise self.fail(
+                        failure = self.fail(
                             "limit", f"assertion proof search exhausted {_MAX_NAT_BOUND_JOINS} Nat bound joins: "
                             f"{proposition}; supply an explicit proof with 'by'", node,
                         )
+                        raise HoleInspection(self).assertion_error(failure, goal, environment, facts)
                     if right in reachable:
                         continue
                     if self.convertible(middle, left):
@@ -2084,13 +2086,14 @@ class _ProofsMixin:
             except HoldFastError as failure:
                 self.restore_metas(saved_prove_m)
                 if self.in_inline_proof and failure.kind == "type":
-                    if witness := self._inline_nat_bound(goal, (*facts, *environment.values()), node):
+                    if witness := self._inline_nat_bound(goal, environment, facts, node):
                         return _Binding(witness, goal)
                     start, end = cast("list[int]", self.node(node["value"])["span"])
                     proposition = self.protocol.source[start:end].decode("utf-8")
-                    raise self.fail(
+                    pending = self.fail(
                         "type", f"assertion could not be established: {proposition}; supply an explicit proof with 'by'", node,
-                    ) from failure
+                    )
+                    raise HoleInspection(self).assertion_error(pending, goal, environment, facts) from failure
                 if self.in_inline_proof:
                     raise
                 has_span_env = self.in_post_env_theorem or any(
