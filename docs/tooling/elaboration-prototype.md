@@ -34,6 +34,28 @@ type and two in the returned result type.
 [Source fixture](../../tools/tests/fixtures/graded-dependent.hf) ·
 [Source replay predicate](../../tools/rocq/graded_source.v)
 
+### Graded box source replay
+
+Run `python tools/run.py holdfast-parser check-grades tools/tests/fixtures/graded-modal.hf PromoteAndOpen --modal`
+to replay promotion and an explicitly motivated match over a natural-valued
+box. The input declares the ordinary `Box<T, grade q : NatExact>` record with
+one `T Value @ q` field. The replay checks that declaration shape. Construction
+uses `Box<Nat, q>(value)` with a literal grade and a pure natural index.
+Elimination uses `match (box) as whole : TYPE { Box(value) => BODY, }`.
+Type indices can observe `whole.Value` or the value of a promoted index.
+Pair results let an example expose both a computation and a dependent type.
+[Dependent elimination](../extensions/graded-foundation.md#dependent-data-and-elimination)
+
+The checker specializes the motive for both the branch and the actual
+scrutinee. It checks the grade of the branch binder and both resulting type
+demand rows. The report records the exact source bytes by digest, the box record
+dependency, the declaration and binder spans, and the telescope demand rows.
+`PromoteAndOpen` uses its input `n` four times in computation and eight times in
+the result type. `KeepShape` uses its box only in the next parameter's type and
+the result type, with one use in each row.
+[Modal source fixture](../../tools/tests/fixtures/graded-modal.hf) ·
+[Modal source replay predicate](../../tools/rocq/graded_modal_source.v)
+
 The evidence covers the projected pure term under exact natural demand. The
 [extension qualification](../extensions/graded-foundation.md#extension-selection-and-qualification)
 owns source correspondence, evaluation, erasure and domain generalization.

@@ -1,0 +1,28 @@
+// SPDX-License-Identifier: Apache-2.0
+module GradedModalTrial;
+
+record Box<T, grade q : NatExact>(T Value @ q);
+
+definition (Nat, Fn(Vec<Nat, (packed.Value)> values @ NatExact(1)) -> Vec<Nat, (packed.Value)>)
+OpenTwo(Box<Nat, 2> packed @ NatExact(1)) =>
+    match (packed) as whole :
+        (Nat, Fn(Vec<Nat, (whole.Value)> values @ NatExact(1)) -> Vec<Nat, (whole.Value)>) {
+        Box(n) => (n + n, (Vec<Nat, (Box<Nat, 2>(n).Value)> values @ NatExact(1)) => values),
+    };
+
+definition (Nat, Fn(Vec<Nat, (Box<Nat, 2>(n + n).Value)> values @ NatExact(1)) -> Vec<Nat, (Box<Nat, 2>(n + n).Value)>)
+PromoteAndOpen(Nat n @ NatExact(4)) =>
+    match (Box<Nat, 2>(n + n)) as whole :
+        (Nat, Fn(Vec<Nat, (whole.Value)> values @ NatExact(1)) -> Vec<Nat, (whole.Value)>) {
+        Box(x) => (x + x, (Vec<Nat, (Box<Nat, 2>(x).Value)> values @ NatExact(1)) => values),
+    };
+
+definition Fn(Vec<Nat, (packed.Value)> values @ NatExact(1)) -> Vec<Nat, (packed.Value)>
+OpenZero(Box<Nat, 0> packed @ NatExact(1)) =>
+    match (packed) as whole : Fn(Vec<Nat, (whole.Value)> values @ NatExact(1)) -> Vec<Nat, (whole.Value)> {
+        Box(n) => (Vec<Nat, (Box<Nat, 0>(n).Value)> values @ NatExact(1)) => values,
+    };
+
+definition Vec<Nat, (packed.Value)> KeepShape(
+    Box<Nat, 2> packed @ NatExact(0), Vec<Nat, (packed.Value)> values @ NatExact(1)
+) => values;
