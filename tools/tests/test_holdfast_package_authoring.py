@@ -62,7 +62,7 @@ def _editor(source: bytes) -> tuple[int, bytes, str]:
 
 def _authoring_defaults() -> None:
     with TemporaryDirectory(prefix="holdfast trail '") as temporary:
-        workspace = Path(temporary)
+        workspace = Path(temporary).resolve()
         guest_workspace = _guest_workspace(workspace)
         base = workspace / "trail" / "v1"
         base.mkdir(parents=True)

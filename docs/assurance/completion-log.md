@@ -2559,8 +2559,14 @@ refusal. The minimized propagation-token failure replays through the locked
 build and explicit format commands. Both preserve the separation in `? ?`
 and `? .`, and the parser refuses their contiguous spellings. The trial uses
 the marked `TrailUnits` documentation module as the imported sibling.
-The Windows runner dispatches the same package and editor commands to WSL.
-Fresh Windows and Linux installation runs remain open.
+The same trial passes from fresh HoldFast checkouts with new locked Python
+environments and parser builds. On Windows ARM64, the bootstrapped host
+Python runs the fixture and dispatches its commands to WSL. On the Linux ARM64
+filesystem, `python3 tools/run.py test --only holdfast_package_authoring` runs
+the fixture through the native launcher. Both used installed platform
+prerequisites and uv 0.13.9. The Windows run explicitly invokes
+`_authoring_defaults()` from the bootstrapped host environment with `tools`
+on its Python import path.
 
 <a id="q25em-qualify-closed-effect-inference-within-release-packages"></a>
 

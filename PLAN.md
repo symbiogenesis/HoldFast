@@ -320,11 +320,11 @@ applicable and refuse stale edits. [Diagnostics](#q25au) · [Inspection](#q25ch)
 
 <a id="q25el"></a>
 
-- [ ] **Q25el · Publish canonical authoring defaults for new packages**
+- [x] **Q25el · Publish canonical authoring defaults for new packages**
   - **Owner** `package-authoring`
   - **Start** Qualify canonical layout and relevant lints on an independent multi-module package in the selected edition.
   - **Check** Use one canonical formatter in the package's default release checks and explicit editor formatting path. Report layout differences with a single repair command and keep build checks source-preserving. Exercise marked docs, the minimized fixture from a generated failure, and an upgrade that changes a public declaration. Apply the same checks on fresh Windows and Linux installations. [Authoring contract](docs/tooling/authoring-tools.md#qualification)
-  - `math-2` root package builds use the canonical formatter and package-context advisory lints. The locked trial covers explicit buffer formatting, the minimized postfix-token failure, a marked documentation module, stale locks and a public declaration upgrade. Fresh Windows and Linux installation trials remain open. [Partial evidence](docs/assurance/completion-log.md#q25el-publish-canonical-authoring-defaults-for-new-packages).
+  - `math-2` root package builds use the canonical formatter and package-context advisory lints. The locked trial passes from fresh Windows and Linux tool environments. [Landing evidence](docs/assurance/completion-log.md#q25el-publish-canonical-authoring-defaults-for-new-packages).
 
 ### Language extensions
 
@@ -847,14 +847,14 @@ the [release milestones](#current-execution) to judge readiness.
 | Measure | Value |
 | --- | --- |
 | Total estimate midpoint h | 23,801.9 |
-| Total estimate range h | 12,873.9–34,729.9 |
-| Completed scope h | 1,501.9 |
-| Complete by estimate % | 6.3 |
-| Remaining h | 22,300 |
-| Open class I h | 2,120 |
+| Total estimate range h | 12,889.9–34,713.9 |
+| Completed scope h | 1,541.9 |
+| Complete by estimate % | 6.5 |
+| Remaining h | 22,260 |
+| Open class I h | 2,080 |
 | Open class X h | 20,180 |
-| Retained completion estimate h | 1,498.5 |
-| Unmeasured completed items | 53 |
+| Retained completion estimate h | 1,538.5 |
+| Unmeasured completed items | 54 |
 <!-- estimate-summary:end -->
 
 The table counts each checklist leaf once. Completed work contributes actual
