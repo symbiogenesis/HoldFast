@@ -114,7 +114,7 @@ Branches join through checked entailments to one common resource predicate or th
 
 A loan records parent, footprint, mode, captures and restoration predicate. Exclusive loans suspend overlapping parent access; reborrows suspend overlapping ancestors until descendants end, while proved-disjoint fields stay accessible. All shared descendants end before exclusive access resumes. Ending a loan consumes its restoration duty once and restores the parent's final-content predicate.
 
-Analysis infers last use within finite control-flow regions and explicit call contracts. Unknown overlap yields a disjointness goal or unsupported pattern. Each iteration closes its local descendants before back edges; borrowed parameters and stable enclosing permissions may persist. General loop-carried borrow inference is excluded.
+Analysis infers last use within finite control-flow regions and explicit call contracts. Unknown overlap yields a disjointness goal or unsupported pattern. Each iteration closes loans created within it before the back edge. Borrowed parameters and stable enclosing permissions may persist under the loop invariant. Inference of loans created in one iteration and carried into the next belongs to the [loop-borrowing trial](../../PLAN.md#q25cf).
 
 | Exit | Required result |
 | --- | --- |
@@ -143,6 +143,31 @@ bounded iteration, `out` initialization, selective invariant lifting, bulk
 relocation and fallible builders. Lifting an invariant introduces a linear
 `CloseDebt` in `Delta` for the lifted clauses.
 
+### Two-phase receiver borrows
+
+An implicit initialized `ref` method receiver uses two phases. Evaluate its
+place once and reserve the resolved owner, parent grant and whole-object or
+named-view footprint. The reservation grants no exclusive access. It requires
+an eligible exclusive parent and excludes competing overlapping writes, moves
+and exclusive grants or reservations. Shared reads and shared loans may use the
+footprint during argument evaluation. Unknown containment or overlap must be
+resolved at the relevant permission check.
+
+Evaluate the explicit arguments once in source order. Immediately before
+entering the method, activate the exclusive loan on the reserved footprint.
+Activation checks that no competing overlapping loan remains live, including
+loans retained in argument values or captures. It suspends the parent and
+introduces the ordinary restoration duty. Proved-disjoint permissions remain
+available in both phases. The entry precondition and invariants apply at the
+call, after the arguments' effects. A pre-activation exit discards the
+reservation without a receiver restoration duty and checks cleanup of the
+resources already evaluated or transferred on that exit. A shared or `out`
+receiver, an explicit `ref` argument and a qualified call with an explicit
+receiver argument follow their ordinary grant rules.
+
+The [receiver qualification cases](loan-analysis.md#two-phase-receiver-trial)
+check the phases and their source locations under [checked promotion](#borrow-analysis-promotion).
+
 ### Borrow-analysis promotion
 
 The [loan diagnostic](loan-analysis.md) proposes ends over finite control-flow
@@ -153,6 +178,7 @@ requires the following correspondence and resource derivations.
 | --- | --- |
 | Source facts | Checked correspondence relates resolved places, field partitions, control edges, call effects and transitive captures to the exact elaborated computation. Unknown overlap remains a proof goal; names, pointer inequality and library spelling create no separation fact. |
 | Loan ends and exits | Checked derivations discharge split, parent suspension and restoration at every reachable exit. Independent source cases cover returned-view success versus restored-owner error, nested reborrows, moved captures, disjoint fields and premature parent reuse. Each invalid neighbor reaches its resource rule after parsing and with an inhabited entry state. |
+| Receiver calls | Interpret and lower [reservation, activation and cancellation](#two-phase-receiver-borrows) against one resolved receiver footprint. Preserve source evaluation order and the argument, method-entry and exit resource predicates. |
 | Mutation and dependent facts | Writes and transitive call effects transform the current resource predicate. Reusing a current-content fact requires a checked preservation or re-establishment step; immutable historical snapshots stay stable without granting current access. Fresh authorized reads after a value-changing overwrite succeed, a stale equality fails, and a proved-disjoint field fact survives. For a selected library operation that changes represented length at fixed capacity, an old length-three bound used at index two after shortening to one fails; an unsupported operation supplies no semantic negative. This row states the release rule; the extension's [snapshot and invalidation design](../extensions/interior-mutability.md#snapshots-and-dependent-indices) develops it for cells, and selecting Ante-style local aliases still requires that separately gated extension. |
 | Control and demand | Bounded loops establish their invariant at entry and every back edge, closing local descendants as specified above; acyclic unrolling supplies no loop evidence. Transitive capture checking respects the selected fixed usage modes. General grade checking, suspension, cyclic captures and broader loan escape retain their extension boundaries and require their own checked rules before support is claimed. |
 

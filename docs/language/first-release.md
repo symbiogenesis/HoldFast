@@ -21,15 +21,16 @@ no authority by itself. Public interfaces fix representations, required-static
 inputs, effects and resource contracts; ordinary local inference hides routine
 derivations without weakening them.
 
-The release accepts three authoring costs for these guarantees. Ordinary `+`,
-`-` and `*` carry the representability obligations of
+Ordinary `+`, `-` and `*` carry the representability obligations of
 [primitive semantics](#primitive-semantics): linear facts discharge
 automatically, while nonlinear facts need explicit proof or a checked, wrapping
-or saturating operation. Public `effects` lists are closed and propagate through
-every caller, with no effect polymorphism. Direct file-private helpers can use
-the [inferred closed footprint](reference.md#contracts). Receiver loans start before argument
-evaluation, with no two-phase receiver borrows, and no loan is carried across
-loop iterations. [Qualification](#qualification) measures each cost.
+or saturating operation. Runtime calls use closed effect footprints, with
+[inference for eligible package-internal helpers](#package-effect-contracts)
+and explicit public bounds. Implicit `ref` receivers use
+[two-phase borrowing](core-design.md#two-phase-receiver-borrows) so argument
+evaluation can read the receiver before the method acquires exclusive access.
+Iteration-local loans end at each iteration boundary under the
+[loop resource rules](core-design.md#loans-and-control-flow).
 
 Specifications and proofs may use the admitted mathematical definitions and
 libraries in the existing kernel. A mathematical definition's expressiveness
@@ -263,6 +264,25 @@ interface fingerprint alone cannot reuse stale compilation or proof evidence.
 Until finer dependency tracking is qualified, a semantic dependency change
 invalidates the reachable component closure conservatively.
 
+### Package effect contracts
+
+The release lets a nonrecursive top-level runtime function omit its `effects`
+clause when the function is file-private or `internal` and each call has a
+direct, statically resolved target with a checked closed footprint. A sibling
+module can import an `internal` function within the same locked package
+instance. File-private functions are visible within their defining file.
+Callers can use either an authored bound or a checked inferred footprint for
+these helpers. Recursion and calls through a callable value require explicit
+checked bounds.
+
+Each exported runtime callable declares its closed bound, including
+`effects none` for an empty bound. Within the package, the checker composes
+inferred and explicit footprints and verifies each export against its published
+bound. Importing clients check calls against that published bound with the
+implementation opaque. Calls use the resolved declaration and parameter
+identities under qualification and import aliases. The
+[footprint rules](reference.md#contracts) define propagation to caller places.
+
 ### Public API evolution
 
 Adding a case to a public closed union can break downstream exhaustive matches;
@@ -271,10 +291,14 @@ required interface method or law changes the obligations of existing instances.
 Parameter labels, required-static status, grades, capture and effect bounds, and
 public representation participate in compatibility alongside parameter/result
 types. An upgrade that strengthens a precondition or weakens a postcondition can
-invalidate callers and their proofs. A release must identify these changes,
-version breaking changes accordingly, and supply a migration or retain an
-adapter where the prior interface can still be implemented. An API intended
-to admit new internal cases can expose an abstract type with stable eliminators.
+invalidate callers and their proofs. An upgrade that widens a published effect
+bound can invalidate callers whose own bounds no longer cover it. A helper
+refactor whose effects fit the existing published bound preserves that part of
+the interface and still requires fresh evidence for the changed locked inputs.
+A release must identify interface changes, version breaking changes accordingly,
+and supply a migration or retain an adapter where the prior interface can still
+be implemented. An API intended to admit new internal cases can expose an
+abstract type with stable eliminators.
 
 Run `holdfast-parser diff-contract BASELINE CANDIDATE` to review the authored
 changes to one module. The JSON report binds both source digests and lists
@@ -406,32 +430,22 @@ scratch keeps its backing live. These cases apply to the
 [bounded-pool milestone](../../PLAN.md#q25bx) and are drawn from
 [Zero C#'s arena rollback example](https://onurgumus.github.io/zero-csharp/concepts/memory.html#the-restore-hazard).
 
-The receiver loan starts before explicit argument evaluation, using its declared
-whole-object or named-view footprint. Preserve this simple first-release rule.
-For a whole-buffer receiver, `buffer.Append(buffer.Length)` conflicts when the
-argument reads the borrowed footprint. A diagnostic names both accesses and
-offers a preceding immutable snapshot only when its evaluation and lifetime
-preserve the program's meaning. For example, `let length = buffer.Length;`
-can precede `buffer.Append(length)` when reading the length there observes the
-same revision. An API whose operation touches one component may instead expose
-a named disjoint view under an abstract footprint contract, so clients can keep
-using it after a private field is renamed. If evaluating a preceding argument
-can change the observed value, the diagnostic identifies the conflict and leaves
-the evaluation order to the author.
-An exported disjointness law names public views such as `Data` and `Count`.
-The provider establishes their separation for each representation and allowed
-entry state. A client can use `buf.WriteData(buf.ReadCount())` when the
-outer exclusive receiver covers `Data` and the nested shared receiver covers
-`Count`. The [view diagnostic fixture](../../tools/tests/test_holdfast_loans.py#_receiver_view_representation_change)
-keeps the client text identical across a private field rename, then maps
-both views to the same field and checks the location of the conflicting loan.
-Release qualification repeats the client across a package boundary after a
-private layout change, rechecks the provider's footprint law, verifies that
-overlapping backing fails the law, and records which client proofs or
-annotations changed.
-Two-phase receiver borrowing remains a separately priced option, triggered by
-measured client friction under the [receiver trial](loan-analysis.md#two-phase-receiver-trial).
-No diagnostic may silently reorder effectful arguments or insert hidden loans.
+An initialized buffer can use `buf.Update(buf.ReadCount())` with an implicit
+whole-object `ref` receiver and a count that carries no loan into the call.
+The [receiver rule](core-design.md#two-phase-receiver-borrows) reserves the
+buffer before evaluating the count and acquires exclusivity at method entry.
+A diagnostic identifies the competing access if an argument mutates the buffer
+or retains an overlapping view. It may suggest an explicit snapshot only when
+the snapshot preserves the observed revision, evaluation order and lifetimes.
+
+Public named views still let a caller keep a shared loan of `Count` while a
+method takes exclusive access to `Data`. The provider's disjointness law
+establishes separation for each representation and permitted entry state.
+Qualification repeats this client across a package boundary after a private
+layout change, verifies that overlapping backing fails the law, and records
+which client proofs or annotations changed. The
+[receiver qualification cases](loan-analysis.md#two-phase-receiver-trial)
+check both the argument read and the retained-view conflict.
 
 <a id="csharp-transition-guide"></a>
 
@@ -455,9 +469,9 @@ emits a term or returns an unconstrained theorem has not met this predicate.
 | Interpretation and concrete resources | Checked elaboration-image laws, an inhabited carrier state, read/write/initialization/frame and loan restoration, with wrong-offset, alias, premature-restoration and partial-initialization neighbors rejected at the intended obligations. Missing laws remain missing; no axiom or source judgment substitutes for them. |
 | Scalar and text behavior | Independent boundary fixtures for every supported type and operation, signed division/remainder signs, zero and minimum/-1, shift zero/width-1/width, exact/wrapping/saturating arithmetic, target versus host width, invalid conversions, embedded NUL, malformed UTF-8/escapes, raw-string delimiter/indentation and LF-normalization rules, static `Format<T>` checked formatting (`Result<usize, CapacityError>` on exact fit and `CapacityError` exhaustion without heap allocation or ambient locale), scalar boundaries and byte slicing. Static and runtime meanings agree under the same target. Generate finite boundary classes from an independently reviewed oracle; a shared implementation is not an independent expectation. |
 | Package composition | Two independently authored packages compose with fixed instances; reordered imports preserve meaning; overlap, cycles and conflicting nominal identities are diagnosed. Locked builds reproduce their source/input closure. Contract, representation, proof assumption and tool changes invalidate affected evidence before reuse. |
-| Everyday ownership | Bounded collection/iterator, `.Model` sequence-predicate/slice, `TextBuilder<capacity>` / `Format<T>` checked formatting, receiver-snapshot, selective invariant lifting (`invariant Clause: ...` / `open (...) lifts ...`), two-step bulk relocation (`CopyRepresentation` + `TransferType<T>`), fallible-builder and error-propagation clients compile under their actual representations and the [borrow-analysis promotion contract](core-design.md#borrow-analysis-promotion); escaped views, duplicated tokens, reads of unwritten or moved-out vacant slots, early exits or whole-receiver calls while an invariant clause is lifted, stale current-content facts and lost mandatory outcomes fail at the responsible resource rule. Bounded buffer, builder and bulk-relocation proofs/certificates pass a **capacity-invariance gate**: checking at tiny static capacity ($N = 4$) and large static capacity ($N = 10^9$) produces equal obligation counts and the same proof and certificate structure after changing only the encoded capacity literal. Count and compare emitted range obligations and prohibit per-element unfolding, enumeration or evidence. The current first-slice pilot compares 8 and 10⁹ because its packet requires eight bytes. Each capacity must fit the 4 MiB generated Gallina limit, each Rocq compile and the combined kernel replay must finish within 120 seconds, and the pilot also compares symbolic reduction and work counters. Record actual replay measurements separately from this pass condition. |
+| Everyday ownership | Bounded collection/iterator, `.Model` sequence-predicate/slice, `TextBuilder<capacity>` / `Format<T>` checked formatting, [two-phase receiver calls](loan-analysis.md#two-phase-receiver-trial), selective invariant lifting (`invariant Clause: ...` / `open (...) lifts ...`), two-step bulk relocation (`CopyRepresentation` + `TransferType<T>`), fallible-builder and error-propagation clients compile under their actual representations and the [borrow-analysis promotion contract](core-design.md#borrow-analysis-promotion). Escaped views, duplicated tokens, reads of unwritten or moved-out vacant slots, early exits or whole-receiver calls while an invariant clause is lifted, stale current-content facts and lost mandatory outcomes fail at the responsible resource rule. Bounded buffer, builder and bulk-relocation proofs/certificates pass a **capacity-invariance gate**: checking at tiny static capacity ($N = 4$) and large static capacity ($N = 10^9$) produces equal obligation counts and the same proof and certificate structure after changing only the encoded capacity literal. Count and compare emitted range obligations and prohibit per-element unfolding, enumeration or evidence. The current first-slice pilot compares 8 and 10⁹ because its packet requires eight bytes. Each capacity must fit the 4 MiB generated Gallina limit, each Rocq compile and the combined kernel replay must finish within 120 seconds, and the pilot also compares symbolic reduction and work counters. Record actual replay measurements separately from this pass condition. |
 | Complete software path | Authored source and independent contract reach one retained backend with checked correspondence, representation and lowering; applicable final-byte, resource, observation and admission duties meet their existing owners. Report source, artifact and production evidence separately. |
-| Developer usefulness | Record annotation burden, first useful diagnostic, checking latency, code/stack/storage consequences and repair after a semantic-preserving refactor, a representation change and a real contract change on both clients. Attribute annotation burden and repair effort separately to arithmetic representability obligations, closed `effects` lists propagated through callers, and the absence of two-phase receiver and loop-carried borrows, counting each explicit lemma, checked operation, widened effect list, snapshot, named view or restructured loop they force; these records decide whether a separately priced relaxation is warranted. A held-out client cannot be redesigned to fit the candidate unnoticed. |
+| Developer usefulness | Record annotation burden, first useful diagnostic, checking latency, code/stack/storage consequences and repair after a semantic-preserving refactor, a representation change and a real contract change on both clients. Count arithmetic lemmas and checked operations, the effect clauses edited for a package-internal refactor or a public widening, and snapshots, named views or loop rewrites required by borrowing. Compare the receiver call with a legal snapshot spelling under equivalent evaluation order. Preserve the held-out client and record the adaptations it needs. |
 
 Hard safety, resource and admission limits are mandatory. Technical feasibility,
 recurring authoring/maintenance benefit and eventual economic adoption are

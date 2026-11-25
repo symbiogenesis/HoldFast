@@ -29,6 +29,7 @@ the owner and the evidence needed to resume, then take another row whose inputs 
 | A producer publishes a checked result | Bind it to the exact inputs as it arrives ([Q25ar](#q25ar)). Join the first-client receipts to the existing narrow lowering to accept the validator ([Q25ba](#q25ba)). Wider frontend, admission and receipt coverage can stay open. |
 | Checked frontend results | Diagnostics can consume checked derivations ([Q25au](#q25au)). The repair trial constructs its fixture from the core laws, checked frontend and concrete resources ([Q25av](#q25av)). The mathematical frontend builds locked packages against the frozen module and instance rules ([Q25ax](#q25ax)). |
 | Accepted validator | Publish the scalar and text representations ([Q25aw](#q25aw)). Use the required primitive laws to build the ownership libraries ([Q25ay](#q25ay)). General lowering consumes published representation laws and returns a checked receipt for each operation, so each library can finish qualification ([Q25az](#q25az)). |
+| Core loan and effect derivations, locked package graph | Qualify implicit `ref` receiver reservations ([Q25cd](#q25cd)) and inference for package-internal effects ([Q25em](#q25em)) before the supported release. |
 | Independent second client and baseline | Freeze the public observations, resource envelope and benefit thresholds before adapting the client. When its packages, libraries and lowering qualify, run the trial and obtain its own admission receipt ([Q25bb](#q25bb)). Close shared coverage across both clients, publish the reproducible release, then rehearse one upgrade ([Q25bc](#q25bc), [Q25bd](#q25bd)). |
 | Independent hosted application and pinned host | Freeze the application, ABI and baseline ([Q25eh](#q25eh)). Use the common language rules and qualify the hosted runtime and bindings through their own evidence endpoint. Exercise the actual application workflow and recovery once those interfaces qualify ([Q25ei](#q25ei)). |
 
@@ -156,6 +157,13 @@ open until the parent's acceptance conditions are met.
   - Extend inline proof reconstruction over the release arithmetic fragment. Replay a bound that follows from a branch guard and its negated neighbor against that exact path, including strict comparisons. When reconstruction runs out of evidence, report the outstanding proposition at the assertion and allow an explicit lemma to supply it. [Kernel boundary](docs/tooling/elaboration-prototype.md#commands-and-acceptance)
   - Inline assertions replay ordinary `Nat` comparison guards on the corresponding branches. The controls refuse a wrong path and a fact reused past a join. A named lemma supplies an unsupported bound. Wider arithmetic reconstruction and proof-search exhaustion remain open. [Arithmetic evidence](docs/assurance/completion-log.md#q25at-qualify-checked-synchronous-frontend-correspondence).
 
+<a id="q25cd"></a>
+
+- [ ] **Q25cd · Qualify two-phase receiver borrowing for the first release**
+  - **Owner** `two-phase-borrow`
+  - **Start** Use the [core loan laws](#q25as), [checked frontend](#q25at) and [retained lowering interfaces](#q25az) as their relevant results become available.
+  - **Check** Interpret and lower the [receiver phases](docs/language/core-design.md#two-phase-receiver-borrows). Run the [receiver qualification cases](docs/language/loan-analysis.md#two-phase-receiver-trial) through checked source correspondence and lowering. Replay argument order, activation, cancellation and restoration, including the first conflicting access in nearby invalid cases.
+
 <a id="q25au"></a>
 
 - [ ] **Q25au · Qualify contextual diagnostics and invalidation**
@@ -187,6 +195,14 @@ open until the parent's acceptance conditions are met.
   - **Start** Use the [checked frontend](#q25at) once the first-release module and instance semantics are frozen.
   - **Check** Build two independently authored packages with manifests, lockfiles and a reproducible batch graph of dependencies and target inputs. Check nominal identity, instance coherence and import-order independence. Exercise cycles, missing dependencies and stale configurations. A diamond requiring incompatible revisions of one canonical package must fail with both requirements. Replay an importing client across a local parameter rename with a stable external label and across an external-label change. [Module and package contract](docs/language/first-release.md#modules-and-packages).
   - The [locked mathematical build](docs/tooling/elaboration-prototype.md#locked-mathematical-packages) reproduces the provider and importing client from declared inputs. [Landing evidence](docs/assurance/completion-log.md#q25ax-implement-locked-package-and-build-closure).
+
+<a id="q25em"></a>
+
+- [ ] **Q25em · Qualify closed effect inference within release packages**
+  - **Owner** `package-effects`
+  - **Start** Reuse the existing [closed footprint elaboration](docs/assurance/completion-log.md#q25al-elaborate-consuming-ownership-owned-parameters-and-move-transfers-general-in-ref-runtime-value-loans-and-closed-effects-footprints-reads-writes-calls) and [locked package closure](#q25ax). Bind the inferred summaries through [checked frontend correspondence](#q25at).
+  - **Check** Exercise [package effect contracts](docs/language/first-release.md#package-effect-contracts) through a locked package and an independent importing client. Infer read, write and named call bounds for eligible direct helpers across sibling modules. Verify effect identity under import aliases and distinguish same-spelled callables from different modules. Reject omitted export bounds, out-of-package access to an `internal` helper, and recursive and indirect calls without explicit bounds.
+  - Replay a provider that reads one `ref` input and writes another. Move the work into unannotated sibling helpers, keep the exported bound fixed and replay the unchanged client with the provider implementation opaque. Require the old lock and receipts to fail freshness against the revised closure. In the neighboring revision, write and restore the input covered only by `reads`. Reject that body under the old bound. Widen the provider's bound and refuse the unchanged client's call at its effect check. Replay a client whose bound covers the new write.
 
 <a id="q25ay"></a>
 
@@ -230,7 +246,7 @@ open until the parent's acceptance conditions are met.
 
 - [ ] **Q25bc · Publish a supported and reproducible release closure**
   - **Owner** `holdfast-release`
-  - **Start** Use the [accepted validator](#q25ba), [independent package trial](#q25bb) and all required [producer receipts](#q25ar).
+  - **Start** Use the [accepted validator](#q25ba), [independent package trial](#q25bb), qualified [receiver borrowing](#q25cd) and [package effect inference](#q25em), and all required [producer receipts](#q25ar).
   - **Check** Publish the versioned language and libraries, conformance and refusal corpus, compatibility policy, installation guide, tutorial, reference, dependency notices and reproducible Windows and Linux artifacts. Verify cold installation, build and proof replay, and obtain independent release review. Name each published guarantee's endpoint. Assess feasibility, recurring developer value and adoption separately, including setup, maintenance and per-case target tradeoffs within hard limits. [Adoption protocol](docs/assurance/workflow-contract.md#first-release-qualification-and-adoption).
   - Run the [packet walkthrough](docs/tooling/packet-walkthrough.md) from the release installation. Check the three published byte traces and the diagnostic for each edited program.
 
@@ -463,11 +479,6 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
 
 - [ ] **Q25cc · Compare borrow-checking alternatives on held-out clients**
   - **Owner:** `borrow-comparison`. **Start:** Package-trial friction measurements and pinned equivalent comparison modes. **Check:** Run the [borrow comparison boundary](docs/language/loan-analysis.md#conditional-borrowing-comparison) with fixed behavior and evidence endpoints. Include conditional returned borrows, lending iteration and higher-ranked or associated-item composition, comparing pinned default and experimental Rust modes on identical positives and invalid neighbors. Report unsupported cases and budget exhaustion.
-
-<a id="q25cd"></a>
-
-- [ ] **Q25cd · Trial a selected two-phase receiver-borrow extension**
-  - **Owner:** `two-phase-borrow`. **Start:** Measured receiver friction and borrow-comparison selection. **Check:** Run the [two-phase receiver trial](docs/language/loan-analysis.md#two-phase-receiver-trial). Establish interpretation and checked lowering, preserve argument evaluation order and resource exits, and reject a live conflicting view or early mutation at the responsible rule.
 
 <a id="q25ce"></a>
 
@@ -819,12 +830,12 @@ the [release milestones](#current-execution) to judge readiness.
 <!-- estimate-summary:start -->
 | Measure | Value |
 | --- | --- |
-| Total estimate midpoint h | 23,745.9 |
-| Total estimate range h | 12,841.9–34,649.9 |
+| Total estimate midpoint h | 23,801.9 |
+| Total estimate range h | 12,873.9–34,729.9 |
 | Completed scope h | 1,501.9 |
 | Complete by estimate % | 6.3 |
-| Remaining h | 22,244 |
-| Open class I h | 2,064 |
+| Remaining h | 22,300 |
+| Open class I h | 2,120 |
 | Open class X h | 20,180 |
 | Retained completion estimate h | 1,498.5 |
 | Unmeasured completed items | 53 |
@@ -975,3 +986,4 @@ changes, refresh the table with `python tools/run.py check --fix`.
 | Q25ej | X | 480 | 240–720 | n/a | n/a |
 | Q25ek | X | 320 | 160–480 | n/a | n/a |
 | Q25el | I | 40 | 24–56 | n/a | n/a |
+| Q25em | I | 56 | 32–80 | n/a | n/a |

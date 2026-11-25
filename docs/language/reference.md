@@ -54,7 +54,7 @@ distinct binding name to retain the whole value. Parentheses preserve this rule.
 | --- | --- | --- |
 | Module | `module Name.Path;` opens every file | P |
 | Import | `import Module.Path;` binds namespace `Path` in a locked `math-2` package and opens exports in `math-1` or stand-alone source. `import Module.Path as M;` binds a namespace and `import Module.Path { T, F as G };` selects names. [Package editions](first-release.md#modules-and-packages) | M |
-| Visibility | `public` or `private` on each declaration | M |
+| Visibility | `public` or `private` on declarations. `internal` grants package visibility to eligible [runtime helpers](first-release.md#package-effect-contracts). | M (`public`, `private`), S (located `internal`), D (package visibility) |
 | Constant | `const T Name = expression;` at module or local scope, evaluated during compilation ([required-static constants](surface-grammar.md#required-static-constants)) | P |
 | Function | Type-first `T Name(T1 a, T2 b) { ... }` or `=> expression;` | P |
 | Constant-compatible function and static parameter | `const T Name(...)`; `T Name(const U config, V value)` | P |
@@ -327,12 +327,11 @@ Executable calls that take or return potentially affine values require a
 constructor or a function body checked for executable ownership. A mathematical
 definition that manipulates such values remains available to specifications.
 
-Each ordinary loan argument repeats its mode at the call site; inference never
-inserts `in`, `ref`, `out` or `move`. A loan ends at its last use, branch by
-branch, and restoration is inferred rather than written. A receiver loan starts
-before the explicit arguments are evaluated, and the first release has no
-two-phase receiver borrows and no loans carried across loop iterations
-([release boundary](first-release.md#release-boundary)). The
+Each ordinary loan argument repeats its mode at the call site. A loan ends at
+its last use on each branch, with restoration inferred. An implicit `ref`
+receiver is reserved before argument evaluation and becomes exclusive at the
+call. See [receiver borrows](core-design.md#two-phase-receiver-borrows) and
+[iteration boundaries](core-design.md#loans-and-control-flow). The
 [loan diagnostic](loan-analysis.md) proposes ends over explicit flow facts. The
 [core rules](core-design.md#borrow-analysis-promotion) specify checked source
 correspondence and resource derivations.
@@ -370,13 +369,14 @@ public Result<PacketView<'input>, ParseError> ParsePrefix(in Span<byte> input)
 A `ref` view parameter's descriptor metadata (base, length and permissions) is
 preserved by the call as an implied property of the mode; contracts state
 content facts only. Exported `requires` and `ensures` clauses are obligations
-under every preset; an unproved exported promise blocks acceptance. Public
-`effects` lists are closed and propagate to callers, with no effect
-polymorphism in the first release. A file-private, nonrecursive function may omit
-the list when its direct callees have closed bounds. The checker unions the reads,
-writes and named calls, maps a callee's parameter effects onto the actual places
-and charges the resulting bound at every call. A write followed by restoration is
-still a write. An unknown indirect call needs an explicit bound.
+under every preset; an unproved exported promise blocks acceptance. The checker
+unions reads, writes and named calls, maps a callee's parameter effects onto the
+actual places and charges the resulting bound at every call. A write followed
+by restoration is still a write. The first release checks explicit closed
+effect bounds at package exports and supports closed footprint inference for
+eligible file-private and package-internal functions. See
+[package effect contracts](first-release.md#package-effect-contracts) for
+visibility and inference eligibility.
 See [refinement, effects and staging](core-design.md#refinement-effects-and-staging).
 
 Each `Ok(slot)` test below introduces `slot` for its own clause's consequent.
