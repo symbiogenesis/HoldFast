@@ -38,6 +38,8 @@ COMMANDS: tuple[Command, ...] = (
             "the HoldFast toolchain's behavioral tests"),
     Command("holdfast", "toolchain.cli.holdfast",
             "check pure HoldFast prototype source and emit unqualified Gallina definitions"),
+    Command("holdfast-borrow-compare", "toolchain.cli.holdfast_borrow_compare",
+            "replay pinned Rust borrow decisions and observation tests"),
     Command("holdfast-lsp", "toolchain.cli.holdfast_lsp",
             "serve host LSP diagnostics and navigation for unqualified pure HoldFast over stdio"),
     Command("holdfast-highlight", "toolchain.cli.holdfast_highlight",

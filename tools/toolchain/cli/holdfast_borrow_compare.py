@@ -1,0 +1,135 @@
+# SPDX-License-Identifier: Apache-2.0
+"""Replay the Rust side of the source borrowing comparison."""
+
+import argparse
+import json
+import subprocess
+import sys
+import tempfile
+from dataclasses import dataclass
+from pathlib import Path
+
+from toolchain import corpus
+from toolchain.hashing import sha256_bytes
+
+NIGHTLY = "nightly-2026-11-20"
+REVISION = "6905905bb7727fd0f9223f5fdc9ad4e62236d5a2"
+EDITION = "2024"
+MODES = ("default", "off", "legacy", "next")
+TIMEOUT = 60
+
+type Diagnostic = tuple[str, str]
+
+
+@dataclass(frozen=True)
+class Trial:
+    fixture: str
+    configuration: str | None
+    expected: tuple[Diagnostic, ...] = ()
+
+
+def trials(mode: str) -> tuple[Trial, ...]:
+    sibling = (("E0506", "sibling-write"),) if mode == "off" else ()
+    loop = () if mode == "legacy" else (("E0499", "loop-reborrow"), ("E0503", "loop-reborrow"))
+    return (
+        Trial("indexed_loans.rs", "direct", (("E0499", "direct-conflict"),)),
+        Trial("indexed_loans.rs", "coincident", (("E0499", "coincident-conflict"),)),
+        Trial("indexed_loans.rs", None),
+        Trial("conditional_loans.rs", None, sibling),
+        Trial("conditional_loans.rs", "live_conflict", (("E0506", "live-conflict"), *sibling)),
+        Trial("loop_reborrowing.rs", None, loop),
+        Trial("loop_reborrowing.rs", "live_conflict", (("E0506", "live-conflict"),)),
+    )
+
+
+def _errors(output: str, fixture: str) -> list[tuple[str, int]]:
+    errors: list[tuple[str, int]] = []
+    for line in output.splitlines():
+        message = json.loads(line)
+        if message.get("level") != "error":
+            continue
+        spans = message["spans"]
+        code = message["code"]
+        if code is None and not spans and message["message"].startswith("aborting due to "):
+            continue
+        if code is None:
+            raise ValueError(message["message"])
+        primary = [span for span in spans if span["is_primary"] and span["file_name"] == fixture]
+        if len(primary) != 1:
+            raise ValueError(f"unexpected error location: {message['message']}")
+        errors.append((code["code"], primary[0]["line_start"]))
+    return sorted(errors)
+
+
+def _marker_line(source: str, marker: str) -> int:
+    matches = [line for line, text in enumerate(source.splitlines(), 1)
+               if text.endswith(f"// {marker}")]
+    if len(matches) != 1:
+        raise ValueError(f"expected a single location for {marker!r}")
+    return matches[0]
+
+
+def _run_trial(compiler: list[str], mode: str, trial: Trial, work: Path) -> dict[str, object]:
+    argv = [*compiler, "--edition", EDITION, "--test", "--error-format=json"]
+    if mode != "default":
+        argv.append(f"-Zpolonius={mode}")
+    if trial.configuration is not None:
+        argv.extend(("--cfg", trial.configuration))
+    argv.append(trial.fixture)
+    binary = work / "borrow-observations.exe"
+    argv.extend(("--emit=mir=-",) if trial.expected else ("-o", str(binary)))
+    compiled = subprocess.run(argv, cwd=work, capture_output=True, text=True,
+                              encoding="utf-8", check=False, timeout=TIMEOUT)
+    source = (work / trial.fixture).read_text(encoding="utf-8")
+    expected = sorted((code, _marker_line(source, marker)) for code, marker in trial.expected)
+    observed = _errors(compiled.stderr, trial.fixture)
+    expected_exit = 1 if expected else 0
+    if compiled.returncode != expected_exit or observed != expected:
+        raise ValueError(f"{mode} {trial.fixture} {trial.configuration}: "
+                         f"exit={compiled.returncode}, errors={observed}, expected={expected}")
+    if not expected:
+        output = subprocess.run([str(binary), "--exact", "expected_observations"], cwd=work,
+                                capture_output=True, text=True, encoding="utf-8",
+                                check=True, timeout=TIMEOUT).stdout
+        if "test expected_observations ... ok" not in output.splitlines():
+            raise ValueError(f"{trial.fixture} did not execute its expected observations")
+    return {"mode": mode, "fixture": trial.fixture, "cfg": trial.configuration,
+            "decision": "rejected" if expected else "accepted",
+            "diagnostics": [{"code": code, "line": line} for code, line in observed],
+            "observations": "n/a" if expected else "passed"}
+
+
+def compare(root: Path) -> dict[str, object]:
+    compiler = ["rustc", f"+{NIGHTLY}"]
+    version = subprocess.run([*compiler, "-vV"], cwd=root, capture_output=True, text=True,
+                             encoding="utf-8", check=True, timeout=TIMEOUT).stdout
+    if f"commit-hash: {REVISION}" not in version.splitlines():
+        raise ValueError(f"unexpected compiler revision:\n{version}")
+    host = next((line.removeprefix("host: ") for line in version.splitlines()
+                 if line.startswith("host: ")), None)
+    if host is None:
+        raise ValueError("rustc did not identify its host")
+    fixtures = root / "tools" / "tests" / "fixtures"
+    with tempfile.TemporaryDirectory(prefix="holdfast-borrow-compare-") as temporary:
+        work = Path(temporary)
+        sources = {}
+        for name in sorted({trial.fixture for mode in MODES for trial in trials(mode)}):
+            source = (fixtures / name).read_bytes()
+            (work / name).write_bytes(source)
+            sources[name] = sha256_bytes(source)
+        results = [_run_trial(compiler, mode, trial, work)
+                   for mode in MODES for trial in trials(mode)]
+    return {"rustc": {"toolchain": NIGHTLY, "revision": REVISION, "host": host},
+            "edition": EDITION, "sources_sha256": sources, "results": results}
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.parse_args(argv)
+    try:
+        report = compare(corpus.find_root())
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
+        print(f"FAIL holdfast-borrow-compare: {error}", file=sys.stderr)
+        return 1
+    print(json.dumps(report, indent=2))
+    return 0

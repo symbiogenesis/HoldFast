@@ -28,12 +28,12 @@ on the 31 floating-point axioms remains open under F-480 (R-05-164).
 The retained `holdfast-parser first-slice` result names the blocking producers in
 `inventory.blocking_dependencies`. [First-slice qualification](docs/language/first-release.md#first-slice-qualification)
 
-Two language investigations run alongside artifact qualification. Start the pure
-graded laws with exact natural usage and separate computation and type demand.
-Start the borrowing comparison with disjoint symbolic indices into one owner and
-an overlapping neighbor. The release and extension promotion gates apply when
-these results are proposed for supported source or target use.
-[Graded laws](#q25be) · [Borrow comparison](#q25cc)
+Prioritize graded dependent typing and borrowing precision alongside artifact
+qualification. Run source reconstruction and pure graded laws in parallel.
+Use the pinned borrowing comparison and path-sensitive diagnostics to drive
+source and restoration cases. The release and extension promotion gates define
+when this evidence supports broader source or target use.
+[Graded laws](#q25be) · [Graded frontend](#q25bj) · [Borrow comparison](#q25cc)
 
 ### HoldFast first-release delivery
 
@@ -510,6 +510,7 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
   - **Owner:** `borrow-comparison`. **Start:** Compare proof-backed disjoint symbolic indices against pinned Rust modes on a paired source fixture. Use package-trial friction measurements to select held-out clients for qualification. **Check:** Run the [borrow comparison boundary](docs/language/loan-analysis.md#conditional-borrowing-comparison) with fixed behavior and evidence endpoints. Include conditional returned borrows, lending iteration and higher-ranked or associated-item composition, comparing pinned default and experimental Rust modes on identical positives and invalid neighbors. Report unsupported cases and budget exhaustion.
   - Hold two exclusive element loans from one owner under scoped evidence that the indices differ. Write through both and check the restored owner contents. Force the second loan to reuse the first index and require rejection at the call. Report direct Rust acceptance and any safe rewrite separately, including its source edits and required runtime checks.
   - The symbolic-index trial replays both writes and the frame in the HoldFast mathematical model. All three pinned Rust modes reject the direct indexing form and accept the safe slice API version. [Partial evidence](docs/assurance/completion-log.md#q25cc-compare-borrow-checking-alternatives-on-held-out-clients)
+  - Replay the pinned Rust decisions for conditional shared return and loop-carried reborrowing. Use the accepted behavior and the conflicting edits for HoldFast source and restoration checks. Keep source acceptance, diagnostic flow facts and model replay distinct. [Comparison command](docs/language/loan-analysis.md#conditional-borrowing-comparison)
 
 <a id="q25ce"></a>
 

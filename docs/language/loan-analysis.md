@@ -132,6 +132,13 @@ distinguishing original Polonius from Polonius Alpha. Pin the selected
 and identify its implemented subset; a design example supplies no compiler
 verdict. Supplied graph diagnostics and source checking have different endpoints.
 
+Run `python tools/run.py holdfast-borrow-compare` with the pinned Rust nightly
+installed through rustup and its host linker available. The command checks the
+compiler revision, replays the default and the explicit NLL, legacy Polonius
+and Polonius Alpha modes, and validates diagnostic codes and source lines. It runs
+the observation tests for accepted configurations and emits the results with
+their fixture digests. [Recorded comparison](../assurance/completion-log.md#q25cc-compare-borrow-checking-alternatives-on-held-out-clients)
+
 If a client must restructure a loop whose last use of a view precedes a write
 to its owner, keep the original loop. Move one use past that write to produce
 the conflicting case. Freeze the accessed place, last use and expected

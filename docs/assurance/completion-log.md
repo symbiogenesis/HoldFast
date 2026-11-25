@@ -2645,8 +2645,21 @@ builds in all three modes and passes the expected observations for all 36
 index pairs in `0..=5`. [Rust fixture](../../tools/tests/fixtures/indexed_loans.rs) ·
 [Slice API](https://doc.rust-lang.org/std/primitive.slice.html#method.get_disjoint_mut)
 
-For each mode and source form, pass `--edition 2024 --test` to `rustc` on the
-fixture. Use `--emit=mir=-` with the two refusal configurations. Omit the
-configuration for the safe rewrite and execute the resulting test binary.
-The result concerns direct same-owner symbolic indexing. Held-out clients,
-checker cost measurements and checked runtime correspondence remain open.
+The same compiler accepts the conditional shared return in legacy and Alpha.
+The accepted runs return the indexed byte for each in-bounds index and update
+the owner on the out-of-bounds sibling. NLL rejects the sibling write with
+`E0506`. All three reject the neighbor that writes before returning a live view.
+[Conditional-return fixture](../../tools/tests/fixtures/conditional_loans.rs)
+
+Legacy also accepts the loop-carried conditional reborrow. Its executed test
+checks the visit counts when the cursor stays on a node, advances and reaches
+the end. NLL and Alpha report `E0499` and `E0503` at the loop reborrow. All
+three reject the neighbor that clears the cursor with the node loan still live.
+[Loop fixture](../../tools/tests/fixtures/loop_reborrowing.rs)
+
+`python tools/run.py holdfast-borrow-compare` replays all 28 Rust configurations
+and executes the eight accepted observation tests. The unflagged default
+agrees with Alpha on these fixtures. The conditional return and
+loop cases establish Rust baseline decisions. The corresponding HoldFast
+source and restoration replays, held-out clients, checker cost measurements
+and checked runtime correspondence remain open.

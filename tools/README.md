@@ -18,6 +18,7 @@ Run `python tools/run.py` on Windows and `python3 tools/run.py` on Linux. Guest-
 | `python tools/run.py prepare markdown` | host / guest | Format explicitly selected `.md` files with locked `rumdl` |
 | `python tools/run.py test` | host / guest | Run the `test_*.py` behavioral test suite |
 | `python tools/run.py holdfast` | host | Pure HoldFast prototype checker, formatter, linter, Gallina emitter, and generated-test runner |
+| `python tools/run.py holdfast-borrow-compare` | host / guest | Replay pinned Rust decisions and execute accepted observations for the [borrowing comparison](../docs/language/loan-analysis.md#conditional-borrowing-comparison) |
 | `python tools/run.py holdfast sarif` | host | Export source-bound pure batch diagnostics and optional format previews as [SARIF 2.1.0](../docs/tooling/tooling-protocols.md#qualified-pure-batch-sarif), with an explicit external schema |
 | `python tools/run.py holdfast-lsp` | host | Pure HoldFast Language Server Protocol server over stdio, wire-transcript recorder, and two-client interoperability qualifier |
 | `python tools/run.py holdfast-lsp --qualify-rename` | Ubuntu ARM64 / WSL | Check versioned rename application and stale refusal in pinned Neovim and Emacs Eglot with [retained editor and wire evidence](../docs/tooling/lsp-prototype.md#local-rename-previews) |

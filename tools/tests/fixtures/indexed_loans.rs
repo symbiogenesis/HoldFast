@@ -9,9 +9,9 @@ fn set_two(a: &mut u8, b: &mut u8) {
 pub fn client(values: &mut [u8; 4], i: usize, j: usize) -> bool {
     if i < 4 && j < 4 && i != j {
         #[cfg(direct)]
-        set_two(&mut values[i], &mut values[j]);
+        set_two(&mut values[i], &mut values[j]); // direct-conflict
         #[cfg(coincident)]
-        set_two(&mut values[i], &mut values[i]);
+        set_two(&mut values[i], &mut values[i]); // coincident-conflict
         return true;
     }
     false
