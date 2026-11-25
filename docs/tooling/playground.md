@@ -132,5 +132,7 @@ authentication, session isolation, real editor requests, bounded failures
 and stale-result handling. The
 [mathematical controls](../../tools/tests/test_holdfast_playground_math.py)
 exercise compile/evaluate, injection refusal, response validation and the
-browser assets. Browser interaction and independent editor interoperability
-use their own checks. [Local validation](../../AGENTS.md#tool-execution-and-validation) · [Editor qualification](lsp-prototype.md#acceptance-and-remaining-qualification)
+browser assets. They require every built-in example to pass the browser and
+native mathematical lints, as well as the pure authoring lints where the pure
+compiler supports the example. Browser interaction and independent editor
+interoperability use their own checks. [Local validation](../../AGENTS.md#tool-execution-and-validation) · [Editor qualification](lsp-prototype.md#acceptance-and-remaining-qualification)

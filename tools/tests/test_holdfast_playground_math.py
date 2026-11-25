@@ -14,7 +14,15 @@ from unittest.mock import patch
 
 from tests.harness import Case, ensure
 from tests.test_holdfast_playground import _http, _native_running, _post, _running
-from toolchain import HoldFastError, StaticEvaluation, authoring, parser, playground, translate
+from toolchain import (
+    HoldFastError,
+    StaticEvaluation,
+    authoring,
+    mathematical_authoring,
+    parser,
+    playground,
+    translate,
+)
 from toolchain import ast as syntax
 from toolchain.authoring import Finding
 from toolchain.cli import holdfast_playground as playground_cli
@@ -598,6 +606,9 @@ for (const [key, example] of Object.entries(mod.EXAMPLES)) {
   if (!compiled.ok || (compiled.editorServices ? !compiled.gallina : compiled.gallina !== null)) {
     throw new Error(`Example ${key} failed browserApi compile: ${JSON.stringify(compiled)}`);
   }
+  if (!Array.isArray(compiled.findings) || compiled.findings.length !== 0) {
+    throw new Error(`Example ${key} failed browser compile lint: ${JSON.stringify(compiled.findings)}`);
+  }
   const evaluated = await mod.browserApi("/api/evaluate", {
     source: example.source,
     expression: example.expression,
@@ -621,6 +632,9 @@ for (const [key, example] of Object.entries(mod.EXAMPLES)) {
   const authoring = compiled.editorServices
     ? await mod.browserApi("/api/authoring", { source: example.source })
     : null;
+  if (compiled.editorServices && (!authoring?.ok || !Array.isArray(authoring.findings) || authoring.findings.length !== 0)) {
+    throw new Error(`Example ${key} failed browser authoring lint: ${JSON.stringify(authoring)}`);
+  }
   parity.examples[key] = {
     source: example.source,
     expression: example.expression,
@@ -1158,8 +1172,11 @@ def _playground_browser_runtime_and_ui_startup() -> None:
     for key, entry in parity["examples"].items():
         if entry["compiled"]["editorServices"]:
             source = entry["source"]
-            ensure(entry["compiled"]["gallina"] == translate(source.encode()).gallina,
+            raw = source.encode()
+            ensure(entry["compiled"]["gallina"] == translate(raw).gallina,
                    f"example {key} lost canonical Gallina for ordinary functions")
+            findings = authoring.lint_source(raw)
+            ensure(not findings, f"example {key} failed pure lint: {findings}")
             ensure(entry["authoring"] == compile_request({"action": "authoring", "source": source},
                                                         mathematical_parser=prepared),
                    f"example {key} drifted on authoring previews or lint findings")
@@ -1185,6 +1202,8 @@ def _catalog_native_parity() -> None:
             expected = entry["compiled"]
             for field in ("ok", "sourceHash", "module", "findings", "editorServices"):
                 ensure(compiled.get(field) == expected[field], f"example {key} differs on {field}: {compiled.get('error')}")
+            findings = mathematical_authoring.lint_source(built, source.encode())
+            ensure(not findings, f"example {key} failed mathematical lint: {findings}")
             if expected["editorServices"]:
                 ensure(compiled["gallina"] == expected["gallina"], f"example {key} differs on canonical Gallina")
             for observation in [entry, *entry["suggestions"]]:
