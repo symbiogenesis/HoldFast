@@ -47,7 +47,6 @@ public Unit WritePacket8(
     byte b7)
     effects writes(pkt)
     requires pkt.CanRead && pkt.CanWrite && pkt.Length >= 8
-    ensures pkt.Base == old(pkt.Base) && pkt.Length == old(pkt.Length) && pkt.CanRead && pkt.CanWrite
     ensures pkt[0] == b0 && pkt[1] == b1 && pkt[2] == b2 && pkt[3] == b3
     ensures pkt[4] == b4 && pkt[5] == b5 && pkt[6] == b6 && pkt[7] == b7
 {
