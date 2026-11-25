@@ -2628,8 +2628,17 @@ zero-computation-use payload in a motive, an incorrect allowance, a mismatched
 motive and direct runtime access to a boxed value.
 [Modal rules and proofs](../../tools/rocq/graded_modal.v)
 
-General modal and indexed-data elimination, usage-aware evaluation, erasure
-and the composed extension laws remain open.
+The domain trial checks ordered commutative semiring records for `NatExact`,
+`NatBound` and Boolean presence. Substitution commutes with the checked domain
+maps and agrees with the pure calculus on exact demands when the argument is
+independent of the removed binder. A finite certificate checks computation,
+type-use and later declaration rows. Exact replay refuses a relaxed allowance
+that bounded replay accepts, and both refuse a stale dependency row. The
+presence map loses the distinction between one and two uses. Rocq checks these
+results with closed assumptions. [Domain records and proofs](../../tools/rocq/graded_domains.v)
+
+General modal and indexed-data elimination, usage-aware interpretations,
+erasure and the composed extension laws remain open.
 
 <a id="q25bj-reconstruct-checked-graded-domain-evidence"></a>
 
@@ -2644,9 +2653,42 @@ uses its vector once. The term that computes `(n + n) + (n + n)` checks an exact
 allowance of four.
 [Annotated source](../../tools/tests/fixtures/graded-dependent.hf)
 
-The trial uses a checked kernel judgment over the projected terms and a
-trusted source projection. Checked source correspondence, general domain
-evidence and source support for the modal rules remain open.
+The modal source trial checks declared boxes with stable natural payloads,
+promotion and matches with explicit dependent motives. The examples use an
+unboxed payload twice, promote a sum and eliminate a zero-use box whose payload
+still determines a type. A later parameter's type can refer to a boxed value.
+Promotion reports four computation uses and eight type uses of its index.
+The controls refuse an incorrect branch demand, a mismatched motive, direct
+runtime access to a boxed value and a stale demand certificate.
+[Modal source](../../tools/tests/fixtures/graded-modal.hf)
+
+These trials use checked kernel judgments over a trusted source projection.
+Checked source correspondence and general domain reconstruction remain open.
+
+<a id="q25by-compare-fixed-modes-with-a-bounded-grading-increment"></a>
+
+## Q25by · Compare fixed modes with a bounded grading increment
+
+The audio-routing candidate specializes a function at separate frame and
+label extents. Exact replay checks zero computation uses of both indices,
+four type uses of the period, one of the label count and one value use of
+the sample vector. Ordinary mathematical replay of the same source with its
+12 grade annotations removed proves the routing behavior in Rocq. Both
+checkers refuse the stale frame extent. The graded checker also refuses an
+altered allowance. Client selection, material benefit and the shared
+qualification endpoint remain open.
+[Paired replay](../../tools/tests/test_holdfast_graded_client.py)
+
+<a id="q25cb-trial-zero-type-use-substitution-skipping"></a>
+
+## Q25cb · Trial zero-type-use substitution skipping
+
+In the pure exact-natural calculus, a checked result type with zero demand
+for a binder is unchanged by substituting for that binder. Its type-demand
+row is also unchanged pointwise. The theorem covers natural indices and
+dependent function types under the checked typing rules. Representative cost
+measurements and an implementation trial remain open.
+[Irrelevance proof](../../tools/rocq/graded_type_irrelevance.v)
 
 <a id="q25cc-compare-borrow-checking-alternatives-on-held-out-clients"></a>
 
@@ -2670,6 +2712,16 @@ builds in all three modes and passes the expected observations for all 36
 index pairs in `0..=5`. [Rust fixture](../../tools/tests/fixtures/indexed_loans.rs) ·
 [Slice API](https://doc.rust-lang.org/std/primitive.slice.html#method.get_disjoint_mut)
 
+The ordered mixed-loan trial reads element `i`, copies it to element `j` and
+returns the read value under `i < j && j < 4`. HoldFast checks the shared and
+exclusive call arguments using the branch facts. The Rocq model replays the
+result, writeback, frame and unchanged failure state. The exclusive argument
+is refused when the caller reuses `i`, allows `i <= j` or relies on distinct
+relative indices in overlapping views. The pinned Rust modes reject
+the direct and coincident forms with E0502. Their safe `split_at_mut` rewrite
+passes all 36 index pairs. [HoldFast replay](../../tools/tests/test_holdfast_loans.py#_mixed_indexed_loans) ·
+[Rust fixture](../../tools/tests/fixtures/mixed_indexed_loans.rs)
+
 The same compiler accepts the conditional shared return in legacy and Alpha.
 The accepted runs return the indexed byte for each in-bounds index and update
 the owner on the out-of-bounds sibling. NLL rejects the sibling write with
@@ -2682,8 +2734,8 @@ the end. NLL and Alpha report `E0499` and `E0503` at the loop reborrow. All
 three reject the neighbor that clears the cursor with the node loan still live.
 [Loop fixture](../../tools/tests/fixtures/loop_reborrowing.rs)
 
-`python tools/run.py holdfast-borrow-compare` replays all 28 Rust configurations
-and executes the eight accepted observation tests. The unflagged default
+`python tools/run.py holdfast-borrow-compare` replays all 40 Rust configurations
+and executes the 12 accepted observation tests. The unflagged default
 agrees with Alpha on these fixtures. The conditional return and
 loop cases establish Rust baseline decisions. The corresponding HoldFast
 source and restoration replays, held-out clients, checker cost measurements
