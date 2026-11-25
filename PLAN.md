@@ -13,6 +13,11 @@ The recursive kernel context matches the 31 classified floating-point axioms,
 and the stock and patched emissions have identical readings for all 3,533
 main-module declarations on that support. [Producer record check](docs/assurance/completion-log.md#q25ar-integrate-and-recheck-prerequisite-producer-receipts)
 
+The paired emulator controls match the C++ source, header and configuration
+schema with sequential generation. Under the default settings, the source and
+header differ even on a stock-plugin repeat. Default byte agreement remains a
+Q35p prerequisite. [Paired emulator emission](https://github.com/symbiogenesis/VerifiedOS/blob/badb9291b06f7fb0af99c9442bfc18d031eb04ec/docs/assurance/sail-memory-bindings.md#paired-emulator-emission)
+
 Resume [Q25am](#q25am) when `machine-logic` supplies Q35p binding qualification,
 Q35o immutable emitter qualification, Q35n and Q35q production support, and
 Q35b's whole-term replay and assumption closure on that support. The decision
@@ -232,7 +237,7 @@ open until the parent's acceptance conditions are met.
   - **Owner** `holdfast-first-slice`
   - **Start** Use the [authored validator](examples/first_slice.hf), its existing narrow lowering and independently checked first-client core, machine, compiler, security and admission receipts.
   - **Check** Bind the exact source, existing proof and emitted bytes to those receipts. Check independent expected outputs, aliasing and restoration, wrong operations, stale inputs and corruption. [First-slice qualification](docs/language/first-release.md#first-slice-qualification).
-  - The [opaque caller](tools/tests/test_holdfast_packet_outcome.py) consumes the exact public error and copied-count law. Check the admitted image against the independent outcomes, including bad flags with an oversized length, zeroed work area and preserved suffix. Source correspondence and artifact admission remain open. [Partial evidence](docs/assurance/completion-log.md#q25ba-accept-the-synchronous-component-at-the-exact-artifact-endpoint).
+  - The [opaque caller](tools/tests/test_holdfast_packet_outcome.py) consumes the exact public error and copied-count law. Check the admitted image against the independent outcomes, including bad flags with an oversized length, zeroed work area and preserved suffix. The VerifiedOS replay matched the pinned development receipt. Source correspondence and artifact admission remain open. [Partial evidence](docs/assurance/completion-log.md#q25ba-accept-the-synchronous-component-at-the-exact-artifact-endpoint).
 
 <a id="q25bb"></a>
 

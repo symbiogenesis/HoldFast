@@ -998,6 +998,7 @@ def build_foundation_inventory() -> dict[str, object]:
                 "VerifiedOS reports a strict Rocq 9.3.0 whole-term build and kernel assumption audit of "
                 "canonical rv64d.v with private tag-outcome support. Q35o immutable emitter qualification, "
                 "Q35p semantic binding qualification and Q35b replay with qualified support remain open. "
+                "The default emulator's C++ source and header differ even on a stock-plugin repeat. "
                 "The decision on the 31 floating-point axioms remains open (F-480, R-05-164)."
             ),
             "Q35n / Q35q": (

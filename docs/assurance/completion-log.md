@@ -1618,6 +1618,14 @@ record the same digest across 3,533 declarations. These checks read retained
 producer records. The Q35 owners still owe replay with qualified production
 support and the assumption decision. [Current prerequisite status](../../PLAN.md#current-execution)
 
+The [paired emulator manifest](https://github.com/symbiogenesis/VerifiedOS/blob/badb9291b06f7fb0af99c9442bfc18d031eb04ec/docs/implementation/retained-evidence/q35p-holdfast-emulator-20261125/manifest.json)
+matched all nine stored files. The five run records match their summaries and
+declare matching Sail, Z3 and library identities. Only the Rocq plugin differs
+in the stock/candidate pairs. Comparing the retained output digests gives
+equal configuration schemas and different C++ source and header digests for
+the default pair and the stock repeat. The sequential pair matches all
+three. This record check leaves default-generation agreement open under Q35p.
+
 Q25ar remains open for external independently checked producer receipts and its
 complete declared coverage. Canonical-machine interpretation, compiler,
 contextual-security and exact-artifact evidence retain their named owners. No
@@ -1662,6 +1670,15 @@ validator opaque. Removing the law leaves the caller's assertion unprovable.
 Changing just the provider's error on that overlap fails its own law. C11
 check 20 exercises the same overlap with eight cleared bytes and a two-byte
 suffix that retains its entry contents.
+
+VerifiedOS revision `127ed5bab243a63498ba935e4bf11970b3b4f13a` retains a
+development replay at HoldFast revision `6bbe6a3d5e4da93c7e03c7bc2b72e73fd77f3868`.
+The manifest check matched the binding report and both forms of the compressed
+qualification record. All 133 input digests match that HoldFast revision's Git
+objects. The records show 78 kernel-checked exports, zero solver-trusted
+obligations, 19 negative controls, four Sail cases and a matched receipt.
+The binding report names both missing deployed claims and records pending
+production admission.
 
 Q25ba remains open: checked source correspondence, concrete canonical-machine
 laws, retained compiler/contextual-security/admission receipts and exact final
