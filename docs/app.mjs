@@ -148,9 +148,10 @@ public Nat Leftover(Nat count, Nat size) => count % size;
 /// Regroup(20, 3) is 12; 20 / (3 * 2) is 3.
 public Nat Regroup(Nat count, Nat size) => count / size * 2;
 
-/// Mathematical Nat operations are total: 17 / 0 is 0; 17 % 0 is 17.
+/// Mathematical Nat division is total: 17 / 0 is 0.
 public const Nat ZeroGroups = Groups(17, 0);
 
+/// The remainder with a zero divisor preserves the original count.
 public const Nat Unchanged = Leftover(17, 0);
 
 /// Try Leftover(17, 5), Regroup(20, 3), ZeroGroups, and Unchanged.
@@ -195,11 +196,10 @@ public Nat Process(Nat sample) => Scale(gain: Gain, sample: sample);
     source: `module Bindings;
 
 /// Immutable locals may carry explicit type annotations.
-/// Check style to inspect optional advisory findings.
 public Nat Count(bool selected)
 {
     let Nat count = 1_000;
-    let bool ready = selected == true;
+    let bool ready = selected;
     if (ready)
     {
         return count;
@@ -253,6 +253,7 @@ public definition TValue Identity<TValue>(TValue value) => value;
 public definition TResult Apply<TInput, TResult>(Fn(TInput value) -> TResult function, TInput value) =>
     function(value: value);
 
+/// Each call infers a different type for the same generic function.
 public definition (Nat, bool) DifferentTypes() =>
     (Identity(7), Identity(true));
 
@@ -321,11 +322,14 @@ public definition Vec<TElement, length> Copy<TElement, ghost Nat length>(Vec<TEl
 public definition Fn(Nat length, Vec<Nat, length> values) -> Vec<Nat, length> Preserve() =>
     (Nat length, Vec<Nat, length> values) => values;
 
+/// Start with a one-element vector containing 42.
 public definition Vec<Nat, 1> Original() => VCons(42, VNil<Nat>());
 
+/// Copy the vector and pass it to the dependent function at length one.
 public definition Vec<Nat, 1> Preserved() =>
     Preserve()(length: 1, values: Copy(Original()));
 
+/// Read the only element using the valid index for a vector of length one.
 public definition Nat PreservedValue() => At(Preserved(), FZero<0>());
 
 /// Prove that the preserved vector still contains 42.
@@ -359,6 +363,7 @@ public definition Vec<Nat, 10> HeaderTag() =>
     [demo-hdr]
     """;
 
+/// Measure the dedented header in bytes.
 public const Nat HeaderBytes = ByteLength(HeaderTag());
 
 /// The mathematical builder records the bytes appended within its capacity.
