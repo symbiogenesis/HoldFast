@@ -17,7 +17,7 @@ from toolchain import (
 )
 from toolchain.ast import Name, position
 from toolchain.authoring import Finding, generic_type_findings
-from toolchain.elaborate import Elaboration
+from toolchain.elaborate import CheckedElaboration, Elaboration
 from toolchain.hashing import file_sha256
 from toolchain.surface import nodes
 
@@ -48,6 +48,13 @@ def inspect_source(source: bytes, parsed: object) -> Compilation:
     """Inspect accepted syntax after complete exact-source semantic checking."""
     translation = holdfast_elaborate.elaborate(source, parsed)
     ast = cast("holdfast_parser.Json", cast("dict[str, object]", parsed)["ast"])
+    findings, operands = inspect_checked(source, ast, translation)
+    return Compilation(translation.module, translation.gallina, findings, operands)
+
+
+def inspect_checked(source: bytes, ast: holdfast_parser.Json, translation: CheckedElaboration,
+                    ) -> tuple[tuple[Finding, ...], tuple[tuple[Finding, int, int], ...]]:
+    """Project source and semantic lint facts from an accepted module in its build context."""
     names: list[tuple[int, Name]] = []
     operands: list[tuple[Finding, int, int]] = []
     for item in nodes(ast):
@@ -81,7 +88,7 @@ def inspect_source(source: bytes, parsed: object) -> Compilation:
     names.sort(key=lambda item: item[0])
     findings.extend(generic_type_findings(tuple(name for _, name in names)))
     findings.sort(key=lambda item: (item.line, item.column, item.code))
-    return Compilation(translation.module, translation.gallina, tuple(findings), tuple(operands))
+    return tuple(findings), tuple(operands)
 
 
 def _operator(node: dict[str, holdfast_parser.Json]) -> str:

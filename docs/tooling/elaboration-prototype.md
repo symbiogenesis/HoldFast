@@ -574,6 +574,7 @@ lists the module build order and the exact lock, source, package-instance and
 Gallina digests. The optional output bundle maps full module names to complete
 Gallina files and binds them to the lock digest. Missing revisions, undeclared
 imports, conflicting module owners, cycles and stale lockfiles fail the build.
+The `math-2` root also applies the [default authoring checks](authoring-tools.md#locked-package-authoring).
 The closure is bounded to 64 packages, 256 files, 16 MiB of inputs and 32 MiB
 of combined generated Gallina. This target produces mathematical elaborations.
 Kernel replay and release artifact admission have their own evidence owners.

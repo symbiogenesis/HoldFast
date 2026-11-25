@@ -182,6 +182,7 @@ def _namespace_edition() -> None:
         client.write_text(client.read_text().replace("Weight.Measure(Make(", "Measure.Weight.Measure(Measure.Make("))
         provider = workspace / "weights" / "v1" / "Measure.hf"
         provider.write_text(provider.read_text() + "\npublic definition Nat ReadScale(Nat x) => 9;\n")
+        _command("fmt", client, "--syntax-only")
         bundle = directory / "qualified.json"
         _command("build-package", workspace, _lock(workspace), "--output", bundle)
         _replay(directory, json.loads(bundle.read_bytes())["modules"])

@@ -1607,6 +1607,17 @@ matched the retained receipt, then refused the successful
 substituted for deployed view evidence and named `returned_view_authority` in
 the diagnostic. [Receipt control](../../tools/tests/test_holdfast_first_slice_receipts.py)
 
+The local read of VerifiedOS revision `e1a50804e5d487500d44bc4e8484adeead307e5c`
+matched all 13 files in `q35-holdfast-canonical-20261124` and
+`q35o-holdfast-main-20261125` under the producer's retained evidence directory
+against the manifests' byte lengths and SHA-256 digests. This covers stored and
+decoded compressed bytes. The reports bind the same candidate generation receipt.
+The private-support build records a 5,207,215-byte `rv64d.vo` and the recursive
+kernel context matches the 31 classified axiom names. The two main readings
+record the same digest across 3,533 declarations. These checks read retained
+producer records. The Q35 owners still owe replay with qualified production
+support and the assumption decision. [Current prerequisite status](../../PLAN.md#current-execution)
+
 Q25ar remains open for external independently checked producer receipts and its
 complete declared coverage. Canonical-machine interpretation, compiler,
 contextual-security and exact-artifact evidence retain their named owners. No
@@ -1656,6 +1667,23 @@ Q25ba remains open: checked source correspondence, concrete canonical-machine
 laws, retained compiler/contextual-security/admission receipts and exact final
 bytes are still missing. Local CompCert execution remains unavailable. No
 whole-cell completion credit or additional hours are recorded for this increment.
+
+<a id="q25bb-run-the-independent-package-and-developer-value-trial"></a>
+
+#### Q25bb · Run the independent package and developer-value trial
+
+The local VerifiedOS commit `28bfe21d11f88a7a08176bcaceffe4fdd9905c23`
+retains the copy-service preparation record in
+`docs/implementation/retained-evidence/holdfast-q25bb-source-20261124`.
+On 2026-11-25, an independent read matched the manifest's SHA-256
+`8287dfec28ae18e23c1d8be75ca1e652b77cfe1739b43f0908a0d1b10bb9ff43`.
+The source record's length and digest match the manifest, and all 74 recorded
+input hashes match Git blobs at `498127d6be3d1a70581ba4a9cc025c2d923e66f7`.
+The record names the prepared translation unit and two assembly adapters.
+Native output, installed entry sets, producer qualification and production
+admission remain pending. The trial needs an admitted scalar-purecap baseline,
+frozen target resource and timing envelopes, and qualified HoldFast library
+and lowering inputs. [Trial prerequisites](../../PLAN.md#q25bb)
 
 <a id="q25ch-publish-qualified-compiler-inspection-services"></a>
 

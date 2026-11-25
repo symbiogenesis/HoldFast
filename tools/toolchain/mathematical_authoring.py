@@ -139,7 +139,7 @@ def _space(left: Part, right: Part, roles: dict[int, str]) -> bool:
     return after != b"["
 
 
-def _format(compiled: parser.Build, original: Document) -> tuple[bytes, Document]:
+def format_document(compiled: parser.Build, original: Document) -> tuple[bytes, Document]:
     candidate = original.render()
     checked = Document.read(compiled, candidate)
     if ([part.spelling for part in original.parts] != [part.spelling for part in checked.parts]
@@ -152,19 +152,23 @@ def _format(compiled: parser.Build, original: Document) -> tuple[bytes, Document
 
 
 def format_syntax(compiled: parser.Build, source: bytes) -> bytes:
-    return _format(compiled, Document.read(compiled, source))[0]
+    return format_document(compiled, Document.read(compiled, source))[0]
 
 
 def format_checked(compiled: parser.Build, source: bytes) -> tuple[bytes, mathematical.Compilation, mathematical.Compilation]:
     original = Document.read(compiled, source)
     checked_original = mathematical.inspect_source(source, original.parsed)
-    candidate, formatted = _format(compiled, original)
+    candidate, formatted = format_document(compiled, original)
     return candidate, checked_original, mathematical.inspect_source(candidate, formatted.parsed)
 
 
 def lint_source(compiled: parser.Build, source: bytes) -> tuple[Finding, ...]:
     document = Document.read(compiled, source)
-    findings = list(mathematical.inspect_source(source, document.parsed).findings)
+    return lint_document(source, document, mathematical.inspect_source(source, document.parsed).findings)
+
+
+def lint_document(source: bytes, document: Document, checked: tuple[Finding, ...]) -> tuple[Finding, ...]:
+    findings = list(checked)
     record_fields = {_start(field) for item in nodes(document.ast) if item["kind"] == "record"
                      for field in cast("Sequence[Node]", item["parameters"])}
     bindings = {"parameter", "let", "var", "constant_local", "binding_pattern", "foreach",

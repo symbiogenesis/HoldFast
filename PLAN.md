@@ -6,13 +6,20 @@
 Its source proofs already cover byte values and the returned view with zero
 solver-trusted obligations. [Authored validator](examples/first_slice.hf) · [Artifact acceptance](#q25ba)
 
-Start with the `machine-logic` owner. Check whether it can supply the canonical
-Sail term (`rv64d.v`) and Q35 compatibility evidence for [Q25am](#q25am).
-At [VerifiedOS revision fd6e2ba3](https://github.com/symbiogenesis/VerifiedOS/blob/fd6e2ba3fd862bc3c6baba08bcc772dbf3507ccd/docs/assurance/sail-rocq-emission.md#remaining-acceptance),
-the emitted-caller bridge covers bounded tag outcomes. Resume the machine
-interpretation when `machine-logic` has canonical-main replay on the selected
-bindings, the strict whole-term build and assumption report, and qualified
-support carriage. [Q35p binding acceptance](https://github.com/symbiogenesis/VerifiedOS/blob/fd6e2ba3fd862bc3c6baba08bcc772dbf3507ccd/docs/assurance/sail-memory-bindings.md#bound-and-remaining-acceptance)
+The local VerifiedOS producer records at
+`e1a50804e5d487500d44bc4e8484adeead307e5c` report a strict Rocq 9.3.0 replay
+of the canonical hart-0 Sail term (`rv64d.v`) with private tag-outcome support.
+The recursive kernel context matches the 31 classified floating-point axioms,
+and the stock and patched emissions have identical readings for all 3,533
+main-module declarations on that support. [Producer record check](docs/assurance/completion-log.md#q25ar-integrate-and-recheck-prerequisite-producer-receipts)
+
+Resume [Q25am](#q25am) when `machine-logic` supplies Q35p binding qualification,
+Q35o immutable emitter qualification, Q35n and Q35q production support, and
+Q35b's whole-term replay and assumption closure on that support. The decision
+on the 31 floating-point axioms remains open under F-480 (R-05-164).
+[Q35 emission requirements](https://github.com/symbiogenesis/VerifiedOS/blob/fd6e2ba3fd862bc3c6baba08bcc772dbf3507ccd/docs/assurance/sail-rocq-emission.md#remaining-acceptance) ·
+[Q35p binding requirements](https://github.com/symbiogenesis/VerifiedOS/blob/fd6e2ba3fd862bc3c6baba08bcc772dbf3507ccd/docs/assurance/sail-memory-bindings.md#bound-and-remaining-acceptance)
+
 The retained `holdfast-parser first-slice` result names the blocking producers in
 `inventory.blocking_dependencies`. [First-slice qualification](docs/language/first-release.md#first-slice-qualification)
 
@@ -234,6 +241,7 @@ open until the parent's acceptance conditions are met.
   - **Start** Select the second client and its intended behavior independently of the first API design. Freeze the baseline, target envelope and benefit thresholds before observing results. Run the trial once the [validator](#q25ba), [packages](#q25ax), represented-library runtime receipts and [general lowering](#q25az) are ready.
   - **Frozen source baseline** Use the existing serialized VerifiedOS copy-service client at [`498127d6`](https://github.com/symbiogenesis/VerifiedOS/tree/498127d6be3d1a70581ba4a9cc025c2d923e66f7). Its [public C interface](https://github.com/symbiogenesis/VerifiedOS/blob/498127d6be3d1a70581ba4a9cc025c2d923e66f7/copy-service/include/vos_copy_service.h) supplies quiescent generation initialization, submit and take. Use the [Gallina reference](https://github.com/symbiogenesis/VerifiedOS/blob/498127d6be3d1a70581ba4a9cc025c2d923e66f7/proofs/CopyRingService.v), [ring declaration](https://github.com/symbiogenesis/VerifiedOS/blob/498127d6be3d1a70581ba4a9cc025c2d923e66f7/interfaces/ring-reference.json) and [fixed controls](https://github.com/symbiogenesis/VerifiedOS/blob/498127d6be3d1a70581ba4a9cc025c2d923e66f7/copy-service/test/fixed_controls.h) to freeze FIFO order, the staged source snapshot, initialized output prefix and untouched suffix, and unchanged caller outputs for empty, full, stale-generation, duplicate and too-small refusals. Keep the 64-slot capacity, 256-position wire index and declared operation payload bounds. Preserve the caller's two disjoint views across submit and take. The overlapping sibling must fail the caller check because the existing C contract requires disjoint extents.
   - Use the same [scalar purecap adapter and layout](https://github.com/symbiogenesis/VerifiedOS/blob/498127d6be3d1a70581ba4a9cc025c2d923e66f7/copy-service/README.md#scalar-target-comparison) on both routes. Hold the existing concurrency and notification adapters fixed outside the serialized trial. Freeze the exact baseline image, producer and per-class resource and timing envelopes before adaptation, then apply the [predeclared accounting and decision thresholds](docs/assurance/workflow-contract.md#accounting-and-decision-thresholds) at the matched endpoint. The target campaign gives finite comparison evidence. The [copy-service admission entry](https://github.com/symbiogenesis/VerifiedOS/blob/498127d6be3d1a70581ba4a9cc025c2d923e66f7/docs/implementation/contracts/production-admission.md#first-case-eligibility-and-consumer-disposition) still requires a qualified, installed and image-bound baseline.
+  - The local VerifiedOS source-preparation record matches 74 inputs at the frozen revision. The qualified producer, installed baseline image and target envelopes remain pending. [Partial evidence](docs/assurance/completion-log.md#q25bb-run-the-independent-package-and-developer-value-trial).
   - **Check** Exercise imports, instances, receiver snapshots, partial initialization, exhaustion and resource-returning success and error exits. At the same endpoint, measure annotations, first useful diagnostic, checking latency, review, repair and target costs for a contract change, a preserving refactor and a representation change using explicit Rocq relations. Obtain this client's own admission receipt before acceptance. [Adoption protocol](docs/assurance/workflow-contract.md#first-release-qualification-and-adoption).
   - Run the [public-contract trial](docs/assurance/workflow-contract.md#what-a-caller-can-prove-from-the-public-contract) on the independent client. Check what the caller loses when a required law is weakened and whether its original proof survives a private representation change. Trace [proof erasure and remaining runtime costs](docs/assurance/workflow-contract.md#cost-of-the-verified-abstraction) through the admitted image and compare with the matched baseline on success and error paths.
   - Keep a previously legal boundary input when testing a tightened provider precondition. A compatible version must cover the frozen caller domain and return its promised resources on every reachable exit. Replay both the unchanged caller and the input that distinguishes the two contracts.
