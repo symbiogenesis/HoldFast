@@ -1671,7 +1671,7 @@ class _IntrinsicsMixin:
     ) -> None:
         if not positions:
             return
-        places: list[tuple[str | None, str | None]] = []
+        places: list[tuple[str | None, str | None, _Term | None, bool]] = []
         for arg in args:
             place = self._unwrap_group(self.node(arg["value"]))
             if place["kind"] == "unary":
@@ -1680,17 +1680,26 @@ class _IntrinsicsMixin:
                 place = self._unwrap_group(self.node(place["value"]))
             name = self.name(place["name"]) if place["kind"] == "name" else None
             root = self.local_borrows[name][1] if name in self.local_borrows else name
-            places.append((name, self.slice_views.get(root, root) if root is not None else None))
+            collection = environment.get(name) if name is not None else None
+            backing = None
+            is_view = root in self.slice_views
+            if collection is not None and self.spine(self.whnf(collection.type))[0] == _constant("Span"):
+                span = self.whnf(collection.term)
+                backing = self._root_span(span)
+                is_view = is_view or self.spine(span)[0] == _constant("Span_Slice")
+            places.append((name, self.slice_views.get(root, root) if root is not None else None, backing, is_view))
         for i, pos in positions.items():
-            name, root = places[i]
-            for j, (other_name, other_root) in enumerate(places):
-                if i == j or root != other_root:
+            name, root, backing, is_view = places[i]
+            for j, (other_name, other_root, other_backing, other_is_view) in enumerate(places):
+                same_backing = (is_view or other_is_view) and backing is not None and backing == other_backing
+                if i == j or (root != other_root and not same_backing):
                     continue
                 other = positions.get(j, shared_positions.get(j))
-                if (other is not None and name != other_name and j in shared_positions
-                        and name is not None and name == root and other_name is not None):
+                if (other is not None and name != other_name and j in shared_positions and not is_view
+                        and name is not None and name == root == other_root
+                        and other_name is not None and not self.last_call_updates):
                     # A derived shared slice can be compared in the exclusive owner's
-                    # coordinates if it still denotes a view of that exact owner.
+                    # coordinates when both arguments use the same current owner state.
                     slice_head, slice_args = self.spine(self.whnf(environment[other_name].term))
                     if (slice_head == _constant("Span_Slice") and len(slice_args) == 4
                             and self.whnf(slice_args[1]) == self.whnf(environment[name].term)):
