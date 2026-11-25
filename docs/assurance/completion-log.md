@@ -2619,9 +2619,34 @@ Rocq 9.3.0, checks both principal theorems and all nine examples for closed
 assumptions, and runs `rocqchk`.
 [Native replay](../../tools/tests/test_holdfast_graded.py)
 
-This is evidence for the pure calculus and checked substitution step.
-[Source projection](../../PLAN.md#q25bj), usage-aware evaluation, modal
-elimination and the composed extension laws remain open.
+The separate modal trial checks promotion and dependent box elimination for
+stable natural payloads. The checker soundness theorem connects acceptance
+to the declarative rules. Its elimination theorem gives the exact use of the
+unboxed value, the scaled dependence in the body type and both demand rows
+of the result. The controls exercise abstract and promoted boxes, a
+zero-computation-use payload in a motive, an incorrect allowance, a mismatched
+motive and direct runtime access to a boxed value.
+[Modal rules and proofs](../../tools/rocq/graded_modal.v)
+
+General modal and indexed-data elimination, usage-aware evaluation, erasure
+and the composed extension laws remain open.
+
+<a id="q25bj-reconstruct-checked-graded-domain-evidence"></a>
+
+## Q25bj · Reconstruct checked graded-domain evidence
+
+The opt-in source trial projects annotated mathematical definitions into the
+pure exact-natural checker and replays the inferred type against the authored
+dependent signature. The receipt binds the source bytes, the generated Rocq
+unit and the checker inputs. Applying `PreserveLength` to `n + n` reconstructs
+four type uses and zero computation uses of `n`. The returned function
+uses its vector once. The term that computes `(n + n) + (n + n)` checks an exact
+allowance of four.
+[Annotated source](../../tools/tests/fixtures/graded-dependent.hf)
+
+The trial uses a checked kernel judgment over the projected terms and a
+trusted source projection. Checked source correspondence, general domain
+evidence and source support for the modal rules remain open.
 
 <a id="q25cc-compare-borrow-checking-alternatives-on-held-out-clients"></a>
 
@@ -2663,3 +2688,9 @@ agrees with Alpha on these fixtures. The conditional return and
 loop cases establish Rust baseline decisions. The corresponding HoldFast
 source and restoration replays, held-out clients, checker cost measurements
 and checked runtime correspondence remain open.
+
+The loan diagnostic keeps branch-specific grants through joins. The controls
+require independent restoration of three alternative exclusive grants, detect
+an overlapping write on only its conflicting branch, and check a retained
+capture at receiver activation. A join outside the path budget refuses
+analysis. [Loan diagnostic and regression cases](../language/loan-analysis.md#diagnostic-disposition)
