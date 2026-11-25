@@ -36,6 +36,19 @@ if TYPE_CHECKING:
 
 
 class _PatternsMixin:
+    def _pattern_names(self: _Elaborator, pattern: Node) -> frozenset[str]:
+        if pattern["kind"] == "binding_pattern":
+            return frozenset({self.name(pattern["name"])})
+        names: set[str] = set()
+        for key in ("pattern", "arguments", "elements", "patterns"):
+            inner = pattern.get(key)
+            if isinstance(inner, dict):
+                names.update(self._pattern_names(self.node(inner)))
+            elif isinstance(inner, list):
+                for child in self.nodes(inner):
+                    names.update(self._pattern_names(child))
+        return frozenset(names)
+
     def _parse_pattern(self: _Elaborator, node: Node, seen: set[str]) -> _Pat:
         self.tick()
         self.site = node

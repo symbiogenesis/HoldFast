@@ -154,6 +154,11 @@ and supports the following features.
   as a Boolean value or in a conditional expression requires read-only calls.
   Propagating such a Boolean value with `?` in a function with borrowed outputs
   requires explicit control flow.
+  A pattern on the true path of an implication introduces its bindings in
+  the consequent, including when the consequent is a contract proposition.
+  The antecedent short-circuits on its first false conjunct. The
+  [surface scope rules](../language/surface-grammar.md#pattern-test-scope)
+  define which patterns contribute bindings.
 - A file-private, nonrecursive top-level function can omit its `effects` clause
   when every direct user-function call has a closed footprint. Inference
   includes transient writes and uses the same conservative accounting for

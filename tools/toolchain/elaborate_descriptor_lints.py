@@ -129,19 +129,6 @@ class DescriptorContractLints:
                 left, right = right, left
         return _Operand(_term(op, left.key, right.key), left.members + right.members)
 
-    def _pattern_names(self, pattern: Node) -> frozenset[str]:
-        if pattern["kind"] == "binding_pattern":
-            return frozenset({self.elab.name(pattern["name"])})
-        names: set[str] = set()
-        for key in ("pattern", "arguments", "elements", "patterns"):
-            inner = pattern.get(key)
-            if isinstance(inner, dict):
-                names.update(self._pattern_names(self.elab.node(inner)))
-            elif isinstance(inner, list):
-                for child in self.elab.nodes(inner):
-                    names.update(self._pattern_names(child))
-        return frozenset(names)
-
     def _and_paths(self, node: Node, scope: _Scope) -> list[tuple[Node, _Scope]]:
         paths: list[tuple[Node, _Scope]] = []
 
@@ -163,7 +150,7 @@ class DescriptorContractLints:
                         return current
             paths.append((expression, current))
             if expression["kind"] == "is":
-                return current.bind(self._pattern_names(self.elab.node(expression["pattern"])))
+                return current.bind(self.elab._pattern_names(self.elab.node(expression["pattern"])))
             return current
 
         collect(node, scope)
@@ -173,7 +160,7 @@ class DescriptorContractLints:
         # Only direct pattern tests and authored conjunctions export bindings.
         for conjunct in self.elab._conjuncts(node):
             if conjunct["kind"] == "is":
-                scope = scope.bind(self._pattern_names(self.elab.node(conjunct["pattern"])))
+                scope = scope.bind(self.elab._pattern_names(self.elab.node(conjunct["pattern"])))
         return scope
 
     def _requirements(self, node: Node, scope: _Scope) -> None:
@@ -230,7 +217,7 @@ class DescriptorContractLints:
         if kind == "match_expression":
             self._visit_old(self.elab.node(node["value"]), scope)
             for case in self.elab.nodes(node["cases"]):
-                bound = self._pattern_names(self.elab.node(case["pattern"]))
+                bound = self.elab._pattern_names(self.elab.node(case["pattern"]))
                 self._visit(self.elab.node(case["value"]), scope.bind(bound), guard=guard)
             return
         if kind == "quantifier":

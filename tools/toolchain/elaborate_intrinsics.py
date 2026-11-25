@@ -1331,6 +1331,8 @@ class _IntrinsicsMixin:
                 node, operands, literal, {**literal, "value": False}, environment,
             )
             return self._check_guard_value(guarded, environment, _BOOL)
+        if operator == "==>" and (guarded_implication := self._binding_implication(node, environment, _BOOL)) is not None:
+            return _Binding(guarded_implication, _BOOL)
         if operator in {"&&", "||", "==>", "<==>"}:
             left_b = _Binding(self.check(left_node, _BOOL, environment), _BOOL)
             short_circuit(self, right_node, operator, left_b.term, environment)
@@ -2217,6 +2219,8 @@ class _IntrinsicsMixin:
         kind = node["kind"]
         if kind == "guard_scope":
             return self.expression(self.node(node["value"]), self._guard_environment(node, environment))
+        if kind == "guard_proposition":
+            return _Binding(self.asserted_proposition(self.node(node["value"]), environment), _PROP)
         if kind == "guard_block_state":
             return self._guard_block_state(node, environment)
         if kind == "guard_return":
@@ -2738,6 +2742,8 @@ class _IntrinsicsMixin:
                 self.unify(self.infer(left.type), _SORT)
                 return _apps(_constant("Eq"), left.type, left.term, right)
             if operator == "==>":
+                if (guarded_implication := self._binding_implication(node, environment, _PROP)) is not None:
+                    return guarded_implication
                 domain = self.proposition(self.node(node["left"]), environment)
                 return self.pi(domain, self.proposition(self.node(node["right"]), environment))
         if node["kind"] == "quantifier":

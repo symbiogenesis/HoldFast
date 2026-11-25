@@ -2269,13 +2269,22 @@ class _FunctionLowerer:
                 return current, ()
 
             if kind == "binary":
-                if _op_text(expr["operator"]) == "&&":
+                operator = _op_text(expr["operator"])
+                if operator == "==>":
+                    success, failure, outer = self._lower_condition(current, _ast_node(expr["left"]))
+                    end, _ = self._lower_expr(success, _ast_node(expr["right"]))
+                    self.handles = outer
+                    join = self._fresh_node("join_implies")
+                    self._connect(end, join)
+                    self._connect(failure, join)
+                    return join, ()
+                if operator == "&&":
                     success, failure, self.handles = self._lower_condition(current, expr)
                     join = self._fresh_node("join_and")
                     self._connect(success, join)
                     self._connect(failure, join)
                     return join, ()
-                if _op_text(expr["operator"]) == "||":
+                if operator == "||":
                     current, _ = self._lower_expr(current, _ast_node(expr["left"]))
                     split = self._emit(current, Nop(), "or_split")
                     join = self._fresh_node("join_or")
