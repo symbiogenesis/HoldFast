@@ -1,17 +1,16 @@
 # Run the packet validator
 
-A caller gives HoldFast a packet to read and a separate destination to fill. When
-validation fails, can the caller still use the old destination bytes? Run the
-same [HoldFast program](../../examples/first_slice.hf) with three inputs to see
-how the answer depends on where validation stops.
+Run the [packet validator](../../examples/first_slice.hf) with three inputs to
+see when it preserves the destination, clears it, or returns a read-only view
+of the copied payload.
 
 Run these commands from the repository root. On Windows, `python tools/run.py`
 dispatches to WSL. On Linux, use `python3`. The walkthrough uses the native
-Menhir parser, HoldFast elaborator and a C11 compiler (`cc`). It executes the C
-generated from your HoldFast source on the guest CPU. To try an edit, copy the
-validator to another file, pass its relative path with `--source`, and start
-each exercise from the original. The command reports source errors and
-undischarged packet contracts before it runs the program.
+Menhir parser, HoldFast elaborator and a C11 compiler (`cc`). It runs the
+generated C in the native toolchain environment. To try an edit, start from a
+fresh copy of the validator for each exercise and pass `--source PATH` to the
+example command. Source errors and unproved packet contracts stop the command
+before execution. The examples below show selected lines of the output.
 
 ## A short header leaves the destination intact
 
@@ -21,9 +20,9 @@ python tools/run.py holdfast-parser packet-example "56 02 6B"
 
 Each pair is a byte in hexadecimal. The four header bytes hold the magic
 value, payload length, checksum and flags. This packet stops just before the
-flags. The first guard in `PrepareAndValidatePacket` can reject it using only
-the span lengths. The driver fills the working bytes with `CC` and places a
-distinct byte, `A5`, immediately past them so writes are visible.
+flags. The first guard in `PrepareAndValidatePacket` rejects it at the packet
+length check. The driver initializes the first eight destination bytes to `CC`
+and the ninth byte to `A5` to show whether writes stay within the working range.
 
 ```text
 before CC CC CC CC CC CC CC CC A5

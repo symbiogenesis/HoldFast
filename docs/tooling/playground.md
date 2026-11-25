@@ -19,13 +19,13 @@ loopback service. [Browser editor asset terms](../../THIRD-PARTY.md#browser-edit
 ## Dependent mathematics increment
 
 The native service uses the cached Menhir surface parser and the
-[mathematical elaborator](elaboration-prototype.md). It checks the complete
-buffer and displays pure compiler Gallina when the source also passes the
-pure checker. Other accepted sources show Gallina from the mathematical
-elaborator. The hosted page shows pure Gallina for the pure profile and
-an evaluation preview with located unchecked claims for wider source.
-The hosted evaluator accepts self-contained modules in its supported subset.
-Imports and interface constraints require the native compiler.
+[mathematical elaborator](elaboration-prototype.md) to check the complete
+buffer. It displays Gallina from the pure compiler when that compiler also
+accepts the buffer, and from the mathematical elaborator otherwise. The hosted
+page shows pure Gallina for the pure profile and an evaluation preview with
+located unchecked claims for wider source. Interface constraints require the
+native compiler. Each playground compiles one buffer. To resolve imports from
+other HoldFast files, use the [locked package builder](elaboration-prototype.md#locked-mathematical-packages).
 
 The console checks a closed expression in the source context and returns a
 `Nat` or `bool` compile-time value. For example, with
@@ -72,7 +72,8 @@ fragment. The page removes the fragment and sends the token on every
 same-origin API request. The service accepts source text, with no client
 selection of executables or disk paths.
 
-Send API requests as JSON POSTs with `Authorization: Bearer TOKEN`.
+Send API requests as UTF-8 JSON POSTs with `Content-Type: application/json`
+and `Authorization: Bearer TOKEN`.
 
 | Path | Request | Successful response |
 | --- | --- | --- |
@@ -104,11 +105,11 @@ with at most 8,192 entries. Malformed, unordered, duplicate or oversized
 findings fail result validation. Advisory findings do not prevent Gallina
 output.
 
-The transport bounds HTTP reads, concurrent requests, response sizes, open
-sessions and idle lifetime. Session requests serialize, and closing or
-reconnecting releases the preceding session. Isolated compiler workers have
-bounded input, output and time. The server validates request shapes and checks
-the prepared parser and response bindings before publishing results.
+The server handles requests sequentially and bounds HTTP read time, request
+and response sizes, open sessions and idle lifetime. Closing or reconnecting
+releases the preceding session. Isolated compiler workers have bounded input,
+output and time. The server validates request shapes and checks the prepared
+parser and response bindings before publishing compile and evaluation results.
 [Server](../../tools/toolchain/playground.py) · [Worker](../../tools/toolchain/playground_worker.py)
 
 ## Authoring and inspection increment
