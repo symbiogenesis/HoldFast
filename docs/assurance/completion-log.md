@@ -2137,6 +2137,26 @@ reused after both arms join and an unsupported stronger bound refuse at the
 assertion. The [packet erasure controls](../../tools/tests/test_holdfast_packet_erasure.py)
 still regenerate identical guest executables at both optimization levels.
 
+The [scoped bound replay](../../tools/tests/test_holdfast_inline_witnesses.py)
+joins a positive strict guard with a negative strict guard. Its independent
+consumer proves the exact emitted assertion under both premises. A changed
+guard withdraws the result. Setting the additional search allowance to zero
+reports the outstanding proposition at the assertion; an explicit proof
+argument replays at the same limit. Both emitted witnesses replay in Rocq
+with zero assumptions.
+
+The [locked-client replay](../../tools/tests/test_holdfast_locked_clients.py)
+instantiates public guarantees through opaque provider calls. Two independent
+Rocq consumers replay with zero assumptions. An isolated client applies the
+result of `MakeReader(0)` to `7` and reaches the producer precondition refusal.
+The previous bundle retains its exact bytes.
+
+The [pattern implication fixtures](../../tools/toolchain/elaboration_check.py)
+replay two contract postconditions and six independent Boolean outcomes
+through the native parser and Rocq with zero solver-trusted assumptions.
+A pattern binding introduced under disjunction and a reference beyond the
+implication each refuse at the unresolved name.
+
 <a id="q25dv-complete-the-wider-semantic-editor-and-client-qualification"></a>
 
 #### Q25dv · Complete the wider semantic editor and client qualification
@@ -2490,3 +2510,17 @@ editions obtain their own import behavior from the importing package's lock
 entry. Tests exercise shadowing, reordered imports and same-tail collisions.
 [Module regression](../../tools/tests/test_holdfast_elaborate.py) ·
 [Locked-package regression](../../tools/tests/test_holdfast_packages.py)
+
+<a id="q25el-publish-canonical-authoring-defaults-for-new-packages"></a>
+
+## Q25el ? Publish canonical authoring defaults for new packages
+
+The [locked package authoring checks](../tooling/authoring-tools.md#locked-package-authoring)
+share one formatter between `math-2` root builds, explicit file repair and
+stdin editor formatting. Builds report advisory lint findings from the
+locked module context. The [two-module trial](../../tools/tests/test_holdfast_package_authoring.py)
+checks a qualified sibling import and a public constant upgrade. It exercises
+layout refusal, byte and timestamp preservation, repair, and stale-lock
+refusal. The Windows runner dispatches the editor stream to the guest
+formatter. The minimized generated failure, package-trial marked documentation
+and fresh Windows and Linux installation runs remain open.
