@@ -2572,5 +2572,9 @@ The read-only `ref Span` case preserves the read view's post-state.
 The controls reject the stale lock and retained bundle, a hidden read, a write
 followed by restoration, the unchanged caller after widening the provider,
 and an out-of-package internal call. A caller with the widened bound replays.
-Checked release frontend correspondence remains open.
+Named call effects follow the resolved declaration through qualified and
+selective aliases. An identically named declaration in another module cannot
+satisfy that bound. The fixture also refuses omitted bounds on recursive and
+indirect helper calls and an omitted write on an `out` initializer.
+Mandatory release export bounds and checked frontend correspondence remain open.
 [Locked effect replay](../../tools/tests/test_holdfast_package_effects.py)
