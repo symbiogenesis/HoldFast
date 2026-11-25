@@ -253,6 +253,7 @@ class _RecordInvariant:
 @dataclass(frozen=True)
 class _RecordMethod:
     returns_receiver_loan: bool
+    reads_receiver: bool
     name: str
     method_const: str
     binding: _Binding

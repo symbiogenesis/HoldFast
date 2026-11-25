@@ -1968,6 +1968,8 @@ class _IntrinsicsMixin:
         self.site = node
         if recv_node is not None:
             self.checked_receivers[tuple(cast("list[int]", node["span"]))] = loans._Receiver("shared", None, rmethod.returns_receiver_loan)
+            if rmethod.reads_receiver:
+                self._note_runtime_access(recv_node, self.runtime_reads)
             unwrapped_recv = self._unwrap_group(recv_node)
             if unwrapped_recv["kind"] == "name":
                 r_vname = self.name(unwrapped_recv["name"])

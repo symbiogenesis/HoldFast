@@ -786,6 +786,9 @@ class _DeclarationsMixin:
             named_calls, callback_positions = self._split_effect_calls(m_effect_calls, m_params, method_env)
             self.callable_effect_calls[m_emitted] = named_calls
             self.callable_callback_effects[m_emitted] = callback_positions
+            self.callable_effect_reads[m_emitted] = {
+                i for i, p in enumerate(m_params) if p["name"] and self.name(p["name"]) in m_effect_reads
+            }
             self.callable_effect_writes[m_emitted] = {
                 i for i, p in enumerate(m_params) if p["name"] and self.name(p["name"]) in m_effect_writes
             }
@@ -849,6 +852,7 @@ class _DeclarationsMixin:
             name=method_name,
             method_const=m_emitted,
             returns_receiver_loan=loans._returns_borrow_from(member_node["result"], "this"),
+            reads_receiver="this" in m_effect_reads,
             binding=m_binding,
             method_generics=len(m_generics),
             param_labels=tuple(m_param_labels),
@@ -2718,7 +2722,7 @@ class _DeclarationsMixin:
                 and self.final_ref_bindings[rname].term != self.entry_env[rname].term
             ):
                 used_var_ids |= self.free(self.final_ref_bindings[rname].term)
-        if self_var is not None and cast("int", self_var.value) in used_var_ids:
+        if self_var is not None and ("this" in self.runtime_reads or cast("int", self_var.value) in used_var_ids):
             reads.add("this")
         borrowed_read_candidates: list[tuple[str, int]] = []
         for p_node in parameters:
