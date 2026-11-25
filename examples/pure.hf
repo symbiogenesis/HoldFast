@@ -5,10 +5,11 @@ module Oracle;
 /// Computes the cube of a natural number.
 public const Nat Cube(Nat x,) => x * x * x;
 
-/// Supplies the configured base value.
+/// The base for the upper bound in Choose.
 public const Nat Base = 2;
 
-/// Compares the cubed input using the selected branch.
+/// Tests whether Cube(x + 1) is at most Cube(Base) + 1 when flag is true.
+/// When flag is false, tests whether Cube(x + 1) equals zero.
 public bool Choose(bool flag, Nat x)
 {
     let Nat y = Cube(x: x + 1,);

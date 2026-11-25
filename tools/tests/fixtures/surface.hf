@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Whole-file grammar coverage for the [surface parser](../../../docs/tooling/parser.md).
+// Whole-file syntax fixture for the [surface parser](../../../docs/tooling/parser.md).
 module HoldFast.Surface;
 
 public const usize FirstOffset = 0usize;
@@ -52,7 +52,7 @@ public void Fill<ghost Nat count>(ref Span<byte, count> target, byte value)
     }
 }
 
-// Collection loops preserve explicit value and element-loan modes.
+// Collection loops cover value binding, shared element loans and exclusive element loans.
 public void Visit<Source, Target>(ref Target target, in Source source)
     where Source : ISequenceModel<Source, byte>
     where Target : IBoundedIterable<Target, byte>
@@ -81,7 +81,8 @@ public void Visit<Source, Target>(ref Target target, in Source source)
     }
 }
 
-// Raw string literals and buffer-writing format templates avoid heap allocation.
+// The raw string includes literal quotes and a backslash. The format templates
+// exercise escaped braces and formatted fields in calls that take a buffer loan.
 public const Span<byte> HeaderBanner = """
     HOLDFAST-PACKET "v1" \raw
     """;
@@ -113,7 +114,7 @@ on cancel
     return Cancelled(packet: move packet);
 }
 
-// A callable's parameter telescope also binds its result indices and use grades.
+// The parameter length indexes the result. The generic grade q annotates seed.
 public alias Build<captures C, grade q : NatExact> =
     Fn(usize length, byte seed @ q) -> Buffer<byte, length> captures C;
 
@@ -139,7 +140,7 @@ public Initialization<n> Prepare<ghost Nat n>(
     return Ready(buffer: move buffer, receipt: move receipt);
 }
 
-// Products carry several resources through the same construction/elimination forms.
+// A tuple carries the owned packet and tracked permit through construction and destructuring.
 public (owned Packet<n>, tracked Permit<n>) Pair<ghost Nat n>(
     owned Packet<n> packet, tracked Permit<n> permit)
 {
@@ -155,7 +156,7 @@ public Unit ForwardPair<ghost Nat n>((owned Packet<n>, tracked Permit<n>) pair)
     return ();
 }
 
-// Higher-order libraries accept the same operator values as grade dictionaries.
+// Parentheses turn the infix operator into an argument to Fold.
 public definition Nat SumValues(Seq<Nat> values) => Fold((+), 0, values);
 
 // Constructor elimination reuses the patterns of matches and pattern tests.
@@ -180,7 +181,7 @@ public Result<ref<'workspace.bytes> byte, Error> First(ref Workspace workspace)
     return Ok(child);
 }
 
-// The library brackets guards; the caller examines every represented outcome.
+// WithTryWrite takes a scoped callback and returns one of three outcomes.
 public Result<Unit, BorrowError> ReplaceByte(ref BorrowCell<byte> cell, byte value)
 {
     let outcome = cell.WithTryWrite((scoped ref byte selected @ NatExact(1)) =>
@@ -228,7 +229,7 @@ public impl<T, grade q : NatExact> IDuplicate<Graded<T, q>>
         ensures Preserved(old(value), result);
 }
 
-// The callback binds its own region; its restoration belongs to the callable.
+// This callable binds a loan region and declares its own restoration condition.
 public alias ScopedUpdate<T, captures C> =
     Fn<region 'loan>(scoped ref<'loan> T value) -> Unit captures C
         with
@@ -256,7 +257,7 @@ public Result<ref<'workspace.bytes> byte, Error> ForwardSlot(ref Workspace works
     };
 }
 
-// Resource contracts use the same forms on containers and effect operations.
+// Container contracts, member contracts and borrow restoration use the obligation syntax.
 public interface ILoanStorage<T> requires StorageLaws(T)
 {
     ref<'input> T First(ref Span<T> input)
@@ -272,8 +273,8 @@ public struct Stored<T, grade q : NatExact>
     public void Release() requires Disposable(this) ensures Disposed(this);
 }
 
-// Selective invariant lifting opens only the named clauses during multi-step updates;
-// two-step bulk relocation separates byte/capability copy from linear type transfer.
+// The open block lifts the initialized-prefix and vacant-suffix clauses. Relocation
+// copies the representation before transferring the linear type.
 public struct BoundedBuffer<T, ghost Nat capacity>
     invariant LengthBound: Nat(this.length) <= capacity
     invariant InitializedPrefix: LivePrefix(this.slots, 0usize, this.length)
@@ -314,7 +315,7 @@ public effect Exchange<T> requires Representable(T) invariant Closed(Storage)
         effects writes(Storage);
 }
 
-// A clause can explicitly forward through an outer capability using an ordinary call.
+// The inner handler forwards Choose by calling it on the outer capability.
 public Nat ForwardChoice()
 {
     return handle (handle (inner.Choose()) as inner
@@ -328,7 +329,7 @@ public Nat ForwardChoice()
     };
 }
 
-// Type families and resource libraries reuse ordinary definitions and contracts.
+// The result type of this match is itself a universe.
 universe u;
 public definition Type<u> RepeatedType<T : Type<u>>(bool repeated)
     where T : IRepeatable<T>
@@ -338,7 +339,7 @@ public definition Type<u> RepeatedType<T : Type<u>>(bool repeated)
         false => type T,
     };
 
-// Type-valued library functions can supply types throughout the same surface.
+// A computed type appears in an alias, a result, local annotations and generic arguments.
 public alias Repeated<T : Type<u>, ghost bool repeated>
     where T : IRepeatable<T>
     = type[RepeatedType<T>(repeated)];
@@ -356,7 +357,7 @@ public void UseRepeated<T : Type<u>>(bool repeated, T source)
     Consume(move boxed);
 }
 
-// Empty sums use the ordinary dependent eliminator, without an abort primitive.
+// An empty match eliminates the uninhabited Never type.
 public inductive Never
 {
 }
@@ -365,7 +366,7 @@ public definition T Absurd<T>(Never impossible) =>
     {
     };
 
-// Literal discrimination composes with the same indexed-result match syntax.
+// Character patterns cover a plain character, an escaped character and a wildcard arm.
 public definition Nat ClassifyCharacter(char value) => match (value)
 {
     'a' => 1,
@@ -403,8 +404,7 @@ public void UpdateCell<T : Type<u>>(ref LocalCell<T> cell)
     cell.WithWrite(update);
 }
 
-// Product grades are ordinary dictionary applications over pair values.
-// Compatible supplies the interaction laws for the product.
+// The product domain combines two grade dictionaries and requires their compatibility.
 public domain Product<A : GradeDomain, B : GradeDomain>
     requires Compatible(A, B)
 {
@@ -431,8 +431,8 @@ public Nat ReadAndApply(
     return retained.Value(observed);
 }
 
-// Unary continuation disposal and a handler's disposal graph have distinct roles.
-// The graph takes a reason; capture and ordinary return do not invoke it.
+// The failure arm disposes its continuation. The dispose clause receives the reason
+// and specifies cleanup for that exit.
 public Result<Nat, Error> ReadGuarded(owned Guard resource)
 {
     return handle (ReadOrFail(in resource)) as running
@@ -451,7 +451,6 @@ public Result<Nat, Error> ReadGuarded(owned Guard resource)
     };
 }
 
-// Short functions keep the same contracts, ownership and evaluation rules.
 public Nat Increment(Nat value,)
     requires value < 10
     ensures result == value + 1

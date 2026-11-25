@@ -1,29 +1,28 @@
 // SPDX-License-Identifier: Apache-2.0
-// Required-static constants and runtime arguments.
+// Required-static inputs can determine a multiplier for runtime samples.
 module Constants;
 
-/// Computes the square at compile time or runtime.
+/// Squares a natural number in either a static evaluation or an ordinary call.
 public const Nat Square(Nat value) => value * value;
 
-/// Supplies the static gain configuration.
+/// The gain used by Process and StaticResult.
 public const Nat Gain = 4;
 
-// The plan is static; samples arrive at runtime.
-/// Applies a statically configured multiplier to a runtime sample.
+/// Multiplies a runtime sample by the square of the required-static gain.
 public Nat Scale(const Nat gain, Nat sample)
 {
     const Nat multiplier = Square(gain);
     return multiplier * sample;
 }
 
-/// Preserves the static gain requirement while forwarding a sample.
+/// Passes the required-static gain and runtime sample to Scale.
 public Nat Forward(const Nat gain, Nat sample) => Scale(gain: gain, sample: sample);
 
-/// Processes a sample with the configured gain.
+/// Multiplies a sample by the configured gain squared.
 public Nat Process(Nat sample) => Forward(gain: Gain, sample: sample);
 
-/// Evaluates the configured square during compilation.
+/// The square of the configured gain, evaluated during compilation.
 public const Nat StaticResult = Square(Gain);
 
-/// Calls the same square function with a runtime value.
+/// Squares an input that can be supplied at runtime.
 public Nat RuntimeSquare(Nat value) => Square(value);

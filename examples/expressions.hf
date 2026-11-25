@@ -1,22 +1,22 @@
 // SPDX-License-Identifier: Apache-2.0
 module Expressions;
 
-/// Returns zero when the used amount exceeds the total.
+/// Subtracts used from total, returning zero when used exceeds total.
 public Nat Remaining(Nat total, Nat used) => Nat.SaturatingSub(total, used);
 
-/// Negation binds tighter than comparisons, conjunction, then disjunction.
+/// Allows an unpaused request with a value from 3 through 9 or a value of 20.
 public bool Allowed(Nat value, bool paused)
 {
     return !paused && (value >= 3 && value < 10 || value == 20);
 }
 
-/// Equality and inequality compare two values of the same type.
+/// Tests whether the Boolean value changed.
 public bool Changed(bool before, bool after) => before != after;
 
-/// Reversed comparisons still evaluate their left operand first.
+/// Tests whether the total strictly exceeds the used amount.
 public bool HasRoom(Nat total, Nat used) => total > used;
 
-/// Subtracts the fixed adjustment when the scaled value covers it.
+/// Scales the value, then subtracts four if the result is large enough. Otherwise returns zero.
 public Nat Adjusted(Nat value)
 {
     let scaled = value * 3 + 2;
@@ -30,7 +30,7 @@ public Nat Adjusted(Nat value)
     }
 }
 
-/// A zero size permits no complete groups.
+/// Counts complete groups, returning zero when the group size is zero.
 public Nat Groups(Nat count, Nat size)
 {
     if (size != 0)
@@ -43,7 +43,7 @@ public Nat Groups(Nat count, Nat size)
     }
 }
 
-/// At size zero every item stays ungrouped.
+/// Counts ungrouped items, returning the full count when the group size is zero.
 public Nat Leftover(Nat count, Nat size)
 {
     if (size != 0)
