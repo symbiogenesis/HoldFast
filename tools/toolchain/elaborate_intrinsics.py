@@ -1687,9 +1687,19 @@ class _IntrinsicsMixin:
                 if i == j or root != other_root:
                     continue
                 other = positions.get(j, shared_positions.get(j))
-                # An index is relative to its collection. Two views of one backing
-                # owner may use different coordinates for the same element.
-                if name == other_name and other is not None:
+                if (other is not None and name != other_name and j in shared_positions
+                        and name is not None and name == root and other_name is not None):
+                    # A derived shared slice can be compared in the exclusive owner's
+                    # coordinates if it still denotes a view of that exact owner.
+                    slice_head, slice_args = self.spine(self.whnf(environment[other_name].term))
+                    if (slice_head == _constant("Span_Slice") and len(slice_args) == 4
+                            and self.whnf(slice_args[1]) == self.whnf(environment[name].term)):
+                        other = self._add_usize_offset(slice_args[2], other)
+                    else:
+                        other = None
+                elif name != other_name:
+                    other = None
+                if other is not None:
                     index_type = self.whnf(self.infer(pos))
                     ne = _constant("!=") if index_type == _NAT else _constant("int_ne_usize")
                     if self.whnf(self.infer(other)) == index_type and self._prove_bool_precondition(
