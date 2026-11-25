@@ -121,6 +121,8 @@ def _space(left: Part, right: Part, roles: dict[int, str]) -> bool:
     if left.comment or right.comment:
         return True
     before, after = left.spelling, right.spelling
+    if before == b"?" and after in (b"?", b"."):
+        return True
     if after == b":" and roles.get(left.start) == "constraint_parameter":
         return True
     if after in (b";", b",", b".", b":", b")", b"]", b"?") or before in (b".", b"(", b"["):
