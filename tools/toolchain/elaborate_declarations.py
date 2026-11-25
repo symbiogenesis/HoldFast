@@ -264,6 +264,8 @@ class _DeclarationsMixin:
         is_pub = self._public_visibility(modifiers, node)
         if is_pub:
             self.public_symbols.add(name)
+        elif self.package_instance is not None and node["kind"] == "function" and "internal" in modifiers:
+            self.internal_symbols.add(name)
         else:
             self.private_symbols.add(name)
         return is_pub
@@ -1200,29 +1202,32 @@ class _DeclarationsMixin:
             directive = f"Opaque {name}."
             if directive not in existing_out:
                 self.output.append(directive)
-        for priv_sym in mod.private_symbols:
+        siblings = self.package_instance is not None and self.package_instance == mod.package_instance
+        accessible = mod.public_symbols | mod.internal_symbols if siblings else mod.public_symbols
+        inaccessible = mod.private_symbols if siblings else mod.private_symbols | mod.internal_symbols
+        for priv_sym in inaccessible:
             self.inaccessible_private_symbols[f"{namespace}.{priv_sym}"] = imp_name
             if not qualified_only and "items" not in node and priv_sym not in self.globals:
                 self.inaccessible_private_symbols[priv_sym] = imp_name
-        for pub_sym, bindings in self._import_bindings(node, namespace, mod.public_symbols, qualified_only=qualified_only).items():
+        for symbol, bindings in self._import_bindings(node, namespace, accessible, qualified_only=qualified_only).items():
             for visible_name in bindings:
-                if pub_sym in mod.union_ctors and not visible_name.rsplit(".", 1)[-1][:1].isupper():
+                if symbol in mod.union_ctors and not visible_name.rsplit(".", 1)[-1][:1].isupper():
                     raise self.fail("name", f"constructor import '{visible_name}' requires an uppercase initial", node)
                 if (visible_name in self.globals or visible_name in self.records or visible_name in self.unions
                         or visible_name in self.union_ctors or visible_name in self.interfaces
                         or visible_name in self.module_aliases):
                     raise self.fail("name", f"imported declaration '{visible_name}' from '{imp_name}' conflicts with an existing binding", node)
                 self.inaccessible_private_symbols.pop(visible_name, None)
-                if pub_sym in mod.globals:
-                    self.globals[visible_name] = mod.globals[pub_sym]
-                if pub_sym in mod.records:
-                    self.records[visible_name] = mod.records[pub_sym]
-                if pub_sym in mod.unions:
-                    self.unions[visible_name] = mod.unions[pub_sym]
-                if pub_sym in mod.union_ctors:
-                    self.union_ctors[visible_name] = mod.union_ctors[pub_sym]
-                if pub_sym in mod.interfaces:
-                    self.interfaces[visible_name] = mod.interfaces[pub_sym]
+                if symbol in mod.globals:
+                    self.globals[visible_name] = mod.globals[symbol]
+                if symbol in mod.records:
+                    self.records[visible_name] = mod.records[symbol]
+                if symbol in mod.unions:
+                    self.unions[visible_name] = mod.unions[symbol]
+                if symbol in mod.union_ctors:
+                    self.union_ctors[visible_name] = mod.union_ctors[symbol]
+                if symbol in mod.interfaces:
+                    self.interfaces[visible_name] = mod.interfaces[symbol]
         for iface_name, mod_inst_list in mod.impls.items():
             target_list = self.impls.setdefault(iface_name, [])
             for inst in mod_inst_list:
@@ -2874,7 +2879,9 @@ class _DeclarationsMixin:
                 or name in {"Type", "_", "this"} or "." in name):
             raise self.fail("name", f"duplicate or reserved declaration '{name}'")
         public = self._record_visibility(name, modifiers, node)
-        infer_effects = kind == "function" and not public and "internal" not in modifiers and not effects_clauses
+        infer_effects = kind == "function" and not public and not effects_clauses and (
+            "internal" not in modifiers or name in self.internal_symbols
+        )
         summarize_definition = kind == "definition" and not effects_clauses
         raw_generics = [] if kind in {"constant", "property"} else self.nodes(node["generics"])
         generics, decl_regions = self._extract_regions(raw_generics)

@@ -159,10 +159,14 @@ and supports the following features.
   The antecedent short-circuits on its first false conjunct. The
   [surface scope rules](../language/surface-grammar.md#pattern-test-scope)
   define which patterns contribute bindings.
-- A file-private, nonrecursive top-level function can omit its `effects` clause
-  when every direct user-function call has a closed footprint. Inference
-  includes transient writes and uses the same conservative accounting for
-  borrowed reads as an explicit bound. A transparent mathematical definition
+- A file-private or locked-package `internal` nonrecursive top-level function
+  can omit its `effects` clause when every direct user-function call has a
+  closed footprint. Only sibling modules of the same locked package instance
+  can import the `internal` function. Inference includes transient writes and
+  uses the same conservative accounting for borrowed reads as an explicit
+  bound. A closed write bound preserves the caller's current value for any
+  `ref` argument outside that bound, including calls across an opaque module
+  interface. A transparent mathematical definition
   records the positions of callbacks it invokes, including forwarding through
   another definition. A fully applied call can discharge those positions with
   a named function checked to have empty effects, or with a capture-free

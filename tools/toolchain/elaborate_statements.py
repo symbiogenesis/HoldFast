@@ -1061,7 +1061,8 @@ class _StatementsMixin:
         if self.guard_value:
             raise self.fail("unsupported", "a pattern guard used as a value cannot model a mutable loan update; "
                             "use an if statement", target)
-        self.last_call_updates.append((target, value, index))
+        if writes:
+            self.last_call_updates.append((target, value, index))
 
     def _consume_call_updates(
         self: _Elaborator, updated: dict[str, _Binding], site: Node
