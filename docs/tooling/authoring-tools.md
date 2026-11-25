@@ -1,8 +1,10 @@
 # HoldFast formatting, documentation and lints
 
-The [pure compiler](pure-prototype.md) and [mathematical compiler](elaboration-prototype.md)
-format source and report advisory lints after checking the whole file. The
-[surface grammar](../language/surface-grammar.md) defines valid syntax.
+The [pure](pure-prototype.md) and [mathematical](elaboration-prototype.md)
+compilers supply formatters and advisory lints. Checked formatting requires
+semantic acceptance. Editor formatting and `holdfast-parser fmt --syntax-only`
+require a complete syntax tree. The [surface grammar](../language/surface-grammar.md)
+defines valid syntax.
 
 ## Common style
 
@@ -33,7 +35,7 @@ follow the selected compiler's supported subset.
 ```text
 module Example;
 
-/// Computes the configured capacity.
+/// Sets the configured capacity.
 public const Nat Capacity = 1_024;
 
 /// Scales a count by the configured capacity.
@@ -52,6 +54,19 @@ the value and counts digits against the literal limit.
 
 ## Documentation comments
 
+Consecutive `///` lines directly preceding a declaration form its documentation.
+The presentation strips the three slashes and at most one following space.
+The source retains the original text and positions. A blank line, ordinary
+comment or intervening source token breaks attachment. Orphan documentation
+remains a comment. Formatting must preserve attachment and every comment's
+content.
+
+The pure compiler attaches documentation to resolved public function and
+constant declarations. Hover presents it as bounded plain text at the
+declaration and its references. XML-looking text stays literal. Documentation
+comments carry no semantic or proof authority.
+[LSP projection](lsp-prototype.md#pure-navigation-increment)
+
 ### Checked examples in Markdown
 
 Use a `holdfast-check` fence for a complete pure module intended to check.
@@ -61,18 +76,6 @@ through the [pure compiler](pure-prototype.md#source-fragment) and reports the
 document location when it produces a different verdict. Reserve ordinary
 fences for fragments and illustrative syntax. Keep any minimized generated
 failure as a replayable regression in the owning tool's tests.
-
-Consecutive `///` lines directly preceding a declaration form its documentation.
-Strip the three slashes and at most one following space for presentation; retain
-original UTF-8 text and source positions. A blank line, ordinary comment or
-intervening source token breaks attachment. Orphan documentation remains a
-comment. Formatting must preserve attachment and every comment's content.
-
-The pure compiler attaches documentation to resolved public function and
-constant declarations. Hover presents it as bounded plain text at the
-declaration and its references. XML-looking text stays literal. Documentation
-comments carry no semantic or proof authority.
-[LSP projection](lsp-prototype.md#pure-navigation-increment)
 
 ## Compiler commands and publication
 
@@ -90,12 +93,12 @@ the same formatter on demand.
 | `holdfast lint SOURCE` | Report the supported lint set without rewriting. |
 | Editor formatting | Offer layout for a complete supported syntax tree, including buffers with semantic errors. The editor applies the proposed edit. |
 
-`--no-lint` disables optional lints, never parser, type, constant-evaluation or
-proof obligations. A style difference alone does not reject ordinary check or
-emission; CI can select the explicit formatting-check mode. Read-only source
-files remain usable by source-preserving commands when their requested output
-locations are writable. Unsaved editor snapshots are checked at their own identity
-and never published into the source file by the compiler.
+Pure `check` and `emit` accept `--no-lint` to disable their advisory lints.
+Both commands still perform syntax, type and constant-evaluation checks. A
+style difference fails only when the pure command requests `--format check`
+or `fmt --check`. Source-preserving commands can read a read-only source when
+the requested output location is writable. The compiler checks unsaved editor
+snapshots under their own identity, and the editor owns any source write.
 
 For a checked formatting write, validate the complete source, reparse and
 recheck the formatted candidate, establish token/comment preservation and

@@ -10,7 +10,8 @@ The [Menhir grammar and lexer](parser.md) own syntax. The
 [generator](../../tools/toolchain/highlight.py) translates Menhir productions,
 expands parameterized list rules and removes semantic actions. It emits explicit
 GLR conflicts for lexical contexts that Menhir's lexer classifies with lookahead.
-The TextMate keyword inventory and Tree-sitter query use the same compiler lexer.
+The TextMate keyword inventory and Tree-sitter query derive their keywords from
+the compiler lexer source.
 The [external scanner](../../tools/editor/tree-sitter/src/scanner.c)
 handles nested block comments, arbitrary raw-string quote delimiters and bounded
 interpolation nesting. Generated upstream C parser/runtime files and consumer
@@ -35,10 +36,10 @@ Check and qualification preserve authored source bytes.
 ## Executable qualification
 
 Provision the exact consumers recorded in
-[THIRD-PARTY.md](../../THIRD-PARTY.md#independent-syntax-consumers), retaining their
-licenses and notices beside the external packages. Qualification performs no
-downloads or installation. On Windows, the following command dispatches to WSL;
-use guest paths for consumer arguments:
+[THIRD-PARTY.md](../../THIRD-PARTY.md#independent-syntax-consumers) before
+qualification. Keep their licenses and notices beside the external packages.
+The Windows runner dispatches this invocation to WSL. Supply consumer paths as
+seen from WSL.
 
 ```powershell
 python tools/run.py holdfast-highlight qualify `

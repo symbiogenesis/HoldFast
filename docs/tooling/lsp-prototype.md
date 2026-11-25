@@ -38,9 +38,9 @@ Only complete sources accepted by the pure checker provide navigation; incomplet
 or unsupported code continues to receive the producer's diagnostic.
 Editors with standard inlay-hint support can also show inferred local `Nat` and
 `bool` types through the [authoring-hint provider](#authoring-hints).
-The [pure editor operations](#pure-editor-operations) supply full semantic tokens
-for resolved identifiers and standard document formatting. A formatting request
-offers the compiler's canonical layout as an edit for the client to apply.
+The [pure editor operations](#pure-editor-operations) supply semantic tokens
+for resolved identifiers, with delta updates for supporting clients, and offer
+the compiler's canonical layout as a formatting edit for the client to apply.
 The [discovery providers](#callable-discovery) offer explicit callable and value
 completion edits and argument-sensitive signature help in completely checked
 pure source. [Single-expression recovery](#single-expression-recovery-completion)
@@ -92,7 +92,8 @@ compiler's resolution facts.
 | Work and concurrency | One synchronous check at a time, isolated worker timeout 5 seconds; no queued/background work or late publication |
 
 Unsupported language constructs receive the producer's explicit unsupported
-diagnostic. Empty diagnostics mean only that the prototype reported no error.
+diagnostic. An empty diagnostic list can reflect a successful check, a close,
+or a refused update that cleared earlier diagnostics.
 Every reply, including initialization and errors, must fit the frame bound.
 An oversized initialization result returns RequestFailed without initializing the
 session. Error replies retain correlation when a bounded refusal can carry the
@@ -543,9 +544,7 @@ invalidate the complete source snapshot, including navigation and diagnostics.
 
 Wire tests check UTF-8 framing, strict JSON, lifecycle, overlay edits and
 bounded refusals. Coordinate tests use independent UTF-8 and UTF-16
-expectations for mixed line endings and supplementary characters. An invalid
-update preserves the previous snapshot and desynchronizes the document.
-The server accepts source text through overlays.
+expectations for mixed line endings and supplementary characters.
 
 `python tools/run.py holdfast-lsp --qualify-clients`
 ([`lsp_clients.py`](../../tools/toolchain/lsp_clients.py)) executes the two

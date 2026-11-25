@@ -292,9 +292,10 @@ identities describe development inspection inputs; they supply no checked source
 correspondence, kernel or runtime-artifact acceptance. The isolated producer uses
 the existing checked-parser runtime qualification and integrity checks.
 
-`holdfast inspect SOURCE --query REQUEST.json` accepts a strict object with `schema: 7`,
-the exported `snapshot` digest and one `operation`: `symbols`, `symbol-at` or
-`type-at` with a byte `offset`, or `references` with a snapshot-scoped `symbol` handle.
+`holdfast inspect SOURCE --query REQUEST.json` accepts an object with `schema: 7`,
+the exported `snapshot` digest and one `operation`. `symbols` lists declarations.
+`symbol-at` and `type-at` require a byte `offset`. `references` requires a
+snapshot-scoped `symbol` handle.
 `tokens` returns the full concrete partition subject to the query limit;
 `token-at` with a byte `offset` selects its containing token or trivia piece.
 Piece spans are half-open; source EOF selects no piece.
@@ -332,17 +333,17 @@ and worker replies missing the required views are refused.
 Bulk inspection retains the existing 65,536-byte source, 1,024-declaration and
 4,096-occurrence bounds, with additional 16,384-piece concrete, 8,192-node syntax
 and 8,192-expression bounds, a 2,048-scope bound and a
-1,048,576-byte compact export bound. Exceeding either publication bound clears
-all semantic, concrete, syntax, expression and scope facts; a truncated partition or tree cannot claim completeness.
-Queries report
-the total result count; truncation returns `partial`, `complete: false` and
-`result-limit`. Only a complete successful pure check or query reports `checked`
-and `complete: true`. Invalid or unsupported source yields `unavailable` with no
-semantic facts, worker timeout yields `timed-out`, and unsupported operations or
-targets yield `unsupported`. Malformed requests, stale identities and producer
-changes yield `refused`. Source text remains available in failed bulk inspections;
-empty semantic arrays carry no successful absence claim. The CLI returns success
-only for `checked` and preserves the source file.
+1,048,576-byte compact export bound. If a view exceeds its bound or the encoded
+export is too large, bulk inspection returns an incomplete snapshot with empty
+fact arrays. Queries report the total result count and mark limited results
+`partial` with `complete: false` and reason `result-limit`. A complete successful
+pure check or query reports `checked` and `complete: true`. Refused source that
+fits the input envelope yields `unavailable` with the source text and empty fact
+arrays. A worker timeout yields `timed-out`. Unsupported operations or targets
+yield `unsupported`. Invalid query fields, stale identities and changed producers
+yield `refused`. The CLI rejects malformed UTF-8 or JSON before publishing a
+snapshot or query result. It returns success only for `checked` and preserves
+the source file.
 
 The independent [offline reader](../../tools/toolchain/inspection_reader.py) consumes
 serialized bulk exports through
