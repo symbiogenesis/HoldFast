@@ -751,7 +751,7 @@ public record BoundedRange(u32 Low, u32 High)
 {
     public definition u32 Width() => High - Low;
     public BoundedRange AdvanceLow(u32 delta)
-        where delta <= this.Width()
+        requires delta <= this.Width()
         ensures result.Low == Low + delta
     {
         return this with { Low = Low + delta };
@@ -834,49 +834,55 @@ public Nat ReuseBlockOutputs()
     InitPair(0, out var a, out var b);
     return total + b;
 }
-public interface Steppable<T> {
-    T Step(T x);
-    lemma StepSelf(T x) ensures Step(x) == Step(x);
+public interface ISteppable<T> {
+    T Step(in T x);
+    lemma StepSelf(T x) ensures T.Step(in x) == T.Step(in x);
 }
-public impl Steppable<Nat> {
-    public definition Nat Step(Nat x) => x + 1;
-    lemma StepSelf(Nat x) ensures Step(x) == Step(x) proof {
-        assert Step(x) == Step(x);
+public impl ISteppable<Nat> {
+    public definition Nat Step(in Nat x) => x + 1;
+    lemma StepSelf(Nat x) ensures Nat.Step(in x) == Nat.Step(in x) proof {
+        assert Nat.Step(in x) == Nat.Step(in x);
     }
 }
 public T StepTwice<T>(T x)
-    where Steppable(type T)
+    where T : ISteppable<T>
 {
     let once = x.Step();
-    return Steppable.Step(once);
+    return T.Step(in once);
 }
 public lemma StepTwiceCheck()
     ensures StepTwice(5) == 7
     proof { assert StepTwice(5) == 7; }
 """),
         ("interface-external-labels", """module InterfaceLabels;
-public interface I<T> { T Get(T local as published); }
-public impl I<Nat> { public definition Nat Get(Nat other) => other; }
-public impl I<bool> { public definition bool Get(bool other as published) => other; }
-lemma Labels() ensures I.Get(published: 3) == 3 ensures I.Get(published: true) == true
-    proof { assert I.Get(published: 3) == 3; assert I.Get(published: true) == true; }
+public interface IReadable<T> { T Get(T local as published); }
+public impl IReadable<Nat> { public definition Nat Get(Nat other) => other; }
+public impl IReadable<bool> { public definition bool Get(bool other as published) => other; }
+lemma Labels() ensures Nat.Get(published: 3) == 3 ensures bool.Get(published: true) == true
+    proof { assert Nat.Get(published: 3) == 3; assert bool.Get(published: true) == true; }
 """),
-        ("interface-name-and-arity-resolution", """module InterfaceResolutionReplay;
-public interface Unary<T> { T Advance(T x); }
-public interface Binary<T> { T Advance(T x, T y); }
-public impl Unary<Nat> { public definition Nat Advance(Nat x) => x + 1; }
-public impl Binary<Nat> { public definition Nat Advance(Nat x, Nat y) => x + y; }
-public definition Nat UnaryCall() => Advance(5);
-public definition Nat BinaryCall() => Advance(5, 3);
+        ("interface-type-and-arity-resolution", """module InterfaceResolutionReplay;
+public interface IUnary<T> { T Advance(T x); }
+public interface IBinary<T> { T Advance(T x, T y); }
+public impl IUnary<Nat> { public definition Nat Advance(Nat x) => x + 1; }
+public impl IBinary<Nat> { public definition Nat Advance(Nat x, Nat y) => x + y; }
+public definition Nat UnaryCall() => Nat.Advance(5);
+public definition Nat BinaryCall() => Nat.Advance(5, 3);
 public definition Nat Receiver(Nat x) => x.Advance();
 public definition Nat ReceiverBinary(Nat x) => x.Advance(3);
-public interface First<T> { T Step(T x); }
-public interface Second<T> { T Step(T x); }
-public impl First<Nat> { public definition Nat Step(Nat x) => x + 1; }
-public impl Second<bool> { public definition bool Step(bool x) => x; }
-public definition Nat Number() => First.Step(5);
-public definition Nat GenericReceiver() => First<Nat> /* café */ .Step(5);
-public definition bool Flag() => Second.Step(true);
+public interface IFirst<T> { T Step(T x); }
+public interface ISecond<T> { T Step(T x); }
+public impl IFirst<Nat> { public definition Nat Step(Nat x) => x + 1; }
+public impl ISecond<bool> { public definition bool Step(bool x) => x; }
+public definition Nat Number() => Nat.Step(5);
+public record Box<T>(T Value);
+public impl<T> IFirst<Box<T>> where T : IFirst<T> {
+    public definition Box<T> Step(Box<T> x) => Box(T.Step(x.Value));
+}
+public definition T StepBound<T>(T x) where T : IFirst<T> => T.Step(x);
+public definition Nat GenericReceiver() => Box<Nat> /* café */ .Step(Box(5)).Value;
+public definition Nat GenericWitness() => StepBound(Box(5)).Value;
+public definition bool Flag() => bool.Step(true);
 public record Callbacks(Fn(Nat value) -> Nat Invoke);
 public definition Nat Apply(Callbacks callbacks) => callbacks.Invoke(5);
 public lemma Values()
@@ -886,6 +892,7 @@ public lemma Values()
     ensures ReceiverBinary(5) == 8
     ensures Number() == 6
     ensures GenericReceiver() == Number()
+    ensures GenericWitness() == Number()
     ensures Flag() == true
     proof {
         assert UnaryCall() == 6;
@@ -894,7 +901,36 @@ public lemma Values()
         assert ReceiverBinary(5) == 8;
         assert Number() == 6;
         assert GenericReceiver() == Number();
+        assert GenericWitness() == Number();
         assert Flag() == true;
+    }
+"""),
+        ("interface-indexed-and-multiple-bounds", """module IndexedInterfaceReplay;
+public interface ISucc<T> { T Step(T x); }
+public interface IOffset<T, ghost Nat n> { T Offset(T x); }
+public impl ISucc<Nat> { public definition Nat Step(Nat x) => x + 1; }
+public impl IOffset<Nat, 3> { public definition Nat Offset(Nat x) => x + 3; }
+public interface IBounded<T> {
+    Nat Count(T x, Nat count) requires count <= 5 ensures result == count;
+}
+public impl IBounded<Nat> { public definition Nat Count(Nat x, Nat count) => count; }
+public definition Nat BoundedCount<T>(T x, Nat count)
+    where T : IBounded<T>
+    requires count <= 5
+    => T.Count(x, count);
+public definition T Advance<T>(T x) where T : ISucc<T>, IOffset<T, 3> => T.Offset(T.Step(x));
+public definition U AdvancePair<T, U>(T first, U second)
+    where T : ISucc<T>
+    where U : IOffset<U, 3>
+    => U.Offset(second);
+public lemma Values()
+    ensures Advance(5) == 9
+    ensures AdvancePair(1, 5) == 8
+    ensures BoundedCount(1, 5) == 5
+    proof {
+        assert Advance(5) == 9;
+        assert AdvancePair(1, 5) == 8;
+        assert BoundedCount(1, 5) == 5;
     }
 """),
         ("source-bound-borrows-disjoint-fields-and-mutation-invalidation", """module SourceBoundBorrowsReplay;
@@ -1232,38 +1268,53 @@ public Nat RoundTripOwned()
               ("match-continuation", "match (flag) { true => { Init(out var value); }, false => return 5;, }"),
           )),
         ("interface-blanket-impl",
-         "public interface IdIface<T> { T Id(T x); } "
-         "public impl<T> IdIface<T> { public definition T Id(T x) => x; }", "type"),
+         "public interface IIdentity<T> { T Id(T x); } "
+         "public impl<T> IIdentity<T> { public definition T Id(T x) => x; }", "type"),
         ("interface-overlapping-impl",
-         "public interface IdIface<T> { T Id(T x); } "
-         "public impl IdIface<Nat> { public definition Nat Id(Nat x) => x; } "
-         "public impl IdIface<Nat> { public definition Nat Id(Nat x) => x; }", "type"),
+         "public interface IIdentity<T> { T Id(T x); } "
+         "public impl IIdentity<Nat> { public definition Nat Id(Nat x) => x; } "
+         "public impl IIdentity<Nat> { public definition Nat Id(Nat x) => x; }", "type"),
         ("interface-missing-law",
-         "public interface Lawful<T> { T Act(T x); lemma SelfEq(T x) ensures Act(x) == Act(x); } "
-         "public impl Lawful<Nat> { public definition Nat Act(Nat x) => x; }", "type"),
-        ("interface-ambiguous-unqualified-method",
-         "public interface First<T> { T Step(T x); } public interface Second<T> { T Step(T x); } "
-         "public impl First<Nat> { public definition Nat Step(Nat x) => x + 1; } "
-         "public impl Second<Nat> { public definition Nat Step(Nat x) => x + 2; } "
-         "public definition Nat Wrong(Nat x) => Step(x);", "type"),
+         "public interface ILawful<T> { T Act(T x); lemma SelfEq(T x) ensures T.Act(x) == T.Act(x); } "
+         "public impl ILawful<Nat> { public definition Nat Act(Nat x) => x; }", "type"),
+        ("interface-ambiguous-implementing-type-method",
+         "public interface IFirst<T> { T Step(T x); } public interface ISecond<T> { T Step(T x); } "
+         "public impl IFirst<Nat> { public definition Nat Step(Nat x) => x + 1; } "
+         "public impl ISecond<Nat> { public definition Nat Step(Nat x) => x + 2; } "
+         "public definition Nat Wrong(Nat x) => Nat.Step(x);", "type"),
         ("interface-ambiguous-receiver-method-reordered",
-         "public interface Second<T> { T Step(T x); } public interface First<T> { T Step(T x); } "
-         "public impl Second<Nat> { public definition Nat Step(Nat x) => x + 2; } "
-         "public impl First<Nat> { public definition Nat Step(Nat x) => x + 1; } "
+         "public interface ISecond<T> { T Step(T x); } public interface IFirst<T> { T Step(T x); } "
+         "public impl ISecond<Nat> { public definition Nat Step(Nat x) => x + 2; } "
+         "public impl IFirst<Nat> { public definition Nat Step(Nat x) => x + 1; } "
          "public definition Nat Wrong(Nat x) => x.Step();", "type"),
-        ("interface-disjoint-types-require-qualification",
-         "public interface First<T> { T Step(T x); } public interface Second<T> { T Step(T x); } "
-         "public impl First<Nat> { public definition Nat Step(Nat x) => x + 1; } "
-         "public impl Second<bool> { public definition bool Step(bool x) => x; } "
-         "public definition Nat Wrong(Nat x) => Step(x);", "type"),
-        ("generic-interface-receiver-without-implementation",
-         "public interface First<T> { T Step(T x); } "
-         "public impl First<Nat> { public definition Nat Step(Nat x) => x + 1; } "
-         "public definition bool Wrong() => First<bool>.Step(true);", "type"),
-        ("interface-unsatisfied-where",
-         "public interface Steppable<T> { T Step(T x); } "
-         "public definition T UseStep<T>(T x) where Steppable(type T) => Steppable.Step(x); "
+        ("interface-bare-method-refused",
+         "public interface IFirst<T> { T Step(T x); } "
+         "public impl IFirst<Nat> { public definition Nat Step(Nat x) => x + 1; } "
+         "public definition Nat Wrong(Nat x) => Step(x);", "name"),
+        ("interface-qualified-method-refused",
+         "public interface IFirst<T> { T Step(T x); } "
+         "public impl IFirst<Nat> { public definition Nat Step(Nat x) => x + 1; } "
+         "public definition Nat Wrong(Nat x) => IFirst<Nat>.Step(x);", "name"),
+        ("generic-interface-receiver-without-constraint",
+         "public interface IFirst<T> { T Step(T x); } "
+         "public impl IFirst<Nat> { public definition Nat Step(Nat x) => x + 1; } "
+         "public definition T Wrong<T>(T x) => T.Step(x);", "type"),
+        ("interface-unsatisfied-constraint",
+         "public interface ISteppable<T> { T Step(T x); } "
+         "public definition T UseStep<T>(T x) where T : ISteppable<T> => T.Step(x); "
          "public definition bool Wrong() => UseStep(true);", "type"),
+        ("interface-constraint-on-wrong-parameter",
+         "public interface ISteppable<T> { T Step(T x); } "
+         "public definition T Wrong<T, U>(T x) where T : ISteppable<U> => x;", "type"),
+        ("interface-copy-of-an-unconstrained-receiver",
+         "public interface ISteppable<T> { T Step(T x); } "
+         "public T Wrong<T>(T x) where T : ISteppable<T> => x.Step();", "type"),
+        ("interface-call-missing-precondition",
+         "public interface IBounded<T> { Nat Count(T x, Nat count) requires count <= 5; } "
+         "public definition Nat Wrong<T>(T x, Nat n) where T : IBounded<T> => T.Count(x, n);", "type"),
+        ("interface-impl-violates-postcondition",
+         "public interface IBounded<T> { Nat Count(T x, Nat count) ensures result == count; } "
+         "public impl IBounded<Nat> { public definition Nat Count(Nat x, Nat count) => count + 1; }", "type"),
         ("borrow-mutate-owner-while-shared-live",
          "public u32 Wrong() { var x = 5u32; let r = in x; x = 6u32; return r; }", "type"),
         ("borrow-read-owner-while-exclusive-live",

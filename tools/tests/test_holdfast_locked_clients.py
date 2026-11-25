@@ -135,7 +135,7 @@ def _closure_coherence() -> None:
         for name, target, result in (("First", "bool", 5), ("Second", "Nat", 11)):
             (provider / f"{name}.hf").write_text(f"""module Weights.{name};
 import Weights.Measure;
-public impl Measured<{target}> {{ public definition Nat Measure({target} value) => {result}; }}
+public impl IMeasured<{target}> {{ public definition Nat Measure({target} value) => {result}; }}
 """)
         client = workspace / "scale" / "v1" / "Calibration.hf"
         original = client.read_text()
@@ -145,25 +145,25 @@ public impl Measured<{target}> {{ public definition Nat Measure({target} value) 
             client.write_text(original.replace("import Weights.Measure;",
                                                "import Weights.Measure;\n" + "\n".join(order)) + """
 public lemma ImportedReadings()
-    ensures Measured.Measure(true) == 5
-    ensures Measured.Measure(7) == 11
-    proof { assert Measured.Measure(true) == 5; assert Measured.Measure(7) == 11; }
+    ensures bool.Measure(true) == 5
+    ensures Nat.Measure(7) == 11
+    proof { assert bool.Measure(true) == 5; assert Nat.Measure(7) == 11; }
 """)
             _command("build-package", workspace, _lock(workspace), "--output", bundle)
             _replay(workspace.parent, json.loads(bundle.read_bytes())["modules"])
         client.write_text(original)
         sibling = provider / "Second.hf"
-        sibling.write_text(sibling.read_text().replace("Measured<Nat>", "Measured<bool>")
+        sibling.write_text(sibling.read_text().replace("IMeasured<Nat>", "IMeasured<bool>")
                            .replace("Measure(Nat value)", "Measure(bool value)"))
         _command("build-package", workspace, _lock(workspace), refusal="overlapping")
         sibling.write_text("module Weights.Second;")
         client.write_text(original + """
 public record LocalWeight(Nat Units);
-public impl Measured<LocalWeight> { public definition Nat Measure(LocalWeight x) => x.Units; }
+public impl IMeasured<LocalWeight> { public definition Nat Measure(LocalWeight x) => x.Units; }
 """)
         _command("build-package", workspace, _lock(workspace), "--output", bundle)
         client.write_text(original + """
-public impl Measured<Nat> { public definition Nat Measure(Nat value) => value; }
+public impl IMeasured<Nat> { public definition Nat Measure(Nat value) => value; }
 """)
         _command("build-package", workspace, _lock(workspace), refusal="must own")
 
@@ -177,9 +177,9 @@ def _namespace_edition() -> None:
         manifest = app / "holdfast-package.toml"
         manifest.write_text(manifest.read_text().replace('"math-1"', '"math-2"'))
         _command("build-package", workspace, lock, refusal="stale package lock")
-        _command("build-package", workspace, _lock(workspace), refusal="Measured")
+        _command("build-package", workspace, _lock(workspace), refusal="Weight")
         client = app / "Calibration.hf"
-        client.write_text(client.read_text().replace("Measured.Measure(Make(", "Measure.Measured.Measure(Measure.Make("))
+        client.write_text(client.read_text().replace("Weight.Measure(Make(", "Measure.Weight.Measure(Measure.Make("))
         provider = workspace / "weights" / "v1" / "Measure.hf"
         provider.write_text(provider.read_text() + "\npublic definition Nat ReadScale(Nat x) => 9;\n")
         bundle = directory / "qualified.json"

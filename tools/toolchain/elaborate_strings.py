@@ -355,7 +355,7 @@ class _StringsMixin:
                 else:
                     raise self.fail(
                         "type",
-                        "interpolated hole type does not implement static Format<T>",
+                        "interpolated hole type does not implement static IFormat<T>",
                         template_arg,
                     )
                 hole_count += 1

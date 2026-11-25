@@ -91,7 +91,7 @@ and supports the following features.
   `match` case analysis, and `by` expression or block justifications (supporting
   WHNF-aware congruence, symmetry and transitivity equational rewriting as well
   as existential witness introduction via `@Corelib.Init.Logic.ex_intro`), plus
-  `where` precontracts and multiple `ensures` clauses on `theorem` and `lemma`
+  `requires` preconditions and multiple `ensures` clauses on `theorem` and `lemma`
   declarations. Indexed vectors and finite indices provide a
   concrete dependent collection boundary, including length preservation and safe
   lookup.
@@ -187,7 +187,7 @@ and supports the following features.
   read-only expression properties (`public T Prop => expr;`) on records and at
   module scope, record member methods (`definition` and `function` declarations
   inside `record { ... }` with implicit `this` receiver, field/property scope, and
-  `requires` / `where` / `ensures` contracts), `.Field`, `.Property` and
+  `requires` and `ensures` contracts), `.Field`, `.Property` and
   `.Method(...)` member access (including record field paths in dependent type
   arguments), and postfix `base with { Field = expr, ... }` record updates
   evaluated in declaration order (refusing partial updates to an index field when
@@ -212,7 +212,7 @@ and supports the following features.
   `*`, `/`, `%`, unary `-`, `ShiftLeft`, `ShiftRight` and `WrappingShiftLeft`
   enforce explicit range, nonzero-divisor and shift-count (`usize < T.Bits`)
   preconditions discharged from concrete bounds, bitwise masks (`&`), widening
-  conversions, branch conditions and parameterized `requires` / `where` contracts; total
+  conversions, branch conditions and parameterized `requires` contracts. Total
   modular (`WrappingAdd`, `WrappingSub`, `WrappingMul`, `WrappingNeg`,
   `WrappingShiftLeft`), saturating (`SaturatingAdd`, `SaturatingSub`,
   `SaturatingMul`, `SaturatingNeg`) and checked (`CheckedAdd`, `CheckedSub`,
@@ -279,7 +279,7 @@ and supports the following features.
   `.PermWrite`, `.CanRead` and `.CanWrite` metadata, and `Span.AllocZeroed`,
   `Span.Read`, `Span.Write`, `Span.Fill`, `Span.Slice`, `Span.ReadOnly`,
   `Span.Invalidate`, `Span.Disjoint`, `Span.CopyPrefix` and `Span.Restore`),
-  together with `requires`, `where`, `ensures` (with `result` bound to the body) and
+  together with `requires`, `ensures` (with `result` bound to the body) and
   `restores param` contract obligations on `definition` and `function`
   declarations. The bare parameter form checks descriptor preservation at call
   return. A general restoration predicate describes the lender when a returned
@@ -363,20 +363,16 @@ and supports the following features.
   a receiver read that ends during argument evaluation and checks retained
   overlapping loans at activation. Explicit `ref` and `out` retain their
   ordinary grant timing.
-- Explicit nonoverlapping `interface Name<T, ...> { ... }` and
-  `impl<...> Interface<...> { ... }` declarations, supporting abstract callable
-  signatures with `requires`/`where`/`ensures` contracts and abstract
+- Explicit nonoverlapping `interface ISized<T> { ... }` and
+  `impl ISized<Nat> { ... }` declarations, supporting abstract callable
+  signatures with `requires` and `ensures` contracts and abstract
   `lemma`/`theorem` law signatures, unification-based coherence and overlap
   refusal, blanket-impl and computed-type head refusal, Liskov signature and
   contract verification, explicit law proof checking, Gallina emission, and
-  `where Interface(type T)` generic constraint resolution with dictionary
-  witness passing and static (`Interface.Method(...)`) or receiver
-  (`x.Method(...)`) dispatch. Unqualified and receiver calls follow the
-  [interface name-resolution rule](../language/first-release.md#modules-and-packages):
-  method name and source arity must select one interface. Several matching
-  interface names require explicit qualification,
-  even when their implementations accept disjoint argument types. Calls do not
-  try candidate argument elaborations or use declaration order as priority.
+  `where T : ISized<T>` generic constraint resolution with dictionary witness
+  passing. Type-qualified (`T.Size(in value)`) and receiver (`value.Size()`)
+  calls use the implementing type for dispatch.
+  [Interface resolution](../language/first-release.md#interface-constraints-and-dispatch)
 - Multi-module `import Module.Path;` composition (`elaborate(..., imports=...)`
   and `elaborate_package(modules)`) with topological dependency sorting,
   circular-import refusal, `public` versus `private` visibility enforcement
@@ -435,7 +431,7 @@ unchecked hole or foreign proof escape is emitted.
 
 The elaborator checks the [Nat operand requirements](../language/reference.md#expressions-and-operators)
 at each use of `-`, `/` or `%`. Closed operands, branch conditions and
-`requires` or `where` clauses can supply the necessary facts. For example,
+`requires` clauses can supply the necessary facts. For example,
 `requires used <= total` permits `total - used` in the function body and
 requires callers to establish the bound. An unproved requirement stops
 elaboration at the operation.

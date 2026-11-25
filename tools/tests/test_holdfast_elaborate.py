@@ -635,6 +635,16 @@ def _contract(role: str, value: Form) -> Form:
     return form
 
 
+def _type_constraint(parameter: str, *bounds: Form) -> Form:
+    def form(fixture: _Fixture) -> Node:
+        start = fixture.offset
+        fixture.write("where ")
+        name = fixture.name(parameter)
+        fixture.write(" : ")
+        return fixture.node("type_constraint", start, parameter=name, bounds=fixture.forms(bounds))
+    return form
+
+
 def _modified(modifier: str, value_type: Form) -> Form:
     def form(fixture: _Fixture) -> Node:
         start = fixture.offset
@@ -5342,14 +5352,14 @@ def _bounded_while_loops_and_decreases_contracts() -> None:
     _refuses(non_decreasing, "type", "strictly decrease")
 
 
-def _calculational_proofs_where_and_multi_ensures() -> None:
+def _calculational_proofs_requires_and_multi_ensures() -> None:
     fixture = _Fixture("CalcAndMultiEnsures")
     fixture.definition(
         "Double",
         _NAT,
         (("x", _NAT),),
         _binary("+", _variable("x"), _variable("x")),
-        contracts=(_contract("where", _binary("<=", _variable("x"), _natural(100))),),
+        contracts=(_contract("requires", _binary("<=", _variable("x"), _natural(100))),),
     )
     fixture.theorem(
         "ChainCalcAndMultiEnsures",
@@ -5363,7 +5373,7 @@ def _calculational_proofs_where_and_multi_ensures() -> None:
             _assert(_binary("==", _variable("c"), _variable("a"))),
         ),
         contracts=(
-            _contract("where", _binary("==", _variable("a"), _variable("b"))),
+            _contract("requires", _binary("==", _variable("a"), _variable("b"))),
             _contract("requires", _binary("==", _variable("b"), _variable("c"))),
             _contract("ensures", _binary("==", _variable("c"), _variable("a"))),
         ),
@@ -5410,7 +5420,7 @@ def _record_member_methods_and_contracts() -> None:
                 (("delta", _type("u32")),),
                 _with_expr(_variable("this"), (("Value", _binary("+", _variable("Value"), _variable("delta"))),)),
                 contracts=(
-                    _contract("where", _binary("<=", _variable("delta"), _call(_member(_variable("this"), "Remaining")))),
+                    _contract("requires", _binary("<=", _variable("delta"), _call(_member(_variable("this"), "Remaining")))),
                     _contract(
                         "ensures",
                         _binary(
@@ -5935,38 +5945,40 @@ def _out_loan_parameters_and_initialization_tracking() -> None:
 
 def _interfaces_nonoverlapping_impls_and_where_constraints() -> None:
     fixture = _Fixture("InterfacesAndImpls")
+    step_t = _call(_member(_variable("T"), "Step"), _in_arg(_variable("x")))
+    step_nat = _call(_member(_variable("Nat"), "Step"), _in_arg(_variable("x")))
     _interface_decl(
         fixture,
-        "Steppable",
+        "ISteppable",
         (("type", "T", None),),
         (
             _interface_fn_sig(
                 "Step",
                 _type("T"),
-                (("x", _type("T")),),
+                (("x", _modified("in", _type("T"))),),
             ),
             _interface_law_sig(
                 "StepDeterministic",
                 (("x", _type("T")),),
-                _binary("==", _call("Step", _variable("x")), _call("Step", _variable("x"))),
+                _binary("==", step_t, step_t),
             ),
         ),
     )
     _impl_decl(
         fixture,
-        _type("Steppable", _NAT),
+        _type("ISteppable", _NAT),
         (
             _record_def_member(
                 "Step",
                 _NAT,
-                (("x", _NAT),),
+                (("x", _modified("in", _NAT)),),
                 _binary("+", _variable("x"), _natural(1)),
             ),
             _impl_law_member(
                 "StepDeterministic",
                 (("x", _NAT),),
-                _binary("==", _call("Step", _variable("x")), _call("Step", _variable("x"))),
-                _assert(_binary("==", _call("Step", _variable("x")), _call("Step", _variable("x")))),
+                _binary("==", step_nat, step_nat),
+                _assert(_binary("==", step_nat, step_nat)),
             ),
         ),
     )
@@ -5976,11 +5988,11 @@ def _interfaces_nonoverlapping_impls_and_where_constraints() -> None:
         (("x", _type("T")),),
         _block_stmts(
             _let_stmt("first", _call(_member(_variable("x"), "Step"))),
-            _return_stmt(_call(_member(_variable("Steppable"), "Step"), _variable("first"))),
+            _return_stmt(_call(_member(_variable("T"), "Step"), _in_arg(_variable("first")))),
         ),
         block=True,
         generics=(("type", "T", None),),
-        contracts=(_contract("where", _call("Steppable", _type_value(_type("T")))),),
+        contracts=(_type_constraint("T", _type("ISteppable", _type("T"))),),
     )
     fixture.theorem(
         "StepTwiceNatCheck",
@@ -5994,13 +6006,13 @@ def _interfaces_nonoverlapping_impls_and_where_constraints() -> None:
     blanket = _Fixture("BlanketImplRefused")
     _interface_decl(
         blanket,
-        "IdIface",
+        "IIdentity",
         (("type", "T", None),),
         (_interface_fn_sig("Id", _type("T"), (("x", _type("T")),)),),
     )
     _impl_decl(
         blanket,
-        _type("IdIface", _type("T")),
+        _type("IIdentity", _type("T")),
         (_record_def_member("Id", _type("T"), (("x", _type("T")),), _variable("x")),),
         generics=(("type", "T", None),),
     )
@@ -6009,47 +6021,48 @@ def _interfaces_nonoverlapping_impls_and_where_constraints() -> None:
     overlap = _Fixture("OverlapImplRefused")
     _interface_decl(
         overlap,
-        "IdIface",
+        "IIdentity",
         (("type", "T", None),),
         (_interface_fn_sig("Id", _type("T"), (("x", _type("T")),)),),
     )
     _impl_decl(
         overlap,
-        _type("IdIface", _NAT),
+        _type("IIdentity", _NAT),
         (_record_def_member("Id", _NAT, (("x", _NAT),), _variable("x")),),
     )
     _impl_decl(
         overlap,
-        _type("IdIface", _NAT),
+        _type("IIdentity", _NAT),
         (_record_def_member("Id", _NAT, (("x", _NAT),), _variable("x")),),
     )
     _refuses(overlap, "type", "overlapping or duplicate impl")
 
     missing_law = _Fixture("MissingImplLaw")
+    act_t = _call(_member(_variable("T"), "Act"), _variable("x"))
     _interface_decl(
         missing_law,
-        "Lawful",
+        "ILawful",
         (("type", "T", None),),
         (
             _interface_fn_sig("Act", _type("T"), (("x", _type("T")),)),
             _interface_law_sig(
                 "SelfEq",
                 (("x", _type("T")),),
-                _binary("==", _call("Act", _variable("x")), _call("Act", _variable("x"))),
+                _binary("==", act_t, act_t),
             ),
         ),
     )
     _impl_decl(
         missing_law,
-        _type("Lawful", _NAT),
+        _type("ILawful", _NAT),
         (_record_def_member("Act", _NAT, (("x", _NAT),), _variable("x")),),
     )
     _refuses(missing_law, "type", "is missing required law 'SelfEq'")
 
-    unsatisfied = _Fixture("UnsatisfiedWhere")
+    unsatisfied = _Fixture("UnsatisfiedConstraint")
     _interface_decl(
         unsatisfied,
-        "Steppable",
+        "ISteppable",
         (("type", "T", None),),
         (_interface_fn_sig("Step", _type("T"), (("x", _type("T")),)),),
     )
@@ -6057,9 +6070,9 @@ def _interfaces_nonoverlapping_impls_and_where_constraints() -> None:
         "UseStep",
         _type("T"),
         (("x", _type("T")),),
-        _call(_member(_variable("Steppable"), "Step"), _variable("x")),
+        _call(_member(_variable("T"), "Step"), _variable("x")),
         generics=(("type", "T", None),),
-        contracts=(_contract("where", _call("Steppable", _type_value(_type("T")))),),
+        contracts=(_type_constraint("T", _type("ISteppable", _type("T"))),),
     )
     unsatisfied.definition(
         "BadCall",
@@ -6067,24 +6080,24 @@ def _interfaces_nonoverlapping_impls_and_where_constraints() -> None:
         (),
         _call("UseStep", _boolean(True)),
     )
-    _refuses(unsatisfied, "type", "no implementation of interface 'Steppable'")
+    _refuses(unsatisfied, "type", "no implementation of interface 'ISteppable'")
 
 
 def _dispatch_fixture(order: tuple[str, ...], *, disjoint: bool = False, arities: bool = False) -> _Fixture:
     fixture = _Fixture("InterfaceDispatch")
     for name in order:
-        is_bool = disjoint and name == "Second"
+        is_bool = disjoint and name == "ISecond"
         value_type = _BOOL if is_bool else _NAT
         parameters = (("x", _type("T")),)
         impl_parameters = (("x", value_type),)
-        if arities and name == "Second":
+        if arities and name == "ISecond":
             parameters += (("y", _type("T")),)
             impl_parameters += (("y", value_type),)
         _interface_decl(
             fixture, name, (("type", "T", None),),
             (_interface_fn_sig("Step", _type("T"), parameters),),
         )
-        body = _variable("x") if is_bool else _binary("+", _variable("x"), _natural(1 if name == "First" else 2))
+        body = _variable("x") if is_bool else _binary("+", _variable("x"), _natural(1 if name == "IFirst" else 2))
         _impl_decl(
             fixture, _type(name, value_type),
             (_record_def_member("Step", value_type, impl_parameters, body),),
@@ -6093,31 +6106,43 @@ def _dispatch_fixture(order: tuple[str, ...], *, disjoint: bool = False, arities
 
 
 def _interface_dispatch_ambiguity() -> None:
-    for order in (("First", "Second"), ("Second", "First")):
-        for disjoint in (False, True):
-            for receiver in (False, True):
-                fixture = _dispatch_fixture(order, disjoint=disjoint)
-                called = _call(_member(_variable("x"), "Step")) if receiver else _call("Step", _variable("x"))
-                fixture.definition("Wrong", _NAT, (("x", _NAT),), called)
-                with patch.object(language._Elaborator, "_elaborate_interface_method_call",
-                                  side_effect=AssertionError("tried a candidate before resolving its interface name")):
-                    _refuses(fixture, "type", "qualify the call as First.Step(...) or Second.Step(...)")
+    for order in (("IFirst", "ISecond"), ("ISecond", "IFirst")):
+        for receiver in (False, True):
+            fixture = _dispatch_fixture(order)
+            called = (_call(_member(_variable("x"), "Step")) if receiver
+                      else _call(_member(_variable("Nat"), "Step"), _variable("x")))
+            fixture.definition("Wrong", _NAT, (("x", _NAT),), called)
+            with patch.object(language._Elaborator, "_elaborate_interface_method_call",
+                              side_effect=AssertionError("tried a candidate before resolving its interface")):
+                _refuses(fixture, "type", "ambiguous interface method")
 
 
 def _interface_dispatch_qualification_and_arities() -> None:
-    for order in (("First", "Second"), ("Second", "First")):
+    for order in (("IFirst", "ISecond"), ("ISecond", "IFirst")):
         fixture = _dispatch_fixture(order, disjoint=True)
-        fixture.definition("Number", _NAT, (), _call(_member(_variable("First"), "Step"), _natural(5)))
-        fixture.definition("Flag", _BOOL, (), _call(_member(_variable("Second"), "Step"), _boolean(True)))
+        fixture.definition("Number", _NAT, (), _call(_member(_variable("Nat"), "Step"), _natural(5)))
+        fixture.definition("Flag", _BOOL, (), _call(_member(_variable("bool"), "Step"), _boolean(True)))
         fixture.theorem("NumberValue", (), _binary("==", _call("Number"), _natural(6)),
                         _assert(_binary("==", _call("Number"), _natural(6))))
         fixture.theorem("FlagValue", (), _binary("==", _call("Flag"), _boolean(True)),
                         _assert(_binary("==", _call("Flag"), _boolean(True))))
         elaborate(*fixture.response())
 
+        fixture = _dispatch_fixture(order)
+        for name in ("IFirst", "ISecond"):
+            fixture.definition("Use" + name, _type("T"), (("x", _type("T")),),
+                               _call(_member(_variable("T"), "Step"), _variable("x")),
+                               generics=(("type", "T", None),),
+                               contracts=(_type_constraint("T", _type(name, _type("T"))),))
+        for name, expected in (("UseIFirst", 6), ("UseISecond", 7)):
+            equality = _binary("==", _call(name, _natural(5)), _natural(expected))
+            fixture.theorem(name + "Value", (), equality, _assert(equality))
+        elaborate(*fixture.response())
+
         fixture = _dispatch_fixture(order, arities=True)
-        fixture.definition("Unary", _NAT, (("x", _NAT),), _call("Step", _variable("x")))
-        fixture.definition("Binary", _NAT, (("x", _NAT),), _call("Step", _variable("x"), _natural(0)))
+        step_nat = _member(_variable("Nat"), "Step")
+        fixture.definition("Unary", _NAT, (("x", _NAT),), _call(step_nat, _variable("x")))
+        fixture.definition("Binary", _NAT, (("x", _NAT),), _call(step_nat, _variable("x"), _natural(0)))
         fixture.definition("Receiver", _NAT, (("x", _NAT),), _call(_member(_variable("x"), "Step")))
         fixture.definition("ReceiverBinary", _NAT, (("x", _NAT),),
                            _call(_member(_variable("x"), "Step"), _natural(0)))
@@ -6128,27 +6153,64 @@ def _interface_dispatch_qualification_and_arities() -> None:
 
         fixture = _Fixture("NullaryInterfaceDispatch")
         for name in order:
-            parameters = () if name == "First" else (("x", _type("T")),)
-            impl_parameters = () if name == "First" else (("x", _NAT),)
+            parameters = () if name == "IFirst" else (("x", _type("T")),)
+            impl_parameters = () if name == "IFirst" else (("x", _NAT),)
             _interface_decl(fixture, name, (("type", "T", None),),
                             (_interface_fn_sig("Step", _type("T"), parameters),))
             _impl_decl(fixture, _type(name, _NAT),
-                       (_record_def_member("Step", _NAT, impl_parameters, _natural(1 if name == "First" else 2)),))
-        fixture.definition("Nullary", _NAT, (), _call("Step"))
-        fixture.definition("Unary", _NAT, (), _call("Step", _natural(5)))
+                       (_record_def_member("Step", _NAT, impl_parameters, _natural(1 if name == "IFirst" else 2)),))
+        fixture.definition("Nullary", _NAT, (), _call(step_nat))
+        fixture.definition("Unary", _NAT, (), _call(step_nat, _natural(5)))
         for name, expected in (("Nullary", 1), ("Unary", 2)):
             equality = _binary("==", _call(name), _natural(expected))
             fixture.theorem(name + "Value", (), equality, _assert(equality))
         elaborate(*fixture.response())
 
 
+def _interface_legacy_calls_and_wrong_bounds() -> None:
+    for callee in (
+        "Step",
+        _member(_variable("IFirst"), "Step"),
+        _member(_variable("IFirst", _NAT), "Step"),
+    ):
+        fixture = _dispatch_fixture(("IFirst",))
+        fixture.definition("Wrong", _NAT, (), _call(callee, _natural(0)))
+        _refuses(fixture, "name")
+
+    fixture = _dispatch_fixture(("IFirst",))
+    fixture.definition("WrongBound", _type("T"), (("x", _type("T")),), _variable("x"),
+                       generics=(("type", "T", None), ("type", "U", None)),
+                       contracts=(_type_constraint("T", _type("IFirst", _type("U"))),))
+    _refuses(fixture, "type")
+
+    fixture = _dispatch_fixture(("IFirst",))
+    fixture.definition("ValueIsNotATypeParameter", _NAT, (("x", _NAT),), _variable("x"),
+                       contracts=(_type_constraint("x", _type("IFirst", _NAT)),))
+    _refuses(fixture, "type")
+
+
+def _interface_copy_of_unconstrained_receiver() -> None:
+    for receiver in (False, True):
+        fixture = _dispatch_fixture(("IFirst",))
+        called = (_call(_member(_variable("x"), "Step")) if receiver
+                  else _call(_member(_variable("T"), "Step"), _variable("x")))
+        fixture.function("Wrong", _type("T"), (("x", _type("T")),), called,
+                         generics=(("type", "T", None),),
+                         contracts=(_type_constraint("T", _type("IFirst", _type("T"))),))
+        _refuses(fixture, "type", "copying a value with owned fields requires an explicit whole-value move")
+
+
 def _imported_interface_aliases() -> None:
-    producer = _dispatch_fixture(("First",))
+    producer = _dispatch_fixture(("IFirst",))
     consumer = _Fixture("InterfaceConsumer")
-    _import_decl(consumer, "InterfaceDispatch")
-    consumer.definition("Bare", _NAT, (("x", _NAT),), _call("Step", _variable("x")))
+    _import_decl(consumer, "InterfaceDispatch", items=(("IFirst", "IChosen"),))
+    consumer.definition("Qualified", _NAT, (("x", _NAT),), _call(_member(_variable("Nat"), "Step"), _variable("x")))
     consumer.definition("Receiver", _NAT, (("x", _NAT),), _call(_member(_variable("x"), "Step")))
-    for name in ("Bare", "Receiver"):
+    consumer.definition("ThroughBound", _type("T"), (("x", _type("T")),),
+                        _call(_member(_variable("T"), "Step"), _variable("x")),
+                        generics=(("type", "T", None),),
+                        contracts=(_type_constraint("T", _type("IChosen", _type("T"))),))
+    for name in ("Qualified", "Receiver", "ThroughBound"):
         equality = _binary("==", _call(name, _natural(5)), _natural(6))
         consumer.theorem(name + "Value", (), equality, _assert(equality))
     elaborate_package([consumer.response(), producer.response()])
@@ -6305,11 +6367,14 @@ def _qualified_imports() -> None:
         law = _binary("==", _call("Read" + alias, _member(_variable(alias), "Busy")), _natural(1))
         consumer.theorem("Check" + alias, (), law, _assert(law))
     elaborate_package([left.response(), consumer.response(), right.response()])
-    producer = _dispatch_fixture(("First",))
+    producer = _dispatch_fixture(("IFirst",))
     client = _Fixture("QualifiedClient")
     _import_decl(client, "InterfaceDispatch", alias="D")
-    step = _member(_member(_variable("D"), "First"), "Step")
-    law = _binary("==", _call(step, _natural(3)), _natural(4))
+    client.definition("UseStep", _type("T"), (("x", _type("T")),),
+                      _call(_member(_variable("T"), "Step"), _variable("x")),
+                      generics=(("type", "T", None),),
+                      contracts=(_type_constraint("T", _type("D.IFirst", _type("T"))),))
+    law = _binary("==", _call("UseStep", _natural(3)), _natural(4))
     client.theorem("CheckStep", (), law, _assert(law))
     elaborate_package([client.response(), producer.response()])
     client.definition("AmbiguousStep", _NAT, (("x", _NAT),), _call("Step", _variable("x")))
@@ -7419,11 +7484,13 @@ def cases() -> list[Case]:
             Case("structural-equality-and-seq-contains", _structural_equality_and_seq_contains),
             Case("postfix-indexing-and-indexed-assignment", _postfix_indexing_and_indexed_assignment),
             Case("bounded-while-loops-and-decreases-contracts", _bounded_while_loops_and_decreases_contracts),
-            Case("calculational-proofs-where-and-multi-ensures", _calculational_proofs_where_and_multi_ensures),
+            Case("calculational-proofs-requires-and-multi-ensures", _calculational_proofs_requires_and_multi_ensures),
             Case("record-member-methods-and-contracts", _record_member_methods_and_contracts),
             Case("out-loan-parameters-and-initialization-tracking", _out_loan_parameters_and_initialization_tracking),
             Case("interfaces-nonoverlapping-impls-and-where-constraints", _interfaces_nonoverlapping_impls_and_where_constraints),
-            Case("interface-dispatch-ambiguity-is-independent-of-order-and-types", _interface_dispatch_ambiguity),
+            Case("interface-dispatch-ambiguity-is-independent-of-order", _interface_dispatch_ambiguity),
+            Case("interface-legacy-calls-and-wrong-bounds-refused", _interface_legacy_calls_and_wrong_bounds),
+            Case("interface-call-cannot-copy-generic-values", _interface_copy_of_unconstrained_receiver),
             Case("interface-dispatch-qualification-and-arity-selection", _interface_dispatch_qualification_and_arities),
             Case("imported-interface-aliases-share-one-dispatch-identity", _imported_interface_aliases),
             Case("callable-member-receiver-once-and-fatal-failures", _callable_member_receiver_and_failures),

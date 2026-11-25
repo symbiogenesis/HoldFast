@@ -616,7 +616,7 @@ class _DeclarationsMixin:
                 continue
             self.node(contract, "contract")
             role = contract["role"]
-            if role in {"requires", "where"}:
+            if role == "requires":
                 requires_clauses.append(contract)
             elif role == "ensures":
                 ensures_clauses.append(contract)
@@ -1236,75 +1236,52 @@ class _DeclarationsMixin:
                             )
                     target_list.append(inst)
 
-    def _split_where_clause(
-        self: _Elaborator, contract_node: Node, environment: dict[str, _Binding]
-    ) -> tuple[list[tuple[_InterfaceInfo, tuple[_Term, ...], Node]], list[Node]]:
-        def flatten_and(expr: Node) -> list[Node]:
-            unwrapped = self._unwrap_group(expr)
-            if unwrapped["kind"] == "binary" and self.operator(unwrapped["operator"]) == "&&":
-                return [
-                    *flatten_and(self.node(unwrapped["left"])),
-                    *flatten_and(self.node(unwrapped["right"])),
-                ]
-            return [unwrapped]
-
-        iface_constraints: list[tuple[_InterfaceInfo, tuple[_Term, ...], Node]] = []
-        prop_contracts: list[Node] = []
-        for conj in flatten_and(self.node(contract_node["value"])):
-            if conj["kind"] == "call":
-                callee = self._unwrap_group(self.node(conj["callee"]))
-                if callee["kind"] == "generic_application":
-                    base_c = self._unwrap_group(self.node(callee["value"]))
-                    if base_c["kind"] == "name" and self.name(base_c["name"]) in self.interfaces:
-                        cname = self.name(base_c["name"])
-                        raise self.fail(
-                            "type",
-                            f"interface constraint '{cname}' takes arguments in parentheses, not '<...>'",
-                            conj,
-                        )
-                cname = self._dotted_member_path(callee)
-                if cname is not None and cname in self.interfaces and cname.split(".", 1)[0] not in environment:
-                    iface = self.interfaces[cname]
-                    arg_nodes = self.nodes(conj["arguments"])
-                    if len(arg_nodes) != len(iface.generic_vars):
-                        raise self.fail(
-                            "type",
-                            f"interface constraint '{cname}' expects {len(iface.generic_vars)} arguments, got {len(arg_nodes)}",
-                            conj,
-                        )
-                    t_args: list[_Term] = []
-                    for idx, anode in enumerate(arg_nodes):
-                        self.node(anode, "argument")
-                        if anode["label"] is not None:
-                            raise self.fail("type", "interface constraint arguments do not accept labels", anode)
-                        aval = self._unwrap_group(self.node(anode["value"]))
-                        g_dom = self.types[cast("int", iface.generic_vars[idx].value)]
-                        for prev_gv, prev_t in zip(iface.generic_vars[:idx], t_args, strict=True):
-                            g_dom = self.substitute(g_dom, cast("int", prev_gv.value), prev_t)
-                        if aval["kind"] == "name":
-                            aname = self.name(aval["name"])
-                            b = self.lookup(aname, environment, raw=True)
-                            t_term = b.term
-                            self.site = anode
-                            self.unify(self.infer(t_term), g_dom)
-                        elif aval["kind"] == "type_expression":
-                            t_term = self.type(self.node(aval["type"]), environment)
-                            self.site = anode
-                            self.unify(self.infer(t_term), g_dom)
-                        else:
-                            t_term = self.argument(aval, g_dom, environment)
-                        t_args.append(self.whnf(t_term))
-                    iface_constraints.append((iface, tuple(t_args), conj))
-                    continue
-            prop_contracts.append(
-                {
-                    "kind": "contract",
-                    "role": "where",
-                    "value": conj,
-                    "span": conj["span"],
-                }
+    def _interface_arguments(
+        self: _Elaborator, iface: _InterfaceInfo, application: Node, environment: dict[str, _Binding],
+    ) -> tuple[_Term, ...]:
+        arguments = self.nodes(application["arguments"])
+        if len(arguments) != len(iface.generic_vars):
+            raise self.fail(
+                "type",
+                f"interface '{self.name(application['name'])}' expects {len(iface.generic_vars)} arguments, got {len(arguments)}",
+                application,
             )
-        return iface_constraints, prop_contracts
+        values: list[_Term] = []
+        for index, argument in enumerate(arguments):
+            domain = self._instantiate_generic_type(
+                iface.generic_vars[:index], values, self.types[cast("int", iface.generic_vars[index].value)],
+            )
+            values.append(self.whnf(self.argument(argument, domain, environment)))
+        return tuple(values)
+
+    def _interface_constraints(
+        self: _Elaborator,
+        clauses: list[Node],
+        generics: list[Node],
+        environment: dict[str, _Binding],
+    ) -> list[tuple[_InterfaceInfo, tuple[_Term, ...], Node]]:
+        type_parameters = {
+            self.name(generic["name"]) for generic in generics if generic["mode"] == "type"
+        }
+        seen: set[str] = set()
+        constraints: list[tuple[_InterfaceInfo, tuple[_Term, ...], Node]] = []
+        for clause in clauses:
+            parameter = self.name(clause["parameter"])
+            if parameter not in type_parameters:
+                raise self.fail("type", f"where parameter '{parameter}' must be a declared type parameter", clause)
+            if parameter in seen:
+                raise self.fail("type", f"repeated where clause for type parameter '{parameter}'", clause)
+            seen.add(parameter)
+            for bound in self.nodes(clause["bounds"]):
+                name = self.name(bound["name"])
+                if name not in self.interfaces or name.split(".", 1)[0] in environment:
+                    raise self.fail("name", f"unknown interface '{name}' in where clause", bound)
+                iface = self.interfaces[name]
+                args = self._interface_arguments(iface, bound, environment)
+                if args[0] != environment[parameter].term:
+                    raise self.fail("type", f"interface '{name}' must have '{parameter}' as its implementing type", bound)
+                constraints.append((iface, args, bound))
+        return constraints
 
     def _bind_where_constraints(
         self: _Elaborator,
@@ -1388,6 +1365,8 @@ class _DeclarationsMixin:
         member_nodes = self.nodes(node["declarations"])
         if not member_nodes:
             raise self.fail("type", f"interface '{name}' requires at least one member or law declaration", node)
+        if generics[0]["mode"] != "type":
+            raise self.fail("type", f"interface '{name}' requires an implementing type as its first parameter", generics[0])
         generic_vars, generic_env = self.telescope(generics, [], {}, unit=False)
         methods: dict[str, _InterfaceMethodSpec] = {}
         laws: dict[str, _InterfaceLawSpec] = {}
@@ -1451,7 +1430,7 @@ class _DeclarationsMixin:
                     for cnode in self.nodes(mnode["contracts"]):
                         self.node(cnode, "contract")
                         crole = cnode["role"]
-                        if crole in {"requires", "where"}:
+                        if crole == "requires":
                             m_reqs.append(cnode)
                         elif crole == "ensures":
                             m_enss.append(cnode)
@@ -1557,7 +1536,7 @@ class _DeclarationsMixin:
                     for cnode in self.nodes(mnode["contracts"]):
                         self.node(cnode, "contract")
                         crole = cnode["role"]
-                        if crole in {"requires", "where"}:
+                        if crole == "requires":
                             l_reqs.append(cnode)
                         elif crole == "ensures":
                             l_enss.append(cnode)
@@ -1693,22 +1672,9 @@ class _DeclarationsMixin:
         if iface_name not in self.interfaces:
             raise self.fail("name", f"unknown interface '{iface_name}' in impl declaration", impl_type_node)
         iface = self.interfaces[iface_name]
-        type_arg_nodes = self.nodes(impl_type_node["arguments"])
-        if len(type_arg_nodes) != len(iface.generic_vars):
-            raise self.fail(
-                "type",
-                f"interface '{iface_name}' expects {len(iface.generic_vars)} type arguments, got {len(type_arg_nodes)}",
-                impl_type_node,
-            )
-        target_types: list[_Term] = []
-        for idx, arg_node in enumerate(type_arg_nodes):
-            if arg_node["kind"] in {"type_argument", "type", "group_type", "tuple_type", "computed_type", "function_type", "modified_type"}:
-                self._check_no_computed_impl_type(arg_node)
-            expected_g_dom = self.types[cast("int", iface.generic_vars[idx].value)]
-            for prev_gv, prev_t in zip(iface.generic_vars[:idx], target_types, strict=True):
-                expected_g_dom = self.substitute(expected_g_dom, cast("int", prev_gv.value), prev_t)
-            t_val = self.argument(arg_node, expected_g_dom, impl_env)
-            target_types.append(self.whnf(t_val))
+        for arg_node in self.nodes(impl_type_node["arguments"]):
+            self._check_no_computed_impl_type(arg_node)
+        target_types = self._interface_arguments(iface, impl_type_node, impl_env)
         if all(self.resolve(t) in impl_generic_vars for t in target_types):
             raise self.fail(
                 "type",
@@ -1727,19 +1693,11 @@ class _DeclarationsMixin:
                     "impl generic parameter must be determined by the implemented interface arguments",
                     node,
                 )
-        where_iface_constraints: list[tuple[_InterfaceInfo, tuple[_Term, ...], Node]] = []
-        for cnode in self.nodes(node["contracts"]):
-            self.node(cnode, "contract")
-            if cnode["role"] != "where":
-                raise self.fail("unsupported", f"impl contract '{cnode['role']}' is not supported", cnode)
-            ifaces_c, props_c = self._split_where_clause(cnode, impl_env)
-            if props_c:
-                raise self.fail(
-                    "type",
-                    "impl where clause only supports interface constraints",
-                    props_c[0],
-                )
-            where_iface_constraints.extend(ifaces_c)
+        constraint_clauses = self.nodes(node["contracts"])
+        for clause in constraint_clauses:
+            if clause["kind"] != "type_constraint":
+                raise self.fail("unsupported", "impl declarations only support interface constraints", clause)
+        where_iface_constraints = self._interface_constraints(constraint_clauses, generics, impl_env)
         candidate_inst = _ImplInstance(
             generic_vars=tuple(impl_generic_vars),
             target_types=tuple(target_types),
@@ -1905,7 +1863,7 @@ class _DeclarationsMixin:
                 for cnode in self.nodes(mnode["contracts"]):
                     self.node(cnode, "contract")
                     crole = cnode["role"]
-                    if crole in {"requires", "where"}:
+                    if crole == "requires":
                         rv_b = self.expression(self.node(cnode["value"]), m_env)
                         if self.whnf(rv_b.type) != _BOOL:
                             raise self.fail(
@@ -2240,6 +2198,27 @@ class _DeclarationsMixin:
         if self.package_instance is not None:
             self.local_instances.append((iface.name, final_inst))
 
+    def _match_impl_arguments(
+        self: _Elaborator, instance: _ImplInstance, arguments: tuple[_Term, ...], environment: dict[str, _Binding],
+    ) -> list[_Term] | None:
+        saved_metas = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+        g_metas: list[_Term] = []
+        for gv in instance.generic_vars:
+            dom = self.types[cast("int", gv.value)]
+            for prev_gv, prev_m in zip(instance.generic_vars[: len(g_metas)], g_metas, strict=True):
+                dom = self.substitute(dom, cast("int", prev_gv.value), prev_m)
+            g_metas.append(self.meta(dom, environment))
+        inst_targets: list[_Term] = []
+        for t in instance.target_types[:len(arguments)]:
+            sub_t = t
+            for gv, gm in zip(instance.generic_vars, g_metas, strict=True):
+                sub_t = self.substitute(sub_t, cast("int", gv.value), gm)
+            inst_targets.append(sub_t)
+        if all(self._try_unify(target, arg) for target, arg in zip(inst_targets, arguments, strict=True)):
+            return g_metas
+        self.restore_metas(saved_metas)
+        return None
+
     def _resolve_single_interface_witness(
         self: _Elaborator,
         iface_name: str,
@@ -2247,83 +2226,82 @@ class _DeclarationsMixin:
         environment: dict[str, _Binding],
         call_site: Node | None,
     ) -> tuple[dict[str, _Binding], dict[str, tuple[tuple[int, ...], tuple[_Term, ...]]]]:
-        for (act_iface, act_t_args), w_dict in self.active_interface_witnesses.items():
-            if act_iface == iface_name and len(act_t_args) == len(inst_t_args):
-                saved_metas = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
-                if all(self._try_unify(a, b) for a, b in zip(act_t_args, inst_t_args, strict=True)):
-                    return w_dict, self.active_interface_ensures.get((act_iface, act_t_args), {})
-                self.restore_metas(saved_metas)
-
-        iface = self.interfaces_by_identity[iface_name]
-        for impl_inst in self.impls.get(iface_name, []):
+        active_matches = []
+        for key, witness in self.active_interface_witnesses.items():
+            name, arguments = key
+            if name != iface_name:
+                continue
             saved_metas = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
-            g_metas: list[_Term] = []
-            for gv in impl_inst.generic_vars:
-                dom = self.types[cast("int", gv.value)]
-                for prev_gv, prev_m in zip(impl_inst.generic_vars[: len(g_metas)], g_metas, strict=True):
-                    dom = self.substitute(dom, cast("int", prev_gv.value), prev_m)
-                g_metas.append(self.meta(dom, environment))
-            inst_targets: list[_Term] = []
-            for t in impl_inst.target_types:
-                sub_t = t
-                for gv, gm in zip(impl_inst.generic_vars, g_metas, strict=True):
-                    sub_t = self.substitute(sub_t, cast("int", gv.value), gm)
-                inst_targets.append(sub_t)
-            if all(
-                self._try_unify(pat_t, arg_t)
-                for pat_t, arg_t in zip(inst_targets, inst_t_args, strict=True)
-            ):
-                g_sols = [self.whnf(self.resolve(gm)) for gm in g_metas]
-                impl_witness_args: list[_Term] = []
-                for w_iface_name, w_raw_t_args in impl_inst.where_constraints:
-                    w_inst_t_args: list[_Term] = []
-                    for wt in w_raw_t_args:
-                        wt_sub = wt
-                        for gv, gsol in zip(impl_inst.generic_vars, g_sols, strict=True):
-                            wt_sub = self.substitute(wt_sub, cast("int", gv.value), gsol)
-                        w_inst_t_args.append(self.whnf(wt_sub))
-                    sub_w_dict, _ = self._resolve_single_interface_witness(
-                        w_iface_name, tuple(w_inst_t_args), environment, call_site
-                    )
-                    sub_iface = self.interfaces_by_identity[w_iface_name]
-                    if sub_iface.methods:
-                        impl_witness_args.extend(
-                            sub_w_dict[sub_mname].term for sub_mname in sub_iface.methods
-                        )
-                    else:
-                        impl_witness_args.append(_term("unit"))
-                res_methods: dict[str, _Binding] = {}
-                res_ensures: dict[str, tuple[tuple[int, ...], tuple[_Term, ...]]] = {}
-                for mname, mspec in iface.methods.items():
-                    m_b = impl_inst.methods[mname]
-                    m_term, m_type = m_b.term, m_b.type
-                    for arg_term in [*g_sols, *impl_witness_args]:
-                        m_type = self.whnf(m_type)
-                        m_term = _app(m_term, arg_term)
-                        m_type = self.substitute(m_type.args[1], cast("int", m_type.value), arg_term)
-                    res_methods[mname] = _Binding(m_term, m_type, mspec.method_generics)
-                    if mspec.ensures_props:
-                        inst_ens: list[_Term] = []
-                        for ep in mspec.ensures_props:
-                            sub_ep = ep
-                            for gv, tv in zip(iface.generic_vars, inst_t_args, strict=True):
-                                sub_ep = self.substitute(sub_ep, cast("int", gv.value), tv)
-                            sub_ep = self.substitute(
-                                sub_ep, cast("int", mspec.self_var.value), m_term
-                            )
-                            inst_ens.append(sub_ep)
-                        rem_m_ids = tuple(
-                            cast("int", v.value) for v in [*mspec.generic_vars, *mspec.param_vars]
-                        )
-                        res_ensures[mname] = (rem_m_ids, tuple(inst_ens))
-                return res_methods, res_ensures
+            if all(self._try_unify(a, b) for a, b in zip(arguments, inst_t_args, strict=True)):
+                active_matches.append((key, witness, self.metas))
             self.restore_metas(saved_metas)
+        if len(active_matches) > 1:
+            raise self.fail("type", f"ambiguous bounds for interface '{iface_name}'", call_site)
+        if active_matches:
+            key, witness, selected_metas = active_matches[0]
+            self.restore_metas(selected_metas)
+            return witness, self.active_interface_ensures.get(key, {})
 
-        raise self.fail(
-            "type",
-            f"no implementation of interface '{iface_name}' for the given type arguments",
-            call_site,
-        )
+        matches = []
+        for instance in self.impls.get(iface_name, []):
+            saved_metas = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+            arguments = self._match_impl_arguments(instance, inst_t_args, environment)
+            if arguments is not None:
+                matches.append((instance, arguments, self.metas))
+                self.restore_metas(saved_metas)
+        if not matches:
+            raise self.fail(
+                "type", f"no implementation of interface '{iface_name}' for the given type arguments", call_site,
+            )
+        if len(matches) > 1:
+            raise self.fail("type", f"ambiguous implementations of interface '{iface_name}'", call_site)
+        impl_inst, g_metas, selected_metas = matches[0]
+        self.restore_metas(selected_metas)
+        g_sols = [self.whnf(self.resolve(gm)) for gm in g_metas]
+        iface = self.interfaces_by_identity[iface_name]
+        impl_witness_args: list[_Term] = []
+        for w_iface_name, w_raw_t_args in impl_inst.where_constraints:
+            w_inst_t_args: list[_Term] = []
+            for wt in w_raw_t_args:
+                wt_sub = wt
+                for gv, gsol in zip(impl_inst.generic_vars, g_sols, strict=True):
+                    wt_sub = self.substitute(wt_sub, cast("int", gv.value), gsol)
+                w_inst_t_args.append(self.whnf(wt_sub))
+            sub_w_dict, _ = self._resolve_single_interface_witness(
+                w_iface_name, tuple(w_inst_t_args), environment, call_site
+            )
+            sub_iface = self.interfaces_by_identity[w_iface_name]
+            if sub_iface.methods:
+                impl_witness_args.extend(
+                    sub_w_dict[sub_mname].term for sub_mname in sub_iface.methods
+                )
+            else:
+                impl_witness_args.append(_term("unit"))
+        res_methods: dict[str, _Binding] = {}
+        res_ensures: dict[str, tuple[tuple[int, ...], tuple[_Term, ...]]] = {}
+        for mname, mspec in iface.methods.items():
+            m_b = impl_inst.methods[mname]
+            m_term, m_type = m_b.term, m_b.type
+            for arg_term in [*g_sols, *impl_witness_args]:
+                m_type = self.whnf(m_type)
+                m_term = _app(m_term, arg_term)
+                m_type = self.substitute(m_type.args[1], cast("int", m_type.value), arg_term)
+            res_methods[mname] = _Binding(m_term, m_type, mspec.method_generics)
+            if mspec.ensures_props:
+                inst_ens: list[_Term] = []
+                for ep in mspec.ensures_props:
+                    sub_ep = ep
+                    for gv, tv in zip(iface.generic_vars, inst_t_args, strict=True):
+                        sub_ep = self.substitute(sub_ep, cast("int", gv.value), tv)
+                    sub_ep = self.substitute(
+                        sub_ep, cast("int", mspec.self_var.value), m_term
+                    )
+                    inst_ens.append(sub_ep)
+                rem_m_ids = tuple(
+                    cast("int", v.value) for v in [*mspec.generic_vars, *mspec.param_vars]
+                )
+                res_ensures[mname] = (rem_m_ids, tuple(inst_ens))
+        return res_methods, res_ensures
 
     def _resolve_interface_witnesses(
         self: _Elaborator,
@@ -2834,6 +2812,7 @@ class _DeclarationsMixin:
                 or len(modifiers) != len(set(modifiers))):
             raise self.fail("unsupported", "unsupported or repeated declaration modifiers")
         decreases_clauses: list[Node] = []
+        constraint_clauses: list[Node] = []
         requires_clauses: list[Node] = []
         ensures_clauses: list[Node] = []
         restores_clauses: list[Node] = []
@@ -2845,6 +2824,9 @@ class _DeclarationsMixin:
                 or bool(self.nodes(node["parameters"]) or self.nodes(node["generics"]))
             )
             for contract in self.nodes(node["contracts"]):
+                if contract["kind"] == "type_constraint":
+                    constraint_clauses.append(contract)
+                    continue
                 if contract["kind"] == "effects":
                     if kind not in {"definition", "function"} or not has_params_or_generics:
                         raise self.fail(
@@ -2858,7 +2840,7 @@ class _DeclarationsMixin:
                 role = contract["role"]
                 if role == "decreases":
                     decreases_clauses.append(contract)
-                elif role in {"requires", "where"} and has_params_or_generics:
+                elif role == "requires" and has_params_or_generics:
                     requires_clauses.append(contract)
                 elif role == "ensures" and has_params_or_generics:
                     ensures_clauses.append(contract)
@@ -2916,17 +2898,7 @@ class _DeclarationsMixin:
         )
         self.entry_env = dict(environment)
         self.final_ref_bindings = dict(environment)
-        where_iface_constraints: list[tuple[_InterfaceInfo, tuple[_Term, ...], Node]] = []
-        if requires_clauses:
-            filtered_reqs: list[Node] = []
-            for rc in requires_clauses:
-                if rc["role"] == "where":
-                    ifaces_c, props_c = self._split_where_clause(rc, environment)
-                    where_iface_constraints.extend(ifaces_c)
-                    filtered_reqs.extend(props_c)
-                else:
-                    filtered_reqs.append(rc)
-            requires_clauses = filtered_reqs
+        where_iface_constraints = self._interface_constraints(constraint_clauses, generics, environment)
         witness_vars, active_where_keys = self._bind_where_constraints(where_iface_constraints)
         try:
             is_recursive = False

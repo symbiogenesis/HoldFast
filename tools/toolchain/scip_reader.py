@@ -106,7 +106,7 @@ def _navigate(documents: dict[str, _Document], workspace: Path, bundle: Path, ma
     make_use = _at(scale, _site(client, "Measure(|(units:", make), 0)
     method = _at(weights, _site(provider, "Nat |(T value)", "Measure"), DEFINITION)
     concrete = _at(weights, _site(provider, "Nat |(Weight value)", "Measure"), DEFINITION)
-    method_use = _at(scale, _site(client, "Measured.|(", "Measure"), 0)
+    method_use = _at(scale, _site(client, "Weight.|(", "Measure"), 0)
     if make_symbol != make_use or method_use != method or method not in _related(weights, concrete, "is_implementation"):
         raise ValueError("offline imported definition, reference or implementation query disagreed")
 

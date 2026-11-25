@@ -359,7 +359,7 @@ public record RangeWindow(u32 Low, u32 High)
     public definition u32 SpanWidth() => High - Low;
 
     public RangeWindow AdvanceLow(u32 delta)
-        where delta <= this.SpanWidth()
+        requires delta <= this.SpanWidth()
         ensures result.Low == Low + delta
     {
         return this with { Low = Low + delta };
@@ -409,28 +409,28 @@ public u32 SumInitializedBounds()
     return low + high;
 }
 
-public interface Steppable<T>
+public interface ISteppable<T>
 {
-    T Step(T value);
-    lemma StepDeterministic(T value) ensures Step(value) == Step(value);
+    T Step(in T value);
+    lemma StepDeterministic(T value) ensures T.Step(in value) == T.Step(in value);
 }
 
-public impl Steppable<Nat>
+public impl ISteppable<Nat>
 {
-    public definition Nat Step(Nat value) => value + 1;
+    public definition Nat Step(in Nat value) => value + 1;
     lemma StepDeterministic(Nat value)
-        ensures Step(value) == Step(value)
+        ensures Nat.Step(in value) == Nat.Step(in value)
         proof
         {
-            assert Step(value) == Step(value);
+            assert Nat.Step(in value) == Nat.Step(in value);
         }
 }
 
 public T AdvanceTwice<T>(T start)
-    where Steppable(type T)
+    where T : ISteppable<T>
 {
     let middle = start.Step();
-    return Steppable.Step(middle);
+    return T.Step(in middle);
 }
 
 public lemma AdvanceTwiceNat()

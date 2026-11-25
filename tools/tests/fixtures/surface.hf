@@ -53,8 +53,9 @@ public void Fill<ghost Nat count>(ref Span<byte, count> target, byte value)
 }
 
 // Collection loops preserve explicit value and element-loan modes.
-public void Visit(ref Span<byte> target, in Span<byte> source)
-    where ISequenceModel(source) && IBoundedIterable(target)
+public void Visit<Source, Target>(ref Target target, in Source source)
+    where Source : ISequenceModel<Source, byte>
+    where Target : IBoundedIterable<Target, byte>
     requires source.Model.All(x => x > 0)
     requires source.Model.Any(x => x == 1) && source.Model.Contains(1)
     ensures target.Model.Take(1).Skip(0).Slice(0, 1).Count <= target.Model.Count
@@ -87,7 +88,6 @@ public const Span<byte> HeaderBanner = """
 
 public Result<usize, CapacityError> FormatPacketHeader<ghost Nat capacity>(
     ref TextBuilder<capacity> builder, usize packetId, byte tag)
-    where Format(usize) && Format(byte)
     effects writes(builder)
 {
     let bannerBytes = Format.Write(ref builder, $"header={{")?;
@@ -198,13 +198,13 @@ public Result<Unit, BorrowError> ReplaceByte(ref BorrowCell<byte> cell, byte val
 
 // Eligibility remains an explicit library contract with a proof obligation.
 public (Box<T, q>, Box<T, q>) Duplicate<T, grade q : NatExact>(owned Box<T, q> value)
-    where Dup(value)
+    requires Dup(value)
     ensures Split(old(value), result);
 
-public void Close<T>(owned T value) where Dispose(value);
+public void Close<T>(owned T value) requires Dispose(value);
 
 public async T Preserve<T>(owned T value)
-    where Suspend(value)
+    requires Suspend(value)
     ensures Preserved(old(value), result)
 {
     await Checkpoint();
@@ -221,8 +221,8 @@ public struct Graded<T, grade q : NatExact>
     private T Value @ q;
 }
 
-public impl<T, grade q : NatExact> Duplicate<Graded<T, q>>
-    where Repeatable(T, q)
+public impl<T, grade q : NatExact> IDuplicate<Graded<T, q>>
+    where T : IRepeatable<T, q>
 {
     public (owned Graded<T, q>, owned Graded<T, q>) Split(owned Graded<T, q> value)
         ensures Preserved(old(value), result);
@@ -257,7 +257,7 @@ public Result<ref<'workspace.bytes> byte, Error> ForwardSlot(ref Workspace works
 }
 
 // Resource contracts use the same forms on containers and effect operations.
-public interface LoanStorage<T> where StorageLaws(T)
+public interface ILoanStorage<T> requires StorageLaws(T)
 {
     ref<'input> T First(ref Span<T> input)
         requires input.Length > 0
@@ -265,7 +265,7 @@ public interface LoanStorage<T> where StorageLaws(T)
 }
 
 public struct Stored<T, grade q : NatExact>
-    where Admits(T, q)
+    requires Admits(T, q)
     invariant Closed(this)
 {
     private T Value @ q;
@@ -305,7 +305,7 @@ public struct BoundedBuffer<T, ghost Nat capacity>
     }
 }
 
-public effect Exchange<T> where Representable(T) invariant Closed(Storage)
+public effect Exchange<T> requires Representable(T) invariant Closed(Storage)
 {
     owned T Replace(owned T replacement @ NatExact(1)) resumes(0..1)
         requires Available(replacement)
@@ -331,7 +331,7 @@ public Nat ForwardChoice()
 // Type families and resource libraries reuse ordinary definitions and contracts.
 universe u;
 public definition Type<u> RepeatedType<T : Type<u>>(bool repeated)
-    where Repeatable(T)
+    where T : IRepeatable<T>
     => match (repeated) as choice : Type<u>
     {
         true => type (T, T),
@@ -340,15 +340,15 @@ public definition Type<u> RepeatedType<T : Type<u>>(bool repeated)
 
 // Type-valued library functions can supply types throughout the same surface.
 public alias Repeated<T : Type<u>, ghost bool repeated>
-    where Repeatable(T)
+    where T : IRepeatable<T>
     = type[RepeatedType<T>(repeated)];
 
 public type[RepeatedType<T>(repeated)] Repeat<T : Type<u>>(
     bool repeated, T value @ NatExact(1))
-    where Repeatable(T);
+    where T : IRepeatable<T>;
 
 public void UseRepeated<T : Type<u>>(bool repeated, T source)
-    where Repeatable(T)
+    where T : IRepeatable<T>
 {
     let type[RepeatedType<T>(repeated)] selected @ NatExact(1) = Repeat(repeated, source);
     let identity = (type[RepeatedType<T>(repeated)] value @ NatExact(1)) => value;
@@ -373,13 +373,13 @@ public definition Nat ClassifyCharacter(char value) => match (value)
     _ => 0,
 };
 
-public interface ResourceFamily<T : Type<u>> where Representable(T)
+public interface IResourceFamily<T : Type<u>> requires Representable(T)
 {
-    type Output : Type<u> where Formed(T);
+    type Output : Type<u> requires Formed(T);
     predicate Ready(T value) requires Stable(value);
 }
 
-public union ResourceOutcome<T : Type<u>> where Representable(T)
+public union ResourceOutcome<T : Type<u>> requires Representable(T)
 {
     Returned(owned T value @ NatExact(1)) ensures Retained(result);
     Unavailable(tracked Closed receipt) restores Closed(receipt);
@@ -406,7 +406,7 @@ public void UpdateCell<T : Type<u>>(ref LocalCell<T> cell)
 // Product grades are ordinary dictionary applications over pair values.
 // Compatible supplies the interaction laws for the product.
 public domain Product<A : GradeDomain, B : GradeDomain>
-    where Compatible(A, B)
+    requires Compatible(A, B)
 {
     carrier (A.carrier, B.carrier);
     zero (A.zero, B.zero);

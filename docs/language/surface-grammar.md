@@ -48,7 +48,7 @@ construct syntax, including syntactically valid programs with semantic errors.
 | Modules and abstraction | Qualified module names, imports, aliases, namespaces, public/private declarations, typed constants, interfaces and implementations, abstract signatures and definitions |
 | Data and dependency | Records, structs, tagged unions, fields, constructors, named views, generic types and applications, typed ghost indices, region and capture parameters, grade parameters and annotations |
 | Types and resources | Qualified and applied types, ownership, shared/exclusive loans and place-named lifetimes, ghost/tracked/scoped modifiers, function types with captures and effects, dependent binders and universe syntax |
-| Contracts | Requires, ensures, restores, where, effects, unnamed and named (`invariant Clause: EXPR`) invariants, selective invariant opening (`open (ref target) lifts Clause, ... { ... }`), and decreasing measures; old/final are ordinary calls |
+| Contracts | Requires, ensures, restores, effects, unnamed and named (`invariant Clause: EXPR`) invariants, selective invariant opening (`open (ref target) lifts Clause, ... { ... }`), and decreasing measures. `where T : IBound<T>` constrains a generic type parameter. `old` and `final` are ordinary calls. |
 | Expressions | Literal spellings (including multi-quote raw strings and interpolated format templates) and representation suffixes, qualified access, nested calls, indexing and ranges, unary/arithmetic/comparison/logical operators, implication, pattern tests, explicit generic application, tuples, lambdas and named holes |
 | Control | Immutable/mutable and typed locals, required-static local constants, assignments, blocks, returns, if/else, bounded-loop syntax, exhaustive-match syntax, break/continue and explicit propagation |
 | Grades | Domain carrier/zero/one/add/mul/admits/interpret/laws declarations and parameter use grades |
@@ -189,12 +189,29 @@ omitted. Thus a graded box or retained callback environment can use either recor
 or struct presentation without a special storage primitive.
 
 Implementation declarations reuse the generic telescope and declaration
-contracts: `impl<T, grade q : NatExact> Dup<Box<T, q>> where Repeatable(T, q) { ... }`.
+contracts. For example, `impl<T, grade q : NatExact> IDup<Box<T, q>>
+where T : IRepeatable<T, q> { ... }` has one interface bound.
 Their `generics` and `contracts` fields contain the same located nodes as other
 declarations. Generic binding, instance coherence and the supplied laws are
 elaboration obligations. A callable implementation target is parenthesized,
-for example `impl (Fn() -> Nat effects(Read)) where Law() { ... }`, so its effect
+for example `impl (Fn() -> Nat effects(Read)) requires Law() { ... }`, so its effect
 bound stays distinct from implementation contracts.
+
+### Generic interface constraints
+
+An interface bound on a generic declaration uses `where T : ISized<T>`.
+Give each constrained type parameter its own `where` clause and list its bounds
+with commas, as in `where T : ISized<T>, IOrdered<T> where U : ISized<U>`.
+Each bound is a named interface type, including a qualified name when needed.
+Its first argument is the constrained type parameter. Further arguments may be
+types or indices. An expression precondition uses `requires`.
+
+A located `type_constraint` node in the declaration's `contracts` array has a
+located `parameter` identifier and a nonempty `bounds` array of named types.
+The bound list has no trailing comma. Generic binding and witness selection
+follow the [interface resolution rules](first-release.md#interface-constraints-and-dispatch).
+
+### Callable types and contracts
 
 Callable types reuse that telescope too, for example
 `Fn<region 'loan>(scoped ref<'loan> T value) -> Unit`. Their optional contracts are
@@ -239,14 +256,14 @@ effect Exchange<T> {
 Struct, interface, machine and hardware containers accept the same
 declaration contracts between their generic telescope and opening brace. Their
 `contracts` arrays distinguish container laws from member contracts, for example
-`interface Repeatable<T, grade q : NatExact> where Admits(T, q) { ... }` and
+`interface IRepeatable<T, grade q : NatExact> requires Admits(T, q) { ... }` and
 `struct LocalCell<T> invariant Closed(this) { ... }`. Abstract callable
 signatures inside interfaces and modules use ordinary bodyless function
 declarations (`T Read() requires Readable(this) ensures Stable(result);`), and
 interface proof laws use bodyless `lemma`/`theorem` declarations
 (`lemma ReadLaw(Handle target) ensures Owns(target);`). Theorem and lemma
-declarations state their propositions with `requires`, `where` and `decreases`
-precontracts followed by one or more `ensures` clauses in their `contracts`
+declarations put `requires` and `decreases` clauses and any generic `where`
+bounds before one or more `ensures` clauses in their `contracts`
 array before `proof { ... }` or `;`; colon-delimited theorem propositions are
 refused. The surface entry reserves `trait`, `operation`, and `handle`. Proof signatures
 require a `lemma` or `theorem` declaration with its contracts. The pure entry
@@ -386,7 +403,7 @@ definition NatExact.carrier AddZero(NatExact.carrier value) =>
 These names preserve the existing located path/member AST forms. For example, `definition Nat add(Nat zero, Nat one) => zero + one;` uses three role names as ordinary values.
 Domains also reuse the existing generic telescope and declaration contracts,
 for example `domain Product<A : GradeDomain, B : GradeDomain>
-where Compatible(A, B) { carrier (A.carrier, B.carrier); ... }`.
+requires Compatible(A, B) { carrier (A.carrier, B.carrier); ... }`.
 Their `generics` and `contracts` arrays are empty when omitted. Compatible product
 domains therefore need no separate grammar primitive or assumed algebraic law.
 
@@ -429,7 +446,7 @@ reuses calls, dependent matches, local indices and library operations:
 ```text
 definition Type<u> Select<T : Type<u>>(bool pair) =>
     match (pair) { true => type (T, T), false => type T, };
-alias Selected<T : Type<u>, ghost bool pair> where Stable(pair) =
+alias Selected<T : Type<u>, ghost bool pair> requires Stable(pair) =
     type[Select<T>(pair)];
 type[Select<T>(pair)] Read<T : Type<u>>(bool pair);
 ```
@@ -874,12 +891,12 @@ Loop contracts retain the range-loop placement before the braced body.
 
 **Sequence model vocabulary in contracts.** In `requires`, `ensures`, `restores`
 and `invariant`, a container's logical `.Model` (`Seq<T>`, projected directly or
-through `ISequenceModel<T>`) exposes the C#/Kotlin-style pure sequence vocabulary
+through `ISequenceModel<C, T>`) exposes the C#/Kotlin-style pure sequence vocabulary
 `.All(x => ...)`, `.Any(x => ...)`, `.Contains(x)`, `.Take(n)`, `.Skip(n)`,
 `.Slice(a, b)` and `.Count` alongside `.At(i)`, `.Update(i, v)` and `.Append(x)`.
 Authors write `requires items.Model.All(x => x > 0)` rather than raw index
-quantifiers. `ISequenceModel<T>` and `IBoundedIterable<T>` reuse ordinary
-`interface`, `impl` and `where` syntax to project containers to canonical
+quantifiers. Bounds such as `where C : ISequenceModel<C, T>` and
+`where C : IBoundedIterable<C, T>` project containers to canonical
 `Seq<T>` and connect bounded `foreach` steps to `Model.At(k)`, `Model.Take(k)`
 and `Model.Skip(k)`, without importing stateful `IEnumerable<T>` enumerators or
 runtime `IQueryable<T>` expression-tree reflection. In the surface grammar these
@@ -910,9 +927,9 @@ in pattern positions are syntax refusals. Under the
 a heap-allocating `string` value: it is elaborated only as the format template
 of an explicit buffer-writing operation such as `Format.Write(ref builder, $"...")`
 targeting `ref TextBuilder<capacity>` or `ref Span<byte>`, resolving a coherent
-static `Format<T>` instance per hole (no runtime reflection, virtual `ToString()`
+static `IFormat<T>` instance per hole (no runtime reflection, virtual `ToString()`
 or ambient locale) and returning `Result<usize, CapacityError>`. Standalone
-`$"..."` bindings, missing `Format<T>` instances, unexamined
+`$"..."` bindings, missing `IFormat<T>` instances, unexamined
 `Result<usize, CapacityError>` outcomes and hole expressions that conflict with
 the active `ref` target loan remain valid syntax for the semantic and borrow
 checkers to diagnose.

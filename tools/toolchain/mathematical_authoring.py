@@ -71,9 +71,11 @@ class Document:
             kind = item["kind"]
             if kind in ("binary", "unary"):
                 roles[_start(cast("Node", item["operator"]))] = str(kind)
-            elif kind in ("contract", "effects"):
+            elif kind in ("contract", "effects", "type_constraint"):
                 roles[_start(item)] = "contract"
                 after_contract.add(cast("Sequence[int]", item["span"])[1])
+                if kind == "type_constraint":
+                    roles[_start(cast("Node", item["parameter"]))] = "constraint_parameter"
         top_level = {_start(item) for item in cast("Sequence[Node]", self.ast["declarations"])}
         sections = set()
         for index, part in enumerate(self.parts):
@@ -119,6 +121,8 @@ def _space(left: Part, right: Part, roles: dict[int, str]) -> bool:
     if left.comment or right.comment:
         return True
     before, after = left.spelling, right.spelling
+    if after == b":" and roles.get(left.start) == "constraint_parameter":
+        return True
     if after in (b";", b",", b".", b":", b")", b"]", b"?") or before in (b".", b"(", b"["):
         return False
     if roles.get(left.start) == "unary":

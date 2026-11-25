@@ -11,15 +11,18 @@ from tests.test_holdfast_elaborate import (
     Node,
     _assert,
     _binary,
+    _contract,
     _Fixture,
     _function_type,
     _lambda,
     _natural,
     _type,
+    _type_constraint,
     _variable,
 )
 from toolchain.ast import HoldFastError
 from toolchain.elaborate import elaborate
+from toolchain.elaborate_protocol import _Protocol
 
 
 def _quantifier(word: str) -> Form:
@@ -111,6 +114,36 @@ def _supported_and_unsupported_words() -> None:
     ensure(raised.exception.kind == "protocol", "a forged valid syntax word escaped source binding")
 
 
+def _type_constraint_binding() -> None:
+    fixture = _Fixture("Constraints")
+    fixture.definition(
+        "Keep", _type("T"), (("value", _type("T")),), _variable("value"),
+        generics=(("type", "T", None),),
+        contracts=(_type_constraint("T", _type("Core.ISized", _type("T")), _type("ICopy", _type("T"))),),
+    )
+    source, response = fixture.response()
+    tree = _Protocol(source).decode(response)
+    declaration = cast("list[Node]", tree["declarations"])[0]
+    constraint = cast("list[Node]", declaration["contracts"])[0]
+    bounds = cast("list[Node]", constraint["bounds"])
+    for field, replacement in (("parameter", {"text": "T"}), ("bounds", []), ("bounds", bounds[::-1])):
+        changed = copy.deepcopy(response)
+        declaration = cast("list[Node]", cast("Node", changed["ast"])["declarations"])[0]
+        constraint = cast("list[Node]", declaration["contracts"])[0]
+        constraint[field] = replacement
+        with raises(HoldFastError, msg=f"forged constraint {field} was accepted") as raised:
+            _Protocol(source).decode(changed)
+        ensure(raised.exception.kind == "protocol", "constraint corruption was not refused at the source boundary")
+    retired = _Fixture("Retired")
+    retired.definition("Keep", _NAT, (("value", _NAT),), _variable("value"),
+                       contracts=(_contract("where", _binary(">", _variable("value"), _natural(0))),))
+    source, response = retired.response()
+    with raises(HoldFastError, msg="old where proposition entered through the AST protocol") as raised:
+        _Protocol(source).decode(response)
+    ensure(raised.exception.kind == "protocol", "a retired where proposition reached elaboration")
+
+
 def cases() -> list[Case]:
     return [Case("mathematical-malformed-syntax-words", _malformed_words),
-            Case("mathematical-word-semantics-and-source-binding", _supported_and_unsupported_words)]
+            Case("mathematical-word-semantics-and-source-binding", _supported_and_unsupported_words),
+            Case("mathematical-type-constraint-source-binding", _type_constraint_binding)]

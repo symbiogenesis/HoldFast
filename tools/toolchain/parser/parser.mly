@@ -285,52 +285,52 @@ s_decl:
     { make "import" $startpos $endpos [("name", path); ("alias", visible)] [] }
 | IMPORT path=s_path LBRACE items=comma_nonempty_list(s_import_item) RBRACE SEMICOLON
     { make "import" $startpos $endpos [("name", path); ("items", array items)] items }
-| ALIAS alias=s_identifier generics=s_generics contracts=list(s_contract) EQUAL value=s_type SEMICOLON
+| ALIAS alias=s_identifier generics=s_generics contracts=list(s_declaration_clause) EQUAL value=s_type SEMICOLON
     { make "alias" $startpos $endpos [("name", alias); ("generics", array generics);
         ("contracts", array contracts); ("type", value.syntax)] (value :: generics @ contracts) }
 | NAMESPACE path=s_path LBRACE members=list(s_declaration) RBRACE
     { make "namespace" $startpos $endpos [("name", path); ("declarations", array members)] members }
 | kind=s_container_kind container_name=s_identifier generics=s_generics
-  contracts=list(s_contract) LBRACE members=list(s_declaration) RBRACE
+  contracts=list(s_declaration_clause) LBRACE members=list(s_declaration) RBRACE
     { make kind $startpos $endpos [("name", container_name); ("generics", array generics);
         ("contracts", array contracts); ("declarations", array members)] (generics @ contracts @ members) }
-| IMPL generics=s_generics target=s_nonfunction_type contracts=list(s_contract) LBRACE members=list(s_declaration) RBRACE
+| IMPL generics=s_generics target=s_nonfunction_type contracts=list(s_declaration_clause) LBRACE members=list(s_declaration) RBRACE
     { make "impl" $startpos $endpos [("type", target.syntax); ("generics", array generics);
         ("contracts", array contracts); ("declarations", array members)]
         (target :: generics @ contracts @ members) }
 | RECORD record_name=s_identifier generics=s_generics LPAREN
-  parameters=comma_list(s_parameter) RPAREN contracts=list(s_contract) tail=s_record_tail
+  parameters=comma_list(s_parameter) RPAREN contracts=list(s_declaration_clause) tail=s_record_tail
     { make "record" $startpos $endpos [("name", record_name); ("generics", array generics);
         ("parameters", array parameters); ("contracts", array contracts); ("declarations", array tail)]
         (generics @ parameters @ contracts @ tail) }
 | kind=s_sum_kind sum_name=s_identifier generics=s_generics
-  contracts=list(s_contract) LBRACE cases=list(s_constructor) RBRACE
+  contracts=list(s_declaration_clause) LBRACE cases=list(s_constructor) RBRACE
     { make kind $startpos $endpos [("name", sum_name); ("generics", array generics);
         ("contracts", array contracts); ("constructors", array cases)] (generics @ contracts @ cases) }
-| DOMAIN domain_name=s_identifier generics=s_generics contracts=list(s_contract)
+| DOMAIN domain_name=s_identifier generics=s_generics contracts=list(s_declaration_clause)
   LBRACE entries=list(s_domain_entry) RBRACE
     { make "domain" $startpos $endpos [("name", domain_name); ("generics", array generics);
         ("contracts", array contracts); ("entries", array entries)] (generics @ contracts @ entries) }
-| EFFECT effect_name=s_identifier generics=s_generics contracts=list(s_contract)
+| EFFECT effect_name=s_identifier generics=s_generics contracts=list(s_declaration_clause)
   LBRACE operations=list(s_effect_operation) RBRACE
     { make "effect" $startpos $endpos [("name", effect_name); ("generics", array generics);
         ("contracts", array contracts); ("operations", array operations)] (generics @ contracts @ operations) }
 | VIEW view_name=s_identifier EQUAL parts=separated_nonempty_list(COMMA, s_view_part) SEMICOLON
     { make "view" $startpos $endpos [("name", view_name); ("parts", array parts)] parts }
 | TYPE type_name=s_identifier generics=s_generics kind=option(s_kind_annotation)
-  contracts=list(s_contract) definition=option(s_type_definition) SEMICOLON
+  contracts=list(s_declaration_clause) definition=option(s_type_definition) SEMICOLON
     { make "associated_type" $startpos $endpos [("name", type_name); ("generics", array generics);
         ("kind_annotation", optional kind); ("contracts", array contracts);
         ("definition", optional definition)] (generics @ children kind @ contracts @ children definition) }
 | PREDICATE predicate_name=s_identifier generics=s_generics LPAREN
-  parameters=comma_list(s_parameter) RPAREN contracts=list(s_contract)
+  parameters=comma_list(s_parameter) RPAREN contracts=list(s_declaration_clause)
   definition=option(s_value_definition) SEMICOLON
     { make "predicate" $startpos $endpos [("name", predicate_name); ("generics", array generics);
         ("parameters", array parameters); ("contracts", array contracts); ("definition", optional definition)]
         (generics @ parameters @ contracts @ children definition) }
 | UNIVERSE universe=s_identifier SEMICOLON
     { make "universe" $startpos $endpos [("name", universe)] [] }
-| DEFINITION header=s_callable_header contracts=list(s_contract) FATARROW value=s_expression SEMICOLON
+| DEFINITION header=s_callable_header contracts=list(s_declaration_clause) FATARROW value=s_expression SEMICOLON
     { let result, definition_name, generics, parameters = header in
       make "definition" $startpos $endpos [("name", definition_name); ("result", result.syntax);
         ("generics", array generics); ("parameters", array parameters); ("contracts", array contracts);
@@ -353,7 +353,7 @@ s_decl:
     { make "schedule" $startpos $endpos [("name", schedule_name); ("rules", array rules)] rules }
 | CYCLE value=s_expression SEMICOLON
     { make "cycle" $startpos $endpos [("value", value.syntax)] [value] }
-| header=s_callable_header contracts=list(s_contract) body=s_function_body cancel=option(s_cancel)
+| header=s_callable_header contracts=list(s_declaration_clause) body=s_function_body cancel=option(s_cancel)
     { let result, function_name, generics, parameters = header in
       make "function" $startpos $endpos [("name", function_name); ("result", result.syntax);
         ("generics", array generics); ("parameters", array parameters); ("contracts", array contracts);
@@ -392,8 +392,9 @@ s_theorem_kind:
 s_theorem_precontract:
   role=s_theorem_precontract_role value=s_expression
     { make "contract" $startpos $endpos [("role", String role); ("value", value.syntax)] [value] }
+| value=s_type_constraint { value }
 s_theorem_precontract_role:
-  REQUIRES { "requires" } | WHERE { "where" } | DECREASES { "decreases" }
+  REQUIRES { "requires" } | DECREASES { "decreases" }
 s_theorem_ensures:
   ENSURES value=s_expression
     { make "contract" $startpos $endpos [("role", String "ensures"); ("value", value.syntax)] [value] }
@@ -445,7 +446,7 @@ s_domain_role:
   ZERO { "zero" } | ONE { "one" } | ADD { "add" } | MUL { "mul" }
 | ADMITS { "admits" } | INTERPRET { "interpret" } | LAWS { "laws" }
 s_effect_operation:
-  header=s_callable_header resumes=option(s_resumes) contracts=list(s_contract) SEMICOLON
+  header=s_callable_header resumes=option(s_resumes) contracts=list(s_declaration_clause) SEMICOLON
     { let result, operation_name, generics, parameters = header in
       make "effect_operation" $startpos $endpos [("name", operation_name); ("result", result.syntax);
         ("generics", array generics); ("parameters", array parameters); ("resumes", optional resumes);
@@ -555,6 +556,13 @@ s_parameter:
         (value_type :: children grade) }
 s_grade:
   AT value=s_expression { value }
+s_declaration_clause:
+  value=s_contract | value=s_type_constraint { value }
+s_type_constraint:
+  WHERE parameter=s_identifier COLON bounds=separated_nonempty_list(COMMA, s_constraint_bound)
+    { make "type_constraint" $startpos $endpos [("parameter", parameter); ("bounds", array bounds)] bounds }
+s_constraint_bound:
+  value=s_named_type(s_qualified_name(s_type_identifier)) { value }
 s_contract:
   value=s_obligation { value }
 | EFFECTS values=separated_nonempty_list(COMMA, s_contract_expression)
@@ -568,7 +576,7 @@ s_obligation:
     { make "contract" $startpos $endpos [("role", String "invariant"); ("name", clause); ("value", value.syntax)] [value] }
 s_contract_role:
   REQUIRES { "requires" } | ENSURES { "ensures" } | RESTORES { "restores" }
-| WHERE { "where" } | DECREASES { "decreases" } | PROGRESS { "progress" }
+| DECREASES { "decreases" } | PROGRESS { "progress" }
 
 s_block:
   LBRACE statements=list(s_statement) RBRACE

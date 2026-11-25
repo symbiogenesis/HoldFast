@@ -82,6 +82,7 @@ _FIELDS: dict[str, set[str]] = {
     "labeled_pattern": {"label", "pattern"},
     "quantifier": {"quantifier", "parameters", "value"},
     "contract": {"role", "value"},
+    "type_constraint": {"parameter", "bounds"},
     "effects": {"values"},
     "lifetime": {"name"},
     "propagate": {"value"},
@@ -145,7 +146,7 @@ _SYNTAX_WORDS = {
     "function_type": ("mode", {"Fn", "FnMut", "FnOnce"}),
     "generic_parameter": ("mode", {"type", "ghost", "region", "effect", "captures", "grade"}),
     "quantifier": ("quantifier", {"forall", "exists"}),
-    "contract": ("role", {"requires", "ensures", "restores", "where", "decreases", "progress", "invariant"}),
+    "contract": ("role", {"requires", "ensures", "restores", "decreases", "progress", "invariant"}),
     "modified_type": ("modifier", {"owned", "in", "ref", "out", "ghost", "tracked", "scoped"}),
     "foreach_collection": ("mode", {"value", "in", "ref"}),
 }
@@ -274,12 +275,12 @@ class _Protocol:
                     raise self.error("protocol", "theorem contracts must be a non-empty list", node)
                 seen_ensures = False
                 for item in contracts:
-                    if not isinstance(item, dict) or item.get("kind") != "contract":
-                        raise self.error("protocol", "theorem contracts must be contract nodes", node)
-                    role = item.get("role")
+                    if not isinstance(item, dict) or item.get("kind") not in ("contract", "type_constraint"):
+                        raise self.error("protocol", "theorem requires contract or type constraint nodes", node)
+                    role = item.get("role") if item["kind"] == "contract" else "type_constraint"
                     if role == "ensures":
                         seen_ensures = True
-                    elif seen_ensures or role not in {"decreases", "requires", "where"}:
+                    elif seen_ensures or role not in ("decreases", "requires", "type_constraint"):
                         raise self.error(
                             "protocol",
                             "theorem contracts must be precontracts followed by ensures clauses",
@@ -301,10 +302,10 @@ class _Protocol:
                 or any(
                     not isinstance(item, dict)
                     or (
-                        item.get("kind") != "effects"
+                        item.get("kind") not in ("effects", "type_constraint")
                         and (
                             item.get("kind") != "contract"
-                            or item.get("role") not in {"decreases", "requires", "where", "ensures", "restores"}
+                            or item.get("role") not in {"decreases", "requires", "ensures", "restores"}
                         )
                     )
                     for item in contracts
@@ -373,9 +374,10 @@ class _Protocol:
                 cursor = self._child(node, span, cursor, node["type"])
             contracts = node["contracts"]
             if not isinstance(contracts, list) or any(
-                not isinstance(item, dict) or item.get("kind") != "contract" for item in contracts
+                not isinstance(item, dict) or item.get("kind") not in ("contract", "type_constraint")
+                for item in contracts
             ):
-                raise self.error("protocol", f"{kind} contracts must be contract nodes", node)
+                raise self.error("protocol", f"{kind} requires contract or type constraint nodes", node)
             for contract_item in contracts:
                 cursor = self._child(node, span, cursor, contract_item)
             cursor = self._token(node, cursor, b"{")
@@ -695,9 +697,15 @@ class _Protocol:
                 cursor = self._token(node, cursor, b"effects")
                 cursor = self._list(node, span, cursor, node["effects"])
             if node["contracts"]:
+                clauses = node["contracts"]
+                if not isinstance(clauses, list) or any(
+                    not isinstance(clause, dict) or clause.get("kind") not in ("contract", "effects")
+                    for clause in clauses
+                ):
+                    raise self.error("protocol", "callable type requires contract nodes", node)
                 cursor = self._token(node, cursor, b"with")
                 cursor = self._token(node, cursor, b"{")
-                for clause in cast("list[object]", node["contracts"]):
+                for clause in clauses:
                     cursor = self._child(node, span, cursor, clause)
                     cursor = self._token(node, cursor, b";")
                 cursor = self._token(node, cursor, b"}")
@@ -726,7 +734,7 @@ class _Protocol:
             cursor = self._token(node, cursor, b"=>")
             cursor = self._child(node, span, cursor, node["value"])
         elif kind == "contract":
-            if node["role"] not in {"decreases", "requires", "where", "ensures", "restores", "invariant"}:
+            if node["role"] not in {"decreases", "requires", "ensures", "restores", "invariant"}:
                 return
             if "name" in node and node["role"] != "invariant":
                 raise self.error("protocol", "only invariant contracts may carry a clause name", node)
@@ -735,6 +743,23 @@ class _Protocol:
                 cursor = self._child(node, span, cursor, node["name"])
                 cursor = self._token(node, cursor, b":")
             cursor = self._child(node, span, cursor, node["value"])
+        elif kind == "type_constraint":
+            parameter = node["parameter"]
+            spelling = parameter.get("text") if isinstance(parameter, dict) else None
+            if not isinstance(spelling, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*", spelling):
+                raise self.error("protocol", "type constraint requires an unqualified parameter name", node)
+            bounds = node["bounds"]
+            if not isinstance(bounds, list) or not bounds or any(
+                not isinstance(bound, dict) or bound.get("kind") != "type" for bound in bounds
+            ):
+                raise self.error("protocol", "type constraint requires named interface bounds", node)
+            cursor = self._token(node, cursor, b"where")
+            cursor = self._child(node, span, cursor, parameter)
+            cursor = self._token(node, cursor, b":")
+            for index, bound in enumerate(bounds):
+                if index:
+                    cursor = self._token(node, cursor, b",")
+                cursor = self._child(node, span, cursor, bound)
         elif kind == "modified_type":
             cursor = self._token(node, cursor, cast("str", node["modifier"]).encode())
             if node.get("lifetime") is not None:

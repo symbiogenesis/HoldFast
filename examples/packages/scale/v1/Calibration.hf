@@ -3,7 +3,7 @@ module Scale.Calibration;
 
 import Weights.Measure;
 
-public definition Nat ReadScale(Nat units) => Measured.Measure(Make(units: units));
+public definition Nat ReadScale(Nat units) => Weight.Measure(Make(units: units));
 
 public lemma ScaleReadings()
     ensures ReadScale(0) == 2

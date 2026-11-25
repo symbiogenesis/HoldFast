@@ -24,8 +24,8 @@ buffer and displays pure compiler Gallina when the source also passes the
 pure checker. Other accepted sources show Gallina from the mathematical
 elaborator. The hosted page shows pure Gallina for the pure profile and
 an evaluation preview with located unchecked claims for wider source.
-The hosted evaluator accepts self-contained modules. Imported modules
-require the native resolver.
+The hosted evaluator accepts self-contained modules in its supported subset.
+Imports and interface constraints require the native compiler.
 
 The console checks a closed expression in the source context and returns a
 `Nat` or `bool` compile-time value. For example, with

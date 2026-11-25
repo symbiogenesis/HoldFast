@@ -557,8 +557,7 @@ Making the interface small does not make the target's compiler, memory model, or
 For the bounded-buffer example, the interface can have this schematic shape:
 
 ```text
-interface BufferStorage {
-    type Handle;
+interface IBufferStorage<Handle> {
     type Index;
     predicate Owns(Handle target, Seq<byte> contents);
     predicate ValidIndex(Index index, Nat length);
@@ -991,7 +990,7 @@ public effect Choose
 
 public usize BestScore<captures C, ghost SearchBudget budget>(
     in Fn() -> usize captures C effects(Choose) body)
-    where Duplicable(C)          // a second resumption copies everything the continuation retains
+    requires Duplicable(C)       // a second resumption copies everything the continuation retains
     requires Search.ExpansionFits(body.Model, budget)
     effects reads(C)
     ensures Search.Work(trace) <= budget.Work

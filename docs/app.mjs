@@ -3739,16 +3739,14 @@ class MathParser {
     ) {
       const kw = this.advance();
       if (kw.text === "where") {
-        this.parseDottedName("constraint");
-        if (this.match("symbol", "(")) {
-          while (this.current.kind !== "eof" && !this.match("symbol", ")")) {
-            this.advance();
-          }
-        }
+        this.expect("word", null, "constrained type parameter");
+        this.expect("symbol", ":");
+        throw new HoldFastError("unsupported", kw.site.line, kw.site.column,
+          "interface constraints require the native compiler");
       } else if (kw.text === "effects") {
         while (
           this.current.kind !== "eof" &&
-          !["requires", "ensures", "restores", "decreases", "proof", "{", "=>", ";"].includes(
+          !["where", "requires", "ensures", "restores", "decreases", "proof", "{", "=>", ";"].includes(
             this.current.text
           )
         ) {

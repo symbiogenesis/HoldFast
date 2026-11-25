@@ -128,8 +128,9 @@ void Calls() {
       "member", "computed_type", "type_argument", "lifetime")),
     Fixture("bounded-collection-iteration", """// café: modes, type annotations and range compatibility are syntax facts.
 module Iteration;
-void Visit(ref Span<byte> target, in Span<byte> source)
-    where ISequenceModel(source) && IBoundedIterable(target)
+void Visit<Source, Target>(ref Target target, in Source source)
+    where Source : ISequenceModel<Source, byte>
+    where Target : IBoundedIterable<Target, byte>
     requires source.Model.All(x => x > 0)
     requires source.Model.Any(x => x == 1) && source.Model.Contains(1)
     ensures target.Model.Take(1).Skip(0).Slice(0, 1).Count == 1
@@ -152,7 +153,7 @@ void Visit(ref Span<byte> target, in Span<byte> source)
     foreach (let invalidCopy in owners) { Consume(move invalidCopy); Consume(move invalidCopy); }
     foreach (ref invalidLoan in sharedSource) { Escape(ref invalidLoan); }
 }
-""", ("foreach", "foreach_collection", "contract", "break", "continue", "return", "range", "unary")),
+""", ("foreach", "foreach_collection", "type_constraint", "contract", "break", "continue", "return", "range", "unary")),
     Fixture("raw-strings-and-checked-formatting", r'''// café: raw strings and buffer-writing format templates keep exact byte spans.
 module CheckedFormatting;
 public const Span<byte> SingleRaw = """exact "quoted" \raw café""";
@@ -162,7 +163,6 @@ public const Span<byte> MultiRaw = """
     """;
 public Result<usize, CapacityError> WriteHeader<ghost Nat capacity>(
     ref TextBuilder<capacity> builder, ref Span<byte> scratch, usize id, byte tag)
-    where Format(usize) && Format(byte)
     effects writes(builder), writes(scratch)
 {
     let first = Format.Write(ref builder, $"packet[{id}]={{tag:{tag:x2}}}")?;
@@ -175,7 +175,7 @@ public Result<usize, CapacityError> WriteHeader<ghost Nat capacity>(
     let invalidReceiverRead = Format.Write(ref builder, $"len={builder.Length}");
     return Ok(matched);
 }
-''', ("constant", "function", "contract", "call", "propagate", "string",
+''', ("constant", "function", "effects", "call", "propagate", "string",
       "string_pattern", "interpolated_string", "match_expression")),
     Fixture("numeric-separator-values-patterns-and-indices", """// café: retain every authored digit and separator.
 module NumericSeparators;
@@ -508,13 +508,13 @@ public type[ResultType(value)] Select(type[InputType()] value) {
 """, ("computed_type", "match_expression", "type_expression", "let", "lambda", "typed_lambda", "generic_application")),
     Fixture("alias-and-effect-family-contracts", """// café: aliases and effect families own laws independently of their members.
 module FamilyContracts;
-alias Borrowed<T, region 'r> where Stable(T) requires Available(T) = ref<'r> T;
-alias Reusable<T, grade q : NatExact> where Admits(T, q) effects reads(T) =
+alias Borrowed<T, region 'r> requires Stable(T) requires Available(T) = ref<'r> T;
+alias Reusable<T, grade q : NatExact> requires Admits(T, q) effects reads(T) =
     Fn(T value @ q) -> T effects(Read)
         with { requires Open(value); restores Closed(value); };
 alias Plain<T> = T;
 effect Exchange<T, grade q : NatExact>
-    where ExchangeLaw(T, q)
+    requires ExchangeLaw(T, q)
     invariant Closed(this)
     effects calls(Storage)
 {
@@ -564,8 +564,8 @@ public void Use(Never missing, Never last) {
 }
 """, ("inductive", "group", "match_expression", "match_motive", "computed_type", "lambda", "match")),
     Fixture("family-type-errors-remain-syntax", """module InvalidFamilies;
-alias Invalid where false = type[17];
-effect Impossible<grade q : NatExact> where false { tracked Permit Read() ensures false; }
+alias Invalid requires false = type[17];
+effect Impossible<grade q : NatExact> requires false { tracked Permit Read() ensures false; }
 definition Type<u> Erased(ghost bool erased) => type type[RuntimeRead(erased)];
 public async void Invalid(ref Buffer buffer, tracked Permit permit) {
     let type[buffer.CurrentType()] stale = move permit;
@@ -608,7 +608,7 @@ public async void Invalid(tracked Permit permit, ref Buffer source) {
     Fixture("domain-dictionaries-and-product-laws", """// café: dictionary members use ordinary paths, products and callbacks.
 module DomainDictionaries;
 domain Product<A : GradeDomain, B : GradeDomain>
-    where Compatible(A, B)
+    requires Compatible(A, B)
     effects calls(A.interpret, B.interpret)
 {
     carrier (A.carrier, B.carrier);
@@ -687,17 +687,17 @@ universe u;
 alias Scoped<T : Type<u>, region 'loan> = Fn(scoped ref<'loan> T value) -> Unit;
 alias Plain<U> = U;
 interface Family<T : Type<u>> {
-    type Value<U : Type<u>> : Type<u> where Formed(U);
-    type Selected : Type<u> where Stable(T) = T;
+    type Value<U : Type<u>> : Type<u> requires Formed(U);
+    type Selected : Type<u> requires Stable(T) = T;
     type Legacy;
     predicate Readable(T value) requires Ready(value) = Stable(value);
-    predicate Closed(T value) where Law(T);
+    predicate Closed(T value) requires Law(T);
 }
 """, ("generic_parameter", "associated_type", "predicate", "contract", "function_type")),
     Fixture("type-valued-dependent-matches", """// café: structural types stay inside explicit type expressions.
 module TypeFamilies;
 universe u;
-definition Type<u> LoanType<T : Type<u>>(bool exclusive) where Stable(T) =>
+definition Type<u> LoanType<T : Type<u>>(bool exclusive) requires Stable(T) =>
     match (exclusive) as mode : Type<u> {
         true => type ref T,
         false => type in T,
@@ -714,7 +714,7 @@ module CallableKinds;
 universe u;
 alias Higher<F : (Fn(Type<u> value) -> Type<u>)> = F;
 interface Kinded<T : Type<u>> {
-    type Build : (Fn(Type<u>) -> Type<u>) where Formed(T);
+    type Build : (Fn(Type<u>) -> Type<u>) requires Formed(T);
 }
 union Factories<T> {
     Bare(Fn() -> T callback) : Fn() -> T effects(Read) requires Available(callback);
@@ -753,16 +753,16 @@ public void Compose() {
     Fixture("indexed-family-and-constructor-contracts", """// café: family and constructor laws retain different owners.
 module IndexedFamilies;
 universe u;
-union Outcome<T : Type<u>> where Separated(T) {
+union Outcome<T : Type<u>> requires Separated(T) {
     Ready(owned T value @ NatExact(1)) : Outcome<T> ensures Retained(value);
     Rejected(tracked Receipt receipt) : Outcome<T> restores Closed(receipt);
     Empty();
 }
-inductive Vec<T : Type<u>, ghost Nat n> where Admissible(T) {
+inductive Vec<T : Type<u>, ghost Nat n> requires Admissible(T) {
     Nil() : Vec<T, 0> ensures EmptyVector(result);
     Cons(T head, Vec<T, n> tail) : Vec<T, (n + 1)> requires Bounded(n);
 }
-coinductive Stream<T> where Guarded(T) {
+coinductive Stream<T> requires Guarded(T) {
     More(T head, Stream<T> tail) : Stream<T> ensures Productive(result);
 }
 definition Nat Count<T>(in Outcome<T> value) requires Available(value)
@@ -810,7 +810,7 @@ public effect Exchange<T, ghost Nat n> {
     Fixture("container-resource-contracts", """// café: container obligations stay outside their members.
 module ResourceContainers;
 public struct LocalCell<T, grade q : NatExact>
-    where Shape(T)
+    requires Shape(T)
     invariant Closed(this)
 {
     private T Value @ q;
@@ -842,11 +842,11 @@ public struct BoundedBuffer<T, ghost Nat capacity>
         }
     }
 }
-public interface Storage<T> where StorageLaw(T) {
+public interface Storage<T> requires StorageLaw(T) {
     T Read() requires Readable(this) ensures Stable(result);
     struct Nested invariant InnerLaw() {}
 }
-public interface Repeatable<T, grade q : NatExact> where Admits(T, q) {
+public interface IRepeatable<T, grade q : NatExact> requires Admits(T, q) {
     public (Box<T, q>, Box<T, q>) Split(owned Box<T, q> value)
         requires Dup(value);
 }
@@ -854,7 +854,7 @@ public machine Counter invariant Bounded(value) {
     state Nat value = 0;
     transition Step() when (value < 10) { next value = value + 1; }
 }
-public hardware Clocked where PhysicalLaw() invariant Bounded(count) {
+public hardware Clocked requires PhysicalLaw() invariant Bounded(count) {
     register Nat count = 0;
     rule Tick() { next count = count + 1; }
 }
@@ -944,15 +944,15 @@ public struct Box<T, grade q : NatExact> {
 }
 """, ("struct", "field", "generic_parameter", "modified_type")),
     Fixture("generic-library-implementations", """module GenericInstances;
-public impl<T, grade q : NatExact> Dup<Box<T, q>>
-    where Repeatable(T, q)
+public impl<T, grade q : NatExact> IDuplicate<Box<T, q>>
+    where T : Core.IRepeatable<T, q>, IDuplicate<T>
     requires Available(T)
 {
     public (Box<T, q>, Box<T, q>) Split(owned Box<T, q> box)
         ensures SplitLaw(old(box), result);
 }
-private impl (Fn() -> Nat effects(Read)) where Reusable(Read) {}
-""", ("impl", "generic_parameter", "contract", "function", "tuple_type")),
+private impl (Fn() -> Nat effects(Read)) requires Reusable(Read) {}
+""", ("impl", "generic_parameter", "type_constraint", "contract", "function", "tuple_type")),
     Fixture("locally-quantified-callable-contracts", """// café: callback and enclosing contracts remain distinct.
 module ScopedCallbacks;
 alias Update<T, captures C> = Fn<region 'loan, grade q : NatExact>(
@@ -1126,11 +1126,11 @@ public domain Presence {
 }
 public record Box<T, grade q : NatExact>(T Value @ q);
 public (Box<T, q>, Box<T, q>) Duplicate<T, grade q : NatExact>(owned Box<T, q> value)
-    where Dup(value)
+    requires Dup(value)
     ensures Split(old(value), result);
-public void Close<T>(owned T value) where Dispose(value);
+public void Close<T>(owned T value) requires Dispose(value);
 public async T SuspendValue<T>(owned T value)
-    where Suspend(value)
+    requires Suspend(value)
     ensures Preserved(old(value), result)
 {
     await Checkpoint();
@@ -1196,7 +1196,7 @@ public struct Log<T, ghost Nat capacity> {
 public Result<ref<'table> Value, Error> Find<ghost Nat n, captures C, grade q : NatExact>(
     ref Table<Key, Value, n> table,
     in Fn(byte) -> byte captures C effects(Choose) transform @ q)
-    where Duplicable(C)
+    requires Duplicable(C)
     requires n > 0
     effects reads(C), writes(table)
     ensures result is Ok(slot) ==> slot == old(table.Model).Get(0)
@@ -1573,12 +1573,12 @@ NEGATIVE: tuple[tuple[str, bytes, str], ...] = (
     ("computed-type-lambda-missing-binder", b"module M; void F() { let f = (type[Family()]) => value; }", "syntax"),
     ("computed-type-lookahead-depth", b"module M; void F() { type[" + b"(" * 257
      + b"Family()" + b")" * 257 + b"] local = value; }", "limit"),
-    ("alias-missing-law", b"module M; alias A<T> where = T;", "syntax"),
-    ("alias-law-after-definition", b"module M; alias A = T where Law(T);", "syntax"),
+    ("alias-missing-law", b"module M; alias A<T> requires = T;", "syntax"),
+    ("alias-law-after-definition", b"module M; alias A = T requires Law(T);", "syntax"),
     ("alias-missing-effect", b"module M; alias A effects = T;", "syntax"),
-    ("effect-family-missing-law", b"module M; effect E<T> where { Nat Get(); }", "syntax"),
+    ("effect-family-missing-law", b"module M; effect E<T> requires { Nat Get(); }", "syntax"),
     ("effect-family-missing-invariant", b"module M; effect E invariant { Nat Get(); }", "syntax"),
-    ("effect-family-law-semicolon", b"module M; effect E where Ready(); { Nat Get(); }", "syntax"),
+    ("effect-family-law-semicolon", b"module M; effect E requires Ready(); { Nat Get(); }", "syntax"),
     ("literal-pattern-missing-arrow", b'module M; Nat F() { return match (x) { "ready" 1, }; }', "syntax"),
     ("literal-pattern-unterminated-string", b'module M; Nat F() { return match (x) { "ready => 1, }; }', "syntax"),
     ("literal-pattern-empty-character", b"module M; void F() { match (x) { '' => return; } }", "syntax"),
@@ -1597,7 +1597,7 @@ NEGATIVE: tuple[tuple[str, bytes, str], ...] = (
     ("local-grade-lookahead-depth", b"module M; void F() { Nat value @ " + b"(" * 257
      + b"q" + b")" * 257 + b" = Make(); }", "limit"),
     ("domain-incomplete-telescope", b"module M; domain Product<A,,> {}", "syntax"),
-    ("domain-incomplete-law", b"module M; domain Product<A> where {}", "syntax"),
+    ("domain-incomplete-law", b"module M; domain Product<A> requires {}", "syntax"),
     ("domain-missing-carrier-member", b"module M; alias A = D.;", "syntax"),
     ("domain-member-without-value", b"module M; void F() { D.add(); let value = D.; }", "syntax"),
     ("disposal-clause-missing-binder", b"module M; void F() { handle (Run()) { dispose => Cleanup(); }; }", "syntax"),
@@ -1623,8 +1623,8 @@ NEGATIVE: tuple[tuple[str, bytes, str], ...] = (
     ("type-binder-missing-kind", b"module M; alias Box<T :> = T;", "syntax"),
     ("type-binder-missing-name", b"module M; alias Box<: Type<u>> = T;", "syntax"),
     ("associated-missing-kind", b"module M; interface F { type Value :; }", "syntax"),
-    ("associated-missing-law", b"module M; interface F { type Value : Type<u> where; }", "syntax"),
-    ("associated-kind-after-law", b"module M; interface F { type Value where Stable(T) : Type<u>; }", "syntax"),
+    ("associated-missing-law", b"module M; interface F { type Value : Type<u> requires; }", "syntax"),
+    ("associated-kind-after-law", b"module M; interface F { type Value requires Stable(T) : Type<u>; }", "syntax"),
     ("type-expression-missing-type", b"module M; definition Type<u> F() => type;", "syntax"),
     ("type-expression-missing-component", b"module M; definition Type<u> F() => type (T,);", "syntax"),
     ("type-expression-incomplete-callable", b"module M; definition Type<u> F() => type Fn(T) ->;", "syntax"),
@@ -1634,11 +1634,11 @@ NEGATIVE: tuple[tuple[str, bytes, str], ...] = (
     ("typed-lambda-missing-local-region", b"module M; void F() { let f = Fn<region>(T x) -> T => x; }", "syntax"),
     ("typed-lambda-incomplete-law", b"module M; void F() { let f = Fn(T x) -> T with { restores; } => x; }", "syntax"),
     ("typed-lambda-undelimited-law", b"module M; void F() { let f = Fn(T x) -> T requires Valid(x) => x; }", "syntax"),
-    ("sum-missing-law", b"module M; union Result<T> where { Ok(T value); }", "syntax"),
+    ("sum-missing-law", b"module M; union Result<T> requires { Ok(T value); }", "syntax"),
     ("constructor-missing-law", b"module M; union Result { Ok() : Result ensures; }", "syntax"),
     ("constructor-result-after-law", b"module M; union Result { Ok() ensures Ready() : Result; }", "syntax"),
     ("definition-missing-law", b"module M; definition Nat F() requires => 0;", "syntax"),
-    ("predicate-missing-law", b"module M; predicate P(Nat n) where = true;", "syntax"),
+    ("predicate-missing-law", b"module M; predicate P(Nat n) requires = true;", "syntax"),
     ("literal-generic-missing-neighbor", b"module M; alias A = Indexed<true,,>;", "syntax"),
     ("typed-callable-generic-depth", b"module M; void F() { let f = Fn<T : "
      + b"Box<" * 257 + b"T" + b">" * 257 + b">() -> T => value; }", "limit"),
@@ -1647,9 +1647,9 @@ NEGATIVE: tuple[tuple[str, bytes, str], ...] = (
     ("effect-missing-effects", b"module M; effect E { Nat Get() effects; }", "syntax"),
     ("effect-missing-contract-terminator", b"module M; effect E { Nat Get() ensures Ready(result) }", "syntax"),
     ("effect-resumes-after-contract", b"module M; effect E { Nat Get() requires Ready() resumes(1); }", "syntax"),
-    ("container-missing-law", b"module M; interface Repeatable<T> where {}", "syntax"),
+    ("container-missing-law", b"module M; interface Repeatable<T> requires {}", "syntax"),
     ("container-missing-invariant", b"module M; struct Cell<T> invariant {}", "syntax"),
-    ("container-contract-semicolon", b"module M; interface I where Law(); {}", "syntax"),
+    ("container-contract-semicolon", b"module M; interface I requires Law(); {}", "syntax"),
     ("handler-missing-capability", b"module M; Nat F() { return handle (Read()) as {}; }", "syntax"),
     ("handler-capability-before-expression", b"module M; Nat F() { return handle as chosen (Read()) {}; }", "syntax"),
     ("handler-capability-type-annotation", b"module M; Nat F() { return handle (Read()) as chosen : E {}; }", "syntax"),
@@ -1672,8 +1672,8 @@ NEGATIVE: tuple[tuple[str, bytes, str], ...] = (
     ("field-missing-grade", b"module M; struct Box { Nat Value @; }", "syntax"),
     ("field-grade-after-initializer", b"module M; struct Box { Nat Value = 0 @ q; }", "syntax"),
     ("impl-incomplete-telescope", b"module M; impl<T,,> Dup<T> {}", "syntax"),
-    ("impl-incomplete-contract", b"module M; impl<T> Dup<T> where {}", "syntax"),
-    ("impl-ungrouped-callable", b"module M; impl Fn() -> Nat effects(Read) where Reusable(Read) {}", "syntax"),
+    ("impl-incomplete-contract", b"module M; impl<T> Dup<T> requires {}", "syntax"),
+    ("impl-ungrouped-callable", b"module M; impl Fn() -> Nat effects(Read) requires Reusable(Read) {}", "syntax"),
     ("callable-incomplete-telescope", b"module M; alias F = Fn<region>() -> Nat;", "syntax"),
     ("callable-incomplete-law-block", b"module M; alias F = Fn() -> Nat with { requires Ready() };", "syntax"),
     ("callable-law-without-delimiter", b"module M; alias F = Fn() -> Nat with requires Ready();", "syntax"),
@@ -1728,6 +1728,13 @@ NEGATIVE: tuple[tuple[str, bytes, str], ...] = (
     ("incomplete-bare-generic-member", b"module M; public Nat F() { return Identity<Nat>.; }", "syntax"),
     ("retired-generic-call", b"module M; public Nat F() { return Identity::<Nat>(value); }", "syntax"),
     ("retired-generic-member", b"module M; public Nat F() { return Identity::<Nat>.Value; }", "syntax"),
+    ("retired-interface-constraint-call", b"module M; T F<T>(T x) where ISized(type T) => x;", "syntax"),
+    ("retired-proposition-where", b"module M; Nat F(Nat x) where x > 0 => x;", "syntax"),
+    ("constraint-omits-binder", b"module M; T F<T>(T x) where ISized<T> => x;", "syntax"),
+    ("constraint-missing-bound", b"module M; T F<T>(T x) where T : => x;", "syntax"),
+    ("constraint-trailing-comma", b"module M; T F<T>(T x) where T : ISized<T>, => x;", "syntax"),
+    ("constraint-uses-conjunction", b"module M; T F<T>(T x) where T : ISized<T> && ICopy<T> => x;", "syntax"),
+    ("constraint-on-loop", b"module M; void F<T>() { while (true) where T : ISized<T> {} }", "syntax"),
     ("if-expression-missing-else", b"module M; definition Nat F(bool c) => if (c) 1;", "syntax"),
     ("if-expression-missing-condition", b"module M; definition Nat F() => if () 1 else 2;", "syntax"),
     ("if-expression-missing-then", b"module M; definition Nat F(bool c) => if (c) else 2;", "syntax"),
@@ -2668,9 +2675,23 @@ def _exact_span(source: bytes, value: dict[str, Json], spelling: bytes) -> None:
 def _contract_roles(owner: dict[str, Json], roles: list[str]) -> list[dict[str, Json]]:
     clauses = [_object(value, "declaration contract")
                for value in _sequence(owner.get("contracts"), "declaration contracts")]
-    if [clause.get("role") for clause in clauses] != roles:
+    if [clause.get("role", clause.get("kind")) for clause in clauses] != roles:
         raise ValueError("surface contract roles differ or belong to the wrong declaration")
     return clauses
+
+
+def _type_constraint(
+    source: bytes, clause: dict[str, Json], parameter: str, bounds: list[tuple[str, list[str]]], spelling: bytes,
+) -> None:
+    if set(clause) != {"kind", "span", "parameter", "bounds"} or _texts(clause.get("parameter")) != [parameter]:
+        raise ValueError("surface type constraint lost its constrained parameter")
+    _exact_span(source, clause, spelling)
+    actual = _sequence(clause.get("bounds"), "interface bounds")
+    if len(actual) != len(bounds):
+        raise ValueError("surface type constraint lost a bound")
+    for bound, (name, arguments) in zip(actual, bounds, strict=True):
+        for argument, expected in zip(_type_head(bound, name, len(arguments)), arguments, strict=True):
+            _type_head(argument, expected, 0)
 
 
 def _computed_type(source: bytes, value: Json, spelling: bytes, callee: str) -> dict[str, Json]:
@@ -2766,15 +2787,15 @@ def _computed_type_roles(source: bytes, result: dict[str, Json]) -> None:
 def _family_contract_roles(source: bytes, result: dict[str, Json]) -> None:
     tree = result.get("ast")
     borrowed = _named(tree, "alias", "Borrowed")
-    clauses = _contract_roles(borrowed, ["where", "requires"])
-    for clause, spelling in zip(clauses, (b"where Stable(T)", b"requires Available(T)"), strict=True):
+    clauses = _contract_roles(borrowed, ["requires", "requires"])
+    for clause, spelling in zip(clauses, (b"requires Stable(T)", b"requires Available(T)"), strict=True):
         _exact_span(source, clause, spelling)
     loan = _object(borrowed.get("type"), "constrained alias loan")
     if loan.get("modifier") != "ref" or _texts(loan.get("lifetime")) != ["'r"]:
         raise ValueError("surface alias law displaced its loan lifetime")
     reusable = _named(tree, "alias", "Reusable")
     clauses = [_object(value, "alias contract") for value in _sequence(reusable.get("contracts"), "alias contracts")]
-    if [clause.get("role", clause.get("kind")) for clause in clauses] != ["where", "effects"]:
+    if [clause.get("role", clause.get("kind")) for clause in clauses] != ["requires", "effects"]:
         raise ValueError("surface alias lost its generic law or declaration effect")
     _exact_span(source, clauses[1], b"effects reads(T)")
     callable_type = _object(reusable.get("type"), "constrained callable alias")
@@ -2788,9 +2809,9 @@ def _family_contract_roles(source: bytes, result: dict[str, Json]) -> None:
     effect = _named(tree, "effect", "Exchange")
     clauses = [_object(value, "effect family contract")
                for value in _sequence(effect.get("contracts"), "effect family contracts")]
-    if [clause.get("role", clause.get("kind")) for clause in clauses] != ["where", "invariant", "effects"]:
+    if [clause.get("role", clause.get("kind")) for clause in clauses] != ["requires", "invariant", "effects"]:
         raise ValueError("surface effect family laws leaked into operation contracts")
-    for clause, spelling in zip(clauses, (b"where ExchangeLaw(T, q)", b"invariant Closed(this)", b"effects calls(Storage)"), strict=True):
+    for clause, spelling in zip(clauses, (b"requires ExchangeLaw(T, q)", b"invariant Closed(this)", b"effects calls(Storage)"), strict=True):
         _exact_span(source, clause, spelling)
     replacement = _named(effect, "effect_operation", "Replace")
     _contract_roles(replacement, ["requires", "ensures", "restores"])
@@ -2968,9 +2989,9 @@ def _domain_dictionary_roles(source: bytes, result: dict[str, Json]) -> None:
     for generic in generics:
         _type_head(generic.get("type"), "GradeDomain", 0)
     contracts = [_object(value, "domain contract") for value in _sequence(product.get("contracts"), "domain contracts")]
-    if [value.get("kind") for value in contracts] != ["contract", "effects"] or contracts[0].get("role") != "where":
+    if [value.get("kind") for value in contracts] != ["contract", "effects"] or contracts[0].get("role") != "requires":
         raise ValueError("surface domain law/effect ownership differs")
-    _exact_span(source, contracts[0], b"where Compatible(A, B)")
+    _exact_span(source, contracts[0], b"requires Compatible(A, B)")
     _exact_span(source, contracts[1], b"effects calls(A.interpret, B.interpret)")
     entries: dict[str, dict[str, Json]] = {}
     for value in _sequence(product.get("entries"), "domain entries"):
@@ -3125,14 +3146,14 @@ def _kinded_family_roles(source: bytes, result: dict[str, Json]) -> None:
     family = _named(result.get("ast"), "interface", "Family")
     value = _named(family, "associated_type", "Value")
     _type_head(value.get("kind_annotation"), "Type", 1)
-    _contract_roles(value, ["where"])
-    _exact_span(source, value, b"type Value<U : Type<u>> : Type<u> where Formed(U);")
+    _contract_roles(value, ["requires"])
+    _exact_span(source, value, b"type Value<U : Type<u>> : Type<u> requires Formed(U);")
     if value.get("definition") is not None:
         raise ValueError("surface abstract associated family acquired a definition")
     selected = _named(family, "associated_type", "Selected")
     _type_head(selected.get("kind_annotation"), "Type", 1)
     _type_head(selected.get("definition"), "T", 0)
-    _contract_roles(selected, ["where"])
+    _contract_roles(selected, ["requires"])
     legacy = _named(family, "associated_type", "Legacy")
     if legacy.get("kind_annotation") is not None or legacy.get("contracts") != []:
         raise ValueError("surface unannotated associated type fabricated a kind or law")
@@ -3142,14 +3163,14 @@ def _kinded_family_roles(source: bytes, result: dict[str, Json]) -> None:
     if _texts(readable.get("definition")) != ["Stable", "value"]:
         raise ValueError("surface predicate contract displaced its defining expression")
     closed = _named(family, "predicate", "Closed")
-    _contract_roles(closed, ["where"])
+    _contract_roles(closed, ["requires"])
     if closed.get("definition") is not None:
         raise ValueError("surface predicate signature acquired a defining expression")
 
 
 def _type_expression_roles(source: bytes, result: dict[str, Json]) -> None:
     family = _named(result.get("ast"), "definition", "LoanType")
-    _contract_roles(family, ["where"])
+    _contract_roles(family, ["requires"])
     elimination = _object(family.get("value"), "type-valued elimination")
     motive = _object(elimination.get("motive"), "type-family motive")
     if elimination.get("kind") != "match_expression" or _texts(motive.get("name")) != ["mode"]:
@@ -3196,7 +3217,7 @@ def _callable_kind_effect_roles(source: bytes, result: dict[str, Json]) -> None:
     if annotation.get("kind") != "group_type":
         raise ValueError("surface associated callable kind lost its explicit boundary")
     _exact_span(source, annotation, b"(Fn(Type<u>) -> Type<u>)")
-    _contract_roles(associated, ["where"])
+    _contract_roles(associated, ["requires"])
     factories = _named(result.get("ast"), "union", "Factories")
     bare = _constructor(factories, "Bare")
     callable_result = _object(bare.get("result"), "bare callable constructor result")
@@ -3337,7 +3358,7 @@ def _indexed_family_contract_roles(source: bytes, result: dict[str, Json]) -> No
     for kind, name, law in (("union", "Outcome", "Separated"), ("inductive", "Vec", "Admissible"),
                              ("coinductive", "Stream", "Guarded")):
         family = _named(result.get("ast"), kind, name)
-        clauses = _contract_roles(family, ["where"])
+        clauses = _contract_roles(family, ["requires"])
         if _texts(clauses[0].get("value")) != [law, "T"]:
             raise ValueError("surface indexed-family law escaped its declaration")
     outcome = _named(result.get("ast"), "union", "Outcome")
@@ -3437,10 +3458,10 @@ def _effect_resource_roles(source: bytes, result: dict[str, Json]) -> None:
 
 
 def _container_resource_roles(source: bytes, result: dict[str, Json]) -> None:
-    expected = (("struct", "LocalCell", ["where", "invariant"]),
+    expected = (("struct", "LocalCell", ["requires", "invariant"]),
                 ("struct", "BoundedBuffer", ["invariant", "invariant", "invariant"]),
-                ("interface", "Storage", ["where"]), ("interface", "Repeatable", ["where"]),
-                ("machine", "Counter", ["invariant"]), ("hardware", "Clocked", ["where", "invariant"]))
+                ("interface", "Storage", ["requires"]), ("interface", "IRepeatable", ["requires"]),
+                ("machine", "Counter", ["invariant"]), ("hardware", "Clocked", ["requires", "invariant"]))
     for kind, name, roles in expected:
         container = _named(result.get("ast"), kind, name)
         contracts = _sequence(container.get("contracts"), "container resource contracts")
@@ -3645,7 +3666,7 @@ def _field_grade_roles(source: bytes, result: dict[str, Json]) -> None:
         raise ValueError("surface ungraded field acquired an implicit grade")
 
 
-def _generic_impl_roles(result: dict[str, Json]) -> None:
+def _generic_impl_roles(source: bytes, result: dict[str, Json]) -> None:
     implementations = [node for node in nodes(result.get("ast")) if node.get("kind") == "impl"]
     if len(implementations) != 2:
         raise ValueError("surface generic and callable implementation count differs")
@@ -3653,10 +3674,10 @@ def _generic_impl_roles(result: dict[str, Json]) -> None:
     generics = _sequence(implementation.get("generics"), "implementation telescope")
     if [_object(value, "implementation binder").get("mode") for value in generics] != ["type", "grade"]:
         raise ValueError("surface implementation lost its generic binder roles")
-    contracts = _sequence(implementation.get("contracts"), "implementation contracts")
-    if [_object(value, "implementation contract").get("role") for value in contracts] != ["where", "requires"]:
-        raise ValueError("surface implementation contracts leaked into its members")
-    _type_head(_type_head(implementation.get("type"), "Dup", 1)[0], "Box", 2)
+    constraint, _ = _contract_roles(implementation, ["type_constraint", "requires"])
+    _type_constraint(source, constraint, "T", [("Core.IRepeatable", ["T", "q"]), ("IDuplicate", ["T"])],
+                     b"where T : Core.IRepeatable<T, q>, IDuplicate<T>")
+    _type_head(_type_head(implementation.get("type"), "IDuplicate", 1)[0], "Box", 2)
     member = _named(implementation, "function", "Split")
     clauses = _sequence(member.get("contracts"), "implementation member contracts")
     if len(clauses) != 1 or _object(clauses[0], "member postcondition").get("role") != "ensures":
@@ -4497,17 +4518,20 @@ def _familiar_call_roles(source: bytes, result: dict[str, Json]) -> None:
 
 def _collection_iteration_roles(source: bytes, result: dict[str, Json]) -> None:
     visit = _named(result.get("ast"), "function", "Visit")
-    contracts = _contract_roles(visit, ["where", "requires", "requires", "ensures"])
-    bounds = {text for node in nodes(contracts[0]) if node.get("kind") == "call" for text in _texts(node.get("callee"))}
-    if bounds != {"ISequenceModel", "IBoundedIterable"}:
-        raise ValueError("sequence .Model contract lost its ISequenceModel/IBoundedIterable bounds")
-    all_call = _object(contracts[1].get("value"), "sequence All contract")
+    source_constraint, target_constraint, *contracts = _contract_roles(
+        visit, ["type_constraint", "type_constraint", "requires", "requires", "ensures"],
+    )
+    _type_constraint(source, source_constraint, "Source", [("ISequenceModel", ["Source", "byte"])],
+                     b"where Source : ISequenceModel<Source, byte>")
+    _type_constraint(source, target_constraint, "Target", [("IBoundedIterable", ["Target", "byte"])],
+                     b"where Target : IBoundedIterable<Target, byte>")
+    all_call = _object(contracts[0].get("value"), "sequence All contract")
     all_member = _object(all_call.get("callee"), "sequence All member")
     all_lambda = _object(_sequence(all_call.get("arguments"), "sequence All arguments")[0], "sequence All predicate")
     if (all_call.get("kind") != "call" or all_member.get("kind") != "member"
             or _texts(all_member.get("name")) != ["All"] or all_lambda.get("kind") != "lambda"):
         raise ValueError("sequence .Model.All contract lost its member call or lambda predicate role")
-    members = {text for clause in contracts[1:] for node in nodes(clause)
+    members = {text for clause in contracts for node in nodes(clause)
                if node.get("kind") == "member" for text in _texts(node.get("name"))}
     if not {"Model", "All", "Any", "Contains", "Take", "Skip", "Slice", "Count"} <= members:
         raise ValueError("sequence .Model contract vocabulary lost a predicate or slice projection")
@@ -4560,10 +4584,8 @@ def _raw_string_and_format_roles(source: bytes, result: dict[str, Json]) -> None
     header = _named(tree, "function", "WriteHeader")
     clauses = [_object(value, "formatting contract")
                for value in _sequence(header.get("contracts"), "formatting contracts")]
-    if [clause.get("role", clause.get("kind")) for clause in clauses] != ["where", "effects"]:
-        raise ValueError("checked formatting contract or effects roles differ")
-    if [_texts(node.get("callee")) for node in nodes(clauses[0]) if node.get("kind") == "call"] != [["Format"], ["Format"]]:
-        raise ValueError("checked formatting lost its static Format<T> trait bounds")
+    if [clause.get("kind") for clause in clauses] != ["effects"]:
+        raise ValueError("checked formatting effects role differs")
     interpolated = [node for node in nodes(header) if node.get("kind") == "interpolated_string"]
     expected = (
         b'$"packet[{id}]={{tag:{tag:x2}}}"',
@@ -4768,6 +4790,7 @@ _SOURCE_FIXTURE_CHECKS: dict[str, str] = {
     "named-handler-capabilities": "_named_handler_roles",
     "dependent-match-expressions-and-motives": "_dependent_match_roles",
     "graded-struct-fields": "_field_grade_roles",
+    "generic-library-implementations": "_generic_impl_roles",
     "locally-quantified-callable-contracts": "_scoped_callable_roles",
     "mathematical-definitions-and-proofs": "_indexed_constructor_roles",
     "represented-numeric-patterns": "_numeric_pattern_roles",
@@ -4786,7 +4809,6 @@ _AST_FIXTURE_CHECKS: dict[str, str] = {
     "local-grade-errors-remain-syntax": "_local_grade_error_roles",
     "disposal-errors-remain-syntax": "_disposal_error_roles",
     "function-types-grades-and-contracts": "_type_roles",
-    "generic-library-implementations": "_generic_impl_roles",
     "dependent-data-and-lifetimes": "_receiver_roles",
     "typed-locals-and-scoped-callbacks": "_typed_local_roles",
     "effects-handlers-and-disposal": "_handler_roles",

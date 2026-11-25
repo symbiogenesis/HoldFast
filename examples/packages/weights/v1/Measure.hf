@@ -3,12 +3,12 @@ module Weights.Measure;
 
 public record Weight(Nat Units);
 
-public interface Measured<T>
+public interface IMeasured<T>
 {
     Nat Measure(T value);
 }
 
-public impl Measured<Weight>
+public impl IMeasured<Weight>
 {
     public definition Nat Measure(Weight value) => value.Units + 2;
 }

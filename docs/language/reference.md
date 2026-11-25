@@ -64,7 +64,7 @@ distinct binding name to retain the whole value. Parentheses preserve this rule.
 | Struct | `struct Name<...> { private fields; view ...; members }` | S |
 | Union | `union Name { Case1(T x); Case2(); }`; nullary cases are declared with `()` and written bare in patterns and expressions | M |
 | Property | `public T Name => expression;`: total, effect-free and allocation-free | M |
-| Interface and implementation | `interface Name<T> { ... }`, `impl<...> Name<...> { ... }`, used through `where Name(type T)` | M |
+| Interface and implementation | `interface ISized<T> { ... }`, `impl ISized<Nat> { ... }`, used through `where T : ISized<T>` | M |
 | Inductive and coinductive types | `inductive Name { Ctor(...); }`, `coinductive Name<T> { ... }` | S |
 
 **Parsed example** (module, constant, functions and a static parameter):
@@ -104,19 +104,23 @@ public union Shape
 ```text
 module Reference.Interfaces;
 
-public interface Sized<T>
+public interface ISized<T>
 {
-    Nat Size(T value);
+    Nat Size(in T value);
 }
 
-public impl Sized<Nat>
+public impl ISized<Nat>
 {
-    Nat Size(Nat value) => value;
+    Nat Size(in Nat value) => value;
 }
 
-public Nat Total<T>(T first, T second) where Sized(type T)
-    => Sized.Size(first) + Sized.Size(second);
+public Nat Total<T>(T first, T second) where T : ISized<T>
+    => T.Size(in first) + T.Size(in second);
 ```
+
+Use the implementing type or a receiver value to call an interface method.
+`Size` takes a shared loan, so the call does not require `T` to be copyable.
+[Interface resolution](first-release.md#interface-constraints-and-dispatch)
 
 ## Types
 
@@ -359,7 +363,7 @@ public Result<PacketView<'input>, ParseError> ParsePrefix(in Span<byte> input)
 | --- | --- | --- |
 | `requires P` | Entry condition the caller proves | M |
 | `ensures P` | Exit condition; `result` names the returned value and `old(e)` evaluates `e` at entry | M |
-| `where Interface(type T)` | Interface constraint or precontract on generic parameters | M |
+| `where T : ISized<T>, IOrdered<T>` | Interface implementations required for the generic type parameter `T` | M |
 | `restores P` | Predicate over the lender that holds when a returned loan ends; `final(x)` is the value the loan leaves behind | S (syntax), D (meaning, see [restoration contracts](../assurance/verification-strategy.md#flow-sensitive-loans-and-restoration-contracts)) |
 | `invariant Name: P` | Named record or struct invariant conjunct, or a loop invariant | M |
 | `decreases m` | Termination measure of a recursive definition or loop | M |

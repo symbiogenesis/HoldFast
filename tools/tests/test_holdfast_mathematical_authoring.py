@@ -124,6 +124,13 @@ def _native() -> None:
         path.write_bytes(bad_syntax)
         code, _, _ = _invoke(["fmt", str(path), "--syntax-only"])
         ensure(code == 1 and path.read_bytes() == bad_syntax, "syntax-only mode rewrote malformed input")
+        bounds = (b"module Bounds; public Nat F<T,U>(in T a,in U b) "
+                  b"where T:ILeft<T>,ISized<T> where U:IRight<U> requires true => 0;")
+        expected = (b"module Bounds;\n\npublic Nat F<T, U>(in T a, in U b)\n"
+                    b"    where T : ILeft<T>, ISized<T>\n    where U : IRight<U>\n"
+                    b"    requires true\n=> 0;\n")
+        ensure(mathematical_authoring.format_syntax(compiled, bounds) == expected,
+               "interface bound formatting changed clause layout or type separators")
 
 
 def _ref_contract_redundancy() -> None:

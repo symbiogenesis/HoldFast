@@ -592,6 +592,17 @@ const legacyFormat = await mod.browserApi("/api/compile", {
 if (legacyFormat.ok || legacyFormat.error?.kind !== "syntax" || !legacyFormat.error.message.includes("write F<T>")) {
   throw new Error(`Browser interpolation accepted the legacy generic marker: ${JSON.stringify(legacyFormat)}`);
 }
+for (const [clause, kind, detail] of [
+  ["where T : ISized<T>", "unsupported", "require the native compiler"],
+  ["where ISized(type T)", "syntax", "expected ':'"],
+]) {
+  const result = await mod.browserApi("/api/compile", {
+    source: `module Bounds; public T Identity<T>(T value) ${clause} => value;`,
+  });
+  if (result.ok || result.error?.kind !== kind || !result.error.message.includes(detail)) {
+    throw new Error(`Browser did not refuse ${clause}: ${JSON.stringify(result)}`);
+  }
+}
 for (const [source, detail] of [["\uFEFF" + ordinarySource, "byte-order mark"],
                                 [ordinarySource + "\n//\uD800", "surrogate"]]) {
   const refusal = await mod.browserApi("/api/evaluate", { source, expression: "Value()", valueType: "Nat" });

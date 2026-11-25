@@ -44,32 +44,70 @@ if TYPE_CHECKING:
 
 
 class _IntrinsicsMixin:
+    def _interface_type_receiver(
+        self: _Elaborator, receiver: Node, environment: dict[str, _Binding],
+    ) -> _Term | None:
+        base = self.node(receiver["value"]) if receiver["kind"] == "generic_application" else receiver
+        name = self._dotted_member_path(base)
+        if name is None or ("." in name and name.split(".", 1)[0] in environment):
+            return None
+        binding = environment.get(name, self.globals.get(name))
+        if binding is None:
+            return None
+        arguments = self.nodes(receiver["arguments"]) if receiver["kind"] == "generic_application" else []
+        kind = self.whnf(binding.type)
+        for _ in arguments:
+            if kind.kind != "pi":
+                return None
+            kind = self.whnf(kind.args[1])
+        if kind.kind != "sort":
+            return None
+        name_node = cast("Node", base["name"])
+        type_node = {"kind": "type", "name": {**name_node, "text": name},
+                     "arguments": arguments, "span": receiver["span"]}
+        result = self.type(type_node, environment)
+        if self.navigation is not None:
+            head, _ = self.spine(self.resolve(binding.term))
+            self.navigation.reference(self.module_name, name_node, head.value)
+        return result
+
     def _select_interface_method_call(
         self: _Elaborator,
         node: Node,
-        candidates: list[_InterfaceInfo],
+        implementing_type: _Term,
         method: str,
         gen_args: list[Node],
         receiver: _Binding | None,
         call_args: list[Node],
         environment: dict[str, _Binding],
-    ) -> _Binding:
-        candidates = list({id(iface): iface for iface in candidates}.values())
-        if len(candidates) > 1:
-            arity = len(call_args) + (receiver is not None)
-            candidates = [
-                iface for iface in candidates
-                if (0 if iface.methods[method].nullary else len(iface.methods[method].param_vars)) == arity
-            ]
+    ) -> _Binding | None:
+        arity = len(call_args) + (receiver is not None)
+        candidates: list[_InterfaceInfo] = []
+        for iface in {value.name: value for value in self.interfaces.values()}.values():
+            spec = iface.methods.get(method)
+            if spec is None or (0 if spec.nullary else len(spec.param_vars)) != arity:
+                continue
+            saved_metas = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+            try:
+                available = any(
+                    name == iface.name and method in witness and self._try_unify(args[0], implementing_type)
+                    for (name, args), witness in self.active_interface_witnesses.items()
+                ) or any(
+                    self._match_impl_arguments(instance, (implementing_type,), environment) is not None
+                    for instance in self.impls.get(iface.name, [])
+                )
+            finally:
+                self.restore_metas(saved_metas)
+            if available:
+                candidates.append(iface)
         if not candidates:
-            raise self.fail("type", f"no interface method '{method}' accepts this argument count", node)
+            return None
         if len(candidates) > 1:
-            owners = {id(iface) for iface in candidates}
-            spellings = sorted(f"{name}.{method}(...)" for name, iface in self.interfaces.items() if id(iface) in owners)
-            raise self.fail("type", f"ambiguous interface method '{method}'; qualify the call as " + " or ".join(spellings), node)
+            names = ", ".join(sorted(iface.name for iface in candidates))
+            raise self.fail("type", f"ambiguous interface method '{method}' for the implementing type: {names}", node)
         iface = candidates[0]
         return self._elaborate_interface_method_call(
-            node, iface, iface.methods[method], gen_args, receiver, call_args, environment
+            node, iface, iface.methods[method], implementing_type, gen_args, receiver, call_args, environment,
         )
 
     def _root_span(self: _Elaborator, span_term: _Term) -> _Term:
@@ -1657,7 +1695,8 @@ class _IntrinsicsMixin:
         node: Node,
         iface: _InterfaceInfo,
         mspec: _InterfaceMethodSpec,
-        iface_gen_args: list[Node],
+        implementing_type: _Term,
+        method_gen_args: list[Node],
         pre_evaluated_recv: _Binding | None,
         call_args: list[Node],
         environment: dict[str, _Binding],
@@ -1665,29 +1704,24 @@ class _IntrinsicsMixin:
         if self.inferred_effect_calls is not None:
             self._unresolved_effect_call("private effect inference requires direct top-level callees; declare method effects explicitly", node)
         self.site = node
-        if iface_gen_args and len(iface_gen_args) != len(iface.generic_vars):
+        if method_gen_args and len(method_gen_args) != len(mspec.generic_vars):
             raise self.fail(
                 "type",
-                f"interface '{iface.name}' expects {len(iface.generic_vars)} generic arguments, got {len(iface_gen_args)}",
+                f"interface method '{mspec.name}' expects {len(mspec.generic_vars)} generic arguments, got {len(method_gen_args)}",
                 node,
             )
-        type_args: list[_Term] = []
-        for idx, gv in enumerate(iface.generic_vars):
-            dom = self.types[cast("int", gv.value)]
-            for prev_gv, prev_t in zip(iface.generic_vars[:idx], type_args, strict=True):
-                dom = self.substitute(dom, cast("int", prev_gv.value), prev_t)
-            if iface_gen_args:
-                type_args.append(self.argument(iface_gen_args[idx], dom, environment))
-            else:
-                type_args.append(self.meta(dom, environment))
+        type_args = [implementing_type]
+        for idx, gv in enumerate(iface.generic_vars[1:], start=1):
+            dom = self._instantiate_generic_type(iface.generic_vars[:idx], type_args, self.types[cast("int", gv.value)])
+            type_args.append(self.meta(dom, environment))
         m_gen_args: list[_Term] = []
         for idx, mgv in enumerate(mspec.generic_vars):
             dom = self._instantiate_generic_type(
                 iface.generic_vars, type_args, self.types[cast("int", mgv.value)]
             )
-            for prev_mgv, prev_mt in zip(mspec.generic_vars[:idx], m_gen_args, strict=True):
-                dom = self.substitute(dom, cast("int", prev_mgv.value), prev_mt)
-            m_gen_args.append(self.meta(dom, environment))
+            dom = self._instantiate_generic_type(mspec.generic_vars[:idx], m_gen_args, dom)
+            value = self.argument(method_gen_args[idx], dom, environment) if method_gen_args else self.meta(dom, environment)
+            m_gen_args.append(value)
         arg_terms: list[_Term] = []
         loan_targets: dict[int, tuple[Node, _Term]] = {}
         indices: dict[int, _Term] = {}
@@ -1730,7 +1764,11 @@ class _IntrinsicsMixin:
                 if idx == 0 and pre_evaluated_recv is not None:
                     receiver_mode = mspec.param_modifiers[0]
                     if receiver_mode == "owned":
-                        raise self.fail("type", "an 'owned' interface parameter requires a qualified call with an explicit 'move' argument", node)
+                        raise self.fail("type", "an 'owned' interface parameter requires a type-qualified call with an explicit 'move' argument", node)
+                    callee = self.node(node["callee"])
+                    if callee["kind"] == "generic_application":
+                        callee = self.node(callee["value"])
+                    target = self._unwrap_group(self.node(callee["value"]))
                     if receiver_mode in {"ref", "out", "in"}:
                         self.checked_receivers[tuple(cast("list[int]", node["span"]))] = loans._Receiver(
                             "shared" if receiver_mode == "in" else "exclusive",
@@ -1739,10 +1777,6 @@ class _IntrinsicsMixin:
                             two_phase=receiver_mode == "ref",
                         )
                     if receiver_mode in {"ref", "out"}:
-                        callee = self.node(node["callee"])
-                        if callee["kind"] == "generic_application":
-                            callee = self.node(callee["value"])
-                        target = self._unwrap_group(self.node(callee["value"]))
                         if target["kind"] != "name" or self.name(target["name"]) not in self.mutable_locals:
                             raise self.fail("type", f"a '{receiver_mode}' interface receiver requires a mutable local", target)
                         target_name = self.name(target["name"])
@@ -1750,6 +1784,8 @@ class _IntrinsicsMixin:
                         if receiver_mode == "out":
                             out_loan_names.add(target_name)
                     self.unify(pre_evaluated_recv.type, p_dom)
+                    if receiver_mode is None:
+                        self._check_value_copy(target, pre_evaluated_recv.type)
                     arg_terms.append(pre_evaluated_recv.term)
                     continue
                 arg_node = call_args[idx - (1 if pre_evaluated_recv is not None else 0)]
@@ -1861,6 +1897,8 @@ class _IntrinsicsMixin:
                     if self.whnf(p_dom).kind == "meta" or arg_mod in {"ref", "in"}:
                         arg_b = self.expression(val_node, environment)
                         self.unify(p_dom, arg_b.type)
+                        if arg_mod is None:
+                            self._check_value_copy(val_node, arg_b.type)
                         arg_terms.append(arg_b.term)
                     else:
                         arg_terms.append(self.check(val_node, p_dom, environment))
@@ -2371,21 +2409,14 @@ class _IntrinsicsMixin:
                 recv_for_method: _Binding | None = None
                 iface_receiver = self.node(receiver["value"]) if receiver["kind"] == "generic_application" else receiver
                 iface_path = self._dotted_member_path(iface_receiver)
-                if iface_path is not None and iface_path in self.interfaces and iface_path.split(".", 1)[0] not in environment:
-                    iface = self.interfaces[iface_path]
-                    if member_name not in iface.methods:
-                        raise self.fail("name", f"interface '{iface.name}' has no method '{member_name}'", node)
-                    if receiver["kind"] == "generic_application":
-                        if gen_args:
-                            raise self.fail("type", "generic arguments cannot be specified on both interface and method in qualified call", node)
-                        gen_args = self.nodes(receiver["arguments"])
-                    return self._elaborate_interface_method_call(
-                        node, iface, iface.methods[member_name], gen_args, None, call_args, environment
-                    )
+                if iface_path in self.interfaces and iface_path.split(".", 1)[0] not in environment:
+                    raise self.fail("name", "interface calls use the implementing type or a value receiver", node)
                 if receiver["kind"] == "name" and self.name(receiver["name"]) == "Seq" and "Seq" not in environment:
                     return self._elaborate_seq_intrinsic(node, member_name, gen_args, call_args, environment)
                 if receiver["kind"] == "name" and self.name(receiver["name"]) == "Slots" and "Slots" not in environment:
                     return self._elaborate_slots_intrinsic(node, member_name, gen_args, call_args, environment)
+                dst_spec = None
+                char_type = False
                 if not gen_args:
                     if (receiver["kind"] == "name"
                             and self.name(receiver["name"]) == "Format"
@@ -2393,33 +2424,32 @@ class _IntrinsicsMixin:
                         return self._format_write(node, call_args, environment)
                     if receiver["kind"] == "name" and self.name(receiver["name"]) == "Span" and "Span" not in environment:
                         return self._elaborate_span_intrinsic(node, member_name, call_args, environment)
-                    if receiver["kind"] == "name" and self.name(receiver["name"]) == "char" and "char" not in environment:
-                        if member_name in {"From", "TryFrom"}:
-                            if len(call_args) != 1:
-                                raise self.fail("type", f"'char.{member_name}' expects 1 argument, got {len(call_args)}", node)
-                            self.node(call_args[0], "argument")
-                            src_b = self.expression(self.node(call_args[0]["value"]), environment)
-                            src_w = self.whnf(src_b.type)
-                            if member_name == "From":
-                                if src_w == _CHAR:
-                                    return _Binding(src_b.term, _CHAR)
-                                if src_w == _U8:
-                                    return _Binding(_app(_constant("char_from_u8"), src_b.term), _CHAR)
-                                raise self.fail(
-                                    "type",
-                                    "'char.From' requires a byte/u8 or char operand; use 'char.TryFrom' for u32 or Nat",
-                                    node,
-                                )
-                            res_const = _constant("holdfast_Result")
-                            ce_const = _constant("holdfast_ConversionError")
-                            ret_type = _apps(res_const, _CHAR, ce_const)
-                            src_spec = self._int_spec(src_w)
-                            if src_spec is not None and src_spec.name == "u32":
-                                return _Binding(_app(_constant("char_try_from_u32"), src_b.term), ret_type)
-                            if src_w == _NAT:
-                                return _Binding(_app(_constant("char_try_from_Nat"), src_b.term), ret_type)
-                            raise self.fail("type", "'char.TryFrom' requires a u32 or Nat operand", node)
-                        raise self.fail("name", f"unknown char intrinsic 'char.{member_name}'", node)
+                    char_type = receiver["kind"] == "name" and self.name(receiver["name"]) == "char" and "char" not in environment
+                    if char_type and member_name in {"From", "TryFrom"}:
+                        if len(call_args) != 1:
+                            raise self.fail("type", f"'char.{member_name}' expects 1 argument, got {len(call_args)}", node)
+                        self.node(call_args[0], "argument")
+                        src_b = self.expression(self.node(call_args[0]["value"]), environment)
+                        src_w = self.whnf(src_b.type)
+                        if member_name == "From":
+                            if src_w == _CHAR:
+                                return _Binding(src_b.term, _CHAR)
+                            if src_w == _U8:
+                                return _Binding(_app(_constant("char_from_u8"), src_b.term), _CHAR)
+                            raise self.fail(
+                                "type",
+                                "'char.From' requires a byte/u8 or char operand; use 'char.TryFrom' for u32 or Nat",
+                                node,
+                            )
+                        res_const = _constant("holdfast_Result")
+                        ce_const = _constant("holdfast_ConversionError")
+                        ret_type = _apps(res_const, _CHAR, ce_const)
+                        src_spec = self._int_spec(src_w)
+                        if src_spec is not None and src_spec.name == "u32":
+                            return _Binding(_app(_constant("char_try_from_u32"), src_b.term), ret_type)
+                        if src_w == _NAT:
+                            return _Binding(_app(_constant("char_try_from_Nat"), src_b.term), ret_type)
+                        raise self.fail("type", "'char.TryFrom' requires a u32 or Nat operand", node)
                     dst_spec = self._resolve_int_type_receiver(receiver, environment)
                     if dst_spec is not None:
                         if member_name in {"From", "TryFrom"}:
@@ -2480,43 +2510,51 @@ class _IntrinsicsMixin:
                             return self._elaborate_int_intrinsic(
                                 member_name, call_args, environment, node, expected_spec=dst_spec
                             )
-                        raise self.fail(
-                            "name",
-                            f"integer type '{dst_spec.name}' has no associated function '{member_name}'",
-                            node,
-                        )
                     if self._dotted_member_path(receiver) == "HoldFast.Numerics" and member_name in _INT_INTRINSICS:
                         return self._elaborate_int_intrinsic(member_name, call_args, environment, node)
+                if any(member_name in iface.methods for iface in self.interfaces.values()):
+                    implementing_type = self._interface_type_receiver(receiver, environment)
+                    if implementing_type is not None:
+                        method_call = self._select_interface_method_call(
+                            node, implementing_type, member_name, gen_args, None, call_args, environment,
+                        )
+                        if method_call is not None:
+                            return method_call
+                        raise self.fail("type", f"no interface method '{member_name}' applies to the implementing type and argument count", node)
+                if char_type:
+                    raise self.fail("name", f"unknown char intrinsic 'char.{member_name}'", node)
+                if dst_spec is not None:
+                    raise self.fail("name", f"integer type '{dst_spec.name}' has no associated function '{member_name}'", node)
+                if not gen_args and (
+                    member_name in _INT_INTRINSICS
+                    or member_name in {"At", "Update", "Append", "Take", "Skip", "Slice", "Contains", "All", "Any"}
+                    or member_name in {"LivePrefix", "VacantRange", "VacantSuffix", "PrefixModel", "Read", "Write"}
+                ):
+                    recv_b = self.expression(receiver, environment)
+                    recv_for_method = recv_b
+                    if self._int_spec(recv_b.type) is not None and member_name in _INT_INTRINSICS:
+                        return self._elaborate_int_intrinsic(
+                            member_name, call_args, environment, node, receiver=recv_b
+                        )
+                    recv_head, recv_targs = self.spine(self.whnf(recv_b.type))
+                    if recv_head == _constant("Seq") and len(recv_targs) == 1:
+                        return self._elaborate_seq_method(
+                            node, recv_b, recv_targs[0], member_name, call_args, environment
+                        )
                     if (
-                        member_name in _INT_INTRINSICS
-                        or member_name in {"At", "Update", "Append", "Take", "Skip", "Slice", "Contains", "All", "Any"}
-                        or member_name in {"LivePrefix", "VacantRange", "VacantSuffix", "PrefixModel", "Read", "Write"}
+                        recv_head == _constant("Slots")
+                        and len(recv_targs) == 2
+                        and member_name in {"LivePrefix", "VacantRange", "VacantSuffix", "PrefixModel", "Read", "Write"}
                     ):
-                        recv_b = self.expression(receiver, environment)
-                        recv_for_method = recv_b
-                        if self._int_spec(recv_b.type) is not None and member_name in _INT_INTRINSICS:
-                            return self._elaborate_int_intrinsic(
-                                member_name, call_args, environment, node, receiver=recv_b
-                            )
-                        recv_head, recv_targs = self.spine(self.whnf(recv_b.type))
-                        if recv_head == _constant("Seq") and len(recv_targs) == 1:
-                            return self._elaborate_seq_method(
-                                node, recv_b, recv_targs[0], member_name, call_args, environment
-                            )
-                        if (
-                            recv_head == _constant("Slots")
-                            and len(recv_targs) == 2
-                            and member_name in {"LivePrefix", "VacantRange", "VacantSuffix", "PrefixModel", "Read", "Write"}
-                        ):
-                            self.checked_receivers[tuple(cast("list[int]", node["span"]))] = loans._Receiver(
-                                "exclusive" if member_name == "Write" else "shared",
-                                None,
-                                False,
-                                two_phase=member_name == "Write",
-                            )
-                            return self._elaborate_slots_intrinsic(
-                                node, member_name, gen_args, call_args, environment, receiver=recv_b
-                            )
+                        self.checked_receivers[tuple(cast("list[int]", node["span"]))] = loans._Receiver(
+                            "exclusive" if member_name == "Write" else "shared",
+                            None,
+                            False,
+                            two_phase=member_name == "Write",
+                        )
+                        return self._elaborate_slots_intrinsic(
+                            node, member_name, gen_args, call_args, environment, receiver=recv_b
+                        )
                 if recv_for_method is None:
                     recv_for_method = self.expression(receiver, environment)
                 rm_head, rm_targs = self.spine(self.whnf(recv_for_method.type))
@@ -2541,17 +2579,11 @@ class _IntrinsicsMixin:
                         environment,
                         recv_node=receiver,
                     )
-                candidate_ifaces = [
-                    iface
-                    for spelling, iface in self.interfaces.items()
-                    if "." not in spelling and member_name in iface.methods
-                    and not iface.methods[member_name].nullary
-                    and len(iface.methods[member_name].param_vars) == 1 + len(call_args)
-                ]
-                if candidate_ifaces:
-                    return self._select_interface_method_call(
-                        node, candidate_ifaces, member_name, gen_args, recv_for_method, call_args, environment
-                    )
+                method_call = self._select_interface_method_call(
+                    node, recv_for_method.type, member_name, gen_args, recv_for_method, call_args, environment,
+                )
+                if method_call is not None:
+                    return method_call
                 if gen_args:
                     raise self.fail("unsupported", "explicit generics require a declared callable name", callee)
                 return self.apply(
@@ -2615,20 +2647,6 @@ class _IntrinsicsMixin:
                         )
                     final_env = {**environment, **self.post_env} if self.post_env else environment
                     return self.expression(self.node(call_args[0]["value"]), final_env)
-                if (
-                    cname not in environment
-                    and cname not in self.globals
-                    and cname not in self.records
-                ):
-                    candidate_ifaces = [
-                        iface
-                        for spelling, iface in self.interfaces.items()
-                        if "." not in spelling and cname in iface.methods
-                    ]
-                    if candidate_ifaces:
-                        return self._select_interface_method_call(
-                            node, candidate_ifaces, cname, gen_args, None, call_args, environment
-                        )
                 if (
                     cname in {"LivePrefix", "VacantRange", "VacantSuffix", "PrefixModel", "CopyRepresentation", "TransferType"}
                     and cname not in environment

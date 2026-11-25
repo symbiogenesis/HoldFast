@@ -183,7 +183,7 @@ buffer-writing interpolation and format surface (comparable to C# 10's
 `InterpolatedStringHandler` or Rust's `write!`) such as
 `Format.Write(ref builder, $"...")` that targets an explicit
 `ref TextBuilder<capacity>` or `ref Span<byte>`, resolves a coherent static
-`Format<T>` interface per interpolation hole (`{value}` or compile-time checked
+`IFormat<T>` interface per interpolation hole (`{value}` or compile-time checked
 `{value:spec}`) without runtime reflection, boxing or ambient locale, and
 returns an explicit `Result<usize, CapacityError>`. Standalone `$"..."`
 expressions without an explicit destination buffer are rejected; capacity
@@ -231,7 +231,9 @@ identity comprises the resolved package instance, module path and declaration
 identity. Two package revisions with the same printed type name are distinct;
 neither structural similarity nor reflection can equate their private types.
 
-The first interface implementation model uses explicit nonoverlapping
+### Interface constraints and dispatch
+
+The interface implementation model uses explicit nonoverlapping
 instances. The defining package must own the interface or the outer
 nominal implementing type. A bare type parameter does not establish ownership;
 foreign interfaces on foreign primitive types require a local nominal wrapper.
@@ -239,18 +241,23 @@ Instance heads use nominal type constructors, rigid constants and type
 parameters, with structural unification deciding possible overlap. Arbitrary
 computed type families and proof search are unavailable in instance selection.
 Potentially overlapping instances are rejected without specialization, priority,
-negative bounds or import-dependent choice. An interface fixes its qualified
-instances or explicit dictionary parameters; adding an unrelated dependency
-cannot change a selected implementation. Required laws are checked fields of
-that dictionary, not facts obtained by finding its name.
+negative bounds or import-dependent choice. The first interface argument is its
+implementing type. A generic declaration requests each interface implementation
+with a bound on that type, such as `where T : ISized<T>`. Each bound supplies
+a checked dictionary, including the declared contracts and required laws.
+[Constraint syntax](surface-grammar.md#generic-interface-constraints)
 
-An unqualified interface method name or receiver call must identify one visible
-interface by method name and source argument count, counting the receiver as
-the first argument. If several interfaces remain, qualify the call as
-`Interface.Method(...)`, including when their implementations accept disjoint
-argument types. Argument types, result types, contracts and declaration/import
-order do not choose between interface names. After choosing the interface, its
-ordinary type, instance and contract checks still apply.
+Call through the implementing type, as in `T.Size(in value)`, or use a receiver
+call, as in `value.Size()`. A receiver supplies the first method argument and
+uses its declared loan mode.
+Generic dispatch uses the bounds on the implementing type. Concrete dispatch
+uses the implementations available for that type. The implementing type,
+method name and source argument count must select a unique interface. When
+several bounds provide the same method, a helper with one bound can select the
+intended interface. The selected method's ordinary type, instance, loan and
+contract checks apply.
+
+### Exported signatures
 
 Public signatures specify generic and required-static parameters, result types,
 effects, call modes, transitive capture constraints, pre/postconditions and
@@ -321,13 +328,14 @@ The initial client needs a small, proved library of buffers, immutable/mutable
 spans, bounded iteration, records/sums, initialization and typed errors. Public
 operations state capacity, bounds, overlap, initialization, retained loans and
 resource states on every exit. Every sequence-modeled view or buffer implements
-the law-carrying `ISequenceModel<T>` interface, projecting the container to its
-canonical erased pure `Model : Seq<T>` (`Nat(Length) == Model.Count`) while
+the law-carrying `ISequenceModel<C, T>` interface for container type `C` and
+element type `T`. It projects the container to its canonical erased pure
+`Model : Seq<T>` (`Nat(Length) == Model.Count`) while
 keeping the C#/Kotlin-style collection predicates and slice combinators—`.All(x => ...)`,
 `.Any(x => ...)`, `.Contains(x)`, `.Take(n)`, `.Skip(n)`, `.Slice(a, b)` and
 `.Count` alongside `.At(i)`, `.Update(i, v)` and `.Append(x)`—as concrete
 operations on `Seq<T>` backed by pre-proved standard-library lemmas. Contracts
-on concrete or `ISequenceModel<T>`-bounded containers write
+on concrete containers or on `C` with `where C : ISequenceModel<C, T>` write
 `requires items.Model.All(x => x > 0)` rather than raw `forall`/`exists`
 index quantifiers, and bounded predicates over finite sequences with decidable
 element bodies discharge in the
@@ -342,7 +350,7 @@ platform's required format-description and
 [boundary initialization obligations](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-124).
 
 The [collection-loop surface](surface-grammar.md#ergonomic-authoring-and-bounded-collection-iteration)
-uses a law-carrying `IBoundedIterable<T>` interface refining `ISequenceModel<T>`
+uses a law-carrying `IBoundedIterable<C, T>` interface refining `ISequenceModel<C, T>`
 rather than C#'s stateful `IEnumerable<T>` / `IEnumerator<T>` (`MoveNext`/`Current`/`IDisposable`).
 Value iteration requires copy permission; shared/exclusive iteration selects an
 explicit element loan. The source is evaluated once, a declared `Model.Count`
@@ -467,9 +475,9 @@ emits a term or returns an unconstrained theorem has not met this predicate.
 | Subject | Acceptance evidence |
 | --- | --- |
 | Interpretation and concrete resources | Checked elaboration-image laws, an inhabited carrier state, read/write/initialization/frame and loan restoration, with wrong-offset, alias, premature-restoration and partial-initialization neighbors rejected at the intended obligations. Missing laws remain missing; no axiom or source judgment substitutes for them. |
-| Scalar and text behavior | Independent boundary fixtures for every supported type and operation, signed division/remainder signs, zero and minimum/-1, shift zero/width-1/width, exact/wrapping/saturating arithmetic, target versus host width, invalid conversions, embedded NUL, malformed UTF-8/escapes, raw-string delimiter/indentation and LF-normalization rules, static `Format<T>` checked formatting (`Result<usize, CapacityError>` on exact fit and `CapacityError` exhaustion without heap allocation or ambient locale), scalar boundaries and byte slicing. Static and runtime meanings agree under the same target. Generate finite boundary classes from an independently reviewed oracle; a shared implementation is not an independent expectation. |
+| Scalar and text behavior | Independent boundary fixtures for every supported type and operation, signed division/remainder signs, zero and minimum/-1, shift zero/width-1/width, exact/wrapping/saturating arithmetic, target versus host width, invalid conversions, embedded NUL, malformed UTF-8/escapes, raw-string delimiter/indentation and LF-normalization rules, static `IFormat<T>` checked formatting (`Result<usize, CapacityError>` on exact fit and `CapacityError` exhaustion without heap allocation or ambient locale), scalar boundaries and byte slicing. Static and runtime meanings agree under the same target. Generate finite boundary classes from an independently reviewed oracle; a shared implementation is not an independent expectation. |
 | Package composition | Two independently authored packages compose with fixed instances; reordered imports preserve meaning; overlap, cycles and conflicting nominal identities are diagnosed. Locked builds reproduce their source/input closure. Contract, representation, proof assumption and tool changes invalidate affected evidence before reuse. |
-| Everyday ownership | Bounded collection/iterator, `.Model` sequence-predicate/slice, `TextBuilder<capacity>` / `Format<T>` checked formatting, [two-phase receiver calls](loan-analysis.md#two-phase-receiver-trial), selective invariant lifting (`invariant Clause: ...` / `open (...) lifts ...`), two-step bulk relocation (`CopyRepresentation` + `TransferType<T>`), fallible-builder and error-propagation clients compile under their actual representations and the [borrow-analysis promotion contract](core-design.md#borrow-analysis-promotion). Escaped views, duplicated tokens, reads of unwritten or moved-out vacant slots, early exits or whole-receiver calls while an invariant clause is lifted, stale current-content facts and lost mandatory outcomes fail at the responsible resource rule. Bounded buffer, builder and bulk-relocation proofs/certificates pass a **capacity-invariance gate**: checking at tiny static capacity ($N = 4$) and large static capacity ($N = 10^9$) produces equal obligation counts and the same proof and certificate structure after changing only the encoded capacity literal. Count and compare emitted range obligations and prohibit per-element unfolding, enumeration or evidence. The current first-slice pilot compares 8 and 10⁹ because its packet requires eight bytes. Each capacity must fit the 4 MiB generated Gallina limit, each Rocq compile and the combined kernel replay must finish within 120 seconds, and the pilot also compares symbolic reduction and work counters. Record actual replay measurements separately from this pass condition. |
+| Everyday ownership | Bounded collection/iterator, `.Model` sequence-predicate/slice, `TextBuilder<capacity>` / `IFormat<T>` checked formatting, [two-phase receiver calls](loan-analysis.md#two-phase-receiver-trial), selective invariant lifting (`invariant Clause: ...` / `open (...) lifts ...`), two-step bulk relocation (`CopyRepresentation` + `TransferType<T>`), fallible-builder and error-propagation clients compile under their actual representations and the [borrow-analysis promotion contract](core-design.md#borrow-analysis-promotion). Escaped views, duplicated tokens, reads of unwritten or moved-out vacant slots, early exits or whole-receiver calls while an invariant clause is lifted, stale current-content facts and lost mandatory outcomes fail at the responsible resource rule. Bounded buffer, builder and bulk-relocation proofs/certificates pass a **capacity-invariance gate**: checking at tiny static capacity ($N = 4$) and large static capacity ($N = 10^9$) produces equal obligation counts and the same proof and certificate structure after changing only the encoded capacity literal. Count and compare emitted range obligations and prohibit per-element unfolding, enumeration or evidence. The current first-slice pilot compares 8 and 10⁹ because its packet requires eight bytes. Each capacity must fit the 4 MiB generated Gallina limit, each Rocq compile and the combined kernel replay must finish within 120 seconds, and the pilot also compares symbolic reduction and work counters. Record actual replay measurements separately from this pass condition. |
 | Complete software path | Authored source and independent contract reach one retained backend with checked correspondence, representation and lowering; applicable final-byte, resource, observation and admission duties meet their existing owners. Report source, artifact and production evidence separately. |
 | Developer usefulness | Record annotation burden, first useful diagnostic, checking latency, code/stack/storage consequences and repair after a semantic-preserving refactor, a representation change and a real contract change on both clients. Count arithmetic lemmas and checked operations, the effect clauses edited for a package-internal refactor or a public widening, and snapshots, named views or loop rewrites required by borrowing. Compare the receiver call with a legal snapshot spelling under equivalent evaluation order. Preserve the held-out client and record the adaptations it needs. |
 
