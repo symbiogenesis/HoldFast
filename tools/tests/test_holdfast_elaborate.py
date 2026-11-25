@@ -4485,7 +4485,7 @@ def _record_invariants_and_selective_lifting() -> None:
     ), block=True)
     _refuses(immutable, "type", "immutable binding 'cell'")
 
-    # Structured task scopes keep the `scope` keyword; they are design-only syntax.
+    # The surface parser recognizes task scopes. Mathematical elaboration refuses them.
     task_scope = _Fixture("TaskScopeIsNotInvariantLifting")
     task_scope.record(
         "Pair",

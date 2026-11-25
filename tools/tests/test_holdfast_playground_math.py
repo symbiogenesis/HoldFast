@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Full-language compiler, native-parser identity and transport controls."""
+"""Playground elaboration, native parser identity, and HTTP and browser behavior."""
 
 import hashlib
 import json

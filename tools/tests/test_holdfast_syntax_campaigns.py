@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Menhir-generated syntax campaign, CST/renderer, and independent AST/span oracle controls (Q25y)."""
+"""Check generated syntax, source rendering, and independent expectations for ASTs and spans."""
 
 import hashlib
 import json

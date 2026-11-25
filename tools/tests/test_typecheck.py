@@ -135,7 +135,7 @@ def _environment_tool_resolution() -> None:
 
 
 def _stub(directory: Path, name: str, body: str) -> Path:
-    # Windows `CreateProcess` runs `.bat` stubs directly from `argv`.
+    # Windows test cases pass this batch file to the ordinary checker subprocess wrapper.
     path = directory / f"{name}.bat"
     path.write_text(body, encoding="utf-8", newline="")
     return path
@@ -296,13 +296,12 @@ def _ty_settings_admitted() -> None:
     ensure(typecheck._settings(_TY_TOML) == [],
            f"the committed ty.toml must pass its own gate: {typecheck._settings(_TY_TOML)!r}")
     for text in (_ADMITTED,
-                 # An override that only selects files does nothing to them.
+                 # Overrides with only include or exclude filters leave analysis settings intact.
                  _ADMITTED + '\n[[overrides]]\ninclude = ["tests/**"]\n',
                  _ADMITTED + '\n[[overrides]]\ninclude = ["tests/**"]\n'
                              'exclude = ["tests/data/**"]\n',
                  _ADMITTED + "\n[[overrides]]\n",
-                 # The analysis settings that only make ty stricter, or restate its
-                 # default, are admitted, the alias among them.
+                 # The accepted settings keep or tighten ty's default analysis rules.
                  _ADMITTED + "\n[analysis]\nrespect-type-ignore-comments = false\n"
                              "strict-equality-semantics = true\n"
                              "strict-generic-narrowing = true\n",

@@ -76,8 +76,7 @@ def _batch() -> None:
 
 
 def _unicode() -> None:
-    # This adapter control exercises a site after a supplementary character;
-    # the current pure lexer permits Unicode in line comments only.
+    # Inject a diagnostic after a supplementary character to test unit conversion.
     item = sarif.Input("file:///fixture/unicode.hf", "// \U0001f600\u03bb site\r\n".encode())
     document = sarif.export((item,), PRODUCER, checker=lambda _source: _diagnostic(line=1, column=7))
     sarif.validate(document, (item,), PRODUCER)

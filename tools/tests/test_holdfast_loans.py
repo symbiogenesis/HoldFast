@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Independent complete-path loan-flow fixtures and rejected neighbors."""
+"""Loan-flow checks over hand-built graphs, parser ASTs, and authored source."""
 
 import re
 import subprocess
@@ -705,8 +705,8 @@ def _selective_invariant_lifting() -> None:
 
 
 def _cfg_join_merging_and_bounded_loops() -> None:
-    # 12 sequential if-diamonds would require 2^12 = 4096 paths under full path enumeration
-    # (exceeding Limits.paths = 128), but merge at each join point in linear time.
+    # Twelve if/else joins represent 4,096 paths. Merging compatible states keeps
+    # this graph within the default path limit.
     nodes: list[Node] = []
     for idx in range(12):
         split = f"split_{idx}"
@@ -741,7 +741,7 @@ def _cfg_join_merging_and_bounded_loops() -> None:
     ensure(not merged.issues, f"merged 12-diamond CFG reported unexpected issues: {merged.issues}")
     ensure(len(merged.restorations) == 24, "merged 12-diamond CFG lost branch loan restorations")
 
-    # Bounded foreach loop over the CFG: header -> (body_borrow, exit), body_drop -> header.
+    # The back edge reenters the loop after the element loan has ended.
     loop_graph = Graph(
         "entry",
         (
@@ -765,7 +765,7 @@ def _cfg_join_merging_and_bounded_loops() -> None:
         "bounded loop did not restore scoped element loan at body_use",
     )
 
-    # Loop-carried owner move must be detected on the second iteration at fixpoint.
+    # The fixpoint must retain the owner move on the back edge and the zero-iteration exit.
     move_in_loop = Graph(
         "entry",
         (
@@ -893,13 +893,6 @@ def _surface_ast_to_loan_graph_lowering() -> None:
             "span": [0, 1],
         }
 
-    # Module with BoundedBuffer struct (fields, views, invariants) and functions:
-    # 1. RelocateInto: selective `open (ref this, ref destination) lifts InitializedPrefix, VacantSuffix`
-    # 2. DisjointViews: borrows `in this.Entries` and `ref this.Tail` simultaneously (no conflict)
-    # 3. ConflictingViewWrite: borrows `in this.Entries` then mutates `this.slots` (suspended-parent)
-    # 4. EarlyExitInScope: `let ... else { return; }` inside `open (ref this) lifts InitializedPrefix`
-    # 5. ManyBranchesAndLoop: 9 sequential `if` statements + `foreach_collection` loop
-    # 6. ReceiverAliasCall: `Format.Write(ref builder, $"len={builder.Length}")` (suspended-parent)
     if_chain = [
         {
             "kind": "if",

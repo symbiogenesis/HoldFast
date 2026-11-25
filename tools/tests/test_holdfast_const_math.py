@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Independent mathematical phase interfaces and specialization neighbors."""
+"""Required-static inputs and specialization in the mathematical elaborator."""
 
 import copy
 from typing import cast

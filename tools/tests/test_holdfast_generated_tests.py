@@ -44,11 +44,10 @@ def _coordinate_oracle_and_utf16_controls() -> None:
         )) + newline
         oracle = OracleTextModel.from_text(text)
         ensure(len(oracle.lines) == 6, f"expected 6 lines for {newline!r}, got {len(oracle.lines)}")
-        # '// ' is 3 UTF-16 units; '😀' is 2 UTF-16 units (4 UTF-8 bytes); ' supplementary' is 14 units.
+        # In the comment, the emoji starts at column 3. It spans two UTF-16 units and four UTF-8 bytes.
         ensure(oracle.expected_position_byte_offset(0, 3) == 3, "UTF-16 start of emoji should be byte 3")
         ensure(oracle.expected_position_byte_offset(0, 4) is None, "interior surrogate offset must fail closed")
         ensure(oracle.expected_position_byte_offset(0, 5) == 7, "after 4-byte emoji should be byte 7")
-        # Clamping past line end:
         line0_end_byte = oracle.lines[0].end_byte
         ensure(
             oracle.expected_position_byte_offset(0, 999) == line0_end_byte,
@@ -118,7 +117,7 @@ def _overlay_and_supported_requests_without_subprocess() -> None:
         },
         {"action": "query", "uri": doc_a, "method": "textDocument/formatting"},
         {"action": "cancel", "id": 77},
-        # Multi-change sequential ranged edit batch:
+        # The second range uses coordinates after the first edit.
         {
             "action": "change",
             "uri": doc_a,
@@ -137,7 +136,7 @@ def _overlay_and_supported_requests_without_subprocess() -> None:
         {"action": "query", "uri": doc_a, "method": "textDocument/definition", "line": 6, "character": 9},
         {"action": "invalidate", "method": "workspace/didChangeConfiguration"},
         {"action": "save", "uri": doc_a},
-        # Invalid later edit rolls back earlier edit and marks document desynchronized:
+        # A bad second edit invalidates the entire batch and desynchronizes the document.
         {
             "action": "change",
             "uri": doc_a,
@@ -153,11 +152,11 @@ def _overlay_and_supported_requests_without_subprocess() -> None:
                 },
             ],
         },
-        # Queries while desynchronized must refuse with -32801 and never expose prior facts:
+        # A desynchronized document returns -32801 for each query.
         {"action": "query", "uri": doc_a, "method": "textDocument/hover", "line": 4, "character": 11},
         {"action": "query", "uri": doc_a, "method": "textDocument/documentSymbol"},
         {"action": "query", "uri": doc_a, "method": "textDocument/formatting"},
-        # Full replacement with strictly newer version recovers synchronization:
+        # A newer full replacement restores synchronization even with a source error.
         {
             "action": "change",
             "uri": doc_a,
@@ -166,9 +165,9 @@ def _overlay_and_supported_requests_without_subprocess() -> None:
         },
         {"action": "query", "uri": doc_a, "method": "textDocument/documentSymbol"},
         {"action": "close", "uri": doc_a},
-        # Closed document queries must refuse with -32602:
+        # Once closed, the document is an invalid query target (-32602).
         {"action": "query", "uri": doc_a, "method": "textDocument/documentSymbol"},
-        # Reopen with fresh version:
+        # Reopening starts a new version sequence at 1.
         {"action": "open", "uri": doc_a, "version": 1, "text": valid_text},
         {"action": "query", "uri": doc_a, "method": "textDocument/documentSymbol"},
     ]
@@ -230,14 +229,13 @@ def _seeded_faults_shrinking_and_mutation_vocabulary() -> None:
             f"no-op runner should classify as survived, got {survived_check!r}",
         )
 
-    # Synthetic unexecutable mutant must be classified as stillborn.
     stillborn_verdict = evaluate_seeded_fault("stillborn-mutant")
     ensure(
         stillborn_verdict["status"] == "stillborn",
         f"unexecutable mutant was not classified as stillborn: {stillborn_verdict!r}",
     )
 
-    # All 3 required seeded defects must be executable, killed, shrunk, and replayed from explicit data.
+    # Each seeded defect must fail with a smaller replayable input.
     held_out_count = 0
     for fault_name in SEEDED_FAULTS:
         verdict = evaluate_seeded_fault(fault_name)
@@ -258,7 +256,7 @@ def _seeded_faults_shrinking_and_mutation_vocabulary() -> None:
             case_complexity(shrunk_case) == shrunk_size,
             f"shrunk case complexity mismatch for {fault_name}",
         )
-        # Shrunk explicit case must pass on unmutated production code!
+        # The minimized case must still pass on the original implementation.
         execute_explicit_case(shrunk_case)
 
     ensure(

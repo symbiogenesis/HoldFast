@@ -1,25 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Independent value controls for HoldFast's fixed-width integer and `char` primitives.
+"""Compare static and Gallina fixed-width integer and `char` primitives.
 
-Expected values come from a reference written here over Python integers, directly
-from the [primitive contract](../../docs/language/first-release.md#primitive-semantics):
-truncating division through `Fraction`, modular reduction from the type's minimum,
-clamping by sorting and range tests by comparison. The reference shares no helper
-with the static evaluator or with the Gallina prelude, and both are held to it.
+The reference implements the [primitive contract](../../docs/language/first-release.md#primitive-semantics)
+using Python integers and `Fraction`. It also records the implementations' total
+results for out-of-domain inputs to partial operations.
 
-Partial operations have total images. Their out-of-domain results are fixed by the
-two implementations rather than by the contract, and the reference names them
-apart as image conventions: ordinary arithmetic reduces modulo `2^w`, division by
-zero yields zero, remainder by zero yields the dividend, an excessive shift yields
-the fill bits, a narrowing `From` keeps the low bits, a negative `to_nat` is zero and
-`nat_to_usize` reduces modulo `2^64`. The checked operations, which the contract
-does define everywhere, use no convention.
-
-The kernel replay emits the prelude with one `eq_refl` definition per sampled row
-and compiles it with the locked prover; it runs in the toolchain lane, which the
-runner leaves out wherever the guest switch is not standing. Its fault controls
-restore former placeholder definitions and require a check, not the prelude, to
-fail.
+The toolchain cases replay one `eq_refl` definition per sampled result with the
+locked prover. The fault cases substitute placeholder bodies and require the
+prelude to compile up to the result check that detects each fault.
 """
 
 import itertools
@@ -243,9 +231,6 @@ _CODES = (0, 0x41, 0x7F, 0xFF, 0xD7FF, 0xD800, 0xDBFF, 0xDFFF, 0xE000, 0xFFFF,
           0x10000, _SCALAR_MAX, _SCALAR_MAX + 1, 0xFFFFFFFF)
 
 
-# Static evaluator side.
-
-
 class _Evaluator:
     """The elaborator's static reducer, with a fresh budget for every application."""
 
@@ -374,8 +359,6 @@ def _evaluator_fault_controls() -> None:
         ensure(bool(found), f"replacing the evaluator's {helper} survived the value controls")
 
 
-# Kernel side.
-
 _NAT = "Corelib.Init.Datatypes.nat"
 
 
@@ -411,7 +394,7 @@ def _kernel_rows() -> Iterator[tuple[str, str, str]]:
     """The sampled rows as (evaluator constant, Gallina application, expected term)."""
     for row in _rows(_SAMPLED, _kernel_values,
                      lambda width: [0, 1, width.bits - 1, width.bits, _USIZE.hi]):
-        # Unary Peano results above the 70,000 bound would build multi-gigabyte nat terms.
+        # Cap the sample's unary natural results to keep kernel reduction bounded.
         if isinstance(row.expected, tuple) and row.expected[0] == "nat" and cast("int", row.expected[1]) > 70_000:
             continue
         arguments = " ".join(_literal(_WIDTHS[name], value) for name, value in row.arguments)
@@ -425,7 +408,7 @@ def _kernel_rows() -> Iterator[tuple[str, str, str]]:
         scalar = _scalar(code)
         outcome = ("ok", ("char", code)) if scalar else ("err", "OutOfRange")
         expected = _gallina_outcome(outcome, u32, "holdfast_ConversionError", "holdfast_char")
-        # A scalar above U+FFFF would make the kernel build its unary code point.
+        # Above U+FFFF, sample invalid values through u32 to avoid large unary scalar results.
         if code <= 0xFFFF or not scalar:
             yield ("char_try_from_u32", f"({_GALLINA['char_try_from_u32']} {_literal(u32, code)})",
                    expected)
@@ -476,7 +459,6 @@ def _kernel_replay() -> None:
            f"{(done.stdout + done.stderr)[-3000:]}")
 
 
-# Each faulty body must leave the prelude compilable and fail a sampled check.
 _PLACEHOLDERS = {
     "int_mul_": (r"Definition holdfast_int_mul \(tag : nat\) \(a b : holdfast_int tag\) : holdfast_int tag :=\n[^\n]*\n",
                  "Definition holdfast_int_mul (tag : nat) (a _ : holdfast_int tag) : holdfast_int tag := a.\n"),
@@ -495,7 +477,7 @@ _PLACEHOLDERS = {
 
 
 def _kernel_fault_controls() -> None:
-    """Each restored placeholder is killed by a check, never stillborn in the prelude."""
+    """Require each substituted placeholder to fail at a sampled result check."""
     rows = list(_kernel_rows())
     with _scratch() as temporary:
         directory = Path(temporary)

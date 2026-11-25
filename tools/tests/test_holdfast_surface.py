@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The wider parser entry cannot bypass schema or qualification boundaries."""
+"""Check the surface parser's syntax schema, source bindings, and qualification inputs."""
 
 import hashlib
 import json
