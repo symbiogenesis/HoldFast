@@ -148,6 +148,85 @@ public u32 Observe(ref u32 input) effects reads(input) => Local.Inspect(ref inpu
         refuse("Client", "cannot access private declaration 'Local.Inspect'")
 
 
+def _locked_named_effects() -> None:
+    with TemporaryDirectory() as temporary:
+        workspace = Path(temporary)
+        provider = _write(workspace, "transfer", "v1", {}, "Transfer.API")
+        consumer = _write(workspace, "client", "v1", {"transfer": "v1"}, "Client")
+        manifest = provider / packages.MANIFEST
+        manifest.write_text(manifest.read_text(encoding="utf-8").replace(
+            '"Transfer.API" = "module.hf"', '"Transfer.API" = "module.hf"\n'
+            '"Transfer.Left" = "Left.hf"\n"Transfer.Right" = "Right.hf"\n"Transfer.Helpers" = "Helpers.hf"'),
+            encoding="utf-8")
+        for name, value in (("Left", 1), ("Right", 2)):
+            (provider / f"{name}.hf").write_text(
+                f"module Transfer.{name};\npublic u32 Step() effects none => {value}u32;\n", encoding="utf-8")
+        helpers = provider / "Helpers.hf"
+        sources = """module Transfer.Helpers;
+import Transfer.Left as Source;
+internal u32 Leaf() effects calls(Source.Step) => Source.Step();
+internal u32 Forward() => Leaf();
+"""
+        helpers.write_text(sources, encoding="utf-8")
+        (provider / "module.hf").write_text("""module Transfer.API;
+import Transfer.Left { Step as Allowed };
+import Transfer.Helpers as Helpers;
+public u32 Run() effects calls(Allowed) => Helpers.Forward();
+""", encoding="utf-8")
+        client = consumer / "module.hf"
+        source = """module Client;
+import Transfer.Left as Chosen;
+import Transfer.API as API;
+public u32 Run() effects calls(Chosen.Step) => API.Run();
+"""
+        client.write_text(source, encoding="utf-8")
+        lock = workspace / "lock.json"
+
+        def build() -> None:
+            packages.lock_package(ROOT, workspace, "client", "v1", lock)
+            packages.build_package(ROOT, workspace, lock, None)
+
+        build()
+        client.write_text(source.replace("Transfer.Left", "Transfer.Right"), encoding="utf-8")
+        with raises(HoldFastError) as wrong_target:
+            build()
+        ensure("module 'Client': callable transitively invokes 'Step'" in wrong_target.exception.message,
+               f"a same-spelled callable from another module covered the bound: {wrong_target.exception}")
+
+        client.write_text(source, encoding="utf-8")
+        for unresolved in (
+            "internal u32 Indirect(Fn(u32 value) -> u32 callback) => callback(3u32);\n",
+            "internal Nat Recur(Nat n) decreases n => match (n) { 0 => 0, Succ(k) => Recur(k), };\n",
+        ):
+            helpers.write_text(sources + unresolved, encoding="utf-8")
+            with raises(HoldFastError) as missing:
+                build()
+            ensure("recursive or indirect call needs explicit effects" in missing.exception.message,
+                   f"the call missed the closed inference boundary: {missing.exception}")
+
+        initializer = """internal Unit Initialize(out u32 output) effects writes(output) {
+    output = 9u32;
+    return;
+}
+"""
+        call = """public Unit Fill(out u32 output) effects writes(output) {
+    Helpers.Initialize(out output);
+    return;
+}
+"""
+        api = provider / "module.hf"
+        api.write_text(api.read_text(encoding="utf-8") + call, encoding="utf-8")
+        helpers.write_text(sources + initializer, encoding="utf-8")
+        build()
+        helpers.write_text(sources + initializer.replace("effects writes(output)", "effects none"), encoding="utf-8")
+        with raises(HoldFastError) as missing_write:
+            build()
+        ensure("module 'Transfer.Helpers': callable mutates parameter 'output'" in missing_write.exception.message,
+               f"an initializer passed with an empty write bound: {missing_write.exception}")
+
+
 def cases() -> list[Case]:
     return [Case("locked internal effect refactor preserves an opaque importing proof", _locked_refactor,
+                 lane="toolchain"),
+            Case("locked named effects follow resolved callable identities across aliases", _locked_named_effects,
                  lane="toolchain")]

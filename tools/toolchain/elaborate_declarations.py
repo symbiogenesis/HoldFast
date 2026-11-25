@@ -2484,10 +2484,10 @@ class _DeclarationsMixin:
         eff_clause: Node,
         environment: dict[str, _Binding],
         ref_param_names: set[str],
-    ) -> tuple[set[str], set[str], set[str]]:
+    ) -> tuple[set[str], set[str], set[_Term]]:
         declared_reads: set[str] = set()
         declared_writes: set[str] = set()
-        declared_calls: set[str] = set()
+        declared_calls: set[_Term] = set()
         for eff_item in self.nodes(eff_clause["values"]):
             if eff_item["kind"] == "name" and self.name(eff_item["name"]) == "none":
                 continue
@@ -2532,52 +2532,30 @@ class _DeclarationsMixin:
                             )
                         declared_writes.add(t_ident)
                 else:
+                    path = self._dotted_member_path(eff_val)
+                    if path is None:
+                        raise self.fail("type", "effects calls(...) target must be an identifier", eff_val)
+                    binding = environment.get(path)
+                    if binding is None and path.split(".", 1)[0] not in environment:
+                        binding = self.globals.get(path)
+                    if binding is not None:
+                        if self.whnf(binding.type).kind != "pi":
+                            raise self.fail("type", f"effects calls('{path}') target is not a callable", eff_val)
+                        declared_calls.add(binding.term)
+                        continue
                     if eff_val["kind"] == "member":
                         recv_node = self._unwrap_group(self.node(eff_val["value"]))
+                        receiver = self._dotted_member_path(recv_node)
                         m_name = self.name(eff_val["name"])
-                        if recv_node["kind"] == "name":
-                            r_name = self.name(recv_node["name"])
-                            if r_name in self.records and m_name in self.records[r_name].methods:
-                                declared_calls.add(f"{r_name}.{m_name}")
-                                declared_calls.add(m_name)
+                        if receiver is not None:
+                            record = self.records.get(receiver)
+                            if receiver in environment:
+                                receiver_type, _ = self.spine(self.whnf(environment[receiver].type))
+                                record = self.records_by_type.get(str(receiver_type.value)) if receiver_type.kind == "const" else None
+                            if record is not None and m_name in record.methods:
+                                declared_calls.add(_constant(record.methods[m_name].method_const))
                                 continue
-                            if r_name in environment:
-                                r_head, _ = self.spine(self.whnf(environment[r_name].type))
-                                if (
-                                    r_head.kind == "const"
-                                    and isinstance(r_head.value, str)
-                                    and r_head.value in self.records_by_type
-                                ):
-                                    rinfo = self.records_by_type[r_head.value]
-                                    if m_name in rinfo.methods:
-                                        declared_calls.add(f"{rinfo.name}.{m_name}")
-                                        declared_calls.add(m_name)
-                                        continue
-                            raise self.fail(
-                                "name",
-                                f"unknown callable '{r_name}.{m_name}' in effects calls(...)",
-                                eff_val,
-                            )
-                    if eff_val["kind"] != "name":
-                        raise self.fail("type", "effects calls(...) target must be an identifier", eff_val)
-                    t_ident = self.name(eff_val["name"])
-                    if t_ident in environment:
-                        if self.whnf(environment[t_ident].type).kind != "pi" and t_ident not in self.globals:
-                            raise self.fail(
-                                "type",
-                                f"effects calls('{t_ident}') target is not a callable",
-                                eff_val,
-                            )
-                    elif t_ident in self.globals:
-                        if self.whnf(self.globals[t_ident].type).kind != "pi":
-                            raise self.fail(
-                                "type",
-                                f"effects calls('{t_ident}') target is not a callable",
-                                eff_val,
-                            )
-                    else:
-                        raise self.fail("name", f"unknown callable '{t_ident}' in effects calls(...)", eff_val)
-                    declared_calls.add(t_ident)
+                    raise self.fail("name", f"unknown callable '{path}' in effects calls(...)", eff_val)
         lint_effect_entries(self, eff_clause)
         return declared_reads, declared_writes, declared_calls
 
@@ -3281,7 +3259,7 @@ class _DeclarationsMixin:
                     named_calls = set(declared_effect_calls)
                     if effects_clauses:
                         for i, parameter in enumerate(parameters):
-                            if parameter["name"] and (formal := self.name(parameter["name"])) in named_calls:
+                            if parameter["name"] and (formal := environment[self.name(parameter["name"])].term) in named_calls:
                                 callback_positions.add(i)
                                 named_calls.remove(formal)
                     self.callable_callback_effects[emitted] = callback_positions

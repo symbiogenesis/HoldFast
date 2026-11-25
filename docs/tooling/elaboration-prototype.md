@@ -166,11 +166,13 @@ and supports the following features.
   uses the same conservative accounting for borrowed reads as an explicit
   bound. A closed write bound preserves the caller's current value for any
   `ref` argument outside that bound, including calls across an opaque module
-  interface. A transparent mathematical definition
-  records the positions of callbacks it invokes, including forwarding through
-  another definition. A fully applied call can discharge those positions with
-  a named function checked to have empty effects, or with a capture-free
-  lambda over its parameters, literals and built-in operators. An explicit
+  interface. Named `calls` entries carry the identity of the resolved
+  declaration or parameter through imports and aliases. A transparent
+  mathematical definition records the positions of callbacks it invokes,
+  including forwarding through another definition. A fully applied call can
+  discharge those positions with a named function checked to have empty
+  effects, or with a capture-free lambda over its parameters, literals and
+  built-in operators. An explicit
   caller bound can name the actual callback parameter. Naming a higher-order
   helper also requires accounting for each callback supplied to it. Unresolved
   indirect calls, record or interface dispatch, and invocation of a returned
