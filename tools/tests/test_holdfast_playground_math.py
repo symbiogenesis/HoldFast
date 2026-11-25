@@ -13,6 +13,7 @@ from typing import cast
 from unittest.mock import patch
 
 from tests.harness import Case, ensure
+from tests.test_holdfast_inline_witnesses import _replay_witnesses
 from tests.test_holdfast_playground import _http, _native_running, _post, _running
 from toolchain import (
     HoldFastError,
@@ -1178,6 +1179,8 @@ globalThis.setTimeout = (callback, delay, ...args) => {
   return nodeTimeout(callback, delay, ...args);
 };
 const currentHole = "module Hole; definition Nat Val() => ?value;";
+const consumedBound = "module Bound; public Nat Small(Nat n) { if (n <= 4) { assert n < 5; } return n; }";
+const changedBound = consumedBound.replace("n <= 4", "n <= 5");
 globalThis.fetch = async (path, options) => {
   const body = JSON.parse(options.body);
   let data;
@@ -1194,6 +1197,11 @@ globalThis.fetch = async (path, options) => {
       error: { kind: "open-goals", line: 1, column: 38, message: "Provide a term" },
       goals: [{ name: "?value", status: "unresolved", expected: "Nat", context: "Empty local context",
         line: 1, column: 38 }] };
+  } else if (path === "/api/compile" && body.source === changedBound) {
+    data = { ok: false, sourceHash: await mod.sha256Hex(body.source), editorServices: false,
+      error: { kind: "limit", line: 1, column: changedBound.indexOf("assert") + 1,
+        message: "Proof search limit reached" },
+      assertionGoal: { status: "unresolved", expected: "Eq(bool, <(n, 5), true)", context: "branch fact <=(n, 5)" } };
   } else {
     data = await mod.browserApi(path, body);
   }
@@ -1219,6 +1227,19 @@ await compileButton.dispatchEvent("click");
 releaseCompile();
 await old.finished;
 if (!markers.length || !elementsById.get("download-output").disabled) throw new Error("Late result survived bound edit");
+mockModel.setValue(consumedBound);
+const beforePremiseEdit = await pendingCompile();
+mockModel.setValue(changedBound);
+await compileButton.dispatchEvent("click");
+releaseCompile();
+await beforePremiseEdit.finished;
+const assertionStart = changedBound.indexOf("assert") + 1;
+if (markers.length !== 1 || markers[0].startColumn !== assertionStart || markers[0].endColumn !== assertionStart + 6 ||
+    !markers[0].message.includes("Assertion (unresolved): Eq(bool, <(n, 5), true)") ||
+    !markers[0].message.includes("branch fact <=(n, 5)") || !markers[0].message.includes("Proof search limit reached") ||
+    !elementsById.get("download-output").disabled || elementsById.get("gallina-output").textContent.includes("stale success")) {
+  throw new Error("A changed premise lost its current unresolved assertion or restored the previous proof");
+}
 mockModel.setValue(currentHole);
 await compileButton.dispatchEvent("click");
 if (markers.length !== 1 || !markers[0].message.includes("?value (unresolved): Nat") ||
@@ -1338,6 +1359,83 @@ def _native_goal_diagnostics() -> None:
                f"repair retained stale diagnostics: {reply.get('error')}")
 
 
+def _native_pending_assertion() -> None:
+    count = 9
+    parameters = ", ".join(f"Nat n{index}" for index in range(count + 1))
+    lines = ["module Search;", f"public Nat SearchBound({parameters}, "
+             "Fn(Nat n) -> type[Eq<bool>(n0 <= n9, true)] supplied) {"]
+    lines.extend("    " * (index + 1) + f"if (n{index} <= n{index + 1}) {{" for index in range(count))
+    assertion = "assert n0 <= n9;"
+    explicit = "assert n0 <= n9 by supplied(n9);"
+    lines.append("    " * (count + 1) + assertion)
+    lines.extend("    " * (index + 1) + "}" for index in reversed(range(count)))
+    lines.extend(("    return n0;", "}", ""))
+    exhausted = "\r\n".join(lines)
+    sufficient = exhausted.replace("n0 <= n1)", "n0 <= n8)")
+    changed = sufficient.replace("n8 <= n9)", "n9 <= n8)")
+    repaired = exhausted.replace(assertion, explicit)
+
+    with _native_running() as server:
+        accepted = _post(server, "/api/compile", {"source": sufficient})
+        ensure(accepted["ok"] is True and "assertionGoal" not in accepted,
+               f"the shorter search failed: {accepted.get('error')}")
+        for source, kind, detail, fact in (
+            (changed, "type", "could not be established", "<=(n9, n8)"),
+            (exhausted, "limit", "exhausted 256 Nat bound joins", "<=(n8, n9)"),
+        ):
+            refusal = _post(server, "/api/compile", {"source": source})
+            error = cast("dict[str, object]", refusal.get("error"))
+            goal = cast("dict[str, object]", refusal.get("assertionGoal"))
+            ensure(refusal["ok"] is False and "gallina" not in refusal
+                   and refusal["sourceHash"] == hashlib.sha256(source.encode()).hexdigest()
+                   and error is not None and (error["kind"], error["line"], error["column"]) == (kind, 12, 41)
+                   and detail in str(error["message"]) and goal is not None
+                   and goal["status"] == "unresolved" and goal["expected"] == "Eq(bool, <=(n0, n9), true)"
+                   and f"branch fact {fact}, " in str(goal["context"]),
+                   f"the pending assertion lost its proposition, premise, or reason: {refusal}")
+        mixed = _post(server, "/api/compile", {"source": exhausted + "definition Nat Missing() => ?value;\r\n"})
+        ensure(mixed.get("assertionGoal") == refusal["assertionGoal"] and mixed.get("goals") == [{
+            "name": "?value", "line": 24, "column": 29, "status": "limit", "expected": None,
+            "context": "Checking did not reach this site",
+        }], f"the first pending assertion disappeared when a named hole followed it: {mixed}")
+        fixed = _post(server, "/api/compile", {"source": repaired})
+        ensure(fixed["ok"] is True and "assertionGoal" not in fixed,
+               f"explicit proof under the same limit failed: {fixed.get('error')}")
+
+    _replay_witnesses("Search", sufficient.encode(), cast("str", accepted["gallina"]), ((
+        "automatic", assertion.encode(),
+        "forall n0 n8 n9, Nat.leb n0 n8 = true -> Nat.leb n8 n9 = true -> Nat.leb n0 n9 = true",
+    ),))
+    _replay_witnesses("Search", repaired.encode(), cast("str", fixed["gallina"]), ((
+        "manual", explicit.encode(), "forall n0 n9, (nat -> Nat.leb n0 n9 = true) -> Nat.leb n0 n9 = true",
+    ),))
+
+
+def _assertion_reply_refusals() -> None:
+    source = "module D; public Nat N(Nat n) { assert n < 1; return n; }"
+    start = source.index("assert") + 1
+    error = {"kind": "limit", "message": "Proof search limit reached", "line": 1, "column": start}
+    goal = {"status": "unresolved", "expected": "Eq(bool, <(n, 1), true)", "context": "Context: n: Nat"}
+    reply: dict[str, object] = {"ok": False, "sourceHash": hashlib.sha256(source.encode()).hexdigest(),
+                                "editorServices": False, "error": error, "assertionGoal": goal}
+    invalid_replies: tuple[dict[str, object], ...] = (
+        {**reply, "assertionGoal": {**goal, "status": "checked"}},
+        {**reply, "assertionGoal": {**goal, "expected": ""}},
+        {**reply, "assertionGoal": {**goal, "context": "x" * 65_537}},
+        {**reply, "error": {**error, "kind": "unsupported"}},
+        {**reply, "error": {**error, "column": start + 1}},
+        {**reply, "error": {**error, "line": 2}},
+        {**reply, "editorServices": True},
+    )
+    with _running() as server:
+        with patch.object(playground.subprocess, "run", return_value=_process(reply)):
+            ensure(_post(server, "/api/compile", {"source": source}) == reply, "a valid assertion goal was lost")
+        for invalid in invalid_replies:
+            with patch.object(playground.subprocess, "run", return_value=_process(invalid)):
+                result = _post(server, "/api/compile", {"source": source})
+            ensure(result["ok"] is False and "assertionGoal" not in result, "unbound assertion goal reached the browser")
+
+
 def _goal_reply_refusals() -> None:
     source = "module D; definition Nat N() => ?item;"
     digest = hashlib.sha256(source.encode()).hexdigest()
@@ -1373,6 +1471,9 @@ def cases() -> list[Case]:
             Case("mathematical-worker-source-type-and-schema-refusals-with-recovery", _worker_reply_binding),
             Case("mathematical-changed-parser-identity-refuses-before-worker", _changed_parser_refuses),
             Case("native-http-named-goals-bound-edit-and-repair", _native_goal_diagnostics, lane="toolchain"),
+            Case("native-http-pending-assertion-budget-context-and-replay", _native_pending_assertion,
+                 lane="toolchain"),
+            Case("malformed-pending-assertions", _assertion_reply_refusals),
             Case("malformed-goals-and-stale-frontend-dependency", _goal_reply_refusals),
             Case("mathematical-worker-reuses-elaborator-and-preserves-refusals", _worker_mathematical_routing),
             Case("full-language-compilation-and-evaluation-in-ordinary-modules", _full_language_in_ordinary_modules),

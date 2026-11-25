@@ -17,7 +17,7 @@ from toolchain import (
     mathematical as holdfast_mathematical,
 )
 from toolchain.authoring import OPT_IN_MATHEMATICAL_LINTS, lint_source, preview_bindings
-from toolchain.elaborate_holes import OpenGoalsError
+from toolchain.elaborate_holes import AssertionGoalError, OpenGoalsError
 from toolchain.hashing import file_sha256
 from toolchain.protocol_json import MAX_BODY_BYTES, decode_message, encode_body
 
@@ -73,6 +73,12 @@ def compile_request(request: dict[str, object], *, mathematical_parser: Path) ->
                 response["error"] = {"kind": primary.kind if primary else "open-goals",
                                      "message": primary.message if primary else "Provide a term at each named hole",
                                      "line": error.line, "column": error.column}
+                if isinstance(primary, AssertionGoalError):
+                    response["assertionGoal"] = asdict(primary.goal)
+                response["editorServices"] = False
+                return response
+            if isinstance(error, AssertionGoalError):
+                response["assertionGoal"] = asdict(error.goal)
                 response["editorServices"] = False
                 return response
             editor = _editor_translation(source)

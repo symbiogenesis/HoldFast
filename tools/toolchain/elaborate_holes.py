@@ -14,6 +14,7 @@ MAX_HOLES = 128
 MAX_GOAL_BYTES = 65_536
 _UNREACHED = "Checking did not reach this site"
 _EMPTY = "Empty local context"
+_CONTEXT_LIMIT = "Local context exceeds the diagnostic budget"
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,19 @@ class HoleGoal:
     def describe(self) -> str:
         goal = f"expected {self.expected}" if self.expected is not None else "expected type unavailable"
         return f"{self.name} {self.status} at {self.line}:{self.column}, {goal}. {self.context}"
+
+
+@dataclass(frozen=True)
+class AssertionGoal:
+    expected: str
+    context: str
+    status: str = "unresolved"
+
+
+class AssertionGoalError(HoldFastError):
+    def __init__(self, failure: HoldFastError, goal: AssertionGoal) -> None:
+        super().__init__(failure.kind, failure.line, failure.column, failure.message)
+        self.goal = goal
 
 
 class OpenGoalsError(HoldFastError):
@@ -90,14 +104,30 @@ class HoleInspection:
                 *, facts: tuple[_Binding, ...] = ()) -> _Binding:
         checker = self.elaborator
         start, end = cast("list[int]", node["span"])
-        names = {cast("int", binding.term.value): name for name, binding in environment.items()
-                 if binding.term.kind == "var"}
+        names = self._names(environment)
         chunks: list[str] = []
         domain = checker.resolve(expected) if expected is not None else checker.meta(_SORT, environment)
         if domain.kind != "meta":
             self._term(chunks, domain, names)
         goal = "".join(chunks) or None
-        chunks.clear()
+        self.observations[start] = (goal, self._context(environment, facts, names))
+        if domain.kind == "meta":
+            index = cast("int", domain.value)
+            self.pending_types[start] = (index, checker.metas[index], names)
+        else:
+            self.pending_types.pop(start, None)
+        variable = checker.fresh(domain)
+        self.placeholders[cast("int", variable.value)] = checker.protocol.source[start:end].decode("ascii")
+        return _Binding(variable, domain)
+
+    @staticmethod
+    def _names(environment: dict[str, _Binding]) -> dict[int, str]:
+        return {cast("int", binding.term.value): name for name, binding in environment.items()
+                if binding.term.kind == "var"}
+
+    def _context(self, environment: dict[str, _Binding], facts: tuple[_Binding, ...], names: dict[int, str]) -> str:
+        checker = self.elaborator
+        chunks: list[str] = []
 
         def entry(label: str, value: _Term | None = None) -> None:
             self._write(chunks, ", " if chunks else "Context: ")
@@ -122,16 +152,22 @@ class HoleInspection:
             entry(f"{name}: awaiting initialization")
         if checker.current_return_type is not None:
             entry("return ", checker.current_return_type)
-        context = "".join(chunks) or _EMPTY
-        self.observations[start] = (goal, context)
-        if domain.kind == "meta":
-            index = cast("int", domain.value)
-            self.pending_types[start] = (index, checker.metas[index], names)
-        else:
-            self.pending_types.pop(start, None)
-        variable = checker.fresh(domain)
-        self.placeholders[cast("int", variable.value)] = checker.protocol.source[start:end].decode("ascii")
-        return _Binding(variable, domain)
+        return "".join(chunks) or _EMPTY
+
+    def assertion_error(self, failure: HoldFastError, expected: _Term, environment: dict[str, _Binding],
+                        facts: tuple[_Binding, ...]) -> HoldFastError:
+        self.remaining -= len(_CONTEXT_LIMIT)
+        names = self._names(environment)
+        chunks: list[str] = []
+        try:
+            self._term(chunks, expected, names)
+        except HoldFastError:
+            return failure
+        try:
+            context = self._context(environment, facts, names)
+        except HoldFastError:
+            context = _CONTEXT_LIMIT
+        return AssertionGoalError(failure, AssertionGoal("".join(chunks), context))
 
     def _resolved_types(self) -> None:
         checker = self.elaborator

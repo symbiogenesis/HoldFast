@@ -80,6 +80,8 @@ def _validate_result(response: dict[str, object], request: dict[str, object], di
             _validate_goals(response["goals"], cast("str", request["source"]))
             kinds.add("open-goals")
             fields.add("goals")
+        if "assertionGoal" in response and compilation and response["editorServices"] is False:
+            fields.add("assertionGoal")
         if (set(response) != fields or not isinstance(error, dict)
                 or set(error) != {"kind", "message", "line", "column"}
                 or not isinstance(error["kind"], str)
@@ -88,6 +90,25 @@ def _validate_result(response: dict[str, object], request: dict[str, object], di
                 or type(error["line"]) is not int or type(error["column"]) is not int
                 or error["line"] < 1 or error["column"] < 1):
             raise ValueError("compiler worker returned an invalid refusal")
+        if "assertionGoal" in fields:
+            _validate_assertion_goal(response["assertionGoal"], error, cast("str", request["source"]))
+
+
+def _validate_assertion_goal(goal: object, error: dict[str, object], source: str) -> None:
+    if (not isinstance(goal, dict) or set(goal) != {"status", "expected", "context"}
+            or goal["status"] != "unresolved" or error["kind"] not in {"type", "limit"}
+            or not isinstance(goal["expected"], str) or not goal["expected"]
+            or not isinstance(goal["context"], str) or not goal["context"]
+            or len(goal["expected"].encode()) + len(goal["context"].encode()) > MAX_GOAL_BYTES):
+        raise ValueError("invalid pending assertion diagnostic")
+    lines = source.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    line, column = cast("int", error["line"]), cast("int", error["column"])
+    if not 1 <= line <= len(lines):
+        raise ValueError("invalid pending assertion location")
+    text = lines[line - 1]
+    if (re.match(r"assert(?![A-Za-z_0-9])", text[column - 1:]) is None
+            or (column > 1 and re.fullmatch(r"[A-Za-z_0-9]", text[column - 2]))):
+        raise ValueError("pending assertion diagnostic differs from source")
 
 
 def _validate_goals(goals: object, source: str) -> None:
