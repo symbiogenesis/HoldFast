@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Bounded equational reasoning, congruence closure, and proof-block elaboration for HoldFast."""
 
+from collections import deque
 from typing import TYPE_CHECKING, cast
 
 from toolchain.ast import HoldFastError
@@ -28,6 +29,9 @@ from toolchain.elaborate_types import (
 
 if TYPE_CHECKING:
     from toolchain.elaborate import _Elaborator
+
+
+_MAX_NAT_BOUND_JOINS = 256
 
 
 class _ProofsMixin:
@@ -1908,7 +1912,9 @@ class _ProofsMixin:
             return _Binding(_apps(_constant("Refl"), _BOOL, _term("bool", value=1)), goal)
         return None
 
-    def _inline_nat_bound(self: _Elaborator, goal: _Term, facts: tuple[_Binding, ...]) -> _Term | None:
+    def _inline_nat_bound(
+        self: _Elaborator, goal: _Term, facts: tuple[_Binding, ...], node: Node,
+    ) -> _Term | None:
         def comparison(prop: _Term) -> tuple[_Term, _Term, bool, bool] | None:
             equality = self._extract_equality(prop)
             if equality is not None and equality[0] == _BOOL and equality[2].kind == "bool":
@@ -1928,12 +1934,23 @@ class _ProofsMixin:
                 return _app(_constant("holdfast_nat_leb_succ_self"), left)
             return None
 
+        def finish(end: _Term, witness: _Term) -> _Term | None:
+            if self.convertible(end, upper):
+                return witness
+            suffix = compare(end, upper)
+            if suffix is not None:
+                return _apps(trans, lower, end, upper, witness, suffix)
+            return None
+
         target = comparison(goal)
         if target is None or not target[3]:
             return None
         lower, upper, strict, _ = target
         if strict:
             lower = _app(_constant("Succ"), lower)
+        trans = _constant("holdfast_nat_leb_trans")
+        edges: list[tuple[_Term, _Term, _Term]] = []
+        reachable: dict[_Term, _Term] = {}
         for fact in self._expand_fact_bindings(facts):
             source = comparison(fact.type)
             if source is None:
@@ -1953,18 +1970,45 @@ class _ProofsMixin:
             if smaller_start is not None and smaller_end is not None:
                 forms.append((smaller_start, smaller_end))
             for left, right in forms:
-                result = witness
-                if not self.convertible(lower, left):
-                    weaker_lower = compare(lower, left)
-                    if weaker_lower is None:
-                        continue
-                    result = _apps(_constant("holdfast_nat_leb_trans"), lower, left, right, weaker_lower, result)
-                if not self.convertible(right, upper):
-                    weaker_upper = compare(right, upper)
-                    if weaker_upper is None:
-                        continue
-                    result = _apps(_constant("holdfast_nat_leb_trans"), lower, right, upper, result, weaker_upper)
-                return result
+                edges.append((left, right, witness))
+                if self.convertible(lower, left):
+                    result = witness
+                elif (prefix := compare(lower, left)) is not None:
+                    result = _apps(trans, lower, left, right, prefix, witness)
+                else:
+                    continue
+                if (proof := finish(right, result)) is not None:
+                    return proof
+                reachable.setdefault(right, result)
+
+        # Single-premise proofs retain their ordinary elaboration budget. Bound the
+        # additional comparisons used to connect multiple in-scope premises.
+        pending = deque(reachable)
+        joins = 0
+        while pending:
+            middle = pending.popleft()
+            for left, right, witness in edges:
+                joins += 1
+                if joins > _MAX_NAT_BOUND_JOINS:
+                    start, end = cast("list[int]", self.node(node["value"])["span"])
+                    proposition = self.protocol.source[start:end].decode("utf-8")
+                    raise self.fail(
+                        "limit", f"assertion proof search exhausted {_MAX_NAT_BOUND_JOINS} Nat bound joins: "
+                        f"{proposition}; supply an explicit proof with 'by'", node,
+                    )
+                if right in reachable:
+                    continue
+                if self.convertible(middle, left):
+                    result = _apps(trans, lower, middle, right, reachable[middle], witness)
+                elif (bridge := compare(middle, left)) is not None:
+                    suffix = _apps(trans, middle, left, right, bridge, witness)
+                    result = _apps(trans, lower, middle, right, reachable[middle], suffix)
+                else:
+                    continue
+                if (proof := finish(right, result)) is not None:
+                    return proof
+                reachable[right] = result
+                pending.append(right)
         return None
 
     def _elaborate_assert(
@@ -2010,7 +2054,7 @@ class _ProofsMixin:
             except HoldFastError as failure:
                 self.restore_metas(saved_prove_m)
                 if self.in_inline_proof and failure.kind == "type":
-                    if witness := self._inline_nat_bound(goal, (*facts, *environment.values())):
+                    if witness := self._inline_nat_bound(goal, (*facts, *environment.values()), node):
                         return _Binding(witness, goal)
                     start, end = cast("list[int]", self.node(node["value"])["span"])
                     proposition = self.protocol.source[start:end].decode("utf-8")

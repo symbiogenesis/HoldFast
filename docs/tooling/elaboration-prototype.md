@@ -501,11 +501,14 @@ justification block, emits a separate Gallina definition indexed by its source
 byte span. Its type exposes the values and local proofs on which the
 assertion depends. The assumption audit includes that definition even when
 the next instruction does not use it. The natural-number bound checker can
-weaken a single comparison from a local proof or an ordinary executable
-`if` guard. It uses the exact Boolean value of that guard on the selected arm.
-For example, `if (n < 5)` supplies the premise for `n <= 4` on its true arm
-and `n > 3` on its false arm. If proof reconstruction cannot establish an
-inline assertion, the diagnostic names the outstanding assertion at its source
+weaken a comparison from a local proof or an ordinary executable `if` guard.
+It uses the exact Boolean value of that guard on the selected arm. For
+example, `if (n < 5)` supplies the premise for `n <= 4` on its true arm and
+`n > 3` on its false arm. It can also join in-scope comparisons by
+transitivity. Given `n < m` and a false `k < m` guard, it can prove
+`n < k`. The additional search examines at most 256 candidate joins per
+assertion. If checking cannot establish an assertion or exhausts this
+allowance, the diagnostic reports the outstanding proposition at its source
 site. An explicit proof supplied with `by` can establish it.
 
 Independent focused host tests exercise fresh polymorphic instantiations,
