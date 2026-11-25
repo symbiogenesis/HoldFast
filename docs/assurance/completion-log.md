@@ -1607,6 +1607,17 @@ matched the retained receipt, then refused the successful
 substituted for deployed view evidence and named `returned_view_authority` in
 the diagnostic. [Receipt control](../../tools/tests/test_holdfast_first_slice_receipts.py)
 
+The local read of VerifiedOS revision `e1a50804e5d487500d44bc4e8484adeead307e5c`
+matched all 13 files in `q35-holdfast-canonical-20261124` and
+`q35o-holdfast-main-20261125` under the producer's retained evidence directory
+against the manifests' byte lengths and SHA-256 digests. This covers stored and
+decoded compressed bytes. The reports bind the same candidate generation receipt.
+The private-support build records a 5,207,215-byte `rv64d.vo` and the recursive
+kernel context matches the 31 classified axiom names. The two main readings
+record the same digest across 3,533 declarations. These checks read retained
+producer records. The Q35 owners still owe replay with qualified production
+support and the assumption decision. [Current prerequisite status](../../PLAN.md#current-execution)
+
 Q25ar remains open for external independently checked producer receipts and its
 complete declared coverage. Canonical-machine interpretation, compiler,
 contextual-security and exact-artifact evidence retain their named owners. No

@@ -995,10 +995,14 @@ def build_foundation_inventory() -> dict[str, object]:
         "missing_deployed_evidence": _unqualified_deployed_claims(),
         "blocking_dependencies": {
             "Q35b / Q35o / Q35p": (
-                "Canonical Sail machine term rv64d.v refuses Rocq 9.3.0 compilation at "
-                "__WriteRAM_Meta / write_tag_bool (Prompt_monad.monad bool ?E0 vs outcome M unit; "
-                "docs/assurance/canonical-machine-term.md#9-the-whole-term-compile-refusal) and "
-                "rocq-sail-stdpp is not carried in the shared proof switch (F-778)."
+                "VerifiedOS reports a strict Rocq 9.3.0 whole-term build and kernel assumption audit of "
+                "canonical rv64d.v with private tag-outcome support. Q35o immutable emitter qualification, "
+                "Q35p semantic binding qualification and Q35b replay with qualified support remain open. "
+                "The decision on the 31 floating-point axioms remains open (F-480, R-05-164)."
+            ),
+            "Q35n / Q35q": (
+                "The native Sail support census and cold production support carriage in the shared proof "
+                "switch remain open (F-778)."
             ),
             "Q35c / Q35m / Q35k / Q35l": (
                 "Machine-logic dependency chain (Islaris / Lithium / Katamaran) reached its bounded "
@@ -1016,7 +1020,9 @@ def build_foundation_inventory() -> dict[str, object]:
             ),
         },
         "unrun_or_pending_checks": [
-            "Whole-term rv64d.v Rocq 9.3.0 compilation and Q35l byte-instance refinement proof over rv64d.v (blocked by Q35o / Q35p / Q35m)",
+            "Whole-term rv64d.v strict replay and assumption closure with qualified production support "
+            "(Q35b / Q35n / Q35o / Q35p / Q35q)",
+            "Q35l byte-instance refinement proof over rv64d.v (blocked by Q35b / Q35k / Q35m)",
             "Mechanized Sail-to-Clight/CompCert refinement theorem for first_slice.c (owned by Q35d / M1.2g)",
             "User-managed Host CI and Guest CI runs (deferred to user handoff)",
         ],
@@ -2531,7 +2537,9 @@ def qualify(root: Path, *, ccomp_path: Path | None = None, trace_phases: bool = 
             "source_correspondence": False,
             "artifact_accepted": False,
             "production_admission": False,
-            "remaining_chain_owners": ["Q35o", "Q35p", "Q35k", "Q35l", "Q35d", "M1.2g"],
+            "remaining_chain_owners": [
+                "Q35b", "Q35o", "Q35p", "Q35n", "Q35q", "Q35k", "Q35l", "Q35d", "M1.2g",
+            ],
             "inventory": build_foundation_inventory(),
         }
         publish_report(directory / "attempt.json", attempt)

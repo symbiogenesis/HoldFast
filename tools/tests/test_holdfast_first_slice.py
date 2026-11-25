@@ -517,8 +517,14 @@ def _clight_lowering_and_purecap_assembly() -> None:
     )
     ensure(len(cast("list[str]", inv["scenario_theorems"])) == 7, "expected 7 scenario theorems in foundation inventory")
     blocking = cast("dict[str, str]", inv["blocking_dependencies"])
-    for key in ("Q35b / Q35o / Q35p", "Q35c / Q35m / Q35k / Q35l", "Q2b", "Q35d / M1.2g / Q35j"):
+    for key in ("Q35b / Q35o / Q35p", "Q35n / Q35q", "Q35c / Q35m / Q35k / Q35l", "Q2b", "Q35d / M1.2g / Q35j"):
         ensure(key in blocking, f"missing blocking dependency {key} in foundation inventory")
+    machine = blocking["Q35b / Q35o / Q35p"]
+    ensure("private tag-outcome support" in machine and "F-480" in machine,
+           "foundation inventory omitted the candidate replay's assumption boundary")
+    pending = cast("list[str]", inv["unrun_or_pending_checks"])
+    ensure(any("rv64d.v" in check and "qualified production support" in check for check in pending),
+           "foundation inventory omitted the canonical machine replay on qualified support")
 
     incomplete_ast = {"schema": 2, "source_sha256": hashlib.sha256(source).hexdigest(),
                       "ast": {"kind": "surface_file", "declarations": []}}

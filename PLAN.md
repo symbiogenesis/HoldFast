@@ -6,13 +6,20 @@
 Its source proofs already cover byte values and the returned view with zero
 solver-trusted obligations. [Authored validator](examples/first_slice.hf) · [Artifact acceptance](#q25ba)
 
-Start with the `machine-logic` owner. Check whether it can supply the canonical
-Sail term (`rv64d.v`) and Q35 compatibility evidence for [Q25am](#q25am).
-At [VerifiedOS revision fd6e2ba3](https://github.com/symbiogenesis/VerifiedOS/blob/fd6e2ba3fd862bc3c6baba08bcc772dbf3507ccd/docs/assurance/sail-rocq-emission.md#remaining-acceptance),
-the emitted-caller bridge covers bounded tag outcomes. Resume the machine
-interpretation when `machine-logic` has canonical-main replay on the selected
-bindings, the strict whole-term build and assumption report, and qualified
-support carriage. [Q35p binding acceptance](https://github.com/symbiogenesis/VerifiedOS/blob/fd6e2ba3fd862bc3c6baba08bcc772dbf3507ccd/docs/assurance/sail-memory-bindings.md#bound-and-remaining-acceptance)
+The local VerifiedOS producer records at
+`e1a50804e5d487500d44bc4e8484adeead307e5c` report a strict Rocq 9.3.0 replay
+of the canonical hart-0 Sail term (`rv64d.v`) with private tag-outcome support.
+The recursive kernel context matches the 31 classified floating-point axioms,
+and the stock and patched emissions have identical readings for all 3,533
+main-module declarations on that support. [Producer record check](docs/assurance/completion-log.md#q25ar-integrate-and-recheck-prerequisite-producer-receipts)
+
+Resume [Q25am](#q25am) when `machine-logic` supplies Q35p binding qualification,
+Q35o immutable emitter qualification, Q35n and Q35q production support, and
+Q35b's whole-term replay and assumption closure on that support. The decision
+on the 31 floating-point axioms remains open under F-480 (R-05-164).
+[Q35 emission requirements](https://github.com/symbiogenesis/VerifiedOS/blob/fd6e2ba3fd862bc3c6baba08bcc772dbf3507ccd/docs/assurance/sail-rocq-emission.md#remaining-acceptance) ·
+[Q35p binding requirements](https://github.com/symbiogenesis/VerifiedOS/blob/fd6e2ba3fd862bc3c6baba08bcc772dbf3507ccd/docs/assurance/sail-memory-bindings.md#bound-and-remaining-acceptance)
+
 The retained `holdfast-parser first-slice` result names the blocking producers in
 `inventory.blocking_dependencies`. [First-slice qualification](docs/language/first-release.md#first-slice-qualification)
 
