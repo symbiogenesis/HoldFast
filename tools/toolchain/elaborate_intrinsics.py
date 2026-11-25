@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, cast
 
 from toolchain import loans
 from toolchain.ast import HoldFastError
+from toolchain.elaborate_flow_lints import checked_operation, report, short_circuit
 from toolchain.elaborate_types import (
     _BOOL,
     _CHAR,
@@ -1294,6 +1295,7 @@ class _IntrinsicsMixin:
             return self._check_guard_value(guarded, environment, _BOOL)
         if operator in {"&&", "||", "==>", "<==>"}:
             left_b = _Binding(self.check(left_node, _BOOL, environment), _BOOL)
+            short_circuit(self, right_node, operator, left_b.term, environment)
             if operator in {"&&", "||", "==>"}:
                 self.active_facts.append(self._negate_bool_term(left_b.term) if operator == "||" else left_b.term)
                 try:
@@ -1325,6 +1327,10 @@ class _IntrinsicsMixin:
         if operator in {"==", "!="}:
             self.unify(left.type, right.type)
             operand_type = self.whnf(left.type)
+            if operand_type == _BOOL and any(self._unwrap_group(operand)["kind"] == "bool"
+                                             for operand in (left_node, right_node)):
+                report(self, "HOLDFAST103", cast("Node", node["operator"]),
+                       "Boolean literal comparison is redundant; prefer direct Boolean logic")
             int_spec = self._int_spec(operand_type)
             if int_spec is not None:
                 op_name = f"int_{'eq' if operator == '==' else 'ne'}_{int_spec.name}"
@@ -2110,6 +2116,8 @@ class _IntrinsicsMixin:
         if spec is None or (expected_spec is not None and spec.name != expected_spec.name):
             raise self.fail("type", f"'{name}' requires fixed-width integer operands", node)
         ret_type = _apps(res_const, spec.const, ae_const) if is_checked else spec.const
+        if name == "CheckedAdd":
+            checked_operation(self, node, environment, ((lhs_b.term, spec), (rhs_b.term, spec)), spec, name)
         return _Binding(
             _apps(_constant(f"int_{binary_ops[name]}_{spec.name}"), lhs_b.term, rhs_b.term), ret_type
         )
@@ -2450,11 +2458,15 @@ class _IntrinsicsMixin:
                             ce_const = _constant("holdfast_ConversionError")
                             ret_type = _apps(res_const, dst_spec.const, ce_const)
                             if src_spec is not None:
+                                checked_operation(self, node, environment, ((src_b.term, src_spec),),
+                                                  dst_spec, "TryFrom")
                                 return _Binding(
                                     _app(_constant(f"int_try_from_{src_spec.name}_{dst_spec.name}"), src_b.term),
                                     ret_type,
                                 )
                             if self.whnf(src_b.type) == _NAT:
+                                checked_operation(self, node, environment, ((src_b.term, None),),
+                                                  dst_spec, "TryFrom")
                                 return _Binding(
                                     _app(_constant(f"int_try_from_Nat_{dst_spec.name}"), src_b.term),
                                     ret_type,

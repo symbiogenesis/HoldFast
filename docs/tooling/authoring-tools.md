@@ -112,12 +112,12 @@ server never rewrite files.
 
 ## Lint policy
 
-Lints have stable HoldFast IDs, locations and explicit messages. Default advisory
-warnings cover member/binding naming, missing public documentation and redundant
-Boolean-literal comparisons. Only compiler-supported syntax or resolved facts
-justify a finding; no heuristic borrow, effect, termination or proof verdict is
-invented. Emit no semantic/style finding for a source that failed complete checking.
-Lints never rewrite code automatically.
+Lints have stable HoldFast IDs, locations and explicit messages. The mathematical
+checker reports redundant contracts and proof steps, impossible guards, and
+unnecessary effects and loan modes where its checked facts establish the finding.
+The pure checker reports its own naming, documentation and Boolean comparison
+rules. Findings require complete checking of the source. Lints preserve source
+bytes.
 
 The compiler reports these advisory lint IDs.
 
@@ -130,7 +130,32 @@ The compiler reports these advisory lint IDs.
 | `HOLDFAST105` | A generic type parameter name does not use a capital initial and ASCII alphanumeric words |
 | `HOLDFAST107` | An unparenthesized bitwise expression is an operand of a comparison in checked mathematical source |
 | `HOLDFAST108` | An otherwise legal binding pattern differs only in its initial capitalization from a constructor of the scrutinee type. A confusable whole match pattern is a [type error](../language/reference.md#lexical-structure). |
-| `HOLDFAST109` | An `ensures` conjunct repeats a descriptor guarantee implied by a `ref Span<byte>` or `ref Slots<T, capacity>` parameter |
+| `HOLDFAST109` | A contract repeats or restates a checked descriptor-preservation fact |
+| `HOLDFAST110` | A bare `restores` names a parameter whose descriptor restoration is automatic |
+| `HOLDFAST111` | An `old` selects a snapshot of a stable value |
+| `HOLDFAST112` | A clause repeats a fact supplied by its checked type, invariant or library law |
+| `HOLDFAST113` | A contract conjunct repeats the same resolved fact |
+| `HOLDFAST114` | A stronger requirement or guarantee already implies this fact |
+| `HOLDFAST115` | A contract expression is tautological or repeats a fact across exhaustive outcomes |
+| `HOLDFAST116` | Entry conditions are contradictory, or a guard or quantified range makes its guarantee vacuous |
+| `HOLDFAST117` | An implementation clause repeats its checked inherited contract |
+| `HOLDFAST118` | An effect entry is duplicated or adds nothing to the effect set |
+| `HOLDFAST119` | A private declaration has an unused effect allowance |
+| `HOLDFAST120` | A postcondition repeats a frame fact supplied by the callable's checked loan and effect boundary |
+| `HOLDFAST121` | A lifted invariant stays established across the checked scope |
+| `HOLDFAST122` | A shared loan suffices at this borrow, private parameter or iteration |
+| `HOLDFAST123` | An initialization-only private scalar parameter can use `out` |
+| `HOLDFAST124` | An immutable binding suffices at this `var` |
+| `HOLDFAST125` | Checked path facts make a branch, short-circuit operand or loop body unreachable |
+| `HOLDFAST126` | A verdict match reconstructs its scrutinee unchanged |
+| `HOLDFAST127` | Checked arithmetic or conversion always succeeds within its represented bounds |
+| `HOLDFAST128` | An intermediate assertion repeats existing proof evidence |
+| `HOLDFAST129` | A reflexive intermediate step contributes nothing to a calculation |
+| `HOLDFAST130` | A nonrecursive definition declares a termination measure |
+| `HOLDFAST131` | A loop invariant or measure repeats a fact already supplied by its context or range |
+| `HOLDFAST132` | A ghost parameter is unused in the checked declaration |
+| `HOLDFAST133` | Local type or explicit generic arguments can be inferred with equivalent elaboration, opt-in |
+| `HOLDFAST134` | A public declaration allows effects beyond its checked footprint, opt-in |
 
 The mathematical CLI and native playground report `HOLDFAST107` for accepted
 expressions such as `flags & mask == 0u8`. Write `(flags & mask) == 0u8` to
@@ -170,8 +195,10 @@ it can show an expression-local snapshot.
 For example, write `(let count = Written(builder) in Format.Write(ref builder, $"{count:x4}"))`
 to evaluate the count before `Format.Write` borrows the builder.
 
-Repeatable `--allow ID` suppresses optional findings; `--deny ID` makes them
-errors. The same ID cannot be both allowed and denied. Unknown IDs are command
+Repeatable `--allow ID` suppresses optional findings. `--deny ID` enables a
+finding and makes it an error. The mathematical commands accept repeatable
+`--warn ID` to enable opt-in findings as warnings. Combining suppression and
+explicit enablement for the same ID is a command error. Unknown IDs are command
 errors. Defaults and rule identities are compiler-versioned; disabling an optional
 lint cannot waive a language error. Findings go to stderr, keeping emitted Gallina
 on stdout usable. A denied finding prevents any requested formatting and output writes.
@@ -207,12 +234,19 @@ to suppress a rule or `--deny ID` to fail on its findings. The locations identif
 the original source. The [bitwise grouping preview](#lint-policy) consumes the
 reported operator coordinates.
 
-`HOLDFAST109` points to a top-level `ensures` conjunct that equates a preserved descriptor
-property of a `ref Span<byte>` or `ref Slots<T, capacity>` parameter with its entry
-value. It recognizes both `buf.Base == old(buf.Base)` and `buf.Base == old(buf).Base`,
-including reversed operands. A bare `CanRead` or `CanWrite` assertion is also
-redundant when a matching `requires` conjunct establishes that permission at entry.
-[Descriptor preservation](../language/reference.md#contracts)
+`HOLDFAST109` uses checked metadata preservation for `ref Span<byte>` and
+`ref Slots<T, capacity>`. It recognizes `buf.Base == old(buf.Base)` and
+`buf.Base == old(buf).Base`, including reversed operands, preserved entry
+permissions and bounds, and equivalent old and current bounds under scoped
+guards. Loan-mode, effect and type rules apply to the resolved resource or
+declaration at the finding's source site. [Descriptor preservation](../language/reference.md#contracts)
+
+The `HOLDFAST133` check elaborates an omission candidate against the same
+source context. It requires identical emitted terms and matching resolved call
+targets, inferred literal types and integer operations across the edit. Public
+contract and effect findings are advisory by default. An exported bound or
+guarantee can carry compatibility obligations for dependent clients.
+[Public API evolution](../language/first-release.md#public-api-evolution)
 
 ## Checked Boolean comparison previews
 

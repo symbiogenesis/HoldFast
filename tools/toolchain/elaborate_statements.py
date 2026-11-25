@@ -6,7 +6,10 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, cast
 
 from toolchain.ast import HoldFastError
+from toolchain.elaborate_flow_lints import branch as lint_branch
+from toolchain.elaborate_flow_lints import observe, range_loop, stable_loop_fact, while_entry
 from toolchain.elaborate_protocol import _ASSIGN_OPERATORS
+from toolchain.elaborate_resource_lints import lint_extra_lifts
 from toolchain.elaborate_types import (
     _BOOL,
     _INT_SPECS,
@@ -1348,6 +1351,9 @@ class _StatementsMixin:
                     inst_t = self._instantiate_record_type(rinfo, type_args, inv.term)
                     inst_t = self.substitute(inst_t, cast("int", inv.self_var.value), after_env[tname].term)
                     self.active_facts.append(inst_t)
+        if len(loaned_records) == 1:
+            target, record, _ = loaned_records[0]
+            lint_extra_lifts(self, statement, target, record)
         return after_env
 
     def _check_loop_invariants(
@@ -1378,6 +1384,8 @@ class _StatementsMixin:
             else:
                 prop_t = self.proposition(c_val_node, env)
                 self._prove_proposition(prop_t, env, (), contract)
+        if phase == "entry":
+            self._lint_identical_loop_invariants(contracts)
         return proved_bools
 
     def _assume_loop_invariants(
@@ -1386,6 +1394,7 @@ class _StatementsMixin:
         env: dict[str, _Binding],
     ) -> list[_Term]:
         assumed_bools: list[_Term] = []
+        inherited = list(self.active_facts)
         for contract in contracts:
             self.node(contract, "contract")
             if contract["role"] == "decreases":
@@ -1400,6 +1409,7 @@ class _StatementsMixin:
                 for _ in assumed_bools:
                     self.active_facts.pop()
             if self.whnf(c_val.type) == _BOOL:
+                stable_loop_fact(self, contract, c_val.term, inherited)
                 assumed_bools.append(c_val.term)
             else:
                 prop_t = self.proposition(c_val_node, env)
@@ -1535,6 +1545,9 @@ class _StatementsMixin:
                     continue
                 if kind in {"assert", "proof", "calc"}:
                     sub_facts = self._statement_proof_facts(statement, extended, (*facts, *statement_facts))
+                    if kind == "assert" and statement["by"] is None:
+                        observe(self, "HOLDFAST128", statement, "assertion repeats a proof fact already in scope"
+                                if sub_facts[0] in statement_facts else None)
                     statement_facts.extend(sub_facts)
                     self.active_facts.extend(self._fact_bool_terms(sub_facts, extended))
                     continue
@@ -1579,6 +1592,7 @@ class _StatementsMixin:
                         continue
                     condition = self.check(cond_raw, _BOOL, extended)
                     self._consume_call_updates(extended, cond_raw)
+                    lint_branch(self, cond_raw, condition, extended)
                     cond_w = self.whnf(condition)
                     then_node = self.node(statement["then"])
                     then_block = (
@@ -1808,6 +1822,7 @@ class _StatementsMixin:
             entry_env[var_name] = _Binding(start_term, elem_type)
             self._check_loop_invariants(contracts, entry_env, statement, "entry")
             self._eval_loop_decreases(contracts, entry_env)
+            range_loop(self, statement, contracts, extended, start_term, end_term, elem_spec)
             if (
                 start_w.kind in {"nat", "int"}
                 and end_w.kind in {"nat", "int"}
@@ -2222,6 +2237,8 @@ class _StatementsMixin:
             concrete_steps = 0
             for _ in range(64):
                 cond_t = self.check(cond_node, _BOOL, cur_env)
+                if not concrete_steps:
+                    while_entry(self, statement, cond_t, cur_env)
                 cond_w = self.whnf(cond_t)
                 if cond_w.kind != "bool":
                     break
@@ -2505,6 +2522,9 @@ class _StatementsMixin:
                     raise self.fail("type", f"'{kind}' statement is only permitted inside a loop", statement)
                 if kind in {"assert", "proof", "calc"}:
                     step_facts = self._statement_proof_facts(statement, extended, (*active_facts, *statement_facts))
+                    if kind == "assert" and statement["by"] is None and index + 1 < len(statements):
+                        observe(self, "HOLDFAST128", statement, "assertion repeats a proof fact already in scope"
+                                if step_facts[0] in statement_facts else None)
                     statement_facts.extend(step_facts)
                     self.active_facts.extend(self._fact_bool_terms(tuple(step_facts), extended))
                     if index == len(statements) - 1:
@@ -2750,6 +2770,7 @@ class _StatementsMixin:
                         )
                     condition = self.check(cond_raw, _BOOL, extended)
                     self._consume_call_updates(extended, cond_raw)
+                    lint_branch(self, cond_raw, condition, extended)
                     saved_uninit = set(self.uninitialized_out_params)
                     yes_guard = self._branch_guard(condition, True)
                     no_guard = self._branch_guard(condition, False)

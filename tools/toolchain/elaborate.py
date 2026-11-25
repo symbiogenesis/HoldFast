@@ -18,6 +18,7 @@ from typing import cast
 
 from toolchain import StaticEvaluation, gallina_module_name, loans
 from toolchain.ast import MAX_SOURCE_BYTES, HoldFastError, ValueType
+from toolchain.elaborate_contract_lints import _ContractLintsMixin
 from toolchain.elaborate_declarations import _DeclarationsMixin
 from toolchain.elaborate_holes import HoleInspection
 from toolchain.elaborate_intrinsics import _IntrinsicsMixin
@@ -84,7 +85,8 @@ FRONTEND_SOURCES = (
     "hashing.py", "jsonutil.py", "loans.py", "source.py", "trace_runtime.py", "elaborate.py", "elaborate_types.py",
     "elaborate_protocol.py", "elaborate_whnf.py", "elaborate_patterns.py", "elaborate_proofs.py", "elaborate_holes.py",
     "elaborate_statements.py", "elaborate_strings.py", "elaborate_solver.py", "elaborate_intrinsics.py",
-    "elaborate_declarations.py", "package_navigation.py",
+    "elaborate_declarations.py", "elaborate_contract_lints.py", "elaborate_descriptor_lints.py",
+    "elaborate_flow_lints.py", "elaborate_resource_lints.py", "package_navigation.py",
 )
 
 __all__ = [
@@ -116,6 +118,7 @@ class _Elaborator(
     _StringsMixin,
     _SolverMixin,
     _IntrinsicsMixin,
+    _ContractLintsMixin,
     _DeclarationsMixin,
 ):
     def __init__(self, protocol: _Protocol) -> None:
@@ -142,7 +145,9 @@ class _Elaborator(
         self.parameter_names: dict[int, str] = {}
         self.argument_labels: dict[int, str] = {}
         self.constructor_suggestions: dict[int, str] = {}
-        self.redundant_ref_ensures: dict[int, str] = {}
+        self.semantic_lints: dict[tuple[str, int], str] = {}
+        self.flow_lint_observations: dict[tuple[str, int], str | None] = {}
+        self.out_lint_candidates: dict[tuple[int, int], int] = {}
         self.nullary_parameters: set[int] = set()
         self.constant_parameters: set[int] = set()
         self.readonly_span_vars: set[int] = set()
@@ -1545,6 +1550,13 @@ class _Elaborator(
                 mode = ("out" if is_out_param else "ref" if is_ref_param else "in" if is_in_param
                         else "owned" if is_owned_param else None)
                 self._check_argument_mode(mode, arg_mod, node)
+                if self.out_lint_candidates and is_ref_param and callee_head.kind == "const":
+                    # An initialization loan requires a named place at each call.
+                    declaration = self.declaration_sites.get(str(callee_head.value))
+                    target = self._unwrap_group(self.node(arg_val_node["value"]))
+                    if (declaration is not None and target["kind"] != "name"
+                            and (candidate := self.out_lint_candidates.pop((declaration, idx), None)) is not None):
+                        self.semantic_lints.pop(("HOLDFAST123", candidate), None)
                 if mode is None and self.in_executable_function:
                     by_value.append((node, value_type.args[0]))
                 if self.in_executable_function:
@@ -2435,7 +2447,10 @@ def _checked_elaboration(
                                   MappingProxyType(elaborator.call_declarations.copy()),
                                   recursive_declarations=frozenset(elaborator.recursive_declarations),
                                   constructor_suggestions=MappingProxyType(elaborator.constructor_suggestions.copy()),
-                                  redundant_ref_ensures=MappingProxyType(elaborator.redundant_ref_ensures.copy()),
+                                  semantic_lints=MappingProxyType(elaborator.semantic_lints | {
+                                      site: message for site, message in elaborator.flow_lint_observations.items()
+                                      if message is not None
+                                  }),
                                   integer_operations=MappingProxyType(elaborator.integer_operations.copy())), elaborator
     except RecursionError as error:
         raise protocol.error("limit", "elaboration nesting exceeds the host stack bound") from error

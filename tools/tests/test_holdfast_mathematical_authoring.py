@@ -176,17 +176,18 @@ public Unit KeepReadAccess(ref Span<byte> pkt)
         path = Path(temp) / "contracts.hf"
         path.write_bytes(source)
         before = path.stat().st_mtime_ns
-        code, out, err = _invoke(["lint", str(path)])
-        sites = ((7, 13), (8, 12), (9, 12), (10, 12), (26, 13))
+        command = ["lint", str(path), "--allow", "HOLDFAST103"]
+        code, out, err = _invoke(command)
+        sites = ((7, 13), (8, 12), (9, 12), (10, 12), (19, 13), (19, 46), (26, 13), (41, 13))
         expected = [f"{path}:{line}:{column}: warning HOLDFAST109:" for line, column in sites]
         warnings = err.splitlines()
         ensure(code == 0 and not out and len(warnings) == len(expected)
                and all(warning.startswith(prefix) for warning, prefix in zip(warnings, expected, strict=True)),
                f"mathematical lint did not locate exactly the redundant ref conjuncts: {err}")
-        code, out, err = _invoke(["lint", str(path), "--deny", "HOLDFAST109"])
+        code, out, err = _invoke([*command, "--deny", "HOLDFAST109"])
         ensure(code == 1 and not out and err.count("error HOLDFAST109:") == len(sites),
                f"denied ref-contract lint did not fail: {err}")
-        code, out, err = _invoke(["lint", str(path), "--allow", "HOLDFAST109"])
+        code, out, err = _invoke([*command, "--allow", "HOLDFAST109"])
         ensure(code == 0 and not out and not err, f"allowed ref-contract lint was reported: {err}")
         ensure(path.read_bytes() == source and path.stat().st_mtime_ns == before, "contract lint rewrote source")
 

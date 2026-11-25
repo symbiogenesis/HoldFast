@@ -56,7 +56,7 @@ from toolchain import (
     syntax_campaigns as holdfast_syntax_campaigns,
 )
 from toolchain.atomic import atomic_path
-from toolchain.authoring import MATHEMATICAL_LINT_CODES
+from toolchain.authoring import MATHEMATICAL_LINT_CODES, OPT_IN_MATHEMATICAL_LINTS, Finding
 from toolchain.cli import report_findings
 from toolchain.elaborate import check_client_upgrade
 from toolchain.elaborate import elaborate as elaborate_source
@@ -196,11 +196,22 @@ def _lint_preview(root: Path, path: Path, line: int, column: int) -> dict[str, o
     return edit
 
 
-def _authoring(root: Path, args: argparse.Namespace, allowed: set[str], denied: set[str]) -> int:
+def _with_annotations(
+    findings: tuple[Finding, ...], compiled: holdfast_parser.Build, source: bytes, enabled: bool,
+) -> tuple[Finding, ...]:
+    if not enabled:
+        return findings
+    extra = mathematical_authoring.annotation_findings(compiled, source)
+    return tuple(sorted((*findings, *extra), key=lambda finding: (finding.line, finding.column, finding.code)))
+
+
+def _authoring(root: Path, args: argparse.Namespace, allowed: set[str], denied: set[str], annotations: bool) -> int:
     snapshot = read_source(args.source)
     with holdfast_parser.cached_build(root) as compiled:
         if args.command == "lint":
-            findings = mathematical_authoring.lint_source(compiled, snapshot.data)
+            findings = _with_annotations(
+                mathematical_authoring.lint_source(compiled, snapshot.data), compiled, snapshot.data, annotations,
+            )
             ensure_unchanged(snapshot)
             return 0 if report_findings(args.source, findings, allowed, denied) else 1
         if args.command == "fmt" and args.syntax_only:
@@ -208,7 +219,11 @@ def _authoring(root: Path, args: argparse.Namespace, allowed: set[str], denied: 
             compilations = None
         else:
             candidate, original, checked = mathematical_authoring.format_checked(compiled, snapshot.data)
-            compilations = original, checked
+            compilations = (
+                checked.gallina,
+                _with_annotations(original.findings, compiled, snapshot.data, annotations),
+                _with_annotations(checked.findings, compiled, candidate, annotations),
+            )
     ensure_unchanged(snapshot)
     check_only = args.check if args.command == "fmt" else args.format == "check"
     if check_only and candidate != snapshot.data:
@@ -218,20 +233,20 @@ def _authoring(root: Path, args: argparse.Namespace, allowed: set[str], denied: 
         return 0
     if compilations is None:
         raise RuntimeError("elaboration requires checked mathematical formatting")
-    original, checked = compilations
-    if any(finding.code in denied for finding in original.findings):
-        report_findings(args.source, original.findings, allowed, denied)
+    gallina, original_findings, checked_findings = compilations
+    if any(finding.code in denied for finding in original_findings):
+        report_findings(args.source, original_findings, allowed, denied)
         return 1
-    if not report_findings(args.source, checked.findings, allowed, denied):
+    if not report_findings(args.source, checked_findings, allowed, denied):
         return 1
     if args.output is None:
         current = rewrite_source(snapshot, candidate)
         ensure_unchanged(current)
-        print(checked.gallina, end="")
+        print(gallina, end="")
     else:
         check_destination(snapshot.path, args.output)
         with atomic_path(args.output) as pending:
-            pending.write_text(checked.gallina, encoding="utf-8", newline="")
+            pending.write_text(gallina, encoding="utf-8", newline="")
             check_destination(snapshot.path, args.output)
             current = rewrite_source(snapshot, candidate)
             ensure_unchanged(current)
@@ -375,6 +390,8 @@ def main(argv: list[str] | None = None) -> int:
                            help="suppress an advisory mathematical lint (repeatable)")
     elaborate.add_argument("--deny", action="append", choices=MATHEMATICAL_LINT_CODES, default=[],
                            help="make an advisory mathematical lint an error (repeatable)")
+    elaborate.add_argument("--warn", action="append", choices=sorted(OPT_IN_MATHEMATICAL_LINTS), default=[],
+                           help="enable an opt-in mathematical lint (repeatable)")
     fmt = commands.add_parser("fmt", help="check and format a mathematically elaborated source")
     fmt.add_argument("source", type=Path)
     fmt.add_argument("--check", action="store_true", help="report a style difference without writing")
@@ -384,6 +401,8 @@ def main(argv: list[str] | None = None) -> int:
     codes = ("HOLDFAST100", "HOLDFAST101", "HOLDFAST102", *MATHEMATICAL_LINT_CODES)
     lint.add_argument("--allow", action="append", choices=codes, default=[])
     lint.add_argument("--deny", action="append", choices=codes, default=[])
+    lint.add_argument("--warn", action="append", choices=sorted(OPT_IN_MATHEMATICAL_LINTS), default=[],
+                      help="enable an opt-in mathematical lint (repeatable)")
     preview = commands.add_parser("lint-preview", help="preview checked grouping for a mathematical HOLDFAST107 warning")
     preview.add_argument("source", type=Path)
     preview.add_argument("--line", type=int, required=True, help="one-based warning line")
@@ -396,8 +415,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     allowed = set(getattr(args, "allow", []))
     denied = set(getattr(args, "deny", []))
+    warned = set(getattr(args, "warn", []))
     if allowed & denied:
         parser.error("a lint cannot be both allowed and denied")
+    if allowed & warned:
+        parser.error("a lint cannot be both allowed and set to warn")
+    enabled = denied | warned
+    annotations = "HOLDFAST133" in enabled
+    allowed.update(OPT_IN_MATHEMATICAL_LINTS - enabled)
     root = Path(__file__).resolve().parents[3]
     try:
         if args.command == "bsp":
@@ -406,13 +431,14 @@ def main(argv: list[str] | None = None) -> int:
             print(_packet_example(root, args.source, args.packet, bridge_dir=args.compile_commands), end="")
             return 0
         if args.command in ("fmt", "lint") or (args.command == "elaborate" and args.format != "off"):
-            return _authoring(root, args, allowed, denied)
+            return _authoring(root, args, allowed, denied, annotations)
         if args.command == "elaborate":
             source = holdfast_parser.read_source(args.source)
             with holdfast_parser.cached_build(root) as compiled:
                 parsed = holdfast_parser.parse_source(compiled, source, surface=True)
-            translation = holdfast_mathematical.inspect_source(source, parsed)
-            if not report_findings(args.source, translation.findings, allowed, denied):
+                translation = holdfast_mathematical.inspect_source(source, parsed)
+                findings = _with_annotations(translation.findings, compiled, source, annotations)
+            if not report_findings(args.source, findings, allowed, denied):
                 return 1
             if args.output is None:
                 print(translation.gallina, end="")

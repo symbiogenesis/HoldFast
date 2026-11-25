@@ -5,6 +5,8 @@ from collections.abc import Callable
 from functools import partial
 from typing import TYPE_CHECKING, cast
 
+from toolchain.elaborate_flow_lints import branch as lint_branch
+from toolchain.elaborate_flow_lints import forwards_case, observe
 from toolchain.elaborate_types import (
     _BOOL,
     _CHAR,
@@ -730,6 +732,8 @@ class _PatternsMixin:
         if synthetic and self.last_call_updates:
             environment = dict(environment)
             self._consume_call_updates(environment, value_node)
+        if synthetic and expected_scrutinee_type == _BOOL:
+            lint_branch(self, value_node, scrutinee.term, environment)
         root_var = self.fresh(scrutinee.type)
         root_var_id = cast("int", root_var.value)
         motive_node = node["motive"]
@@ -813,8 +817,22 @@ class _PatternsMixin:
             )
         inferred_result = expected
         local_visited: set[int] = set()
+        forwarded_arms: set[int] = set()
+        forwardable = not synthetic and motive_body is None and len(rows) == 2 and (
+            {row.patterns[0].value for row in rows if row.patterns[0].kind == "union"}
+            in ({"Ok", "Err"}, {"Some", "None"})
+        )
         initial_uninit_out = set(self.uninitialized_out_params)
         arm_uninit_sets: list[set[str]] = []
+
+        def note_forwarding(
+            index: int, value_node: Node, value: _Term, pattern_term: _Term, arm_env: dict[str, _Binding],
+        ) -> None:
+            root_pattern = rows[index].patterns[0]
+            if (all(child.kind == "wild" and len(child.names) == 1 for child in root_pattern.args)
+                    and forwards_case(self, value_node, value, pattern_term, arm_env, cast("str", root_pattern.value),
+                                      tuple(child.names[0] for child in root_pattern.args))):
+                forwarded_arms.add(index)
 
         def subst_cols(
             cols: list[tuple[_Term, _Term, _Term]], var_id: int, replacement: _Term
@@ -928,12 +946,20 @@ class _PatternsMixin:
                         value = evaluated.term
                     else:
                         value = self.check(value_node, leaf_expected, arm_env)
+                    if forwardable:
+                        note_forwarding(first.arm_index, value_node, value, leaf_pattern, arm_env)
                     if synthetic:
                         arm_uninit_sets.append(set(self.uninitialized_out_params))
                     return value
                 block_node = {"kind": "block", "span": arm["span"], "statements": arm["statements"]}
                 self.uninitialized_out_params = set(initial_uninit_out)
                 evaluated = self.block(block_node, arm_env, leaf_expected, facts=arm_facts)
+                if forwardable:
+                    steps = self.nodes(arm["statements"])
+                    if len(steps) == 1 and steps[0]["kind"] == "block":
+                        steps = self.nodes(steps[0]["statements"])
+                    if len(steps) == 1 and steps[0]["kind"] == "return" and steps[0]["value"] is not None:
+                        note_forwarding(first.arm_index, self.node(steps[0]["value"]), evaluated.term, leaf_pattern, arm_env)
                 arm_uninit_sets.append(set(self.uninitialized_out_params))
                 if motive_body is None and inferred_result is None:
                     inferred_result = evaluated.type
@@ -1387,4 +1413,7 @@ class _PatternsMixin:
             for s in arm_uninit_sets:
                 merged_uninit |= s
             self.uninitialized_out_params = merged_uninit
+        if forwardable:
+            observe(self, "HOLDFAST126", node, "match reconstructs its scrutinee unchanged"
+                    if len(forwarded_arms) == 2 and self.resolve(result_type) == self.resolve(scrutinee.type) else None)
         return _Binding(term, result_type)

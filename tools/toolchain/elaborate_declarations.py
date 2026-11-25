@@ -5,8 +5,18 @@ from typing import TYPE_CHECKING, cast
 
 from toolchain import loans
 from toolchain.ast import HoldFastError
+from toolchain.elaborate_descriptor_lints import DescriptorContractLints
+from toolchain.elaborate_flow_lints import ghost_parameters, report
+from toolchain.elaborate_resource_lints import (
+    lint_effect_entries,
+    lint_local_modes,
+    lint_private_refs,
+    lint_read_only_frames,
+    lint_unused_effects,
+)
 from toolchain.elaborate_types import (
     _BOOL,
+    _CHAR,
     _GALLINA,
     _NAT,
     _NUMERICS_ALIASES,
@@ -542,6 +552,10 @@ class _DeclarationsMixin:
                 self.complete(self.metas[index].type)
             invariants_list.append(_RecordInvariant(cname, self_var, inv_term, inv_type, c_node))
         record_info.invariants = tuple(invariants_list)
+        self._lint_contracts(
+            "invariant", [(entry.node, entry.term) for entry in invariants_list],
+            record_binders=tuple(entry.self_var for entry in invariants_list),
+        )
 
         for member_node in member_declarations:
             if member_node["kind"] in {"definition", "function"}:
@@ -699,6 +713,10 @@ class _DeclarationsMixin:
                         rhs_w = self.whnf(args_p[2])
                         if rhs_w.kind == "bool" and rhs_w.value == 1:
                             req_bool_terms.append(args_p[1])
+        self._lint_contracts(
+            "requires", list(zip(requires_clauses, call_requirements, strict=True)),
+            type_inputs=(self_var, *param_vars),
+        )
         result_ty = self.type(self.node(member_node["result"]), method_env)
         raw_body = member_node["value"] if m_kind == "definition" else member_node["body"]
         if raw_body is None:
@@ -789,10 +807,12 @@ class _DeclarationsMixin:
             )
             self.post_env = dict(post_env)
             try:
+                method_ensures: list[tuple[Node, _Term]] = []
                 for ens_idx, ens_contract in enumerate(ensures_clauses):
                     self.reset_budget()
                     ens_val_node = self.node(ens_contract["value"])
                     ens_prop = self.asserted_proposition(ens_val_node, post_env)
+                    method_ensures.append((ens_contract, ens_prop))
                     ens_proof: _Term | None
                     try:
                         ens_proof = self._prove_proposition(ens_prop, post_env, (), ens_contract)
@@ -812,6 +832,11 @@ class _DeclarationsMixin:
                         "method postcondition discharged by the untrusted solver",
                         len(generics) + len(m_generics),
                         [*self.active_facts, *self._fact_bool_terms((), post_env)],
+                    )
+                if not m_ref_param_names:
+                    self._lint_contracts(
+                        "ensures", method_ensures, type_inputs=(self_var, *param_vars),
+                        entry_facts=tuple(zip(requires_clauses, call_requirements, strict=True)),
                     )
             finally:
                 self.post_env = {}
@@ -1876,6 +1901,7 @@ class _DeclarationsMixin:
                     inst_req_bools.append(sub_req)
 
                 m_ens_clauses: list[Node] = []
+                m_checked_reqs: list[tuple[Node, _Term]] = []
                 for cnode in self.nodes(mnode["contracts"]):
                     self.node(cnode, "contract")
                     crole = cnode["role"]
@@ -1898,6 +1924,7 @@ class _DeclarationsMixin:
                                 )
                         finally:
                             self.active_facts = saved_rf
+                        m_checked_reqs.append((cnode, rv_b.term))
                     elif crole == "ensures":
                         m_ens_clauses.append(cnode)
                     else:
@@ -1907,6 +1934,7 @@ class _DeclarationsMixin:
                             cnode,
                         )
 
+                self._lint_contracts("requires", m_checked_reqs, inherited=tuple(inst_req_bools))
                 body_node = self.node(raw_body)
                 prev_ret = self.current_return_type
                 self.current_return_type = m_res_type
@@ -2026,6 +2054,7 @@ class _DeclarationsMixin:
                     )
                     self.post_env = dict(post_env)
                     try:
+                        inherited_ensures: list[_Term] = []
                         for spec_ep in mspec.ensures_props:
                             sub_ep = spec_ep
                             for gv, tv in zip(iface.generic_vars, target_types, strict=True):
@@ -2041,6 +2070,8 @@ class _DeclarationsMixin:
                                     f"impl method '{mname}' does not satisfy ensures clause of interface '{iface_name}'",
                                     mnode,
                                 )
+                            inherited_ensures.append(sub_ep)
+                        authored_ensures: list[tuple[Node, _Term]] = []
                         for ec in m_ens_clauses:
                             ev_b = self.expression(self.node(ec["value"]), post_env)
                             if self.whnf(ev_b.type) != _BOOL or not self._prove_bool_precondition(
@@ -2051,6 +2082,8 @@ class _DeclarationsMixin:
                                     f"impl method '{mname}' does not satisfy its ensures clause",
                                     ec,
                                 )
+                            authored_ensures.append((ec, ev_b.term))
+                        self._lint_contracts("ensures", authored_ensures, inherited=tuple(inherited_ensures))
                     finally:
                         self.post_env = {}
                         self.active_facts = saved_pf
@@ -2562,6 +2595,7 @@ class _DeclarationsMixin:
                     else:
                         raise self.fail("name", f"unknown callable '{t_ident}' in effects calls(...)", eff_val)
                     declared_calls.add(t_ident)
+        lint_effect_entries(self, eff_clause)
         return declared_reads, declared_writes, declared_calls
 
     def _classify_phase(self: _Elaborator, emitted: str, body: Node, *, executable: bool) -> None:
@@ -2742,13 +2776,15 @@ class _DeclarationsMixin:
     def _verify_closed_effects(
         self: _Elaborator, eff_clause: Node, parameters: list[Node], ref_param_names: set[str],
         declared_reads: set[str], declared_writes: set[str], body_node: Node, body_term: _Term,
-        *, self_var: _Term | None = None,
+        *, self_var: _Term | None = None, lint_public: bool | None = None,
     ) -> None:
         reads, writes = self._memory_footprint(parameters, ref_param_names, body_node, body_term, self_var=self_var)
         if missing := writes - declared_writes:
             raise self.fail("type", f"callable mutates parameter '{min(missing)}' not declared in effects writes(...)", eff_clause)
         if missing := reads - declared_reads - declared_writes:
             raise self.fail("type", f"callable reads parameter '{min(missing)}' not declared in effects reads(...) or writes(...)", eff_clause)
+        if lint_public is not None:
+            lint_unused_effects(self, eff_clause, body_node, reads, writes, public=lint_public)
 
     def declaration(self: _Elaborator, node: Node) -> None:
         self.site = node
@@ -2905,6 +2941,8 @@ class _DeclarationsMixin:
             call_requirements: list[_Term] = []
             req_vars: list[_Term] = []
             req_props: list[_Term] = []
+            input_props: list[_Term] = []
+            proof_ensures: list[tuple[Node, _Term]] = []
             generic_vars = variables[:len(generics)]
             param_vars = variables[len(generics):]
             variables = [*generic_vars, *param_vars, *witness_vars]
@@ -3002,6 +3040,11 @@ class _DeclarationsMixin:
                                     rhs_w = self.whnf(args_p[2])
                                     if rhs_w.kind == "bool" and rhs_w.value == 1:
                                         req_bool_terms.append(args_p[1])
+                checked_requirements = req_props[len(input_props):] if kind in {"theorem", "lemma"} else call_requirements
+                self._lint_contracts(
+                    "requires", list(zip(requires_clauses, checked_requirements, strict=True)),
+                    type_facts=tuple(input_props),
+                )
                 if kind in {"theorem", "lemma"}:
                     if node["body"] is None:
                         raise self.fail("unsupported", "a theorem requires a complete explicit proof body", node)
@@ -3014,6 +3057,7 @@ class _DeclarationsMixin:
                         self.active_facts.extend(req_bool_terms)
                         try:
                             result = self.proposition(self.node(ensures_clauses[0]["value"]), environment)
+                            proof_ensures.append((ensures_clauses[0], result))
                         except HoldFastError as err:
                             self.restore_metas(saved_ens_m)
                             if err.kind == "name":
@@ -3164,6 +3208,9 @@ class _DeclarationsMixin:
                     if is_recursive:
                         candidates = list(self.current_rec_candidates)
                         self.recursive_declarations.add(cast("list[int]", node["span"])[0])
+                    elif decreases_clauses:
+                        report(self, "HOLDFAST130", decreases_clauses[0],
+                               "nonrecursive declaration does not need a decreases clause")
                     if kind in {"definition", "function"}:
                         if self._term_contains_restored_view(body):
                             raise self.fail(
@@ -3193,6 +3240,7 @@ class _DeclarationsMixin:
                                 declared_effect_writes,
                                 body_node,
                                 body,
+                                lint_public="public" in modifiers,
                             )
                         elif kind == "function" and (ref_param_names or self.readonly_in_params):
                             reads, writes = self._memory_footprint(parameters, ref_param_names, body_node, body)
@@ -3212,6 +3260,12 @@ class _DeclarationsMixin:
                                         rinfo, fin_targs, fin_b.term, self.final_ref_bindings, body_node
                                     )
                         self._check_callable_loans(node)
+                        if kind == "function":
+                            lint_local_modes(self, body_node)
+                            if "private" in modifiers:
+                                lint_private_refs(
+                                    self, node, parameters, body_node, self.runtime_writes | declared_effect_writes,
+                                )
                 finally:
                     self.active_effect_calls = prev_effect_calls
                     self.inferred_effect_calls = None
@@ -3396,6 +3450,7 @@ class _DeclarationsMixin:
                     self.active_facts.extend(req_bool_terms)
                     try:
                         extra_res = self.proposition(self.node(ens_contract["value"]), environment)
+                        proof_ensures.append((ens_contract, extra_res))
                     finally:
                         for _ in req_bool_terms:
                             self.active_facts.pop()
@@ -3473,6 +3528,11 @@ class _DeclarationsMixin:
                     )
                     self.constants[extra_emitted] = _Binding(_constant(extra_emitted), extra_sig, len(generics))
                     self.definitions[extra_emitted] = extra_def
+            if proof_ensures:
+                self._lint_contracts(
+                    "ensures", proof_ensures, type_facts=tuple(input_props),
+                    entry_facts=tuple(zip(requires_clauses, req_props[len(input_props):], strict=True)),
+                )
             if call_requirements and self_var is not None:
                 self.callable_preconditions[emitted] = self.var_preconditions[cast("int", self_var.value)]
             span_u8 = _app(_constant("Span"), _U8)
@@ -3560,9 +3620,8 @@ class _DeclarationsMixin:
                             post_state_images=post_state_images,
                         )
                         next_rest_idx += 1
-                    if restored_properties and ensures_clauses:
-                        self._lint_ref_postconditions(requires_clauses, ensures_clauses, restored_properties,
-                                                      old_intrinsic="old" not in environment)
+                    if effects_clauses and not declared_effect_writes and not declared_effect_calls:
+                        lint_read_only_frames(self, ensures_clauses, parameters, environment)
                     sym_post_env = dict(environment)
                     sym_res_var = self.fresh(result)
                     sym_post_env["result"] = _Binding(sym_res_var, result)
@@ -3576,6 +3635,7 @@ class _DeclarationsMixin:
                                 sym_post_env[pname] = _Binding(sym_lvar, p_dom)
                                 sym_loan_pairs.append((p_idx, cast("int", sym_lvar.value)))
                     base_param_ids = tuple(cast("int", v.value) for v in [*generic_vars, *param_vars])
+                    checked_ensures: list[tuple[Node, _Term]] = []
                     for ens_idx, ens_contract in enumerate(ensures_clauses):
                         self.reset_budget()
                         ens_val_node = self.node(ens_contract["value"])
@@ -3634,19 +3694,45 @@ class _DeclarationsMixin:
                         try:
                             sym_eb = self.expression(ens_val_node, sym_post_env)
                             if self.whnf(sym_eb.type) == _BOOL:
+                                checked_term = self.complete(sym_eb.term)
                                 self.callable_ensures.setdefault(emitted, []).append(
                                     (
                                         base_param_ids,
                                         tuple(sym_loan_pairs),
                                         cast("int", sym_res_var.value),
-                                        self.complete(sym_eb.term),
+                                        checked_term,
                                     )
                                 )
+                                checked_ensures.append((ens_contract, checked_term))
                         except HoldFastError:
                             self.restore_metas(saved_sym_m)
+                        if not sym_loan_pairs and (not checked_ensures or checked_ensures[-1][0] is not ens_contract):
+                            checked_ensures.append((ens_contract, ens_prop))
+                    if ensures_clauses or restores_clauses:
+                        self._lint_descriptor_contracts(
+                            requires_clauses, ensures_clauses, restores_clauses, restored_properties, ref_param_names,
+                        )
+                    if "result" not in ref_param_names:
+                        self._lint_contracts(
+                            "ensures", checked_ensures,
+                            entry_facts=tuple(zip(requires_clauses, call_requirements, strict=True)),
+                            type_inputs=(sym_res_var, *(binding.term for name, binding in sym_post_env.items()
+                                                       if name in ref_param_names), *param_vars),
+                            result_image=(call_term, sym_res_var) if not sym_loan_pairs else None,
+                        )
                 finally:
                     self.post_env = {}
                     self.active_facts = saved_post_facts
+            declared_vars = (generic_vars + param_vars)[:len(generics) + len(parameters)]
+            if any(generic.get("mode") == "ghost" for generic in generics) or any(
+                var.value in self.ghost_parameters for var in declared_vars
+            ):
+                ghost_parameters(self, node, [*generics, *parameters], declared_vars, set().union(*(
+                    self.free(term) for term in (
+                        body, result, *req_props, *call_requirements,
+                        *(self.types[cast("int", var.value)] for var in variables),
+                    )
+                )))
         finally:
             for wk in active_where_keys:
                 self.active_interface_witnesses.pop(wk, None)
@@ -3655,64 +3741,27 @@ class _DeclarationsMixin:
             self.uninitialized_out_params.clear()
             self.last_call_updates.clear()
 
-    def _old_contract_argument(self: _Elaborator, node: Node) -> Node | None:
-        if node["kind"] == "call":
-            callee = self.node(node["callee"])
-            if callee["kind"] == "name" and self.name(callee["name"]) == "old":
-                args = self.nodes(node["arguments"])
-                if len(args) == 1 and args[0]["label"] is None:
-                    return self._unwrap_group(self.node(args[0]["value"]))
-        return None
-
-    def _descriptor_member(self: _Elaborator, expr: Node, *, old_intrinsic: bool = False) -> tuple[str, str, bool] | None:
-        member = self._unwrap_group(expr)
-        old_member = self._old_contract_argument(member) if old_intrinsic else None
-        if old_member is not None:
-            member = old_member
-        if member["kind"] != "member":
-            return None
-        receiver = self._unwrap_group(self.node(member["value"]))
-        old_receiver = self._old_contract_argument(receiver) if old_intrinsic and old_member is None else None
-        if old_receiver is not None:
-            receiver = old_receiver
-        if receiver["kind"] != "name":
-            return None
-        return self.name(receiver["name"]), self.name(member["name"]), old_member is not None or old_receiver is not None
-
-    def _lint_ref_postconditions(
-        self: _Elaborator, requires: list[Node], ensures: list[Node], properties: dict[str, frozenset[str]],
-        *, old_intrinsic: bool,
+    def _lint_descriptor_contracts(
+        self: _Elaborator, requires: list[Node], ensures: list[Node], restores: list[Node],
+        properties: dict[str, frozenset[str]], ref_params: set[str],
     ) -> None:
-        entry_access: set[tuple[str, str, bool]] = set()
-        for requirement in requires:
-            if requirement["role"] != "requires":
+        shared: set[str] = set()
+        stable_scalars: set[str] = set()
+        span_byte = _app(_constant("Span"), _U8)
+        for name, binding in self.entry_env.items():
+            if name in ref_params or name in self.out_param_names:
                 continue
-            conjuncts = self._conjuncts(self.node(requirement["value"]))
-            if any(conjunct["kind"] == "is" for conjunct in conjuncts):
-                continue
-            for conjunct in conjuncts:
-                member = self._descriptor_member(conjunct)
-                if member is not None and member[0] in properties and member[1] in _ACCESS_PROPERTIES:
-                    entry_access.add(member)
-        for guarantee in ensures:
-            conjuncts = self._conjuncts(self.node(guarantee["value"]))
-            # A pattern test in a conjunction can bind names in later operands.
-            if any(conjunct["kind"] == "is" for conjunct in conjuncts):
-                continue
-            for conjunct in conjuncts:
-                member = self._descriptor_member(conjunct)
-                if member is not None and member not in entry_access:
-                    member = None
-                if old_intrinsic and conjunct["kind"] == "binary" and self.operator(conjunct["operator"]) == "==":
-                    left = self._descriptor_member(self.node(conjunct["left"]), old_intrinsic=True)
-                    right = self._descriptor_member(self.node(conjunct["right"]), old_intrinsic=True)
-                    if (left is not None and right is not None and left[:2] == right[:2] and left[2] != right[2]
-                            and left[0] in properties and left[1] in properties[left[0]]):
-                        member = left
-                if member is not None:
-                    param, field, _ = member
-                    offset = cast("list[int]", conjunct["span"])[0]
-                    self.redundant_ref_ensures[offset] = f"{param}.{field}"
+            body_type = self.whnf(binding.type)
+            if body_type in {_NAT, _BOOL, _CHAR} or self._int_spec(body_type) is not None:
+                stable_scalars.add(name)
+            if name in self.readonly_in_params:
+                head, args = self.spine(body_type)
+                if body_type == span_byte or (head == _constant("Slots") and len(args) == 2):
+                    shared.add(name)
+                    properties[name] = _RESTORED_SPAN_PROPERTIES if body_type == span_byte else _RESTORED_SLOTS_PROPERTIES
+        DescriptorContractLints(self, properties, frozenset(stable_scalars), frozenset(shared)).lint(
+            requires, ensures, restores,
+        )
 
     def _emit_param_descriptor_restores(
         self: _Elaborator,

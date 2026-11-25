@@ -210,8 +210,10 @@ class _SolverMixin:
         return expanded
 
     def _parse_cmp_fact(self: _Elaborator, fact: _Term) -> tuple[str, _IntSpec | None, _Term, _Term] | None:
-        w = self.whnf(fact)
-        head, args = self.spine(w)
+        return self._parse_cmp_fact_shape(self.whnf(fact))
+
+    def _parse_cmp_fact_shape(self: _Elaborator, fact: _Term) -> tuple[str, _IntSpec | None, _Term, _Term] | None:
+        head, args = self.spine(fact)
         if head.kind != "const" or not isinstance(head.value, str) or len(args) != 2:
             return None
         cname = head.value

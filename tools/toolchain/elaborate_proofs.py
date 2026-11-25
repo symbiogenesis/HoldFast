@@ -4,6 +4,7 @@
 from typing import TYPE_CHECKING, cast
 
 from toolchain.ast import HoldFastError
+from toolchain.elaborate_flow_lints import observe
 from toolchain.elaborate_types import (
     _BOOL,
     _CHAR,
@@ -1845,6 +1846,9 @@ class _ProofsMixin:
                 continue
             if kind == "assert":
                 fact = self._elaborate_assert(statement, child_env, (*active_facts, *child_facts))
+                if statement["by"] is None and index + 1 < len(statements):
+                    observe(self, "HOLDFAST128", statement,
+                            "assertion repeats a proof fact already in scope" if fact in child_facts else None)
                 child_facts.append(fact)
                 continue
             if kind == "proof":
@@ -2043,14 +2047,18 @@ class _ProofsMixin:
         statements = self.nodes(body_node["statements"])
         extended = dict(environment)
         new_facts: list[_Binding] = []
-        for statement in statements:
+        for index, statement in enumerate(statements):
             self.site = statement
             kind = statement["kind"]
             if kind in {"let", "typed_local", "let_pattern", "constant_local"}:
                 extended = self._local_with_facts(statement, extended, new_facts)
                 continue
             if kind == "assert":
-                new_facts.append(self._elaborate_assert(statement, extended, (*facts, *new_facts)))
+                fact = self._elaborate_assert(statement, extended, (*facts, *new_facts))
+                if statement["by"] is None and index + 1 < len(statements):
+                    observe(self, "HOLDFAST128", statement,
+                            "assertion repeats a proof fact already in scope" if fact in new_facts else None)
+                new_facts.append(fact)
                 continue
             if kind == "proof":
                 sub = self._elaborate_proof_statement(
@@ -2080,6 +2088,7 @@ class _ProofsMixin:
         chain_start: _Term | None = None
         chain_curr: _Term | None = None
         chain_proof: _Term | None = None
+        final_step = next((step for step in reversed(statements) if step["kind"] == "assert"), None)
         for statement in statements:
             self.site = statement
             kind = statement["kind"]
@@ -2101,6 +2110,9 @@ class _ProofsMixin:
                     statement,
                 )
             eq_type, u, v = extracted
+            if chain_proof is not None and statement is not final_step and statement["by"] is None:
+                observe(self, "HOLDFAST129", statement,
+                        "reflexive step adds nothing to this calculation" if u == v else None)
             new_facts.append(step_fact)
             if chain_proof is None:
                 chain_type = eq_type

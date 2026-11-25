@@ -8,6 +8,7 @@ from typing import cast
 from toolchain import mathematical, parser
 from toolchain.ast import MAX_SOURCE_BYTES, HoldFastError, position
 from toolchain.authoring import Finding, is_camel_case, is_pascal_case
+from toolchain.elaborate import elaborate
 from toolchain.surface import nodes
 from toolchain.syntax_campaigns import strip_spans
 
@@ -181,3 +182,51 @@ def lint_source(compiled: parser.Build, source: bytes) -> tuple[Finding, ...]:
             site = position(source[:_start(name)].decode("utf-8"))
             findings.append(Finding("HOLDFAST101", f"binding '{spelling}' should use camelCase", site.line, site.column))
     return tuple(sorted(findings, key=lambda finding: (finding.line, finding.column, finding.code)))
+
+
+def annotation_findings(compiled: parser.Build, source: bytes) -> tuple[Finding, ...]:
+    """Check omission against the exact source and its resolved compiler output."""
+    document = Document.read(compiled, source)
+    original = elaborate(source, document.parsed)
+    local_kinds = {"let", "var", "typed_local"}
+    candidates: list[tuple[int, int, str]] = []
+    for item in nodes(document.ast):
+        kind = item["kind"]
+        if kind in local_kinds and isinstance(annotation := item.get("type"), dict):
+            first, last = cast("Sequence[int]", annotation["span"])
+            candidates.append((first, last, "local type annotation"))
+        elif kind == "generic_application":
+            _, end_name = cast("Sequence[int]", cast("Node", item["value"])["span"])
+            _, end_application = cast("Sequence[int]", item["span"])
+            first = end_name
+            while source[first:first + 1].isspace() and first < end_application:
+                first += 1
+            candidates.append((first, end_application, "explicit generic arguments"))
+    findings: list[Finding] = []
+    for first, last, description in candidates:
+        if any(part.comment and first <= part.start < last for part in document.parts):
+            continue
+        candidate = source[:first] + source[last:]
+        try:
+            checked = elaborate(candidate, parser.parse_source(compiled, candidate, surface=True))
+        except HoldFastError:
+            continue
+        if checked.gallina.split("\n", 2)[2] != original.gallina.split("\n", 2)[2]:
+            continue
+        delta = last - first
+
+        def relocate(offset: int, cut: int = first, shift: int = delta) -> int:
+            return offset if offset < cut else offset - shift
+
+        literal_types = {relocate(offset): value for offset, value in original.contextual_literal_types.items()
+                         if not first <= offset < last}
+        operations = {relocate(offset): value for offset, value in original.integer_operations.items()
+                      if not first <= offset < last}
+        calls = {relocate(offset): relocate(target) for offset, target in original.call_declarations.items()
+                 if not first <= offset < last}
+        if (literal_types == checked.contextual_literal_types and operations == checked.integer_operations
+                and calls == checked.call_declarations):
+            site = position(source[:first].decode("utf-8"))
+            findings.append(Finding("HOLDFAST133", f"{description} can be inferred with the same elaboration",
+                                    site.line, site.column))
+    return tuple(sorted(findings, key=lambda finding: (finding.line, finding.column)))

@@ -57,7 +57,7 @@ def _type_names_and_value_indices() -> None:
     fixture.definition("Copy", _type("Vec", _type("T"), _variable("n")),
                        (("values", _type("Vec", _type("T"), _variable("n"))),), _variable("values"),
                        generics=(("type", "T", None), ("ghost", "n", _type("Nat"))))
-    fixture.definition("ValueParameter", _type("Nat"), (), _natural(0),
+    fixture.definition("ValueParameter", _type("Nat"), (), _variable("N"),
                        generics=(("ghost", "N", _type("Nat")),))
     source, parsed = fixture.response()
     before = bytes(source)
