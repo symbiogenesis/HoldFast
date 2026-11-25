@@ -95,11 +95,12 @@ let rec is_range = function
 
 %%
 
-/* Internal token-only prefix probe; the public entries still own complete files. */
+/* Parse the expression in an interpolation hole and report whether a format specifier follows. */
 format_expression:
   value=s_expression RBRACE { value, $endpos.Lexing.pos_cnum, false }
 | value=s_expression COLON { value, $endpos.Lexing.pos_cnum, true }
 
+/* The lexer supplies tokens after '<' to classify a possible generic application. */
 generic_application_prefix:
   comma_nonempty_list(s_type_argument) GT s_generic_follower { () }
 
@@ -233,7 +234,6 @@ call_argument(expression, identifier):
 | label=identifier COLON value=expression
     { make "argument" $startpos $endpos [("label", label); ("value", value.syntax)] [value] }
 
-/* The wider syntax has a separate AST entry from the pure authoring subset. */
 surface_file:
   MODULE module_name=s_path SEMICOLON declarations=list(s_declaration) EOF
     { make "surface_file" $startpos $endpos(declarations)
@@ -368,7 +368,7 @@ s_decl:
         ("grade", optional grade); ("value", optional value)]
         (value_type :: children grade @ children value) }
 
-/* Declarations share the telescope; each owner retains its contract/body tail. */
+/* Functions and effect operations share the header and parse their own tails. */
 %inline s_callable_header:
   result=s_type callable_name=s_identifier generics=s_generics s_parameter_open
   parameters=comma_list(s_callable_parameter) RPAREN
@@ -428,8 +428,8 @@ s_constructor:
         refuse_syntax $startpos(constructor_name) "constructor declaration requires an uppercase initial";
       make "constructor" $startpos $endpos [("name", constructor_name); ("parameters", array parameters);
         ("result", optional result); ("contracts", array contracts)] (parameters @ children result @ contracts) }
-/* Retain bare callable results: their effects belong to the callable. Group the
-   result when a constructor itself needs an effects contract. */
+/* An effects clause after a bare callable result qualifies that callable.
+   Group the result to put the effects clause on the constructor itself. */
 s_constructor_tail:
   contracts=list(s_contract) { None, contracts }
 | COLON result=s_nonfunction_type contracts=list(s_contract)
@@ -463,7 +463,6 @@ s_generic_parameter:
     { let mode, generic_name, value_type = binder in
       make "generic_parameter" $startpos $endpos [("mode", String mode); ("name", generic_name);
         ("type", optional value_type)] (children value_type) }
-/* Binder modes select syntax roles; one constructor retains their common shape. */
 %inline s_generic_binder:
   generic_name=s_identifier kind=option(s_kind_annotation) { "type", generic_name, kind }
 | GHOST value_type=s_type generic_name=s_identifier
@@ -483,7 +482,6 @@ s_type:
   value=s_modified_type(s_function_type) { value }
 %inline s_nonfunction_type:
   value=s_modified_type(s_type_atom) { value }
-/* All type contexts retain the same modifier order, lifetime and child depth. */
 s_modified_type(base):
   value=base { value }
 | modifier=s_type_modifier lifetime=ioption(s_loan_lifetime) value=s_modified_type(base)
@@ -501,7 +499,7 @@ s_type_atom:
 %inline s_named_type(path):
   type_name=path arguments=s_type_arguments
     { make "type" $startpos $endpos [("name", type_name); ("arguments", array arguments)] arguments }
-/* Only the first token varies for local annotations; the type algebra is shared. */
+/* Local annotations require ANNOTATION_OPEN for the same group and tuple rules. */
 s_parenthesized_type(opening):
   opening value=s_type RPAREN { make "group_type" $startpos $endpos [("type", value.syntax)] [value] }
 | opening first=s_type COMMA rest=separated_nonempty_list(COMMA, s_type) RPAREN
@@ -675,8 +673,7 @@ s_path_segment:
   DOT value=s_identifier { name_text value }
 %inline s_local_kind:
   LET { "let" } | VAR { "var" }
-/* Statements and expression-local bindings share the complete initializer.
-   The owner supplies its keyword, terminator and existing syntax-node span. */
+/* The statement or expression supplies the surrounding keyword, terminator and span. */
 s_local_initializer:
   binding_name=s_identifier grade=option(s_grade) EQUAL value=s_expression
     { "", [("name", binding_name); ("type", Null);
@@ -720,8 +717,8 @@ s_pattern_argument:
   pattern=s_pattern { pattern }
 | label=s_identifier COLON pattern=s_pattern
     { make "labeled_pattern" $startpos $endpos [("label", label); ("pattern", pattern.syntax)] [pattern] }
-/* A bare local name stays an inferred binder; uppercase constructor patterns,
-   qualified constructor patterns, and product patterns use local_pattern. */
+/* A bare local name is an inferred binder. A constructor pattern here needs
+   arguments or a qualified path. */
 s_local_pattern:
   value=s_product_pattern { value }
 | first=s_value_identifier values=s_pattern_arguments
@@ -776,8 +773,8 @@ s_lambda_parameter:
         ("grade", optional grade)] (children grade) }
 s_lambda_body:
   value=s_expression | value=s_block { value }
-/* Binary operators and their value forms share one spelling and source span.
-   Recursive ladders make associativity explicit; comparison/range stay singular. */
+/* Recursing on the left or right gives the corresponding associativity. The
+   comparison and range rules below each allow a single operator at their level. */
 left_binary(operand, operator):
   value=operand { value }
 | left=left_binary(operand, operator) op=operator right=operand
@@ -786,9 +783,8 @@ right_binary(operand, operator):
   value=operand { value }
 | left=operand op=operator right=right_binary(operand, operator)
     { binary $startpos $endpos op left right }
-/* Contracts use the same precedence/postfix rules as expressions, with only
-   their outer grouping boundary changed. A full-form contract value (lambda,
-   quantifier, let or type expression) is explicitly parenthesized. */
+/* Ordinary obligation and effects clauses use the operator grammar. Parenthesize
+   a lambda, quantifier, local binding or type value to use it in these clauses. */
 %inline s_implication:
   value=s_implication_with(LPAREN) { value }
 %inline s_contract_expression:
@@ -907,7 +903,6 @@ s_atom_with(opening):
 s_literal:
   payload=s_literal_payload
     { let kind, fields = payload in make kind $startpos $endpos fields [] }
-/* Literal spelling/payload is independent of its expression or pattern role. */
 %inline s_literal_payload:
   value=DECIMAL { "nat", [("value", String value); ("suffix", String "")] }
 | value=NUMBER { let digits, suffix = value in "nat", [("value", String digits); ("suffix", String suffix)] }

@@ -1,5 +1,5 @@
 (* SPDX-License-Identifier: Apache-2.0 *)
-(* Located syntax only: no resolution, typing, evaluation or code emission. *)
+(* Syntax nodes carry byte spans in the original UTF-8 source. *)
 
 type json =
   | Null
@@ -15,9 +15,8 @@ exception Refusal of string * int * string
 
 let max_source_bytes = 65_536
 let max_literal_digits = 256
-(* Raw syntax includes groups and the file/function/block/return wrappers.
-   Semantic expression and block budgets are enforced by the AST consumer. *)
 let max_delimiter_depth = 256
+(* The raw depth budget counts groups and file, function, block and return nodes. *)
 let max_syntax_depth = 256
 let max_generic_probe_tokens = 200_000
 

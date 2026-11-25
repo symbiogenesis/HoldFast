@@ -21,8 +21,8 @@ let opening state lexbuf token =
     refuse "limit" lexbuf (Printf.sprintf "delimiter nesting exceeds %d" Ast.max_delimiter_depth);
   token
 let closing state token = state.delimiters <- max 0 (state.delimiters - 1); token
-(* Prefix classification reuses the authored generic-argument grammar. Clones
-   share only immutable source bytes, memoized decisions and the work budget. *)
+(* Test the generic-argument grammar on a copy of the lexer state and positions.
+   Nested probes share the buffered source, decision cache and token budget. *)
 let generic_application next state lexbuf =
   let offset = Lexing.lexeme_start lexbuf in
   match Hashtbl.find_opt state.generic_probes offset with
@@ -62,9 +62,8 @@ let pure_unsupported word =
   | "var", _ -> "'var' declares a mutable binding; let and unmarked type-first bindings are immutable. Local reassignment requires the wider HoldFast surface; the pure prototype does not support mutation"
   | _, Some requested -> "'" ^ word ^ "' requests " ^ requested ^ "; the pure Nat/bool prototype cannot check ownership, borrowing or resource lifetimes"
   | _ -> "'" ^ word ^ "' is outside the pure prototype"
-(* Contextual annotation names resolve the lexical ambiguity between a type-first
-   binder and comparison. This bounded token-shape probe never resolves names.
-   The driver uses Lexing.from_string, so the complete bounded input is buffered. *)
+(* Use the shape of a binder and its trailing tokens to classify an annotation.
+   The driver supplies the complete source with Lexing.from_string. *)
 let annotation lexbuf parenthesized =
   let source = lexbuf.Lexing.lex_buffer in
   let length = lexbuf.Lexing.lex_buffer_len in
@@ -183,7 +182,7 @@ let annotation lexbuf parenthesized =
   in
   let after_type = if parenthesized then parenthesized_type 1 lexbuf.Lexing.lex_curr_pos
     else let after_path = path lexbuf.Lexing.lex_curr_pos in
-      (* `<=` and `<==>` are complete operators, never generic openers. *)
+      (* An equals sign after '<' makes this a multi-character operator. *)
       if after_path + 1 < length && at after_path = '<' && at (after_path + 1) <> '='
       then trivia (angles 1 0 0 (after_path + 1)) else after_path in
   let arrow index =
@@ -205,8 +204,8 @@ let annotation lexbuf parenthesized =
         | '[' -> binder_tail parens (brackets + 1) graded (index + 1)
         | ']' when brackets > 0 -> binder_tail parens (brackets - 1) graded (index + 1)
         | '@' when parens = 0 && brackets = 0 -> binder_tail parens brackets true (index + 1)
-        (* A comma may belong to a generic grade argument or a later binder.
-           Once inside a grade, keep allowing balanced callback/type blocks. *)
+        (* A comma can separate generic grade arguments as well as binders. Keep
+           the grade flag so either case can still reach a balanced block. *)
         | ',' when parens = 0 && brackets = 0 -> binder_tail parens brackets graded (index + 1)
         | ('<' | '>' | '!') when index + 1 < length && at (index + 1) = '=' ->
             binder_tail parens brackets graded (index + 2)
@@ -226,10 +225,8 @@ let annotation lexbuf parenthesized =
       | ',' -> binder_tail 0 0 false (after_binder + 1)
       | '@' -> binder_tail 0 0 true (after_binder + 1)
       | _ -> false)
-(* Classify a parenthesized lambda telescope from its closing arrow. This probe
-   reads bounded bytes only: comments, quoted literals and nested delimiters do
-   not move positions or grant an identifier a type. Declaration/pattern
-   telescopes followed by the same arrow accept the same opening token. *)
+(* Look for '=>' after the matching ')' without advancing the lexer. The grammar
+   also accepts the resulting LAMBDA_OPEN token in parameter and pattern positions. *)
 let lambda_open lexbuf =
   let source = lexbuf.Lexing.lex_buffer in
   let length = lexbuf.Lexing.lex_buffer_len in
@@ -358,8 +355,7 @@ let digit_run lexbuf spelling prefix valid =
 let pure_decimal lexbuf =
   let spelling = Lexing.lexeme lexbuf in
   let count = digit_run lexbuf spelling 0 (function '0'..'9' -> true | _ -> false) in
-  (* Return the decimal token alone; its suffix must receive the original pure
-     keyword classification and position on the next lexer invocation. *)
+  (* Let the next pure lexer call classify the suffix at its own source position. *)
   lexbuf.Lexing.lex_curr_pos <- lexbuf.Lexing.lex_start_pos + count;
   lexbuf.Lexing.lex_curr_p <- { lexbuf.Lexing.lex_curr_p with
     Lexing.pos_cnum = lexbuf.Lexing.lex_start_p.Lexing.pos_cnum + count };
@@ -567,7 +563,7 @@ rule token state = parse
   | ';' { SEMICOLON } | ',' { COMMA } | '.' { DOT } | ':' { COLON }
   | "??" {
       if state.surface then refuse "syntax" lexbuf "implicit optional operators are not supported";
-      (* Preserve the pure entry's original one-character tokenization. *)
+      (* In pure mode the text after '?' starts a separate token. *)
       lexbuf.Lexing.lex_curr_pos <- lexbuf.Lexing.lex_start_pos + 1;
       lexbuf.Lexing.lex_curr_p <- { lexbuf.Lexing.lex_curr_p with
         Lexing.pos_cnum = lexbuf.Lexing.lex_start_p.Lexing.pos_cnum + 1 };

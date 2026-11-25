@@ -1,5 +1,5 @@
 (* SPDX-License-Identifier: Apache-2.0 *)
-(* The native boundary reads one bounded UTF-8 file and emits syntax or a refusal. *)
+(* Read one bounded UTF-8 source from stdin and emit a JSON syntax tree or diagnostic. *)
 
 let read_source () =
   let bytes = Bytes.create (Ast.max_source_bytes + 1) in
