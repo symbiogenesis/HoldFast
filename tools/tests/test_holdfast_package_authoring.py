@@ -10,17 +10,32 @@ from tempfile import TemporaryDirectory
 
 from tests.harness import TOOLS, Case, ensure
 from tests.test_holdfast_elaboration_cli import _invoke
+from toolchain import corpus
 
 ROOT = TOOLS.parent
 LAYOUT = b"""module Trail.Route;
 
-import Trail.Units;
+import TrailUnits;
 
-/// Scales the step count.
-public definition Nat Distance(Nat steps) => steps * Units.Step;
+public record StepCount(Nat Value);
+
+public union Option<T>
+{
+    None();
+    Some(T Value);
+}
+
+public definition Option<Nat> Distance(Option<Option<StepCount>> steps) => Some(steps? ? .Value * TrailUnits.Step);
 """
-ROUGH = LAYOUT.replace(b" => steps * ", b"=>steps*").replace(b"\n", b"\r\n")
-UNITS = b"module Trail.Units;\n\npublic const Nat Step = 2;\n"
+ROUGH = LAYOUT.replace(b"steps? ? .Value", b"steps?\t?\t.Value").replace(b"\n", b"\r\n")
+DOCUMENT = "docs/tooling/authoring-tools.md"
+
+
+def _documented_units() -> bytes:
+    document = corpus.from_text((ROOT / DOCUMENT).read_text(encoding="utf-8"), DOCUMENT)
+    [example] = [fence for fence in document.holdfast_examples
+                 if fence.info == "holdfast-check" and fence.source.startswith("module TrailUnits;\n")]
+    return example.source.encode()
 
 
 def _editor(source: bytes) -> subprocess.CompletedProcess[bytes]:
@@ -41,12 +56,13 @@ target = "rocq-gallina"
 inputs = []
 [modules]
 "Trail.Route" = "Route.hf"
-"Trail.Units" = "Units.hf"
+"TrailUnits" = "Units.hf"
 [dependencies]
 """)
         route, units = base / "Route.hf", base / "Units.hf"
         route.write_bytes(ROUGH)
-        units.write_bytes(UNITS)
+        documented_units = _documented_units()
+        units.write_bytes(documented_units)
         lock, output = workspace / "lock.json", workspace / "bundle.json"
         output.write_bytes(b"previous bundle")
         lock_args = ["lock-package", str(workspace), "trail", "v1", "--output", str(lock)]
@@ -69,6 +85,10 @@ inputs = []
         malformed = _editor(b"module Trail.Route; public Nat")
         ensure(malformed.returncode == 1 and not malformed.stdout and b"syntax" in malformed.stderr,
                "invalid editor buffer produced a replacement")
+        for separated, compact in ((b"? ?", b"??"), (b"? .Value", b"?.Value")):
+            refused = _editor(LAYOUT.replace(separated, compact))
+            ensure(refused.returncode == 1 and not refused.stdout and b"syntax" in refused.stderr,
+                   f"reserved contiguous spelling {compact!r} produced an editor replacement")
         code, _, err = _invoke(shlex.split(repair)[3:])
         ensure(code == 0 and route.read_bytes() == edited.stdout, f"repair diverged from editor layout: {err}")
         code, _, err = _invoke(build_args)
@@ -77,9 +97,9 @@ inputs = []
         ensure(code == 0, f"relocking the formatted source failed: {err}")
         snapshots = [(path.read_bytes(), path.stat().st_mtime_ns) for path in files]
         code, out, err = _invoke(build_args)
-        ensure(code == 0 and json.loads(out)["build_order"] == ["Trail.Units", "Trail.Route"]
-               and f"{units}:3:18: warning HOLDFAST102:" in err,
-               f"canonical package lost its qualified import or advisory documentation lint: {err}")
+        ensure(code == 0 and json.loads(out)["build_order"] == ["TrailUnits", "Trail.Route"]
+               and f"{route}:13:31: warning HOLDFAST102:" in err and str(units) not in err,
+               f"canonical package lost its qualified import, attached docs or advisory lint: {err}")
         ensure([(path.read_bytes(), path.stat().st_mtime_ns) for path in files] == snapshots,
                "successful package build modified its inputs")
 
@@ -88,7 +108,7 @@ inputs = []
         (upgraded / manifest.name).write_bytes(manifest.read_bytes().replace(b'revision = "v1"', b'revision = "v2"'))
         client, provider = upgraded / route.name, upgraded / units.name
         client.write_bytes(LAYOUT)
-        provider.write_bytes(UNITS.replace(b"Step = 2", b"Step = 3"))
+        provider.write_bytes(documented_units.replace(b"Step = 2", b"Step = 3"))
         code, out, err = _invoke(["diff-contract", str(units), str(provider)])
         ensure(code == 0 and not err and set(json.loads(out)["changed"]["Step"]) == {"value"},
                f"public constant upgrade lost its authored contract change: {err}")
@@ -96,7 +116,7 @@ inputs = []
         code, _, err = _invoke(lock_args)
         ensure(code == 0, f"relocking the upgraded package failed: {err}")
         code, out, err = _invoke(build_args)
-        ensure(code == 0 and json.loads(out)["build_order"] == ["Trail.Units", "Trail.Route"]
+        ensure(code == 0 and json.loads(out)["build_order"] == ["TrailUnits", "Trail.Route"]
                and client.read_bytes() == LAYOUT, f"upgraded package or unchanged client failed authoring checks: {err}")
 
 

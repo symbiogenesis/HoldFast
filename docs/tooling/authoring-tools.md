@@ -221,8 +221,9 @@ read-only style verdict. This mode gives no elaboration or proof verdict.
 The formatter works from Menhir's complete original token ranges. It preserves
 literal spellings, nested block comments, line comments and the groups of
 `///` comments attached to declarations. Raw and interpolated string tokens
-retain their contents. It compares the complete location-independent syntax and
-ordered spellings, and checks that a second
+retain their contents. The formatter keeps a separator between a propagation
+`?` and an immediately following `?` or `.`. It compares the complete
+location-independent syntax and ordered spellings, and checks that a second
 formatting pass yields identical bytes. Both compilers use the same source
 identity checks and atomic file replacement. [Formatter](../../tools/toolchain/mathematical_authoring.py)
 
@@ -258,6 +259,17 @@ affected source file from the Linux or WSL checkout. Regenerate the lock after
 applying a source edit. The authoring defaults follow the selected root package's
 edition. Imported dependencies are checked for elaboration under their own
 editions. [Locked builds](elaboration-prototype.md#locked-mathematical-packages)
+
+The locked authoring trial imports this package module from the same marked
+source the repository gate checks.
+[Locked authoring trial](../../tools/tests/test_holdfast_package_authoring.py)
+
+```holdfast-check
+module TrailUnits;
+
+/// Gives the distance covered by one step.
+public const Nat Step = 2;
+```
 
 For an editor formatting request, send the unsaved buffer as UTF-8 on standard
 input to `python tools/run.py holdfast-parser fmt - --syntax-only` on Windows,
