@@ -783,7 +783,9 @@ class _DeclarationsMixin:
         self.callable_source_names[m_emitted] = f"{name}.{method_name}"
         if effects_clauses:
             self.callable_has_effects.add(m_emitted)
-            self.callable_effect_calls[m_emitted] = set(m_effect_calls)
+            named_calls, callback_positions = self._split_effect_calls(m_effect_calls, m_params, method_env)
+            self.callable_effect_calls[m_emitted] = named_calls
+            self.callable_callback_effects[m_emitted] = callback_positions
             self.callable_effect_writes[m_emitted] = {
                 i for i, p in enumerate(m_params) if p["name"] and self.name(p["name"]) in m_effect_writes
             }
@@ -2559,6 +2561,17 @@ class _DeclarationsMixin:
         lint_effect_entries(self, eff_clause)
         return declared_reads, declared_writes, declared_calls
 
+    def _split_effect_calls(
+        self: _Elaborator, calls: set[_Term], parameters: list[Node], environment: dict[str, _Binding],
+    ) -> tuple[set[_Term], set[int]]:
+        named_calls = set(calls)
+        callback_positions: set[int] = set()
+        for index, parameter in enumerate(parameters):
+            if parameter["name"] and (formal := environment[self.name(parameter["name"])].term) in named_calls:
+                callback_positions.add(index)
+                named_calls.remove(formal)
+        return named_calls, callback_positions
+
     def _classify_phase(self: _Elaborator, emitted: str, body: Node, *, executable: bool) -> None:
         """Carry resolved specification dependencies across definitions, calls and package imports."""
         if not self.phase_uses and not self.static_effect_sites:
@@ -3255,13 +3268,11 @@ class _DeclarationsMixin:
                     self.callable_effect_reads[emitted] = {
                         i for i, p in enumerate(parameters) if p["name"] and self.name(p["name"]) in declared_effect_reads
                     }
-                    callback_positions = set(self.definition_callback_uses) if summarize_definition else set()
-                    named_calls = set(declared_effect_calls)
                     if effects_clauses:
-                        for i, parameter in enumerate(parameters):
-                            if parameter["name"] and (formal := environment[self.name(parameter["name"])].term) in named_calls:
-                                callback_positions.add(i)
-                                named_calls.remove(formal)
+                        named_calls, callback_positions = self._split_effect_calls(declared_effect_calls, parameters, environment)
+                    else:
+                        named_calls = declared_effect_calls
+                        callback_positions = set(self.definition_callback_uses) if summarize_definition else set()
                     self.callable_callback_effects[emitted] = callback_positions
                     self.callable_effect_calls[emitted] = named_calls
                     self.callable_effect_writes[emitted] = {

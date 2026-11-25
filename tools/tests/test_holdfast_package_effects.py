@@ -9,7 +9,7 @@ from tempfile import TemporaryDirectory
 
 from tests.harness import TOOLS, Case, ensure, raises
 from tests.test_holdfast_packages import _write
-from toolchain import packages, proofenv, solver_ledger
+from toolchain import elaborate, packages, parser, proofenv, solver_ledger
 from toolchain.ast import HoldFastError
 
 ROOT = TOOLS.parent
@@ -225,8 +225,48 @@ public u32 Run() effects calls(Chosen.Step) => API.Run();
                f"an initializer passed with an empty write bound: {missing_write.exception}")
 
 
+def _record_method_effect_targets() -> None:
+    fields = b"""module FieldEffects;
+public record Runner(Fn(u32 value) -> u32 Apply) {
+    public u32 Run() effects reads(this), calls(Apply) => Apply(0u32);
+    public u32 Forward() effects reads(this), calls(Apply) => this.Run();
+}
+"""
+    parameters = b"""module ParameterEffects;
+public record Runner(u32 Value) {
+    public u32 Run(u32 seed, Fn(u32 value) -> u32 callback) effects calls(callback) => callback(seed);
+}
+public u32 Forward(Runner runner, Fn(u32 value) -> u32 action) effects calls(action) => runner.Run(0u32, action);
+"""
+    with parser.cached_build(ROOT) as compiled:
+        def check(source: bytes) -> None:
+            elaborate.elaborate(source, parser.parse_source(compiled, source, surface=True))
+
+        check(fields)
+        with raises(HoldFastError) as field:
+            check(fields + b"public u32 Invoke(Runner runner) effects none => runner.Run();\n")
+        ensure("transitively invokes 'Apply'" in field.exception.message,
+               f"a projected callable missed its effect diagnostic: {field.exception}")
+
+        check(parameters)
+        with raises(HoldFastError) as parameter:
+            check(parameters.replace(b"calls(action)", b"none"))
+        ensure("transitively invokes 'action'" in parameter.exception.message,
+               f"the record method's callback effect missed the actual argument: {parameter.exception}")
+
+        with raises(HoldFastError) as partial:
+            check(parameters + b"""
+public definition Fn(Fn(u32 value) -> u32 callback) -> u32 Partial(Runner runner)
+    effects none => runner.Run(0u32);
+""")
+        ensure("partial application" in partial.exception.message,
+               f"an unapplied method callback missed the closed signature refusal: {partial.exception}")
+
+
 def cases() -> list[Case]:
     return [Case("locked internal effect refactor preserves an opaque importing proof", _locked_refactor,
                  lane="toolchain"),
             Case("locked named effects follow resolved callable identities across aliases", _locked_named_effects,
+                 lane="toolchain"),
+            Case("record methods resolve callable field and argument effects", _record_method_effect_targets,
                  lane="toolchain")]

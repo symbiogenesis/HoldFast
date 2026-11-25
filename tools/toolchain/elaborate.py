@@ -1383,7 +1383,17 @@ class _Elaborator(
         arity = self.callable_effect_arities.get(callee)
         return arity is None or (supplied == self.constants[callee].generics and arguments == arity)
 
-    def _check_call_effects(self, head: _Term, supplied: int, arguments: list[Node],
+    def _effect_call_name(self, effect: _Term) -> str:
+        target, _ = self.spine(effect)
+        if target.kind == "var":
+            return self.parameter_names.get(cast("int", target.value), "callable parameter")
+        name = str(target.value)
+        if (projection := self.record_projections.get(name)) is not None:
+            record, index = projection
+            return record.fields[index].name
+        return self.callable_source_names.get(name, name)
+
+    def _check_call_effects(self, head: _Term, prefix: list[_Term], arguments: list[Node],
                             terms: list[_Term], site: Node | None) -> None:
         if site is not None and not self._static_call_permitted(head, arguments, terms):
             if self.static_forbidden is not None:
@@ -1398,7 +1408,7 @@ class _Elaborator(
                 return
             if collecting is not None:
                 formals = self.definition_effect_parameters
-                if head.kind == "var" and supplied == 0 and formals is not None and ident in formals:
+                if head.kind == "var" and not prefix and formals is not None and ident in formals:
                     self.definition_callback_uses.add(formals[ident])
                 else:
                     self._unresolved_effect_call("private helper with a recursive or indirect call needs explicit effects", site)
@@ -1409,7 +1419,7 @@ class _Elaborator(
             return
         callee = str(head.value)
         name = self.callable_source_names.get(callee, callee)
-        if not self._call_arity_matches(callee, supplied, len(terms)):
+        if not self._call_arity_matches(callee, len(prefix), len(terms)):
             self._unresolved_effect_call("partial application or invocation of a returned callable needs a closed callable signature", site)
             return
         if collecting is not None and callee in self.callable_source_names and callee not in self.callable_has_effects:
@@ -1419,7 +1429,19 @@ class _Elaborator(
         if bound is not None and callee in self.untracked_effect_functions and not named_in_bound:
             raise self.fail("type", f"callable invokes function '{name}' not declared in effects calls(...)", site)
         required = set() if named_in_bound else set(self.callable_effect_calls.get(callee, ()))
+        if any(effect.kind == "app" for effect in required):
+            # A callable field's effect is relative to this method's receiver.
+            signature = self.constants[callee].type
+            for actual in prefix:
+                signature = self.whnf(signature)
+                if signature.kind != "pi":
+                    break
+                required = {self.substitute(effect, cast("int", signature.value), actual) for effect in required}
+                signature = signature.args[1]
         for index in self.callable_callback_effects.get(callee, set()):
+            if index >= min(len(arguments), len(terms)):
+                self._unresolved_effect_call("partial application or invocation of a returned callable needs a closed callable signature", site)
+                return
             if self._pure_callback(arguments[index], terms[index]):
                 continue
             actual = self.resolve(terms[index])
@@ -1437,11 +1459,7 @@ class _Elaborator(
         if collecting is not None:
             collecting.update(required)
         if bound is not None and (missing := required - bound):
-            target = min(
-                self.callable_source_names.get(str(effect.value), str(effect.value))
-                if effect.kind == "const" else self.parameter_names[cast("int", effect.value)]
-                for effect in missing
-            )
+            target = min(self._effect_call_name(effect) for effect in missing)
             raise self.fail("type", f"callable transitively invokes '{target}' via '{name}' not declared in effects calls(...)", site)
 
     def _has_static_effects(self, callee: str) -> bool:
@@ -1814,7 +1832,7 @@ class _Elaborator(
             for post in contract.ensures:
                 fact = self.substitute(post, contract.argument, val_args[0])
                 self.active_facts.append(self.substitute(fact, contract.result, term))
-        self._check_call_effects(callee_head, len(callee_gen_args), arguments, val_args, call_site)
+        self._check_call_effects(callee_head, callee_gen_args, arguments, val_args, call_site)
         if is_rec_call:
             self.current_rec_used = True
             if len(callee_gen_args) != len(self.current_rec_generics):
