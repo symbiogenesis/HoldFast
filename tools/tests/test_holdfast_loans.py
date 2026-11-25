@@ -1,13 +1,16 @@
 # SPDX-License-Identifier: Apache-2.0
 """Independent complete-path loan-flow fixtures and rejected neighbors."""
 
+import re
+import subprocess
 from collections.abc import Callable
 from itertools import product
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import cast
 
-from tests.harness import Case, ensure, raises
-from toolchain import parser, solver_ledger
+from tests.harness import TOOLS, Case, ensure, raises
+from toolchain import parser, proofenv, solver_ledger
 from toolchain.ast import HoldFastError
 from toolchain.elaborate import elaborate
 from toolchain.loans import (
@@ -1463,6 +1466,104 @@ public u32 Client(ref Slots<u32, 4> src, ref Slots<u32, 4> dst)
                 ensure(not trusted, f"the relocation snapshot relies on solver-trusted obligations: {trusted}")
 
 
+def _indexed_symbolic_disjointness() -> None:
+    source = b"""module IndexedLoans;
+
+private Unit SetTwo(ref byte a, ref byte b)
+    ensures a == 9u8 && b == 8u8
+{
+    a = 9u8;
+    b = 8u8;
+    return;
+}
+
+public bool Client(ref Span<byte> values, usize i, usize j)
+    requires values.CanRead && values.CanWrite
+    requires values.Length == 4usize
+    ensures result == (i < 4usize && j < 4usize && i != j)
+{
+    if (i < 4usize && j < 4usize && i != j) {
+        SetTwo(ref values[i], ref values[j]);
+        return true;
+    }
+    return false;
+}
+"""
+    with parser.cached_build(TOOLS.parent) as compiled:
+        tree = parser.parse_source(compiled, source, surface=True)
+        gallina = elaborate(source, tree).gallina
+        invalid = source.replace(b"ref values[j]", b"ref values[i]")
+        bad_tree = parser.parse_source(compiled, invalid, surface=True)
+        with raises(HoldFastError, msg="coincident loans reached Gallina emission") as failure:
+            elaborate(invalid, bad_tree)
+        error = failure.exception
+        call = b"SetTwo(ref values[i], ref values[i]);"
+        line = invalid[:invalid.index(call)].count(b"\n") + 1
+        column = invalid.splitlines()[line - 1].index(b"ref values[i]") + 1
+        ensure(error.kind == "type" and (error.line, error.column) == (line, column)
+               and "cannot prove indexed loan of 'values' is disjoint from argument 2" in error.message,
+               f"wrong rejection for coincident loans: {error.line}:{error.column}: {error}")
+
+    entries = solver_ledger.ledger(gallina)
+    ensure(not entries, "indexed loans depended on a solver assumption")
+    [client] = re.findall(r"^Definition (holdfast_d\d+_Client) :", gallina, re.MULTILINE)
+    proof = f"""
+Import HoldFast_IndexedLoans.
+Local Definition trial_byte (n : nat) := holdfast_mk_int 0 (holdfast_nat_to_bits 8 n).
+Local Definition trial_index (n : nat) := holdfast_mk_int 4 (holdfast_nat_to_bits 64 n).
+Local Definition trial_read := holdfast_Span_Read (holdfast_int 0).
+
+Theorem indexed_writeback : forall values i j,
+  ({client} values i j = true ->
+    trial_read ({client}_post_values values i j) i = trial_byte 9 /\\
+    trial_read ({client}_post_values values i j) j = trial_byte 8) /\\
+  ({client} values i j = false -> {client}_post_values values i j = values) /\\
+  (forall k, holdfast_int_ne 4 i k = true -> holdfast_int_ne 4 j k = true ->
+    trial_read ({client}_post_values values i j) k = trial_read values k).
+Proof.
+  intros values i j. unfold {client}, {client}_post_values. cbv beta.
+  match goal with
+  | |- context [if ?guard then true else false] => destruct guard eqn:allowed
+  end.
+  - split.
+    + intros _. apply holdfast_and_right in allowed. apply holdfast_int_ne_false in allowed.
+      assert (reverse_separation : holdfast_int_ne 4 j i = true).
+      {{ unfold holdfast_int_ne. rewrite (holdfast_int_eq_sym_false 4 i j allowed). reflexivity. }}
+      unfold trial_read. split.
+      * rewrite (holdfast_Span_Read_write_other_ne _ _ _ _ _ reverse_separation).
+        apply holdfast_Span_Read_write_same.
+      * apply holdfast_Span_Read_write_same.
+    + split.
+      * discriminate.
+      * intros k outside_i outside_j. unfold trial_read.
+        rewrite (holdfast_Span_Read_write_other_ne _ _ _ _ _ outside_j).
+        apply holdfast_Span_Read_write_other_ne. exact outside_i.
+  - split; [discriminate | split; reflexivity].
+Qed.
+
+Local Definition trial_span :=
+  holdfast_mk_span (holdfast_int 0) (trial_index 0) (trial_index 4) true true true holdfast_bs_empty.
+Example indexed_entry_is_inhabited :
+  holdfast_Span_CanRead _ trial_span = true /\\
+  holdfast_Span_CanWrite _ trial_span = true /\\
+  holdfast_Span_Length _ trial_span = trial_index 4 /\\
+  {client} trial_span (trial_index 1) (trial_index 0) = true /\\
+  {client} trial_span (trial_index 1) (trial_index 1) = false /\\
+  {client} trial_span (trial_index 4) (trial_index 0) = false.
+Proof. repeat split; reflexivity. Qed.
+"""
+    exports = [*solver_ledger.math_exports(gallina), "indexed_writeback", "indexed_entry_is_inhabited"]
+    audit = "".join(f"Print Assumptions {name}.\n" for name in exports)
+    with TemporaryDirectory() as tmp:
+        (Path(tmp) / "IndexedLoans.v").write_text(gallina + proof + audit, encoding="utf-8")
+        for command in (["rocq", "c", "-q", "IndexedLoans.v"], ["rocqchk", "-silent", "IndexedLoans"]):
+            result = subprocess.run(["opam", "exec", "--switch", proofenv.ROCQ_SWITCH, "--", *command],
+                                    cwd=tmp, capture_output=True, timeout=180, check=False)
+            ensure(result.returncode == 0, f"{command} refused the indexed writeback proof: {result.stderr[-2400:]!r}")
+            if command[0] == "rocq":
+                solver_ledger.audit(result.stdout.decode("utf-8"), len(exports), "HoldFast_IndexedLoans", entries)
+
+
 def cases() -> list[Case]:
     return [
         Case("located receiver order, snapshots, views and retained loans", _located_receiver_timing, lane="toolchain"),
@@ -1471,6 +1572,8 @@ def cases() -> list[Case]:
         Case("receiver argument views through branch results and helper inputs", _receiver_argument_view_captures,
              lane="toolchain"),
         Case("element loan and value snapshot across slot relocation", _element_loan_during_relocation, lane="toolchain"),
+        Case("symbolically disjoint indexed call loans and coincident control", _indexed_symbolic_disjointness,
+             lane="toolchain"),
             Case("last-use restoration and unresolved facts", _last_use_and_residuals),
             Case("nested restoration and suspended ancestors", _nested_restoration_and_suspension),
             Case("receiver reservation, activation and cancellation", _receiver_reservations),
