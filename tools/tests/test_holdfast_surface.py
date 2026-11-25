@@ -78,7 +78,7 @@ def _qualification_input_binding() -> None:
             path.write_bytes(name.encode())
         initial = parser._inputs(root)
         for name in ("tools/toolchain/surface.py", "tools/toolchain/hashing.py",
-                     "tools/toolchain/jsonutil.py", "tools/toolchain/atomic.py", "examples/surface.hf",
+                     "tools/toolchain/jsonutil.py", "tools/toolchain/atomic.py", parser.SURFACE_FIXTURE,
                      "examples/constants.hf", "examples/expressions.hf"):
             path = root / name
             original = path.read_bytes()

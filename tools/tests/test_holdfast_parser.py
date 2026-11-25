@@ -228,14 +228,15 @@ def _qualification_freshness() -> None:
         example.parent.mkdir(parents=True)
         source = b"module M; public Nat F() { return 1; }\r\n"
         inputs, toolchain = {"source": "original"}, {"compiler": "original"}
-        surface_example = example.with_name("surface.hf")
+        surface_fixture = root / parser.SURFACE_FIXTURE
+        surface_fixture.parent.mkdir(parents=True)
         constant_example = example.with_name("constants.hf")
         expression_example = example.with_name("expressions.hf")
         constant_source = source + b"// const"
         expression_source = source + b"// expressions"
         for change in ("source", "toolchain", "generated", "executable", "example", "surface", "constant", "expression", "none"):
             example.write_bytes(source)
-            surface_example.write_bytes(source)
+            surface_fixture.write_bytes(source)
             constant_example.write_bytes(constant_source)
             expression_example.write_bytes(expression_source)
             for name in (*parser.GENERATED, "holdfast-parser"):
@@ -255,7 +256,7 @@ def _qualification_freshness() -> None:
                 elif mode == "example":
                     example.write_bytes(source + b"// changed")
                 elif mode == "surface" and surface:
-                    surface_example.write_bytes(source + b"// changed")
+                    surface_fixture.write_bytes(source + b"// changed")
                 elif mode == "constant" and _source == constant_source:
                     constant_example.write_bytes(constant_source + b"// changed")
                 elif mode == "expression" and _source == expression_source:
@@ -283,6 +284,10 @@ def _qualification_freshness() -> None:
                     ensure(report["expression_example"] == {"path": "examples/expressions.hf",
                                                              "source_sha256": hashlib.sha256(expression_source).hexdigest()},
                            "qualification omitted tested extended-expression example identity")
+                    entries = report["syntax_entries"]
+                    ensure(isinstance(entries, dict) and entries["surface"]["example"] == {
+                        "path": parser.SURFACE_FIXTURE, "source_sha256": hashlib.sha256(source).hexdigest(),
+                    }, "qualification omitted tested surface fixture identity")
                     ensure(json.loads(latest.read_text(encoding="utf-8")) == report,
                            "published qualification report differs from returned evidence")
 

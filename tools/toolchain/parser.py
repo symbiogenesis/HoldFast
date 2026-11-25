@@ -34,11 +34,12 @@ from toolchain.jsonutil import exceeds_nesting, finite_float, unique_object
 type Json = bool | int | float | str | list[Json] | dict[str, Json] | None
 
 SOURCES = ("ast.ml", "parser.mly", "lexer.mll", "main.ml")
+SURFACE_FIXTURE = "tools/tests/fixtures/surface.hf"
 INPUT_PATHS = (
     *(f"tools/toolchain/parser/{name}" for name in SOURCES),
     "tools/opam/sail.lock", "tools/toolchain/parser.py", "tools/toolchain/surface.py",
     "tools/toolchain/hashing.py", "tools/toolchain/jsonutil.py", "tools/toolchain/atomic.py",
-    "examples/pure.hf", "examples/surface.hf", "examples/constants.hf", "examples/expressions.hf",
+    "examples/pure.hf", "examples/constants.hf", "examples/expressions.hf", SURFACE_FIXTURE,
 )
 GENERATED = ("parser.ml", "parser.mli", "lexer.ml")
 GENERATION_FLAGS = ("--strict", "--infer", "--explain")
@@ -837,9 +838,9 @@ def qualify(root: Path) -> dict[str, object]:
     example_path = root / "examples/pure.hf"
     example = read_source(example_path)
     parse_source(first, example)
-    surface_path = root / "examples/surface.hf"
-    surface_example = read_source(surface_path)
-    parse_source(first, surface_example, surface=True)
+    surface_path = root / SURFACE_FIXTURE
+    surface_fixture = read_source(surface_path)
+    parse_source(first, surface_fixture, surface=True)
     constant_path = root / "examples/constants.hf"
     constant_example = read_source(constant_path)
     parse_source(first, constant_example)
@@ -859,8 +860,8 @@ def qualify(root: Path) -> dict[str, object]:
             raise ValueError("parser generated output changed after fixtures")
     if read_source(example_path) != example:
         raise ValueError("example changed during qualification")
-    if read_source(surface_path) != surface_example:
-        raise ValueError("surface example changed during qualification")
+    if read_source(surface_path) != surface_fixture:
+        raise ValueError("surface fixture changed during qualification")
     if read_source(constant_path) != constant_example:
         raise ValueError("constant example changed during qualification")
     if read_source(expression_path) != expression_example:
@@ -879,8 +880,8 @@ def qualify(root: Path) -> dict[str, object]:
         "syntax_entries": {
             "pure": {"schema": 1, "status": "passed"},
             "surface": {"schema": 2, "status": "passed", "fixtures": surface_passed,
-                        "example": {"path": "examples/surface.hf",
-                                    "source_sha256": hashlib.sha256(surface_example).hexdigest()}},
+                        "example": {"path": SURFACE_FIXTURE,
+                                    "source_sha256": hashlib.sha256(surface_fixture).hexdigest()}},
         },
     }
     publish_report(first.directory / "qualification.json", report)

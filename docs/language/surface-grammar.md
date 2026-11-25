@@ -108,9 +108,9 @@ public hardware RegisterCounter {
 ```
 
 Proof holes and theorem signatures parse without establishing a theorem. The
-[authored surface example](../../examples/surface.hf) combines
-dependent data, contracts, loans and task cleanup;
-the independent qualification fixtures exercise every feature row above.
+[whole-file grammar fixture](../../tools/tests/fixtures/surface.hf) combines
+dependent data, contracts, loans and task cleanup. The independent qualification
+fixtures exercise every feature row above.
 
 <a id="acceptance-and-evidence"></a>
 

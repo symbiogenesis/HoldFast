@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Syntax examples for the [surface parser](../docs/tooling/parser.md).
+// Whole-file grammar coverage for the [surface parser](../../../docs/tooling/parser.md).
 module HoldFast.Surface;
 
 public const usize FirstOffset = 0usize;

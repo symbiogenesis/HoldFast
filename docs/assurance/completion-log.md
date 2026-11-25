@@ -324,10 +324,10 @@ locked `menhir 20260209 --strict --infer --explain` and `ocamlc 5.4.1` in
 `verifiedos-sail-0.20.3-ocaml-5.4.1` and passes all `400` independent surface
 positive, span, precedence, lookahead-limit and refusal fixtures
 ([tools/toolchain/surface.py](../../tools/toolchain/surface.py)). The landing run also
-passed the authored surface example
+passed the whole-file surface fixture
 (`3bba4ffee2c7c6221f747b0cf9d262d1810238fe5f491dfc5a8ada8f7260ea88`) while
 preserving all `70` pure fixtures and `173` migration comparisons.
-[Current surface example](../../examples/surface.hf)
+[Current grammar fixture](../../tools/tests/fixtures/surface.hf)
 
 Syntax parsing grants no elaboration, checked-parser or resource-safety verdict, and hosted CI
 remains user-managed. The original 24 h estimate, range 16–32, is retained because
