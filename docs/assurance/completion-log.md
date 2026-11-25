@@ -2645,6 +2645,14 @@ the lambda body. Rocq 9.3.0 checks the four results and three examples with
 closed assumptions, and `rocqchk` checks the compiled module.
 [Call-by-value model and proofs](../../tools/rocq/graded_cbv.v)
 
+The sequencing trial extends this result to a checked telescope of natural
+arguments. Each binder's exact grade equals the number of body reads of its
+evaluated value. A failure keeps the completed prefix and the failing
+argument's state and events. The examples check zero and repeated demand, a
+failure before a later argument, and an incorrect allowance. All 15 audited
+declarations have closed assumptions, and `rocqchk` checks the compiled module.
+[Sequencing replay](../../tools/tests/test_holdfast_graded_cbv.py)
+
 General modal and indexed-data elimination, broader usage-aware interpretations,
 erasure and the composed extension laws remain open.
 
@@ -2679,8 +2687,17 @@ rows. The source projection refuses mixed domains within the dependency closure.
 [Bounded source](../../tools/tests/fixtures/graded-bounded.hf) ·
 [Replay predicate and soundness](../../tools/rocq/graded_source.v)
 
+Bounded modal replay admits use of a `Box` payload below its advertised bound
+while retaining the exact type demand of the dependent motive. It also
+checks bounded parameters and lambda binders. Controls reject computation
+overuse, inconsistent motives, mixed domains and stale type rows. The exact
+mode refuses the relaxed uses. Rocq audits the bounded soundness and motive
+demand results with closed assumptions.
+[Bounded modal replay](../../tools/tests/test_holdfast_graded_modal.py) ·
+[Modal source predicate](../../tools/rocq/graded_modal_source.v)
+
 These trials use checked kernel judgments over a trusted source projection.
-Checked source correspondence and domain reconstruction for modal elimination
+Checked source correspondence and reconstruction for broader dependent data
 remain open.
 
 <a id="q25by-compare-fixed-modes-with-a-bounded-grading-increment"></a>
@@ -2750,11 +2767,30 @@ overlap at runtime and passes the 36 observation pairs in each mode.
 [HoldFast replay](../../tools/tests/test_holdfast_loans.py#_owner_coordinate_indexed_loans) ·
 [Rust fixture](../../tools/tests/fixtures/owner_coordinate_loans.rs)
 
+The composed-view trial reads from two successive slices, each at offset one,
+and writes back to owner index `j` under `i < 2`, `j < 4` and `j != 2 + i`.
+HoldFast checks the call and replays the returned byte, writeback, frame and
+unchanged failure state in the `Span` model. The source controls reject
+coincident owner coordinates, stale views and unresolved argument effects.
+Default, explicit NLL, legacy Polonius and Polonius Alpha reject the direct
+call and its coincident neighbor with E0502. The `get_disjoint_mut` rewrite
+checks disjointness at runtime and passes all 36 index pairs in each mode.
+[HoldFast replay](../../tools/tests/test_holdfast_loans.py#_owner_coordinate_indexed_loans) ·
+[Rust fixture](../../tools/tests/fixtures/composed_view_loans.rs)
+
 The same compiler accepts the conditional shared return in legacy and Alpha.
 The accepted runs return the indexed byte for each in-bounds index and update
 the owner on the out-of-bounds sibling. NLL rejects the sibling write with
 `E0506`. All three reject the neighbor that writes before returning a live view.
 [Conditional-return fixture](../../tools/tests/fixtures/conditional_loans.rs)
+
+The HoldFast counterpart returns a read-only one-byte slice on the in-bounds
+exit and writes the first owner byte on the error exit. Rocq checks the read,
+both owner post-states and the frame with closed assumptions. The return checker
+accepts an intervening write at a proved-disjoint index and refuses a coincident
+write or an explicitly restored view.
+[HoldFast source](../../tools/tests/fixtures/conditional-view-return.hf) ·
+[Kernel replay](../../tools/tests/test_holdfast_loan_returns.py#_conditional_view_return)
 
 Legacy also accepts the loop-carried conditional reborrow. Its executed test
 checks the visit counts when the cursor stays on a node, advances and reaches
@@ -2762,12 +2798,11 @@ the end. NLL and Alpha report `E0499` and `E0503` at the loop reborrow. All
 three reject the neighbor that clears the cursor with the node loan still live.
 [Loop fixture](../../tools/tests/fixtures/loop_reborrowing.rs)
 
-`python tools/run.py holdfast-borrow-compare` replays all 52 Rust configurations
-and executes the 16 accepted observation tests. The unflagged default
-agrees with Alpha on these fixtures. The conditional return and
-loop cases establish Rust baseline decisions. The corresponding HoldFast
-source and restoration replays, held-out clients, checker cost measurements
-and checked runtime correspondence remain open.
+`python tools/run.py holdfast-borrow-compare` replays all 64 Rust configurations
+and executes the 20 accepted observation tests. The unflagged default
+agrees with Alpha on these fixtures. HoldFast loop source and restoration
+replay, held-out clients, checker cost measurements and checked runtime
+correspondence remain open.
 
 The loan diagnostic keeps branch-specific grants through joins. The controls
 require independent restoration of three alternative exclusive grants, detect
