@@ -133,9 +133,9 @@ and supports the following features.
   named `Fn` parameters; unnamed callable parameters accept no labels. No
   argument reordering, omission or defaults are inferred. Dependent later
   parameters are instantiated in declaration order before their arguments are
-  checked, preserving complete telescope substitution. Recursive and direct calls
-  check every declared precondition, including quantified propositions. A
-  callable can be passed as a plain `Fn` when its preconditions hold for fresh,
+  checked, preserving complete telescope substitution. Calls check every
+  declared precondition, including quantified propositions. A callable can be
+  passed as a plain `Fn` when its preconditions hold for fresh,
   arbitrary arguments of the destination signature. An explicit wrapper can
   establish a remaining precondition. The signature preserves each parameter's
   ownership and loan mode. A caller may discard a stronger return guarantee.
@@ -169,8 +169,14 @@ and supports the following features.
   expression production and retains its original byte span. A trailing format
   specifier is separate from the expression. Holes support `Nat`, `bool`, `char`
   when concrete or proved ASCII, and `Vec<Nat, n>`. Numeric holes accept
-  specifiers including `:x2`, `:x4`, `:x8`, `:d` and `:b`. The checker
-  checks target-buffer aliasing and requires `ValidUtf8(bytes.Model)` for a byte-vector hole. `WrittenBytes(builder)` exposes the exact committed byte sequence and `Written(builder)` counts it. Holes evaluate once from left to right. Their effects on other places occur before the capacity check. A write appends the whole formatted sequence on success. Exhaustion sets `Fits` to false and preserves the previous bytes. Later writes to that failed builder preserve the same bytes.
+  specifiers including `:x2`, `:x4`, `:x8`, `:d` and `:b`. The checker verifies
+  that hole accesses respect the builder's loan and requires
+  `ValidUtf8(bytes.Model)` for a byte-vector hole. `WrittenBytes(builder)`
+  exposes the committed bytes and `Written(builder)` counts them. Holes evaluate
+  once from left to right. Their effects on other places occur before the capacity
+  check. A successful write appends the whole formatted sequence. Exhaustion
+  sets `Fits` to false and preserves the previous bytes. Later writes to the
+  failed builder preserve those bytes.
 - Structural recursion over `Nat` parameters on `definition`, `function`,
   `lemma` and `theorem` declarations, elaborated to Gallina `fix` terms with
   optional explicit `decreases parameter` contracts on `definition` and
@@ -182,7 +188,7 @@ and supports the following features.
   functions and recursion over unbounded naturals. For each selected executable
   declaration it checks the elaborator's resolved recursion information before
   emitting C. Recursive code needs a stack bound and lowering rule. The packet
-  profile currently admits acyclic calls among its represented functions.
+  profile admits acyclic calls among its represented functions.
 - Exhaustive `match` expressions and returning statement `match` over `Nat`,
   `bool`, `char`, `Unit`, `Vec<Nat, n>`, products and nominal `record` and `union`
   types, with wildcard (`_`), variable, `()`, Boolean literal, character literal
@@ -466,13 +472,12 @@ Source callable interfaces preserve explicit arity: `Fn() -> Unit` and
 though their CIC interpretations use unit. Neither named arguments nor unit
 normalization supplies an omitted argument.
 
-Inference uses bounded structural unification with occurs and scope checks and
-bounded definitional conversion. It proves no arbitrary arithmetic equality and
-uses no external solver. Reduction exhaustion is a limit diagnostic, never an
-established equation. Every unsupported syntax role, effect, capture, resource
-modifier, grade, contract or unfinished proof is refused explicitly. This
-increment supplies theorem authorship and proof parameters; automatic discharge
-of `requires`/`ensures` and the full proof language remain frontend work.
+Inference uses bounded structural unification with occurs and scope checks,
+and bounded definitional conversion. The checker discharges supported
+`requires` and `ensures` obligations from local facts, checked call contracts
+and explicit proofs. Arithmetic beyond its built-in reasoning needs a proof
+term. Exhausted reduction produces a limit diagnostic. Unsupported constructs
+and unfinished proofs are refused at their source locations.
 
 The implementation is decomposed across the public entry point
 ([`elaborate.py`](../../tools/toolchain/elaborate.py)) and cohesive

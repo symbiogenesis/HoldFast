@@ -15,11 +15,12 @@ produce located refusals. The surface entry uses a bounded, token-only probe for
 generic applications in expressions.
 [Angle-argument rule](../language/surface-grammar.md#bindings-match-arms-and-generic-calls)
 
-The authored OCaml grammar and AST types own syntax; actions construct located
-syntax only. Nodes carry half-open original-source byte spans. Diagnostics use
-one-based lines/columns, treating CRLF and bare CR as line endings. Keep decimal
-spellings, including leading zeros, as strings without machine-integer bounds.
-Comments may be UTF-8; identifiers are ASCII. Provenance hashes unnormalized bytes.
+The authored Menhir grammar and OCaml AST types define the syntax tree. Nodes
+carry half-open byte spans in the original source. Diagnostics use one-based
+lines and Unicode code-point columns, treating CRLF and bare CR as line endings.
+Decimal literals retain their source spelling, including leading zeros, subject
+to the literal digit limit. Comments may contain UTF-8 text and identifiers use
+ASCII. Provenance hashes the original bytes.
 
 The [Sail snapshot](../../tools/opam/sail.lock) pins the Menhir generator and
 OCaml compiler. Build receipts bind authored inputs, tools, arguments and
@@ -38,8 +39,10 @@ qualification verdict.
 
 ## Acceptance and commands
 
-`python tools/run.py holdfast-parser build` generates and compiles the parser in the
-native guest lane. `holdfast-parser parse SOURCE` emits its JSON syntax tree.
+`python tools/run.py holdfast-parser build` generates and compiles the parser in
+the native guest lane. `holdfast-parser parse SOURCE` uses the Menhir code backend
+and emits schema-1 JSON for the pure grammar. Add `--surface` to parse the wider
+development grammar and emit schema-2 JSON.
 `holdfast-parser qualify` builds it and runs independent expected-tree fixtures,
 whole-file positive/refusal cases, source spans, LF/CRLF/bare-CR positions,
 UTF-8 comments and invalid encoding, decimal spelling, precedence and

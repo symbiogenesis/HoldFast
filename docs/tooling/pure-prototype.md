@@ -77,11 +77,10 @@ Arithmetic and ordering take naturals; equality and inequality take two operands
 of the same type. Negation, conjunction and disjunction take booleans.
 A condition is Boolean and every reachable branch returns the declared
 function result type. An expression body checks exactly like a single return;
-its expression is evaluated once. Optional trailing commas apply to nonempty
-parameter and argument lists, never to grouping. Statements after a terminal
-return or conditional are refused, and a block without a terminal result is a syntax error. Calls have the
-declared arity and argument types. A positional prefix may be followed by a
-labeled suffix; each label must name the next declared parameter. Reordered,
+its expression is evaluated once. Nonempty parameter and argument lists allow
+a trailing comma. A block ends with a return or returning conditional. Calls
+must match the declared arity and argument types. A positional prefix may be
+followed by a labeled suffix. Each label must name the next declared parameter. Reordered,
 duplicate or unknown labels, omitted arguments and positional arguments after a
 label are refused. Labels preserve once-only left-to-right evaluation and do
 not change the emitted application. The supported qualified call,
@@ -263,9 +262,9 @@ python tools/run.py holdfast emit examples/pure.hf --output out/Pure.v
 ```
 
 Create the output directory first, or omit `--output` to print definitions.
-The [example](../../examples/pure.hf) defines a cube and Boolean
-selection: intended `Choose(true, 1)` is true, `Choose(true, 2)` false. Output is
-module `HoldFast_Oracle` with `f_Cube`/`f_Choose`. The
+The [example](../../examples/pure.hf) defines a cube and a Boolean selection.
+`Choose(true, 1)` evaluates to `true` and `Choose(true, 2)` to `false`. The
+emitted `HoldFast_Oracle` module contains `f_Cube`, `c_Base` and `f_Choose`. The
 [expression example](../../examples/expressions.hf) adds Boolean
 logic, comparisons and checked natural arithmetic. The playground console
 evaluates closed expressions through the bounded static evaluator; kernel
