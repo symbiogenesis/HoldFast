@@ -13,10 +13,10 @@ The recursive kernel context matches the 31 classified floating-point axioms,
 and the stock and patched emissions have identical readings for all 3,533
 main-module declarations on that support. [Producer record check](docs/assurance/completion-log.md#q25ar-integrate-and-recheck-prerequisite-producer-receipts)
 
-The paired emulator controls match the C++ source, header and configuration
+Two runs per plugin set reproduce the C++ source, header and configuration
 schema with sequential generation. Under the default settings, the source and
 header differ even on a stock-plugin repeat. Default byte agreement remains a
-Q35p prerequisite. [Paired emulator emission](https://github.com/symbiogenesis/VerifiedOS/blob/badb9291b06f7fb0af99c9442bfc18d031eb04ec/docs/assurance/sail-memory-bindings.md#paired-emulator-emission)
+Q35p prerequisite. [Producer record check](docs/assurance/completion-log.md#q25ar-integrate-and-recheck-prerequisite-producer-receipts)
 
 Resume [Q25am](#q25am) when `machine-logic` supplies Q35p binding qualification,
 Q35o immutable emitter qualification, Q35n and Q35q production support, and

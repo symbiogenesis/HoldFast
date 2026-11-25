@@ -1624,7 +1624,10 @@ declare matching Sail, Z3 and library identities. Only the Rocq plugin differs
 in the stock/candidate pairs. Comparing the retained output digests gives
 equal configuration schemas and different C++ source and header digests for
 the default pair and the stock repeat. The sequential pair matches all
-three. This record check leaves default-generation agreement open under Q35p.
+three. The follow-up VerifiedOS revision `04c84ab6c6213474e32b8b6db85d7a157a485724`
+adds four manifest-bound files. Each new sequential run reproduces all three
+prior output digests for its plugin set. Default-generation agreement remains
+open under Q35p.
 
 Q25ar remains open for external independently checked producer receipts and its
 complete declared coverage. Canonical-machine interpretation, compiler,
