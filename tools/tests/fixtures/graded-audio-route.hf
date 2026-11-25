@@ -1,0 +1,24 @@
+// SPDX-License-Identifier: Apache-2.0
+module GradedAudioRoute;
+
+definition Fn(
+    Nat ticks @ NatExact(0),
+    Nat channels @ NatExact(0),
+    Vec<Nat, (ticks + ticks)> stereo @ NatExact(1),
+    Vec<Nat, channels> channelLabels @ NatExact(0)
+) -> Vec<Nat, (ticks + ticks)> RouteInputs() =>
+    (
+        Nat frames @ NatExact(0),
+        Nat count @ NatExact(0),
+        Vec<Nat, (frames + frames)> samples @ NatExact(1),
+        Vec<Nat, count> labels @ NatExact(0)
+    ) => samples;
+
+public definition Fn(
+    Vec<Nat, ((period + 1) + (period + 1))> stereo @ NatExact(1),
+    Vec<Nat, labelCount> channelLabels @ NatExact(0)
+) -> Vec<Nat, ((period + 1) + (period + 1))> StereoRoute(
+    Nat period @ NatExact(0),
+    Nat labelCount @ NatExact(0)
+) =>
+    RouteInputs()(period + 1, labelCount);
