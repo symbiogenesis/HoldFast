@@ -1728,6 +1728,112 @@ Proof. repeat split; reflexivity. Qed.
                 solver_ledger.audit(result.stdout.decode("utf-8"), len(exports), "HoldFast_MixedIndexedLoans", entries)
 
 
+def _owner_coordinate_indexed_loans() -> None:
+    source = b"""module OwnerCoordinateLoans;
+
+private byte CopyPeer(in byte source, ref byte target) {
+    target = source;
+    return source;
+}
+
+public byte Client(ref Span<byte> values, usize i, usize j)
+    requires values.CanRead && values.CanWrite
+    requires values.Length == 4usize
+{
+    if ((i < 3usize && j < 4usize) && j != 1usize + i) {
+        let shifted = Span.Slice(values, 1usize, 3usize);
+        return CopyPeer(in shifted[i], ref values[j]);
+    }
+    return 0u8;
+}
+"""
+    with parser.cached_build(TOOLS.parent) as compiled:
+        tree = parser.parse_source(compiled, source, surface=True)
+        gallina = elaborate(source, tree).gallina
+        for invalid in (
+            source.replace(b"ref values[j]", b"ref values[1usize + i]"),
+            source.replace(b"j != 1usize + i", b"j != i"),
+            source.replace(
+                b"return CopyPeer",
+                b"values[0usize] = 5u8;\n        return CopyPeer",
+            ),
+        ):
+            bad_tree = parser.parse_source(compiled, invalid, surface=True)
+            with raises(HoldFastError, msg="unproven owner-coordinate separation reached Gallina emission") as failure:
+                elaborate(invalid, bad_tree)
+            error = failure.exception
+            line = next(n for n, row in enumerate(invalid.splitlines(), 1) if b"return CopyPeer" in row)
+            column = invalid.splitlines()[line - 1].index(b"ref values") + 1
+            ensure(error.kind == "type" and (error.line, error.column) == (line, column)
+                   and "cannot prove indexed loan of 'values' is disjoint from argument 1" in error.message,
+                   f"wrong rejection for an unresolved owner-coordinate loan: {error.line}:{error.column}: {error}")
+
+    entries = solver_ledger.ledger(gallina)
+    ensure(not entries, "owner-coordinate loans depended on a solver assumption")
+    [client] = re.findall(r"^Definition (holdfast_d\d+_Client) :", gallina, re.MULTILINE)
+    proof = rf"""
+Import HoldFast_OwnerCoordinateLoans.
+Local Definition trial_byte (n : nat) := holdfast_mk_int 0 (holdfast_nat_to_bits 8 n).
+Local Definition trial_index (n : nat) := holdfast_mk_int 4 (holdfast_nat_to_bits 64 n).
+Local Definition trial_read := holdfast_Span_Read (holdfast_int 0).
+Local Definition owner_index i := holdfast_int_add 4 (trial_index 1) i.
+Local Definition can_copy i j := holdfast_and
+  (holdfast_and (holdfast_int_lt 4 i (trial_index 3)) (holdfast_int_lt 4 j (trial_index 4)))
+  (holdfast_int_ne 4 j (owner_index i)).
+
+Theorem owner_coordinate_writeback : forall values i j,
+  (can_copy i j = true ->
+    {client} values i j = trial_read values (owner_index i) /\
+    trial_read ({client}_post_values values i j) j = trial_read values (owner_index i) /\
+    trial_read ({client}_post_values values i j) (owner_index i) = trial_read values (owner_index i)) /\
+  (can_copy i j = false ->
+    {client} values i j = trial_byte 0 /\ {client}_post_values values i j = values) /\
+  (forall k, holdfast_int_ne 4 j k = true ->
+    trial_read ({client}_post_values values i j) k = trial_read values k).
+Proof.
+  intros values i j. unfold {client}, {client}_post_values. cbv beta.
+  match goal with
+  | |- context [if ?guard then _ else _] => destruct guard eqn:allowed
+  end.
+  all: match type of allowed with
+       | _ = ?outcome => change (can_copy i j = outcome) in allowed
+       end; rewrite allowed.
+  - split.
+    + intros _. unfold can_copy in allowed. apply holdfast_and_right in allowed.
+      split; [reflexivity |]. unfold trial_read. split.
+      * apply holdfast_Span_Read_write_same.
+      * now apply holdfast_Span_Read_write_other_ne.
+    + split.
+      * discriminate.
+      * intros k outside. now apply holdfast_Span_Read_write_other_ne.
+  - split; [discriminate | split; intros; repeat split; reflexivity].
+Qed.
+
+Local Definition trial_span :=
+  holdfast_Span_Write _ (holdfast_mk_span (holdfast_int 0) (trial_index 0)
+    (trial_index 4) true true true holdfast_bs_empty) (trial_index 1) (trial_byte 7).
+Example owner_coordinate_entry_is_inhabited :
+  holdfast_Span_CanRead _ trial_span = true /\
+  holdfast_Span_CanWrite _ trial_span = true /\
+  holdfast_Span_Length _ trial_span = trial_index 4 /\
+  {client} trial_span (trial_index 0) (trial_index 0) = trial_byte 7 /\
+  {client} trial_span (trial_index 0) (trial_index 1) = trial_byte 0 /\
+  {client} trial_span (trial_index 0) (trial_index 4) = trial_byte 0.
+Proof. repeat split; reflexivity. Qed.
+"""
+    exports = [*solver_ledger.math_exports(gallina), "owner_coordinate_writeback", "owner_coordinate_entry_is_inhabited"]
+    audit = "".join(f"Print Assumptions {name}.\n" for name in exports)
+    with TemporaryDirectory() as tmp:
+        (Path(tmp) / "OwnerCoordinateLoans.v").write_text(gallina + proof + audit, encoding="utf-8")
+        for command in (["rocq", "c", "-q", "OwnerCoordinateLoans.v"],
+                        ["rocqchk", "-silent", "OwnerCoordinateLoans"]):
+            result = subprocess.run(["opam", "exec", "--switch", proofenv.ROCQ_SWITCH, "--", *command],
+                                    cwd=tmp, capture_output=True, timeout=180, check=False)
+            ensure(result.returncode == 0, f"{command} refused owner-coordinate writeback: {result.stderr[:3600]!r}")
+            if command[0] == "rocq":
+                solver_ledger.audit(result.stdout.decode("utf-8"), len(exports), "HoldFast_OwnerCoordinateLoans", entries)
+
+
 def cases() -> list[Case]:
     return [
         Case("located receiver order, snapshots, views and retained loans", _located_receiver_timing, lane="toolchain"),
@@ -1739,6 +1845,7 @@ def cases() -> list[Case]:
         Case("symbolically disjoint indexed call loans and coincident control", _indexed_symbolic_disjointness,
              lane="toolchain"),
         Case("ordered mixed indexed call loans and possible alias controls", _mixed_indexed_loans, lane="toolchain"),
+        Case("owner-coordinate shared and exclusive element loans", _owner_coordinate_indexed_loans, lane="toolchain"),
             Case("last-use restoration and unresolved facts", _last_use_and_residuals),
             Case("nested restoration and suspended ancestors", _nested_restoration_and_suspension),
             Case("receiver reservation, activation and cancellation", _receiver_reservations),

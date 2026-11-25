@@ -159,6 +159,15 @@ pinned modes, while the `split_at_mut` spelling passes the observations.
 [HoldFast replay](../../tools/tests/test_holdfast_loans.py#_mixed_indexed_loans) ·
 [Rust fixture](../../tools/tests/fixtures/mixed_indexed_loans.rs)
 
+The frontend also checks a shared element loan from a named
+`Span.Slice` and an exclusive element loan directly from its owner. The
+slice must derive from the current owner term. The checker adds the slice
+offset to the shared index before applying the scoped separation facts. For
+a slice beginning at offset one, `j != 1usize + i` separates the two loans
+and `j != i` leaves their separation unproved. The Rocq replay checks the
+returned byte, owner writeback, framed elements and untouched failure state.
+[Owner-coordinate replay](../../tools/tests/test_holdfast_loans.py#_owner_coordinate_indexed_loans)
+
 If a client must restructure a loop whose last use of a view precedes a write
 to its owner, keep the original loop. Move one use past that write to produce
 the conflicting case. Freeze the accessed place, last use and expected
