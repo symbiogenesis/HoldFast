@@ -2297,7 +2297,7 @@ def _qualify_attempt(
         with phase("parse"):
             parsed = holdfast_parser.parse_source(compiled, source, surface=True)
 
-        # 1. Elaborate first_slice.hf and verify determinism + exported obligations
+        # Check deterministic elaboration and replay the exported proof obligations.
         translated = holdfast_elaborate._checked_elaboration(source, parsed, phase=phase)[0]
         repeated = holdfast_elaborate.elaborate(source, parsed)
         if translated != repeated:
@@ -2350,7 +2350,7 @@ def _qualify_attempt(
         with phase("lower-to-c"):
             c_source, check_count = lower_to_c(source, parsed, checked=translated, observations=operations)
 
-    # 2. Fail-closed proof-corruption control on FirstSlice.v
+    # Require the kernel to reject a corrupted copy of FirstSlice.v.
     corrupted_v = directory / "FirstSliceCorrupted.v"
     corrupted_text = _corrupted_proof(translated.gallina)
     corrupted_v.write_text(corrupted_text, encoding="utf-8", newline="")
@@ -2372,10 +2372,9 @@ def _qualify_attempt(
     _check_corruption_refusal(translated.gallina, corrupt_proc.returncode,
                               corrupt_proc.stdout + corrupt_proc.stderr)
 
-    # 3. Capacity-invariance gate (8usize vs 1_000_000_000usize)
+    # Check that a much larger capacity leaves the proof skeleton unchanged.
     cap_gate = _run_capacity_invariance_gate(compiled, directory, steps)
 
-    # 4. Semantic negative controls
     neg_controls = _run_negative_controls(compiled, directory)
 
     c_path = directory / "first_slice.c"
@@ -2388,7 +2387,7 @@ def _qualify_attempt(
         raise ValueError(f"Sail emulator not found at {sim_path}; run `python tools/run.py model build`")
     simulator = [str(sim_path)]
 
-    # 5a. Purecap hardware capability execution & fault controls on sail_riscv_sim
+    # Execute the handwritten capability and fault controls in the Sail simulator.
     purecap_runs: dict[str, object] = {}
     for mode, expected_verdict, expected_code in PURECAP_CASES:
         asm_stream = _purecap_cheri_asm_stream(mode)
@@ -2416,7 +2415,7 @@ def _qualify_attempt(
         if mode == "pass":
             _check_cold_branch_on_sail(simulator, profile, directory, processes[0])
 
-    # 5b. CompCert Clight (-dclight), -interp, and purecap C-to-Sail execution
+    # Compare CompCert's Clight interpretation with Sail execution of its compiled output.
     resolved_ccomp = _resolve_ccomp(ccomp_path)
     ccomp_evidence: dict[str, object] = {"available": resolved_ccomp is not None}
     if resolved_ccomp is not None:

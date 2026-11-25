@@ -64,17 +64,12 @@ def write_elf(path: Path, sections: list[Section], symbols: dict[str, tuple[str,
               entry: int) -> None:
     """Write `sections` as one ELF64 executable.
 
-    `symbols` maps a name to the section it belongs to and its absolute address.
-    A symbol in no section would load as `SHN_UNDEF` and the emulator would skip
-    it, so every symbol here names one.
+    `symbols` maps a name to its emitted section and absolute address.
     """
-    # A section with neither bytes nor a symbol carries nothing; one with a
-    # symbol and no bytes still has to survive, or the symbol would be written
-    # against `SHN_UNDEF` and the emulator would skip it.
+    # Keep empty sections that define symbols so those symbols have section indices.
     named = {section for section, _ in symbols.values()}
     sections = [s for s in sections if s.data or s.name in named]
-    # Symbols identify sections by name, and the loader finds .symtab by name.
-    # Ambiguous names would silently bind either lookup to the wrong section.
+    # Unique names keep symbol and loader lookups unambiguous.
     section_names = {".symtab", ".strtab", ".shstrtab"}
     for section in sections:
         if section.name in section_names:
@@ -86,7 +81,6 @@ def write_elf(path: Path, sections: list[Section], symbols: dict[str, tuple[str,
             raise ValueError(f"symbol {name} is in no emitted section")
 
     shstrtab, strtab = _Strtab(), _Strtab()
-    # Section header names, in the order the headers are written.
     sh_names = [shstrtab.add("")] + [shstrtab.add(s.name) for s in sections]
     sh_names += [shstrtab.add(n) for n in (".symtab", ".strtab", ".shstrtab")]
 
@@ -96,8 +90,8 @@ def write_elf(path: Path, sections: list[Section], symbols: dict[str, tuple[str,
                               (STB_GLOBAL << 4) | STT_NOTYPE, 0,
                               index_of[section], value, 0)
 
-    # The file: headers, then each section's bytes at an aligned offset, then
-    # the two string tables and the symbol table, then the section headers.
+    # Lay out section data after the ELF and program headers. Append the symbol
+    # table, the string tables and the section headers in that order.
     offset = EHDR_SIZE + PHDR_SIZE * len(sections)
     blobs: list[tuple[int, bytes]] = []
     sh_offsets: list[int] = []
@@ -127,9 +121,6 @@ def write_elf(path: Path, sections: list[Section], symbols: dict[str, tuple[str,
         EHDR_SIZE, PHDR_SIZE, len(sections),
         SHDR_SIZE, len(sections) + 4, len(sections) + 3,
     )
-    # `sh_offsets` gets one entry per section above, so `strict` is asserting that
-    # rather than testing it: a program header written against the wrong section's
-    # offset produces an image that loads and is silently wrong.
     for section, file_offset in zip(sections, sh_offsets, strict=True):
         out += struct.pack("<IIQQQQQQ", PT_LOAD, section.p_flags, file_offset,
                            section.addr, section.addr,

@@ -78,8 +78,8 @@ class Assembler:
         self.constant_lines: dict[str, list[int]] = {}
         self.constant_values: dict[int, int] = {}
         self.section = ".text"
-        # During layout passes (`strict=False`), forward references evaluate to 0;
-        # during final encoding (`strict=True`), undefined symbols raise `AsmError`.
+        # Layout can provisionally use zero for unresolved forward references.
+        # Final encoding requires every symbol to resolve.
         self.strict = False
         self._parse(source)
         for item in self.items:
@@ -109,9 +109,6 @@ class Assembler:
                                        text=head, args=_split_operands(rest)))
 
     def _directive(self, name: str, rest: str, lineno: int) -> None:
-        # each argument-taking directive states its arity before anything indexes the
-        # list, so a bare directive is this module's diagnostic with its source line
-        # rather than an IndexError blaming the tool
         args = _split_operands(rest)
         if name in (".text", ".data"):
             self.section = name
@@ -134,8 +131,7 @@ class Assembler:
             self.items.append(Item("data", lineno, self.section, text=name,
                                    args=args, size=width * len(args)))
         elif name in (".ascii", ".asciz", ".string"):
-            # one terminator per string, inside the join: `.asciz "a", "b"` lays down
-            # `a\0b\0`, which is what every other assembler means by it, not `ab\0\0`
+            # Terminate each argument separately. `.asciz "a", "b"` emits `a\0b\0`.
             tail = b"" if name == ".ascii" else b"\0"
             blob = b"".join(_string(a, lineno, self) + tail for a in args)
             self.items.append(Item("data", lineno, self.section, text=".bytes",
@@ -206,10 +202,8 @@ class Assembler:
             if blob is None:
                 continue
             gap = item.address - (section.addr + len(section.data))
-            # Raised rather than asserted, and this is the one in this module that
-            # most needs to survive `python -O`: a negative gap multiplies to an
-            # empty padding, so the item would be written at the wrong offset and
-            # the image would assemble, load, and run as a different program.
+            # A negative gap produces empty padding and would misplace the item.
+            # Reject it even under `python -O`.
             if gap < 0:
                 raise self._error(item.line, f"layout moved backwards by {-gap} bytes "
                                              f"placing {item.text or item.kind}")
@@ -308,16 +302,13 @@ class Assembler:
     def _operands(self, name: str, item: Item, pc: int) -> list[int]:
         wanted = dialect.signature(name)
         given = item.args
-        # An optional trailing vector mask is spelled `v0.t` when enabled and
-        # omitted when disabled. Normalize omission to the model's empty operand
-        # (extensions/V/vext_utils_insts.sail, maybe_vmask).
+        # Supply an empty operand for an omitted trailing vector mask.
         if wanted and wanted[-1] == "vm" and len(given) == len(wanted) - 1:
             given = [*given, ""]
         if len(given) != len(wanted):
             raise self._error(item.line,
                               f"{name} takes {len(wanted)} operands, given {len(given)}")
         out: list[int] = []
-        # Keep strict pairing as a safeguard against silently truncated encodings.
         for spec, text in zip(wanted, given, strict=True):
             out += self._operand(spec, text, item, pc)
         return out
@@ -327,16 +318,12 @@ class Assembler:
         if spec == "reg":
             return [self._register(text, item)]
         if spec == "vreg":
-            # Use the vector register namespace; integer register names are invalid.
             key = text.lower()
             if key not in dialect.VREGISTERS:
                 raise self._error(item.line, f"no vector register {text}")
             return [dialect.VREGISTERS[key]]
         if spec == "vm":
-            # Absent is unmasked, which is the `vm` bit set; `v0.t` is masked,
-            # which is the bit clear. There is no third spelling: the mask
-            # register is always `v0`, so naming another one is an error rather
-            # than a mask.
+            # The vm bit is set for unmasked instructions and cleared for v0.t.
             if not text:
                 return [1]
             if text.lower() != "v0.t":
@@ -346,10 +333,8 @@ class Assembler:
         if spec in ("imm", "sym"):
             return [self._eval(text, item, pc)]
         if spec == "v0":
-            # The mask register spelled out. A form whose `vm` bit is a literal one in
-            # the encoding still prints `, v0` (extensions/V), so a program writes it
-            # and the encoding carries nothing: this contributes no value at all, which
-            # is what keeps the flat operand list aligned with the encoder's slots.
+            # This form spells out v0 in assembly. The encoding fixes the bit,
+            # so the operand contributes no value to the encoder.
             if text.lower() != "v0":
                 raise self._error(item.line, f"{item.text} takes the mask register "
                                              f"spelled v0, given {text!r}")
@@ -364,9 +349,7 @@ class Assembler:
                 raise self._error(item.line, f"no special capability register {text}")
             return [dialect.SCRS[key]]
         if spec == "index":
-            # `cs1[rs2 << scale]`, the profile's own spelling of the indexed
-            # access. The scale is optional and defaults to zero, which is the
-            # unscaled case rather than a missing operand.
+            # Omitted scale in cs1[rs2 << scale] encodes the unscaled case.
             match = re.fullmatch(r"([A-Za-z_.$0-9]+)\s*\[\s*([A-Za-z_.$0-9]+)\s*"
                                  r"(?:<<\s*(.+?)\s*)?\]", text)
             if not match:
@@ -421,8 +404,7 @@ class Assembler:
 
 
 # ---------------------------------------------------------------------------
-# Expressions: a precedence climber over the token list, with no assignment, no
-# call, and no comparison, because an operand is an address or a constant.
+# Precedence levels for constant and address expressions.
 
 _BINARY_OPERATORS: dict[str, tuple[int, Callable[[int, int], int]]] = {
     "|": (1, operator.or_),
@@ -444,9 +426,7 @@ def _tokenize(text: str, asm: Assembler, line: int) -> list[Token]:
         at = match.end()
         kind = match.lastgroup
         if kind is None:
-            # Every branch of `_TOKEN` is a named group, so this is unreachable
-            # unless one is added without a name; said here rather than left for a
-            # `None` to travel into the token list and fail as a bad token kind.
+            # Catch a new lexer alternative without a named group at its source.
             raise asm._error(line, f"the lexer matched {match.group()!r} in no named group")
         if kind != "space":
             tokens.append((kind, match.group()))
@@ -644,9 +624,7 @@ def _p_snez(asm: Assembler, item: Item, _pc: int) -> list[Instr]:
                       asm._register(item.args[1], item)])]
 
 
-# `fence` takes its two ordering sets as letters, which is how every RISC-V
-# assembler spells them and how the model's own tests are written; a bare
-# `fence` is the conservative `iorw, iorw` the base ISA defines it as.
+# Ordering-set bits used by fence. A bare fence encodes iorw, iorw.
 _FENCE_BITS = {"i": 8, "o": 4, "r": 2, "w": 1}
 
 
