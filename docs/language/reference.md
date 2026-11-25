@@ -231,7 +231,7 @@ elaborator's resource limit. [Pure arithmetic checks](../tooling/pure-prototype.
 | Member call `x.Method(a)` | Supplies the declaration's receiver loan; other arguments repeat their modes | M |
 | Conditional `if (c) a else b` | Mandatory `else`; the same join as a two-arm match | M |
 | Match expression | `match (e) { Pattern => value, ... }`, exhaustive, optional final comma | M |
-| Pattern test `e is P` | A successful pattern binds its variables in later operands of the same `&&` chain and in the `then` branch of an `if` guard | M |
+| Pattern test `e is P` | A successful pattern binds its variables in later `&&` operands, the `then` branch of an `if` guard and the consequent of `==>`. [Pattern test scope](surface-grammar.md#pattern-test-scope) | M (test, `&&` and `if`), D (bindings in `==>`) |
 | Record update `move base with { F = v }` | Declaration-order update; linear or affine records require `move` | M |
 | Formatting `Format.Write(ref builder, $"n={n}")` | The mathematical builder model returns an updated `TextBuilder` observed through `Fits`, `Written` and `WrittenBytes`. A failed append preserves the bytes present before the call. The represented buffer API returns `Result<usize, CapacityError>`. | M (builder model), D (represented result) |
 
@@ -378,6 +378,9 @@ writes and named calls, maps a callee's parameter effects onto the actual places
 and charges the resulting bound at every call. A write followed by restoration is
 still a write. An unknown indirect call needs an explicit bound.
 See [refinement, effects and staging](core-design.md#refinement-effects-and-staging).
+
+Each `Ok(slot)` test below introduces `slot` for its own clause's consequent.
+[Pattern test scope](surface-grammar.md#pattern-test-scope)
 
 **Design example** (a returned exclusive loan with `restores` and `final`):
 

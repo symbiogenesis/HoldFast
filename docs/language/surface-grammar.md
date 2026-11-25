@@ -522,6 +522,31 @@ roles/spans under strict conflict-free generation. Compose erased indices, grade
 parameters, callable captures and library-defined resource types in these cases;
 syntax-valid name, domain and resource mistakes must remain accepted syntax.
 
+#### Pattern test scope
+
+A successful `e is P` introduces `P`'s bindings on its true path. In `L && R`,
+the right operand runs only if the left is true and sees its true-path bindings.
+When both operands succeed, the conjunction carries the bindings from both.
+Parentheses preserve this flow. An `if` condition makes its true-path bindings
+visible only in the `then` branch. A direct pattern guard refines the scrutinee
+to the pattern in `then` and to its complement in `else`.
+
+In `A ==> B`, check `B` with the bindings available on `A`'s true path, just
+as in the `then` branch of `if (A) B else true`. For Boolean implication, a
+false antecedent yields `true` without evaluating `B`. Thus in
+`ensures result is Ok(slot) ==> slot == expected`, `slot` is in scope throughout
+the consequent. A conjunction in the antecedent can introduce more bindings,
+as in `(left is Some(x) && right is Some(y)) ==> x == y`.
+
+Only a direct `is` test, grouping and `&&` forward bindings to a containing
+guard's true path. In particular, `||` carries no new bindings between its
+operands or out to a containing guard. An implication exports no bindings to a
+surrounding expression or branch. Names already in scope remain visible inside
+nested expressions, so `item is Some(n) ==> (n == 0 || n >= limit)` can use `n`
+in both disjuncts. For independently well-scoped Boolean operands, `!A || B`
+gives the same truth value as `A ==> B`. Resolve names using the authored
+operator before applying the Boolean identity.
+
 ### Expression-local bindings
 
 An ordinary expression may bind a shared subexpression with
@@ -913,20 +938,16 @@ handler `with k =>`. Evaluation proceeds left-to-right in declaration order;
 linear or affine records require `move base with { ... }` so unreplaced fields
 transfer cleanly and replaced resources are accounted for.
 
-**Scoped early-exit guards, flow-refined `is` and total read-only expression properties.**
+**Scoped early-exit guards and total read-only expression properties.**
 Inside blocks, `let [grade] [T] PATTERN = EXPR else { ... }` and `var [grade] [T] PATTERN = EXPR else { ... }`
 parse as located `let_else` and `var_else` statement nodes with `grade`,
 nullable `type`, `pattern`, `value` and braced `else` block fields (`else`
 takes a block without a trailing semicolon). The `else` block must exit the
 enclosing scope (`return`, `break`, `continue` or diverging handler/propagation)
 and discharge non-matching resources, leaving the pattern's bindings in scope for
-the remainder of the enclosing block. In conditional headers, `if (EXPR is PATTERN)`
-binds `PATTERN`'s variables in the `then` branch and refines the complement in
-`else` under the same exhaustive split. In `if (item is Some(n) && n > limit)`,
-a successful match binds `n` for the right operand and the true branch. Further
-`&&` operands can introduce additional patterns. Each operand runs only after
-all preceding operands succeed. Grouping preserves this scope. Bindings end
-at the false branch, the end of the conditional, or a surrounding `||`.
+the remainder of the enclosing block. Conditional headers follow the
+[pattern test scope](#pattern-test-scope).
+
 At module, `record`, `struct`, `union`
 and `impl` declaration scope, `[visibility] [ghost] T Name [contracts] => EXPR;`
 parses as a located `property` declaration with `visibility`, `ghost`,
