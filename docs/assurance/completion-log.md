@@ -1685,10 +1685,21 @@ obligations, 19 negative controls, four Sail cases and a matched receipt.
 The binding report names both missing deployed claims and records pending
 production admission.
 
-Q25ba remains open: checked source correspondence, concrete canonical-machine
-laws, retained compiler/contextual-security/admission receipts and exact final
-bytes are still missing. Local CompCert execution remains unavailable. No
-whole-cell completion credit or additional hours are recorded for this increment.
+On 2026-11-25, the retained development CHERI-CompCert and Sail agreed at
+HoldFast `e961581df24fd599f6f98f3d645bf55e6cdec5d2`. The passing image
+returned 0. Redirecting the empty and full payload cursors into the packet
+returned 4 and 6. Granting write permission to the partial view returned 10.
+The wrong-payload, stale-tail, wrong-checksum-code and unscrubbed-destination
+controls returned 7, 12, 16 and 17. The passing image SHA-256 is
+`93525521d392ea5410de5a990cd9eee05c701726a705740ff20deca533077878`.
+The binding check regenerated all eight C drivers and matched the development
+receipt with SHA-256
+`fbdcad3fb13027b106679a2ff33438eb874deb81730102245a12450ed9ba87ca`.
+[Qualification and binding](../language/first-release.md#first-slice-qualification)
+
+Q25ba remains open for checked source correspondence, concrete canonical-machine
+laws, retained compiler and contextual-security receipts, and admission of the
+exact final executable.
 
 <a id="q25bb-run-the-independent-package-and-developer-value-trial"></a>
 
