@@ -195,8 +195,61 @@ def _locked_graded_import() -> None:
         ensure(bundle.read_bytes() == checked, "invalid graded import changed the retained bundle")
 
 
+def _locked_transitive_grade_import() -> None:
+    with tempfile.TemporaryDirectory(prefix="holdfast-graded-closure-") as temporary:
+        workspace = Path(temporary)
+        leaf = _write(workspace, "leaf", "v1", {}, "GradeLeaf") / "module.hf"
+        relay = _write(workspace, "relay", "v1", {"leaf": "v1"}, "GradeRelay") / "module.hf"
+        client = _write(workspace, "main", "v1", {"relay": "v1"}, "GradeRoot") / "module.hf"
+        provider = ("module GradeLeaf;\n"
+                    "public definition Vec<Nat, (left + left)> Preserve(\n"
+                    "    Nat left @ NatExact(0), Nat right @ NatExact(0),\n"
+                    "    Vec<Nat, (left + left)> samples @ NatExact(1)) => samples;\n")
+        leaf.write_text(provider, encoding="utf-8")
+        relay.write_text("module GradeRelay;\nimport GradeLeaf { Preserve as Keep };\n"
+                         "definition Vec<Nat, (n + n)> Local(Nat n @ NatExact(0),\n"
+                         "    Vec<Nat, (n + n)> samples @ NatExact(1)) => Keep(n, n, samples);\n"
+                         "public definition Vec<Nat, (n + n)> Pass(Nat n @ NatExact(0),\n"
+                         "    Vec<Nat, (n + n)> samples @ NatExact(1)) => Local(n, samples);\n",
+                         encoding="utf-8")
+        client.write_text("module GradeRoot;\nimport GradeRelay as Relay;\n"
+                          "public definition Vec<Nat, (n + n)> Route(Nat n @ NatExact(0),\n"
+                          "    Vec<Nat, (n + n)> samples @ NatExact(1)) => Relay.Pass(n, samples);\n",
+                          encoding="utf-8")
+        lock = workspace / "holdfast.lock.json"
+        bundle = workspace / "checked.json"
+        lock_command = ["lock-package", str(workspace), "main", "v1", "--output", str(lock)]
+        build_command = ["build-package", str(workspace), str(lock), "--output", str(bundle)]
+
+        def relock() -> None:
+            status, _, error = _parser_command(lock_command)
+            ensure(status == 0, error)
+
+        def checked_route() -> str:
+            relock()
+            status, _, error = _parser_command(build_command)
+            ensure(status == 0, error)
+            emitted = str(json.loads(bundle.read_bytes())["modules"]["GradeRoot"])
+            return next(line for line in emitted.splitlines() if "Graded replay Route NatExact" in line)
+
+        first = checked_route()
+        leaf.write_text(provider.replace("left + left", "right + right"), encoding="utf-8")
+        status, output, error = _parser_command(build_command)
+        ensure(status == 1 and not output and "stale" in error, error)
+        ensure(checked_route() != first, "changed transitive type demand reused the root grade receipt")
+        checked = bundle.read_bytes()
+
+        leaf.write_text(provider.replace("samples @ NatExact(1)", "samples @ NatExact(0)"), encoding="utf-8")
+        relock()
+        status, output, error = _parser_command(build_command)
+        ensure(status == 1 and not output and "fails exact computation demand" in error, error)
+        ensure(bundle.read_bytes() == checked, "invalid transitive grade changed the retained bundle")
+
+
 def cases() -> list[Case]:
     return [Case("exact-natural zero type-use substitution law", _type_irrelevance, lane="toolchain"),
             Case("paired graded and ordinary audio routing replay", _audio_route, lane="toolchain"),
             Case("default graded replay in a locked package", _locked_grading, lane="toolchain"),
-            Case("graded dependent calls through a locked import", _locked_graded_import, lane="toolchain")]
+            Case("graded dependent calls through a locked import", _locked_graded_import, lane="toolchain"),
+            Case("graded dependent calls through a transitive locked import", _locked_transitive_grade_import,
+                 lane="toolchain")]
