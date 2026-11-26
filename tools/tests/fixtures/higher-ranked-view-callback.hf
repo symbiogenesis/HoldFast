@@ -1,0 +1,68 @@
+// SPDX-License-Identifier: Apache-2.0
+module HigherRankedViewCallback;
+
+public record ByteView<region 'owner>(in<'owner> Span<byte> Bytes);
+
+public byte ApplyFreshRead<region 'outer>(
+    in<'outer> Span<byte> buf,
+    Fn<region 'fresh>(in<'fresh> Span<byte>) -> in<'fresh> Span<byte> select,
+    usize idx
+)
+    requires buf.CanRead
+    requires idx < buf.Length
+{
+    let selected = select(in buf);
+    if (selected.CanRead && idx < selected.Length) {
+        return selected[idx];
+    }
+    return buf[idx];
+}
+
+public byte ApplyIdentity(in Span<byte> buf, usize idx)
+    requires buf.CanRead
+    requires idx < buf.Length
+{
+    return ApplyFreshRead(in buf, Fn<region 'r>(in<'r> Span<byte> s) -> in<'r> Span<byte> => s, idx);
+}
+
+public byte ApplyFirstByte(in Span<byte> buf)
+    requires buf.CanRead
+    requires buf.Length >= 2usize
+{
+    return ApplyFreshRead(
+        in buf,
+        Fn<region 'r>(in<'r> Span<byte> s) -> in<'r> Span<byte> => {
+            if (s.CanRead && s.Length >= 2usize) {
+                return Span.ReadOnly(Span.Slice(s, 1usize, 1usize));
+            }
+            return s;
+        },
+        0usize
+    );
+}
+
+public byte ApplyByteViewCallback<region 'outer>(
+    in<'outer> Span<byte> buf,
+    Fn<region 'fresh>(in<'fresh> Span<byte>) -> ByteView<'fresh> makeView,
+    usize idx
+)
+    requires buf.CanRead
+    requires idx < buf.Length
+{
+    let selected = makeView(in buf);
+    if (selected.Bytes.CanRead && idx < selected.Bytes.Length) {
+        return selected.Bytes[idx];
+    }
+    return buf[idx];
+}
+
+public byte UseByteViewIdentity(in Span<byte> buf, usize idx)
+    requires buf.CanRead
+    requires idx < buf.Length
+{
+    return ApplyByteViewCallback(
+        in buf,
+        Fn<region 'r>(in<'r> Span<byte> s) -> ByteView<'r> => ByteView(in s),
+        idx
+    );
+}

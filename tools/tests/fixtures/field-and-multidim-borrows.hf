@@ -1,0 +1,75 @@
+// SPDX-License-Identifier: Apache-2.0
+module FieldAndMultidimBorrows;
+
+public record Entry(byte Header, byte Payload);
+
+public byte SplitFieldsWrite(ref Seq<Entry> items, Nat i)
+    requires i < items.Count
+{
+    let h = in items[i].Header;
+    items[i].Payload = 9u8;
+    return h;
+}
+
+public byte DualFieldRefBorrows(ref Seq<Entry> items, Nat i)
+    requires i < items.Count
+{
+    let h = ref items[i].Header;
+    let p = ref items[i].Payload;
+    h = 4u8;
+    p = 9u8;
+    return h.WrappingAdd(p);
+}
+
+public byte GridDisjunctiveGuard(
+    ref Seq<Seq<byte>> grid,
+    Nat r1,
+    Nat c1,
+    Nat r2,
+    Nat c2
+)
+    requires r1 < grid.Count && r2 < grid.Count
+    requires c1 < grid[r1].Count && c2 < grid[r2].Count
+    requires r1 != r2 || c1 != c2
+{
+    let x = in grid[r1][c1];
+    grid[r2][c2] = 7u8;
+    return x;
+}
+
+public byte DualGridRefBorrows(
+    ref Seq<Seq<byte>> grid,
+    Nat r1,
+    Nat c1,
+    Nat r2,
+    Nat c2
+)
+    requires r1 < grid.Count && r2 < grid.Count
+    requires c1 < grid[r1].Count && c2 < grid[r2].Count
+    requires r1 != r2 || c1 != c2
+{
+    let a = ref grid[r1][c1];
+    let b = ref grid[r2][c2];
+    a = 3u8;
+    b = 7u8;
+    return a.WrappingAdd(b);
+}
+
+public byte PathSensitiveRowClear(
+    ref Seq<Seq<byte>> rows,
+    Nat i,
+    Nat j,
+    bool resetOther
+)
+    requires i < rows.Count && j < rows.Count
+    requires 0 < rows[i].Count
+    requires i != j
+{
+    let elem = in rows[i][0];
+    if (resetOther) {
+        rows[j] = Seq.Empty<byte>();
+        return elem;
+    } else {
+        return elem;
+    }
+}
