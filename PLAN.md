@@ -28,13 +28,14 @@ on the 31 floating-point axioms remains open under F-480 (R-05-164).
 The retained `holdfast-parser first-slice` result names the blocking producers in
 `inventory.blocking_dependencies`. [First-slice qualification](docs/language/first-release.md#first-slice-qualification)
 
-Qualify default graded checking and proof-backed borrowing for the first release
-in parallel with artifact qualification. Extend grade replay on the ordinary build
-through callable interfaces and establish correspondence for the checked record
-extent families. Use the dependent box and scoped-span replay to connect demand,
-erasure and restoration to the admitted machine resource interpretation.
-Use the composed-view, conditional-return and loop-carried shared-view trials to
-select held-out cases for checked restoration and lending iteration.
+Advance graded checking and proof-backed borrowing in parallel with artifact
+qualification. Carry separate computation and type-use demand through local
+bindings, callable interfaces and dependent eliminators on the ordinary build.
+Connect those derivations to evaluation and erasure using the graded laws.
+For borrowing, combine path-specific loan liveness with proof-backed separation
+in owner coordinates. Exercise both in the same held-out client and compare
+its direct source, invalid edits and safe Rust rewrites against the pinned
+compiler modes. Extend the checked resource replay to lending and loop exits.
 [Graded laws](#q25be) · [Graded frontend](#q25bj) · [Borrow comparison](#q25cc)
 
 ### HoldFast first-release delivery
@@ -379,7 +380,7 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
 
 - [ ] **Q25be · Qualify the six graded-foundation law packages**
   - **Owner:** `graded-laws`. **Start:** Exercise the pure GF-domain and GF-substitution rules with exact natural grades and a dependent function fixture. Use the qualified synchronous resources and independent graded client as they become available. **Check:** Discharge GF-domain, GF-substitution, GF-elimination, GF-cbv, GF-control-mutation and GF-erasure-source under the [reviewed extension predicates](docs/extensions/full-language-review.md#reviewed-implementation-pricing). Publish the separate law qualification for the [selected first-release fragment](docs/language/first-release.md#default-graded-checking), including source and representation erasure. The combined handler and cell laws retain their wider scope.
-  - In the pure investigation, reconstruct separate computation and type demand and update the rows of later dependent declarations under substitution. Replay a binder with zero computation demand and nonzero type demand. Reject an incorrect computation allowance and a stale type-demand certificate. Connect the executable checks to declarative rules in Rocq. [Pure dependent identity](docs/extensions/graded-foundation.md#pure-dependent-identity)
+  - In the pure investigation, reconstruct separate computation and type demand through binding and elimination. Substitute a stable witness and check the result and every retained dependent declaration row. Replay a binder with zero computation demand and nonzero type demand. Reject an incorrect computation allowance and a stale type-demand certificate. Connect the executable checks to declarative rules in Rocq. [Substitution rules](docs/extensions/graded-foundation.md#substitution-and-structural-rules) · [Pure dependent identity](docs/extensions/graded-foundation.md#pure-dependent-identity)
   - The pure Rocq trial checks dependent functions, natural-index applications and telescope row substitution with exact natural demand. [Partial evidence](docs/assurance/completion-log.md#q25be-qualify-the-six-graded-foundation-law-packages)
   - The ordered domain trial checks `NatExact`, `NatBound` and Boolean presence. Extend the proved demand arithmetic with the selected value and type-use interpretations. [Domain laws and certificates](docs/extensions/graded-foundation.md#dimensions-and-lawful-domains)
   - The modal trial checks exact and bounded computation demand for promotion, dependent box elimination and named natural/vector records with additive extent families. Extend the rules to broader indexed data and connect their demands to evaluation and erasure.
@@ -410,6 +411,7 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
 - [ ] **Q25bj · Reconstruct checked graded-domain evidence**
   - **Owner:** `graded-frontend`. **Start:** Use the pure derivations as they become available to project a parsed dependent function and its applications into Rocq. Use the graded laws and checked core frontend for extension qualification. **Check:** Implement the existing reviewed elaboration/domain/grade reconstruction row, carrying dictionaries, substitutions and replayable certificates; unresolved or exhausted solver work remains an explicit goal.
   - Qualify grading on the ordinary source and locked-package build paths. Replay the selected exact and bounded dependent, modal and record forms, reject violated allowances and stale source or grade evidence, and check the default behavior under a dependency edit. Bind the grade derivation and emitted interpretation to the same resolved source.
+  - Carry checked allowances and type dependencies across local bindings and resolved callable interfaces. Replay a call with a zero-use index that specializes a later parameter and the result. Check both an allowance violation and a provider edit that changes a type-use row while preserving computation demand. Exercise imported declarations through the ordinary locked build. [Grade evidence criteria](docs/extensions/graded-foundation.md#extension-selection-and-qualification)
   - Start with `PreserveLength` in the [dependent example](examples/dependent.hf). Check a zero-use length binder, a once-used vector and partial application at `n + n` for an open index `n`. Bind the result function's domain, codomain and reconstructed dependency rows to the source. Exercise altered allowances and a changed argument or dependency.
   - The opt-in graded source trial replays exact natural demands for dependent functions, box promotion and explicit match motives over natural payloads. Extend checked source correspondence and domain reconstruction from these fragments. [Partial evidence](docs/assurance/completion-log.md#q25bj-reconstruct-checked-graded-domain-evidence)
   - The bounded natural trial uses the checked `NatBound` order for dependent functions, natural application and modal elimination while retaining exact type-use rows. Indexed records carry their own identity and checked vector extent family into the exact and bounded elimination rules. Bind the supported forms through checked source correspondence. [Partial evidence](docs/assurance/completion-log.md#q25bj-reconstruct-checked-graded-domain-evidence)
@@ -498,6 +500,7 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
 - [ ] **Q25by · Compare fixed modes with a bounded grading increment**
   - **Owner:** `grading-trial`. **Start:** Prepare an independent client candidate, its baseline and benefit thresholds alongside the pure investigation. **Check:** Run the [graded qualification protocol](docs/extensions/graded-foundation.md#extension-selection-and-qualification) for the first-release natural grades and type-use accounting. Record the exact evidence endpoint and measured benefit. Use separate selection evidence for general domains.
   - The audio-routing candidate checks two independent type dependencies and an exact value-use allowance. Use the ordinary replay to establish the baseline behavior and select a common endpoint for measuring benefit. [Partial evidence](docs/assurance/completion-log.md#q25by-compare-fixed-modes-with-a-bounded-grading-increment)
+  - Freeze a client contract that requires a computation allowance and independence of an exported result type from a designated input. Check the same obligations with fixed modes and explicit proofs, then with reconstructed grades. Compare the annotations, repair work and checking cost of one computation edit and one dependency edit at the shared endpoint.
 
 <a id="q25bz"></a>
 
@@ -519,6 +522,7 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
 
 - [ ] **Q25cc · Compare borrow-checking alternatives on held-out clients**
   - **Owner:** `borrow-comparison`. **Start:** Compare proof-backed disjoint symbolic indices against pinned Rust modes on a paired source fixture. Select held-out clients with independent intended behavior and freeze their baseline before adaptation. **Check:** Run the [borrow comparison boundary](docs/language/loan-analysis.md#conditional-borrowing-comparison) on the default HoldFast build with fixed behavior and evidence endpoints. Include conditional returned borrows, lending iteration and higher-ranked or associated-item composition, comparing pinned default and experimental Rust modes on identical positives and invalid neighbors. Report unsupported cases and budget exhaustion.
+  - Freeze a held-out shared-view client with an owner update after the view's last use on one path and a symbolically disjoint update while the view is live on another. Require the returned value, owner writeback, untouched frame and restoration on every exit. Move a use after a conflicting write and substitute an overlapping footprint in separate invalid edits. Replay both failures at the responsible access. Compare direct acceptance against each pinned Rust mode, and record the annotations, proof terms and dynamic checks required by passing rewrites.
   - Hold two exclusive element loans from one owner under scoped evidence that the indices differ. Write through both and check the restored owner contents. Force the second loan to reuse the first index and require rejection at the call. Report direct Rust acceptance and any safe rewrite separately, including its source edits and required runtime checks.
   - The symbolic-index trial replays both writes and the frame in the HoldFast mathematical model. All three pinned Rust modes reject the direct indexing form and accept the safe slice API version. [Partial evidence](docs/assurance/completion-log.md#q25cc-compare-borrow-checking-alternatives-on-held-out-clients)
   - The ordered mixed-loan trial checks a simultaneous shared read and exclusive write at symbolic indices. Use its guard, returned value and frame controls when selecting held-out client cases.
@@ -536,6 +540,7 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
 
 - [ ] **Q25cf · Trial selected loop-carried borrowing**
   - **Owner:** `loop-borrow`. **Start:** Use the symbolic view and lending clients and the borrow comparison. **Check:** Qualify the default lending checker and one selected loop-carried loan shape with loop/exit invariants, termination, initialization and borrow restoration. Replay held-out valid and invalid neighbors using general flow and concrete laws.
+  - Check that a loan ending before the back edge allows the next element to be lent. Retain the old loan past the next overlapping grant in a neighbor and require a located refusal. Check restoration at normal completion and early exit, including the empty range.
   - The default symbolic `Span<byte>` lending loop closes and writes back each element loan per iteration. Extend the checked restoration to the carried-loan client and bind the represented result to runtime lowering. [Current lending replay](docs/language/loan-analysis.md#conditional-borrowing-comparison)
 
 <a id="q25cg"></a>

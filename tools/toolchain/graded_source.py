@@ -217,6 +217,16 @@ class _Projection:
         kind = node["kind"]
         if kind == "group":
             return self._term(cast("Node", node["value"]), scope, declaration)
+        if kind == "let_expression":
+            binding = cast("Node", node["binding"])
+            annotation = cast("Node | None", binding.get("type"))
+            if binding["kind"] != "let" or (annotation is not None and not _plain_type(annotation, "Nat")):
+                raise self.protocol.error("unsupported", "graded let requires a natural name binding", binding)
+            initializer = self._index(cast("Node", binding["value"]), scope)
+            extended = scope.copy()
+            parameter = self._bind(binding, extended, "Natural", self._grade(binding))
+            body = self._term(cast("Node", node["body"]), extended, declaration)
+            return f"(LetNat {parameter.index} {parameter.allowance} {initializer} {body})"
         if kind == "name":
             name = _name(node["name"])
             if name in scope:

@@ -186,6 +186,95 @@ Proof. repeat split; reflexivity. Qed.
     _replay_view_proof(gallina, proof, "JoinedViewReturn", ["joined_view_and_writeback", "joined_view_entry_is_inhabited"])
 
 
+def _correlated_view_return() -> None:
+    source = b"""module CorrelatedViewReturn;
+
+public record ByteView<region 'owner>(in<'owner> Span<byte> Bytes);
+
+public ByteView<'owner> PatchOther<region 'owner>(ref<'owner> Span<byte> values, bool first)
+    effects writes(values)
+    requires values.CanRead && values.CanWrite
+    requires values.Length == 4usize
+{
+    let selected = if (first) Span.ReadOnly(Span.Slice(values, 0usize, 1usize))
+                   else Span.ReadOnly(Span.Slice(values, 1usize, 1usize));
+    if (first) {
+        values[1usize] = 8u8;
+    } else {
+        values[0usize] = 9u8;
+    }
+    return ByteView(in selected);
+}
+"""
+    with parser.cached_build(TOOLS.parent) as compiled:
+        gallina = elaborate(source, parser.parse_source(compiled, source, surface=True)).gallina
+        for invalid in (
+            source.replace(b"values[1usize] = 8u8;", b"values[0usize] = 8u8;"),
+            source.replace(b"values[0usize] = 9u8;", b"values[1usize] = 9u8;"),
+            source.replace(b"bool first)", b"bool first, bool patchFirst)").replace(b"    if (first)", b"    if (patchFirst)"),
+        ):
+            tree = parser.parse_source(compiled, invalid, surface=True)
+            with raises(HoldFastError, msg="an overlapping branch write invalidated the selected view") as failure:
+                elaborate(invalid, tree)
+            error = failure.exception
+            return_line = next(n for n, line in enumerate(invalid.splitlines(), 1) if b"return ByteView" in line)
+            ensure(error.kind == "type" and error.line == return_line
+                   and "cannot prove returned slice is disjoint from an update to 'values'" in error.message,
+                   f"wrong refusal for an overlapping returned view: {error}")
+
+    [client] = re.findall(r"^Definition (holdfast_d\d+_PatchOther) :", gallina, re.MULTILINE)
+    [projection] = re.findall(r"^Definition (holdfast_d\d+_ByteView_Bytes) :", gallina, re.MULTILINE)
+    proof = rf"""
+Import HoldFast_CorrelatedViewReturn.
+Local Definition trial_index (n : nat) := holdfast_mk_int 4 (holdfast_nat_to_bits 64 n).
+Local Definition trial_byte (n : nat) := holdfast_mk_int 0 (holdfast_nat_to_bits 8 n).
+Local Definition trial_read := holdfast_Span_Read (holdfast_int 0).
+Local Definition view_index (first : bool) := trial_index (if first then 0 else 1).
+Local Definition write_index (first : bool) := trial_index (if first then 1 else 0).
+Local Definition write_byte (first : bool) := trial_byte (if first then 8 else 9).
+
+Theorem correlated_view_and_writeback : forall values first,
+  let view := {projection} ({client} values first) in
+  let post := {client}_post_values values first in
+  holdfast_Span_Base _ view = holdfast_int_add 4 (holdfast_Span_Base _ post) (view_index first) /\
+  holdfast_Span_Length _ view = trial_index 1 /\
+  trial_read view (trial_index 0) = trial_read post (view_index first) /\
+  trial_read post (write_index first) = write_byte first /\
+  (forall k, holdfast_int_ne 4 (write_index first) k = true -> trial_read post k = trial_read values k).
+Proof.
+  intros values [];
+    unfold {client}, {client}_post_values, {projection}, view_index, write_index, write_byte;
+    cbv beta iota zeta.
+  all: split; [reflexivity |]; split; [reflexivity |]; split.
+  1,3: match goal with
+       | |- _ = ?post_read =>
+         lazymatch post_read with
+         | trial_read _ ?index => change (trial_read values index = post_read)
+         end
+       end; symmetry; apply holdfast_Span_Read_write_other_ne; reflexivity.
+  all: split; [apply holdfast_Span_Read_write_same | intros k outside; now apply holdfast_Span_Read_write_other_ne].
+Qed.
+
+Local Definition initial_span :=
+  holdfast_Span_Write _
+    (holdfast_Span_Write _ (holdfast_mk_span (holdfast_int 0) (trial_index 11)
+      (trial_index 4) true true true holdfast_bs_empty) (trial_index 0) (trial_byte 3))
+    (trial_index 1) (trial_byte 4).
+Example correlated_view_observations :
+  holdfast_Span_CanRead _ initial_span = true /\
+  holdfast_Span_CanWrite _ initial_span = true /\
+  holdfast_Span_Length _ initial_span = trial_index 4 /\
+  trial_read ({projection} ({client} initial_span true)) (trial_index 0) = trial_byte 3 /\
+  trial_read ({projection} ({client} initial_span false)) (trial_index 0) = trial_byte 4 /\
+  trial_read ({client}_post_values initial_span true) (trial_index 1) = trial_byte 8 /\
+  trial_read ({client}_post_values initial_span false) (trial_index 0) = trial_byte 9.
+Proof. repeat split; reflexivity. Qed.
+"""
+    _replay_view_proof(gallina, proof, "CorrelatedViewReturn", [
+        "correlated_view_and_writeback", "correlated_view_observations",
+    ])
+
+
 def _loop_view_return() -> None:
     source = (TOOLS / "tests" / "fixtures" / "loop-view-return.hf").read_bytes()
     loop_start = source.index(b"        foreach")
@@ -391,6 +480,7 @@ def cases() -> list[Case]:
     return [
         Case("conditional view return and sibling owner writeback", _conditional_view_return, lane="toolchain"),
         Case("returned view and branch-specific owner writeback at a join", _joined_view_return, lane="toolchain"),
+        Case("conditional view origin and correlated owner writeback", _correlated_view_return, lane="toolchain"),
         Case("returned view and disjoint symbolic loop writeback", _loop_view_return, lane="toolchain"),
         Case("scoped lending and symbolic Span element writeback", _lending_span_iteration, lane="toolchain"),
     ]

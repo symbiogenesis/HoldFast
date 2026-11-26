@@ -1675,14 +1675,22 @@ class _IntrinsicsMixin:
             return None
         offsets: list[_Term] = []
         length = None
+        read_only = False
         while span != owner:
             head, args = self.spine(span)
+            if head == _constant("Span_ReadOnly") and len(args) == 2:
+                # ReadOnly preserves a shared operand's backing and footprint.
+                read_only = True
+                span = self.whnf(args[1])
+                continue
             if head != _constant("Span_Slice") or len(args) != 4:
                 break
             if length is None:
                 length = args[3]
             offsets.append(args[2])
             span = self.whnf(args[1])
+        if length is None and read_only:
+            length = _apps(_constant("Span_Length"), _U8, span)
         # The checked slice extents and element bound keep the composed index in range.
         displacement = _int_term(_INT_SPECS["usize"], 0)
         for offset in reversed(offsets):
@@ -1706,21 +1714,39 @@ class _IntrinsicsMixin:
         if not changed_owners:
             return
         # Follow returned payloads. A scalar computed from an earlier read is a value snapshot.
-        pending = [result]
-        while pending:
-            returned = self.whnf(pending.pop())
-            head, args = self.spine(returned)
-            if head == _constant("Span_ReadOnly") and len(args) == 2:
-                pending.append(args[1])
-            elif head == _constant("Span_Slice") and len(args) == 4:
-                self._check_returned_slice(args[1], args[2], args[3], changed_owners, environment, site)
-            elif returned.kind in {"pair", "existT", "inl", "inr", "if"}:
-                pending.extend(returned.args[2:])
-            elif record := self.records_by_ctor.get(str(head.value)):
-                pending.extend(args[len(record.generic_vars):])
-            elif union_ctor := self.unions_by_ctor.get(str(head.value)):
-                union, _ = union_ctor
-                pending.extend(args[len(union.generic_vars):])
+        pending: list[tuple[_Term, tuple[_Term, ...]]] = [(result, ())]
+        saved_facts = len(self.active_facts)
+        try:
+            while pending:
+                self.tick()
+                payload, guards = pending.pop()
+                self.active_facts[saved_facts:] = guards
+                returned = self.whnf(payload)
+                head, args = self.spine(returned)
+                if head == _constant("Span_ReadOnly") and len(args) == 2:
+                    children = (args[1],)
+                elif head == _constant("Span_Slice") and len(args) == 4:
+                    self._check_returned_slice(args[1], args[2], args[3], changed_owners, environment, site)
+                    continue
+                elif returned.kind == "if":
+                    _, condition, yes, no = returned.args
+                    negative = self._negate_bool_term(condition)
+                    for guard, opposite, branch in ((condition, negative, yes), (negative, condition, no)):
+                        if not self._prove_bool_precondition(opposite, environment):
+                            pending.append((branch, (*guards, guard)))
+                    continue
+                elif returned.kind in {"pair", "existT", "inl", "inr"}:
+                    children = returned.args[2:]
+                elif record := self.records_by_ctor.get(str(head.value)):
+                    children = args[len(record.generic_vars):]
+                elif union_ctor := self.unions_by_ctor.get(str(head.value)):
+                    union, _ = union_ctor
+                    children = args[len(union.generic_vars):]
+                else:
+                    continue
+                pending.extend((child, guards) for child in children)
+        finally:
+            del self.active_facts[saved_facts:]
 
     def _check_returned_slice(
         self: _Elaborator, base: _Term, start: _Term, length: _Term, changed_owners: dict[_Term, tuple[str, _Term]],
@@ -1831,7 +1857,7 @@ class _IntrinsicsMixin:
             is_view = root in self.slice_views
             if collection is not None and self.spine(self.whnf(collection.type))[0] == _constant("Span"):
                 span = self.whnf(collection.term)
-                is_view = is_view or self.spine(span)[0] == _constant("Span_Slice")
+                is_view = is_view or self.spine(span)[0] in {_constant("Span_Slice"), _constant("Span_ReadOnly")}
                 pending = [span]
                 while pending:
                     base = self._root_span(pending.pop())
