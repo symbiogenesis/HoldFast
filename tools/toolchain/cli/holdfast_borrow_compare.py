@@ -3,11 +3,13 @@
 
 import argparse
 import json
+import platform
 import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from time import perf_counter_ns
 
 from toolchain import corpus
 from toolchain.hashing import sha256_bytes
@@ -17,8 +19,12 @@ REVISION = "6905905bb7727fd0f9223f5fdc9ad4e62236d5a2"
 EDITION = "2024"
 MODES = ("default", "off", "legacy", "next")
 TIMEOUT = 60
+ANALYSIS_FLAGS = ("-Zno-codegen", "-Ztime-passes", "-Ztime-passes-format=json")
+WARM_SAMPLES = 5
+TIMING_PREFIX = "time: "
 
 type Diagnostic = tuple[str, str]
+type LocatedDiagnostic = tuple[str, int]
 
 
 @dataclass(frozen=True)
@@ -49,6 +55,9 @@ def trials(mode: str) -> tuple[Trial, ...]:
         Trial("composed_view_loans.rs", "direct", (("E0502", "composed-view-conflict"),)),
         Trial("composed_view_loans.rs", "coincident", (("E0502", "composed-view-coincident"),)),
         Trial("composed_view_loans.rs", None),
+        Trial("updated_view_loans.rs", "direct", (("E0506", "disjoint-write"),)),
+        Trial("updated_view_loans.rs", "overlapping_write", (("E0506", "overlapping-write"),)),
+        Trial("updated_view_loans.rs", None),
         Trial("conditional_loans.rs", None, sibling),
         Trial("conditional_loans.rs", "live_conflict", (("E0506", "live-conflict"), *sibling)),
         Trial("joined_view_return.rs", "direct", (("E0506", "disjoint-zero-write"), nonzero_write)),
@@ -72,9 +81,11 @@ def trials(mode: str) -> tuple[Trial, ...]:
     return common
 
 
-def _errors(output: str, fixture: str) -> list[tuple[str, int]]:
-    errors: list[tuple[str, int]] = []
+def _errors(output: str, fixture: str) -> list[LocatedDiagnostic]:
+    errors: list[LocatedDiagnostic] = []
     for line in output.splitlines():
+        if line.startswith(TIMING_PREFIX):
+            continue
         message = json.loads(line)
         if message.get("level") != "error":
             continue
@@ -99,7 +110,37 @@ def _marker_line(source: str, marker: str) -> int:
     return matches[0]
 
 
-def _run_trial(compiler: list[str], mode: str, trial: Trial, work: Path) -> dict[str, object]:
+def _check_compile(argv: list[str], work: Path, fixture: str, expected: list[LocatedDiagnostic]) -> tuple[str, int]:
+    start = perf_counter_ns()
+    compiled = subprocess.run(argv, cwd=work, capture_output=True, text=True,
+                              encoding="utf-8", check=False, timeout=TIMEOUT)
+    elapsed = perf_counter_ns() - start
+    observed = _errors(compiled.stderr, fixture)
+    expected_exit = 1 if expected else 0
+    if compiled.returncode != expected_exit or observed != expected:
+        raise ValueError(f"{argv}: exit={compiled.returncode}, errors={observed}, expected={expected}")
+    return compiled.stderr, elapsed
+
+
+def _analysis_sample(argv: list[str], work: Path, fixture: str, expected: list[LocatedDiagnostic]) -> dict[str, object]:
+    stderr, elapsed = _check_compile(argv, work, fixture, expected)
+    passes = [json.loads(line.removeprefix(TIMING_PREFIX))
+              for line in stderr.splitlines() if line.startswith(TIMING_PREFIX)]
+    for name in ("MIR_checking", "total"):
+        if sum(item["pass"] == name for item in passes) != 1:
+            raise ValueError(f"{argv}: expected a single timing entry for {name}")
+    return {"elapsed_ns": elapsed, "rustc_passes": passes}
+
+
+def _measure_analysis(argv: list[str], work: Path, fixture: str, expected: list[LocatedDiagnostic]) -> dict[str, object]:
+    command = [*argv, *ANALYSIS_FLAGS]
+    first = _analysis_sample(command, work, fixture, expected)
+    _analysis_sample(command, work, fixture, expected)
+    warm = [_analysis_sample(command, work, fixture, expected) for _ in range(WARM_SAMPLES)]
+    return {"argv": command, "first": first, "warm": warm}
+
+
+def _run_trial(compiler: list[str], mode: str, trial: Trial, work: Path, *, measure: bool) -> dict[str, object]:
     flags: list[str] = []
     if mode != "default":
         flags.append(f"-Zpolonius={mode}")
@@ -111,30 +152,26 @@ def _run_trial(compiler: list[str], mode: str, trial: Trial, work: Path) -> dict
     config = trial.configuration or "plain"
     solver = "-next-solver" if trial.next_solver else ""
     binary = work / f"{Path(trial.fixture).stem}-{mode}-{config}{solver}.exe"
-    argv.extend(("--emit=mir=-",) if trial.expected else ("-o", str(binary)))
-    compiled = subprocess.run(argv, cwd=work, capture_output=True, text=True,
-                              encoding="utf-8", check=False, timeout=TIMEOUT)
     source = (work / trial.fixture).read_text(encoding="utf-8")
     expected = sorted((code, _marker_line(source, marker)) for code, marker in trial.expected)
-    observed = _errors(compiled.stderr, trial.fixture)
-    expected_exit = 1 if expected else 0
-    if compiled.returncode != expected_exit or observed != expected:
-        raise ValueError(f"{mode} {trial.fixture} {flags}: "
-                         f"exit={compiled.returncode}, errors={observed}, expected={expected}")
+    output_flags = ("--emit=mir=-",) if expected else ("-o", str(binary))
+    result: dict[str, object] = {"mode": mode, "fixture": trial.fixture, "cfg": trial.configuration,
+                                 "flags": flags, "decision": "rejected" if expected else "accepted",
+                                 "diagnostics": [{"code": code, "line": line} for code, line in expected],
+                                 "observations": "n/a" if expected else "passed"}
+    if measure:
+        result["analysis_timing"] = _measure_analysis(argv, work, trial.fixture, expected)
+    _check_compile([*argv, *output_flags], work, trial.fixture, expected)
     if not expected:
         output = subprocess.run([str(binary), "--exact", "expected_observations"], cwd=work,
                                 capture_output=True, text=True, encoding="utf-8",
                                 check=True, timeout=TIMEOUT).stdout
         if "test expected_observations ... ok" not in output.splitlines():
             raise ValueError(f"{trial.fixture} did not execute its expected observations")
-    return {"mode": mode, "fixture": trial.fixture, "cfg": trial.configuration,
-            "flags": flags,
-            "decision": "rejected" if expected else "accepted",
-            "diagnostics": [{"code": code, "line": line} for code, line in observed],
-            "observations": "n/a" if expected else "passed"}
+    return result
 
 
-def compare(root: Path) -> dict[str, object]:
+def compare(root: Path, *, measure: bool = False) -> dict[str, object]:
     compiler = ["rustc", f"+{NIGHTLY}"]
     version = subprocess.run([*compiler, "-vV"], cwd=root, capture_output=True, text=True,
                              encoding="utf-8", check=True, timeout=TIMEOUT).stdout
@@ -152,17 +189,25 @@ def compare(root: Path) -> dict[str, object]:
             source = (fixtures / name).read_bytes()
             (work / name).write_bytes(source)
             sources[name] = sha256_bytes(source)
-        results = [_run_trial(compiler, mode, trial, work)
+        results = [_run_trial(compiler, mode, trial, work, measure=measure)
                    for mode in MODES for trial in trials(mode)]
-    return {"rustc": {"toolchain": NIGHTLY, "revision": REVISION, "host": host},
-            "edition": EDITION, "sources_sha256": sources, "results": results}
+    report: dict[str, object] = {"rustc": {"toolchain": NIGHTLY, "revision": REVISION, "host": host},
+                                 "edition": EDITION, "sources_sha256": sources, "results": results}
+    if measure:
+        report["measurement_environment"] = {
+            "platform": platform.platform(), "python": platform.python_version(),
+            "processor": platform.processor() or "unknown", "workers": 1, "os_cache": "uncontrolled",
+            "runner_sha256": sha256_bytes(Path(__file__).read_bytes()),
+        }
+    return report
 
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.parse_args(argv)
+    parser.add_argument("--measure", action="store_true", help="sample check-only compiler timings for every trial")
+    args = parser.parse_args(argv)
     try:
-        report = compare(corpus.find_root())
+        report = compare(corpus.find_root(), measure=args.measure)
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
         print(f"FAIL holdfast-borrow-compare: {error}", file=sys.stderr)
         return 1

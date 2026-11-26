@@ -166,6 +166,18 @@ class _Projection:
             return codomain
         raise self.protocol.error("unsupported", "graded replay supports Nat, Vec<Nat, n> and pure Fn types", node)
 
+    def _application(self, callee: str, node: Node, scope: dict[str, _Parameter], declaration: Node) -> str:
+        if node["kind"] == "group":
+            return self._application(callee, cast("Node", node["value"]), scope, declaration)
+        if node["kind"] == "name":
+            parameter = scope.get(_name(node["name"]))
+            is_index = parameter is not None and parameter.domain == "Natural"
+        else:
+            is_index = node["kind"] in {"nat", "binary"}
+        if is_index:
+            return f"(ApplyNat {callee} {self._index(node, scope)})"
+        return f"(ApplyValue {callee} {self._term(node, scope, declaration)})"
+
     def _term(self, node: Node, scope: dict[str, _Parameter], declaration: Node) -> str:
         kind = node["kind"]
         if kind == "group":
@@ -185,19 +197,21 @@ class _Projection:
         if kind == "call":
             callee = cast("Node", node["callee"])
             arguments = cast("list[Node]", node["arguments"])
-            if not arguments and callee["kind"] == "name":
+            result = None
+            if callee["kind"] == "name":
                 name = _name(callee["name"])
                 earlier = self.declarations.get(name)
                 if (name not in scope and earlier is not None and earlier["kind"] == "definition"
-                        and not earlier["parameters"] and _span(earlier)[0] < _span(declaration)[0]):
-                    return f"source_term_{self.definition(name).index}"
-            if arguments and all(argument["label"] is None for argument in arguments):
+                        and bool(earlier["parameters"]) == bool(arguments)
+                        and _span(earlier)[0] < _span(declaration)[0]):
+                    result = f"source_term_{self.definition(name).index}"
+            if any(argument["label"] is not None for argument in arguments) or (not arguments and result is None):
+                raise self.protocol.error("unsupported", "graded replay requires positional arguments or an earlier nullary definition", node)
+            if result is None:
                 result = self._term(callee, scope, declaration)
-                for argument in arguments:
-                    index = self._index(cast("Node", argument["value"]), scope)
-                    result = f"(ApplyNat {result} {index})"
-                return result
-            raise self.protocol.error("unsupported", "graded replay accepts earlier nullary definitions and positional natural applications", node)
+            for argument in arguments:
+                result = self._application(result, cast("Node", argument["value"]), scope, declaration)
+            return result
         return f"(NatValue {self._index(node, scope)})"
 
     def _definition_node(self, name: str) -> Node:
@@ -653,12 +667,15 @@ def replay_module(root: Path, protocol: _Protocol, syntax: Node) -> tuple[set[in
         if declaration["kind"] != "definition":
             raise protocol.error("unsupported", "graded checking supports pure mathematical definitions", annotations[0])
         domain = _domain(protocol, annotations[0])
+        signature = [*cast("list[Node]", declaration["parameters"]), cast("Node", declaration["result"])]
+        interface_nodes = {id(node) for part in signature for node in syntax_nodes(part)}
         for annotation in annotations:
             if _domain(protocol, annotation) != domain:
                 raise protocol.error("unsupported", "a graded definition requires a single grade domain", annotation)
-            if annotation["kind"] in {"parameter", "lambda_parameter"} and annotation["type"] is not None and any(
+            if (id(annotation) in interface_nodes and annotation["kind"] == "parameter"
+                and annotation["type"] is not None and any(
                 node["kind"] == "function_type" for node in syntax_nodes(cast("Node", annotation["type"]))
-            ):
+            )):
                 raise protocol.error("unsupported", "graded callable inputs require checked interface transport", annotation)
         projection = (_ModalProjection if modal else _Projection)(protocol, syntax, domain)
         selected = projection.definition(_name(declaration["name"]))

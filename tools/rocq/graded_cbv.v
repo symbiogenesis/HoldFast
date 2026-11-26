@@ -41,7 +41,7 @@ Lemma checked_lambda_reads : forall env name allowance body checked values,
 Proof.
   intros env name allowance body checked values accepted.
   apply infer_sound in accepted.
-  inversion accepted as [| | x q domain body' codomain a u v fresh typed derives exact_use |]; subst.
+  inversion accepted as [| | x q domain body' codomain a u v fresh typed derives exact_use | |]; subst.
   inversion derives; subst.
   now erewrite index_reads_match_demand by eassumption.
 Qed.
@@ -155,7 +155,7 @@ Proof.
     + contradiction.
     + intros name _. now erewrite index_reads_match_demand by eassumption.
   - inversion typed as [| | name allowance domain inner codomain a u v
-      new typed_domain typed_inner admitted |]; subst.
+      new typed_domain typed_inner admitted | |]; subst.
     inversion typed_domain; subst.
     destruct (IH _ _ _ typed_inner values) as [bound unbound].
     split.

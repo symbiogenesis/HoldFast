@@ -1752,7 +1752,15 @@ public byte Client(ref Span<byte> values, usize i, usize j)
         b"let nested = Span.Slice(shifted, 1usize, 2usize);",
         b"let nested = Span.Slice(Span.Slice(values, 1usize, 3usize), 1usize, 2usize);",
     )
-    combined = source + nested[nested.index(b"public byte Nested"):] + inline[inline.index(b"public byte Inline"):]
+    updated = nested.replace(b"public byte Nested", b"public byte Updated").replace(
+        b"return CopyPeer", b"values[0usize] = 9u8;\n        return CopyPeer",
+    )
+    branch_update = updated.replace(
+        b"values[0usize] = 9u8;",
+        b"if (j < 2usize) { values[j] = 9u8; } else { values[1usize] = 8u8; }",
+    )
+    combined = (source + nested[nested.index(b"public byte Nested"):] + inline[inline.index(b"public byte Inline"):]
+                + updated[updated.index(b"public byte Updated"):])
     effectful = source.replace(b"public byte Client", b"""private usize Pick(ref Span<byte> values, usize idx)
     requires values.CanRead && values.CanWrite
     requires values.Length == 4usize
@@ -1765,6 +1773,12 @@ public byte Client""").replace(b"ref values[j]", b"ref values[Pick(ref values, j
     with parser.cached_build(TOOLS.parent) as compiled:
         tree = parser.parse_source(compiled, combined, surface=True)
         gallina = elaborate(combined, tree).gallina
+        for valid in (
+            source.replace(b"return CopyPeer", b"values[0usize] = 5u8;\n        return CopyPeer"),
+            updated.replace(b"values[0usize] = 9u8;", b"Span.Fill(ref values, 0usize, 2usize, 9u8);"),
+            branch_update,
+        ):
+            elaborate(valid, parser.parse_source(compiled, valid, surface=True))
         temporary = nested.replace(
             b"in nested[i]",
             b"in (Span.Slice(shifted, 1usize, 2usize))[i]",
@@ -1777,16 +1791,16 @@ public byte Client""").replace(b"ref values[j]", b"ref values[Pick(ref values, j
         for invalid in (
             source.replace(b"ref values[j]", b"ref values[1usize + i]"),
             source.replace(b"j != 1usize + i", b"j != i"),
-            source.replace(
-                b"return CopyPeer",
-                b"values[0usize] = 5u8;\n        return CopyPeer",
-            ),
+            source.replace(b"return CopyPeer", b"Span.Restore(ref values, shifted);\n        return CopyPeer"),
             nested.replace(b"ref values[j]", b"ref values[2usize + i]"),
             nested.replace(b"j != 2usize + i", b"j != 1usize + i"),
             nested.replace(b"return CopyPeer", b"values[2usize] = 5u8;\n        return CopyPeer"),
             inline.replace(b"ref values[j]", b"ref values[2usize + i]"),
             inline.replace(b"return CopyPeer", b"values[2usize] = 5u8;\n        return CopyPeer"),
             inline.replace(b"return CopyPeer", b"if (i == 0usize) { values[2usize] = 5u8; }\n        return CopyPeer"),
+            updated.replace(b"values[0usize] = 9u8;", b"values[2usize + i] = 9u8;"),
+            updated.replace(b"values[0usize] = 9u8;", b"Span.Fill(ref values, 0usize, 3usize, 9u8);"),
+            branch_update.replace(b"values[1usize] = 8u8;", b"values[j] = 8u8;"),
             nested.replace(
                 b"return CopyPeer(in nested[i]",
                 b"let readOnly = Span.ReadOnly(nested);\n        return CopyPeer(in readOnly[i]",
@@ -1812,7 +1826,7 @@ public byte Client""").replace(b"ref values[j]", b"ref values[Pick(ref values, j
     entries = solver_ledger.ledger(gallina)
     ensure(not entries, "owner-coordinate loans depended on a solver assumption")
     clients = {name: constant for constant, name in re.findall(
-        r"^Definition (holdfast_d\d+_(Client|Nested|Inline)) :", gallina, re.MULTILINE,
+        r"^Definition (holdfast_d\d+_(Client|Nested|Inline|Updated)) :", gallina, re.MULTILINE,
     )}
     proof = """
 Import HoldFast_OwnerCoordinateLoans.
@@ -1888,6 +1902,67 @@ Proof. repeat split; reflexivity. Qed.
 End {name}Trial.
 """
         exports.extend((f"{name}Trial.owner_coordinate_writeback", f"{name}Trial.owner_coordinate_entry_is_inhabited"))
+    updated_client = clients["Updated"]
+    proof += rf"""
+Module UpdatedTrial.
+Local Definition trial_byte (n : nat) := holdfast_mk_int 0 (holdfast_nat_to_bits 8 n).
+Local Definition trial_index (n : nat) := holdfast_mk_int 4 (holdfast_nat_to_bits 64 n).
+Local Definition trial_read := holdfast_Span_Read (holdfast_int 0).
+Local Definition owner_index i := holdfast_int_add 4 (trial_index 2) i.
+Local Definition can_copy i j := holdfast_and
+  (holdfast_and (holdfast_int_lt 4 i (trial_index 2)) (holdfast_int_lt 4 j (trial_index 4)))
+  (holdfast_int_ne 4 j (owner_index i)).
+
+Theorem saved_view_writeback : forall values i j,
+  (can_copy i j = true ->
+    {updated_client} values i j = trial_read values (owner_index i) /\
+    trial_read ({updated_client}_post_values values i j) j = trial_read values (owner_index i) /\
+    (holdfast_int_ne 4 j (trial_index 0) = true ->
+      trial_read ({updated_client}_post_values values i j) (trial_index 0) = trial_byte 9)) /\
+  (can_copy i j = false ->
+    {updated_client} values i j = trial_byte 0 /\ {updated_client}_post_values values i j = values) /\
+  (forall k, holdfast_int_ne 4 j k = true -> holdfast_int_ne 4 (trial_index 0) k = true ->
+    trial_read ({updated_client}_post_values values i j) k = trial_read values k).
+Proof.
+  intros values i j. unfold {updated_client}, {updated_client}_post_values. cbv beta.
+  match goal with
+  | |- context [if ?guard then _ else _] => destruct guard eqn:allowed
+  end.
+  all: match type of allowed with
+       | _ = ?outcome => change (can_copy i j = outcome) in allowed
+       end; rewrite allowed.
+  - rewrite !composed_slice_read. split.
+    + intros _. split; [reflexivity |]. split.
+      * apply holdfast_Span_Read_write_same.
+      * intro apart. unfold trial_read.
+        rewrite holdfast_Span_Read_write_other_ne by exact apart.
+        apply holdfast_Span_Read_write_same.
+    + split; [discriminate |]. intros k outside_target outside_patch. unfold trial_read.
+      now rewrite !holdfast_Span_Read_write_other_ne.
+  - split; [discriminate | split; intros; repeat split; reflexivity].
+Qed.
+
+Local Definition initial_span := List.fold_left
+  (fun values k => holdfast_Span_Write _ values (trial_index k) (trial_byte (S k)))
+  (List.seq 0 4) (holdfast_mk_span (holdfast_int 0) (trial_index 0)
+    (trial_index 4) true true true holdfast_bs_empty).
+Local Definition agrees_with_oracle (i j : nat) : bool :=
+  let allowed := andb (andb (Nat.ltb i 2) (Nat.ltb j 4)) (negb (Nat.eqb j (2 + i))) in
+  let expected_read := if allowed then 3 + i else 0 in
+  let post := {updated_client}_post_values initial_span (trial_index i) (trial_index j) in
+  andb
+    (holdfast_int_eq 0 ({updated_client} initial_span (trial_index i) (trial_index j)) (trial_byte expected_read))
+    (List.forallb (fun k =>
+      let expected_byte := if allowed then
+        (if Nat.eqb k j then expected_read else if Nat.eqb k 0 then 9 else S k) else S k in
+      holdfast_int_eq 0 (trial_read post (trial_index k)) (trial_byte expected_byte)) (List.seq 0 4)).
+
+Example saved_view_observations :
+  List.forallb (fun i => List.forallb (agrees_with_oracle i) (List.seq 0 6)) (List.seq 0 6) = true.
+Proof. vm_compute. reflexivity. Qed.
+End UpdatedTrial.
+"""
+    exports.extend(("UpdatedTrial.saved_view_writeback", "UpdatedTrial.saved_view_observations"))
     audit = "".join(f"Print Assumptions {name}.\n" for name in exports)
     with TemporaryDirectory() as tmp:
         (Path(tmp) / "OwnerCoordinateLoans.v").write_text(gallina + proof + audit, encoding="utf-8")

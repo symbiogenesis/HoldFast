@@ -169,14 +169,14 @@ pinned modes, while the `split_at_mut` spelling passes the observations.
 [Rust fixture](../../tools/tests/fixtures/mixed_indexed_loans.rs)
 
 The frontend also checks a call that shares `view[i]` from a named `Span.Slice`
-and exclusively borrows `owner[j]` from its owner. The slice chain must derive
-from the current owner term, with no pending mutable updates during argument
-evaluation. The checker adds each slice offset to `i` before applying the
-scoped separation facts. For two slices at offset one, `j != 2usize + i`
-proves separation. A coincident owner index, a guard using only one offset,
-or a view derived before an owner update leaves separation unproved. The
-Rocq replay checks the returned byte, owner writeback, framed elements and
-untouched failure state for single and nested slices.
+and exclusively borrows `owner[j]` from its owner. The checker adds each slice
+offset to `i` before applying scoped separation facts. For two slices at
+offset one, `j != 2usize + i` proves separation between the call arguments.
+If the slice predates an owner write or fill, each reachable branch must
+preserve the full slice extent. Pending mutable argument updates leave
+separation unresolved. The Rocq replay checks the returned byte, owner
+writeback, framed elements and untouched failure state for single and nested
+slices, including a write to owner index zero before the call.
 [Owner-coordinate replay](../../tools/tests/test_holdfast_loans.py#_owner_coordinate_indexed_loans)
 
 In the conditional-return trial, the mathematical frontend checks a returned

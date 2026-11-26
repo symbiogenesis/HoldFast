@@ -1666,20 +1666,31 @@ class _IntrinsicsMixin:
             raise self.fail("unsupported", "indexed call writeback requires a Nat or usize index", target)
         return element, index.term
 
-    def _span_index_in_owner(self: _Elaborator, span: _Term, owner: _Term, index: _Term) -> _Term | None:
+    def _span_index_in_owner(
+        self: _Elaborator, span: _Term, owner: _Term, index: _Term, environment: dict[str, _Binding],
+    ) -> _Term | None:
         span = self.whnf(span)
         owner = self.whnf(owner)
+        if self._term_contains_restored_view(span):
+            return None
         offsets: list[_Term] = []
+        length = None
         while span != owner:
             head, args = self.spine(span)
             if head != _constant("Span_Slice") or len(args) != 4:
-                return None
+                break
+            if length is None:
+                length = args[3]
             offsets.append(args[2])
             span = self.whnf(args[1])
         # The checked slice extents and element bound keep the composed index in range.
         displacement = _int_term(_INT_SPECS["usize"], 0)
         for offset in reversed(offsets):
             displacement = self._add_usize_offset(displacement, offset)
+        if span != owner and (length is None or not self._span_history_preserves_extent(
+            span, owner, displacement, length, environment,
+        )):
+            return None
         return self._add_usize_offset(displacement, index)
 
     def _check_returned_span_views(
@@ -1743,6 +1754,13 @@ class _IntrinsicsMixin:
                 break
             start = self._add_usize_offset(operands[2], start)
             base = self.whnf(operands[1])
+        if not self._span_history_preserves_extent(base, current, start, length, environment):
+            raise self.fail("type", f"cannot prove returned slice is disjoint from an update to '{name}'", site)
+
+    def _span_history_preserves_extent(
+        self: _Elaborator, base: _Term, current: _Term, start: _Term, length: _Term,
+        environment: dict[str, _Binding],
+    ) -> bool:
         one = _int_term(_INT_SPECS["usize"], 1)
         pending: list[tuple[_Term, tuple[_Term, ...]]] = [(current, ())]
         saved_facts = len(self.active_facts)
@@ -1752,6 +1770,7 @@ class _IntrinsicsMixin:
                 current, guards = pending.pop()
                 self.active_facts[saved_facts:] = guards
                 while current != base:
+                    self.tick()
                     if current.kind == "if":
                         _, condition, yes, no = current.args
                         negative = self._negate_bool_term(condition)
@@ -1782,7 +1801,8 @@ class _IntrinsicsMixin:
                         if any(self._prove_bool_precondition(fact, environment) for fact in (empty, before, after)):
                             current = self.whnf(parent)
                             continue
-                    raise self.fail("type", f"cannot prove returned slice is disjoint from an update to '{name}'", site)
+                    return False
+            return True
         finally:
             del self.active_facts[saved_facts:]
 
@@ -1831,8 +1851,9 @@ class _IntrinsicsMixin:
                 if (other is not None and name != other_name and j in shared_positions and not is_view
                         and name is not None and ancestry == {name}
                         and other_name is not None and other_is_view and not self.last_call_updates):
-                    # Shared indices compare in the current exclusive owner's coordinates.
-                    other = self._span_index_in_owner(environment[other_name].term, environment[name].term, other)
+                    other = self._span_index_in_owner(
+                        environment[other_name].term, environment[name].term, other, environment,
+                    )
                 elif name != other_name:
                     other = None
                 if other is not None:

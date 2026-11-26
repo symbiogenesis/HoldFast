@@ -17,11 +17,11 @@ declarations are part of the [metaprogramming design](../extensions/metaprogramm
 Ordinary `holdfast-parser elaborate` and locked mathematical builds replay
 explicit natural-grade annotations before emitting the checked module. A pure
 definition can use `NatExact` or `NatBound` across its local graded dependency
-closure. The replay checks its annotated dependent functions, natural indices
-and supported indexed records. A canonical module-private `Box` can be
-constructed and opened within a checked definition. Its grade and its payload
-remain distinct in the checked source. A grade unsupported by replay produces
-a located refusal before publication.
+closure. The replay checks its annotated dependent functions, applications of
+earlier named definitions, natural indices and supported indexed records. A
+canonical module-private `Box` can be constructed and opened within a checked
+definition. Its grade and its payload remain distinct in the checked source.
+A grade unsupported by replay produces a located refusal before publication.
 
 Each graded declaration contributes a receipt digest binding the source,
 certificate and Rocq support. The locked build also binds the support sources
@@ -37,10 +37,13 @@ to check a definition and its same-module dependencies in the
 [pure graded calculus](../../tools/rocq/graded_pure.v). This investigation accepts
 lambdas with typed parameters and pure `Fn` telescopes over `Nat` and
 `Vec<Nat, n>` with explicit
-`@ NatExact(n)` computation allowances. Natural applications and type indices
-use variables, decimal literals and addition. Applications use positional
-arguments. The checker computes type use separately and compares the dependent
-signature up to renaming of binders.
+`@ NatExact(n)` computation allowances. Dependent application indices use
+variables, decimal literals and addition. Applications to vectors and checked
+local function values use positional arguments and check the argument's type,
+including its grades, up to renaming of binders. This value rule requires a
+codomain well formed without the applied binder. The checker computes type use
+separately from the computation demand and checks the specialized codomain.
+[Application fixture](../../tools/tests/fixtures/graded-application.hf)
 
 The report binds the source digest and declaration span to the generated Rocq
 replay and the digests of its support files. It gives each binder's exact

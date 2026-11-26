@@ -137,6 +137,52 @@ def _demand(bindings: list[dict[str, object]]) -> list[tuple[object, object, obj
     return [(binding["name"], binding["computation"], binding["type"]) for binding in bindings]
 
 
+def _value_application() -> None:
+    source = TOOLS / "tests" / "fixtures" / "graded-application.hf"
+    raw = source.read_text(encoding="utf-8")
+    with tempfile.TemporaryDirectory(prefix="holdfast-graded-application-") as temporary:
+        directory = Path(temporary)
+        candidate = directory / source.name
+        proof = directory / "Generated.v"
+        for domain in ("NatExact", "NatBound"):
+            candidate.write_text(raw.replace("NatExact", domain), encoding="utf-8")
+            status, output, error = _elaborate_command(candidate)
+            ensure(status == 0 and all(f"Graded replay {name} {domain}: SHA256" in output
+                                       for name in ("Preserve", "Route", "Run")), error)
+            proof.write_text(output + """
+Import HoldFast_GradedApplication.
+Example route_preserves_samples : forall n (values : holdfast_Vec nat (n + n)),
+  holdfast_d1_Route n values = values.
+Proof. reflexivity. Qed.
+Example run_doubles_seed : forall n, holdfast_d2_Run n = n + n.
+Proof. reflexivity. Qed.
+""", encoding="utf-8")
+            kernel = subprocess.run([*proofenv.rocq_command(), "-q", proof.name], cwd=directory,
+                                    capture_output=True, text=True, check=False, timeout=30)
+            ensure(kernel.returncode == 0, kernel.stderr)
+
+            status, output, error = _source_command(candidate, "Route", "--domain", domain)
+            ensure(status == 0, error)
+            result = json.loads(output)
+            n, values = result["binders"]
+            ensure(_demand([n, values]) == [("n", 0, 4), ("values", 1, 0)], "wrong dependent call demands")
+            row = [{"name": "n", "uses": 2, "span": n["span"]}]
+            ensure(values["annotation_type_uses"] == result["result_type_uses"] == row,
+                   "application did not preserve the vector dependency")
+            ensure(result["dependencies"] == ["Preserve"], "named call lost its checked dependency")
+
+            status, output, error = _source_command(candidate, "Run", "--domain", domain)
+            ensure(status == 0 and _demand(json.loads(output)["binders"]) == [("seed", 2, 0)], error)
+
+        for before, after in (
+            ("Preserve(n + n, values)", "Preserve(n, values)"),
+            ("(Nat argument @ NatExact(2)) => argument + argument", "(Nat argument @ NatExact(1)) => argument"),
+        ):
+            candidate.write_text(raw.replace(before, after), encoding="utf-8")
+            status, output, error = _elaborate_command(candidate)
+            ensure(status == 1 and not output and "fails exact computation demand" in error, error)
+
+
 def _verify_source_certificate(directory: Path, kernel_hashes: dict[str, str], certificate: str,
                                soundness_theorem: str, stale_row: tuple[str, str]) -> None:
     compiler = [*proofenv.rocq_command(), "-q"]
@@ -270,4 +316,6 @@ def cases() -> list[Case]:
                  lane="toolchain"),
             Case("source-bound exact grades and dependent partial application replay", _source_replay, lane="toolchain"),
             Case("source-bound natural bounds and exact type dependencies", _bounded_source_replay, lane="toolchain"),
+            Case("graded value application preserves dependent and callable argument types", _value_application,
+                 lane="toolchain"),
             Case("default elaboration checks source grades before Gallina emission", _default_source_replay, lane="toolchain")]
