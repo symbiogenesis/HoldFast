@@ -30,9 +30,10 @@ from toolchain.source_file import ensure_unchanged, read_source
 class GradeDomain(StrEnum):
     EXACT = "NatExact"
     BOUND = "NatBound"
+    PRESENCE = "Presence"
 
 
-_PRIMITIVES = frozenset({"Nat", "Vec", "Type", *GradeDomain})
+_PRIMITIVES = frozenset({"Nat", "bool", "Vec", "Type", *GradeDomain})
 _ROCQ_FILES = ("graded_pure.v", "graded_domains.v", "graded_source.v")
 _MODAL_FILES = ("graded_pure.v", "graded_domains.v", "graded_modal.v", "graded_modal_source.v")
 SUPPORT_FILES = tuple(dict.fromkeys((*_ROCQ_FILES, *_MODAL_FILES)))
@@ -55,6 +56,7 @@ class _Parameter:
     span: list[int]
     domain: str
     allowance: int
+    expected_type_uses: int | None = None
 
     def abstract(self, constructor: str, body: str) -> str:
         return f"({constructor} {self.index} {self.allowance} {self.domain} {body})"
@@ -69,6 +71,7 @@ class _Definition:
     expected: str
     context: str | None = None
     records: tuple[str, ...] = ()
+    dep_nat_params: tuple[bool, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -123,25 +126,47 @@ class _Projection:
             raise self.protocol.error("limit", "graded source literals are bounded at 1024", node)
         return value
 
-    def _grade(self, node: Node) -> int:
+    def _grade(self, node: Node) -> tuple[int, int | None]:
         grade = cast("Node | None", node["grade"])
         if grade is not None and grade["kind"] == "call":
             callee = cast("Node", grade["callee"])
             arguments = cast("list[Node]", grade["arguments"])
-            if callee["kind"] == "name" and _name(callee["name"]) == self.domain and len(arguments) == 1:
-                [argument] = arguments
-                if argument["label"] is None:
-                    allowance = self._literal(cast("Node", argument["value"]))
-                    self.annotations.add(id(node))
-                    return allowance
-        raise self.protocol.error("unsupported", f"graded binders require an explicit @ {self.domain}(n) allowance", node)
+            if (callee["kind"] == "name" and _name(callee["name"]) == self.domain
+                    and len(arguments) in {1, 2}
+                    and all(argument["label"] is None for argument in arguments)):
+                allowance = self._literal(cast("Node", arguments[0]["value"]))
+                type_allowance = (
+                    self._literal(cast("Node", arguments[1]["value"]))
+                    if len(arguments) == 2 else None
+                )
+                self.annotations.add(id(node))
+                return allowance, type_allowance
+        raise self.protocol.error(
+            "unsupported",
+            f"graded binders require an explicit @ {self.domain}(n) allowance or @ {self.domain}(s, r)",
+            node,
+        )
 
-    def _parameter(self, node: Node, scope: dict[str, _Parameter]) -> _Parameter:
+    def _parameter(self, node: Node, scope: dict[str, _Parameter], *, allow_type_grade: bool = False) -> _Parameter:
         if node["name"] is None or node["type"] is None or node.get("const") or node.get("label"):
             raise self.protocol.error("unsupported", "graded replay requires named parameters with plain types", node)
-        return self._bind(node, scope, self._type(cast("Node", node["type"]), scope), self._grade(node))
+        allowance, expected_type_uses = self._grade(node)
+        if expected_type_uses is not None and not allow_type_grade:
+            raise self.protocol.error(
+                "unsupported",
+                "explicit (s, r) type-grade allowances are only supported on declaration parameters",
+                node,
+            )
+        return self._bind(node, scope, self._type(cast("Node", node["type"]), scope), allowance, expected_type_uses)
 
-    def _bind(self, node: Node, scope: dict[str, _Parameter], domain: str, allowance: int) -> _Parameter:
+    def _bind(
+        self,
+        node: Node,
+        scope: dict[str, _Parameter],
+        domain: str,
+        allowance: int,
+        expected_type_uses: int | None = None,
+    ) -> _Parameter:
         name = _name(node["name"])
         if name in self.reserved:
             raise self.protocol.error("grade", f"graded binder shadows primitive '{name}'", node)
@@ -149,13 +174,16 @@ class _Projection:
             raise self.protocol.error("grade", f"duplicate or invalid graded binder '{name}'", node)
         if len(self.parameters) == 256:
             raise self.protocol.error("limit", "graded source replay is bounded at 256 binders", node)
-        parameter = _Parameter(len(self.parameters), name, _span(node), domain, allowance)
+        parameter = _Parameter(len(self.parameters), name, _span(node), domain, allowance, expected_type_uses)
         self.parameters.append(parameter)
         scope[name] = parameter
         return parameter
 
-    def _telescope(self, node: Node, scope: dict[str, _Parameter]) -> list[_Parameter]:
-        return [self._parameter(parameter, scope) for parameter in cast("list[Node]", node["parameters"])]
+    def _telescope(self, node: Node, scope: dict[str, _Parameter], *, allow_type_grade: bool = False) -> list[_Parameter]:
+        return [
+            self._parameter(parameter, scope, allow_type_grade=allow_type_grade)
+            for parameter in cast("list[Node]", node["parameters"])
+        ]
 
     def _index(self, node: Node, scope: dict[str, _Parameter]) -> str:
         kind = node["kind"]
@@ -283,7 +311,10 @@ class _Projection:
                 raise self.protocol.error("unsupported", "graded let requires a natural name binding", binding)
             initializer = self._index(cast("Node", binding["value"]), scope)
             extended = scope.copy()
-            parameter = self._bind(binding, extended, "Natural", self._grade(binding))
+            allowance, type_allowance = self._grade(binding)
+            if type_allowance is not None:
+                raise self.protocol.error("unsupported", "graded let binders accept a single computation allowance", binding)
+            parameter = self._bind(binding, extended, "Natural", allowance)
             body = self._term(cast("Node", node["body"]), extended, declaration)
             return f"(LetNat {parameter.index} {parameter.allowance} {initializer} {body})"
         if kind in {"name", "member"}:
@@ -331,7 +362,7 @@ class _Projection:
             return self.completed[name]
         node = self._definition_node(name)
         scope: dict[str, _Parameter] = {}
-        parameters = self._telescope(node, scope)
+        parameters = self._telescope(node, scope, allow_type_grade=True)
         expected = self._type(cast("Node", node["result"]), scope)
         term = self._term(cast("Node", node["value"]), scope, node)
         for parameter in reversed(parameters):
@@ -379,6 +410,63 @@ class _IndexedRecord:
         return f"{{| record_id := {self.identity}; payload_extent := {self.extent} |}}"
 
 
+@dataclass(frozen=True)
+class _SumUnion:
+    name: str
+    generics: tuple[str, ...]
+    left_ctor: str
+    left_type: Node
+    right_ctor: str
+    right_type: Node
+
+
+def _split_sexpr(text: str) -> tuple[str, list[str]] | None:
+    stripped = text.strip()
+    if not (stripped.startswith("(") and stripped.endswith(")")):
+        return None
+    inner = stripped[1:-1].strip()
+    if not inner:
+        return None
+    tokens: list[str] = []
+    depth = 0
+    start: int | None = None
+    for idx, ch in enumerate(inner):
+        if ch == "(":
+            if depth == 0 and start is None:
+                start = idx
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0 and start is not None:
+                tokens.append(inner[start : idx + 1])
+                start = None
+        elif ch.isspace() and depth == 0:
+            if start is not None:
+                tokens.append(inner[start:idx])
+                start = None
+        elif start is None:
+            start = idx
+    if start is not None:
+        tokens.append(inner[start:])
+    if not tokens:
+        return None
+    return tokens[0], tokens[1:]
+
+
+def _is_index_expr(node: Node, scope: dict[str, _Parameter]) -> bool:
+    kind = node["kind"]
+    if kind == "group":
+        return _is_index_expr(cast("Node", node["value"]), scope)
+    if kind == "nat":
+        return True
+    if kind == "name":
+        param = scope.get(_name(node["name"]))
+        return param is not None and param.domain in {"Natural", "NatKind"}
+    if kind == "binary" and _name(node["operator"]) == "+":
+        return _is_index_expr(cast("Node", node["left"]), scope) and _is_index_expr(cast("Node", node["right"]), scope)
+    return False
+
+
 class _ModalProjection(_Projection):
     reserved = _PRIMITIVES | {"Box"}
 
@@ -392,7 +480,36 @@ class _ModalProjection(_Projection):
         self.record_ids = {name: index for index, (name, node) in enumerate(self.declarations.items())
                            if node["kind"] == "record" and name != "Box"}
         self.indexed_records: dict[str, _IndexedRecord] = {}
+        self.indexed_by_shape: dict[str, _IndexedRecord] = {}
         self.indexed_bindings: dict[int, _IndexedRecord] = {}
+        self.box_payloads: dict[int, tuple[str, str]] = {}
+        self.sum_payloads: dict[int, tuple[str, str]] = {}
+        self.union_decls = {name: node for name, node in self.declarations.items() if node["kind"] == "union"}
+        self.union_ctor_decls: dict[str, tuple[str, int]] = {}
+        for uname, unode in self.union_decls.items():
+            for idx, ctor in enumerate(cast("list[Node]", unode["constructors"])):
+                self.union_ctor_decls[_name(ctor["name"])] = (uname, idx)
+        self.sum_unions: dict[str, _SumUnion] = {}
+
+    @override
+    def _bind(
+        self,
+        node: Node,
+        scope: dict[str, _Parameter],
+        domain: str,
+        allowance: int,
+        expected_type_uses: int | None = None,
+    ) -> _Parameter:
+        parameter = super()._bind(node, scope, domain, allowance, expected_type_uses)
+        if (parsed := _split_sexpr(domain)) is not None:
+            head, args = parsed
+            if head == "BoxKind" and len(args) == 2:
+                self.box_payloads[parameter.index] = (domain, args[1])
+            elif head == "SumKind" and len(args) == 2:
+                self.sum_payloads[parameter.index] = (args[0], args[1])
+            elif head == "IndexedKind" and len(args) == 1 and args[0] in self.indexed_by_shape:
+                self.indexed_bindings[parameter.index] = self.indexed_by_shape[args[0]]
+        return parameter
 
     def _is_box_name(self, name: str | None) -> bool:
         if name is None:
@@ -443,9 +560,7 @@ class _ModalProjection(_Projection):
         self.provider_receipts.add((identity, provider.receipt))
         return definition
 
-    @override
-    def _reference(self, node: Node, scope: dict[str, _Parameter], declaration: Node,
-                   *, nullary: bool = False) -> str | None:
+    def _resolve_definition(self, node: Node, scope: dict[str, _Parameter], declaration: Node) -> _Definition | None:
         name = _IntrinsicsMixin._dotted_member_path(node)
         if name is None or name.split(".", 1)[0] in scope:
             return None
@@ -453,9 +568,13 @@ class _ModalProjection(_Projection):
             local = self.declarations[name]
             if local["kind"] != "definition" or _span(local)[0] >= _span(declaration)[0]:
                 return None
-            definition = self.definition(name, closed=True)
-        else:
-            definition = self._imported_definition(name, node)
+            return self.definition(name, closed=True)
+        return self._imported_definition(name, node)
+
+    @override
+    def _reference(self, node: Node, scope: dict[str, _Parameter], declaration: Node,
+                   *, nullary: bool = False) -> str | None:
+        definition = self._resolve_definition(node, scope, declaration)
         if definition is None:
             return None
         if bool(definition.source["parameters"]) == nullary:
@@ -502,12 +621,44 @@ class _ModalProjection(_Projection):
             raise self.protocol.error("unsupported", error, vector)
         result = _IndexedRecord(self.record_ids[name], first, self._extent(arguments[1], first))
         self.indexed_records[name] = result
+        self.indexed_by_shape[result.shape] = result
+        self.records.add(name)
+        return result
+
+    def _sum_union(self, name: str, node: Node) -> _SumUnion:
+        if name in self.sum_unions:
+            return self.sum_unions[name]
+        union_node = self.union_decls.get(name)
+        if union_node is None or _span(union_node)[0] >= _span(node)[0]:
+            raise self.protocol.error("unsupported", f"modal replay requires an earlier union '{name}'", node)
+        error = "modal sum unions require two single-field constructors without contracts or result clauses"
+        if union_node["contracts"] or union_node["modifiers"] not in ([], ["public"]):
+            raise self.protocol.error("unsupported", error, union_node)
+        generics: list[str] = []
+        for g in cast("list[Node]", union_node["generics"]):
+            if g["mode"] != "type" or g["type"] is not None:
+                raise self.protocol.error("unsupported", "modal sum unions only support plain type generics", g)
+            generics.append(_name(g["name"]))
+        constructors = cast("list[Node]", union_node["constructors"])
+        if len(constructors) != 2:
+            raise self.protocol.error("unsupported", error, union_node)
+        ctor_info: list[tuple[str, Node]] = []
+        for ctor in constructors:
+            params = cast("list[Node]", ctor["parameters"])
+            if ctor["contracts"] or ctor["result"] is not None or len(params) != 1:
+                raise self.protocol.error("unsupported", error, ctor)
+            field = params[0]
+            if field["name"] is None or field.get("const") or field.get("label") or field["grade"]:
+                raise self.protocol.error("unsupported", error, field)
+            ctor_info.append((_name(ctor["name"]), cast("Node", field["type"])))
+        result = _SumUnion(name, tuple(generics), ctor_info[0][0], ctor_info[0][1], ctor_info[1][0], ctor_info[1][1])
+        self.sum_unions[name] = result
         self.records.add(name)
         return result
 
     @override
-    def _parameter(self, node: Node, scope: dict[str, _Parameter]) -> _Parameter:
-        parameter = super()._parameter(node, scope)
+    def _parameter(self, node: Node, scope: dict[str, _Parameter], *, allow_type_grade: bool = False) -> _Parameter:
+        parameter = super()._parameter(node, scope, allow_type_grade=allow_type_grade)
         annotation = cast("Node", node["type"])
         while annotation["kind"] in {"type_argument", "group_type"}:
             annotation = cast("Node", annotation["type"])
@@ -515,11 +666,21 @@ class _ModalProjection(_Projection):
             self.indexed_bindings[parameter.index] = self.indexed_records[name]
         return parameter
 
-    def _box_grade(self, arguments: list[Node], node: Node, box_name: str = "Box") -> int:
-        if len(arguments) == 2 and _plain_type(arguments[0], "Nat"):
+    def _box_spec(
+        self,
+        arguments: list[Node],
+        scope: dict[str, _Parameter],
+        node: Node,
+        box_name: str = "Box",
+        *,
+        type_params: Mapping[str, str] | None = None,
+    ) -> tuple[str, int]:
+        if len(arguments) == 2:
             self._box_record(node, box_name)
-            return self._literal(arguments[1])
-        raise self.protocol.error("unsupported", "modal replay requires Box<Nat, q> with a natural literal q", node)
+            payload_kind = self._type_with(arguments[0], scope, type_params=type_params)
+            grade = self._literal(arguments[1])
+            return payload_kind, grade
+        raise self.protocol.error("unsupported", "modal replay requires Box<T, q> with a natural literal q", node)
 
     def _promote(self, node: Node, scope: dict[str, _Parameter]) -> tuple[int, str]:
         if node["kind"] == "call":
@@ -529,21 +690,31 @@ class _ModalProjection(_Projection):
                 head = cast("Node", callee["value"])
                 box_name = _IntrinsicsMixin._dotted_member_path(head)
                 if self._is_box_name(box_name) and box_name is not None:
-                    grade = self._box_grade(cast("list[Node]", callee["arguments"]), callee, box_name)
-                    return grade, self._index(cast("Node", arguments[0]["value"]), scope)
+                    type_args = cast("list[Node]", callee["arguments"])
+                    if len(type_args) == 2 and _plain_type(type_args[0], "Nat"):
+                        _, grade = self._box_spec(type_args, scope, callee, box_name)
+                        return grade, self._index(cast("Node", arguments[0]["value"]), scope)
         raise self.protocol.error("unsupported", "modal replay promotes a natural index with Box<Nat, q>(value)", node)
 
     def _boxed(self, node: Node, scope: dict[str, _Parameter]) -> str | None:
         if node["kind"] == "group":
             return self._boxed(cast("Node", node["value"]), scope)
-        if node["kind"] == "name" and _name(node["name"]) in scope:
-            return f"(BoxName {scope[_name(node['name'])].index})"
+        if node["kind"] == "name" and (binding := scope.get(_name(node["name"]))) is not None:
+            payload_info = self.box_payloads.get(binding.index)
+            if payload_info is None or payload_info[1] == "NatKind":
+                return f"(BoxName {binding.index})"
+            return None
         if node["kind"] == "call":
             callee = cast("Node", node["callee"])
             if (callee["kind"] == "generic_application"
                     and self._is_box_name(_IntrinsicsMixin._dotted_member_path(cast("Node", callee["value"])))):
-                grade, index = self._promote(node, scope)
-                return f"(PromoteNat {grade} {index})"
+                type_args = cast("list[Node]", callee["arguments"])
+                arguments = cast("list[Node]", node["arguments"])
+                if (len(type_args) == 2 and _plain_type(type_args[0], "Nat")
+                        and len(arguments) == 1 and arguments[0]["label"] is None
+                        and _is_index_expr(cast("Node", arguments[0]["value"]), scope)):
+                    grade, index = self._promote(node, scope)
+                    return f"(PromoteNat {grade} {index})"
         return None
 
     def _indexed(self, node: Node, scope: dict[str, _Parameter]) -> tuple[str, _IndexedRecord] | None:
@@ -584,37 +755,243 @@ class _ModalProjection(_Projection):
 
     @override
     def _type(self, node: Node, scope: dict[str, _Parameter]) -> str:
+        return self._type_with(node, scope)
+
+    def _type_with(
+        self,
+        node: Node,
+        scope: dict[str, _Parameter],
+        *,
+        type_params: Mapping[str, str] | None = None,
+    ) -> str:
         kind = node["kind"]
         if kind in {"type_argument", "group_type"}:
-            return self._type(cast("Node", node["type"]), scope)
+            return self._type_with(cast("Node", node["type"]), scope, type_params=type_params)
         if kind == "type":
             name = _name(node["name"])
             arguments = cast("list[Node]", node["arguments"])
             if name == "Nat" and not arguments:
                 return "NatKind"
+            if name == "bool" and not arguments:
+                return "BoolKind"
+            if type_params is not None and not arguments and name in type_params:
+                return type_params[name]
             if self._is_box_name(name):
-                return f"(BoxNat {self._box_grade(arguments, node, name)})"
+                payload_kind, grade = self._box_spec(arguments, scope, node, name, type_params=type_params)
+                return f"(BoxKind {grade} {payload_kind})"
             if name in self.record_ids and not arguments:
                 return f"(IndexedKind {self._indexed_record(name, node).shape})"
+            if name in self.union_decls:
+                union = self._sum_union(name, node)
+                if len(arguments) != len(union.generics):
+                    raise self.protocol.error(
+                        "type",
+                        f"union '{name}' expects {len(union.generics)} generic type arguments",
+                        node,
+                    )
+                inst = {
+                    generic: self._type_with(argument, scope, type_params=type_params)
+                    for generic, argument in zip(union.generics, arguments, strict=True)
+                }
+                left_k = self._type_with(union.left_type, scope, type_params=inst)
+                right_k = self._type_with(union.right_type, scope, type_params=inst)
+                return f"(SumKind {left_k} {right_k})"
             if name == "Vec" and len(arguments) == 2 and _plain_type(arguments[0], "Nat"):
                 return f"(VecKind {self._type_index(arguments[1], scope)})"
         if (kind == "function_type" and node["mode"] == "Fn" and node["parameters"]
                 and not any(node[field] for field in ("generics", "captures", "effects", "contracts"))):
             extended = scope.copy()
             parameters = self._telescope(node, extended)
-            codomain = self._type(cast("Node", node["result"]), extended)
+            codomain = self._type_with(cast("Node", node["result"]), extended, type_params=type_params)
             for parameter in reversed(parameters):
-                codomain = f"(ArrowKind {parameter.allowance} {parameter.domain} {codomain})"
+                if f"(IndexVar {parameter.index})" in codomain and parameter.domain == "NatKind":
+                    codomain = f"(PiKind {parameter.index} {parameter.allowance} {parameter.domain} {codomain})"
+                else:
+                    codomain = f"(ArrowKind {parameter.allowance} {parameter.domain} {codomain})"
             return codomain
         if kind == "tuple_type" and len(types := cast("list[Node]", node["types"])) == 2:
-            return f"(ProductKind {self._type(types[0], scope)} {self._type(types[1], scope)})"
-        raise self.protocol.error("unsupported", "modal replay supports Nat, Box<Nat, q>, indexed records, Vec<Nat, n>, pairs and pure Fn types", node)
+            return (
+                f"(ProductKind {self._type_with(types[0], scope, type_params=type_params)} "
+                f"{self._type_with(types[1], scope, type_params=type_params)})"
+            )
+        raise self.protocol.error(
+            "unsupported",
+            "modal replay supports Nat, bool, Box<T, q>, 2-variant unions, indexed records, Vec<Nat, n>, pairs and pure Fn types",
+            node,
+        )
+
+    def _infer_kind(self, node: Node, scope: dict[str, _Parameter]) -> str | None:
+        kind = node["kind"]
+        if kind == "group":
+            return self._infer_kind(cast("Node", node["value"]), scope)
+        if kind == "bool":
+            return "BoolKind"
+        if kind == "nat":
+            return "NatKind"
+        if kind == "name" and (binding := scope.get(_name(node["name"]))) is not None:
+            return binding.domain
+        if kind == "tuple" and len(values := cast("list[Node]", node["values"])) == 2:
+            left_k = self._infer_kind(values[0], scope)
+            right_k = self._infer_kind(values[1], scope)
+            if left_k is not None and right_k is not None:
+                return f"(ProductKind {left_k} {right_k})"
+            return None
+        if kind == "if_expression":
+            return self._infer_kind(cast("Node", node["then"]), scope)
+        if kind == "let_expression":
+            binding = cast("Node", node["binding"])
+            if binding["kind"] == "let":
+                extended = scope.copy()
+                allowance, _ = self._grade(binding)
+                self._bind(binding, extended, "NatKind", allowance)
+                return self._infer_kind(cast("Node", node["body"]), extended)
+            return None
+        if kind == "match_expression":
+            motive = cast("Node | None", node["motive"])
+            if motive is not None:
+                motive_scope = scope.copy()
+                self._bind(motive, motive_scope, "", 0)
+                return self._type(cast("Node", motive["type"]), motive_scope)
+            cases = cast("list[Node]", node["cases"])
+            if len(cases) == 2:
+                scrut_k = self._infer_kind(cast("Node", node["value"]), scope)
+                if scrut_k is not None and (parsed := _split_sexpr(scrut_k)) is not None and parsed[0] == "SumKind":
+                    p0 = cast("Node", cases[0]["pattern"])
+                    if p0["kind"] == "constructor_pattern":
+                        cname = _name(p0["name"])
+                        if cname in self.union_ctor_decls:
+                            _, idx = self.union_ctor_decls[cname]
+                            arm_scope = scope.copy()
+                            self._bind(cast("list[Node]", p0["arguments"])[0], arm_scope, parsed[1][idx], 0)
+                            return self._infer_kind(cast("Node", cases[0]["value"]), arm_scope)
+            return None
+        if kind == "call":
+            callee = cast("Node", node["callee"])
+            while callee["kind"] == "group":
+                callee = cast("Node", callee["value"])
+            arguments = cast("list[Node]", node["arguments"])
+            if callee["kind"] == "generic_application":
+                head = cast("Node", callee["value"])
+                box_name = _IntrinsicsMixin._dotted_member_path(head)
+                if self._is_box_name(box_name) and box_name is not None:
+                    payload_k, grade = self._box_spec(cast("list[Node]", callee["arguments"]), scope, callee, box_name)
+                    return f"(BoxKind {grade} {payload_k})"
+                if head["kind"] == "name" and (cname := _name(head["name"])) in self.union_ctor_decls:
+                    uname, _ = self.union_ctor_decls[cname]
+                    union = self._sum_union(uname, head)
+                    type_args = cast("list[Node]", callee["arguments"])
+                    if len(type_args) == len(union.generics):
+                        inst = {g: self._type(arg, scope) for g, arg in zip(union.generics, type_args, strict=True)}
+                        return f"(SumKind {self._type_with(union.left_type, scope, type_params=inst)} {self._type_with(union.right_type, scope, type_params=inst)})"
+            if callee["kind"] == "name":
+                cname = _name(callee["name"])
+                if cname in self.record_ids and cname not in scope:
+                    return f"(IndexedKind {self._indexed_record(cname, callee).shape})"
+                if cname in self.union_ctor_decls and cname not in scope:
+                    uname, _ = self.union_ctor_decls[cname]
+                    union = self._sum_union(uname, callee)
+                    if not union.generics:
+                        return f"(SumKind {self._type(union.left_type, scope)} {self._type(union.right_type, scope)})"
+            callee_kind: str | None = None
+            if (defn := self._resolve_definition_for_kind(callee, scope)) is not None:
+                callee_kind = defn.expected
+            elif callee["kind"] == "name" and (binding := scope.get(_name(callee["name"]))) is not None:
+                callee_kind = binding.domain
+            if callee_kind is None:
+                return None
+            for arg in arguments:
+                parsed = _split_sexpr(callee_kind)
+                if parsed is None:
+                    return None
+                head_k, args_k = parsed
+                if head_k == "PiKind" and len(args_k) == 4:
+                    var_idx = int(args_k[0])
+                    arg_idx = self._index(cast("Node", arg["value"]), scope)
+                    callee_kind = re.sub(rf"\(IndexVar {var_idx}\)", arg_idx, args_k[3])
+                elif head_k == "ArrowKind" and len(args_k) == 3:
+                    callee_kind = args_k[2]
+                else:
+                    return None
+            return callee_kind
+        return None
+
+    def _resolve_definition_for_kind(self, node: Node, scope: dict[str, _Parameter]) -> _Definition | None:
+        name = _IntrinsicsMixin._dotted_member_path(node)
+        if name is None or name.split(".", 1)[0] in scope:
+            return None
+        if name in self.declarations:
+            return self.completed.get(name)
+        if name in self.imports:
+            _, provider = self.imports[name]
+            module = id(provider.syntax)
+            proj = self.providers.get(module)
+            if proj is not None:
+                return proj.completed.get(provider.name)
+        return None
+
+    def _union_ctor_call(
+        self, node: Node, scope: dict[str, _Parameter], declaration: Node,
+    ) -> str | None:
+        callee = cast("Node", node["callee"])
+        while callee["kind"] == "group":
+            callee = cast("Node", callee["value"])
+        if callee["kind"] == "generic_application":
+            head = cast("Node", callee["value"])
+            if head["kind"] != "name" or (cname := _name(head["name"])) not in self.union_ctor_decls or cname in scope:
+                return None
+            uname, ctor_idx = self.union_ctor_decls[cname]
+            union = self._sum_union(uname, head)
+            type_args = cast("list[Node]", callee["arguments"])
+            if len(type_args) != len(union.generics):
+                raise self.protocol.error("type", f"constructor '{cname}' expects {len(union.generics)} type arguments", callee)
+            inst = {g: self._type(arg, scope) for g, arg in zip(union.generics, type_args, strict=True)}
+        elif callee["kind"] == "name" and (cname := _name(callee["name"])) in self.union_ctor_decls and cname not in scope:
+            uname, ctor_idx = self.union_ctor_decls[cname]
+            union = self._sum_union(uname, callee)
+            if union.generics:
+                raise self.protocol.error("type", f"generic union constructor '{cname}' requires explicit type arguments", callee)
+            inst = {}
+        else:
+            return None
+        arguments = cast("list[Node]", node["arguments"])
+        if len(arguments) != 1 or arguments[0]["label"] is not None:
+            raise self.protocol.error("unsupported", f"modal union constructor '{cname}' requires one positional argument", node)
+        payload = self._term(cast("Node", arguments[0]["value"]), scope, declaration)
+        if ctor_idx == 0:
+            right_k = self._type_with(union.right_type, scope, type_params=inst)
+            return f"(InlValue {right_k} {payload})"
+        left_k = self._type_with(union.left_type, scope, type_params=inst)
+        return f"(InrValue {left_k} {payload})"
+
+    def _box_ctor_call(
+        self, node: Node, scope: dict[str, _Parameter], declaration: Node,
+    ) -> str | None:
+        callee = cast("Node", node["callee"])
+        while callee["kind"] == "group":
+            callee = cast("Node", callee["value"])
+        if callee["kind"] != "generic_application":
+            return None
+        box_name = _IntrinsicsMixin._dotted_member_path(cast("Node", callee["value"]))
+        if not self._is_box_name(box_name) or box_name is None:
+            return None
+        arguments = cast("list[Node]", node["arguments"])
+        if len(arguments) != 1 or arguments[0]["label"] is not None:
+            raise self.protocol.error("unsupported", "modal replay promotes a value with Box<T, q>(value)", node)
+        type_args = cast("list[Node]", callee["arguments"])
+        payload_k, grade = self._box_spec(type_args, scope, callee, box_name)
+        arg_node = cast("Node", arguments[0]["value"])
+        if payload_k == "NatKind" and _is_index_expr(arg_node, scope):
+            return f"(BoxValue (PromoteNat {grade} {self._index(arg_node, scope)}))"
+        return f"(PromoteValue {grade} {self._term(arg_node, scope, declaration)})"
 
     def _match(self, node: Node, scope: dict[str, _Parameter], declaration: Node) -> str:
         motive = cast("Node | None", node["motive"])
         cases = cast("list[Node]", node["cases"])
+        subject = cast("Node", node["value"])
+        if len(cases) == 2:
+            return self._match_sum(node, cases, motive, subject, scope, declaration)
         if motive is None or len(cases) != 1:
-            raise self.protocol.error("unsupported", "modal replay requires an explicit motive and one record arm", node)
+            raise self.protocol.error("unsupported", "modal replay requires an explicit motive and one record arm, or two union arms", node)
         [case] = cases
         pattern = cast("Node", case["pattern"])
         if pattern["kind"] != "constructor_pattern":
@@ -627,21 +1004,30 @@ class _ModalProjection(_Projection):
         arguments = cast("list[Node]", pattern["arguments"])
         if len(arguments) != (1 if is_box else 2) or any(arg["kind"] != "binding_pattern" for arg in arguments):
             raise self.protocol.error("unsupported", f"modal replay requires named {name} fields", pattern)
-        subject = cast("Node", node["value"])
         motive_scope = scope.copy()
         motive_parameter = self._bind(motive, motive_scope, "", 0)
         if record is not None:
             self.indexed_bindings[motive_parameter.index] = record
-        motive_type = self._type(cast("Node", motive["type"]), motive_scope)
-        extended = scope.copy()
-        first = self._bind(arguments[0], extended, "NatKind", 0)
         body = cast("Node", case["value"])
         if record is None:
             boxed = self._boxed(subject, scope)
             if boxed is not None:
+                motive_type = self._type(cast("Node", motive["type"]), motive_scope)
+                extended = scope.copy()
+                first = self._bind(arguments[0], extended, "NatKind", 0)
                 return f"(LetBox {first.index} {motive_parameter.index} {boxed} {motive_type} {self._term(body, extended, declaration)})"
+            subj_kind = self._infer_kind(subject, scope)
+            payload_kind = "NatKind"
+            if subj_kind is not None and (parsed := _split_sexpr(subj_kind)) is not None and parsed[0] == "BoxKind" and len(parsed[1]) == 2:
+                payload_kind = parsed[1][1]
+            motive_type = self._type(cast("Node", motive["type"]), motive_scope)
+            extended = scope.copy()
+            first = self._bind(arguments[0], extended, payload_kind, 0)
             subject_term = self._term(subject, scope, declaration)
             return f"(LetBoxValue {first.index} {motive_parameter.index} {subject_term} {motive_type} {self._term(body, extended, declaration)})"
+        motive_type = self._type(cast("Node", motive["type"]), motive_scope)
+        extended = scope.copy()
+        first = self._bind(arguments[0], extended, "NatKind", 0)
         payload = self._bind(arguments[1], extended, f"(payload_kind {record.shape} (IndexVar {first.index}))", 0)
         indexed = self._indexed(subject, scope)
         if indexed is None:
@@ -649,11 +1035,84 @@ class _ModalProjection(_Projection):
         return (f"(LetIndexed {record.shape} {first.index} {payload.index} {motive_parameter.index} {indexed[0]} {motive_type} "
                 f"{self._term(body, extended, declaration)})")
 
+    def _match_sum(
+        self,
+        node: Node,
+        cases: list[Node],
+        motive: Node | None,
+        subject: Node,
+        scope: dict[str, _Parameter],
+        declaration: Node,
+    ) -> str:
+        if motive is not None:
+            motive_scope = scope.copy()
+            self._bind(motive, motive_scope, "", 0)
+            self._type(cast("Node", motive["type"]), motive_scope)
+        parsed_cases: list[tuple[str, int, Node, Node]] = []
+        union: _SumUnion | None = None
+        for case in cases:
+            pattern = cast("Node", case["pattern"])
+            if pattern["kind"] != "constructor_pattern":
+                raise self.protocol.error("unsupported", "modal union match requires constructor patterns", pattern)
+            cname = _name(pattern["name"])
+            if cname not in self.union_ctor_decls:
+                raise self.protocol.error("unsupported", f"unknown modal union constructor '{cname}'", pattern)
+            uname, ctor_idx = self.union_ctor_decls[cname]
+            case_union = self._sum_union(uname, pattern)
+            if union is None:
+                union = case_union
+            elif union is not case_union:
+                raise self.protocol.error("unsupported", "modal union match arms must belong to the same union", pattern)
+            args = cast("list[Node]", pattern["arguments"])
+            if len(args) != 1 or args[0]["kind"] != "binding_pattern":
+                raise self.protocol.error("unsupported", f"modal union pattern '{cname}' requires one named binder", pattern)
+            parsed_cases.append((cname, ctor_idx, args[0], cast("Node", case["value"])))
+        if {item[1] for item in parsed_cases} != {0, 1}:
+            raise self.protocol.error("unsupported", "modal union match requires both union constructors", node)
+        parsed_cases.sort(key=lambda item: item[1])
+        _, _, left_arg, left_body = parsed_cases[0]
+        _, _, right_arg, right_body = parsed_cases[1]
+        left_k = ""
+        right_k = ""
+        if ((subj_k := self._infer_kind(subject, scope)) is not None
+                and (parsed := _split_sexpr(subj_k)) is not None
+                and parsed[0] == "SumKind" and len(parsed[1]) == 2):
+            left_k, right_k = parsed[1]
+        left_scope = scope.copy()
+        left_param = self._bind(left_arg, left_scope, left_k, 0)
+        right_scope = scope.copy()
+        right_param = self._bind(right_arg, right_scope, right_k, 0)
+        scrut_term = self._term(subject, scope, declaration)
+        left_term = self._term(left_body, left_scope, declaration)
+        right_term = self._term(right_body, right_scope, declaration)
+        return f"(MatchSum {left_param.index} {right_param.index} {scrut_term} {left_term} {right_term})"
+
     @override
     def _term(self, node: Node, scope: dict[str, _Parameter], declaration: Node) -> str:
         kind = node["kind"]
         if kind == "group":
             return self._term(cast("Node", node["value"]), scope, declaration)
+        if kind == "bool":
+            literal = "true" if node["value"] else "false"
+            return f"(BoolLit {literal})"
+        if kind == "if_expression":
+            cond = self._term(cast("Node", node["condition"]), scope, declaration)
+            then_b = self._term(cast("Node", node["then"]), scope, declaration)
+            else_b = self._term(cast("Node", node["else"]), scope, declaration)
+            return f"(IfValue {cond} {then_b} {else_b})"
+        if kind == "let_expression":
+            binding = cast("Node", node["binding"])
+            annotation = cast("Node | None", binding.get("type"))
+            if binding["kind"] != "let" or (annotation is not None and not _plain_type(annotation, "Nat")):
+                raise self.protocol.error("unsupported", "graded let requires a natural name binding", binding)
+            initializer = self._index(cast("Node", binding["value"]), scope)
+            extended = scope.copy()
+            allowance, type_allowance = self._grade(binding)
+            if type_allowance is not None:
+                raise self.protocol.error("unsupported", "graded let binders accept a single computation allowance", binding)
+            parameter = self._bind(binding, extended, "NatKind", allowance)
+            body = self._term(cast("Node", node["body"]), extended, declaration)
+            return f"(LetNatValue {parameter.index} {parameter.allowance} {initializer} {body})"
         if kind in {"name", "member"}:
             if kind == "name" and (name := _name(node["name"])) in scope:
                 return f"(Name {scope[name].index})"
@@ -676,8 +1135,10 @@ class _ModalProjection(_Projection):
             if (indexed := self._indexed(node, scope)) is not None:
                 value, record = indexed
                 return f"(IndexedValue {record.shape} {value})"
-            if (boxed := self._boxed(node, scope)) is not None:
-                return f"(BoxValue {boxed})"
+            if (sum_ctor := self._union_ctor_call(node, scope, declaration)) is not None:
+                return sum_ctor
+            if (box_ctor := self._box_ctor_call(node, scope, declaration)) is not None:
+                return box_ctor
             callee = cast("Node", node["callee"])
             while callee["kind"] == "group":
                 callee = cast("Node", callee["value"])
@@ -689,9 +1150,27 @@ class _ModalProjection(_Projection):
                 if result is None:
                     raise self.protocol.error("unsupported", "modal replay requires an earlier or imported nullary definition", node)
                 return result
-            result = self._term(callee, scope, declaration)
+            definition = self._resolve_definition(callee, scope, declaration)
+            if definition is not None:
+                result = f"source_term_{definition.index}"
+                callee_kind: str | None = definition.expected
+            else:
+                result = self._term(callee, scope, declaration)
+                callee_kind = self._infer_kind(callee, scope)
             for argument in arguments:
-                result = f"(Apply {result} {self._term(cast('Node', argument['value']), scope, declaration)})"
+                arg_node = cast("Node", argument["value"])
+                parsed = _split_sexpr(callee_kind) if callee_kind is not None else None
+                if parsed is not None and parsed[0] == "PiKind" and len(parsed[1]) == 4:
+                    var_idx = int(parsed[1][0])
+                    arg_idx = self._index(arg_node, scope)
+                    result = f"(ApplyNatValue {result} {arg_idx})"
+                    callee_kind = re.sub(rf"\(IndexVar {var_idx}\)", arg_idx, parsed[1][3])
+                elif parsed is not None and parsed[0] == "ArrowKind" and len(parsed[1]) == 3:
+                    result = f"(Apply {result} {self._term(arg_node, scope, declaration)})"
+                    callee_kind = parsed[1][2]
+                else:
+                    result = f"(Apply {result} {self._term(arg_node, scope, declaration)})"
+                    callee_kind = None
             return result
         return f"(NaturalValue {self._index(node, scope)})"
 
@@ -701,16 +1180,34 @@ class _ModalProjection(_Projection):
             return self.completed[name]
         node = self._definition_node(name)
         scope: dict[str, _Parameter] = {}
-        parameters = self._telescope(node, scope)
+        parameters = self._telescope(node, scope, allow_type_grade=True)
         expected = self._type(cast("Node", node["result"]), scope)
         term = self._term(cast("Node", node["value"]), scope, node)
+        dep_nat_params: tuple[bool, ...] = ()
         if closed:
-            if any(f"(IndexVar {p.index})" in expected or f"(BoxContents {p.index})" in expected
-                   or f"(IndexedName {p.index})" in expected for p in parameters):
-                raise self.protocol.error("unsupported", "called modal definitions require non-dependent result kinds", node)
+            dep_flags_rev: list[bool] = []
             for parameter in reversed(parameters):
-                term = parameter.abstract("Lambda", term)
-                expected = f"(ArrowKind {parameter.allowance} {parameter.domain} {expected})"
+                if f"(BoxContents {parameter.index})" in expected or f"(IndexedName {parameter.index})" in expected:
+                    raise self.protocol.error(
+                        "unsupported",
+                        "called modal definitions require non-dependent result kinds or Nat-indexed return types",
+                        node,
+                    )
+                if f"(IndexVar {parameter.index})" in expected:
+                    if parameter.domain != "NatKind":
+                        raise self.protocol.error(
+                            "unsupported",
+                            "called modal definitions require NatKind for index-dependent parameters",
+                            node,
+                        )
+                    term = parameter.abstract("DepLambda", term)
+                    expected = parameter.abstract("PiKind", expected)
+                    dep_flags_rev.append(True)
+                else:
+                    term = parameter.abstract("Lambda", term)
+                    expected = f"(ArrowKind {parameter.allowance} {parameter.domain} {expected})"
+                    dep_flags_rev.append(False)
+            dep_nat_params = tuple(reversed(dep_flags_rev))
             context = "[]"
         else:
             context_rows = "; ".join(
@@ -718,7 +1215,16 @@ class _ModalProjection(_Projection):
                 for parameter in reversed(parameters)
             )
             context = f"[{context_rows}]"
-        result = _Definition(len(self.definitions), name, node, term, expected, context, tuple(sorted(self.records)))
+        result = _Definition(
+            len(self.definitions),
+            name,
+            node,
+            term,
+            expected,
+            context,
+            tuple(sorted(self.records)),
+            dep_nat_params,
+        )
         self.completed[name] = result
         self.definitions.append(result)
         return result
@@ -729,7 +1235,11 @@ def _certificate(definitions: list[_Definition], source_hash: str, domain: Grade
     modal = definitions[-1].context is not None
     files = _MODAL_FILES if modal else _ROCQ_FILES
     modules = "GradedPure GradedModal GradedModalSource" if modal else "GradedPure GradedSource"
-    check_name = "bounded_source_check" if domain == GradeDomain.BOUND else "source_check"
+    check_name = {
+        GradeDomain.EXACT: "source_check",
+        GradeDomain.BOUND: "bounded_source_check",
+        GradeDomain.PRESENCE: "presence_source_check",
+    }[domain]
     lines = [
         f"(* Source SHA-256 {source_hash} *)",
         *(f"(* Graded provider {identity} receipt SHA-256 {receipt} *)"
@@ -776,9 +1286,13 @@ def _verdict(projection: _Projection, replay: subprocess.CompletedProcess[str]) 
     if match is None:
         raise RuntimeError(f"graded source replay gave no verdict: {replay.stderr.strip()}")
     rows = cast("list[list[list[int]]]", json.loads(match[1].replace(";", ",")))
+    order = {
+        GradeDomain.EXACT: "exact",
+        GradeDomain.BOUND: "bounded",
+        GradeDomain.PRESENCE: "presence",
+    }[projection.domain]
     for definition, row in zip(projection.definitions, rows, strict=True):
         if row == [[0]]:
-            order = "bounded" if projection.domain == GradeDomain.BOUND else "exact"
             motive = ", modal motive specialization" if definition.context is not None else ""
             problem = f"term fails {order} computation demand{motive} or natural-index checking"
             raise projection.protocol.error("grade", problem, definition.source)
@@ -788,6 +1302,26 @@ def _verdict(projection: _Projection, replay: subprocess.CompletedProcess[str]) 
             raise RuntimeError("invalid Rocq grade report")
     if replay.returncode:
         raise RuntimeError(f"graded source certificate failed: {replay.stderr.strip()}")
+    for row in rows:
+        for entry in row[1:-1]:
+            param_index, _, actual_type_uses, *_ = entry
+            parameter = projection.parameters[param_index]
+            expected_type = parameter.expected_type_uses
+            if expected_type is None:
+                continue
+            ok = (
+                actual_type_uses == expected_type
+                if projection.domain == GradeDomain.EXACT
+                else actual_type_uses <= expected_type
+                if projection.domain == GradeDomain.BOUND
+                else actual_type_uses == 0 or expected_type > 0
+            )
+            if not ok:
+                raise projection.protocol.error(
+                    "grade",
+                    f"binder '{parameter.name}' fails {order} type-use demand (expected {expected_type}, got {actual_type_uses})",
+                    {"span": parameter.span},
+                )
     return rows
 
 
@@ -926,7 +1460,7 @@ def _domain(protocol: _Protocol, parameter: Node) -> GradeDomain:
         callee = cast("Node", annotation["callee"])
         if callee["kind"] == "name" and (name := _name(callee["name"])) in GradeDomain:
             return GradeDomain(name)
-    raise protocol.error("unsupported", "graded checking requires a NatExact(n) or NatBound(n) allowance", annotation)
+    raise protocol.error("unsupported", "graded checking requires a NatExact, NatBound or Presence allowance", annotation)
 
 
 def _local_box(protocol: _Protocol, declarations: list[Node]) -> tuple[Node, GradeDomain] | None:
@@ -955,6 +1489,12 @@ class ModuleReplay:
         self.resolve_box = resolve_box
         declarations = cast("list[Node]", syntax["declarations"])
         self.record_names = {_name(node["name"]) for node in declarations if node["kind"] == "record"}
+        self.union_names = {_name(node["name"]) for node in declarations if node["kind"] == "union"}
+        self.union_ctor_names = {
+            _name(ctor["name"])
+            for node in declarations if node["kind"] == "union"
+            for ctor in cast("list[Node]", node["constructors"])
+        }
         box_info = _local_box(protocol, declarations)
         self.box = None if box_info is None else box_info[0]
         self.box_domain = None if box_info is None else box_info[1]
@@ -1004,10 +1544,11 @@ class ModuleReplay:
                         if id(node) in interface_nodes:
                             box_interface = True
                     elif (path in self.modal_definitions
+                          or path in self.union_ctor_names
                           or ((imported := resolve_import(path)) is not None and imported[1].modal)):
                         modal = True
-            if (node["kind"] in {"match_expression", "tuple", "tuple_type"}
-                    or (node["kind"] == "type" and _name(node["name"]) in self.record_names)):
+            if (node["kind"] in {"if_expression", "bool", "match_expression", "tuple", "tuple_type"}
+                    or (node["kind"] == "type" and _name(node["name"]) in (self.record_names | self.union_names | {"bool"}))):
                 modal = True
         if not annotations:
             if box_uses:
