@@ -1,0 +1,11 @@
+// SPDX-License-Identifier: Apache-2.0
+module GradedApplication;
+
+definition Vec<Nat, length> Preserve(Nat length @ NatExact(0), Vec<Nat, length> samples @ NatExact(1)) => samples;
+
+definition Vec<Nat, (n + n)> Route(Nat n @ NatExact(0), Vec<Nat, (n + n)> values @ NatExact(1)) =>
+    Preserve(n + n, values);
+
+definition Nat Run(Nat seed @ NatExact(2)) =>
+    ((Fn(Nat input @ NatExact(2)) -> Nat callback @ NatExact(1)) => callback(seed))
+        ((Nat argument @ NatExact(2)) => argument + argument);

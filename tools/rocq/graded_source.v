@@ -6,32 +6,6 @@ Import ListNotations GradedPure.
 
 Module GradedSource.
 
-Definition canonical_index (names : list (nat * nat)) (x : nat) : nat :=
-  match find (fun binding => Nat.eqb x (fst binding)) names with
-  | Some binding => 2 * snd binding
-  | None => 2 * x + 1
-  end.
-
-Fixpoint canonical_value (names : list (nat * nat)) (value : index) : index :=
-  match value with
-  | IndexVar x => IndexVar (canonical_index names x)
-  | IndexLit _ => value
-  | IndexAdd lhs rhs => IndexAdd (canonical_value names lhs) (canonical_value names rhs)
-  end.
-
-Fixpoint canonical_type (names : list (nat * nat)) (kind : ty) : ty :=
-  match kind with
-  | Natural => Natural
-  | Vector size => Vector (canonical_value names size)
-  | Pi x allowance domain codomain =>
-      let depth := length names in
-      Pi (2 * depth) allowance (canonical_type names domain)
-        (canonical_type ((x, depth) :: names) codomain)
-  end.
-
-Scheme Equality for index.
-Scheme Equality for ty.
-
 Fixpoint row_entries (env : context) (used : demand) : list nat :=
   match env with
   | [] => []

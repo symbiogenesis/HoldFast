@@ -82,6 +82,32 @@ Inductive ty : Type :=
 | Vector (length : index)
 | Pi (x allowance : nat) (domain codomain : ty).
 
+Definition canonical_index (names : list (nat * nat)) (x : nat) : nat :=
+  match find (fun binding => Nat.eqb x (fst binding)) names with
+  | Some binding => 2 * snd binding
+  | None => 2 * x + 1
+  end.
+
+Fixpoint canonical_value (names : list (nat * nat)) (value : index) : index :=
+  match value with
+  | IndexVar x => IndexVar (canonical_index names x)
+  | IndexLit _ => value
+  | IndexAdd lhs rhs => IndexAdd (canonical_value names lhs) (canonical_value names rhs)
+  end.
+
+Fixpoint canonical_type (names : list (nat * nat)) (kind : ty) : ty :=
+  match kind with
+  | Natural => Natural
+  | Vector size => Vector (canonical_value names size)
+  | Pi x allowance domain codomain =>
+      let depth := length names in
+      Pi (2 * depth) allowance (canonical_type names domain)
+        (canonical_type ((x, depth) :: names) codomain)
+  end.
+
+Scheme Equality for index.
+Scheme Equality for ty.
+
 Record binding := {
   binder : nat;
   annotation : ty;
@@ -229,7 +255,8 @@ Inductive term : Type :=
 | Var (x : nat)
 | NatValue (i : index)
 | Lambda (x allowance : nat) (domain : ty) (body : term)
-| ApplyNat (callee : term) (argument : index).
+| ApplyNat (callee : term) (argument : index)
+| ApplyValue (callee argument : term).
 
 Record judgment := {
   result_type : ty;
@@ -261,7 +288,16 @@ Inductive DerivesWith (allows : nat -> nat -> Prop) (env : context) : term -> ju
     TypeDemand env (substitute_type x argument codomain) output ->
     same_demand (substitute_demand x z b) output ->
     DerivesWith allows env (ApplyNat callee argument) {| result_type := substitute_type x argument codomain;
-      computation_demand := w ++ scale allowance z; type_demand_row := substitute_demand x z b |}.
+      computation_demand := w ++ scale allowance z; type_demand_row := substitute_demand x z b |}
+| GradeApplyValue : forall callee argument x allowance domain codomain kind w v z a b,
+    DerivesWith allows env callee {| result_type := Pi x allowance domain codomain;
+      computation_demand := w; type_demand_row := v |} ->
+    DerivesWith allows env argument {| result_type := kind;
+      computation_demand := z; type_demand_row := a |} ->
+    canonical_type [] kind = canonical_type [] domain ->
+    fresh env x = true -> TypeDemand env codomain b ->
+    DerivesWith allows env (ApplyValue callee argument) {| result_type := codomain;
+      computation_demand := w ++ scale allowance z; type_demand_row := b |}.
 
 Fixpoint infer_with (allowsb : nat -> nat -> bool) (env : context) (subject : term) : option judgment :=
   match subject with
@@ -314,6 +350,19 @@ Fixpoint infer_with (allowsb : nat -> nat -> bool) (env : context) (subject : te
           else None
       | _ => None
       end
+  | ApplyValue callee argument =>
+      match infer_with allowsb env callee, infer_with allowsb env argument with
+      | Some {| result_type := Pi x allowance domain codomain; computation_demand := w |},
+        Some {| result_type := kind; computation_demand := z |} =>
+          if fresh env x then
+            if ty_eq_dec (canonical_type [] kind) (canonical_type [] domain) then
+              option_map (fun b => {| result_type := codomain;
+                computation_demand := w ++ scale allowance z; type_demand_row := b |})
+                (type_demand env codomain)
+            else None
+          else None
+      | _, _ => None
+      end
   end.
 
 Lemma infer_with_sound : forall (allows : nat -> nat -> Prop) allowsb,
@@ -322,7 +371,7 @@ Lemma infer_with_sound : forall (allows : nat -> nat -> Prop) allowsb,
     infer_with allowsb env subject = Some result -> DerivesWith allows env subject result.
 Proof.
   intros allows allowsb admission_sound.
-  induction subject as [x | i | x allowance domain body IH | callee IH argument];
+  induction subject as [x | i | x allowance domain body IH | callee IH argument | callee IHc argument IHa];
     intros env result checked; cbn in checked.
   - destruct (lookup env x) as [entry |] eqn:found; try discriminate.
     destruct (type_demand env (annotation entry)) as [row |] eqn:typed; try discriminate.
@@ -349,6 +398,13 @@ Proof.
     destruct (demand_eqb (substitute_demand x z b) output) eqn:equal;
       inversion checked; subst.
     eapply GradeApplyNat; eauto using index_demand_sound, type_demand_sound, demand_eqb_sound.
+  - destruct (infer_with allowsb env callee) as [[function w v] |] eqn:callee_checked; try discriminate.
+    destruct function as [| | x allowance domain codomain]; try discriminate.
+    destruct (infer_with allowsb env argument) as [[kind z a] |] eqn:argument_checked; try discriminate.
+    destruct (fresh env x) eqn:new; try discriminate.
+    destruct (ty_eq_dec (canonical_type [] kind) (canonical_type [] domain)); try discriminate.
+    destruct (type_demand env codomain) as [b |] eqn:typed; inversion checked; subst.
+    eapply GradeApplyValue with (v := v) (a := a); eauto using type_demand_sound.
 Qed.
 
 Lemma derives_type_demand : forall allows env subject result,
@@ -364,6 +420,7 @@ Proof.
     + intro name. rewrite !uses_append, !uses_without.
       destruct (Nat.eqb name x); [reflexivity | now rewrite agrees].
   - exists output. auto.
+  - exists b. split; [assumption | intros name; reflexivity].
 Qed.
 
 Definition check_with (allowsb : nat -> nat -> bool) (entries : list binding) (subject : term) : option judgment :=
