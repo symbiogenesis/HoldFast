@@ -1697,9 +1697,21 @@ receipt with SHA-256
 `fbdcad3fb13027b106679a2ff33438eb874deb81730102245a12450ed9ba87ca`.
 [Qualification and binding](../language/first-release.md#first-slice-qualification)
 
-Q25ba remains open for checked source correspondence, concrete canonical-machine
-laws, retained compiler and contextual-security receipts, and admission of the
-exact final executable.
+The [packet entry observer](../../tools/toolchain/packet_entry.py) runs as part
+of compiler-enabled first-slice qualification and binding replay. At
+`1b07f04eaa550caa131cce35b1833203b0eda7a7`, the replay checks 78 exports,
+zero solver-trusted obligations and 19 semantic refusals. The qualification
+SHA-256 is `2e6c70b847b9e0df27e2d802a684729869907d7ee9df331a83884e04e66f2e72`
+and the matched binding SHA-256 is
+`863e40c2a982983e2e89fd366f705ca693bdd27855ddb8500a6402a928388db6`.
+The observer reads
+nine entry and return pairs in the passing image and checks the outcome,
+backing reads and writes, unchanged input, descriptor restoration and returned
+view fields. The empty and full cursor controls differ in the cursor field
+at return. The writable partial view differs in the write-permission field.
+The observed result is a scalar descriptor. Checked source correspondence,
+concrete canonical-machine laws, retained compiler and contextual-security
+receipts, and admission for the exact executable remain pending.
 
 <a id="q25bb-run-the-independent-package-and-developer-value-trial"></a>
 
@@ -1713,10 +1725,22 @@ On 2026-11-25, an independent read matched the manifest's SHA-256
 The source record's length and digest match the manifest, and all 74 recorded
 input hashes match Git blobs at `498127d6be3d1a70581ba4a9cc025c2d923e66f7`.
 The record names the prepared translation unit and two assembly adapters.
-Native output, installed entry sets, producer qualification and production
-admission remain pending. The trial needs an admitted scalar-purecap baseline,
-frozen target resource and timing envelopes, and qualified HoldFast library
-and lowering inputs. [Trial prerequisites](../../PLAN.md#q25bb)
+The independent native [copy-service caller](../../tools/tests/fixtures/q25bb-copy-client.c)
+exercises FIFO order across wire wrap, the staged source snapshot, untouched
+suffix, resource exhaustion and refusal-frame preservation. It supplies the
+disjoint geometry and one-byte-overlap sibling for the later importing caller
+check. The C replay calls the service on legal inputs. The strict C17 native
+replay against the pinned Git blobs and hash-checked config header passes.
+Four compiled controls refuse attempts to tighten the exact payload boundary,
+change the staged prefix, touch the suffix and change refusal output.
+The freestanding target-declaration syntax check passes. [Replay command](../../tools/README.md#copy-service-trial-replay)
+
+VerifiedOS local revision `e87be646` independently checks both archived
+development ELF replicas against all 7,191 retired instruction words and the
+passing HTIF write. The resource and timing envelope remains pending for the
+installed image. The trial also needs the qualified producer, installation and
+admission, and qualified HoldFast library and lowering inputs.
+[Trial prerequisites](../../PLAN.md#q25bb)
 
 <a id="q25ch-publish-qualified-compiler-inspection-services"></a>
 
