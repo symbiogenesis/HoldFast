@@ -764,8 +764,6 @@ def _retained_compiler(compiler: dict[str, object], files: dict[str, object], di
                     ([*command, "-E", source.name, "-o", str(unit)], str(directory)),
                 str(fresh / f"{name}.compile.log"):
                     ([*command, "-S", unit.name, "-o", assembly.name], str(fresh)),
-                str(interpreted / f"{name}.preprocess.log"):
-                    ([*command, "-E", unit.name, "-o", str(interp_unit)], str(fresh)),
                 str(interpreted / f"{name}.interpret.log"):
                     ([*command, "-interp", interp_unit.name], str(interpreted)),
                 str(directory / f"{name}.sail.log"):
@@ -780,11 +778,12 @@ def _retained_compiler(compiler: dict[str, object], files: dict[str, object], di
                 if not isinstance(process, dict) or not isinstance(process.get("log"), str):
                     raise TypeError("first-slice receipt compiler process is malformed")
                 log = process["log"]
+                process_exit = expected[name] if log.endswith(".interpret.log") else 0
                 if (log not in required or log in observed or process.get("command") != required[log][0]
                         or process.get("cwd") != required[log][1] or log not in artifacts
                         or process.get("log_sha256") != artifacts[log]
                         or type(process.get("returncode")) is not int or process["returncode"] < 0
-                        or (not log.endswith(".sail.log") and process["returncode"] != 0)):
+                        or (not log.endswith(".sail.log") and process["returncode"] != process_exit)):
                     raise ValueError("first-slice receipt compiler process subject or verdict changed")
                 stdout = _retained_stdout(process).decode("utf-8")
                 observed[log] = stdout
