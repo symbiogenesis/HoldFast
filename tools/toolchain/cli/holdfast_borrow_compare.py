@@ -61,6 +61,12 @@ def trials(mode: str) -> tuple[Trial, ...]:
         Trial(NESTED_ROWS, "direct", (("E0502", "distinct-index-invalidation"),)),
         Trial(NESTED_ROWS, "coincident", (("E0502", "coincident-index-invalidation"),)),
         Trial(NESTED_ROWS, None),
+        Trial("subslice_disjoint_writeback.rs", "direct", (("E0499", "direct-subslice-conflict"),)),
+        Trial("subslice_disjoint_writeback.rs", "coincident", (("E0499", "coincident-subslice-conflict"),)),
+        Trial("subslice_disjoint_writeback.rs", None),
+        Trial("multidim_index_borrows.rs", "direct", (("E0502", "multidim-direct-conflict"),)),
+        Trial("multidim_index_borrows.rs", "coincident", (("E0502", "multidim-coincident-conflict"),)),
+        Trial("multidim_index_borrows.rs", None),
         Trial("updated_view_loans.rs", "direct", (("E0506", "disjoint-write"),)),
         Trial("updated_view_loans.rs", "overlapping_write", (("E0506", "overlapping-write"),)),
         Trial("updated_view_loans.rs", None),
@@ -208,7 +214,11 @@ def compare(
             sources[name] = sha256_bytes(source)
         results = [_run_trial(compiler, mode, trial, work, measure=measure)
                    for mode, trial in selected]
-        ante = compare_ante(ante_checkout, fixtures, work, sources) if ante_checkout is not None else None
+        ante = (
+            compare_ante(ante_checkout, fixtures, work, sources, nested_rows_only=nested_rows_only)
+            if ante_checkout is not None
+            else None
+        )
     report: dict[str, object] = {"rustc": {"toolchain": NIGHTLY, "revision": REVISION, "host": host},
                                  "edition": EDITION, "sources_sha256": sources, "results": results}
     if ante is not None:

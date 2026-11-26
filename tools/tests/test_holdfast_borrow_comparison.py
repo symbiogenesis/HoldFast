@@ -7,8 +7,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from tests.harness import TOOLS, Case, ensure, raises
-from toolchain import parser, proofenv, solver_ledger
+from toolchain import ante_borrow_compare, parser, proofenv, solver_ledger
 from toolchain.ast import HoldFastError
+from toolchain.cli import holdfast_borrow_compare
 from toolchain.elaborate import elaborate
 
 
@@ -244,8 +245,98 @@ Definition direct_slots_ref : holdfast_Slots byte 4 -> _ -> _ -> byte := {read_s
         solver_ledger.audit(replay.stdout, len(exports), "HoldFast_DirectIndexedBorrows", entries)
 
 
+def _pinned_rustc_available() -> list[str] | None:
+    compiler = ["rustc", f"+{holdfast_borrow_compare.NIGHTLY}"]
+    try:
+        version = subprocess.run(
+            [*compiler, "-vV"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+            timeout=holdfast_borrow_compare.TIMEOUT,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if version.returncode != 0 or f"commit-hash: {holdfast_borrow_compare.REVISION}" not in version.stdout.splitlines():
+        return None
+    return compiler
+
+
+def _comparison_fixture_contracts() -> None:
+    fixtures = TOOLS / "tests" / "fixtures"
+    new_rust_fixtures = ("subslice_disjoint_writeback.rs", "multidim_index_borrows.rs")
+    for mode in holdfast_borrow_compare.MODES:
+        mode_trials = holdfast_borrow_compare.trials(mode)
+        ensure(bool(mode_trials), f"expected non-empty Rust trials for mode {mode}")
+        for new_fixture in new_rust_fixtures:
+            cfgs = {trial.configuration for trial in mode_trials if trial.fixture == new_fixture}
+            ensure(cfgs == {"direct", "coincident", None},
+                   f"mode {mode} missing expected configurations for {new_fixture}: {cfgs}")
+        for trial in mode_trials:
+            fixture_path = fixtures / trial.fixture
+            ensure(fixture_path.is_file(), f"missing Rust comparison fixture: {fixture_path}")
+            source = fixture_path.read_text(encoding="utf-8")
+            ensure(source.startswith("// SPDX-License-Identifier: Apache-2.0\n"),
+                   f"missing SPDX header in {trial.fixture}")
+            for code, marker in trial.expected:
+                ensure(bool(re.fullmatch(r"E\d{4}", code)), f"unexpected Rust diagnostic code {code!r}")
+                try:
+                    holdfast_borrow_compare._marker_line(source, marker)
+                except ValueError as exc:
+                    raise AssertionError(f"{trial.fixture} ({mode}, {trial.configuration}): {exc}") from exc
+            if not trial.expected:
+                ensure("fn expected_observations()" in source,
+                       f"accepted Rust fixture {trial.fixture} must define expected_observations()")
+
+    ensure(len(ante_borrow_compare.TRIALS) >= 2
+           and ante_borrow_compare.TRIALS[0].direct == ante_borrow_compare.DIRECT,
+           "ante_borrow_compare.TRIALS must retain nested_indexed_invalidation.an first")
+    for trial in ante_borrow_compare.TRIALS:
+        for required in (trial.direct, trial.rewrite, *((trial.companion_hf,) if trial.companion_hf is not None else ())):
+            ensure((fixtures / required).is_file(), f"missing Ante comparison fixture: {required}")
+        direct_source = (fixtures / trial.direct).read_text(encoding="utf-8")
+        ensure(direct_source.startswith("// SPDX-License-Identifier: Apache-2.0\n"),
+               f"missing SPDX header in {trial.direct}")
+        selected_lines = [line for line in direct_source.splitlines() if line == "        Some selected.*"]
+        ensure(len(selected_lines) == 1,
+               f"{trial.direct} must have exactly one 8-space indented 'Some selected.*' line")
+        ensure(direct_source.count(trial.direct_mutation) == 1,
+               f"{trial.direct} must contain {trial.direct_mutation!r} exactly once")
+        coincident_source = direct_source.replace(trial.direct_mutation, trial.coincident_mutation)
+        ensure("        Some selected.*" in coincident_source.splitlines(),
+               f"{trial.coincident} synthesis must preserve 'Some selected.*'")
+        rewrite_source = (fixtures / trial.rewrite).read_text(encoding="utf-8")
+        ensure(rewrite_source.startswith("// SPDX-License-Identifier: Apache-2.0\n"),
+               f"missing SPDX header in {trial.rewrite}")
+        ensure('println "verified 16 cases"' in rewrite_source,
+               f"{trial.rewrite} must print 'verified 16 cases'")
+
+    for control_name in ("branch_view_last_use.an", "loop_view_return.an"):
+        control_source = (fixtures / control_name).read_text(encoding="utf-8")
+        ensure(control_source.startswith("// SPDX-License-Identifier: Apache-2.0\n"),
+               f"missing SPDX header in {control_name}")
+        ensure("import Std.Collections.Vec.module, type" in control_source
+               and "Mutate 'rows!" in control_source
+               and "Vec.clear" in control_source
+               and "selected.*" in control_source,
+               f"{control_name} does not match expected Ante control structure")
+
+    compiler = _pinned_rustc_available()
+    if compiler is not None:
+        with TemporaryDirectory(prefix="holdfast-new-rust-trials-") as tmp:
+            work = Path(tmp)
+            for name in new_rust_fixtures:
+                (work / name).write_bytes((fixtures / name).read_bytes())
+            for mode in holdfast_borrow_compare.MODES:
+                for trial in holdfast_borrow_compare.trials(mode):
+                    if trial.fixture in new_rust_fixtures:
+                        holdfast_borrow_compare._run_trial(compiler, mode, trial, work, measure=False)
+
+
 def cases() -> list[Case]:
     return [
+        Case("comparison fixture contracts and markers", _comparison_fixture_contracts, lane="any"),
         Case("guarded nested-row invalidation with peer and frame replay", _nested_indexed_invalidation,
              lane="toolchain"),
         Case("direct local indexed borrows with path-sensitive separation", _direct_indexed_borrows,

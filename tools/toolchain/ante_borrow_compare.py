@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Replay the nested-row borrowing trial against the pinned Ante compiler."""
+"""Replay borrowing trials against the pinned Ante compiler."""
 
 import os
 import re
 import subprocess
 import sys
 import tarfile
+from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 
@@ -15,9 +16,40 @@ ANTEREV = "3916c257dd01e23a05564f925ea15b1f70a7435e"
 MINICORO = "97ba5a836085b221e4e49a1bd16ca82bd9b16a56"
 DIRECT = "nested_indexed_invalidation.an"
 REWRITE = "nested_indexed_invalidation_rewrite.an"
+MULTIDIM_DIRECT = "multidim_index_borrows.an"
+MULTIDIM_REWRITE = "multidim_index_borrows_rewrite.an"
 FLAGS = ("--no-color", "--threads", "1")
 TIMEOUT = 60
 BUILD_TIMEOUT = 300
+
+
+@dataclass(frozen=True)
+class AnteTrial:
+    direct: str
+    rewrite: str
+    coincident: str
+    direct_mutation: str
+    coincident_mutation: str
+    companion_hf: str | None = None
+
+
+TRIALS = (
+    AnteTrial(
+        direct=DIRECT,
+        rewrite=REWRITE,
+        coincident="nested_indexed_invalidation_coincident.an",
+        direct_mutation="Vec.clear rows.[j]",
+        coincident_mutation="Vec.clear rows.[i]",
+        companion_hf="nested-indexed-invalidation.hf",
+    ),
+    AnteTrial(
+        direct=MULTIDIM_DIRECT,
+        rewrite=MULTIDIM_REWRITE,
+        coincident="multidim_index_borrows_coincident.an",
+        direct_mutation="Vec.clear grid.[r2]",
+        coincident_mutation="Vec.clear grid.[r1]",
+    ),
+)
 
 
 def _output(argv: list[str], cwd: Path, *, timeout: int = TIMEOUT, env: dict[str, str] | None = None) -> str:
@@ -82,32 +114,57 @@ def _check_invalidation(
     }
 
 
-def compare_ante(checkout: Path, fixtures: Path, work: Path, sources: dict[str, str]) -> dict[str, object]:
-    executable, identity = _build_compiler(checkout.resolve(), work)
-    env = os.environ.copy()
-    env.pop("ANTE_STDLIB_DIR", None)
-    env.pop("ANTE_MINICORO_PATH", None)
-    for name in (DIRECT, REWRITE, "nested-indexed-invalidation.hf"):
+def _run_trial(
+    executable: Path,
+    fixtures: Path,
+    work: Path,
+    sources: dict[str, str],
+    trial: AnteTrial,
+    env: dict[str, str],
+) -> list[dict[str, object]]:
+    inputs = [trial.direct, trial.rewrite]
+    if trial.companion_hf is not None:
+        inputs.append(trial.companion_hf)
+    for name in inputs:
         source = (fixtures / name).read_bytes()
         sources[name] = sha256_bytes(source)
         if name.endswith(".an"):
             (work / name).write_bytes(source)
-    direct = (work / DIRECT).read_text(encoding="utf-8")
-    coincident_name = "nested_indexed_invalidation_coincident.an"
-    mutation = "Vec.clear rows.[j]"
-    if direct.count(mutation) != 1:
-        raise ValueError(f"{DIRECT} must have exactly one clear to generate the coincident control")
-    coincident = direct.replace(mutation, "Vec.clear rows.[i]")
+    direct = (work / trial.direct).read_text(encoding="utf-8")
+    if direct.count(trial.direct_mutation) != 1:
+        raise ValueError(f"{trial.direct} must have exactly one mutation {trial.direct_mutation!r}")
+    coincident = direct.replace(trial.direct_mutation, trial.coincident_mutation)
     encoded = coincident.encode("utf-8")
-    (work / coincident_name).write_bytes(encoded)
-    sources[coincident_name] = sha256_bytes(encoded)
+    (work / trial.coincident).write_bytes(encoded)
+    sources[trial.coincident] = sha256_bytes(encoded)
     results = [_check_invalidation(executable, work, name, source, env)
-               for name, source in ((DIRECT, direct), (coincident_name, coincident))]
+               for name, source in ((trial.direct, direct), (trial.coincident, coincident))]
     runtime_flags = ["--backend", "c", "--delete-binary", *FLAGS]
-    if _output([str(executable), REWRITE, *runtime_flags], work, env=env) != "verified 16 cases":
-        raise ValueError(f"{REWRITE} did not execute its expected observations")
+    if _output([str(executable), trial.rewrite, *runtime_flags], work, env=env) != "verified 16 cases":
+        raise ValueError(f"{trial.rewrite} did not execute its expected observations")
     results.append({
-        "fixture": REWRITE, "flags": runtime_flags, "decision": "accepted",
+        "fixture": trial.rewrite, "flags": runtime_flags, "decision": "accepted",
         "diagnostics": [], "observations": "passed",
     })
+    return results
+
+
+def compare_ante(
+    checkout: Path,
+    fixtures: Path,
+    work: Path,
+    sources: dict[str, str],
+    *,
+    nested_rows_only: bool = False,
+) -> dict[str, object]:
+    executable, identity = _build_compiler(checkout.resolve(), work)
+    env = os.environ.copy()
+    env.pop("ANTE_STDLIB_DIR", None)
+    env.pop("ANTE_MINICORO_PATH", None)
+    selected = TRIALS[:1] if nested_rows_only else TRIALS
+    results = [
+        entry
+        for trial in selected
+        for entry in _run_trial(executable, fixtures, work, sources, trial, env)
+    ]
     return {**identity, "results": results}
