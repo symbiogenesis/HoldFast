@@ -150,8 +150,9 @@ Run `python tools/run.py holdfast-borrow-compare` with the pinned Rust nightly
 installed through rustup and its host linker available. The command checks the
 compiler revision, replays the default and the explicit NLL, legacy Polonius
 and Polonius Alpha modes, and validates diagnostic codes and source lines. It runs
-the observation tests for accepted configurations and emits the results with
-their fixture digests. [Recorded comparison](../assurance/completion-log.md#q25cc-compare-borrow-checking-alternatives-on-held-out-clients)
+the observation tests for accepted configurations and records the fixture
+digests and compiler flags. The higher-ranked callback replay also runs with the
+next-generation trait solver. [Recorded comparison](../assurance/completion-log.md#q25cc-compare-borrow-checking-alternatives-on-held-out-clients)
 
 The mathematical frontend checks same-collection indexed call arguments using
 scoped arithmetic facts. When an exclusive argument and another indexed
@@ -208,6 +209,13 @@ end. The Rocq model checks the returned byte against the original and updated
 owner, the written and untouched bytes, and the unchanged error state.
 [HoldFast source](../../tools/tests/fixtures/loop-view-return.hf) ·
 [Kernel replay](../../tools/tests/test_holdfast_loan_returns.py#_loop_view_return)
+
+The default mathematical checker also lends an exclusive byte in each
+iteration of `foreach (ref byte element in values)` over a directly named
+`Span<byte>` with symbolic length. The model processes the elements in order
+and restores the owner after each element writeback. A competing access during
+the loan or a related view retained across a mutating loop is refused.
+[Lending source and replay](../../tools/tests/test_holdfast_loan_returns.py#_lending_span_iteration)
 
 If a client must restructure a loop whose last use of a view precedes a write
 to its owner, keep the original loop. Move one use past that write to produce

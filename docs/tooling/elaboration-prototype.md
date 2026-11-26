@@ -12,6 +12,24 @@ The prototype supports type-valued parameters, definitional reduction and
 compositional constants. General descriptor reflection and generated
 declarations are part of the [metaprogramming design](../extensions/metaprogramming.md).
 
+## Default grade checking
+
+Ordinary `holdfast-parser elaborate` and locked mathematical builds replay
+explicit natural-grade annotations before emitting the checked module. A pure
+definition can use `NatExact` or `NatBound` across its local graded dependency
+closure. The replay checks its annotated dependent functions, natural indices
+and supported indexed records. A canonical module-private `Box` can be
+constructed and opened within a checked definition. Its grade and its payload
+remain distinct in the checked source. A grade unsupported by replay produces
+a located refusal before publication.
+
+Each graded declaration contributes a receipt digest binding the source,
+certificate and Rocq support. The locked build also binds the support sources
+in its producer identity. The `check-grades` command reports the separate demand
+rows and certificate for inspection. Imported graded dependencies, graded box
+and callable inputs at module interfaces, and general domains require further
+qualification. [First-release contract](../language/first-release.md#default-graded-checking)
+
 ## Pure graded source replay
 
 Run `python tools/run.py holdfast-parser check-grades tools/tests/fixtures/graded-dependent.hf Specialize`

@@ -413,6 +413,7 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
   - Start with `PreserveLength` in the [dependent example](examples/dependent.hf). Check a zero-use length binder, a once-used vector and partial application at `n + n` for an open index `n`. Bind the result function's domain, codomain and reconstructed dependency rows to the source. Exercise altered allowances and a changed argument or dependency.
   - The opt-in graded source trial replays exact natural demands for dependent functions, box promotion and explicit match motives over natural payloads. Extend checked source correspondence and domain reconstruction from these fragments. [Partial evidence](docs/assurance/completion-log.md#q25bj-reconstruct-checked-graded-domain-evidence)
   - The bounded natural trial uses the checked `NatBound` order for dependent functions, natural application and modal elimination while retaining exact type-use rows. Indexed records carry their own identity and checked vector extent family into the exact and bounded elimination rules. Bind the supported forms through checked source correspondence. [Partial evidence](docs/assurance/completion-log.md#q25bj-reconstruct-checked-graded-domain-evidence)
+  - The default mathematical and locked-package routes require this replay for supported grades. Extend the checked closure to imported graded declarations, grade-preserving callable and box interfaces, and source-to-Gallina correspondence. [Current support](docs/tooling/elaboration-prototype.md#default-grade-checking)
 
 <a id="q25bk"></a>
 
@@ -534,6 +535,7 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
 
 - [ ] **Q25cf · Trial selected loop-carried borrowing**
   - **Owner:** `loop-borrow`. **Start:** Use the symbolic view and lending clients and the borrow comparison. **Check:** Qualify the default lending checker and one selected loop-carried loan shape with loop/exit invariants, termination, initialization and borrow restoration. Replay held-out valid and invalid neighbors using general flow and concrete laws.
+  - The default symbolic `Span<byte>` lending loop closes and writes back each element loan per iteration. Extend the checked restoration to the carried-loan client and bind the represented result to runtime lowering. [Current lending replay](docs/language/loan-analysis.md#conditional-borrowing-comparison)
 
 <a id="q25cg"></a>
 

@@ -142,7 +142,7 @@ Use the implementing type or a receiver value to call an interface method.
 | `TextBuilder<capacity>` | Bounded text buffer for allocation-free formatting | M |
 | Generics `<T>`, `<ghost Nat n>` | Type parameters and erased value indices; declaration generics are rigid | M |
 | `Type`, `Type<n>`, `Prop`, `Fn(A a) -> B` | Universes, propositions and dependent function types | M |
-| `Fn(Nat n @ NatExact(q)) -> B` and `NatBound(q)` | Natural computation grades with separately reconstructed type uses. See the [first-release grading contract](first-release.md#default-graded-checking). | D |
+| `Fn(Nat n @ NatExact(q)) -> B` and `NatBound(q)` | Natural computation grades with separately reconstructed type uses. [Supported grade fragment](../tooling/elaboration-prototype.md#default-grade-checking) | M (pure definitions), D |
 | `ghost T` | Erased, duplicable specification data with no computation use | M |
 | `tracked T` | Erased resource evidence that cannot be copied | S |
 | `Fn`, `FnMut`, `FnOnce` with `captures C` | Shared-call, exclusive-call and consuming-call function types with their capture sets | S |
