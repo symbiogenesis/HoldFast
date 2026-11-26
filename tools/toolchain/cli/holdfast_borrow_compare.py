@@ -39,6 +39,7 @@ def trials(mode: str) -> tuple[Trial, ...]:
     sibling = (("E0506", "sibling-write"),) if mode == "off" else ()
     loop = () if mode == "legacy" else (("E0499", "loop-reborrow"), ("E0503", "loop-reborrow"))
     nonzero_write = ("E0506", "nonzero-write")
+    second_disjoint_write = ("E0506", "second-disjoint-write")
     filtered = (("E0499", "filtered-reborrow"),) if mode == "off" else ()
     owner_conflict = (("E0503", "owner-conflict"), ("E0506", "owner-conflict"))
     escaping = (("E0521", "escaping-view"),)
@@ -63,6 +64,9 @@ def trials(mode: str) -> tuple[Trial, ...]:
         Trial("joined_view_return.rs", "direct", (("E0506", "disjoint-zero-write"), nonzero_write)),
         Trial("joined_view_return.rs", "coincident", (("E0506", "coincident-zero-write"), nonzero_write)),
         Trial("joined_view_return.rs", None),
+        Trial("correlated_view_return.rs", "direct", (("E0506", "first-disjoint-write"), second_disjoint_write)),
+        Trial("correlated_view_return.rs", "overlapping_write", (("E0506", "first-overlapping-write"), second_disjoint_write)),
+        Trial("correlated_view_return.rs", None),
         Trial("loop_view_return.rs", "direct", (("E0506", "loop-prefix-write"),)),
         Trial("loop_view_return.rs", "coincident", (("E0506", "loop-prefix-write"),)),
         Trial("loop_view_return.rs", None),
