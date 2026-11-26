@@ -76,8 +76,9 @@ def _q25cb_substitution_skipping_benchmark() -> None:
     # Build nested Pi type over Natural with zero occurrences of binder 1
     nested_pi = "Natural"
     for k in range(depth):
-        nested_pi = f"Pi {k + 10} 1 (Vector (IndexVar 0)) ({nested_pi})"
+        nested_pi = f"Pi {k + 100} 1 (Vector (IndexVar 0)) ({nested_pi})"
     bench = f"""
+From Stdlib Require Import List.
 Require Import graded_pure graded_domains graded_cbv graded_type_irrelevance graded_erasure.
 Import ListNotations GradedPure GradedErasure.
 
@@ -87,25 +88,21 @@ Definition deep_cod : ty := {nested_pi}.
 
 Theorem q25cb_deep_skip_agrees :
   exists b,
-    type_demand ({{| binder := 1; annotation := Natural; type_uses := [] |}} :: deep_env) deep_cod = Some b /\
-    uses b 1 = 0 /\
-    match apply_nat_spec deep_env 1 0 deep_cod [] (twice 0),
-          apply_nat_skip deep_env 1 0 deep_cod [] (twice 0) with
-    | Some r1, Some r2 =>
-        result_type r1 = result_type r2 /\
-        computation_demand r1 = computation_demand r2 /\
-        same_demand (type_demand_row r1) (type_demand_row r2)
-    | _, _ => False
-    end.
+    (type_demand ({{| binder := 1; annotation := Natural; type_uses := [] |}} :: deep_env) deep_cod = Some b) /\\
+    (uses b 1 = 0) /\\
+    (match apply_nat_spec deep_env 1 0 deep_cod [] (twice 0),
+           apply_nat_skip deep_env 1 0 deep_cod [] (twice 0) with
+     | Some r1, Some r2 =>
+         (result_type r1 = result_type r2) /\\
+         (computation_demand r1 = computation_demand r2) /\\
+         same_demand (type_demand_row r1) (type_demand_row r2)
+     | _, _ => False
+     end).
 Proof.
-  eexists. repeat split.
-  - reflexivity.
-  - reflexivity.
-  - destruct (apply_nat_spec deep_env 1 0 deep_cod [] (twice 0)) eqn:H1,
-             (apply_nat_skip deep_env 1 0 deep_cod [] (twice 0)) eqn:H2;
-      try discriminate; repeat split; try reflexivity.
-    + inversion H1; inversion H2; reflexivity.
-    + inversion H1; inversion H2; subst; intro y; reflexivity.
+  eexists.
+  split; [vm_compute; reflexivity |].
+  split; [vm_compute; reflexivity |].
+  exact (apply_nat_skip_agrees deep_env 1 0 deep_cod [] (twice 0)).
 Qed.
 """
     compiler = [*proofenv.rocq_command(), "-q"]
@@ -119,9 +116,10 @@ Qed.
         bench_file.write_text(bench, encoding="utf-8")
         t0 = time.perf_counter_ns()
         res = subprocess.run([*compiler, bench_file.name], cwd=directory, capture_output=True,
-                             text=True, encoding="utf-8", check=True, timeout=60)
+                             text=True, encoding="utf-8", check=False, timeout=60)
         elapsed_ns = time.perf_counter_ns() - t0
-        ensure(res.returncode == 0 and elapsed_ns > 0, "Q25cb deep-telescope benchmark failed")
+        ensure(res.returncode == 0 and elapsed_ns > 0,
+               f"Q25cb deep-telescope benchmark failed: {res.stderr}")
 
 
 def cases() -> list[Case]:
