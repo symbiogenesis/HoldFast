@@ -123,6 +123,15 @@ definition Nat ReadTwice(Nat n @ NatExact(4)) =>
             kernel = subprocess.run([*proofenv.rocq_command(), "-q", proof.name], cwd=directory,
                                     capture_output=True, text=True, encoding="utf-8", check=False, timeout=30)
             ensure(kernel.returncode == 0, kernel.stderr)
+        callback_header = "module Callback;\ndefinition Nat Call(Fn(Nat n @ NatExact(1)) -> Nat f @ NatExact(1)) => f(0);\n"
+        callback_positive = directory / "CallbackPositive.hf"
+        callback_positive.write_text(callback_header, encoding="utf-8")
+        status, output, error = _elaborate_command(callback_positive)
+        ensure(status == 0 and "Graded replay Call NatExact: SHA256" in output, error)
+        proof.write_text(output, encoding="utf-8")
+        kernel = subprocess.run([*proofenv.rocq_command(), "-q", proof.name], cwd=directory,
+                                capture_output=True, text=True, encoding="utf-8", check=False, timeout=30)
+        ensure(kernel.returncode == 0, kernel.stderr)
         for candidate, message in (
             ((fixtures / "graded-dependent.hf").read_text(encoding="utf-8")
              .replace("NatExact(4)", "NatExact(3)"), "fails exact computation demand"),
@@ -132,8 +141,10 @@ definition Nat ReadTwice(Nat n @ NatExact(4)) =>
              "graded Box operations require an annotated pure definition"),
             (closed_box + "definition Box<Nat, 2> Escape(Nat n @ NatExact(2)) => Box<Nat, 2>(n);\n",
              "graded Box values require a checked callable interface"),
-            ("module Callback; definition Nat Call(Fn(Nat n @ NatExact(1)) -> Nat f @ NatExact(1)) => f(0);\n",
-             "graded callable inputs require checked interface transport"),
+            (callback_header + "definition Nat Unchecked() => Call((Nat n) => n);\n",
+             "accepts a graded callback and requires a checked caller"),
+            (callback_header + "definition Nat BadGrade(Nat x @ NatExact(0)) => Call((Nat n @ NatExact(2)) => n + n);\n",
+             "fails exact computation demand"),
         ):
             source.write_text(candidate, encoding="utf-8")
             status, output, error = _elaborate_command(source)

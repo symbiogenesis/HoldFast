@@ -246,10 +246,72 @@ def _locked_transitive_grade_import() -> None:
         ensure(bundle.read_bytes() == checked, "invalid transitive grade changed the retained bundle")
 
 
+def _locked_graded_callback_import() -> None:
+    with tempfile.TemporaryDirectory(prefix="holdfast-graded-callback-") as temporary:
+        workspace = Path(temporary)
+        lib = _write(workspace, "library", "v1", {}, "CallbackProvider") / "module.hf"
+        client = _write(workspace, "main", "v1", {"library": "v1"}, "CallbackClient") / "module.hf"
+        provider = ("module CallbackProvider;\n"
+                    "public definition Nat Twice(Nat n @ NatExact(2)) => n + n;\n"
+                    "public definition Nat Apply(Fn(Nat x @ NatExact(2)) -> Nat f @ NatExact(1),\n"
+                    "    Nat n @ NatExact(2)) => f(n);\n")
+        consumer = ("module CallbackClient;\nimport CallbackProvider as Provider;\n"
+                    "public definition Nat UseNamed(Nat n @ NatExact(2)) => Provider.Apply(Provider.Twice, n);\n"
+                    "public definition Nat UseLambda(Nat n @ NatExact(2)) =>\n"
+                    "    Provider.Apply((Nat x @ NatExact(2)) => x + x, n);\n")
+        lock = workspace / "holdfast.lock.json"
+        bundle = workspace / "checked.json"
+        lock_command = ["lock-package", str(workspace), "main", "v1", "--output", str(lock)]
+        build_command = ["build-package", str(workspace), str(lock), "--output", str(bundle)]
+
+        def relock() -> None:
+            status, _, error = _parser_command(lock_command)
+            ensure(status == 0, error)
+
+        lib.write_text(provider, encoding="utf-8")
+        client.write_text(consumer, encoding="utf-8")
+        relock()
+        status, _, error = _parser_command(build_command)
+        ensure(status == 0, error)
+        checked = bundle.read_bytes()
+        emitted = str(json.loads(checked)["modules"]["CallbackClient"])
+        ensure("Graded replay UseNamed NatExact: SHA256" in emitted
+               and "Graded replay UseLambda NatExact: SHA256" in emitted,
+               "locked higher-order graded build lost its grade receipt")
+
+        client.write_text("module CallbackClient;\nimport CallbackProvider as Provider;\n"
+                          "public definition Nat Unchecked(Nat n) => Provider.Apply((Nat x) => x, n);\n",
+                          encoding="utf-8")
+        relock()
+        status, output, error = _parser_command(build_command)
+        ensure(status == 1 and not output and "accepts a graded callback and requires a checked caller" in error, error)
+
+        client.write_text(consumer.replace("(Nat x @ NatExact(2)) => x + x", "(Nat x @ NatExact(1)) => x"),
+                          encoding="utf-8")
+        relock()
+        status, output, error = _parser_command(build_command)
+        ensure(status == 1 and not output and "fails exact computation demand" in error, error)
+        ensure(bundle.read_bytes() == checked, "invalid higher-order graded import changed the retained bundle")
+
+        client.write_text(consumer, encoding="utf-8")
+        lib.write_text(
+            provider.replace("Nat x @ NatExact(2)", "Nat x @ NatExact(1)").replace("Nat n @ NatExact(2)", "Nat n @ NatExact(1)"),
+            encoding="utf-8",
+        )
+        status, output, error = _parser_command(build_command)
+        ensure(status == 1 and not output and "stale" in error, error)
+        relock()
+        status, output, error = _parser_command(build_command)
+        ensure(status == 1 and not output and "fails exact computation demand" in error, error)
+        ensure(bundle.read_bytes() == checked, "provider callback change corrupted the retained bundle")
+
+
 def cases() -> list[Case]:
     return [Case("exact-natural zero type-use substitution law", _type_irrelevance, lane="toolchain"),
             Case("paired graded and ordinary audio routing replay", _audio_route, lane="toolchain"),
             Case("default graded replay in a locked package", _locked_grading, lane="toolchain"),
             Case("graded dependent calls through a locked import", _locked_graded_import, lane="toolchain"),
             Case("graded dependent calls through a transitive locked import", _locked_transitive_grade_import,
+                 lane="toolchain"),
+            Case("graded higher-order calls and callbacks through a locked import", _locked_graded_callback_import,
                  lane="toolchain")]

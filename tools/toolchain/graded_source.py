@@ -94,7 +94,7 @@ class _Projection:
         self.annotations: set[int] = set()
         self.resolve_import: GradeResolver | None = None
         self.imports: dict[str, tuple[str, GradeExport]] = {}
-        self.providers: dict[str, _Projection] = {}
+        self.providers: dict[int, _Projection] = {}
         self.provider_receipts: set[tuple[str, str]] = set()
         for declaration in cast("list[Node]", syntax["declarations"]):
             if declaration["kind"] in {"import", "import_item"}:
@@ -200,7 +200,7 @@ class _Projection:
             return f"(ApplyNat {callee} {self._index(node, scope)})"
         return f"(ApplyValue {callee} {self._term(node, scope, declaration)})"
 
-    def _imported_call(self, name: str, node: Node, arity: int) -> str | None:
+    def _imported_definition(self, name: str, node: Node) -> _Definition | None:
         resolved = self.resolve_import(name) if self.resolve_import is not None else None
         if resolved is None:
             return None
@@ -208,7 +208,7 @@ class _Projection:
         if provider.domain != self.domain:
             raise self.protocol.error("grade", f"imported '{name}' requires the {provider.domain} grade domain", node)
         self.imports[name] = resolved
-        module = _name(provider.syntax["name"])
+        module = id(provider.syntax)
         if module not in self.providers:
             projection = _Projection(provider.protocol, provider.syntax, self.domain)
             projection.parameters = self.parameters
@@ -219,9 +219,27 @@ class _Projection:
         projection = self.providers[module]
         projection.resolve_import = provider.imports.get
         definition = projection.definition(provider.name)
-        if len(cast("list[Node]", definition.source["parameters"])) != arity:
-            raise self.protocol.error("unsupported", "graded imported calls require all declared arguments", node)
         self.provider_receipts.add((identity, provider.receipt))
+        return definition
+
+    def _reference(self, node: Node, scope: dict[str, _Parameter], declaration: Node,
+                   *, nullary: bool = False) -> str | None:
+        name = _IntrinsicsMixin._dotted_member_path(node)
+        if name is None or name.split(".", 1)[0] in scope:
+            return None
+        if name in self.declarations:
+            local = self.declarations[name]
+            if local["kind"] != "definition" or _span(local)[0] >= _span(declaration)[0]:
+                return None
+            definition = self.definition(name)
+        else:
+            definition = self._imported_definition(name, node)
+        if definition is None:
+            return None
+        if bool(definition.source["parameters"]) == nullary:
+            message = ("graded nullary calls require a zero-parameter definition" if nullary
+                       else "graded zero-parameter definitions require a nullary call")
+            raise self.protocol.error("unsupported", message, node)
         return f"source_term_{definition.index}"
 
     def _term(self, node: Node, scope: dict[str, _Parameter], declaration: Node) -> str:
@@ -238,11 +256,13 @@ class _Projection:
             parameter = self._bind(binding, extended, "Natural", self._grade(binding))
             body = self._term(cast("Node", node["body"]), extended, declaration)
             return f"(LetNat {parameter.index} {parameter.allowance} {initializer} {body})"
-        if kind == "name":
-            name = _name(node["name"])
-            if name in scope:
+        if kind in {"name", "member"}:
+            if kind == "name" and (name := _name(node["name"])) in scope:
                 return f"(Var {scope[name].index})"
-            raise self.protocol.error("grade", f"unbound value '{name}'", node)
+            if (reference := self._reference(node, scope, declaration)) is not None:
+                return reference
+            path = _IntrinsicsMixin._dotted_member_path(node) or _name(node["name"])
+            raise self.protocol.error("grade", f"unbound value '{path}'", node)
         if kind == "lambda" and node["parameters"]:
             extended = scope.copy()
             parameters = self._telescope(node, extended)
@@ -255,21 +275,14 @@ class _Projection:
             while callee["kind"] == "group":
                 callee = cast("Node", callee["value"])
             arguments = cast("list[Node]", node["arguments"])
-            result = None
-            if callee["kind"] == "name":
-                name = _name(callee["name"])
-                earlier = self.declarations.get(name)
-                if (name not in scope and earlier is not None and earlier["kind"] == "definition"
-                        and bool(earlier["parameters"]) == bool(arguments)
-                        and _span(earlier)[0] < _span(declaration)[0]):
-                    result = f"source_term_{self.definition(name).index}"
-            if (result is None and (path := _IntrinsicsMixin._dotted_member_path(callee)) is not None
-                    and path.split(".", 1)[0] not in scope and path not in self.declarations):
-                result = self._imported_call(path, callee, len(arguments))
-            if any(argument["label"] is not None for argument in arguments) or (not arguments and result is None):
+            if any(argument["label"] is not None for argument in arguments):
                 raise self.protocol.error("unsupported", "graded replay requires positional arguments or an earlier nullary definition", node)
-            if result is None:
-                result = self._term(callee, scope, declaration)
+            if not arguments:
+                result = self._reference(callee, scope, declaration, nullary=True)
+                if result is None:
+                    raise self.protocol.error("unsupported", "graded replay requires an earlier or imported nullary definition", node)
+                return result
+            result = self._term(callee, scope, declaration)
             for argument in arguments:
                 result = self._application(result, cast("Node", argument["value"]), scope, declaration)
             return result
@@ -713,11 +726,11 @@ class ModuleReplay:
         self.receipts: list[str] = []
         self.exports: dict[str, GradeExport] = {}
 
-    def check(self, declaration: Node, resolve_import: GradeResolver) -> set[int]:
+    def check(self, declaration: Node, resolve_import: GradeResolver) -> tuple[set[int], bool]:
         protocol = self.protocol
         if declaration is self.box:
-            return {id(cast("list[Node]", declaration["generics"])[1]),
-                    id(cast("list[Node]", declaration["parameters"])[0])}
+            return ({id(cast("list[Node]", declaration["generics"])[1]),
+                     id(cast("list[Node]", declaration["parameters"])[0])}, False)
         modal = False
         annotations: list[Node] = []
         box_uses: list[Node] = []
@@ -738,12 +751,13 @@ class ModuleReplay:
         if not annotations:
             if box_uses:
                 raise protocol.error("unsupported", "graded Box operations require an annotated pure definition", box_uses[0])
-            return set()
+            return set(), False
         if declaration["kind"] != "definition":
             raise protocol.error("unsupported", "graded checking supports pure mathematical definitions", annotations[0])
         domain = _domain(protocol, annotations[0])
         signature = [*cast("list[Node]", declaration["parameters"]), cast("Node", declaration["result"])]
         interface_nodes = {id(node) for part in signature for node in syntax_nodes(part)}
+        callable_input = False
         for annotation in annotations:
             if _domain(protocol, annotation) != domain:
                 raise protocol.error("unsupported", "a graded definition requires a single grade domain", annotation)
@@ -751,7 +765,7 @@ class ModuleReplay:
                 and annotation["type"] is not None and any(
                 node["kind"] == "function_type" for node in syntax_nodes(cast("Node", annotation["type"]))
             )):
-                raise protocol.error("unsupported", "graded callable inputs require checked interface transport", annotation)
+                callable_input = True
         projection = (_ModalProjection if modal else _Projection)(protocol, self.syntax, domain)
         if not modal:
             projection.resolve_import = resolve_import
@@ -760,7 +774,7 @@ class ModuleReplay:
             if id(annotation) not in projection.annotations:
                 raise protocol.error("unsupported", "grade annotation has no checked projection", annotation)
         self._check_projection(projection, selected)
-        return projection.annotations
+        return projection.annotations, callable_input
 
     def _check_projection(self, projection: _Projection, definition: _Definition) -> None:
         if self.directory is None:
@@ -780,9 +794,7 @@ class ModuleReplay:
                               sort_keys=True, separators=(",", ":"))
         receipt = hashlib.sha256(evidence.encode()).hexdigest()
         self.receipts.append(f"(* Graded replay {definition.name} {projection.domain}: SHA256 {receipt} *)\n")
-        signature = [*cast("list[Node]", definition.source["parameters"]), cast("Node", definition.source["result"])]
-        if (definition.context is None and definition.source["modifiers"] == ["public"]
-                and all(node["kind"] != "function_type" for part in signature for node in syntax_nodes(part))):
+        if definition.context is None and definition.source["modifiers"] == ["public"]:
             self.exports[definition.name] = GradeExport(self.protocol, self.syntax, definition.name,
                                                         projection.domain, receipt,
                                                         MappingProxyType(projection.imports.copy()))

@@ -128,6 +128,7 @@ class _Elaborator(
         self.hole_inspection: HoleInspection | None = None
         self.navigation: Navigation | None = None
         self.checked_grade_annotations: set[int] = set()
+        self.checked_caller_required: set[str] = set()
         self.checked_receivers: dict[tuple[int, ...], loans._Receiver | None] = {}
         self.checked_scalar_calls: set[tuple[int, ...]] = set()
         self.scalar_callables: set[str] = set()
@@ -1172,6 +1173,9 @@ class _Elaborator(
             raise self.fail("name", f"unknown or forward name '{name}'")
         if self.static_forbidden is not None and id(binding) in self.static_forbidden:
             raise self.fail("type", f"constant initializer depends on nonstatic binding '{name}'")
+        if (binding.term.kind == "const" and str(binding.term.value) in self.checked_caller_required
+                and not self.checked_grade_annotations):
+            raise self.fail("grade", f"'{name}' accepts a graded callback and requires a checked caller")
         return binding if raw else self.instantiate(binding, environment)
 
     def argument(self, node: Node, expected: _Term, environment: dict[str, _Binding]) -> _Term:
@@ -2435,6 +2439,8 @@ def _checked_elaboration(
         declarations: list[tuple[int, int]] = []
         imported_grade_exports = {name: export for mod in elaborator.available_modules.values()
                                   for name, export in mod.grade_exports.items()}
+        elaborator.checked_caller_required.update(identity for mod in elaborator.available_modules.values()
+                                                 for identity in mod.checked_caller_required)
 
         def resolve_grade_import(name: str) -> tuple[str, graded_source.GradeExport] | None:
             binding = elaborator.globals.get(name)
@@ -2448,8 +2454,11 @@ def _checked_elaboration(
             grade_replay = graded_source.ModuleReplay(Path(__file__).resolve().parents[2], protocol, root, grade_stack)
             for declaration in elaborator.nodes(root["declarations"]):
                 first = len(elaborator.output)
-                elaborator.checked_grade_annotations = grade_replay.check(declaration, resolve_grade_import)
+                elaborator.checked_grade_annotations, callable_input = grade_replay.check(declaration, resolve_grade_import)
                 elaborator.declaration(declaration)
+                if callable_input:
+                    name = elaborator.name(declaration["name"])
+                    elaborator.checked_caller_required.add(str(elaborator.globals[name].term.value))
                 if elaborator.freeze_checks:
                     elaborator.output.append("\n".join(
                         f"Definition {elaborator.emission_prefix}_freeze_check_{first}_{index} : "

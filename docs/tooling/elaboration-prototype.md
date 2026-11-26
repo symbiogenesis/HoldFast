@@ -28,12 +28,13 @@ Each graded declaration contributes a receipt digest binding the source,
 certificate and Rocq support. The locked build also binds the support sources
 in its producer identity. The `check-grades` command reports the separate demand
 rows and certificate for inspection. A pure graded caller can apply a public
-first-order `Nat` or `Vec` definition imported under its name, module alias or
-selected alias. Replay checks all arguments in the provider's grade domain.
-The caller's receipt binds each reached provider's locked identity and grade
-receipt, including providers reached through a private helper in another
-module. Graded boxes and higher-order values at module interfaces, and general
-domains require further qualification.
+first-order or higher-order definition imported under its name, module alias or
+selected alias, and pass imported graded definitions as callback values. Replay
+checks all arguments in the provider's grade domain. Definitions that accept a
+graded callback require a grade-checked caller. The caller's receipt binds each
+reached provider's locked identity and grade receipt, including providers reached
+through a private helper in another module. Graded boxes at module interfaces
+and general domains require further qualification.
 [First-release contract](../language/first-release.md#default-graded-checking)
 
 ## Pure graded source replay
