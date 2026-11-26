@@ -4,6 +4,7 @@
 import hashlib
 import json
 import re
+import shutil
 import subprocess
 import tempfile
 import time
@@ -16,6 +17,8 @@ from itertools import batched
 from pathlib import Path
 from types import MappingProxyType
 from typing import cast, override
+
+from filelock import FileLock
 
 from toolchain import parser, proofenv
 from toolchain.elaborate_intrinsics import _IntrinsicsMixin
@@ -654,15 +657,111 @@ def _verdict(projection: _Projection, replay: subprocess.CompletedProcess[str]) 
     return rows
 
 
-def _support(root: Path, compiler: list[str], directory: Path, files: tuple[str, ...]) -> dict[str, str]:
-    hashes = {}
-    for name in files:
-        source = (root / "tools" / "rocq" / name).read_bytes()
-        hashes[name] = hashlib.sha256(source).hexdigest()
+def _compile_support(compiler: list[str], directory: Path, sources: dict[str, bytes]) -> None:
+    for name, source in sources.items():
         (directory / name).write_bytes(source)
         compiled = _run_rocq(compiler, directory, name)
         if compiled.returncode:
             raise RuntimeError(f"graded Rocq support failed: {compiled.stderr.strip()}")
+
+
+def _support_cache_root() -> Path | None:
+    cache = proofenv.build_root() / "rocq-support-cache"
+    kind = proofenv.filesystem(cache)
+    if not kind or kind in proofenv.CROSS_OS_FILESYSTEMS | proofenv.VOLATILE_FILESYSTEMS:
+        return None
+    return cache
+
+
+def _compiler_sha256(compiler: list[str]) -> str | None:
+    executable = shutil.which(compiler[0])
+    if executable is None:
+        return None
+    path = Path(executable)
+    if not path.is_file():
+        return None
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
+def _support_cache_hit(entry: Path, key: str, files: tuple[str, ...], sources: dict[str, bytes]) -> bool:
+    receipt_path = entry / "receipt.json"
+    if not receipt_path.is_file():
+        return False
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ValueError):
+        return False
+    if not isinstance(receipt, dict) or receipt.get("key") != key:
+        return False
+    vo_digests = receipt.get("vo_sha256")
+    if not isinstance(vo_digests, dict):
+        return False
+    expected_vo = {f"{Path(name).stem}.vo" for name in files}
+    if set(vo_digests) != expected_vo:
+        return False
+    for name in files:
+        source_file = entry / name
+        vo_name = f"{Path(name).stem}.vo"
+        vo_file = entry / vo_name
+        if not source_file.is_file() or not vo_file.is_file():
+            return False
+        if source_file.read_bytes() != sources[name]:
+            return False
+        if hashlib.sha256(vo_file.read_bytes()).hexdigest() != vo_digests[vo_name]:
+            return False
+    return True
+
+
+def _copy_support_artifacts(source_dir: Path, target_dir: Path, files: tuple[str, ...]) -> None:
+    for name in files:
+        stem = Path(name).stem
+        for artifact in (name, f"{stem}.vo", f"{stem}.vos", f"{stem}.glob"):
+            src = source_dir / artifact
+            if src.is_file():
+                shutil.copyfile(src, target_dir / artifact)
+
+
+def _support(root: Path, compiler: list[str], directory: Path, files: tuple[str, ...]) -> dict[str, str]:
+    sources = {name: (root / "tools" / "rocq" / name).read_bytes() for name in files}
+    hashes = {name: hashlib.sha256(source).hexdigest() for name, source in sources.items()}
+    if not files:
+        return hashes
+    cache_root = _support_cache_root()
+    compiler_digest = _compiler_sha256(compiler) if cache_root is not None else None
+    if cache_root is None or compiler_digest is None:
+        _compile_support(compiler, directory, sources)
+        return hashes
+    cache_root.mkdir(parents=True, exist_ok=True)
+    identity = json.dumps({
+        "compiler_sha256": compiler_digest,
+        "compiler_args": compiler[1:],
+        "files": [[name, hashes[name]] for name in files],
+    }, separators=(",", ":"))
+    key = hashlib.sha256(identity.encode("utf-8")).hexdigest()
+    entry = cache_root / key
+    with FileLock(cache_root / f"{key}.lock", timeout=120):
+        if not _support_cache_hit(entry, key, files, sources):
+            shutil.rmtree(entry, ignore_errors=True)
+            stage = Path(tempfile.mkdtemp(prefix=f"stage-{key}-", dir=cache_root))
+            try:
+                _compile_support(compiler, stage, sources)
+                vo_digests = {
+                    f"{Path(name).stem}.vo": hashlib.sha256((stage / f"{Path(name).stem}.vo").read_bytes()).hexdigest()
+                    for name in files
+                }
+                (stage / "receipt.json").write_text(
+                    json.dumps({"key": key, "vo_sha256": vo_digests}, sort_keys=True),
+                    encoding="utf-8",
+                    newline="\n",
+                )
+                stage.replace(entry)
+            except BaseException:
+                shutil.rmtree(stage, ignore_errors=True)
+                raise
+        _copy_support_artifacts(entry, directory, files)
     return hashes
 
 
@@ -785,8 +884,8 @@ class ModuleReplay:
                                           definition.source) from error
             self.directory = Path(self.stack.enter_context(tempfile.TemporaryDirectory(prefix="holdfast-graded-module-")))
         dependencies = _ROCQ_FILES if definition.context is None else _MODAL_FILES
-        missing = tuple(name for name in dependencies if name not in self.hashes)
-        self.hashes.update(_support(self.root, self.compiler, self.directory, missing))
+        if any(name not in self.hashes for name in dependencies):
+            self.hashes.update(_support(self.root, self.compiler, self.directory, dependencies))
         source_hash = hashlib.sha256(self.protocol.source).hexdigest()
         certificate = _certificate(projection.definitions, source_hash, projection.domain, projection.provider_receipts)
         _, checked = _replay(self.compiler, self.directory, projection, certificate)
