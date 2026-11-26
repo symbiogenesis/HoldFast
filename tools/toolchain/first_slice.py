@@ -766,8 +766,6 @@ def _retained_compiler(compiler: dict[str, object], files: dict[str, object], di
                     ([*command, "-E", source.name, "-o", str(unit)], str(directory)),
                 str(fresh / f"{name}.compile.log"):
                     ([*command, "-S", unit.name, "-o", assembly.name], str(fresh)),
-                str(interpreted / f"{name}.preprocess.log"):
-                    ([*command, "-E", unit.name, "-o", str(interp_unit)], str(fresh)),
                 str(interpreted / f"{name}.interpret.log"):
                     ([*command, "-interp", interp_unit.name], str(interpreted)),
                 str(directory / f"{name}.sail.log"):
@@ -782,11 +780,12 @@ def _retained_compiler(compiler: dict[str, object], files: dict[str, object], di
                 if not isinstance(process, dict) or not isinstance(process.get("log"), str):
                     raise TypeError("first-slice receipt compiler process is malformed")
                 log = process["log"]
+                process_exit = expected[name] if log.endswith(".interpret.log") else 0
                 if (log not in required or log in observed or process.get("command") != required[log][0]
                         or process.get("cwd") != required[log][1] or log not in artifacts
                         or process.get("log_sha256") != artifacts[log]
                         or type(process.get("returncode")) is not int or process["returncode"] < 0
-                        or (not log.endswith(".sail.log") and process["returncode"] != 0)):
+                        or (not log.endswith(".sail.log") and process["returncode"] != process_exit)):
                     raise ValueError("first-slice receipt compiler process subject or verdict changed")
                 stdout = _retained_stdout(process).decode("utf-8")
                 observed[log] = stdout
@@ -1163,7 +1162,7 @@ def _lower_function_to_c(
     c_params: list[str] = []
     if ret_type == "Span":
         c_ret = "void"
-        c_params.extend(["struct holdfast_span_byte *out", "unsigned char *backing"])
+        c_params.append("struct holdfast_span_byte *out")
     elif ret_type == "Result":
         c_ret = "void"
         c_params.append("struct holdfast_Result_ValidatedPacket_ValidationError *out")
@@ -1270,7 +1269,11 @@ def _lower_function_to_c(
 
     scalar_types = {**{_node_text(p.get("name")): _c_scalar_type(_type_info(p.get("type"))[1]) for p in params},
                     **{name: c_ty for c_ty, name in local_scalars}}
-    used_names = {*scalar_types, *local_spans, *ptr_spans, *function_results, "out", "backing"}
+    used_names = {*scalar_types, *local_spans, *ptr_spans, *function_results, "out"}
+    backing = "backing"
+    while backing in used_names:
+        backing += "_"
+    c_params.insert(0, f"unsigned char *{backing}")
     temp_index = 0
 
     def temp(c_ty: str) -> str:
@@ -1368,7 +1371,7 @@ def _lower_function_to_c(
         if ekind == "index":
             s_ptr = span_ptr_expr(cast("dict[str, object]", node.get("value")))
             idx_c = lower_expr(node.get("index"), prefix)
-            return f"holdfast_span_read({s_ptr}, {idx_c})"
+            return f"holdfast_span_read({backing}, {s_ptr}, {idx_c})"
         if ekind == "binary":
             op = _node_text(node.get("operator"))
             if op in ("&&", "||"):
@@ -1411,14 +1414,14 @@ def _lower_function_to_c(
                     return f"VOS_ERR_{cname}"
                 cname = resolve_call(node)
                 c_args = ordered(args, prefix)
-                return f"{cname}({', '.join(c_args)})"
+                return f"{cname}({', '.join([backing, *c_args])})"
         raise ValueError(f"unsupported expression in {fname}: {node!r}")
 
     def lower_span_init(dst_ptr: str, expr: dict[str, object], prefix: list[str]) -> list[str]:
         mname = _is_span_call(expr)
         args = [_unwrap_arg(a) for a in cast("list[object]", expr.get("arguments", []))]
         if mname == "AllocZeroed":
-            return [f"holdfast_span_alloc_zeroed({dst_ptr}, backing, {', '.join(ordered(args, prefix))});"]
+            return [f"holdfast_span_alloc_zeroed({backing}, {dst_ptr}, {', '.join(ordered(args, prefix))});"]
         if mname == "Slice":
             return [f"holdfast_span_slice({dst_ptr}, {', '.join(ordered(args, prefix))});"]
         if mname in ("Invalidate", "ReadOnly"):
@@ -1461,10 +1464,10 @@ def _lower_function_to_c(
                         idx_c = temp("unsigned long")
                         index_value = lower_expr(target["index"], prefix)
                         prefix.append(f"{idx_c} = {index_value};")
-                        rhs = compound_rhs(st, f"holdfast_span_read({s_ptr}, {idx_c})", prefix)
+                        rhs = compound_rhs(st, f"holdfast_span_read({backing}, {s_ptr}, {idx_c})", prefix)
                     else:
                         idx_c, rhs = ordered([_unwrap_arg(target["index"]), val], prefix)
-                    out_lines.append(f"{indent}holdfast_span_write({s_ptr}, {s_ptr}, {idx_c}, {rhs});")
+                    out_lines.append(f"{indent}holdfast_span_write({backing}, {s_ptr}, {s_ptr}, {idx_c}, {rhs});")
                 elif target.get("kind") == "name":
                     tname = _node_text(target)
                     rhs = compound_rhs(st, tname, prefix) if compound else lower_expr(val, prefix)
@@ -1478,11 +1481,11 @@ def _lower_function_to_c(
                 if mname == "Fill":
                     s_ptr = span_ptr_expr(args[0])
                     scalars = ", ".join(ordered(args[1:], prefix))
-                    out_lines.append(f"{indent}holdfast_span_fill({s_ptr}, {s_ptr}, {scalars});")
+                    out_lines.append(f"{indent}holdfast_span_fill({backing}, {s_ptr}, {s_ptr}, {scalars});")
                 elif mname == "CopyPrefix":
                     d_ptr = span_ptr_expr(args[0])
                     s_ptr = span_ptr_expr(args[1])
-                    out_lines.append(f"{indent}holdfast_span_copy_prefix({d_ptr}, {d_ptr}, {s_ptr}, {lower_expr(args[2], prefix)});")
+                    out_lines.append(f"{indent}holdfast_span_copy_prefix({backing}, {d_ptr}, {d_ptr}, {s_ptr}, {lower_expr(args[2], prefix)});")
                     target_node = _unwrap_arg(args[0])
                     if target_node.get("kind") == "unary" and _node_text(target_node.get("operator")) in ("ref", "in"):
                         target_node = _unwrap_arg(target_node.get("value"))
@@ -1695,7 +1698,7 @@ def lower_to_c(
 {union_c}
 
 struct holdfast_span_byte {{
-    unsigned char *ptr;
+    unsigned long cursor;
     unsigned long base;
     unsigned long length;
     int tag;
@@ -1713,7 +1716,7 @@ struct holdfast_Result_ValidatedPacket_ValidationError {{
 
 static void holdfast_span_copy_meta(struct holdfast_span_byte *dst, struct holdfast_span_byte *src)
 {{
-    dst->ptr = src->ptr;
+    dst->cursor = src->cursor;
     dst->base = src->base;
     dst->length = src->length;
     dst->tag = src->tag;
@@ -1722,8 +1725,8 @@ static void holdfast_span_copy_meta(struct holdfast_span_byte *dst, struct holdf
 }}
 
 static void holdfast_span_alloc_zeroed(
-    struct holdfast_span_byte *out,
     unsigned char *backing,
+    struct holdfast_span_byte *out,
     unsigned long base,
     unsigned long length)
 {{
@@ -1731,7 +1734,7 @@ static void holdfast_span_alloc_zeroed(
     for (i = 0UL; i < length; i++) {{
         backing[base + i] = 0U;
     }}
-    out->ptr = backing + base;
+    out->cursor = base;
     out->base = base;
     out->length = length;
     out->tag = 1;
@@ -1739,22 +1742,24 @@ static void holdfast_span_alloc_zeroed(
     out->perm_write = 1;
 }}
 
-static unsigned char holdfast_span_read(struct holdfast_span_byte *s, unsigned long idx)
+static unsigned char holdfast_span_read(unsigned char *backing, struct holdfast_span_byte *s, unsigned long idx)
 {{
-    return s->ptr[idx];
+    return backing[s->cursor + idx];
 }}
 
 static void holdfast_span_write(
+    unsigned char *backing,
     struct holdfast_span_byte *out,
     struct holdfast_span_byte *s,
     unsigned long idx,
     unsigned char val)
 {{
-    s->ptr[idx] = val;
+    backing[s->cursor + idx] = val;
     holdfast_span_copy_meta(out, s);
 }}
 
 static void holdfast_span_fill(
+    unsigned char *backing,
     struct holdfast_span_byte *out,
     struct holdfast_span_byte *s,
     unsigned long off,
@@ -1763,7 +1768,7 @@ static void holdfast_span_fill(
 {{
     unsigned long i;
     for (i = 0UL; i < count; i++) {{
-        s->ptr[off + i] = val;
+        backing[s->cursor + off + i] = val;
     }}
     holdfast_span_copy_meta(out, s);
 }}
@@ -1774,7 +1779,7 @@ static void holdfast_span_slice(
     unsigned long off,
     unsigned long count)
 {{
-    out->ptr = s->ptr + off;
+    out->cursor = s->cursor + off;
     out->base = s->base + off;
     out->length = count;
     out->tag = s->tag;
@@ -1808,6 +1813,7 @@ static int holdfast_span_disjoint(struct holdfast_span_byte *a, struct holdfast_
 }}
 
 static void holdfast_span_copy_prefix(
+    unsigned char *backing,
     struct holdfast_span_byte *out,
     struct holdfast_span_byte *dst,
     struct holdfast_span_byte *src,
@@ -1815,7 +1821,7 @@ static void holdfast_span_copy_prefix(
 {{
     unsigned long i;
     for (i = 0UL; i < count; i++) {{
-        dst->ptr[i] = src->ptr[i];
+        backing[dst->cursor + i] = backing[src->cursor + i];
     }}
     holdfast_span_copy_meta(out, dst);
 }}
@@ -1831,10 +1837,9 @@ static void holdfast_span_restore(
 
 {lowered_functions_c}
 
-static int packet_view_matches(struct holdfast_span_byte *view, unsigned char *arena,
-                               unsigned long base, unsigned long length)
+static int packet_view_matches(struct holdfast_span_byte *view, unsigned long base, unsigned long length)
 {{
-    return view->ptr == arena + base && view->base == base && view->length == length
+    return view->cursor == base && view->base == base && view->length == length
         && view->tag == 1 && view->perm_read == 1 && view->perm_write == 0;
 }}
 
@@ -1848,123 +1853,123 @@ int main(void)
     struct holdfast_Result_ValidatedPacket_ValidationError out;
 
     /* 1. ValidateEmptyPacketOk: valid 0-byte payload + live frame preservation at index 8 */
-    holdfast_span_alloc_zeroed(&dst, arena, 64UL, 10UL);
-    holdfast_span_write(&dst, &dst, 8UL, 0xC3U);
-    holdfast_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
-    WritePacket8(&pkt, 0x56U, 0x00U, 0x5AU, 0x01U, 0x00U, 0x00U, 0x00U, 0x00U);
-    PrepareAndValidatePacket(&out, &dst, &pkt);
+    holdfast_span_alloc_zeroed(arena, &dst, 64UL, 10UL);
+    holdfast_span_write(arena, &dst, &dst, 8UL, 0xC3U);
+    holdfast_span_alloc_zeroed(arena, &pkt, 128UL, 8UL);
+    WritePacket8(arena, &pkt, 0x56U, 0x00U, 0x5AU, 0x01U, 0x00U, 0x00U, 0x00U, 0x00U);
+    PrepareAndValidatePacket(arena, &out, &dst, &pkt);
     if (out.is_ok != {exp(1, 1)})
         return 1;
     if (out.err != {exp(2, 0)})
         return 2;
     if (out.ok.CopiedBytes != {exp(3, 0)}UL)
         return 3;
-    if (!packet_view_matches(&out.ok.PayloadView, arena, 68UL, 0UL))
+    if (!packet_view_matches(&out.ok.PayloadView, 68UL, 0UL))
         return 4;
-    if (dst.base != 64UL || dst.length != {exp(5, 10)}UL || dst.perm_write != 1 || holdfast_span_read(&dst, 8UL) != 0xC3U)
+    if (dst.base != 64UL || dst.length != {exp(5, 10)}UL || dst.perm_write != 1 || holdfast_span_read(arena, &dst, 8UL) != 0xC3U)
         return 5;
 
     /* 2. ValidateFullPacketOk: valid 4-byte payload [0x10, 0x20, 0x30, 0x40] */
-    holdfast_span_alloc_zeroed(&dst, arena, 64UL, 8UL);
-    holdfast_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
-    WritePacket8(&pkt, 0x56U, 0x04U, 0x1EU, 0x01U, 0x10U, 0x20U, 0x30U, 0x40U);
-    PrepareAndValidatePacket(&out, &dst, &pkt);
+    holdfast_span_alloc_zeroed(arena, &dst, 64UL, 8UL);
+    holdfast_span_alloc_zeroed(arena, &pkt, 128UL, 8UL);
+    WritePacket8(arena, &pkt, 0x56U, 0x04U, 0x1EU, 0x01U, 0x10U, 0x20U, 0x30U, 0x40U);
+    PrepareAndValidatePacket(arena, &out, &dst, &pkt);
     if (out.is_ok != 1 || out.err != 0 || out.ok.CopiedBytes != 4UL
-        || !packet_view_matches(&out.ok.PayloadView, arena, 68UL, 4UL))
+        || !packet_view_matches(&out.ok.PayloadView, 68UL, 4UL))
         return 6;
-    if (holdfast_span_read(&out.ok.PayloadView, 0UL) != {exp(7, 0x10)}U)
+    if (holdfast_span_read(arena, &out.ok.PayloadView, 0UL) != {exp(7, 0x10)}U)
         return 7;
-    if (holdfast_span_read(&out.ok.PayloadView, 1UL) != 0x20U
-        || holdfast_span_read(&out.ok.PayloadView, 2UL) != 0x30U
-        || holdfast_span_read(&out.ok.PayloadView, 3UL) != {exp(8, 0x40)}U)
+    if (holdfast_span_read(arena, &out.ok.PayloadView, 1UL) != 0x20U
+        || holdfast_span_read(arena, &out.ok.PayloadView, 2UL) != 0x30U
+        || holdfast_span_read(arena, &out.ok.PayloadView, 3UL) != {exp(8, 0x40)}U)
         return 8;
-    if (holdfast_span_read(&dst, 0UL) != 0x56U || holdfast_span_read(&dst, 7UL) != 0x40U)
+    if (holdfast_span_read(arena, &dst, 0UL) != 0x56U || holdfast_span_read(arena, &dst, 7UL) != 0x40U)
         return 9;
 
     /* 3. ValidatePartialPacketScrubsStaleAndTrailingBytes: 2-byte payload scrubs [6..8) and preserves frame [8..10) */
-    holdfast_span_alloc_zeroed(&dst, arena, 64UL, 10UL);
-    holdfast_span_fill(&dst, &dst, 0UL, 10UL, 0xAAU);
-    holdfast_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
-    WritePacket8(&pkt, 0x56U, 0x02U, 0x6BU, 0x01U, 0x11U, 0x22U, 0xDEU, 0xADU);
-    PrepareAndValidatePacket(&out, &dst, &pkt);
+    holdfast_span_alloc_zeroed(arena, &dst, 64UL, 10UL);
+    holdfast_span_fill(arena, &dst, &dst, 0UL, 10UL, 0xAAU);
+    holdfast_span_alloc_zeroed(arena, &pkt, 128UL, 8UL);
+    WritePacket8(arena, &pkt, 0x56U, 0x02U, 0x6BU, 0x01U, 0x11U, 0x22U, 0xDEU, 0xADU);
+    PrepareAndValidatePacket(arena, &out, &dst, &pkt);
     if (out.is_ok != 1 || out.ok.CopiedBytes != 2UL
-        || !packet_view_matches(&out.ok.PayloadView, arena, 68UL, 2UL))
+        || !packet_view_matches(&out.ok.PayloadView, 68UL, 2UL))
         return 10;
-    if (holdfast_span_read(&out.ok.PayloadView, 0UL) != 0x11U || holdfast_span_read(&out.ok.PayloadView, 1UL) != 0x22U)
+    if (holdfast_span_read(arena, &out.ok.PayloadView, 0UL) != 0x11U || holdfast_span_read(arena, &out.ok.PayloadView, 1UL) != 0x22U)
         return 11;
-    if (holdfast_span_read(&dst, 6UL) != {exp(12, 0x00)}U || holdfast_span_read(&dst, 7UL) != 0x00U || holdfast_span_read(&dst, 9UL) != 0xAAU)
+    if (holdfast_span_read(arena, &dst, 6UL) != {exp(12, 0x00)}U || holdfast_span_read(arena, &dst, 7UL) != 0x00U || holdfast_span_read(arena, &dst, 9UL) != 0xAAU)
         return 12;
 
     /* 4. RejectFramingShort: pkt.length < 4 */
-    holdfast_span_alloc_zeroed(&dst, arena, 64UL, 8UL);
-    holdfast_span_alloc_zeroed(&pkt, arena, 128UL, 3UL);
-    PrepareAndValidatePacket(&out, &dst, &pkt);
+    holdfast_span_alloc_zeroed(arena, &dst, 64UL, 8UL);
+    holdfast_span_alloc_zeroed(arena, &pkt, 128UL, 3UL);
+    PrepareAndValidatePacket(arena, &out, &dst, &pkt);
     if (out.is_ok != 0 || out.err != {exp(13, 1)} || out.ok.PayloadView.tag != 0)
         return 13;
 
     /* 5. RejectBadMagic: header magic != 0x56 */
-    holdfast_span_alloc_zeroed(&dst, arena, 64UL, 8UL);
-    holdfast_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
-    WritePacket8(&pkt, 0x00U, 0x02U, 0x3AU, 0x01U, 0xAAU, 0xCCU, 0x00U, 0x00U);
-    PrepareAndValidatePacket(&out, &dst, &pkt);
+    holdfast_span_alloc_zeroed(arena, &dst, 64UL, 8UL);
+    holdfast_span_alloc_zeroed(arena, &pkt, 128UL, 8UL);
+    WritePacket8(arena, &pkt, 0x00U, 0x02U, 0x3AU, 0x01U, 0xAAU, 0xCCU, 0x00U, 0x00U);
+    PrepareAndValidatePacket(arena, &out, &dst, &pkt);
     if (out.is_ok != 0 || out.err != {exp(14, 2)} || out.ok.PayloadView.tag != 0)
         return 14;
 
     /* 6. RejectLengthOutOfBounds: rawLen == 5 > 4 */
-    holdfast_span_alloc_zeroed(&dst, arena, 64UL, 8UL);
-    holdfast_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
-    WritePacket8(&pkt, 0x56U, 0x05U, 0x5FU, 0x01U, 0x10U, 0x20U, 0x30U, 0x40U);
-    PrepareAndValidatePacket(&out, &dst, &pkt);
+    holdfast_span_alloc_zeroed(arena, &dst, 64UL, 8UL);
+    holdfast_span_alloc_zeroed(arena, &pkt, 128UL, 8UL);
+    WritePacket8(arena, &pkt, 0x56U, 0x05U, 0x5FU, 0x01U, 0x10U, 0x20U, 0x30U, 0x40U);
+    PrepareAndValidatePacket(arena, &out, &dst, &pkt);
     if (out.is_ok != 0 || out.err != {exp(15, 3)} || out.ok.PayloadView.tag != 0)
         return 15;
 
     /* 7. RejectChecksumScrubsDestinationAndRestores: bad checksum scrubs [0..8), preserves frame at 8, restores dst */
-    holdfast_span_alloc_zeroed(&dst, arena, 64UL, 10UL);
-    holdfast_span_fill(&dst, &dst, 0UL, 10UL, 0x77U);
-    holdfast_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
-    WritePacket8(&pkt, 0x56U, 0x04U, 0xFFU, 0x01U, 0x10U, 0x20U, 0x30U, 0x40U);
-    PrepareAndValidatePacket(&out, &dst, &pkt);
+    holdfast_span_alloc_zeroed(arena, &dst, 64UL, 10UL);
+    holdfast_span_fill(arena, &dst, &dst, 0UL, 10UL, 0x77U);
+    holdfast_span_alloc_zeroed(arena, &pkt, 128UL, 8UL);
+    WritePacket8(arena, &pkt, 0x56U, 0x04U, 0xFFU, 0x01U, 0x10U, 0x20U, 0x30U, 0x40U);
+    PrepareAndValidatePacket(arena, &out, &dst, &pkt);
     if (out.is_ok != 0 || out.err != {exp(16, 4)} || out.ok.PayloadView.tag != 0)
         return 16;
-    if (holdfast_span_read(&dst, 0UL) != {exp(17, 0x00)}U
-        || holdfast_span_read(&dst, 4UL) != 0x00U
-        || holdfast_span_read(&dst, 7UL) != 0x00U
-        || holdfast_span_read(&dst, 8UL) != 0x77U)
+    if (holdfast_span_read(arena, &dst, 0UL) != {exp(17, 0x00)}U
+        || holdfast_span_read(arena, &dst, 4UL) != 0x00U
+        || holdfast_span_read(arena, &dst, 7UL) != 0x00U
+        || holdfast_span_read(arena, &dst, 8UL) != 0x77U)
         return 17;
     if (dst.base != 64UL || dst.length != 10UL || dst.perm_write != 1)
         return 18;
 
     /* Overlapping byte views over the same allocation must be rejected before either view writes. */
-    holdfast_span_alloc_zeroed(&dst, arena, 64UL, 8UL);
-    holdfast_span_alloc_zeroed(&pkt, arena, 68UL, 8UL);
-    WritePacket8(&pkt, 0x56U, 0x04U, 0x1EU, 0x01U, 0x10U, 0x20U, 0x30U, 0x40U);
-    holdfast_span_write(&dst, &dst, 0UL, 0xA3U);
+    holdfast_span_alloc_zeroed(arena, &dst, 64UL, 8UL);
+    holdfast_span_alloc_zeroed(arena, &pkt, 68UL, 8UL);
+    WritePacket8(arena, &pkt, 0x56U, 0x04U, 0x1EU, 0x01U, 0x10U, 0x20U, 0x30U, 0x40U);
+    holdfast_span_write(arena, &dst, &dst, 0UL, 0xA3U);
     for (i = 0UL; i < 8UL; i++) {{
-        before[i] = holdfast_span_read(&dst, i);
+        before[i] = holdfast_span_read(arena, &dst, i);
     }}
     if (before[4] != 0x56U || before[7] != 0x01U)
         return 19;
-    PrepareAndValidatePacket(&out, &dst, &pkt);
+    PrepareAndValidatePacket(arena, &out, &dst, &pkt);
     if (out.is_ok != 0 || out.err != VOS_ERR_FramingShort || out.ok.PayloadView.tag != 0)
         return 19;
     for (i = 0UL; i < 8UL; i++) {{
-        if (holdfast_span_read(&dst, i) != before[i])
+        if (holdfast_span_read(arena, &dst, i) != before[i])
             return 19;
     }}
 
     /* Bad flags take precedence over the oversized length; preserve the suffix. */
-    holdfast_span_alloc_zeroed(&dst, arena, 64UL, 10UL);
-    holdfast_span_fill(&dst, &dst, 0UL, 10UL, 0xA5U);
-    holdfast_span_alloc_zeroed(&pkt, arena, 128UL, 8UL);
-    WritePacket8(&pkt, 0x56U, 0x05U, 0x00U, 0x00U, 0x11U, 0x22U, 0x33U, 0x44U);
-    PrepareAndValidatePacket(&out, &dst, &pkt);
+    holdfast_span_alloc_zeroed(arena, &dst, 64UL, 10UL);
+    holdfast_span_fill(arena, &dst, &dst, 0UL, 10UL, 0xA5U);
+    holdfast_span_alloc_zeroed(arena, &pkt, 128UL, 8UL);
+    WritePacket8(arena, &pkt, 0x56U, 0x05U, 0x00U, 0x00U, 0x11U, 0x22U, 0x33U, 0x44U);
+    PrepareAndValidatePacket(arena, &out, &dst, &pkt);
     if (out.is_ok != 0 || out.err != VOS_ERR_BadMagicOrFlags || out.ok.PayloadView.tag != 0)
         return 20;
     for (i = 0UL; i < 8UL; i++) {{
-        if (holdfast_span_read(&dst, i) != 0x00U)
+        if (holdfast_span_read(arena, &dst, i) != 0x00U)
             return 20;
     }}
-    if (holdfast_span_read(&dst, 8UL) != 0xA5U || holdfast_span_read(&dst, 9UL) != 0xA5U)
+    if (holdfast_span_read(arena, &dst, 8UL) != 0xA5U || holdfast_span_read(arena, &dst, 9UL) != 0xA5U)
         return 20;
 
     return 0;

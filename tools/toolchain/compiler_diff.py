@@ -295,6 +295,11 @@ def preprocess_c(ccomp: list[str], source: Path, fresh: Path,
     try:
         raw = source.read_bytes()
         digest = sha256_bytes(raw)
+        if source.suffix == ".i":
+            if source != unit:
+                unit.unlink(missing_ok=True)
+                unit.write_bytes(raw)
+            return Preprocessed((), str(source.parent), 0, "already preprocessed", unit, digest, digest)
         unit.unlink(missing_ok=True)
         done = subprocess.run(argv, cwd=source.parent, capture_output=True, encoding="utf-8",
                               errors="replace", timeout=timeout, check=False)
@@ -536,7 +541,9 @@ def interpret_c(ccomp: list[str], source: Path, fresh: Path,
             or file_sha256(prepared.path) != prepared.sha256):
         return Interpreted(tuple(argv), -1, None, "preprocessed input changed during interpretation")
     ended = _TERMINATED_RE.findall(done.stdout)
-    code = int(ended[0]) if done.returncode == 0 and len(ended) == 1 else None
+    code = int(ended[0]) if len(ended) == 1 else None
+    if code is not None and done.returncode != (code & 0xFF):
+        code = None
     return Interpreted(tuple(argv), done.returncode, code, said.strip()[-600:])
 
 
