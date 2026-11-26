@@ -29,13 +29,14 @@ The retained `holdfast-parser first-slice` result names the blocking producers i
 `inventory.blocking_dependencies`. [First-slice qualification](docs/language/first-release.md#first-slice-qualification)
 
 Advance graded checking and proof-backed borrowing in parallel with artifact
-qualification. Carry separate computation and type-use demand through local
-bindings, callable interfaces and dependent eliminators on the ordinary build.
-Connect those derivations to evaluation and erasure using the graded laws.
-For borrowing, combine path-specific loan liveness with proof-backed separation
-in owner coordinates. Exercise both in the same held-out client and compare
-its direct source, invalid edits and safe Rust rewrites against the pinned
-compiler modes. Extend the checked resource replay to lending and loop exits.
+qualification. Carry separate computation and type-use demand through callable
+interfaces and dependent eliminators on the ordinary build. Extend the locked
+first-order replay to higher-order and box interfaces, then connect those
+derivations to evaluation and erasure using the graded laws.
+For borrowing, qualify path-specific loan liveness and proof-backed separation
+in owner coordinates on independent clients. Compare direct source, invalid
+edits and safe rewrites against the pinned Rust modes and the implemented Ante
+subset. Extend the checked resource replay to lending and loop exits.
 [Graded laws](#q25be) · [Graded frontend](#q25bj) · [Borrow comparison](#q25cc)
 
 ### HoldFast first-release delivery
@@ -382,6 +383,7 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
   - **Owner:** `graded-laws`. **Start:** Exercise the pure GF-domain and GF-substitution rules with exact natural grades and a dependent function fixture. Use the qualified synchronous resources and independent graded client as they become available. **Check:** Discharge GF-domain, GF-substitution, GF-elimination, GF-cbv, GF-control-mutation and GF-erasure-source under the [reviewed extension predicates](docs/extensions/full-language-review.md#reviewed-implementation-pricing). Publish the separate law qualification for the [selected first-release fragment](docs/language/first-release.md#default-graded-checking), including source and representation erasure. The combined handler and cell laws retain their wider scope.
   - In the pure investigation, reconstruct separate computation and type demand through binding and elimination. Substitute a stable witness and check the result and every retained dependent declaration row. Replay a binder with zero computation demand and nonzero type demand. Reject an incorrect computation allowance and a stale type-demand certificate. Connect the executable checks to declarative rules in Rocq. [Substitution rules](docs/extensions/graded-foundation.md#substitution-and-structural-rules) · [Pure dependent identity](docs/extensions/graded-foundation.md#pure-dependent-identity)
   - The pure Rocq trial checks dependent functions, natural-index applications and telescope row substitution with exact natural demand. [Partial evidence](docs/assurance/completion-log.md#q25be-qualify-the-six-graded-foundation-law-packages)
+  - For GrTT beyond natural indices, replay the [type-valued identity](docs/extensions/graded-foundation.md#pure-dependent-identity) with zero computation demand and two independent type occurrences. Check later declaration rows, result substitution and the invalid grade neighbors when qualifying that fragment.
   - The ordered domain trial checks `NatExact`, `NatBound` and Boolean presence. Extend the proved demand arithmetic with the selected value and type-use interpretations. [Domain laws and certificates](docs/extensions/graded-foundation.md#dimensions-and-lawful-domains)
   - The modal trial checks exact and bounded computation demand for promotion, dependent box elimination and named natural/vector records with additive extent families. Extend the rules to broader indexed data and connect their demands to evaluation and erasure.
   - The call-by-value trials relate exact and bounded grades to reads of returned argument values. The scoped-span and dependent-box replays preserve the owner descriptor and frame on both exits, retain effects through failure and relate the specialized extent to one argument evaluation. Connect the interpretation to emitted source and the admitted machine resource exits. [Partial evidence](docs/assurance/completion-log.md#q25be-qualify-the-six-graded-foundation-law-packages)
@@ -415,7 +417,7 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
   - Start with `PreserveLength` in the [dependent example](examples/dependent.hf). Check a zero-use length binder, a once-used vector and partial application at `n + n` for an open index `n`. Bind the result function's domain, codomain and reconstructed dependency rows to the source. Exercise altered allowances and a changed argument or dependency.
   - The opt-in graded source trial replays exact natural demands for dependent functions, box promotion and explicit match motives over natural payloads. Extend checked source correspondence and domain reconstruction from these fragments. [Partial evidence](docs/assurance/completion-log.md#q25bj-reconstruct-checked-graded-domain-evidence)
   - The bounded natural trial uses the checked `NatBound` order for dependent functions, natural application and modal elimination while retaining exact type-use rows. Indexed records carry their own identity and checked vector extent family into the exact and bounded elimination rules. Bind the supported forms through checked source correspondence. [Partial evidence](docs/assurance/completion-log.md#q25bj-reconstruct-checked-graded-domain-evidence)
-  - Ordinary replay checks natural `let` bindings, local higher-order calls and first-order dependent calls to public graded imports. Extend checked closure to transitive graded imports, higher-order and box interfaces, and source-to-Gallina correspondence. [Current support](docs/tooling/elaboration-prototype.md#default-grade-checking)
+  - Ordinary replay checks natural `let` bindings, local higher-order calls and first-order dependent calls through transitive locked graded imports. Extend checked closure to higher-order and box interfaces, and source-to-Gallina correspondence. [Current support](docs/tooling/elaboration-prototype.md#default-grade-checking)
 
 <a id="q25bk"></a>
 
@@ -523,6 +525,7 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
 - [ ] **Q25cc · Compare borrow-checking alternatives on held-out clients**
   - **Owner:** `borrow-comparison`. **Start:** Compare proof-backed disjoint symbolic indices against pinned Rust modes on a paired source fixture. Select held-out clients with independent intended behavior and freeze their baseline before adaptation. **Check:** Run the [borrow comparison boundary](docs/language/loan-analysis.md#conditional-borrowing-comparison) on the default HoldFast build with fixed behavior and evidence endpoints. Include conditional returned borrows, lending iteration and higher-ranked or associated-item composition, comparing pinned default and experimental Rust modes and the implemented Ante subset on matched positives and invalid neighbors. Report unsupported cases and budget exhaustion.
   - Freeze a held-out shared-view client with an owner update after the view's last use on one path and a symbolically disjoint update while the view is live on another. Require the returned value, owner writeback, untouched frame and restoration on every exit. Move a use after a conflicting write and substitute an overlapping footprint in separate invalid edits. Replay both failures at the responsible access. Compare direct acceptance against each pinned Rust mode, and record the annotations, proof terms and dynamic checks required by passing rewrites.
+  - The branch-view trial replays both access orders, writeback and frame on the default mathematical frontend. The pinned Rust modes reject the direct spelling and accept a `split_at_mut` rewrite. Use these controls in the independent trial. [Branch-view replay](docs/language/loan-analysis.md#branch-local-view-use)
   - Hold two exclusive element loans from one owner under scoped evidence that the indices differ. Write through both and check the restored owner contents. Force the second loan to reuse the first index and require rejection at the call. Report direct Rust acceptance and any safe rewrite separately, including its source edits and required runtime checks.
   - The symbolic-index trial replays both writes and the frame in the HoldFast mathematical model. All three pinned Rust modes reject the direct indexing form and accept the safe slice API version. [Partial evidence](docs/assurance/completion-log.md#q25cc-compare-borrow-checking-alternatives-on-held-out-clients)
   - The nested-row trial checks a live shared borrow across a shape change to a symbolically disjoint row. Its located controls and replay cover HoldFast, pinned Rust modes and Ante. Carry the same returned-value, owner-state and frame endpoints into independent clients. [Nested row invalidation](docs/language/loan-analysis.md#nested-row-invalidation)
