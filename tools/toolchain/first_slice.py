@@ -32,6 +32,7 @@ from toolchain import (
     gallina_module_name,
     graded_source,
     image,
+    packet_entry,
     packet_runtime,
     packet_trace,
     proofenv,
@@ -661,7 +662,7 @@ def _retained_controls(report: dict[str, object], directory: Path,
 
 
 def _retained_execution(report: dict[str, object], directory: Path,
-                        artifacts: dict[str, object]) -> None:
+                        artifacts: dict[str, object]) -> dict[str, object] | None:
     """Reconstruct retained simulator observations and bind optional compiler coverage."""
     execution, runs = report.get("execution_inputs"), report.get("purecap_cheri_runs")
     if not isinstance(execution, dict) or not isinstance(execution.get("files"), dict):
@@ -713,7 +714,7 @@ def _retained_execution(report: dict[str, object], directory: Path,
     if not available:
         if compiler != {"available": False}:
             raise ValueError("first-slice receipt unavailable CompCert carries execution claims")
-        return
+        return None
     ccomp = files["ccomp"]
     clight, assembly = directory / "first_slice/first_slice.light.c", directory / "first_slice/first_slice.s"
     if (not isinstance(ccomp, dict) or compiler.get("ccomp_path") != ccomp.get("path")
@@ -737,11 +738,11 @@ def _retained_execution(report: dict[str, object], directory: Path,
             or any(type(row.get(key)) is not int for row in controls
                    for key in ("check_id", "target_code", "interp_code"))):
         raise ValueError("first-slice receipt perturbed compiler coverage is incomplete")
-    _retained_compiler(compiler, files, directory, artifacts)
+    return _retained_compiler(compiler, files, directory, artifacts)
 
 
 def _retained_compiler(compiler: dict[str, object], files: dict[str, object], directory: Path,
-                       artifacts: dict[str, object]) -> None:
+                       artifacts: dict[str, object]) -> dict[str, object]:
     """Bind each compiler reading and target verdict to retained process subjects."""
     programs = compiler.get("programs")
     expected = {"first_slice": 0, **{label: check for check, label in PERTURBED_CASES}}
@@ -751,6 +752,7 @@ def _retained_compiler(compiler: dict[str, object], files: dict[str, object], di
                                 for key in ("ccomp", "simulator", "profile"))
     command = [ccomp, "-fverifiedos-typed", "-dclight"]
     seen: set[str] = set()
+    entry_observations: dict[str, object] = {}
     with tempfile.TemporaryDirectory(prefix="compiler-bindings-", dir=directory.parent) as temporary:
         for program in programs:
             if not isinstance(program, dict) or not isinstance(program.get("name"), str):
@@ -783,6 +785,9 @@ def _retained_compiler(compiler: dict[str, object], files: dict[str, object], di
             if not isinstance(processes, list) or len(processes) != len(required):
                 raise ValueError("first-slice receipt compiler process coverage is incomplete")
             observed: dict[str, str] = {}
+            linked = elf.read_bytes()
+            text = _linked_text(linked)
+            records: list[str] = []
             for process in processes:
                 if not isinstance(process, dict) or not isinstance(process.get("log"), str):
                     raise TypeError("first-slice receipt compiler process is malformed")
@@ -802,8 +807,7 @@ def _retained_compiler(compiler: dict[str, object], files: dict[str, object], di
                         raise ValueError("first-slice receipt interpreter transcript contradicts its verdict")
                 elif log.endswith(".sail.log"):
                     said = Path(log).read_bytes().decode("utf-8")
-                    verdict, code, records = _simulator_transcript(said, process["returncode"],
-                                                                   text=_linked_text(elf.read_bytes()))
+                    verdict, code, records = _simulator_transcript(said, process["returncode"], text=text)
                     if ((verdict, code) != ("pass" if expected[name] == 0 else "fail", expected[name])
                             or not records):
                         raise ValueError("first-slice receipt compiler target transcript contradicts its verdict")
@@ -812,10 +816,14 @@ def _retained_compiler(compiler: dict[str, object], files: dict[str, object], di
                             or compiler.get("sail_cap_roundtrip") is not cd.cap_roundtrip(records)):
                         raise ValueError("first-slice receipt compiler target summary changed")
             regenerated = Path(temporary) / elf.name
-            refused, image_bytes = cd.assemble(assembly.read_text(encoding="utf-8"), name, regenerated)
-            if (refused or regenerated.read_bytes() != elf.read_bytes()
+            labels: dict[str, tuple[str, int]] = {}
+            refused, image_bytes = cd.assemble(assembly.read_text(encoding="utf-8"), name, regenerated, labels=labels)
+            if (refused or regenerated.read_bytes() != linked
                     or type(program.get("image_bytes")) is not int or program["image_bytes"] != image_bytes):
                 raise ValueError("first-slice receipt compiler image differs from retained assembly")
+            addresses = range(cd.asm.TEXT_BASE, cd.asm.TEXT_BASE + len(text))
+            entry_observations[name] = packet_entry.observe(records, labels, addresses, expected[name])
+    return entry_observations
 
 
 def _lowering_provenance(checked: CheckedElaboration, generated: str, operations: list[dict[str, object]]) -> dict[str, object]:
@@ -2512,8 +2520,9 @@ def _qualify_attempt(
             "programs": programs,
         })
 
-    _retained_execution({"execution_inputs": _execution_inputs(ccomp_path), "purecap_cheri_runs": purecap_runs,
-                         "compcert_sail": ccomp_evidence}, directory, dict(_artifacts(directory)))
+    entry_observations = _retained_execution(
+        {"execution_inputs": _execution_inputs(ccomp_path), "purecap_cheri_runs": purecap_runs,
+         "compcert_sail": ccomp_evidence}, directory, dict(_artifacts(directory)))
     inventory = build_foundation_inventory()
     inventory["solver_trusted_obligations"] = [entry.as_json() for entry in trusted]
     inventory["global_assumptions"] = (
@@ -2541,6 +2550,7 @@ def _qualify_attempt(
         "lowered_c_sha256": file_sha256(c_path),
         "purecap_cheri_runs": purecap_runs,
         "compcert_sail": ccomp_evidence,
+        "target_entry_observations": entry_observations,
         "inventory": inventory,
     }
 
@@ -2712,7 +2722,10 @@ def verify_bindings(root: Path, receipt_path: Path) -> dict[str, object]:
         if artifacts.get(str(output_directory / f"{name}.c")) != digest:
             raise ValueError(f"retained compiler source {name}.c differs from the checked lowering")
     _retained_controls(receipt, output_directory, artifacts)
-    _retained_execution(receipt, output_directory, artifacts)
+    entry_observations = _retained_execution(receipt, output_directory, artifacts)
+    if CheckedElaboration.encode_syntax(receipt.get("target_entry_observations")) != (
+            CheckedElaboration.encode_syntax(entry_observations)):
+        raise ValueError("first-slice receipt target entry observations differ from retained traces")
     with tempfile.TemporaryDirectory(prefix="bindings-", dir=_work_root(root)) as temporary:
         steps: list[dict[str, object]] = []
         runtime = replay._runtime(Path(temporary), steps)
