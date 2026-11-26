@@ -1713,7 +1713,7 @@ class _Elaborator(
                     specialized_term = _app(specialized_term, argument)
                 term = _app(term, argument)
                 value_type = self.substitute(value_type.args[1], param_var_id, argument)
-        self._check_indexed_argument_overlap(arguments, indices, shared_indices, environment)
+        self._check_indexed_call_loans(arguments, indices, shared_indices, environment)
         for arg_node, arg_type in by_value:
             if self._owns_fields(arg_type):
                 raise self.fail("type", "passing a value with owned fields requires an owned parameter and explicit move", arg_node)
@@ -2121,7 +2121,7 @@ class _Elaborator(
                     curr_head, _ = self.spine(self.whnf(curr.type))
                     if curr_head.kind == "const" and isinstance(curr_head.value, str) and curr_head.value in self.records_by_type:
                         for seg in parts[1:]:
-                            curr = self._project_member(curr, seg, node)
+                            curr = self._project_member(curr, seg, node, environment)
                         result = curr.term
                     else:
                         binding = self.lookup(name, environment, raw=True)

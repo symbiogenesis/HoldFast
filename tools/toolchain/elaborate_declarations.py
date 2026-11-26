@@ -3769,7 +3769,7 @@ class _DeclarationsMixin:
                 if record is not None:
                     candidates: list[_Term] = []
                     for field in record.fields:
-                        projection = self._project_member(post_env["result"], field.name, rest_site)
+                        projection = self._project_member(post_env["result"], field.name, rest_site, post_env)
                         if (self.whnf(projection.type) == param_ty_w
                                 and self._root_span(self.specialize(projection.term)) == param_b.term):
                             candidates.append(projection.term)
