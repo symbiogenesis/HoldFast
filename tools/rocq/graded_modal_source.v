@@ -42,10 +42,10 @@ Fixpoint signature_demands (parameters : list parameter) (trailing : demand) : l
       end
   end.
 
-Definition source_check_with (allowsb : nat -> nat -> bool)
+Definition source_check_with (allowsb : nat -> nat -> bool) (exact_branches : bool)
     (parameters : list parameter) (subject : value) (expected : kind) : list (list nat) :=
   let outer := scope parameters in
-  match GradedModal.check_with allowsb outer subject with
+  match GradedModal.check_modal allowsb exact_branches outer subject with
   | None => [[0]]
   | Some result =>
       if expected_computation allowsb parameters (subject_uses result) then
@@ -61,38 +61,50 @@ Definition source_check_with (allowsb : nat -> nat -> bool)
 Definition accepted (summary : list (list nat)) : bool :=
   match summary with [2] :: _ => true | _ => false end.
 
-Theorem source_check_with_sound : forall (allows : nat -> nat -> Prop) allowsb,
+Theorem source_check_with_sound : forall (allows : nat -> nat -> Prop) allowsb exact_branches,
   (forall actual advertised, allowsb actual advertised = true -> allows actual advertised) ->
   forall parameters subject expected,
-    accepted (source_check_with allowsb parameters subject expected) = true ->
+    accepted (source_check_with allowsb exact_branches parameters subject expected) = true ->
     exists result row,
-      WellFormed (scope parameters) /\ GradedModal.DerivesWith allows (scope parameters) subject result /\
+      WellFormed (scope parameters) /\
+      GradedModal.DerivesModal allows exact_branches (scope parameters) subject result /\
       value_kind result = expected /\ TypeUses (scope parameters) expected row /\
       (forall entry, In entry parameters -> allows (uses (subject_uses result) (name entry)) (allowance entry)).
 Proof.
-  intros allows allowsb admission_sound parameters subject expected verified. unfold source_check_with in verified.
-  destruct (GradedModal.check_with allowsb (scope parameters) subject) as [result |] eqn:checked; try discriminate.
+  intros allows allowsb exact_branches admission_sound parameters subject expected verified.
+  unfold source_check_with in verified.
+  destruct (GradedModal.check_modal allowsb exact_branches (scope parameters) subject)
+    as [result |] eqn:checked; try discriminate.
   destruct (expected_computation allowsb parameters (subject_uses result)) eqn:computation; try discriminate.
   destruct (kind_eq_dec (value_kind result) expected) as [matches |]; try discriminate.
   destruct (type_uses (scope parameters) expected) as [row |] eqn:typed; try discriminate.
-  pose proof (GradedModal.check_with_sound allows allowsb admission_sound _ _ _ checked)
+  pose proof (GradedModal.check_modal_sound allows allowsb exact_branches admission_sound _ _ _ checked)
     as [well_formed derivation].
   exists result, row. repeat split; auto using type_uses_sound.
   intros entry present. unfold expected_computation in computation.
   rewrite forallb_forall in computation. apply admission_sound. now apply computation.
 Qed.
 
-Definition source_check := source_check_with (@GradedDomains.allowsb GradedDomains.NatExact).
-Definition bounded_source_check := source_check_with (@GradedDomains.allowsb GradedDomains.NatBound).
+Definition source_check := source_check_with (@GradedDomains.allowsb GradedDomains.NatExact) true.
+Definition bounded_source_check := source_check_with (@GradedDomains.allowsb GradedDomains.NatBound) false.
+Definition presence_source_check := source_check_with GradedModal.presence_allowsb false.
 
 Definition source_check_sound := source_check_with_sound
   (@GradedDomains.allows GradedDomains.NatExact)
   (@GradedDomains.allowsb GradedDomains.NatExact)
+  true
   (fun actual advertised => proj1 (Nat.eqb_eq actual advertised)).
 
 Definition bounded_source_check_sound := source_check_with_sound
   (@GradedDomains.allows GradedDomains.NatBound)
   (@GradedDomains.allowsb GradedDomains.NatBound)
+  false
   (fun actual advertised => proj1 (Nat.leb_le actual advertised)).
+
+Definition presence_source_check_sound := source_check_with_sound
+  GradedModal.presence_allows
+  GradedModal.presence_allowsb
+  false
+  GradedModal.presence_allowsb_sound.
 
 End GradedModalSource.
