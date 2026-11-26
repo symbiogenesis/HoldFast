@@ -1,0 +1,22 @@
+// SPDX-License-Identifier: Apache-2.0
+module LoopViewReturn;
+
+public record ByteView<region 'owner>(in<'owner> Span<byte> Bytes);
+
+public Result<ByteView<'owner>, bool> InspectAndFill<region 'owner>(ref<'owner> Span<byte> values, usize n)
+    effects writes(values)
+    requires values.CanRead && values.CanWrite
+    requires values.Length == 4usize
+{
+    if (n <= 3usize) {
+        let selected = Span.ReadOnly(Span.Slice(values, 3usize, 1usize));
+        foreach (let j in 0usize..n)
+            invariant values.CanWrite
+            invariant values.Length == 4usize
+        {
+            values[j] = 9u8;
+        }
+        return Ok(ByteView(in selected));
+    }
+    return Err(false);
+}

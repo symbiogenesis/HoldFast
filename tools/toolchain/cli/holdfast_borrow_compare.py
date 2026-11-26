@@ -50,6 +50,9 @@ def trials(mode: str) -> tuple[Trial, ...]:
         Trial("joined_view_return.rs", "direct", (("E0506", "disjoint-zero-write"), nonzero_write)),
         Trial("joined_view_return.rs", "coincident", (("E0506", "coincident-zero-write"), nonzero_write)),
         Trial("joined_view_return.rs", None),
+        Trial("loop_view_return.rs", "direct", (("E0506", "loop-prefix-write"),)),
+        Trial("loop_view_return.rs", "coincident", (("E0506", "loop-prefix-write"),)),
+        Trial("loop_view_return.rs", None),
         Trial("loop_reborrowing.rs", None, loop),
         Trial("loop_reborrowing.rs", "live_conflict", (("E0506", "live-conflict"),)),
     )

@@ -1771,6 +1771,16 @@ class _IntrinsicsMixin:
                         if self._prove_bool_precondition(separate, environment):
                             current = self.whnf(operands[1])
                             continue
+                    if update == _constant("Span_Fill") and len(operands) == 5:
+                        _, parent, offset, count, _ = operands
+                        zero = _int_term(_INT_SPECS["usize"], 0)
+                        # Span.Fill checks its extent. The range-loop summary starts at zero.
+                        empty = _apps(_constant("int_eq_usize"), count, zero)
+                        before = _apps(_constant("int_le_usize"), self._add_usize_offset(offset, count), start)
+                        after = _apps(_constant("int_le_usize"), self._add_usize_offset(start, length), offset)
+                        if any(self._prove_bool_precondition(fact, environment) for fact in (empty, before, after)):
+                            current = self.whnf(parent)
+                            continue
                     raise self.fail("type", f"cannot prove returned slice is disjoint from an update to '{name}'", site)
         finally:
             del self.active_facts[saved_facts:]

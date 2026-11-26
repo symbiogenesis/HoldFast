@@ -194,6 +194,18 @@ overlap at runtime and passes the observations in all four modes.
 [HoldFast replay](../../tools/tests/test_holdfast_loan_returns.py#_joined_view_return) ·
 [Rust fixture](../../tools/tests/fixtures/joined_view_return.rs)
 
+The symbolic range-loop trial retains a shared view of element three while
+writing nine into the owner at each index in the prefix `[0, n)`. The loop
+checks write permission and owner length at entry and at the inductive step.
+The guard `n <= 3` proves the summarized write extent is disjoint from the
+returned view. Changing the bound to `n <= 4` permits an overlapping iteration
+and fails at the return check. An explicit `Span.Fill` uses the same
+half-open extent rule, including empty fills and fills beginning at the view's
+end. The Rocq model checks the returned byte against the original and updated
+owner, the written and untouched bytes, and the unchanged error state.
+[HoldFast source](../../tools/tests/fixtures/loop-view-return.hf) ·
+[Kernel replay](../../tools/tests/test_holdfast_loan_returns.py#_loop_view_return)
+
 If a client must restructure a loop whose last use of a view precedes a write
 to its owner, keep the original loop. Move one use past that write to produce
 the conflicting case. Freeze the accessed place, last use and expected

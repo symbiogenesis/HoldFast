@@ -186,8 +186,92 @@ Proof. repeat split; reflexivity. Qed.
     _replay_view_proof(gallina, proof, "JoinedViewReturn", ["joined_view_and_writeback", "joined_view_entry_is_inhabited"])
 
 
+def _loop_view_return() -> None:
+    source = (TOOLS / "tests" / "fixtures" / "loop-view-return.hf").read_bytes()
+    loop_start = source.index(b"        foreach")
+    loop_end = source.index(b"        return Ok", loop_start)
+    with parser.cached_build(TOOLS.parent) as compiled:
+        gallina = elaborate(source, parser.parse_source(compiled, source, surface=True)).gallina
+        empty = source[:loop_start] + b"        Span.Fill(ref values, 3usize, n, 9u8);\n" + source[loop_end:]
+        empty = empty.replace(b"n <= 3usize", b"n == 0usize")
+        after_view = source[:loop_start] + b"        Span.Fill(ref values, 1usize, 3usize, 9u8);\n" + source[loop_end:]
+        after_view = after_view.replace(b"3usize, 1usize", b"0usize, 1usize")
+        for valid in (empty, after_view):
+            elaborate(valid, parser.parse_source(compiled, valid, surface=True))
+        for invalid in (
+            source.replace(b"n <= 3usize", b"n <= 4usize"),
+            source.replace(b"3usize, 1usize", b"2usize, 2usize"),
+            after_view.replace(b"1usize, 3usize, 9u8", b"0usize, 3usize, 9u8"),
+        ):
+            parsed = parser.parse_source(compiled, invalid, surface=True)
+            with raises(HoldFastError, msg="a fill overlapped the returned view") as failure:
+                elaborate(invalid, parsed)
+            error = failure.exception
+            return_line = next(number for number, line in enumerate(invalid.splitlines(), 1) if b"return Ok" in line)
+            ensure(error.kind == "type" and error.line == return_line
+                   and "cannot prove returned slice is disjoint from an update to 'values'" in error.message,
+                   f"wrong refusal for an overlapping fill: {error}")
+
+    [client] = re.findall(r"^Definition (holdfast_d\d+_InspectAndFill) :", gallina, re.MULTILINE)
+    [projection] = re.findall(r"^Definition (holdfast_d\d+_ByteView_Bytes) :", gallina, re.MULTILINE)
+    proof = rf"""
+Import HoldFast_LoopViewReturn.
+Local Definition trial_index (n : nat) := holdfast_mk_int 4 (holdfast_nat_to_bits 64 n).
+Local Definition trial_byte (n : nat) := holdfast_mk_int 0 (holdfast_nat_to_bits 8 n).
+Local Definition trial_read := holdfast_Span_Read (holdfast_int 0).
+Local Definition observed_byte values n :=
+  match {client} values n with
+  | inr loan => Some (trial_read ({projection} loan) (trial_index 0))
+  | inl _ => None
+  end.
+Local Definition valid_count n := holdfast_int_le 4 n (trial_index 3).
+Local Definition expected_byte values n k :=
+  if holdfast_int_lt 4 k n then trial_byte 9 else trial_read values k.
+
+Theorem loop_view_and_writeback : forall values n,
+  (valid_count n = true ->
+    observed_byte values n = Some (trial_read values (trial_index 3)) /\
+    observed_byte values n = Some (trial_read ({client}_post_values values n) (trial_index 3)) /\
+    (forall k, trial_read ({client}_post_values values n) k = expected_byte values n k)) /\
+  (valid_count n = false -> observed_byte values n = None /\ {client}_post_values values n = values).
+Proof.
+  intros values n. unfold observed_byte, {client}, {client}_post_values. cbv beta.
+  match goal with
+  | |- context [if ?guard then _ else _] => destruct guard eqn:decision
+  end.
+  all: match type of decision with
+       | _ = ?outcome => change (valid_count n = outcome) in decision
+       end; rewrite decision.
+  - split; [|discriminate]. intros _. split; [reflexivity|]. split.
+    + change (Some (trial_read values (trial_index 3)) =
+        Some (trial_read (holdfast_Span_Fill _ values holdfast_usize_zero n (trial_byte 9)) (trial_index 3))).
+      symmetry. apply (f_equal (@Some _)).
+      apply (holdfast_store_lookup_fill_ge _ _ (trial_index 3)); [exact decision|reflexivity].
+    + intros k. unfold expected_byte.
+      change ((if holdfast_in_extent k holdfast_usize_zero n then trial_byte 9 else trial_read values k) =
+        if holdfast_int_lt 4 k n then trial_byte 9 else trial_read values k).
+      unfold holdfast_in_extent. now rewrite holdfast_usize_zero_le.
+  - split; [discriminate|intros _; split; reflexivity].
+Qed.
+
+Local Definition trial_span :=
+  holdfast_Span_Write _ (holdfast_mk_span (holdfast_int 0) (trial_index 11)
+    (trial_index 4) true true true holdfast_bs_empty) (trial_index 3) (trial_byte 42).
+Example loop_view_entry_is_inhabited :
+  holdfast_Span_CanRead _ trial_span = true /\
+  holdfast_Span_CanWrite _ trial_span = true /\
+  holdfast_Span_Length _ trial_span = trial_index 4 /\
+  observed_byte trial_span (trial_index 0) = Some (trial_byte 42) /\
+  observed_byte trial_span (trial_index 3) = Some (trial_byte 42) /\
+  observed_byte trial_span (trial_index 4) = None.
+Proof. repeat split; reflexivity. Qed.
+"""
+    _replay_view_proof(gallina, proof, "LoopViewReturn", ["loop_view_and_writeback", "loop_view_entry_is_inhabited"])
+
+
 def cases() -> list[Case]:
     return [
         Case("conditional view return and sibling owner writeback", _conditional_view_return, lane="toolchain"),
         Case("returned view and branch-specific owner writeback at a join", _joined_view_return, lane="toolchain"),
+        Case("returned view and disjoint symbolic loop writeback", _loop_view_return, lane="toolchain"),
     ]
