@@ -5,6 +5,7 @@ from functools import partial
 
 from tests.harness import Case
 from tests.test_holdfast_graded import _replay
+from toolchain.elaborate_types import _PRELUDE
 
 _AUDITED = (
     "index_reads_match_demand",
@@ -28,9 +29,25 @@ _AUDITED = (
     "sequenced_bounds_admit_unused_and_repeated_values",
     "sequenced_bounds_reject_overuse",
 )
+_SPAN_AUDITED = (
+    "restore_written_slice",
+    "scoped_argument_preserves_owner",
+    "span_sequence_preserves_owner",
+    "checked_bounded_span_sequence",
+    "zero_and_repeated_uses_restore_the_scoped_owner",
+    "failure_restores_after_write_and_skips_suffix",
+    "out_of_bounds_slice_fails_without_taking_the_loan",
+    "shared_owner_fails_without_taking_the_exclusive_loan",
+)
 
 
 def cases() -> list[Case]:
-    return [Case("graded natural call-by-value replay",
-                 partial(_replay, "graded_cbv", "GradedCbv", _AUDITED, ("graded_pure", "graded_domains")),
-                 lane="toolchain")]
+    return [
+        Case("graded natural call-by-value replay",
+             partial(_replay, "graded_cbv", "GradedCbv", _AUDITED, ("graded_pure", "graded_domains")),
+             lane="toolchain"),
+        Case("graded call-by-value scoped Span exits",
+             partial(_replay, "graded_cbv_span", "GradedCbvSpan", _SPAN_AUDITED,
+                     ("graded_pure", "graded_domains", "graded_cbv"), (("graded_cbv_span_carrier", _PRELUDE),)),
+             lane="toolchain"),
+    ]

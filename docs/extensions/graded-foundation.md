@@ -206,8 +206,13 @@ its bounded allowance. The first failure preserves the completed prefix and the
 failing argument's state and events.
 [Execution model and proofs](../../tools/rocq/graded_cbv.v)
 
-The model takes the argument computation as a state transition. The source
-elaboration and spatial resource exits remain open.
+The scoped-span trial instantiates the argument transition with the emitted
+`Span<byte>` model. A guarded argument opens a slice, writes one element and
+restores the owner before returning the previous byte or reporting failure.
+Rocq proves descriptor preservation and frames untouched bytes across the
+sequence. It also checks that bounded body reads reuse the returned values.
+Source elaboration and the spatial interpretation on the admitted machine
+carrier remain open. [Scoped argument model](../../tools/rocq/graded_cbv_span.v)
 [`GF-cbv` qualification](#proof-and-qualification-obligations)
 
 Torczon et al.'s [Effects and Coeffects in Call-by-Push-Value](https://doi.org/10.1145/3689750)

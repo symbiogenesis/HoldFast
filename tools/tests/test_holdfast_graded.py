@@ -47,11 +47,16 @@ _DOMAIN_PROOFS = (
 )
 
 
-def _replay(unit: str, module: str, proofs: tuple[str, ...], dependencies: tuple[str, ...] = ()) -> None:
+def _replay(unit: str, module: str, proofs: tuple[str, ...], dependencies: tuple[str, ...] = (),
+            generated: tuple[tuple[str, str], ...] = ()) -> None:
     launch = ["opam", "exec", "--switch", proofenv.ROCQ_SWITCH, "--"]
     compile_unit = [*launch, "rocq", "c", "-q"]
     with tempfile.TemporaryDirectory(prefix="holdfast-graded-") as temporary:
         directory = Path(temporary)
+        for name, gallina in generated:
+            source = directory / f"{name}.v"
+            source.write_text(gallina, encoding="utf-8")
+            subprocess.run([*compile_unit, source.name], cwd=directory, check=True, timeout=180)
         for name in (*dependencies, unit):
             source = TOOLS / "rocq" / f"{name}.v"
             shutil.copyfile(source, directory / source.name)
