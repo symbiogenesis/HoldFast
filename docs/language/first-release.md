@@ -14,12 +14,11 @@ one retained compiler route. It supports explicit machine representations,
 records and finite tagged sums, generics, stable dependent lengths and states,
 exhaustive matching, `Option`/`Result`, bounded loops, shared and exclusive loans,
 ownership transfer, resource-aware exits, closed effects and checked contracts.
-Its resource discipline has fixed unrestricted, affine, relevant-verdict and
-linear-obligation cases. Their permissions and disposal rules come from the
-actual resource interpretation; an erased token or numeric annotation supplies
-no authority by itself. Public interfaces fix representations, required-static
-inputs, effects and resource contracts; ordinary local inference hides routine
-derivations without weakening them.
+The resource discipline includes unrestricted, affine, relevant-verdict and
+linear-obligation cases alongside [graded dependent typing](#default-graded-checking).
+Permissions and disposal rules come from the resource interpretation. Public
+interfaces fix representations, required-static inputs, effects and resource
+contracts. Ordinary local inference preserves those contracts.
 
 Ordinary `+`, `-` and `*` carry the representability obligations of
 [primitive semantics](#primitive-semantics): linear facts discharge
@@ -30,7 +29,9 @@ and explicit public bounds. Implicit `ref` receivers use
 [two-phase borrowing](core-design.md#two-phase-receiver-borrows) so argument
 evaluation can read the receiver before the method acquires exclusive access.
 Iteration-local loans end at each iteration boundary under the
-[loop resource rules](core-design.md#loans-and-control-flow).
+[loop resource rules](core-design.md#loans-and-control-flow), with
+[checked lending and spatial separation](#default-borrow-checking) in the
+ordinary borrow checker.
 
 Specifications and proofs may use the admitted mathematical definitions and
 libraries in the existing kernel. A mathematical definition's expressiveness
@@ -60,9 +61,45 @@ a separately accepted consumer and their own resource/lowering slice.
 
 Selecting an [extension](../extensions/README.md) requires a named client, a
 comparison with the supported subset, an implementation and qualification budget
-and a decision predicate. Select general grade domains, type-use accounting and
-usability tools independently under the
-[graded selection protocol](../extensions/graded-foundation.md#extension-selection-and-qualification).
+and a decision predicate. General grade domains and grade-directed authoring
+tools follow the [graded selection protocol](../extensions/graded-foundation.md#extension-selection-and-qualification).
+
+### Default graded checking
+
+Ordinary elaboration of graded source reconstructs separate computation and
+type-use demands, including the dependency rows of later declarations. The
+supported domains are `NatExact`, whose computation demand must equal the
+allowance, and `NatBound`, whose computation demand must fit the allowance.
+Both retain exact type-use rows. Dependent functions, applications, graded
+boxes and indexed record construction and elimination carry their demands
+through substitution and checked motives. A checked derivation belongs to the
+resolved source closure. The build rejects a violated allowance and reports
+an unresolved obligation when it cannot reconstruct or replay the derivation.
+[Graded rules and evidence](../extensions/graded-foundation.md#proof-and-qualification-obligations)
+
+Calls preserve ordered evaluation, effects and exits even when the result of
+evaluating an argument has zero computation use. A repeated use reads the
+returned value of a single evaluation. Erasure and runtime admission require
+the corresponding interpretation and representation laws. Read, write and
+restoration authority follow the loan rules.
+[Resource and computation interface](../extensions/graded-foundation.md#resource-and-computation-interface)
+
+### Default borrow checking
+
+Ordinary elaboration infers loan ends along control-flow paths and uses checked
+facts to establish separation of symbolic footprints in owner coordinates. A
+disjoint write can coexist with a live view, including across a branch join or
+within a bounded loop with a checked footprint. Bounded lending must establish
+the element loan's lifetime, restoration, and the loop and exit invariants.
+Unresolved overlap or restoration produces a located obligation.
+[Borrow-analysis promotion](core-design.md#borrow-analysis-promotion)
+
+Qualification demonstrates where the default checker accepts direct source
+that the pinned Rust modes reject, and records passing Rust API rewrites and
+any runtime checks they require. It exercises conditional returns, lending
+iteration and generic composition with the same expected behavior and matched
+evidence endpoints. Claims of improved precision apply to the tested workload.
+[Borrowing comparison](loan-analysis.md#conditional-borrowing-comparison)
 
 ## Primitive semantics
 
@@ -477,6 +514,8 @@ emits a term or returns an unconstrained theorem has not met this predicate.
 | Interpretation and concrete resources | Checked elaboration-image laws, an inhabited carrier state, read/write/initialization/frame and loan restoration, with wrong-offset, alias, premature-restoration and partial-initialization neighbors rejected at the intended obligations. Missing laws remain missing; no axiom or source judgment substitutes for them. |
 | Scalar and text behavior | Independent boundary fixtures for every supported type and operation, signed division/remainder signs, zero and minimum/-1, shift zero/width-1/width, exact/wrapping/saturating arithmetic, target versus host width, invalid conversions, embedded NUL, malformed UTF-8/escapes, raw-string delimiter/indentation and LF-normalization rules, static `IFormat<T>` checked formatting (`Result<usize, CapacityError>` on exact fit and `CapacityError` exhaustion without heap allocation or ambient locale), scalar boundaries and byte slicing. Static and runtime meanings agree under the same target. Generate finite boundary classes from an independently reviewed oracle; a shared implementation is not an independent expectation. |
 | Package composition | Two independently authored packages compose with fixed instances; reordered imports preserve meaning; overlap, cycles and conflicting nominal identities are diagnosed. Locked builds reproduce their source/input closure. Contract, representation, proof assumption and tool changes invalidate affected evidence before reuse. |
+| Graded dependent typing | The default build checks both natural domains, dependent substitution, box and indexed-record elimination, and separate type and computation demands on a reviewed client. Incorrect allowances, altered motives and stale dependencies fail at their obligations. Check ordered evaluation and erasure at the claimed representation endpoint, including unused and repeated arguments. [Default graded checking](#default-graded-checking) |
+| Borrowing precision | The default build checks proof-backed symbolic separation, conditional returns, and bounded lending across its supported control flow. Replay restoration and the frame for each exit. Use paired positives and invalid neighbors on held-out clients, record unsupported cases and exhausted budgets, and measure checking cost. [Default borrow checking](#default-borrow-checking) |
 | Everyday ownership | Bounded collection/iterator, `.Model` sequence-predicate/slice, `TextBuilder<capacity>` / `IFormat<T>` checked formatting, [two-phase receiver calls](loan-analysis.md#two-phase-receiver-trial), selective invariant lifting (`invariant Clause: ...` / `open (...) lifts ...`), two-step bulk relocation (`CopyRepresentation` + `TransferType<T>`), fallible-builder and error-propagation clients compile under their actual representations and the [borrow-analysis promotion contract](core-design.md#borrow-analysis-promotion). Escaped views, duplicated tokens, reads of unwritten or moved-out vacant slots, early exits or whole-receiver calls while an invariant clause is lifted, stale current-content facts and lost mandatory outcomes fail at the responsible resource rule. Bounded buffer, builder and bulk-relocation proofs/certificates pass a **capacity-invariance gate**: checking at tiny static capacity ($N = 4$) and large static capacity ($N = 10^9$) produces equal obligation counts and the same proof and certificate structure after changing only the encoded capacity literal. Count and compare emitted range obligations and prohibit per-element unfolding, enumeration or evidence. The current first-slice pilot compares 8 and 10⁹ because its packet requires eight bytes. Each capacity must fit the 4 MiB generated Gallina limit, each Rocq compile and the combined kernel replay must finish within 120 seconds, and the pilot also compares symbolic reduction and work counters. Record actual replay measurements separately from this pass condition. |
 | Complete software path | Authored source and independent contract reach one retained backend with checked correspondence, representation and lowering; applicable final-byte, resource, observation and admission duties meet their existing owners. Report source, artifact and production evidence separately. |
 | Developer usefulness | Record annotation burden, first useful diagnostic, checking latency, code/stack/storage consequences and repair after a semantic-preserving refactor, a representation change and a real contract change on both clients. Count arithmetic lemmas and checked operations, the effect clauses edited for a package-internal refactor or a public widening, and snapshots, named views or loop rewrites required by borrowing. Compare the receiver call with a legal snapshot spelling under equivalent evaluation order. Preserve the held-out client and record the adaptations it needs. |

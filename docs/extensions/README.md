@@ -6,7 +6,7 @@ That contract defines the selection criteria. The
 
 | Document | Extension it designs |
 | --- | --- |
-| [Graded foundation](graded-foundation.md) | User-defined grade domains, type-use accounting and the graded-extension selection protocol |
+| [Graded foundation](graded-foundation.md) | First-release natural grades and type-use accounting, user-defined domains and their qualification protocol |
 | [Handlers and async lifecycles](handlers-async.md) | Effect handlers, one-shot and multi-shot control, async tasks, structured scopes and cancellation |
 | [Interior mutability](interior-mutability.md) | Cells, snapshots, invariant opening and lifting, and local aliases |
 | [Metaprogramming](metaprogramming.md) | Typed introspection, derivation, hygienic generation and compiler services |

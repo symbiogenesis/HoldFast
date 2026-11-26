@@ -135,6 +135,9 @@ writes. Unsupported operations and budget exhaustion have distinct refusal cases
 
 ## Conditional borrowing comparison
 
+The [first-release checker](first-release.md#default-borrow-checking) uses
+proof-backed separation and path-sensitive loan analysis by default. The
+comparison qualifies the precision and cost claims for the supported workloads.
 A comparison under [client qualification](first-release.md#qualification) freezes independently
 reviewed client behavior, expected decisions and the compared guarantee
 endpoints. Pin the compiler/analyzer revision and configuration, explicitly
