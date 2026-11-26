@@ -515,8 +515,11 @@ require their content loans and separation at entry. Ordinary calls that
 already require exclusive access to backing retain the
 [core loan rule](core-design.md#loans-and-control-flow).
 
-The generated C harness uses one backing array. Every descriptor base is
-an offset into that array and its pointer is derived from the same offset.
+The generated C harness passes one backing array through the packet functions.
+Each descriptor carries a byte cursor for memory access and a logical base for
+interval checks. Allocation initializes both to the same offset, and slicing
+advances both. The observer checks the returned cursor and base independently
+against the expected destination offset, including for an empty view.
 Successful cases use disjoint extents of the allocation. The overlap case
 observes the source header through the destination view before calling the
 validator and checks every destination byte against its entry snapshot on
@@ -547,7 +550,7 @@ input fixtures, commands and report fields.
 | Capacity and refusals | Compare proof structure and inference/reduction work at capacities 8 and 10⁹ and replay both proofs. Each negative fixture must parse after its `/*error*/` marker is removed. Elaboration must report the expected category and message fragment at the marked line and column. |
 | Capability execution | The handwritten purecap program checks the live four-byte view has data-load permission alone. Sail must reject the writable-view variant at that check, trap on a store through the narrowed view, and reproduce the bounds and tag traps. |
 | Optional CompCert execution | Lower the validator and scenario drivers to Clight/C, execute under CompCert's interpreter and run purecap images in Sail. Check the passing paths and altered payload, padding, checksum-code and clearing controls. Use `--ccomp /absolute/path/to/ccomp` to require this run. Automatic discovery records `compcert_sail.available: false` when the compiler is missing. [Compiler build contract](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/implementation/contracts/contained-compiler-reuse.md) |
-| Guest C11 regression | Compile the generated validator with the system C compiler at `-O0` and `-O2` and check all five exits. Before reading a successful payload, check its pointer against the destination backing, its base and length against the expected slice, and its tag and permissions. Reject variants returning the input pointer to identical bytes or granting write access. |
+| Guest C11 regression | Compile the generated validator with the system C compiler at `-O0` and `-O2` and check all five exits. Before reading a successful payload, check its cursor, base, length, tag and permissions. Reject a cursor into the input for an empty view or an identical four-byte payload, and reject a view granting write access. |
 | Inline proof erasure | [The native regression](../../tools/tests/test_holdfast_packet_erasure.py) adds an assertion, proof block and calculation to the checksum implementation, replays the annotated module, and compares the complete guest executable at both optimization levels. A false assertion fails during elaboration. |
 
 Use `python tools/run.py holdfast-parser first-slice-bindings <receipt.json>` to

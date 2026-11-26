@@ -20,30 +20,30 @@ int main(void)
     unsigned char backing[32];
     struct holdfast_span_byte dst, pkt;
     struct holdfast_Result_ValidatedPacket_ValidationError result;
-    holdfast_span_alloc_zeroed(&dst, backing, 0, 9);
-    holdfast_span_fill(&dst, &dst, 0, 8, 0xCC);
-    holdfast_span_write(&dst, &dst, 8, 0xA5);
-    holdfast_span_alloc_zeroed(&pkt, backing, 16, 8);
-    pkt.length = fread(pkt.ptr, 1, pkt.length, stdin);
+    holdfast_span_alloc_zeroed(backing, &dst, 0, 9);
+    holdfast_span_fill(backing, &dst, &dst, 0, 8, 0xCC);
+    holdfast_span_write(backing, &dst, &dst, 8, 0xA5);
+    holdfast_span_alloc_zeroed(backing, &pkt, 16, 8);
+    pkt.length = fread(backing + pkt.cursor, 1, pkt.length, stdin);
     if (ferror(stdin)) {
         perror("packet input");
         return 1;
     }
 
-    show_bytes("packet", pkt.ptr, pkt.length);
-    show_bytes("before", dst.ptr, dst.length);
-    PrepareAndValidatePacket(&result, &dst, &pkt);
+    show_bytes("packet", backing + pkt.cursor, pkt.length);
+    show_bytes("before", backing + dst.cursor, dst.length);
+    PrepareAndValidatePacket(backing, &result, &dst, &pkt);
     if (result.is_ok) {
         struct holdfast_span_byte view = result.ok.PayloadView;
         if (!view.tag || !view.perm_read || view.base < dst.base
             || view.base - dst.base > dst.length || view.length > dst.length - (view.base - dst.base)
-            || view.ptr != dst.ptr + (view.base - dst.base)) {
+            || view.cursor != dst.cursor + (view.base - dst.base)) {
             fputs("invalid returned destination view\n", stderr);
             return 1;
         }
         printf("Ok copied=%lu offset=%lu length=%lu read=%d write=%d\n",
                result.ok.CopiedBytes, view.base - dst.base, view.length, view.perm_read, view.perm_write);
-        show_bytes("payload", view.ptr, view.length);
+        show_bytes("payload", backing + view.cursor, view.length);
     } else {
         const char *name;
         switch (result.err) {
@@ -55,6 +55,6 @@ int main(void)
         }
         printf("Err(%s)\n", name);
     }
-    show_bytes("after ", dst.ptr, dst.length);
+    show_bytes("after ", backing + dst.cursor, dst.length);
     return 0;
 }

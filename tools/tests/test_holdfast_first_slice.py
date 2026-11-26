@@ -574,16 +574,17 @@ def _ordered_scalar_calls() -> None:
                  "left": {"kind": "name", "name": {"text": "holdfast_eval_0"}},
                  "right": call("Both", call("First"), call("Second"))}
     declaration: Node = {"name": {"text": "Probe"}, "result": bool_type,
-                         "parameters": [{"name": {"text": "holdfast_eval_0"}, "type": bool_type}],
+                         "parameters": [{"name": {"text": "holdfast_eval_0"}, "type": bool_type},
+                                        {"name": {"text": "backing"}, "type": bool_type}],
                          "body": {"kind": "block", "statements": [{"kind": "return", "value": condition}]}}
     code = holdfast_first_slice._lower_function_to_c(declaration, {}, {}, lambda _: "usize", results,
                                                 lambda node: holdfast_first_slice._node_text(node["callee"]),
                                                 lambda _: ("&&", "bool"))
     expected = """    holdfast_eval_3 = holdfast_eval_0;
     if (holdfast_eval_3) {
-        holdfast_eval_1 = First();
-        holdfast_eval_2 = Second();
-        holdfast_eval_3 = Both(holdfast_eval_1, holdfast_eval_2);
+        holdfast_eval_1 = First(backing_);
+        holdfast_eval_2 = Second(backing_);
+        holdfast_eval_3 = Both(backing_, holdfast_eval_1, holdfast_eval_2);
     }
     return holdfast_eval_3;"""
     ensure(expected in code, "guarded scalar calls must execute once in left-to-right order")
@@ -676,10 +677,14 @@ def _execute_generated_packet_c() -> None:
         returned = "holdfast_span_copy_meta(&out->ok.PayloadView, &payloadView);"
         ensure(generated.count(returned) == 1, "packet regression lost the returned view assignment")
         for change, expected in (
-            ("if (out->ok.PayloadView.length == 4UL) out->ok.PayloadView.ptr = pkt->ptr + 4UL;", 6),
+            ("if (out->ok.PayloadView.length == 0UL) out->ok.PayloadView.cursor = pkt->cursor + 4UL;", 4),
+            ("if (out->ok.PayloadView.length == 4UL) out->ok.PayloadView.cursor = pkt->cursor + 4UL;", 6),
             ("if (out->ok.PayloadView.length == 2UL) out->ok.PayloadView.perm_write = 1;", 10),
         ):
             check_program(generated.replace(returned, returned + "\n    " + change), expected)
+        first_read = "if (holdfast_span_read(arena, &out.ok.PayloadView, 0UL) != 16U)"
+        ensure(generated.count(first_read) == 1, "packet regression lost the first full payload read")
+        check_program(generated.replace(first_read, "out.ok.PayloadView.cursor = pkt.cursor;\n    " + first_read), 7)
         for expected, _ in holdfast_first_slice.PERTURBED_CASES:
             perturbed, _ = holdfast_first_slice.lower_to_c(source, parsed, checked=checked, perturb_check=expected)
             check_program(perturbed, expected)
@@ -812,7 +817,7 @@ def _packet_contextual_literals() -> None:
         error = raised.exception
         ensure("requires an explicit type annotation or suffix" in str(error), f"unexpected width error: {error}")
 
-    ensure("magic = holdfast_span_read(pkt, 0UL);" in generated and "(magic != 0x56U)" in generated,
+    ensure("magic = holdfast_span_read(backing, pkt, 0UL);" in generated and "(magic != 0x56U)" in generated,
            "packet lowering lost contextual index or byte widths")
 
 
