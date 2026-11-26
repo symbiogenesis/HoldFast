@@ -144,8 +144,9 @@ def _value_application() -> None:
         directory = Path(temporary)
         candidate = directory / source.name
         proof = directory / "Generated.v"
-        for domain in ("NatExact", "NatBound"):
-            candidate.write_text(raw.replace("NatExact", domain), encoding="utf-8")
+        for domain, spelling in (("NatExact", "Preserve"), ("NatBound", "(Preserve)")):
+            text = raw.replace("NatExact", domain).replace("Preserve(n + n, values)", f"{spelling}(n + n, values)")
+            candidate.write_text(text, encoding="utf-8")
             status, output, error = _elaborate_command(candidate)
             ensure(status == 0 and all(f"Graded replay {name} {domain}: SHA256" in output
                                        for name in ("Preserve", "Route", "Run")), error)

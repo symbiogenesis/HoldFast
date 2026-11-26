@@ -196,6 +196,8 @@ class _Projection:
             return body
         if kind == "call":
             callee = cast("Node", node["callee"])
+            while callee["kind"] == "group":
+                callee = cast("Node", callee["value"])
             arguments = cast("list[Node]", node["arguments"])
             result = None
             if callee["kind"] == "name":
