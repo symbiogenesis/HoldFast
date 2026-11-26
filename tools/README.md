@@ -20,7 +20,7 @@ runner dispatches guest-only commands to WSL on Windows. Run the runner with
 | `python tools/run.py prepare markdown --path FILE` | host / guest | Format the selected `.md` files with locked `rumdl` |
 | `python tools/run.py test` | host / guest | Run the `test_*.py` behavioral test suite |
 | `python tools/run.py holdfast` | host | Pure HoldFast prototype checker, formatter, linter, Gallina emitter, and generated-test runner |
-| `python tools/run.py holdfast-borrow-compare` | host / guest | Replay pinned Rust decisions and execute accepted observations for the [borrowing comparison](../docs/language/loan-analysis.md#conditional-borrowing-comparison) |
+| `python tools/run.py holdfast-borrow-compare` | host / guest | Replay pinned Rust and optional Ante decisions and execute accepted observations for the [borrowing comparison](../docs/language/loan-analysis.md#conditional-borrowing-comparison) |
 | `python tools/run.py holdfast sarif` | host | Export source-bound pure batch diagnostics and optional format previews as [SARIF 2.1.0](../docs/tooling/tooling-protocols.md#qualified-pure-batch-sarif), with an explicit external schema |
 | `python tools/run.py holdfast-lsp` | host / guest | Serve pure HoldFast editor features over stdio, with optional wire-transcript recording |
 | `python tools/run.py holdfast-lsp --qualify-clients` | host / guest | Check [editor interoperability](../docs/tooling/lsp-prototype.md#acceptance-and-remaining-qualification) with pinned Neovim and Vim clients |
@@ -66,6 +66,30 @@ warm-up. Each sample records monotonic elapsed nanoseconds and the compiler's
 raw pass times in seconds and resident memory at pass boundaries in bytes. The
 processes run sequentially with uncontrolled operating-system caches. Accepted
 cases still link and execute their observation tests outside the sampled runs.
+
+### Ante borrow comparison
+
+The comparison uses Rust nightly `nightly-2026-11-20` via rustup. To add Ante on
+Linux or WSL, make Cargo and a C compiler available on PATH and prepare an
+upstream checkout outside the tracked HoldFast tree.
+
+```sh
+git clone https://github.com/jfecher/ante.git /path/to/ante
+git -C /path/to/ante checkout --detach 3916c257dd01e23a05564f925ea15b1f70a7435e
+git -C /path/to/ante submodule update --init --recursive
+python3 tools/run.py holdfast-borrow-compare --nested-rows-only --ante-checkout /path/to/ante
+python3 tools/run.py test --only holdfast_borrow_comparison --require-toolchain
+```
+
+The comparison report records the Rust and Ante build identities, direct and
+coincident refusals, passing rewrite observations and fixture hashes. The
+behavioral case runs the default HoldFast elaborator and Rocq on the same
+[nested-row trial](../docs/language/loan-analysis.md#nested-row-invalidation).
+
+The Ubuntu ARM64 replay builds Ante with the Rust toolchain's bundled LLD
+wrapper directory `lib/rustlib/aarch64-unknown-linux-gnu/bin/gcc-ld` on PATH,
+`RUSTFLAGS=-Clink-arg=-fuse-ld=lld`, `CARGO_PROFILE_DEV_CODEGEN_UNITS=1` and
+`CARGO_PROFILE_DEV_DEBUG=0`.
 
 ## Validation profiles
 

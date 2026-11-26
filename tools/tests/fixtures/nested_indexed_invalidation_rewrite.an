@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: Apache-2.0
+
+import Std.Collections.Vec.module, type
+import Std.Fail.abort_on_fail
+
+observe_distinct (selected: ref Vec U8) (changed: mut Vec U8): Maybe U8 can Panic, Mutate 'changed =
+    held = selected.[0]
+    Vec.clear changed
+    Some held.*
+
+observe (left: mut Vec U8) (right: mut Vec U8) (i: Usz) (j: Usz): Maybe U8 can Panic, Mutate 'left, Mutate 'right =
+    if i == 0 and j == 1 then observe_distinct left right
+    else if i == 1 and j == 0 then observe_distinct right left
+    else None
+
+main () =
+    print_to_stdout do
+    abort_on_panic do
+    abort_on_fail do
+    for i in 0usz .. 4 do
+        for j in 0usz .. 4 do
+            var left = Vec.of [3u8, 4u8]
+            var right = Vec.of [6u8, 7u8]
+            frame = Vec.of [9u8, 10u8]
+            observed = observe left right i j
+            if i == 0 and j == 1 then
+                assert <| observed is Some 3u8
+                assert <| Vec.is_empty right
+                assert <| left == Vec.of [3u8, 4u8]
+            else if i == 1 and j == 0 then
+                assert <| observed is Some 6u8
+                assert <| Vec.is_empty left
+                assert <| right == Vec.of [6u8, 7u8]
+            else
+                assert <| observed is None
+                assert <| left == Vec.of [3u8, 4u8]
+                assert <| right == Vec.of [6u8, 7u8]
+            assert <| frame == Vec.of [9u8, 10u8]
+    println "verified 16 cases"

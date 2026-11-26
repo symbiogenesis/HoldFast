@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Replay the Rust side of the source borrowing comparison."""
+"""Replay pinned Rust and optional Ante decisions on source borrowing trials."""
 
 import argparse
 import json
@@ -12,6 +12,7 @@ from pathlib import Path
 from time import perf_counter_ns
 
 from toolchain import corpus
+from toolchain.ante_borrow_compare import compare_ante
 from toolchain.hashing import sha256_bytes
 
 NIGHTLY = "nightly-2026-11-20"
@@ -22,6 +23,7 @@ TIMEOUT = 60
 ANALYSIS_FLAGS = ("-Zno-codegen", "-Ztime-passes", "-Ztime-passes-format=json")
 WARM_SAMPLES = 5
 TIMING_PREFIX = "time: "
+NESTED_ROWS = "nested_indexed_invalidation.rs"
 
 type Diagnostic = tuple[str, str]
 type LocatedDiagnostic = tuple[str, int]
@@ -56,6 +58,9 @@ def trials(mode: str) -> tuple[Trial, ...]:
         Trial("composed_view_loans.rs", "direct", (("E0502", "composed-view-conflict"),)),
         Trial("composed_view_loans.rs", "coincident", (("E0502", "composed-view-coincident"),)),
         Trial("composed_view_loans.rs", None),
+        Trial(NESTED_ROWS, "direct", (("E0502", "distinct-index-invalidation"),)),
+        Trial(NESTED_ROWS, "coincident", (("E0502", "coincident-index-invalidation"),)),
+        Trial(NESTED_ROWS, None),
         Trial("updated_view_loans.rs", "direct", (("E0506", "disjoint-write"),)),
         Trial("updated_view_loans.rs", "overlapping_write", (("E0506", "overlapping-write"),)),
         Trial("updated_view_loans.rs", None),
@@ -175,7 +180,9 @@ def _run_trial(compiler: list[str], mode: str, trial: Trial, work: Path, *, meas
     return result
 
 
-def compare(root: Path, *, measure: bool = False) -> dict[str, object]:
+def compare(
+    root: Path, *, measure: bool = False, ante_checkout: Path | None = None, nested_rows_only: bool = False,
+) -> dict[str, object]:
     compiler = ["rustc", f"+{NIGHTLY}"]
     version = subprocess.run([*compiler, "-vV"], cwd=root, capture_output=True, text=True,
                              encoding="utf-8", check=True, timeout=TIMEOUT).stdout
@@ -186,17 +193,22 @@ def compare(root: Path, *, measure: bool = False) -> dict[str, object]:
     if host is None:
         raise ValueError("rustc did not identify its host")
     fixtures = root / "tools" / "tests" / "fixtures"
+    selected = [(mode, trial) for mode in MODES for trial in trials(mode)
+                if not nested_rows_only or trial.fixture == NESTED_ROWS]
     with tempfile.TemporaryDirectory(prefix="holdfast-borrow-compare-") as temporary:
         work = Path(temporary)
         sources = {}
-        for name in sorted({trial.fixture for mode in MODES for trial in trials(mode)}):
+        for name in sorted({trial.fixture for _, trial in selected}):
             source = (fixtures / name).read_bytes()
             (work / name).write_bytes(source)
             sources[name] = sha256_bytes(source)
         results = [_run_trial(compiler, mode, trial, work, measure=measure)
-                   for mode in MODES for trial in trials(mode)]
+                   for mode, trial in selected]
+        ante = compare_ante(ante_checkout, fixtures, work, sources) if ante_checkout is not None else None
     report: dict[str, object] = {"rustc": {"toolchain": NIGHTLY, "revision": REVISION, "host": host},
                                  "edition": EDITION, "sources_sha256": sources, "results": results}
+    if ante is not None:
+        report["ante"] = ante
     if measure:
         report["measurement_environment"] = {
             "platform": platform.platform(), "python": platform.python_version(),
@@ -209,9 +221,13 @@ def compare(root: Path, *, measure: bool = False) -> dict[str, object]:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--measure", action="store_true", help="sample check-only compiler timings for every trial")
+    parser.add_argument("--ante-checkout", type=Path,
+                        help="build pinned Ante from this checkout and replay the nested-row comparison")
+    parser.add_argument("--nested-rows-only", action="store_true", help="select the nested-row Rust trials")
     args = parser.parse_args(argv)
     try:
-        report = compare(corpus.find_root(), measure=args.measure)
+        report = compare(corpus.find_root(), measure=args.measure, ante_checkout=args.ante_checkout,
+                         nested_rows_only=args.nested_rows_only)
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
         print(f"FAIL holdfast-borrow-compare: {error}", file=sys.stderr)
         return 1

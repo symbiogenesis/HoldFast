@@ -305,3 +305,15 @@ and QCheck are unselected candidates. A concrete consumer must qualify the
 selected release and dependency licenses before incorporation. The [Plinth/Plutus paper](docs/assurance/verification-strategy.md#compilation-and-executable-models)
 is a compiler-architecture reference only. No software source is taken from its
 artifact, and the paper's publication licence supplies no software grant.
+
+## Ante comparison compiler
+
+The [borrow comparison](docs/language/loan-analysis.md#nested-row-invalidation)
+builds Ante as an external development tool at revision
+`3916c257dd01e23a05564f925ea15b1f70a7435e`. Its root license is MIT, copyright
+2022 Jake Fecher. The `aminicoro` submodule at
+`97ba5a836085b221e4e49a1bd16ca82bd9b16a56` offers Unlicense or MIT terms.
+HoldFast distributes its own replay harness and fixtures. The upstream
+checkout, Cargo dependencies, compiler binary and C build outputs are local
+development inputs and outputs. [Ante license](https://github.com/jfecher/ante/blob/3916c257dd01e23a05564f925ea15b1f70a7435e/LICENSE) ·
+[Minicoro license](https://github.com/jfecher/minicoro/blob/97ba5a836085b221e4e49a1bd16ca82bd9b16a56/LICENSE)
