@@ -23,6 +23,7 @@ _SOURCE_REF_SUFFIXES = (
     ".mll",
     ".mly",
     ".c",
+    ".h",
     ".scm",
     ".v",
     ".mjs",

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Apache-2.0
+/* SPDX-License-Identifier: Apache-2.0 */
 #ifndef HOLDFAST_Q25BB_COPY_CLIENT_H
 #define HOLDFAST_Q25BB_COPY_CLIENT_H
 

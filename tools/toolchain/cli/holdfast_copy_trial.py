@@ -104,10 +104,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--prepared-header", required=True, type=Path, help="copy_service_config.h from the frozen recipe")
     parser.add_argument("--cc", default="cc", help="native C compiler executable (default: cc)")
     args = parser.parse_args(argv)
+    compiler = shutil.which(args.cc)
+    if compiler is None:
+        print(f"holdfast-copy-trial: C compiler unavailable: {args.cc}", file=sys.stderr)
+        return 1
     try:
-        compiler = shutil.which(args.cc)
-        if compiler is None:
-            raise ValueError(f"C compiler unavailable: {args.cc}")
         report = _replay(args.verifiedos_git_dir.resolve(), args.prepared_header.resolve(), Path(compiler).resolve())
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         print(f"holdfast-copy-trial: {error}", file=sys.stderr)
