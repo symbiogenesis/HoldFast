@@ -29,6 +29,7 @@ COMPILER_CONTROLS = (
     (17, "perturbed-unscrubbed-checksum-dst"),
 )
 COMPILER_PROGRAMS = ((0, "first_slice"), *COMPILER_CONTROLS)
+ENTRY_OBSERVATION = {"scope": "synthetic bound receipt fixture"}
 
 
 def _compiler_source(code: int) -> bytes:
@@ -89,7 +90,9 @@ def _execution_fixture(outputs: Path, *, available: bool = False) -> dict[str, o
         })
         compiler["programs"] = _compiler_fixture(outputs, files, trace_lines)
     return {"execution_inputs": {"files": files, "compcert_available": available},
-            "purecap_cheri_runs": runs, "compcert_sail": compiler}
+            "purecap_cheri_runs": runs, "compcert_sail": compiler,
+            "target_entry_observations": {name: ENTRY_OBSERVATION for _, name in COMPILER_PROGRAMS}
+            if available else None}
 
 
 def _compiler_fixture(directory: Path, files: dict[str, object], trace_lines: list[str]) -> list[dict[str, object]]:
@@ -404,6 +407,7 @@ def _binding_checks() -> None:
         stack.enter_context(patch.object(slice_harness.holdfast_parser, "_work_root", return_value=root))
         stack.enter_context(patch.object(slice_harness.replay, "_toolchain", return_value={}))
         stack.enter_context(patch.object(slice_harness.replay, "_runtime", return_value={}))
+        stack.enter_context(patch.object(slice_harness.packet_entry, "observe", return_value=ENTRY_OBSERVATION))
 
         expected_sources = {name: hashlib.sha256(_compiler_source(code)).hexdigest()
                             for code, name in COMPILER_PROGRAMS}
@@ -426,6 +430,13 @@ def _binding_checks() -> None:
                and all("exact admitted image and entry point" in requirement for requirement in claims.values())
                and "descriptor validity" in claims["returned_view_authority"],
                "matched development receipt lost the two missing target claims")
+        changed_entries = copy.deepcopy(report)
+        changed_entries["target_entry_observations"] = {}
+        write(changed_entries)
+        with raises(ValueError, msg="substituted entry observations retained a matching receipt") as entry_error:
+            slice_harness.verify_bindings(root, receipt)
+        ensure("target entry observations differ" in str(entry_error.exception),
+               "entry substitution reached the wrong refusal")
         host_substitution = copy.deepcopy(report)
         inventory = cast("dict[str, object]", host_substitution["inventory"])
         cast("dict[str, object]", inventory["missing_deployed_evidence"])["returned_view_authority"] = (
@@ -893,7 +904,8 @@ def _execution_coverage() -> None:
 
 
 def _compiler_coverage() -> None:
-    with tempfile.TemporaryDirectory(prefix="holdfast-slice-compiler-coverage-") as temporary:
+    with (tempfile.TemporaryDirectory(prefix="holdfast-slice-compiler-coverage-") as temporary,
+          patch.object(slice_harness.packet_entry, "observe", return_value=ENTRY_OBSERVATION)):
         directory = Path(temporary) / "slice-fixture"
         directory.mkdir()
         for mutation in ("none", "availability", "compiler-path", "compiler-hash", "clight-path", "clight-hash",
@@ -941,7 +953,8 @@ def _compiler_process_coverage() -> None:
                  "interpreter-verdict", "interpreter-stderr", "interpreter-duplicate", "target-verdict",
                  "target-trace", "target-empty", "summary-trace", "summary-count", "summary-roundtrip",
                  "interpreter-status")
-    with tempfile.TemporaryDirectory(prefix="holdfast-slice-compiler-processes-") as temporary:
+    with (tempfile.TemporaryDirectory(prefix="holdfast-slice-compiler-processes-") as temporary,
+          patch.object(slice_harness.packet_entry, "observe", return_value=ENTRY_OBSERVATION)):
         directory = Path(temporary) / "slice-fixture"
         directory.mkdir()
         for mutation in mutations:
@@ -1034,7 +1047,8 @@ def _simulator_transcript_integrity() -> None:
                  "wrong-memory-width", "zero-memory-width", "odd-memory-value", "duplicate-order",
                  "decreasing-order", "memory-without-instruction", "trap-loop", "terminal-before-trace",
                  "trace-after-terminal", *retired_mutations)
-    with tempfile.TemporaryDirectory(prefix="holdfast-slice-simulator-integrity-") as temporary:
+    with (tempfile.TemporaryDirectory(prefix="holdfast-slice-simulator-integrity-") as temporary,
+          patch.object(slice_harness.packet_entry, "observe", return_value=ENTRY_OBSERVATION)):
         directory = Path(temporary) / "slice-fixture"
         directory.mkdir()
         for subject in ("pass", "bounds-trap", "compiler", "compiler-control"):

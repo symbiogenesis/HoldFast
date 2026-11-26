@@ -602,6 +602,16 @@ It requires the full export audit, kernel replay and execution observations,
 including the effective CompCert inputs when that run is present. The checker
 regenerates the C for the passing driver and each compiler control from the
 checked source and compares those bytes with the retained C inventory.
+
+For a compiler-enabled run, the receipt also lists the observed calls at the
+linked validator entry and at each return to the caller. The independent
+[entry reader](../../tools/toolchain/packet_entry.py) checks nine frozen inputs,
+destination and input bytes, descriptor restoration, framing before any backing
+access, and returned scalar view fields. It confirms both redirected cursors
+and the writable view at return, before the caller checks them, and rejects
+any tagged store into the result fields. The binding checker reconstructs these
+observations from the retained image and Sail trace.
+
 Missing or substituted artifacts, malformed or contradictory
 transcripts, and changes during verification refuse a match. Inventories are
 limited to 4,096 entries and 256 MiB in the checkout's local output lane.

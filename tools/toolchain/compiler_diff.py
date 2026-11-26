@@ -209,8 +209,8 @@ def compose(stream: str, prologue: str = PROLOGUE) -> str:
     return prologue + body + EPILOGUE
 
 
-def assemble(stream: str, name: str, elf: Path,
-             prologue: str = PROLOGUE) -> tuple[list[Refusal], int]:
+def assemble(stream: str, name: str, elf: Path, prologue: str = PROLOGUE, *,
+             labels: dict[str, tuple[str, int]] | None = None) -> tuple[list[Refusal], int]:
     """Assemble `stream` under the harness into `elf`.
 
     Returns the refusals found and the image's byte count; the image is written only where
@@ -240,6 +240,8 @@ def assemble(stream: str, name: str, elf: Path,
                         f"{len(text.data)} bytes of text reach the data section at "
                         f"{asm.DATA_BASE:#x}")], 0
     image.write_elf(elf, sections, symbols, entry)
+    if labels is not None:
+        labels.update(symbols)
     return [], sum(len(s.data) for s in sections)
 
 
