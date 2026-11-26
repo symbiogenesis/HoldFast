@@ -1,0 +1,23 @@
+// SPDX-License-Identifier: Apache-2.0
+module LendingFilterReturn;
+
+public record ByteView<region 'owner>(in<'owner> Span<byte> Bytes);
+
+public Result<ByteView<'owner>, bool> FirstNonZeroAndMark<region 'owner>(ref<'owner> Span<byte> buf)
+    effects writes(buf)
+    requires buf.CanRead && buf.CanWrite
+{
+    let len = buf.Length;
+    foreach (let i in 0usize..len)
+        invariant buf.CanRead
+        invariant buf.CanWrite
+        invariant buf.Length == len
+    {
+        if (buf[i] != 0u8) {
+            let selected = Span.ReadOnly(Span.Slice(buf, i, 1usize));
+            return Ok(ByteView(in selected));
+        }
+        buf[i] = 9u8;
+    }
+    return Err(false);
+}

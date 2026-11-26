@@ -214,6 +214,18 @@ check and passes the shared returned-byte, writeback and frame observations
 for all 16 tested inputs.
 [Rust fixture](../../tools/tests/fixtures/view_last_use.rs)
 
+### Lending filtering loops with borrowed returns
+
+A returning range loop (`foreach (let i in 0usize..len)`) can break early with
+`return Ok(...)` yielding a read-only `Span<byte>` slice borrowed from the
+mutated `ref Span<byte>` owner, while marking skipped elements along the
+continue path. The mathematical elaborator checks loop entry and inductive
+invariants, verifies slice disjointness against any writes within the returning
+branch, folds state across `NatFold` with a `Unit + R` return-freeze sum, and
+joins early-returned values and writebacks with the fallthrough exit.
+[Lending filter source](../../tools/tests/fixtures/lending-filter-return.hf) ·
+[Lending filter replay](../../tools/tests/test_holdfast_loan_returns.py#_lending_filter_return)
+
 ### Symbolic Span separation
 
 The mathematical frontend checks same-collection indexed call arguments using

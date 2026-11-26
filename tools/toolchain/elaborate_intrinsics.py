@@ -1757,14 +1757,18 @@ class _IntrinsicsMixin:
     def _check_span_view_use(
         self: _Elaborator, value: _Term, environment: dict[str, _Binding], site: Node, *,
         use: Literal["read", "return"],
+        baseline: dict[str, _Binding] | None = None,
     ) -> None:
         if not self.in_executable_function or self.in_inline_proof:
             return
         span_u8 = _app(_constant("Span"), _U8)
+        base_env = baseline if baseline is not None else self.entry_env
         changed_owners = {
             entry.term: (name, self.whnf(environment[name].term))
-            for name, entry in self.entry_env.items()
-            if (name in environment and entry.term.kind == "var" and entry.term.value in self.ref_parameters
+            for name, entry in base_env.items()
+            if (name in self.entry_env and self.entry_env[name].term.kind == "var"
+                and self.entry_env[name].term.value in self.ref_parameters
+                and name in environment and entry.term.kind == "var"
                 and environment[name].term != entry.term and self.whnf(entry.type) == span_u8)
         }
         if not changed_owners:

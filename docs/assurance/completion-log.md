@@ -2733,6 +2733,12 @@ the branch and result. Construction and elimination preserve the record's
 declared identity and specialize the same extent family.
 [Pair rules and proofs](../../tools/rocq/graded_modal.v)
 
+The modal extension also checks first-class graded `Box` callable interfaces
+(`Apply` and `LetBoxValue`) under both `NatExact` and `NatBound` in the pure
+and call-by-value modal calculi, alongside type-variable irrelevance
+(`zero_type_var_use`).
+[Box callable replay](../../tools/tests/test_holdfast_graded_modal.py)
+
 Broader indexed-data elimination, usage-aware interpretations, erasure and
 the composed extension laws remain open.
 
@@ -2857,6 +2863,10 @@ the sample vector. The default mathematical build proves the same routing
 equation in Rocq for the graded source and the baseline with its 12 grade
 annotations removed. Both builds refuse the stale frame extent. The graded
 build additionally refuses an altered allowance. Independent client selection,
+Default checking and interface checks apply the same graded-domain rules across
+ordinary bindings and locked module boundaries, including `Type`/`Type<n>`
+type-valued polymorphism (`ApplyType`), graded `Box` callable interfaces, and
+transitively locked graded clients; general GrTT source elaboration and erasure
 material benefit and release qualification remain open.
 [Paired replay](../../tools/tests/test_holdfast_graded_client.py)
 
@@ -2865,10 +2875,11 @@ material benefit and release qualification remain open.
 ## Q25cb · Trial zero-type-use substitution skipping
 
 In the pure exact-natural calculus, a checked result type with zero demand
-for a binder is unchanged by substituting for that binder. Its type-demand
-row is also unchanged pointwise. The theorem covers natural indices and
-dependent function types under the checked typing rules. Representative cost
-measurements and an implementation trial remain open.
+for a value binder or `TypeVar` binder (`zero_type_var_use` and
+`checked_zero_type_var_use`) is unchanged by substituting for that binder. Its
+type-demand row is also unchanged pointwise. The theorem covers natural indices,
+universes and dependent function types under the checked typing rules.
+Representative cost measurements and an implementation trial remain open.
 [Irrelevance proof](../../tools/rocq/graded_type_irrelevance.v)
 
 <a id="q25cc-compare-borrow-checking-alternatives-on-held-out-clients"></a>
@@ -3083,3 +3094,28 @@ require independent restoration of three alternative exclusive grants, detect
 an overlapping write on only its conflicting branch, and check a retained
 capture at receiver activation. A join outside the path budget refuses
 analysis. [Loan diagnostic and regression cases](../language/loan-analysis.md#diagnostic-disposition)
+
+Direct local indexed borrows (`in coll[i]` and `ref coll[i]`) check the same
+index separation directly on local bindings over `Vec<T, n>`, `Seq<T>`,
+`Span<byte>` and `Slots<T, capacity>` without helper calls. Path-sensitive peer
+tracking proves disjointness against subsequent owner writes, last-use end on a
+conflicting branch, joined conditionals and simultaneous exclusive pairs, with
+Rocq replay closing all assumptions and eight invalid neighbors refused.
+[Direct indexed fixture](../../tools/tests/fixtures/direct-indexed-borrows.hf) ·
+[Direct indexed replay](../../tools/tests/test_holdfast_borrow_comparison.py)
+
+<a id="q25cf-trial-selected-loop-carried-borrowing"></a>
+
+## Q25cf · Trial selected loop-carried borrowing
+
+Returning `foreach` range loops support a single conditional early return that
+yields a borrowed read-only `Span<byte>` view while writing skipped elements on
+the continue path. The elaborator checks slice disjointness against any writes
+on the returning branch against the symbolic iteration baseline, folds loop
+state with `NatFold` over a `Unit + R` return-freeze sum, and joins early
+returns with the fallthrough exit. Rocq checks equivalence with a direct
+recursive model, post-return freezing and frame preservation, while negative
+controls refuse writes overlapping the returned view, missing write permissions
+and out-of-bounds slices.
+[Lending filter source](../../tools/tests/fixtures/lending-filter-return.hf) ·
+[Lending filter replay](../../tools/tests/test_holdfast_loan_returns.py#_lending_filter_return)

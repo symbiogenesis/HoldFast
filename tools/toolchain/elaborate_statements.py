@@ -1930,13 +1930,26 @@ class _StatementsMixin:
                 fv = self.fresh(fty)
                 self._bind_symbolic_pattern(sp, _Binding(fv, fty), extended, is_var=is_var)
 
-    def _elaborate_foreach_statement(
+    def _sum_match_result(
         self: _Elaborator,
-        statement: Node,
-        extended: dict[str, _Binding],
-        facts: tuple[_Binding, ...],
-    ) -> dict[str, _Binding]:
-        self.site = statement
+        status_term: _Term,
+        status_type: _Term,
+        result_type: _Term,
+        on_left: Callable[[_Term], _Term],
+        on_right: Callable[[_Term], _Term],
+    ) -> _Term:
+        left_type, right_type = status_type.args
+        scrut_var = self.fresh(status_type)
+        motive_lam = _term("lam", status_type, result_type, value=scrut_var.value)
+        left_var = self.fresh(left_type)
+        right_var = self.fresh(right_type)
+        left_lam = _term("lam", left_type, on_left(left_var), value=left_var.value)
+        right_lam = _term("lam", right_type, on_right(right_var), value=right_var.value)
+        return _term("sum_match", motive_lam, status_term, left_lam, right_lam)
+
+    def _parse_foreach_range(
+        self: _Elaborator, statement: Node, extended: dict[str, _Binding],
+    ) -> tuple[_Term, _Term, _Term, _IntSpec | None, str, list[Node], Node]:
         range_node = self.node(statement["range"], "range")
         start_node = self.node(range_node["start"])
         end_node = self.node(range_node["end"])
@@ -1963,8 +1976,263 @@ class _StatementsMixin:
         var_name = self.name(statement["name"])
         if var_name in self.frozen_collections:
             raise self.fail("type", f"cannot shadow frozen collection '{var_name}'", statement)
-        contracts = self.nodes(statement["contracts"])
-        body_node = self.node(statement["body"], "block")
+        return start_term, end_term, elem_type, elem_spec, var_name, self.nodes(statement["contracts"]), self.node(statement["body"], "block")
+
+    def _split_range_foreach_return(
+        self: _Elaborator, body_node: Node,
+    ) -> tuple[list[Node], Node, list[Node], Node, list[Node]] | None:
+        statements = self.nodes(body_node["statements"])
+        ret_idx: int | None = None
+        for idx, stmt in enumerate(statements):
+            if stmt["kind"] == "if" and stmt["else"] is None:
+                then_node = self.node(stmt["then"])
+                then_stmts = self.nodes(then_node["statements"]) if then_node["kind"] == "block" else [then_node]
+                if then_stmts and then_stmts[-1]["kind"] == "return":
+                    if ret_idx is not None:
+                        return None
+                    ret_idx = idx
+        if ret_idx is None:
+            return None
+        prefix = statements[:ret_idx]
+        if_stmt = statements[ret_idx]
+        then_node = self.node(if_stmt["then"])
+        then_stmts = self.nodes(then_node["statements"]) if then_node["kind"] == "block" else [then_node]
+        suffix = statements[ret_idx + 1:]
+
+        def has_control_exit(node: object) -> bool:
+            if isinstance(node, list):
+                return any(has_control_exit(item) for item in node)
+            if isinstance(node, dict):
+                if node.get("kind") in {"return", "break", "continue"}:
+                    return True
+                return any(has_control_exit(val) for val in node.values())
+            return False
+
+        if any(has_control_exit(part) for part in (prefix, then_stmts[:-1], suffix)):
+            return None
+        return prefix, if_stmt, then_stmts[:-1], then_stmts[-1], suffix
+
+    def _elaborate_returning_foreach_statement(
+        self: _Elaborator,
+        statement: Node,
+        rest_statements: list[Node],
+        extended: dict[str, _Binding],
+        expected: _Term | None,
+        facts: tuple[_Binding, ...],
+    ) -> _Binding:
+        self.site = statement
+        split = self._split_range_foreach_return(self.node(statement["body"], "block"))
+        if split is None:
+            raise self.fail("unsupported", "early return inside a loop or open block is not supported", statement)
+        prefix_stmts, if_stmt, then_prefix, ret_stmt, suffix_stmts = split
+        ret_type = expected if expected is not None else self.current_return_type
+        if ret_type is None:
+            raise self.fail("type", "returning range loop requires a known return type", statement)
+        start_term, end_term, elem_type, elem_spec, var_name, contracts, body_node = self._parse_foreach_range(
+            statement, extended
+        )
+        if elem_spec is not None and elem_spec.signed:
+            raise self.fail("unsupported", "symbolic signed ranges need a signed distance representation", statement)
+        saved_mutable = set(self.mutable_locals)
+        self.mutable_locals.discard(var_name)
+        self.in_loop_depth += 1
+        try:
+            entry_env = dict(extended)
+            entry_env[var_name] = _Binding(start_term, elem_type)
+            self._check_loop_invariants(contracts, entry_env, statement, "entry")
+            self._eval_loop_decreases(contracts, entry_env)
+            range_loop(self, statement, contracts, extended, start_term, end_term, elem_spec)
+            saved_uninit = set(self.uninitialized_out_params)
+            sym_env = dict(extended)
+            for mname in list(self.mutable_locals):
+                if mname in sym_env and mname != var_name:
+                    m_ty = sym_env[mname].type
+                    sym_env[mname] = _Binding(self.fresh(m_ty), m_ty)
+            i_var = self.fresh(elem_type)
+            sym_env[var_name] = _Binding(i_var, elem_type)
+            ge_op = f"int_ge_{elem_spec.name}" if elem_spec is not None else ">="
+            lt_op = f"int_lt_{elem_spec.name}" if elem_spec is not None else "<"
+            add_op = f"int_add_{elem_spec.name}" if elem_spec is not None else "+"
+            one_term = _int_term(elem_spec, 1) if elem_spec is not None else _term("nat", value=1)
+            next_i = _apps(_constant(add_op), i_var, one_term)
+            saved_facts_len = len(self.active_facts)
+            self.active_facts.append(_apps(_constant(ge_op), i_var, start_term))
+            self.active_facts.append(_apps(_constant(lt_op), i_var, end_term))
+            assumed = self._assume_loop_invariants(contracts, sym_env)
+            self.active_facts.extend(assumed)
+            try:
+                before_sym_m = self._eval_loop_decreases(contracts, sym_env)
+                pre_env, _ = self._non_returning_statements(
+                    {"kind": "block", "span": body_node["span"], "statements": prefix_stmts}, sym_env, facts
+                )
+                pre_mutable = set(self.mutable_locals)
+                pre_uninit = set(self.uninitialized_out_params)
+                pre_indexed = dict(self.indexed_local_borrows)
+                pre_peer_len = len(self.indexed_borrow_peers)
+                cond_raw = self.node(if_stmt["condition"])
+                condition = self.check(cond_raw, _BOOL, pre_env)
+                self._consume_call_updates(pre_env, cond_raw)
+                lint_branch(self, cond_raw, condition, pre_env)
+                self.active_facts.append(condition)
+                try:
+                    then_env, _ = self._non_returning_statements(
+                        {"kind": "block", "span": if_stmt["span"], "statements": then_prefix},
+                        dict(pre_env),
+                        (*facts, *self._branch_guard(condition, True)),
+                    )
+                    if self.active_lift_scopes > 0:
+                        raise self.fail(
+                            "type",
+                            "cannot return from a callable while a record invariant is lifted in an enclosing scope",
+                            ret_stmt,
+                        )
+                    if ret_stmt["value"] is None:
+                        if self.uninitialized_out_params:
+                            uninit_list = ", ".join(sorted(self.uninitialized_out_params))
+                            raise self.fail(
+                                "type",
+                                f"cannot return before 'out' parameter '{uninit_list}' is initialized",
+                                ret_stmt,
+                            )
+                        ret_b = _Binding(_term("unit"), _UNIT)
+                        self.unify(ret_b.type, ret_type)
+                    else:
+                        ret_term = self.check(self.node(ret_stmt["value"]), ret_type, then_env)
+                        self._consume_call_updates(then_env, ret_stmt)
+                        self._check_span_view_use(ret_term, then_env, ret_stmt, use="return", baseline=sym_env)
+                        ret_b = _Binding(ret_term, ret_type)
+                    then_env = self._leave_statement_scope(pre_env.keys(), then_env)
+                finally:
+                    self.active_facts.pop()
+                    self.mutable_locals = set(pre_mutable)
+                    self.uninitialized_out_params = set(pre_uninit)
+                    self.indexed_local_borrows = dict(pre_indexed)
+                    del self.indexed_borrow_peers[pre_peer_len:]
+                self.active_facts.append(self._negate_bool_term(condition))
+                try:
+                    cont_env, _ = self._elaborate_non_returning_block(
+                        {"kind": "block", "span": body_node["span"], "statements": suffix_stmts},
+                        dict(pre_env),
+                        (*facts, *self._branch_guard(condition, False)),
+                    )
+                    cont_env = self._leave_statement_scope(sym_env.keys(), cont_env)
+                    step_env = dict(sym_env)
+                    for k in list(sym_env):
+                        if k != var_name and k in cont_env and k in self.mutable_locals:
+                            step_env[k] = cont_env[k]
+                    step_env[var_name] = _Binding(next_i, elem_type)
+                    self._check_loop_invariants(contracts, step_env, statement, "inductive step")
+                    self._check_loop_decreases(before_sym_m, step_env, "inductive step")
+                finally:
+                    self.active_facts.pop()
+            finally:
+                self.uninitialized_out_params = saved_uninit
+                del self.active_facts[saved_facts_len:]
+            changed = [
+                name for name in extended
+                if name in saved_mutable and name != var_name
+                and (sym_env[name].term != cont_env[name].term or sym_env[name].term != then_env[name].term)
+            ]
+            ordinal = self.fresh(_NAT)
+            start_nat = self._loop_nat(start_term, elem_spec)
+            count = _apps(_constant("-"), self._loop_nat(end_term, elem_spec), start_nat)
+            index = _apps(_constant("+"), start_nat, ordinal)
+            if elem_spec is not None:
+                index = _app(_constant("nat_to_usize"), index)
+                if elem_type != _USIZE:
+                    index = _app(_constant(f"int_from_usize_{elem_spec.name}"), index)
+            step_cond = self.substitute(condition, cast("int", i_var.value), index)
+            step_ret = self.substitute(ret_b.term, cast("int", i_var.value), index)
+            then_sub = dict(then_env)
+            cont_sub = dict(cont_env)
+            for name in changed:
+                then_sub[name] = _Binding(
+                    self.substitute(then_env[name].term, cast("int", i_var.value), index), then_env[name].type
+                )
+                cont_sub[name] = _Binding(
+                    self.substitute(cont_env[name].term, cast("int", i_var.value), index), cont_env[name].type
+                )
+            names = tuple(changed)
+            status_type = _term("sum", _UNIT, ret_type)
+            init_status = _Binding(_term("inl", _UNIT, ret_type, _term("unit")), status_type)
+            initial = self._pack_guard_state(names, extended, init_status)
+            state = self.fresh(initial.type)
+            current, st_status = self._unpack_guard_state(names, extended, _Binding(state, initial.type))
+            ret_state = self._pack_guard_state(
+                names, then_sub, _Binding(_term("inr", _UNIT, ret_type, step_ret), status_type)
+            ).term
+            cont_state = self._pack_guard_state(names, cont_sub, init_status).term
+            branch_state = self._at_loop_entry(_term("if", initial.type, step_cond, ret_state, cont_state), sym_env, current)
+            step_body = self._sum_match_result(
+                st_status.term, status_type, initial.type, lambda _u: branch_state, lambda _r: state
+            )
+            folded = _apps(
+                _constant("NatFold"), initial.type, self.wrap("lam", [ordinal, state], step_body), initial.term, count
+            )
+            loop_env, final_status = self._unpack_guard_state(names, extended, _Binding(folded, initial.type))
+            span_u8 = _app(_constant("Span"), _U8)
+            for name in changed:
+                if self.whnf(extended[name].type) == span_u8 and all(
+                    self.convertible(
+                        _apps(_constant(f"Span_{ftag}"), _U8, branch_env[name].term),
+                        _apps(_constant(f"Span_{ftag}"), _U8, sym_env[name].term),
+                    )
+                    for branch_env in (then_env, cont_env)
+                    for ftag in ("Base", "Length", "Tag", "PermRead", "PermWrite")
+                ):
+                    restored_span = _apps(_constant("Span_ReplaceStore"), _U8, extended[name].term, loop_env[name].term)
+                    loop_env[name] = _Binding(restored_span, extended[name].type)
+        finally:
+            self.in_loop_depth -= 1
+            self.mutable_locals = saved_mutable
+        post_env = dict(loop_env)
+        post_env[var_name] = _Binding(end_term, elem_type)
+        post_assumed = self._assume_loop_invariants(contracts, post_env)
+        saved_post_facts = len(self.active_facts)
+        self.active_facts.extend(post_assumed)
+        try:
+            fallthrough = self.block(
+                {"kind": "block", "span": statement["span"], "statements": rest_statements},
+                post_env,
+                ret_type,
+                facts=facts,
+            )
+            fallthrough_refs = dict(self.final_ref_bindings)
+        finally:
+            del self.active_facts[saved_post_facts:]
+        combined_term = self._sum_match_result(
+            final_status.term, status_type, ret_type, lambda _u: fallthrough.term, lambda r: r
+        )
+        merged_refs = dict(loop_env)
+        for rk in set(loop_env) & set(fallthrough_refs):
+            lb = loop_env[rk]
+            fb = fallthrough_refs[rk]
+            if lb.term != fb.term:
+                merged_refs[rk] = _Binding(
+                    self._sum_match_result(
+                        final_status.term,
+                        status_type,
+                        lb.type,
+                        lambda _u, f_term=fb.term: f_term,
+                        lambda _r, l_term=lb.term: l_term,
+                    ),
+                    lb.type,
+                )
+            else:
+                merged_refs[rk] = fb
+        self.final_ref_bindings = merged_refs
+        return _Binding(combined_term, ret_type)
+
+    def _elaborate_foreach_statement(
+        self: _Elaborator,
+        statement: Node,
+        extended: dict[str, _Binding],
+        facts: tuple[_Binding, ...],
+    ) -> dict[str, _Binding]:
+        self.site = statement
+        start_term, end_term, elem_type, elem_spec, var_name, contracts, body_node = self._parse_foreach_range(
+            statement, extended
+        )
         start_w = self.whnf(start_term)
         end_w = self.whnf(end_term)
         saved_mutable = set(self.mutable_locals)
@@ -2752,11 +3020,41 @@ class _StatementsMixin:
                     )
                     continue
                 if kind == "foreach":
+                    if (
+                        index < len(statements) - 1
+                        and self._split_range_foreach_return(self.node(statement["body"], "block")) is not None
+                    ):
+                        return finish(
+                            self._elaborate_returning_foreach_statement(
+                                statement, statements[index + 1:], extended, expected, (*active_facts, *statement_facts)
+                            )
+                        )
                     extended = self._elaborate_foreach_statement(
                         statement, extended, (*active_facts, *statement_facts)
                     )
                     continue
                 if kind == "foreach_collection":
+                    coll_node = self._unwrap_group(self.node(statement["collection"]))
+                    if (
+                        coll_node["kind"] == "range"
+                        and statement["mode"] == "value"
+                        and index < len(statements) - 1
+                        and self._split_range_foreach_return(self.node(statement["body"], "block")) is not None
+                    ):
+                        range_stmt: Node = {
+                            "kind": "foreach",
+                            "span": statement["span"],
+                            "name": statement["name"],
+                            "type": statement["type"],
+                            "range": coll_node,
+                            "contracts": statement["contracts"],
+                            "body": statement["body"],
+                        }
+                        return finish(
+                            self._elaborate_returning_foreach_statement(
+                                range_stmt, statements[index + 1:], extended, expected, (*active_facts, *statement_facts)
+                            )
+                        )
                     extended = self._elaborate_foreach_collection_statement(
                         statement, extended, (*active_facts, *statement_facts)
                     )

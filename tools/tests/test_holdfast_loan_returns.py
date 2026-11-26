@@ -739,6 +739,171 @@ Proof. vm_compute. repeat split; reflexivity. Qed.
     ])
 
 
+def _lending_filter_return() -> None:
+    source = (TOOLS / "tests" / "fixtures" / "lending-filter-return.hf").read_bytes()
+    with parser.cached_build(TOOLS.parent) as compiled:
+        gallina = elaborate(source, parser.parse_source(compiled, source, surface=True)).gallina
+
+        # 1. Writing to the returned slice index before early return violates disjointness
+        overlapping = source.replace(
+            b"            return Ok(ByteView(in selected));",
+            b"            buf[i] = 9u8;\n            return Ok(ByteView(in selected));",
+        )
+        with raises(HoldFastError, msg="overlapping write before returned view") as overlap_err:
+            elaborate(overlapping, parser.parse_source(compiled, overlapping, surface=True))
+        return_line = next(n for n, line in enumerate(overlapping.splitlines(), 1) if b"return Ok" in line)
+        ensure(
+            overlap_err.exception.kind == "type"
+            and overlap_err.exception.line == return_line
+            and "cannot prove returned slice is disjoint from an update to 'buf'" in overlap_err.exception.message,
+            f"unexpected error for overlapping early-return write: {overlap_err.exception}",
+        )
+
+        # 2. Missing write permission on continue-path update is refused
+        no_write = source.replace(b"requires buf.CanRead && buf.CanWrite", b"requires buf.CanRead").replace(
+            b"        invariant buf.CanWrite\n", b""
+        )
+        with raises(HoldFastError, msg="missing Span.CanWrite permission") as perm_err:
+            elaborate(no_write, parser.parse_source(compiled, no_write, surface=True))
+        ensure(
+            perm_err.exception.kind == "type" and "Span.CanWrite" in perm_err.exception.message,
+            f"unexpected error for missing write permission: {perm_err.exception}",
+        )
+
+        # 3. Returning an out-of-bounds slice from the loop body is refused
+        oob_slice = source.replace(
+            b"if (buf[i] != 0u8) {", b"if (buf[i] != 0u8 && len < 100usize) {"
+        ).replace(b"Span.Slice(buf, i, 1usize)", b"Span.Slice(buf, i, 2usize)")
+        with raises(HoldFastError, msg="out-of-bounds loop slice") as bounds_err:
+            elaborate(oob_slice, parser.parse_source(compiled, oob_slice, surface=True))
+        ensure(
+            bounds_err.exception.kind == "type" and "slice" in bounds_err.exception.message.lower(),
+            f"unexpected error for out-of-bounds slice: {bounds_err.exception}",
+        )
+
+    [client] = re.findall(r"^Definition (holdfast_d\d+_FirstNonZeroAndMark) :", gallina, re.MULTILINE)
+    [view_ty] = re.findall(r"^Definition (holdfast_d\d+_ByteView) :", gallina, re.MULTILINE)
+    [view_ctor] = re.findall(r"^Definition (holdfast_d\d+_ByteView_ctor) :", gallina, re.MULTILINE)
+    [projection] = re.findall(r"^Definition (holdfast_d\d+_ByteView_Bytes) :", gallina, re.MULTILINE)
+    proof = rf"""
+Import HoldFast_LendingFilterReturn.
+Local Definition trial_word := holdfast_int 4.
+Local Definition trial_index (n : nat) := holdfast_mk_int 4 (holdfast_nat_to_bits 64 n).
+Local Definition trial_byte (n : nat) := holdfast_mk_int 0 (holdfast_nat_to_bits 8 n).
+Local Definition trial_span := holdfast_Span (holdfast_int 0).
+Local Definition trial_read := holdfast_Span_Read (holdfast_int 0).
+Local Definition trial_length s := holdfast_int_to_nat 4 (holdfast_Span_Length (holdfast_int 0) s).
+Local Definition trial_res := holdfast_Result {view_ty} bool.
+Local Definition trial_state_t := (trial_span * (unit + trial_res))%type.
+Local Definition observe_res (r : trial_res) : option (nat * nat) :=
+  match r with
+  | inl _ => None
+  | inr v =>
+      Some (holdfast_int_to_nat 0 (trial_read ({projection} v) (trial_index 0)),
+            holdfast_int_to_nat 4 (holdfast_Span_Length (holdfast_int 0) ({projection} v)))
+  end.
+Local Definition trial_step (i : nat) (st : trial_state_t) : trial_state_t :=
+  match snd st with
+  | inr _ => st
+  | inl _ =>
+      let cur := fst st in
+      let idx := holdfast_nat_to_usize (holdfast_int_to_nat 4 (trial_index 0) + i) in
+      if holdfast_int_ne 0 (trial_read cur idx) (trial_byte 0)
+      then (cur, inr (inr ({view_ctor} (holdfast_Span_ReadOnly (holdfast_int 0) (holdfast_Span_Slice (holdfast_int 0) cur idx (trial_index 1))))))
+      else (holdfast_Span_Write (holdfast_int 0) cur idx (trial_byte 9), inl tt)
+  end.
+Local Fixpoint trial_prefix buf n : trial_state_t :=
+  match n with
+  | O => (buf, inl tt)
+  | S i => trial_step i (trial_prefix buf i)
+  end.
+Local Definition trial_state buf n :=
+  holdfast_NatFold trial_state_t trial_step (buf, inl tt) n.
+Local Lemma trial_state_correct : forall buf n,
+  trial_state buf n = trial_prefix buf n.
+Proof.
+  intros buf n. induction n as [|n IH]; [reflexivity|].
+  change (trial_step n (trial_state buf n) = trial_step n (trial_prefix buf n)).
+  now rewrite IH.
+Qed.
+Theorem lending_filter_matches_recursive : forall buf,
+  let st := trial_prefix buf (trial_length buf) in
+  {client} buf = (match snd st with inl _ => inl false | inr r => r end) /\
+  (forall k, trial_read ({client}_post_buf buf) k = trial_read (fst st) k).
+Proof.
+  intros buf.
+  assert (Hsub : trial_length buf - holdfast_int_to_nat 4 (trial_index 0) = trial_length buf) by (destruct (trial_length buf); reflexivity).
+  unfold {client}, {client}_post_buf. cbv beta.
+  split.
+  - change (match snd (trial_state buf (trial_length buf - holdfast_int_to_nat 4 (trial_index 0))) with inl _ => inl false | inr r => r end =
+            match snd (trial_prefix buf (trial_length buf)) with inl _ => inl false | inr r => r end).
+    rewrite Hsub. now rewrite trial_state_correct.
+  - intros k. change (trial_read (fst (trial_state buf (trial_length buf - holdfast_int_to_nat 4 (trial_index 0)))) k =
+                      trial_read (fst (trial_prefix buf (trial_length buf))) k).
+    rewrite Hsub. now rewrite trial_state_correct.
+Qed.
+Local Lemma trial_prefix_frozen : forall buf i d r,
+  snd (trial_prefix buf i) = inr r ->
+  trial_prefix buf (i + d) = trial_prefix buf i.
+Proof.
+  intros buf i d r hit. induction d as [|d IH]; [rewrite <- plus_n_O; reflexivity|].
+  rewrite <- plus_n_Sm.
+  change (trial_step (i + d) (trial_prefix buf (i + d)) = trial_prefix buf i).
+  rewrite IH. unfold trial_step. now rewrite hit.
+Qed.
+Local Lemma trial_prefix_frame : forall buf n k,
+  (forall i, i < n ->
+    holdfast_int_ne 4 (holdfast_nat_to_usize (holdfast_int_to_nat 4 (trial_index 0) + i)) k = true) ->
+  trial_read (fst (trial_prefix buf n)) k = trial_read buf k.
+Proof.
+  intros buf n. induction n as [|n IH]; intros k sep; [reflexivity|].
+  assert (earlier : forall i, i < n ->
+    holdfast_int_ne 4 (holdfast_nat_to_usize (holdfast_int_to_nat 4 (trial_index 0) + i)) k = true)
+    by (intros i hi; apply sep; exact (le_S _ _ hi)).
+  change (trial_read (fst (trial_step n (trial_prefix buf n))) k = trial_read buf k).
+  unfold trial_step. destruct (snd (trial_prefix buf n)) as [[]|r] eqn:Hst.
+  - set (cur := fst (trial_prefix buf n)).
+    set (idx := holdfast_nat_to_usize (holdfast_int_to_nat 4 (trial_index 0) + n)).
+    destruct (holdfast_int_ne 0 (trial_read cur idx) (trial_byte 0)); cbn [fst].
+    + exact (IH k earlier).
+    + unfold trial_read. rewrite holdfast_Span_Read_write_other_ne.
+      * exact (IH k earlier).
+      * apply sep. exact (le_n (S n)).
+  - exact (IH k earlier).
+Qed.
+Theorem lending_filter_frame_and_freeze : forall buf k,
+  ((forall i, i < trial_length buf ->
+    holdfast_int_ne 4 (holdfast_nat_to_usize (holdfast_int_to_nat 4 (trial_index 0) + i)) k = true) ->
+   trial_read ({client}_post_buf buf) k = trial_read buf k) /\
+  (forall i d r, snd (trial_prefix buf i) = inr r ->
+   trial_prefix buf (i + d) = trial_prefix buf i).
+Proof.
+  intros buf k. split.
+  - intros sep. rewrite (proj2 (lending_filter_matches_recursive buf) k). now apply trial_prefix_frame.
+  - intros i d r hit. exact (trial_prefix_frozen buf i d r hit).
+Qed.
+Local Definition trial_buf (a b c d n : nat) :=
+  let initial := holdfast_mk_span (holdfast_int 0) (trial_index 19) (trial_index n) true true true holdfast_bs_empty in
+  let write s i v := holdfast_Span_Write (holdfast_int 0) s (trial_index i) (trial_byte v) in
+  write (write (write (write initial 0 a) 1 b) 2 c) 3 d.
+Local Definition trial_observe a b c d n :=
+  let buf := trial_buf a b c d n in
+  let res := {client} buf in
+  let post := {client}_post_buf buf in
+  let rd i := holdfast_int_to_nat 0 (trial_read post (trial_index i)) in
+  (observe_res res, (rd 0, rd 1, rd 2, rd 3)).
+Example lending_filter_observations :
+  trial_observe 5 0 0 0 4 = (Some (5, 1), (5, 0, 0, 0)) /\
+  trial_observe 0 0 7 3 4 = (Some (7, 1), (9, 9, 7, 3)) /\
+  trial_observe 0 0 0 0 4 = (None, (9, 9, 9, 9)) /\
+  trial_observe 1 2 3 4 0 = (None, (1, 2, 3, 4)).
+Proof. vm_compute. repeat split; reflexivity. Qed.
+"""
+    _replay_view_proof(gallina, proof, "LendingFilterReturn", [
+        "lending_filter_matches_recursive", "lending_filter_frame_and_freeze", "lending_filter_observations",
+    ])
+
+
 def cases() -> list[Case]:
     return [
         Case("conditional view return and sibling owner writeback", _conditional_view_return, lane="toolchain"),
@@ -748,4 +913,5 @@ def cases() -> list[Case]:
         Case("returned view and disjoint symbolic loop writeback", _loop_view_return, lane="toolchain"),
         Case("scoped lending and symbolic Span element writeback", _lending_span_iteration, lane="toolchain"),
         Case("scoped lending and early break exits on Span", _lending_span_break, lane="toolchain"),
+        Case("lending filtering range loop with early borrowed view return", _lending_filter_return, lane="toolchain"),
     ]
