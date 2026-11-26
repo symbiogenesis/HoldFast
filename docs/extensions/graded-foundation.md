@@ -48,6 +48,15 @@ Missing prerequisite laws and exhausted budgets leave the affected claim open.
 Retain the client's contract and record unsupported inputs separately from
 semantic refusals. A domain extension additionally requires measured benefit.
 
+To qualify the [GrTT-style distinction](../assurance/verification-strategy.md#reading-the-graded-type-claims),
+the client evidence must show how a binder's two demands vary independently.
+Replay a computationally unused index that contributes to a later declaration
+and to the result type. Check a computation edit that violates its allowance and
+a type edit that changes the dependency row while preserving computation demand.
+Replay those edits through the same callable boundary, including resolved
+package dependencies where the interface crosses a module. The evidence names
+the affected source bindings and the substituted rows of the retained telescope.
+
 Gerty's [substitution-skipping experiment](../assurance/verification-strategy.md#reading-the-graded-type-claims)
 is a separate optional optimization. It requires a proved zero-type-use
 irrelevance condition for the selected domain, agreement with ordinary checked
