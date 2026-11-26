@@ -80,7 +80,9 @@ Inductive index : Type :=
 Inductive ty : Type :=
 | Natural
 | Vector (length : index)
-| Pi (x allowance : nat) (domain codomain : ty).
+| Pi (x allowance : nat) (domain codomain : ty)
+| Universe (level : nat)
+| TypeVar (x : nat).
 
 Definition canonical_index (names : list (nat * nat)) (x : nat) : nat :=
   match find (fun binding => Nat.eqb x (fst binding)) names with
@@ -103,6 +105,8 @@ Fixpoint canonical_type (names : list (nat * nat)) (kind : ty) : ty :=
       let depth := length names in
       Pi (2 * depth) allowance (canonical_type names domain)
         (canonical_type ((x, depth) :: names) codomain)
+  | Universe _ => kind
+  | TypeVar x => TypeVar (canonical_index names x)
   end.
 
 Scheme Equality for index.
@@ -137,6 +141,16 @@ Fixpoint substitute_type (x : nat) (value : index) (kind : ty) : ty :=
   | Pi y allowance domain codomain =>
       Pi y allowance (substitute_type x value domain)
         (if Nat.eqb x y then codomain else substitute_type x value codomain)
+  | Universe _ | TypeVar _ => kind
+  end.
+
+Fixpoint substitute_type_variable (x : nat) (value kind : ty) : ty :=
+  match kind with
+  | TypeVar y => if Nat.eqb x y then value else kind
+  | Pi y allowance domain codomain =>
+      Pi y allowance (substitute_type_variable x value domain)
+        (if Nat.eqb x y then codomain else substitute_type_variable x value codomain)
+  | Natural | Vector _ | Universe _ => kind
   end.
 
 Inductive IndexDemand (env : context) : index -> demand -> Prop :=
@@ -183,7 +197,11 @@ Inductive TypeDemand (env : context) : ty -> demand -> Prop :=
     fresh env x = true -> TypeDemand env domain a ->
     TypeDemand ({| binder := x; annotation := domain; type_uses := a |} :: env)
       codomain b ->
-    TypeDemand env (Pi x allowance domain codomain) (a ++ without x b).
+    TypeDemand env (Pi x allowance domain codomain) (a ++ without x b)
+| TypeUniverse : forall level, TypeDemand env (Universe level) []
+| TypeVariable : forall x entry level,
+    lookup env x = Some entry -> annotation entry = Universe level ->
+    TypeDemand env (TypeVar x) [(x, 1)].
 
 Fixpoint type_demand (env : context) (kind : ty) : option demand :=
   match kind with
@@ -199,12 +217,18 @@ Fixpoint type_demand (env : context) (kind : ty) : option demand :=
                 codomain)
         end
       else None
+  | Universe _ => Some []
+  | TypeVar x =>
+      match lookup env x with
+      | Some {| annotation := Universe _ |} => Some [(x, 1)]
+      | _ => None
+      end
   end.
 
 Lemma type_demand_sound : forall kind env d,
   type_demand env kind = Some d -> TypeDemand env kind d.
 Proof.
-  induction kind as [| length | x allowance domain IHdomain codomain IHcodomain];
+  induction kind as [| length | x allowance domain IHdomain codomain IHcodomain | level | x];
     intros env d checked.
   - inversion checked. constructor.
   - constructor. now apply index_demand_sound.
@@ -213,6 +237,55 @@ Proof.
     destruct (type_demand ({| binder := x; annotation := domain; type_uses := a |} :: env)
       codomain) as [b |] eqn:codomain_checked; inversion checked; subst.
     constructor; auto.
+  - inversion checked. constructor.
+  - cbn in checked. destruct (lookup env x) as [[name kind row] |] eqn:found;
+      try discriminate. destruct kind; inversion checked; subst.
+    eapply TypeVariable; [exact found | reflexivity].
+Qed.
+
+Inductive UniverseLevel (env : context) : ty -> nat -> Prop :=
+| LevelNatural : UniverseLevel env Natural 0
+| LevelVector : forall length, UniverseLevel env (Vector length) 0
+| LevelPi : forall x allowance domain codomain i j,
+    UniverseLevel env domain i ->
+    UniverseLevel ({| binder := x; annotation := domain; type_uses := [] |} :: env) codomain j ->
+    UniverseLevel env (Pi x allowance domain codomain) (Nat.max i j)
+| LevelUniverse : forall i, UniverseLevel env (Universe i) (S i)
+| LevelVariable : forall x entry i,
+    lookup env x = Some entry -> annotation entry = Universe i -> UniverseLevel env (TypeVar x) i.
+
+Fixpoint universe_level (env : context) (kind : ty) : option nat :=
+  match kind with
+  | Natural | Vector _ => Some 0
+  | Pi x _ domain codomain =>
+      match universe_level env domain,
+        universe_level ({| binder := x; annotation := domain; type_uses := [] |} :: env) codomain with
+      | Some i, Some j => Some (Nat.max i j)
+      | _, _ => None
+      end
+  | Universe i => Some (S i)
+  | TypeVar x =>
+      match lookup env x with
+      | Some {| annotation := Universe i |} => Some i
+      | _ => None
+      end
+  end.
+
+Lemma universe_level_sound : forall kind env level,
+  universe_level env kind = Some level -> UniverseLevel env kind level.
+Proof.
+  induction kind as [| length | x allowance domain IHdomain codomain IHcodomain | i | x];
+    intros env level checked; cbn in checked.
+  - inversion checked. constructor.
+  - inversion checked. constructor.
+  - destruct (universe_level env domain) as [i |] eqn:domain_level; try discriminate.
+    destruct (universe_level ({| binder := x; annotation := domain; type_uses := [] |} :: env)
+      codomain) as [j |] eqn:codomain_level; inversion checked; subst.
+    constructor; auto.
+  - inversion checked. constructor.
+  - destruct (lookup env x) as [[name kind row] |] eqn:found; try discriminate.
+    destruct kind; inversion checked; subst.
+    eapply LevelVariable; [exact found | reflexivity].
 Qed.
 
 Inductive Extends : context -> list binding -> context -> Prop :=
@@ -257,7 +330,8 @@ Inductive term : Type :=
 | Lambda (x allowance : nat) (domain : ty) (body : term)
 | ApplyNat (callee : term) (argument : index)
 | ApplyValue (callee argument : term)
-| LetNat (x allowance : nat) (initializer : index) (body : term).
+| LetNat (x allowance : nat) (initializer : index) (body : term)
+| ApplyType (callee : term) (argument : ty).
 
 Record judgment := {
   result_type : ty;
@@ -308,7 +382,17 @@ Inductive DerivesWith (allows : nat -> nat -> Prop) (env : context) : term -> ju
     same_demand (substitute_demand x z v) output ->
     DerivesWith allows env (LetNat x allowance initializer body)
       {| result_type := substitute_type x initializer kind;
-        computation_demand := z ++ without x u; type_demand_row := substitute_demand x z v |}.
+        computation_demand := z ++ without x u; type_demand_row := substitute_demand x z v |}
+| GradeApplyType : forall callee argument x allowance level codomain w v z b output,
+    DerivesWith allows env callee {| result_type := Pi x allowance (Universe level) codomain;
+      computation_demand := w; type_demand_row := v |} ->
+    fresh env x = true -> TypeDemand env argument z -> UniverseLevel env argument level ->
+    TypeDemand ({| binder := x; annotation := Universe level; type_uses := [] |} :: env) codomain b ->
+    TypeDemand env (substitute_type_variable x argument codomain) output ->
+    same_demand (substitute_demand x z b) output ->
+    DerivesWith allows env (ApplyType callee argument)
+      {| result_type := substitute_type_variable x argument codomain;
+        computation_demand := w ++ scale allowance z; type_demand_row := substitute_demand x z b |}.
 
 Fixpoint infer_with (allowsb : nat -> nat -> bool) (env : context) (subject : term) : option judgment :=
   match subject with
@@ -392,6 +476,25 @@ Fixpoint infer_with (allowsb : nat -> nat -> bool) (env : context) (subject : te
         | _, _ => None
         end
       else None
+  | ApplyType callee argument =>
+      match infer_with allowsb env callee with
+      | Some {| result_type := Pi x allowance (Universe level) codomain; computation_demand := w |} =>
+          if fresh env x then
+            let specialized := substitute_type_variable x argument codomain in
+            let extended := {| binder := x; annotation := Universe level; type_uses := [] |} :: env in
+            match type_demand env argument, universe_level env argument,
+              type_demand extended codomain, type_demand env specialized with
+            | Some z, Some actual, Some b, Some output =>
+                let v := substitute_demand x z b in
+                if Nat.eqb actual level && demand_eqb v output then
+                  Some {| result_type := specialized;
+                    computation_demand := w ++ scale allowance z; type_demand_row := v |}
+                else None
+            | _, _, _, _ => None
+            end
+          else None
+      | _ => None
+      end
   end.
 
 Lemma infer_with_sound : forall (allows : nat -> nat -> Prop) allowsb,
@@ -401,7 +504,7 @@ Lemma infer_with_sound : forall (allows : nat -> nat -> Prop) allowsb,
 Proof.
   intros allows allowsb admission_sound.
   induction subject as [x | i | x allowance domain body IH | callee IH argument | callee IHc argument IHa
-    | x allowance initializer body IH];
+    | x allowance initializer body IH | callee IH argument];
     intros env result checked; cbn in checked.
   - destruct (lookup env x) as [entry |] eqn:found; try discriminate.
     destruct (type_demand env (annotation entry)) as [row |] eqn:typed; try discriminate.
@@ -417,7 +520,7 @@ Proof.
       inversion checked; subst.
     constructor; eauto using type_demand_sound.
   - destruct (infer_with allowsb env callee) as [[kind w v] |] eqn:callee_checked; try discriminate.
-    destruct kind as [| | x allowance domain codomain]; try discriminate.
+    destruct kind as [| | x allowance domain codomain | |]; try discriminate.
     destruct domain; try discriminate.
     destruct (fresh env x) eqn:new; try discriminate.
     destruct (index_demand env argument) as [z |] eqn:index_checked; try discriminate.
@@ -429,7 +532,7 @@ Proof.
       inversion checked; subst.
     eapply GradeApplyNat; eauto using index_demand_sound, type_demand_sound, demand_eqb_sound.
   - destruct (infer_with allowsb env callee) as [[function w v] |] eqn:callee_checked; try discriminate.
-    destruct function as [| | x allowance domain codomain]; try discriminate.
+    destruct function as [| | x allowance domain codomain | |]; try discriminate.
     destruct (infer_with allowsb env argument) as [[kind z a] |] eqn:argument_checked; try discriminate.
     destruct (fresh env x) eqn:new; try discriminate.
     destruct (ty_eq_dec (canonical_type [] kind) (canonical_type [] domain)); try discriminate.
@@ -444,6 +547,21 @@ Proof.
       eqn:admitted; inversion checked; subst.
     apply andb_true_iff in admitted as [allowed agrees].
     eapply GradeLetNat; eauto using index_demand_sound, type_demand_sound, demand_eqb_sound.
+  - destruct (infer_with allowsb env callee) as [[kind w v] |] eqn:callee_checked; try discriminate.
+    destruct kind as [| | x allowance domain codomain | |]; try discriminate.
+    destruct domain as [| | | level |]; try discriminate.
+    destruct (fresh env x) eqn:new; try discriminate.
+    destruct (type_demand env argument) as [z |] eqn:argument_checked; try discriminate.
+    destruct (universe_level env argument) as [actual |] eqn:actual_checked; try discriminate.
+    destruct (type_demand ({| binder := x; annotation := Universe level; type_uses := [] |} :: env)
+      codomain) as [b |] eqn:codomain_checked; try discriminate.
+    destruct (type_demand env (substitute_type_variable x argument codomain)) as [output |]
+      eqn:output_checked; try discriminate.
+    destruct (Nat.eqb actual level && demand_eqb (substitute_demand x z b) output) eqn:admitted;
+      inversion checked; subst.
+    apply andb_true_iff in admitted as [same_level agrees].
+    apply Nat.eqb_eq in same_level. subst actual.
+    eapply GradeApplyType; eauto using type_demand_sound, universe_level_sound, demand_eqb_sound.
 Qed.
 
 Lemma derives_type_demand : forall allows env subject result,
@@ -460,6 +578,7 @@ Proof.
       destruct (Nat.eqb name x); [reflexivity | now rewrite agrees].
   - exists output. auto.
   - exists b. split; [assumption | intros name; reflexivity].
+  - exists output. auto.
   - exists output. auto.
 Qed.
 
@@ -491,9 +610,33 @@ Proof.
   exists env, row. auto using check_telescope_sound.
 Qed.
 
-Definition rewrite_binding (x : nat) (argument : index) (z : demand) (entry : binding) : binding :=
-  {| binder := binder entry; annotation := substitute_type x argument (annotation entry);
+Definition rewrite_binding_with (substitute : ty -> ty) (x : nat) (z : demand)
+    (entry : binding) : binding :=
+  {| binder := binder entry; annotation := substitute (annotation entry);
      type_uses := substitute_demand x z (type_uses entry) |}.
+
+Definition rewrite_binding (x : nat) (argument : index) :=
+  rewrite_binding_with (substitute_type x argument) x.
+
+Definition check_rewritten_telescope (env : context) (bound : binding) (rewrite_row : binding -> binding)
+    (suffix : list binding) : option (list binding) :=
+  let rewritten := map rewrite_row suffix in
+  match check_telescope env (bound :: suffix), check_telescope env rewritten with
+  | Some _, Some _ => Some rewritten
+  | _, _ => None
+  end.
+
+Lemma check_rewritten_telescope_sound : forall env bound rewrite_row suffix rewritten,
+  check_rewritten_telescope env bound rewrite_row suffix = Some rewritten ->
+  exists before after, Extends env (bound :: suffix) before /\
+    rewritten = map rewrite_row suffix /\ Extends env rewritten after.
+Proof.
+  intros env bound rewrite_row suffix rewritten checked. unfold check_rewritten_telescope in checked.
+  destruct (check_telescope env (bound :: suffix)) as [before |] eqn:before_checked; try discriminate.
+  destruct (check_telescope env (map rewrite_row suffix)) as [after |] eqn:after_checked;
+    inversion checked; subst.
+  exists before, after. auto using check_telescope_sound.
+Qed.
 
 Definition substitute_telescope (prefix : list binding) (x : nat) (argument : index)
     (suffix : list binding) : option (list binding) :=
@@ -501,14 +644,9 @@ Definition substitute_telescope (prefix : list binding) (x : nat) (argument : in
   | None => None
   | Some env =>
       let bound := {| binder := x; annotation := Natural; type_uses := [] |} in
-      match index_demand env argument, check_telescope env (bound :: suffix) with
-      | Some z, Some _ =>
-          let rewritten := map (rewrite_binding x argument z) suffix in
-          match check_telescope env rewritten with
-          | Some _ => Some rewritten
-          | None => None
-          end
-      | _, _ => None
+      match index_demand env argument with
+      | Some z => check_rewritten_telescope env bound (rewrite_binding x argument z) suffix
+      | None => None
       end
   end.
 
@@ -522,12 +660,45 @@ Proof.
   intros prefix x argument suffix rewritten checked. unfold substitute_telescope in checked.
   destruct (check_telescope [] prefix) as [env |] eqn:prefix_checked; try discriminate.
   destruct (index_demand env argument) as [z |] eqn:index_checked; try discriminate.
-  destruct (check_telescope env ({| binder := x; annotation := Natural; type_uses := [] |} :: suffix))
-    as [before |] eqn:before_checked; try discriminate.
-  destruct (check_telescope env (map (rewrite_binding x argument z) suffix))
-    as [after |] eqn:after_checked; inversion checked; subst.
+  apply check_rewritten_telescope_sound in checked as [before [after [original [equal specialized]]]].
   exists env, before, after, z.
   repeat split; eauto using check_telescope_sound, index_demand_sound.
+Qed.
+
+Definition rewrite_type_binding (x : nat) (argument : ty) :=
+  rewrite_binding_with (substitute_type_variable x argument) x.
+
+Definition substitute_type_telescope (prefix : list binding) (x level : nat) (argument : ty)
+    (suffix : list binding) : option (list binding) :=
+  match check_telescope [] prefix with
+  | Some env =>
+      match type_demand env argument, universe_level env argument with
+      | Some z, Some actual =>
+          if Nat.eqb actual level then
+            let bound := {| binder := x; annotation := Universe level; type_uses := [] |} in
+            check_rewritten_telescope env bound (rewrite_type_binding x argument z) suffix
+          else None
+      | _, _ => None
+      end
+  | None => None
+  end.
+
+Theorem substitute_type_telescope_sound : forall prefix x level argument suffix rewritten,
+  substitute_type_telescope prefix x level argument suffix = Some rewritten ->
+  exists env before after z,
+    Extends [] prefix env /\ TypeDemand env argument z /\ UniverseLevel env argument level /\
+    Extends env ({| binder := x; annotation := Universe level; type_uses := [] |} :: suffix) before /\
+    rewritten = map (rewrite_type_binding x argument z) suffix /\ Extends env rewritten after.
+Proof.
+  intros prefix x level argument suffix rewritten checked. unfold substitute_type_telescope in checked.
+  destruct (check_telescope [] prefix) as [env |] eqn:prefix_checked; try discriminate.
+  destruct (type_demand env argument) as [z |] eqn:argument_checked; try discriminate.
+  destruct (universe_level env argument) as [actual |] eqn:actual_checked; try discriminate.
+  destruct (Nat.eqb actual level) eqn:level_checked; try discriminate.
+  apply Nat.eqb_eq in level_checked. subst actual.
+  apply check_rewritten_telescope_sound in checked as [before [after [original [equal specialized]]]].
+  exists env, before, after, z.
+  repeat split; eauto using check_telescope_sound, type_demand_sound, universe_level_sound.
 Qed.
 
 Definition natural_binding (x : nat) := {| binder := x; annotation := Natural; type_uses := [] |}.
@@ -586,6 +757,46 @@ Proof. reflexivity. Qed.
 Example reject_stale_substitution_row :
   substitute_telescope [natural_binding 0] 1 (twice 0)
     [dependent_entry 2 (IndexVar 1) [(1, 1)]; dependent_entry 3 (twice 1) [(1, 1)]] = None.
+Proof. reflexivity. Qed.
+
+Definition type_identity := Lambda 1 0 (Universe 0) (Lambda 2 1 (TypeVar 1) (Var 2)).
+
+Example type_valued_identity_demands :
+  check [{| binder := 1; annotation := Universe 0; type_uses := [] |}]
+    (Lambda 2 1 (TypeVar 1) (Var 2)) =
+    Some {| result_type := Pi 2 1 (TypeVar 1) (TypeVar 1);
+      computation_demand := []; type_demand_row := [(1, 1); (1, 1)] |}.
+Proof. reflexivity. Qed.
+
+Example specialize_type_identity :
+  match check [natural_binding 0] (ApplyType type_identity (Vector (twice 0))) with
+  | Some result => result_type result = Pi 2 1 (Vector (twice 0)) (Vector (twice 0)) /\
+      uses (computation_demand result) 0 = 0 /\ uses (type_demand_row result) 0 = 4
+  | None => False
+  end.
+Proof. repeat split. Qed.
+
+Example reject_type_in_its_own_universe :
+  check [] (ApplyType type_identity (Universe 0)) = None.
+Proof. reflexivity. Qed.
+
+Example reject_type_identity_computation_allowance :
+  check [] (Lambda 1 0 (Universe 0) (Lambda 2 2 (TypeVar 1) (Var 2))) = None.
+Proof. reflexivity. Qed.
+
+Example rewrite_later_type_telescope_rows :
+  substitute_type_telescope [natural_binding 0] 1 0 (Vector (twice 0))
+    [{| binder := 2; annotation := TypeVar 1; type_uses := [(1, 1)] |};
+     {| binder := 4; annotation := Pi 3 1 (TypeVar 1) (TypeVar 1); type_uses := [(1, 2)] |}] =
+    Some [dependent_entry 2 (twice 0) [(0, 1); (0, 1)];
+          {| binder := 4; annotation := Pi 3 1 (Vector (twice 0)) (Vector (twice 0));
+             type_uses := [(0, 2); (0, 2)] |}].
+Proof. reflexivity. Qed.
+
+Example reject_stale_type_telescope_row :
+  substitute_type_telescope [natural_binding 0] 1 0 (Vector (twice 0))
+    [{| binder := 2; annotation := TypeVar 1; type_uses := [(1, 1)] |};
+     {| binder := 4; annotation := Pi 3 1 (TypeVar 1) (TypeVar 1); type_uses := [(1, 1)] |}] = None.
 Proof. reflexivity. Qed.
 
 End GradedPure.

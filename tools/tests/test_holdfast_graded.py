@@ -18,6 +18,7 @@ from toolchain.cli.holdfast_parser import main as parser_main
 _PURE_PROOFS = (
     "check_sound",
     "substitute_telescope_sound",
+    "substitute_type_telescope_sound",
     "separate_computation_and_type_use",
     "specialize_dependent_function",
     "scale_computation_through_application",
@@ -27,6 +28,12 @@ _PURE_PROOFS = (
     "rewrite_later_telescope_rows",
     "reject_stale_type_use_certificate",
     "reject_stale_substitution_row",
+    "type_valued_identity_demands",
+    "specialize_type_identity",
+    "reject_type_in_its_own_universe",
+    "reject_type_identity_computation_allowance",
+    "rewrite_later_type_telescope_rows",
+    "reject_stale_type_telescope_row",
 )
 _DOMAIN_PROOFS = (
     "NatExact",

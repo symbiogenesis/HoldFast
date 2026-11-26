@@ -26,13 +26,16 @@ Theorem zero_type_use : forall env kind row,
 Proof.
   intros env kind row typed.
   induction typed as [env | env length d typed | env y allowance domain codomain a b new
-    typed_domain IHdomain typed_codomain IHcodomain]; intros x argument unused; cbn.
+    typed_domain IHdomain typed_codomain IHcodomain | env level | env y entry level found typed];
+    intros x argument unused; cbn.
   - reflexivity.
   - f_equal. eapply zero_index_use; eauto.
   - rewrite uses_append, uses_without in unused.
     apply Nat.eq_add_0 in unused as [domain_unused codomain_unused].
     rewrite IHdomain by exact domain_unused.
     destruct (Nat.eqb x y); [reflexivity | now rewrite IHcodomain].
+  - reflexivity.
+  - reflexivity.
 Qed.
 
 Lemma zero_scaled_use : forall argument y, uses (scale 0 argument) y = 0.
