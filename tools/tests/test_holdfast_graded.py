@@ -10,9 +10,10 @@ import subprocess
 import tempfile
 from functools import partial
 from pathlib import Path
+from unittest.mock import patch
 
 from tests.harness import TOOLS, Case, ensure
-from toolchain import proofenv, solver_ledger
+from toolchain import graded_source, proofenv, solver_ledger
 from toolchain.cli.holdfast_parser import main as parser_main
 
 _PURE_PROOFS = (
@@ -465,8 +466,58 @@ Print Assumptions keep_double_returns_values.
                                    "bounded_source_check_sound", ("[0; 0; 4]", "[0; 0; 3]"))
 
 
+def _support_cache_controls() -> None:
+    with tempfile.TemporaryDirectory(prefix="holdfast-graded-support-cache-") as temporary:
+        base = Path(temporary)
+        repo = base / "repo"
+        rocq_dir = repo / "tools" / "rocq"
+        rocq_dir.mkdir(parents=True)
+        (rocq_dir / "graded_pure.v").write_text("(* pure *)\n", encoding="utf-8")
+        (rocq_dir / "graded_domains.v").write_text("(* domains *)\n", encoding="utf-8")
+        cache = base / "cache"
+        files = ("graded_pure.v", "graded_domains.v")
+        compiled_calls: list[str] = []
+
+        def fake_rocq(_compiler: list[str], directory: Path, name: str) -> subprocess.CompletedProcess[str]:
+            compiled_calls.append(name)
+            (directory / f"{Path(name).stem}.vo").write_bytes(b"vo:" + (directory / name).read_bytes())
+            return subprocess.CompletedProcess(["rocq"], 0, "", "")
+
+        with (patch.object(graded_source, "_support_cache_root", return_value=cache),
+              patch.object(graded_source, "_compiler_sha256", return_value="c" * 64),
+              patch.object(graded_source, "_run_rocq", side_effect=fake_rocq)):
+            out1 = base / "out1"
+            out1.mkdir()
+            graded_source._support(repo, ["rocq", "c"], out1, files)
+            ensure(len(compiled_calls) == 2 and (out1 / "graded_pure.vo").is_file(),
+                   "cold support build did not compile and materialize .vo artifacts")
+
+            out2 = base / "out2"
+            out2.mkdir()
+            graded_source._support(repo, ["rocq", "c"], out2, files)
+            ensure(len(compiled_calls) == 2 and (out2 / "graded_domains.vo").is_file(),
+                   "warm support hit recompiled unchanged .v files")
+
+            entries = [entry for entry in cache.iterdir() if entry.is_dir()]
+            ensure(len(entries) == 1, f"expected one cache entry, found {len(entries)}")
+            (entries[0] / "graded_pure.vo").write_bytes(b"corrupted")
+            out3 = base / "out3"
+            out3.mkdir()
+            graded_source._support(repo, ["rocq", "c"], out3, files)
+            ensure(len(compiled_calls) == 4 and (out3 / "graded_pure.vo").read_bytes().startswith(b"vo:"),
+                   "corrupted cached .vo was reused without rebuilding")
+
+            (rocq_dir / "graded_pure.v").write_text("(* pure v2 *)\n", encoding="utf-8")
+            out4 = base / "out4"
+            out4.mkdir()
+            graded_source._support(repo, ["rocq", "c"], out4, files)
+            ensure(len(compiled_calls) == 6 and len([entry for entry in cache.iterdir() if entry.is_dir()]) == 2,
+                   "editing support source did not invalidate the cache key")
+
+
 def cases() -> list[Case]:
-    return [Case("pure dependent usage and telescope substitution replay",
+    return [Case("support cache reuses verified .vo artifacts and repairs corruption", _support_cache_controls),
+            Case("pure dependent usage and telescope substitution replay",
                  partial(_replay, "graded_pure", "GradedPure", _PURE_PROOFS), lane="toolchain"),
             Case("ordered grade domains and dependent row certificates",
                  partial(_replay, "graded_domains", "GradedDomains", _DOMAIN_PROOFS, ("graded_pure",)),

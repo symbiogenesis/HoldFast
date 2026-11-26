@@ -10,6 +10,7 @@ import contextlib
 import hashlib
 import io
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -1401,7 +1402,8 @@ def _stage(sources: dict[str, bytes], directory: Path, *, reference: bool) -> No
 def _compile(directory: Path, steps: list[dict[str, object]]) -> None:
     _run(_opam(["rocq", "makefile", "-f", "_CoqProject", "-o", "CoqMakefile"]),
          directory, directory / "makefile.stdout", steps)
-    _run(_opam(["make", "-f", "CoqMakefile", "-j2"]),
+    jobs = min(12, os.process_cpu_count() or 2)
+    _run(_opam(["make", "-f", "CoqMakefile", f"-j{jobs}"]),
          directory, directory / "compile.stdout", steps)
 
 
@@ -1653,6 +1655,53 @@ def reset_checked_worker() -> None:
 atexit.register(reset_checked_worker)
 
 
+def _run_wsl_probe(command: list[str], cwd: Path) -> tuple[int, bytes, bytes]:
+    """Run a bounded WSL probe subprocess and return `(returncode, stdout, stderr)`."""
+    probe = _POPEN(
+        command,
+        cwd=cwd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        out_bytes, err_bytes = probe.communicate(timeout=TIMEOUT)
+    except subprocess.TimeoutExpired as error:
+        probe.kill()
+        probe.communicate()
+        raise RuntimeError("WSL checked parser build exceeded timeout") from error
+    return int(probe.returncode), out_bytes, err_bytes
+
+
+def _probe_wsl_checked_cache(inputs_digest: str, wanted: dict[str, str], cwd: Path) -> tuple[int, bytes, bytes]:
+    """Check the guest ext4 runtime cache without touching /mnt/c or importing toolchain."""
+    fast_script = """import hashlib, json, os, pathlib, sys
+digest, wanted = sys.argv[1], json.loads(sys.argv[2])
+root = pathlib.Path(os.environ.get('VOS_BUILD_ROOT') or '/root/build') / 'holdfast-parser-checked-runtime' / 'builds' / digest
+receipt_path = root / 'receipt.json'
+if not receipt_path.is_file():
+    raise SystemExit(3)
+try:
+    receipt = json.loads(receipt_path.read_text(encoding='utf-8'))
+except (OSError, UnicodeDecodeError, ValueError):
+    sys.stderr.write('checked parser runtime receipt is malformed\\n')
+    raise SystemExit(2)
+if not isinstance(receipt, dict) or receipt.get('inputs') != wanted:
+    sys.stderr.write('checked parser cache receipt names different inputs\\n')
+    raise SystemExit(2)
+exe = root / 'holdfast-checked-parser'
+outputs = receipt.get('generated_sha256')
+if not isinstance(outputs, dict) or not exe.is_file() or hashlib.sha256(exe.read_bytes()).hexdigest() != outputs.get('holdfast-parser'):
+    sys.stderr.write('checked parser executable changed after its build\\n')
+    raise SystemExit(2)
+print(f"{exe} {outputs['holdfast-parser']}")"""
+    return _run_wsl_probe(
+        ["wsl", "-u", "root", "--cd", "/root", "-e", "/root/build/venv-linux/bin/python",
+         "-c", fast_script, inputs_digest, json.dumps(wanted, sort_keys=True)],
+        cwd,
+    )
+
+
 def _ensure_worker_command(repo: Path) -> list[str]:
     if sys.platform == "linux":
         runtime_dir = _runtime_root()
@@ -1679,35 +1728,33 @@ def _ensure_worker_command(repo: Path) -> list[str]:
         cached_cmd = _WORKER_STATE.get("command")
         if _WORKER_STATE.get("key") == ("win32", inputs_digest) and isinstance(cached_cmd, list):
             return cast("list[str]", cached_cmd)
-        script = (
-            "import sys; sys.path.insert(0, 'tools'); "
-            "from pathlib import Path; "
-            "from toolchain import parser_checked; "
-            "parser_checked.print_guest_executable(Path.cwd())"
-        )
-        probe = _POPEN(
-            ["wsl", "-u", "root", "-e", "/usr/bin/env", "OPAMROOT=/root/.opam",
-             "/root/build/venv-linux/bin/python", "-c", script],
-            cwd=repo,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-        try:
-            out_bytes, err_bytes = probe.communicate(timeout=TIMEOUT)
-        except subprocess.TimeoutExpired as error:
-            probe.kill()
-            probe.communicate()
-            raise RuntimeError("WSL checked parser build exceeded timeout") from error
-        if probe.returncode != 0:
+        returncode, out_bytes, err_bytes = _probe_wsl_checked_cache(inputs_digest, wanted, repo)
+        if returncode == 2:
             detail = (err_bytes or out_bytes).decode("utf-8", errors="replace").strip()
             if "changed after its build" in detail:
                 raise ValueError("checked parser executable changed after its build")
-            raise RuntimeError(f"WSL checked parser setup exited {probe.returncode}: {detail}")
+            raise RuntimeError(f"WSL checked parser setup exited {returncode}: {detail}")
+        if returncode != 0:
+            script = (
+                "import sys; sys.path.insert(0, 'tools'); "
+                "from pathlib import Path; "
+                "from toolchain import parser_checked; "
+                "parser_checked.print_guest_executable(Path.cwd())"
+            )
+            returncode, out_bytes, err_bytes = _run_wsl_probe(
+                ["wsl", "-u", "root", "-e", "/usr/bin/env", "OPAMROOT=/root/.opam",
+                 "/root/build/venv-linux/bin/python", "-c", script],
+                repo,
+            )
+        if returncode != 0:
+            detail = (err_bytes or out_bytes).decode("utf-8", errors="replace").strip()
+            if "changed after its build" in detail:
+                raise ValueError("checked parser executable changed after its build")
+            raise RuntimeError(f"WSL checked parser setup exited {returncode}: {detail}")
         fields = out_bytes.decode("utf-8", errors="replace").strip().splitlines()[-1].split()
         if len(fields) != 2 or not fields[0].startswith("/"):
             raise ValueError("WSL checked parser setup returned an invalid executable descriptor")
-        command = ["wsl", "-u", "root", "-e", fields[0], "--batch"]
+        command = ["wsl", "-u", "root", "--cd", "/root", "-e", fields[0], "--batch"]
         proc = cast("subprocess.Popen[bytes] | None", _WORKER_STATE.get("proc"))
         _WORKER_STATE["proc"] = None
         _close_proc(proc)

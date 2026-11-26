@@ -114,7 +114,7 @@ execution, measured target costs and exact-image admission.
 ## Validation profiles
 
 `validate` combines the usual `gate` and `test` handoff. It runs one command at a
-time and defaults to four test workers; `--jobs N` selects another positive
+time and defaults to eight test workers; `--jobs N` selects another positive
 worker count. The gate shares one indexed document corpus between repository
 and Markdown checks. Sequential execution keeps proof and editor checks from
 competing for the editor workers' time budgets.
@@ -140,6 +140,14 @@ native runtime, including WSL on Windows. The
 on Ubuntu and Windows stock runners. It provides automatic Python and Markdown
 regression checks. Hosted execution follows the
 [shared workflow](../AGENTS.md#git-workflow-and-worktrees).
+
+## WSL guest layout and tuning
+
+When the checkout sits on a Windows drive (`/mnt/c`, `9p`/`drvfs`), the guest runner places Python virtual environments, bytecode (`PYTHONPYCACHEPREFIX`), parser caches, and compiled Rocq support `.vo` caches on persistent native storage under `/root/build` (or `VOS_BUILD_ROOT`) to avoid cross-OS filesystem overhead:
+
+- Linked worktrees with matching [tools/pyproject.toml](pyproject.toml) and [tools/uv.lock](uv.lock) digests share a single environment under `/root/build/venvs/`, while the primary checkout keeps `/root/build/venv-linux`.
+- Host probes for the [checked parser](../docs/tooling/parser.md#executable-migration-preparation) inspect the guest cache directly under `/root` without reading `/mnt/c` or importing repository Python modules.
+- Host `.wslconfig` (`autoMemoryReclaim=gradual`, `sparseVhd=true`, and elevated `memory`/`vmIdleTimeout`) together with `/etc/wsl.conf` (`appendWindowsPath=false`) and low guest `vm.swappiness`/`vm.vfs_cache_pressure` preserve page and dentry caches across invocations.
 
 ## Dependency and version policy
 

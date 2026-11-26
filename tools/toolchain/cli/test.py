@@ -219,7 +219,7 @@ def run(only: str | None = None, slow: bool = False, jobs: int | None = None,
             rep.report("tests", "required lane unavailable:",
                        [f"the native toolchain lane requires Linux and opam switch {env.SAIL_SWITCH}"])
             return rep
-        workers = min(jobs or min(8, os.process_cpu_count() or 1), len(names))
+        workers = min(jobs or min(16, os.process_cpu_count() or 1), len(names))
         # Use spawn on all platforms so workers never inherit live threads or module patches.
         with ProcessPoolExecutor(max_workers=workers,
                                  mp_context=multiprocessing.get_context("spawn")) as pool:
@@ -261,7 +261,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--require-toolchain", action="store_true",
                         help="fail unless the native toolchain lane is available")
     parser.add_argument("--jobs", type=int,
-                        help="worker processes (default: available CPUs, capped at eight)")
+                        help="worker processes (default: available CPUs, capped at sixteen)")
     args = parser.parse_args(argv)
     if args.jobs is not None and args.jobs < 1:
         parser.error("--jobs must be positive")

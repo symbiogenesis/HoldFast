@@ -11,7 +11,7 @@ from pathlib import Path
 from toolchain import corpus, env, proofenv
 from toolchain.cli.test import switches
 
-DEFAULT_JOBS = 4
+DEFAULT_JOBS = 8
 TAIL_BYTES = 16_384
 
 
