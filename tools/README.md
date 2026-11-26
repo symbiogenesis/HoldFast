@@ -59,6 +59,14 @@ cases by default and skips cases whose lane or toolchain is unavailable. Use
 `test --slow` to include slow cases in the current lane. On Windows, run the
 test command inside WSL to exercise guest and kernel cases.
 
+Run `python tools/run.py holdfast-borrow-compare --measure` to sample the Rust
+analysis in fresh compiler processes for each pinned configuration. The report
+records the first invocation and five subsequent samples after a discarded
+warm-up. Each sample records monotonic elapsed nanoseconds and the compiler's
+raw pass times in seconds and resident memory at pass boundaries in bytes. The
+processes run sequentially with uncontrolled operating-system caches. Accepted
+cases still link and execute their observation tests outside the sampled runs.
+
 ## Validation profiles
 
 `validate` combines the usual `gate` and `test` handoff. It runs one command at a
