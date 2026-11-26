@@ -320,8 +320,60 @@ def _runtime_variants() -> None:
             ensure("changed after its build" in str(raised.exception), "damaged cache entry lost its integrity diagnostic")
 
 
+def _win32_fast_probe_and_fallback() -> None:
+    root = Path(__file__).resolve().parents[2]
+    exe = "/root/build/holdfast-parser-checked-runtime/builds/abc/holdfast-checked-parser"
+    digest = "a" * 64
+
+    class _FakeProbe:
+        def __init__(self, returncode: int, stdout: bytes, stderr: bytes) -> None:
+            self.returncode = returncode
+            self._stdout = stdout
+            self._stderr = stderr
+
+        def communicate(self, timeout: int = 0) -> tuple[bytes, bytes]:
+            _ = timeout
+            return self._stdout, self._stderr
+
+    def _run_case(responses: list[_FakeProbe]) -> tuple[list[list[str]], list[str]]:
+        calls: list[list[str]] = []
+
+        def fake_popen(cmd: list[str], **_kwargs: object) -> _FakeProbe:
+            calls.append(cmd)
+            return responses.pop(0)
+
+        saved_state = dict(checked._WORKER_STATE)
+        try:
+            checked._WORKER_STATE.update({"proc": None, "key": None, "command": None})
+            with (patch.object(checked.sys, "platform", "win32"),
+                  patch.object(checked, "_POPEN", side_effect=fake_popen)):
+                command = checked._ensure_worker_command(root)
+            return calls, command
+        finally:
+            checked._WORKER_STATE.update(saved_state)
+
+    calls_hit, cmd_hit = _run_case([_FakeProbe(0, f"{exe} {digest}\n".encode(), b"")])
+    ensure(len(calls_hit) == 1 and "--cd" in calls_hit[0] and "/root" in calls_hit[0],
+           "win32 cache hit did not use single --cd /root probe")
+    ensure(cmd_hit == ["wsl", "-u", "root", "--cd", "/root", "-e", exe, "--batch"],
+           f"win32 batch command did not isolate guest cwd: {cmd_hit!r}")
+
+    calls_miss, cmd_miss = _run_case([
+        _FakeProbe(3, b"", b""),
+        _FakeProbe(0, f"{exe} {digest}\n".encode(), b""),
+    ])
+    ensure(len(calls_miss) == 2 and "OPAMROOT=/root/.opam" in calls_miss[1],
+           "win32 cache miss did not fall back to full guest build probe")
+    ensure(cmd_miss == cmd_hit, "win32 fallback produced a different batch command")
+
+    with raises(ValueError, msg="tampered cache executable was accepted on fast probe") as raised:
+        _run_case([_FakeProbe(2, b"", b"checked parser executable changed after its build\n")])
+    ensure("changed after its build" in str(raised.exception), "fast probe tampering error lost its cause")
+
+
 def cases() -> list[Case]:
     return [Case("independent-checked-runtime-variants", _runtime_variants),
+            Case("win32-fast-native-probe-and-fallback", _win32_fast_probe_and_fallback),
             Case("immutable-source-and-version-controls", _archive_controls),
             Case("proof-opening-byte-footprint", _proof_footprint),
             Case("validator-items-map-byte-footprint", _validator_items_map_footprint),
