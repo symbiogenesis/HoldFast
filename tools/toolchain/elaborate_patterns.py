@@ -630,6 +630,30 @@ class _PatternsMixin:
             raise self.fail("unsupported", f"loan modifier '{borrow_mode}' is not supported on this type", site_node)
         return owner_name, field_path, projected
 
+    def _is_indexed_borrow_target(self: _Elaborator, target_node: Node) -> bool:
+        cur = self._unwrap_group(target_node)
+        while cur["kind"] == "member":
+            cur = self._unwrap_group(self.node(cur["value"]))
+        return cur["kind"] == "index"
+
+    def _collection_kind_and_elem(
+        self: _Elaborator, col_type: _Term, site_node: Node,
+    ) -> tuple[Literal["vec", "seq", "span", "slots"], _Term, tuple[_Term, ...]]:
+        head, targs = self.spine(self.whnf(col_type))
+        if head == _constant("Vec") and len(targs) == 2:
+            return "vec", targs[0], tuple(targs)
+        if head == _constant("Seq") and len(targs) == 1:
+            return "seq", targs[0], tuple(targs)
+        if head == _constant("Span") and len(targs) == 1 and self.whnf(targs[0]) == _U8:
+            return "span", _U8, tuple(targs)
+        if head == _constant("Slots") and len(targs) == 2:
+            return "slots", targs[0], tuple(targs)
+        raise self.fail(
+            "type",
+            "indexed local borrow requires a Vec<T, n>, Seq<T>, Span<byte>, or Slots<T, capacity> collection",
+            site_node,
+        )
+
     def _resolve_indexed_local_borrow(
         self: _Elaborator,
         borrow_mode: Literal["in", "ref"],
@@ -637,14 +661,24 @@ class _PatternsMixin:
         environment: dict[str, _Binding],
         site_node: Node,
     ) -> tuple[_IndexedLocalBorrow, _Binding]:
-        recv_node = self._unwrap_group(self.node(target_node["value"]))
-        if recv_node["kind"] != "name":
-            raise self.fail("unsupported", "indexed local borrow requires a named collection binding", recv_node)
-        rname = self.name(recv_node["name"])
+        cur = self._unwrap_group(target_node)
+        member_suffix: list[str] = []
+        while cur["kind"] == "member":
+            member_suffix.append(self.name(cur["name"]))
+            cur = self._unwrap_group(self.node(cur["value"]))
+        member_suffix.reverse()
+        index_chain: list[Node] = []
+        while cur["kind"] == "index":
+            index_chain.append(cur)
+            cur = self._unwrap_group(self.node(cur["value"]))
+        index_chain.reverse()
+        if not index_chain or cur["kind"] != "name":
+            raise self.fail("unsupported", "indexed local borrow requires a named collection binding", cur)
+        rname = self.name(cur["name"])
         if rname not in environment:
-            raise self.fail("name", f"unknown identifier '{rname}'", recv_node)
+            raise self.fail("name", f"unknown identifier '{rname}'", cur)
         if rname in self.uninitialized_out_params:
-            raise self.fail("type", f"cannot borrow element of uninitialized 'out' parameter '{rname}'", recv_node)
+            raise self.fail("type", f"cannot borrow element of uninitialized 'out' parameter '{rname}'", cur)
         if borrow_mode == "ref":
             if rname in self.readonly_in_params or self._is_readonly_span(environment[rname].term):
                 raise self.fail(
@@ -677,35 +711,55 @@ class _PatternsMixin:
                     site_node,
                 )
         collection = environment[rname]
-        head, targs = self.spine(self.whnf(collection.type))
-        if head == _constant("Vec") and len(targs) == 2:
-            collection_kind: Literal["vec", "seq", "span", "slots"] = "vec"
-            elem_type = targs[0]
-        elif head == _constant("Seq") and len(targs) == 1:
-            collection_kind = "seq"
-            elem_type = targs[0]
-        elif head == _constant("Span") and len(targs) == 1 and self.whnf(targs[0]) == _U8:
-            collection_kind = "span"
-            elem_type = _U8
-        elif head == _constant("Slots") and len(targs) == 2:
-            collection_kind = "slots"
-            elem_type = targs[0]
-        else:
-            raise self.fail(
-                "type",
-                "indexed local borrow requires a Vec<T, n>, Seq<T>, Span<byte>, or Slots<T, capacity> collection",
-                target_node,
-            )
+        collection_kind, elem_type, targs = self._collection_kind_and_elem(collection.type, index_chain[0])
         if borrow_mode == "ref":
             if collection_kind == "span":
-                self._check_span_can_write(collection.term, environment, target_node)
+                self._check_span_can_write(collection.term, environment, index_chain[0])
             elif collection_kind == "slots" and not self._prove_bool_precondition(
                 _apps(_constant("Slots_CanWrite"), *targs, collection.term), environment
             ):
-                raise self.fail("type", "indexed local 'ref' borrow requires Slots.CanWrite", target_node)
-        element, index = self._read_indexed_place(target_node, environment, check_view=True)
+                raise self.fail("type", "indexed local 'ref' borrow requires Slots.CanWrite", index_chain[0])
+        element, index = self._read_indexed_place(index_chain[0], environment, check_view=True)
         if index.type not in {_NAT, _USIZE}:
-            raise self.fail("unsupported", "indexed local borrow requires a Nat or usize index", target_node)
+            raise self.fail("unsupported", "indexed local borrow requires a Nat or usize index", index_chain[0])
+        nested_levels: list[
+            tuple[Literal["vec", "seq", "span", "slots"], _Term, _Term, tuple[_Term, ...], _Term]
+        ] = []
+        for idx_node in index_chain[1:]:
+            sub_kind, sub_elem, sub_targs = self._collection_kind_and_elem(element.type, idx_node)
+            if borrow_mode == "ref":
+                if sub_kind == "span":
+                    self._check_span_can_write(element.term, environment, idx_node)
+                elif sub_kind == "slots" and not self._prove_bool_precondition(
+                    _apps(_constant("Slots_CanWrite"), *sub_targs, element.term), environment
+                ):
+                    raise self.fail("type", "indexed local 'ref' borrow requires Slots.CanWrite", idx_node)
+            sub_elem_b, sub_idx_b = self._read_indexed_place(idx_node, environment, check_view=True)
+            if sub_idx_b.type not in {_NAT, _USIZE}:
+                raise self.fail("unsupported", "indexed local borrow requires a Nat or usize index", idx_node)
+            nested_levels.append((sub_kind, sub_idx_b.term, sub_idx_b.type, sub_targs, sub_elem))
+            element = sub_elem_b
+        for fname in member_suffix:
+            rec_ty = self.whnf(element.type)
+            r_head, _ = self.spine(rec_ty)
+            if r_head.kind != "const" or not isinstance(r_head.value, str) or r_head.value not in self.records_by_type:
+                raise self.fail("type", f"cannot borrow field '{fname}' from non-record indexed element", target_node)
+            record_info = self.records_by_type[r_head.value]
+            field_index = next((idx for idx, rf in enumerate(record_info.fields) if rf.name == fname), None)
+            if field_index is None:
+                raise self.fail("name", f"record '{record_info.name}' has no field '{fname}'", target_node)
+            rf = record_info.fields[field_index]
+            if borrow_mode == "ref":
+                if cast("int", rf.var.value) in self.constant_parameters or rf.readonly_span:
+                    raise self.fail("type", f"cannot take exclusive 'ref' borrow of constant or read-only field '{fname}'", target_node)
+                for later_rf in record_info.fields[field_index + 1:]:
+                    if cast("int", rf.var.value) in self.free(later_rf.type):
+                        raise self.fail(
+                            "type",
+                            f"cannot take exclusive 'ref' borrow of field '{fname}' because later field '{later_rf.name}' depends on it",
+                            target_node,
+                        )
+            element = self._project_member(element, fname, target_node, environment)
         if not self._is_supported_loan_type(element.type):
             raise self.fail("unsupported", f"loan modifier '{borrow_mode}' is not supported on this type", site_node)
         self.indexed_borrow_serial += 1
@@ -720,6 +774,8 @@ class _PatternsMixin:
             type_args=tuple(targs),
             birth_id=self.indexed_borrow_serial,
             site=site_node,
+            field_path=tuple(member_suffix),
+            nested_indices=tuple(nested_levels),
         )
         return info, element
 
@@ -779,7 +835,7 @@ class _PatternsMixin:
             borrow_mode = expr_mod or type_mod
             if borrow_mode is not None:
                 bname = self.name(node["name"])
-                if borrow_target_node["kind"] == "index":
+                if self._is_indexed_borrow_target(borrow_target_node):
                     typed_borrow = cast("Literal['in', 'ref']", borrow_mode)
                     info, binding = self._resolve_indexed_local_borrow(
                         typed_borrow, borrow_target_node, environment, node
@@ -804,6 +860,8 @@ class _PatternsMixin:
                             index_type=info.index_type,
                             guards=tuple(self.active_facts),
                             site=node,
+                            field_path=info.field_path,
+                            nested_indices=info.nested_indices,
                         )
                     )
                     if borrow_mode == "ref":
@@ -811,6 +869,58 @@ class _PatternsMixin:
                     else:
                         self.mutable_locals.discard(bname)
                     self.slice_views.pop(bname, None)
+                    self.slice_view_own_updates.pop(bname, None)
+                    self.local_value_regions.pop(bname, None)
+                    self.bind_local(extended, bname, binding)
+                    return extended
+                if borrow_mode == "ref" and borrow_target_node["kind"] == "call" and self._is_tracked_span_view_call(borrow_target_node):
+                    binding = self.expression(borrow_target_node, environment)
+                    if node["type"] is not None:
+                        value_type = self.type(self.node(node["type"]), environment)
+                        self.site = node
+                        self.unify(binding.type, value_type)
+                        binding = _Binding(binding.term, value_type)
+                    b_w = self.whnf(binding.term)
+                    b_head, b_args = self.spine(b_w)
+                    if b_head != _constant("Span_Slice") or len(b_args) != 4:
+                        raise self.fail("type", "'ref' slice borrow requires a mutable Span.Slice(...) view", node)
+                    parent_w = self.whnf(b_args[1])
+                    parent_name = next(
+                        (env_k for env_k, env_b in environment.items() if self.whnf(env_b.term) == parent_w),
+                        None,
+                    )
+                    if parent_name is None:
+                        raise self.fail("type", "'ref' Span.Slice borrow requires a named Span owner", node)
+                    if parent_name in self.readonly_in_params or self._is_readonly_span(environment[parent_name].term):
+                        raise self.fail(
+                            "type",
+                            f"cannot take exclusive 'ref' borrow of read-only 'in' parameter '{parent_name}'",
+                            node,
+                        )
+                    if parent_name in self.frozen_collections:
+                        raise self.fail(
+                            "type",
+                            f"cannot take exclusive 'ref' borrow of frozen collection '{parent_name}'",
+                            node,
+                        )
+                    if parent_name not in self.mutable_locals:
+                        raise self.fail(
+                            "type",
+                            f"cannot take exclusive 'ref' borrow of immutable binding '{parent_name}'; declare it with 'var' or 'ref'",
+                            node,
+                        )
+                    self._check_span_can_write(binding.term, environment, node)
+                    extended = dict(environment)
+                    self._consume_call_updates(extended, node)
+                    if bname in self.frozen_collections:
+                        raise self.fail("type", f"cannot rebind collection '{bname}' while iterating over it", node)
+                    self._check_new_slice_view_disjoint(bname, binding.term, parent_name, extended, node)
+                    self.local_borrows.pop(bname, None)
+                    self.indexed_local_borrows.pop(bname, None)
+                    self.mutable_locals.add(bname)
+                    self.slice_views[bname] = parent_name
+                    self.slice_view_own_updates.pop(bname, None)
+                    self.local_value_regions.pop(bname, None)
                     self.bind_local(extended, bname, binding)
                     return extended
                 owner_name, field_path, binding = self._resolve_local_borrow_target(
@@ -832,6 +942,8 @@ class _PatternsMixin:
                 else:
                     self.mutable_locals.discard(bname)
                 self.slice_views.pop(bname, None)
+                self.slice_view_own_updates.pop(bname, None)
+                self.local_value_regions.pop(bname, None)
                 self.bind_local(extended, bname, binding)
                 return extended
             if node["type"] is None:
@@ -854,6 +966,10 @@ class _PatternsMixin:
         else:
             self.mutable_locals.discard(bname)
         self.slice_views.pop(bname, None)
+        self.slice_view_own_updates.pop(bname, None)
+        self.local_value_regions.pop(bname, None)
+        if (hr_tag := self._term_hr_region(binding.term, environment)) is not None:
+            self.local_value_regions[bname] = (id(binding.term), hr_tag)
         b_w = self.whnf(binding.term)
         if b_w.kind == "app":
             b_head, b_args = self.spine(b_w)
@@ -861,6 +977,8 @@ class _PatternsMixin:
                 parent_w = self.whnf(b_args[1])
                 for env_k, env_b in extended.items():
                     if self.whnf(env_b.term) == parent_w:
+                        if node["kind"] == "var":
+                            self._check_new_slice_view_disjoint(bname, binding.term, env_k, extended, node)
                         self.slice_views[bname] = env_k
                         break
         self.bind_local(extended, bname, binding)

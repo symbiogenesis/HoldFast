@@ -331,7 +331,8 @@ class _IntrinsicsMixin:
             parent_head, parent_args = self.spine(self.whnf(parent_t))
             already_restored = (parent_head == _constant("Span_Restore") and len(parent_args) == 3
                                 and self._same_cond_term(parent_args[2], view_t))
-            if not already_restored and not self._same_cond_term(args[1], parent_t):
+            same_root = self._same_cond_term(self._root_span(args[1]), self._root_span(parent_t))
+            if not already_restored and not self._same_cond_term(args[1], parent_t) and not same_root:
                 raise self.fail("type", "Span.Restore requires a slice derived from its parent", node)
             self.restored_view_terms.add(self.whnf(view_t))
             return _Binding(_apps(_constant("Span_Restore"), _U8, parent_t, view_t), span_u8)
@@ -1680,6 +1681,7 @@ class _IntrinsicsMixin:
 
     def _span_index_in_owner(
         self: _Elaborator, span: _Term, owner: _Term, index: _Term, environment: dict[str, _Binding],
+        *, skip_ids: frozenset[int] = frozenset(),
     ) -> _Term | None:
         span = self.whnf(span)
         owner = self.whnf(owner)
@@ -1708,7 +1710,7 @@ class _IntrinsicsMixin:
         for offset in reversed(offsets):
             displacement = self._add_usize_offset(displacement, offset)
         if span != owner and (length is None or not self._span_history_preserves_extent(
-            span, owner, displacement, length, environment,
+            span, owner, displacement, length, environment, skip_ids=skip_ids,
         )):
             return None
         return self._add_usize_offset(displacement, index)
@@ -1754,6 +1756,196 @@ class _IntrinsicsMixin:
 
         return self._every_guarded_span(view, environment, separate)
 
+    def _prove_with_disjunctions(
+        self: _Elaborator,
+        goal: _Term,
+        environment: dict[str, _Binding],
+        depth: int = 0,
+        used_facts: frozenset[int] = frozenset(),
+    ) -> bool:
+        if self._prove_bool_precondition(goal, environment):
+            return True
+        if depth >= 2:
+            return False
+
+        def flatten_or(term: _Term) -> list[_Term]:
+            w = self.whnf(term)
+            h, a = self.spine(w)
+            if h == _constant("||") and len(a) == 2:
+                return [*flatten_or(a[0]), *flatten_or(a[1])]
+            if h == _constant("!") and len(a) == 1:
+                inner = self.whnf(a[0])
+                ih, ia = self.spine(inner)
+                if ih == _constant("&&") and len(ia) == 2:
+                    return [
+                        *flatten_or(self._negate_bool_term(ia[0])),
+                        *flatten_or(self._negate_bool_term(ia[1])),
+                    ]
+            return [w]
+
+        raw_facts = [*self.active_facts, *self._fact_bool_terms((), environment)]
+        disjunctions: list[tuple[int, list[_Term]]] = []
+        seen_disj: set[tuple[_Term, ...]] = set()
+        for idx, fact in enumerate(raw_facts):
+            if idx in used_facts:
+                continue
+            parts = flatten_or(fact)
+            if len(parts) > 1:
+                key = tuple(parts)
+                if key in seen_disj or any(p in self.active_facts for p in parts):
+                    continue
+                seen_disj.add(key)
+                disjunctions.append((idx, parts))
+        for idx, parts in disjunctions:
+            saved = len(self.active_facts)
+            all_ok = True
+            any_feasible = False
+            for branch in parts:
+                del self.active_facts[saved:]
+                if self._prove_bool_precondition(self._negate_bool_term(branch), environment):
+                    continue
+                any_feasible = True
+                self.active_facts.append(branch)
+                if not self._prove_with_disjunctions(goal, environment, depth + 1, used_facts | {idx}):
+                    all_ok = False
+                    break
+            del self.active_facts[saved:]
+            if all_ok and any_feasible:
+                return True
+        return False
+
+    def _span_extent_in_owner(
+        self: _Elaborator, span: _Term, owner: _Term,
+    ) -> tuple[_Term, _Term] | None:
+        cur = self.whnf(span)
+        owner_w = self.whnf(owner)
+        offsets: list[_Term] = []
+        length: _Term | None = None
+        while cur != owner_w and self._root_span(cur) != cur:
+            head, args = self.spine(cur)
+            if head in {_constant("Span_ReadOnly"), _constant("Span_Invalidate")} and len(args) == 2:
+                cur = self.whnf(args[1])
+                continue
+            if head in {_constant("Span_Write"), _constant("Span_Fill"), _constant("Span_CopyPrefix"), _constant("Span_Restore")} and len(args) >= 2:
+                cur = self.whnf(args[1])
+                continue
+            if head == _constant("Span_Slice") and len(args) == 4:
+                if length is None:
+                    length = args[3]
+                offsets.append(args[2])
+                cur = self.whnf(args[1])
+                continue
+            break
+        if length is None:
+            return None
+        displacement = _int_term(_INT_SPECS["usize"], 0)
+        for offset in reversed(offsets):
+            displacement = self._add_usize_offset(displacement, offset)
+        return displacement, length
+
+    def _extents_disjoint_pred(self: _Elaborator, a: _Term, m: _Term, b: _Term, n: _Term) -> _Term:
+        zero = _int_term(_INT_SPECS["usize"], 0)
+        empty_a = _apps(_constant("int_eq_usize"), m, zero)
+        empty_b = _apps(_constant("int_eq_usize"), n, zero)
+        before = _apps(_constant("int_le_usize"), self._add_usize_offset(a, m), b)
+        after = _apps(_constant("int_le_usize"), self._add_usize_offset(b, n), a)
+        return _apps(_constant("||"), _apps(_constant("||"), empty_a, empty_b), _apps(_constant("||"), before, after))
+
+    def _prove_extents_disjoint(
+        self: _Elaborator, a: _Term, m: _Term, b: _Term, n: _Term, environment: dict[str, _Binding],
+    ) -> bool:
+        return self._prove_with_disjunctions(self._extents_disjoint_pred(a, m, b, n), environment)
+
+    def _root_slice_owner(self: _Elaborator, name: str) -> str:
+        cur = name
+        seen: set[str] = set()
+        while cur in self.slice_views and cur not in seen:
+            seen.add(cur)
+            cur = self.slice_views[cur]
+        return cur
+
+    def _check_new_slice_view_disjoint(
+        self: _Elaborator, bname: str, slice_term: _Term, parent_name: str,
+        environment: dict[str, _Binding], site: Node,
+    ) -> None:
+        owner_name = self._root_slice_owner(parent_name)
+        if owner_name not in environment:
+            return
+        owner_root = self._root_span(environment[owner_name].term)
+        ext_new = self._span_extent_in_owner(slice_term, owner_root)
+        if ext_new is None:
+            return
+        for other_name in list(self.slice_views):
+            if other_name == bname or other_name not in self.mutable_locals or other_name not in environment:
+                continue
+            if self._root_slice_owner(other_name) != owner_name:
+                continue
+            other_b = environment[other_name]
+            if not self._every_guarded_span(
+                other_b.term,
+                environment,
+                lambda s: (
+                    (ext_old := self._span_extent_in_owner(s, owner_root)) is not None
+                    and self._prove_extents_disjoint(ext_new[0], ext_new[1], ext_old[0], ext_old[1], environment)
+                ),
+            ):
+                raise self.fail(
+                    "type",
+                    f"cannot prove mutable slice '{bname}' is disjoint from live mutable slice '{other_name}' of '{owner_name}'",
+                    site,
+                )
+
+    def _check_slice_argument_overlap(
+        self: _Elaborator, args: list[Node], val_args: list[_Term], environment: dict[str, _Binding],
+    ) -> None:
+        span_u8 = _app(_constant("Span"), _U8)
+        entries: list[tuple[int, str, str, _Term, bool]] = []
+        for idx, arg in enumerate(args):
+            if idx >= len(val_args):
+                break
+            arg_val = self._unwrap_group(self.node(arg["value"]))
+            arg_mod = (
+                cast("str", cast("Node", arg_val["operator"]).get("text"))
+                if arg_val["kind"] == "unary" and isinstance(arg_val.get("operator"), dict)
+                else None
+            )
+            if arg_mod not in {"in", "ref"}:
+                continue
+            target = self._unwrap_group(self.node(arg_val["value"]))
+            if target["kind"] != "name":
+                continue
+            vname = self.name(target["name"])
+            if vname not in environment or self.whnf(environment[vname].type) != span_u8:
+                continue
+            owner_name = self._root_slice_owner(vname)
+            entries.append((idx, vname, owner_name, environment[vname].term, arg_mod == "ref"))
+        for i, vname_i, owner_i, term_i, is_ref_i in entries:
+            for j, vname_j, owner_j, term_j, is_ref_j in entries:
+                if i >= j or (not is_ref_i and not is_ref_j):
+                    continue
+                if owner_i != owner_j or owner_i not in environment:
+                    continue
+                owner_root = self._root_span(environment[owner_i].term)
+                ext_i = (
+                    (_int_term(_INT_SPECS["usize"], 0), _apps(_constant("Span_Length"), _U8, term_i))
+                    if vname_i == owner_i
+                    else self._span_extent_in_owner(term_i, owner_root)
+                )
+                ext_j = (
+                    (_int_term(_INT_SPECS["usize"], 0), _apps(_constant("Span_Length"), _U8, term_j))
+                    if vname_j == owner_j
+                    else self._span_extent_in_owner(term_j, owner_root)
+                )
+                if ext_i is not None and ext_j is not None and self._prove_extents_disjoint(
+                    ext_i[0], ext_i[1], ext_j[0], ext_j[1], environment
+                ):
+                    continue
+                raise self.fail(
+                    "type",
+                    f"cannot prove Span slice loan '{vname_i}' is disjoint from argument {j + 1}",
+                    args[i],
+                )
+
     def _check_span_view_use(
         self: _Elaborator, value: _Term, environment: dict[str, _Binding], site: Node, *,
         use: Literal["read", "return"],
@@ -1773,6 +1965,11 @@ class _IntrinsicsMixin:
         }
         if not changed_owners:
             return
+        skip_ids: set[int] = set()
+        val_w = self.whnf(value)
+        for vname, updates in self.slice_view_own_updates.items():
+            if vname in environment and self.whnf(environment[vname].term) == val_w:
+                skip_ids.update(updates)
         # A scalar computed from an earlier read is a value snapshot.
         pending: list[tuple[_Term, tuple[_Term, ...], bool]] = [(value, (), False)]
         saved_facts = len(self.active_facts)
@@ -1787,8 +1984,12 @@ class _IntrinsicsMixin:
                     children = (args[1],)
                     readonly = True
                 elif head == _constant("Span_Slice") and len(args) == 4:
-                    self._check_slice_use(args[1], args[2], args[3], changed_owners, environment, site, use=use)
+                    self._check_slice_use(
+                        args[1], args[2], args[3], changed_owners, environment, site, use=use, skip_ids=frozenset(skip_ids),
+                    )
                     continue
+                elif head in {_constant("Span_Write"), _constant("Span_Fill"), _constant("Span_CopyPrefix"), _constant("Span_Restore")} and len(args) >= 2:
+                    children = (args[1],)
                 elif term.kind == "if":
                     _, condition, yes, no = term.args
                     negative = self._negate_bool_term(condition)
@@ -1800,7 +2001,9 @@ class _IntrinsicsMixin:
                     if readonly:
                         start = _int_term(_INT_SPECS["usize"], 0)
                         length = _apps(_constant("Span_Length"), _U8, term)
-                        self._check_slice_use(term, start, length, changed_owners, environment, site, use=use)
+                        self._check_slice_use(
+                            term, start, length, changed_owners, environment, site, use=use, skip_ids=frozenset(skip_ids),
+                        )
                     continue
                 elif term.kind in {"pair", "existT", "inl", "inr"}:
                     children = term.args[2:]
@@ -1818,6 +2021,7 @@ class _IntrinsicsMixin:
     def _check_slice_use(
         self: _Elaborator, base: _Term, start: _Term, length: _Term, changed_owners: dict[_Term, tuple[str, _Term]],
         environment: dict[str, _Binding], site: Node, *, use: Literal["read", "return"],
+        skip_ids: frozenset[int] = frozenset(),
     ) -> None:
         base = self.whnf(base)
         backing: set[_Term] = set()
@@ -1832,11 +2036,14 @@ class _IntrinsicsMixin:
                 backing.add(root)
         for root, (name, current) in changed_owners.items():
             if root in backing:
-                self._check_slice_history(base, start, length, name, current, environment, site, use=use)
+                self._check_slice_history(
+                    base, start, length, name, current, environment, site, use=use, skip_ids=skip_ids,
+                )
 
     def _check_slice_history(
         self: _Elaborator, base: _Term, start: _Term, length: _Term, name: str, current: _Term,
         environment: dict[str, _Binding], site: Node, *, use: Literal["read", "return"],
+        skip_ids: frozenset[int] = frozenset(),
     ) -> None:
         while base != current:
             parent, operands = self.spine(base)
@@ -1847,13 +2054,13 @@ class _IntrinsicsMixin:
                 break
             start = self._add_usize_offset(operands[2], start)
             base = self.whnf(operands[1])
-        if not self._span_history_preserves_extent(base, current, start, length, environment):
+        if not self._span_history_preserves_extent(base, current, start, length, environment, skip_ids=skip_ids):
             goal = "returned slice" if use == "return" else "Span view read"
             raise self.fail("type", f"cannot prove {goal} is disjoint from an update to '{name}'", site)
 
     def _span_history_preserves_extent(
         self: _Elaborator, base: _Term, current: _Term, start: _Term, length: _Term,
-        environment: dict[str, _Binding],
+        environment: dict[str, _Binding], *, skip_ids: frozenset[int] = frozenset(),
     ) -> bool:
         one = _int_term(_INT_SPECS["usize"], 1)
         pending: list[tuple[_Term, tuple[_Term, ...]]] = [(current, ())]
@@ -1873,26 +2080,66 @@ class _IntrinsicsMixin:
                                 pending.append((self.whnf(branch), (*guards, guard)))
                         break
                     update, operands = self.spine(current)
+                    if id(current) in skip_ids and len(operands) >= 2:
+                        current = self.whnf(operands[1])
+                        continue
                     if update == _constant("Span_Write") and len(operands) == 4:
                         index = operands[2]
                         if self.whnf(length) == one:
                             separate = _apps(_constant("int_ne_usize"), index, start)
                         else:
+                            zero = _int_term(_INT_SPECS["usize"], 0)
+                            empty_slice = _apps(_constant("int_eq_usize"), length, zero)
                             end = self._add_usize_offset(start, length)
                             before = _apps(_constant("int_lt_usize"), index, start)
                             after = _apps(_constant("int_le_usize"), end, index)
-                            separate = _apps(_constant("||"), before, after)
-                        if self._prove_bool_precondition(separate, environment):
+                            separate = _apps(_constant("||"), empty_slice, _apps(_constant("||"), before, after))
+                        idx_facts: list[_Term] = []
+                        idx_head, idx_args = self.spine(self.whnf(index))
+                        if idx_head == _constant("int_add_usize") and len(idx_args) == 2:
+                            b_off, k_off = idx_args
+                            idx_facts.append(_apps(_constant("int_le_usize"), b_off, index))
+                            cand_queue = [*self.active_facts, *self._fact_bool_terms((), environment)]
+                            while cand_queue:
+                                f_w = self.whnf(cand_queue.pop())
+                                f_h, f_a = self.spine(f_w)
+                                if f_h in {_constant("||"), _constant("&&")} and len(f_a) == 2:
+                                    cand_queue.extend(f_a)
+                                    continue
+                                parsed = self._parse_cmp_fact(f_w)
+                                if parsed is None:
+                                    continue
+                                for side in (parsed[2], parsed[3]):
+                                    sh, sa = self.spine(self.whnf(side))
+                                    if (
+                                        sh == _constant("int_add_usize")
+                                        and len(sa) == 2
+                                        and self._same_cond_term(sa[0], b_off)
+                                        and self._prove_bool_precondition(
+                                            _apps(_constant("int_lt_usize"), k_off, sa[1]), environment
+                                        )
+                                    ):
+                                        idx_facts.append(_apps(_constant("int_lt_usize"), index, side))
+                        saved_idx_len = len(self.active_facts)
+                        self.active_facts.extend(idx_facts)
+                        try:
+                            ok = self._prove_with_disjunctions(separate, environment)
+                        finally:
+                            del self.active_facts[saved_idx_len:]
+                        if ok:
                             current = self.whnf(operands[1])
                             continue
                     if update == _constant("Span_Fill") and len(operands) == 5:
                         _, parent, offset, count, _ = operands
-                        zero = _int_term(_INT_SPECS["usize"], 0)
-                        # Span.Fill checks its extent. The range-loop summary starts at zero.
-                        empty = _apps(_constant("int_eq_usize"), count, zero)
-                        before = _apps(_constant("int_le_usize"), self._add_usize_offset(offset, count), start)
-                        after = _apps(_constant("int_le_usize"), self._add_usize_offset(start, length), offset)
-                        if any(self._prove_bool_precondition(fact, environment) for fact in (empty, before, after)):
+                        if self._prove_extents_disjoint(offset, count, start, length, environment):
+                            current = self.whnf(parent)
+                            continue
+                    if update == _constant("Span_Restore") and len(operands) == 3:
+                        _, parent, view = operands
+                        ext = self._span_extent_in_owner(view, self._root_span(parent))
+                        if ext is not None and self._prove_extents_disjoint(
+                            ext[0], ext[1], start, length, environment
+                        ):
                             current = self.whnf(parent)
                             continue
                     return False
@@ -1900,9 +2147,142 @@ class _IntrinsicsMixin:
         finally:
             del self.active_facts[saved_facts:]
 
+    def _indexed_history_preserves_step(
+        self: _Elaborator,
+        update_term: _Term,
+        expected_parent_at: _Term,
+        indices: tuple[tuple[_Term, _Term], ...],
+        field_path: tuple[str, ...],
+        environment: dict[str, _Binding],
+    ) -> bool:
+        """Check whether an update term preserves the element at `indices` / `field_path`."""
+        cur_u = self.whnf(update_term)
+        if not indices:
+            return False
+        head_0, args_0 = self.spine(cur_u)
+        level_idx, level_type = indices[0]
+        rest_indices = indices[1:]
+        w_idx: _Term | None = None
+        w_val: _Term | None = None
+        if (
+            (head_0 == _constant("Vec_Update") and len(args_0) == 5 and level_type == _NAT)
+            or (
+                (
+                    (head_0 == _constant("Seq_Update") and level_type == _NAT)
+                    or (head_0 == _constant("Span_Write") and level_type == _USIZE)
+                )
+                and len(args_0) == 4
+            )
+        ):
+            w_idx, w_val = args_0[2], args_0[3]
+        elif head_0 == _constant("Slots_Write") and len(args_0) == 5 and level_type == _USIZE:
+            w_idx, w_val = args_0[3], args_0[4]
+        if w_idx is None or w_val is None:
+            return False
+        ne = _constant("ne_nat") if level_type == _NAT else _constant("int_ne_usize")
+        neq_cur = _apps(ne, w_idx, level_idx)
+        if self._prove_with_disjunctions(neq_cur, environment):
+            return True
+        if rest_indices:
+            saved = len(self.active_facts)
+            # Check disjunctively: either outer index differs or inner update preserves rest.
+            disj_terms: list[_Term] = [neq_cur]
+            sub_u = self.whnf(w_val)
+            expected_sub = self.whnf(expected_parent_at)
+            ok_chain = True
+            for r_idx, r_ty in rest_indices:
+                sh, sa = self.spine(sub_u)
+                s_w_idx: _Term | None = None
+                s_w_val: _Term | None = None
+                s_recv: _Term | None = None
+                next_expected: _Term | None = None
+                if sh == _constant("Vec_Update") and len(sa) == 5 and r_ty == _NAT:
+                    s_w_idx, s_w_val, s_recv = sa[2], sa[3], sa[4]
+                    next_expected = _apps(
+                        _constant("Vec_At_Nat"),
+                        sa[0],
+                        sa[1],
+                        self._default_term_for_type(sa[0]),
+                        s_w_idx,
+                        s_recv,
+                    )
+                elif sh == _constant("Seq_Update") and len(sa) == 4 and r_ty == _NAT:
+                    s_w_idx, s_w_val, s_recv = sa[2], sa[3], sa[1]
+                    next_expected = _apps(
+                        _constant("Seq_At"),
+                        sa[0],
+                        self._sequence_lookup_default(sa[0], s_recv),
+                        s_recv,
+                        s_w_idx,
+                    )
+                elif sh == _constant("Span_Write") and len(sa) == 4 and r_ty == _USIZE:
+                    s_w_idx, s_w_val, s_recv = sa[2], sa[3], sa[1]
+                    next_expected = _apps(
+                        _constant("Span_Read"),
+                        sa[0],
+                        self._default_term_for_type(sa[0]),
+                        s_recv,
+                        s_w_idx,
+                    )
+                elif sh == _constant("Slots_Write") and len(sa) == 5 and r_ty == _USIZE:
+                    s_w_idx, s_w_val, s_recv = sa[3], sa[4], sa[2]
+                    sd = self._sequence_lookup_default(
+                        sa[0], _apps(_constant("Slots_Model"), sa[0], sa[1], s_recv)
+                    )
+                    next_expected = _apps(_constant("Slots_Read"), sa[0], sa[1], sd, s_recv, s_w_idx)
+                if (
+                    s_w_idx is None
+                    or s_w_val is None
+                    or s_recv is None
+                    or next_expected is None
+                    or self.whnf(s_recv) != expected_sub
+                ):
+                    ok_chain = False
+                    break
+                s_ne = _constant("ne_nat") if r_ty == _NAT else _constant("int_ne_usize")
+                disj_terms.append(_apps(s_ne, s_w_idx, r_idx))
+                sub_u = self.whnf(s_w_val)
+                expected_sub = self.whnf(next_expected)
+            if ok_chain:
+                combined = disj_terms[0]
+                for dt in disj_terms[1:]:
+                    combined = _apps(_constant("||"), combined, dt)
+                if self._prove_with_disjunctions(combined, environment):
+                    del self.active_facts[saved:]
+                    return True
+            del self.active_facts[saved:]
+        if field_path:
+            wh_val = self.whnf(w_val)
+            vh, va = self.spine(wh_val)
+            if vh.kind == "const" and isinstance(vh.value, str) and vh.value in self.records_by_ctor:
+                rinfo = self.records_by_ctor[vh.value]
+                f_idx = next(
+                    (k for k, rf in enumerate(rinfo.fields) if rf.name == field_path[0]),
+                    None,
+                )
+                if f_idx is not None:
+                    arg_idx = len(rinfo.generic_vars) + f_idx
+                    if arg_idx < len(va):
+                        rf = rinfo.fields[f_idx]
+                        f_val = va[arg_idx]
+                        fh, fa = self.spine(f_val)
+                        if (
+                            fh == _constant(rf.proj_const)
+                            and fa
+                            and self.whnf(fa[-1]) == self.whnf(expected_parent_at)
+                        ):
+                            return True
+        return False
+
     def _indexed_history_preserves_index(
         self: _Elaborator, base: _Term, current: _Term, index: _Term, index_type: _Term,
         environment: dict[str, _Binding],
+        *,
+        field_path: tuple[str, ...] = (),
+        nested_indices: tuple[
+            tuple[Literal["vec", "seq", "span", "slots"], _Term, _Term, tuple[_Term, ...], _Term],
+            ...,
+        ] = (),
     ) -> bool:
         zero = _int_term(_INT_SPECS["usize"], 0)
         one = _int_term(_INT_SPECS["usize"], 1)
@@ -1937,23 +2317,43 @@ class _IntrinsicsMixin:
                         update == _constant("Vec_Update")
                         and len(operands) == 5
                         and index_type == _NAT
-                        and self._prove_bool_precondition(_apps(_constant("ne_nat"), operands[2], index), environment)
                     ):
-                        cur = self.whnf(operands[4])
-                        continue
+                        if self._prove_with_disjunctions(_apps(_constant("ne_nat"), operands[2], index), environment):
+                            cur = self.whnf(operands[4])
+                            continue
+                        if nested_indices or field_path:
+                            elem_t, len_t = operands[0], operands[1]
+                            d_val = self._default_term_for_type(elem_t)
+                            parent_at = _apps(_constant("Vec_At_Nat"), elem_t, len_t, d_val, operands[2], operands[4])
+                            all_indices = ((index, index_type), *((ni[1], ni[2]) for ni in nested_indices))
+                            if self._indexed_history_preserves_step(
+                                cur, parent_at, all_indices, field_path, environment
+                            ):
+                                cur = self.whnf(operands[4])
+                                continue
                     if (
                         update == _constant("Seq_Update")
                         and len(operands) == 4
                         and index_type == _NAT
-                        and self._prove_bool_precondition(_apps(_constant("ne_nat"), operands[2], index), environment)
                     ):
-                        cur = self.whnf(operands[1])
-                        continue
+                        if self._prove_with_disjunctions(_apps(_constant("ne_nat"), operands[2], index), environment):
+                            cur = self.whnf(operands[1])
+                            continue
+                        if nested_indices or field_path:
+                            elem_t = operands[0]
+                            d_val = self._sequence_lookup_default(elem_t, operands[1])
+                            parent_at = _apps(_constant("Seq_At"), elem_t, d_val, operands[1], operands[2])
+                            all_indices = ((index, index_type), *((ni[1], ni[2]) for ni in nested_indices))
+                            if self._indexed_history_preserves_step(
+                                cur, parent_at, all_indices, field_path, environment
+                            ):
+                                cur = self.whnf(operands[1])
+                                continue
                     if (
                         update == _constant("Span_Write")
                         and len(operands) == 4
                         and index_type == _USIZE
-                        and self._prove_bool_precondition(
+                        and self._prove_with_disjunctions(
                             _apps(_constant("int_ne_usize"), operands[2], index), environment
                         )
                     ):
@@ -1963,18 +2363,30 @@ class _IntrinsicsMixin:
                         update == _constant("Slots_Write")
                         and len(operands) == 5
                         and index_type == _USIZE
-                        and self._prove_bool_precondition(
-                            _apps(_constant("int_ne_usize"), operands[3], index), environment
-                        )
                     ):
-                        cur = self.whnf(operands[2])
-                        continue
+                        if self._prove_with_disjunctions(
+                            _apps(_constant("int_ne_usize"), operands[3], index), environment
+                        ):
+                            cur = self.whnf(operands[2])
+                            continue
+                        if nested_indices or field_path:
+                            elem_t, cap_t = operands[0], operands[1]
+                            d_val = self._sequence_lookup_default(
+                                elem_t, _apps(_constant("Slots_Model"), elem_t, cap_t, operands[2])
+                            )
+                            parent_at = _apps(_constant("Slots_Read"), elem_t, cap_t, d_val, operands[2], operands[3])
+                            all_indices = ((index, index_type), *((ni[1], ni[2]) for ni in nested_indices))
+                            if self._indexed_history_preserves_step(
+                                cur, parent_at, all_indices, field_path, environment
+                            ):
+                                cur = self.whnf(operands[2])
+                                continue
                     if update == _constant("Span_Fill") and len(operands) == 5 and index_type == _USIZE:
                         _, parent, offset, count, _ = operands
                         empty = _apps(_constant("int_eq_usize"), count, zero)
                         before = _apps(_constant("int_le_usize"), self._add_usize_offset(offset, count), index)
                         after = _apps(_constant("int_le_usize"), self._add_usize_offset(index, one), offset)
-                        if any(self._prove_bool_precondition(fact, environment) for fact in (empty, before, after)):
+                        if any(self._prove_with_disjunctions(fact, environment) for fact in (empty, before, after)):
                             cur = self.whnf(parent)
                             continue
                     return False
@@ -1990,7 +2402,13 @@ class _IntrinsicsMixin:
             raise self.fail("name", f"unknown identifier '{info.owner}'", site or info.site)
         owner_term = self.whnf(environment[info.owner].term)
         if not self._indexed_history_preserves_index(
-            info.owner_term, owner_term, info.index_term, info.index_type, environment
+            info.owner_term,
+            owner_term,
+            info.index_term,
+            info.index_type,
+            environment,
+            field_path=info.field_path,
+            nested_indices=info.nested_indices,
         ):
             raise self.fail(
                 "type",
@@ -2010,11 +2428,29 @@ class _IntrinsicsMixin:
                 ):
                     continue
                 self.active_facts[saved_facts:] = peer.guards
+                # Same-index disjoint record fields (when neither is a prefix of the other) are disjoint.
+                if (
+                    info.field_path
+                    and peer.field_path
+                    and not (
+                        info.field_path[: len(peer.field_path)] == peer.field_path
+                        or peer.field_path[: len(info.field_path)] == info.field_path
+                    )
+                ):
+                    continue
+                disj_parts: list[_Term] = []
                 if info.index_type == peer.index_type:
                     ne = _constant("ne_nat") if info.index_type == _NAT else _constant("int_ne_usize")
-                    if self._prove_bool_precondition(
-                        _apps(ne, info.index_term, peer.index_term), environment
-                    ):
+                    disj_parts.append(_apps(ne, info.index_term, peer.index_term))
+                for (a_ni, b_ni) in zip(info.nested_indices, peer.nested_indices, strict=False):
+                    if a_ni[2] == b_ni[2]:
+                        s_ne = _constant("ne_nat") if a_ni[2] == _NAT else _constant("int_ne_usize")
+                        disj_parts.append(_apps(s_ne, a_ni[1], b_ni[1]))
+                if disj_parts:
+                    goal = disj_parts[0]
+                    for dp in disj_parts[1:]:
+                        goal = _apps(_constant("||"), goal, dp)
+                    if self._prove_with_disjunctions(goal, environment):
                         continue
                 raise self.fail(
                     "type",
@@ -2098,10 +2534,41 @@ class _IntrinsicsMixin:
                         environment[name].term, pos, environment[other_name].term, other, environment,
                     ):
                         continue
+                elif (
+                    other is not None
+                    and not self.last_call_updates
+                    and name != other_name
+                    and name is not None
+                    and other_name is not None
+                    and (is_view or (other_is_view and j not in eff_shared))
+                ):
+                    owner_name = self._root_slice_owner(name)
+                    if owner_name == self._root_slice_owner(other_name) and owner_name in environment:
+                        owner_term = environment[owner_name].term
+                        p_i = pos if name == owner_name else self._span_index_in_owner(
+                            environment[name].term,
+                            owner_term,
+                            pos,
+                            environment,
+                            skip_ids=frozenset(self.slice_view_own_updates.get(name, ())),
+                        )
+                        p_j = other if other_name == owner_name else self._span_index_in_owner(
+                            environment[other_name].term,
+                            owner_term,
+                            other,
+                            environment,
+                            skip_ids=frozenset(self.slice_view_own_updates.get(other_name, ())),
+                        )
+                        if (
+                            p_i is not None
+                            and p_j is not None
+                            and self._prove_with_disjunctions(_apps(_constant("int_ne_usize"), p_i, p_j), environment)
+                        ):
+                            continue
                 elif other is not None and name == other_name:
                     index_type = self.whnf(self.infer(pos))
                     ne = _constant("ne_nat") if index_type == _NAT else _constant("int_ne_usize")
-                    if self.whnf(self.infer(other)) == index_type and self._prove_bool_precondition(
+                    if self.whnf(self.infer(other)) == index_type and self._prove_with_disjunctions(
                         _apps(ne, pos, other), environment
                     ):
                         continue
@@ -2222,12 +2689,19 @@ class _IntrinsicsMixin:
                             two_phase=receiver_mode == "ref",
                         )
                     if receiver_mode in {"ref", "out"}:
-                        if target["kind"] != "name" or self.name(target["name"]) not in self.mutable_locals:
-                            raise self.fail("type", f"a '{receiver_mode}' interface receiver requires a mutable local", target)
-                        target_name = self.name(target["name"])
+                        if target["kind"] == "name":
+                            target_name = self.name(target["name"])
+                            if target_name in self.readonly_in_params or self._is_readonly_span(environment[target_name].term):
+                                raise self.fail("type", f"cannot pass read-only 'in' parameter '{target_name}' as '{receiver_mode}' receiver", target)
+                            if target_name in self.frozen_collections:
+                                raise self.fail("type", f"cannot pass frozen collection '{target_name}' as '{receiver_mode}' receiver", target)
+                            if target_name not in self.mutable_locals:
+                                raise self.fail("type", f"a '{receiver_mode}' interface receiver requires a mutable local", target)
+                            if receiver_mode == "out":
+                                out_loan_names.add(target_name)
+                        else:
+                            self._resolve_local_borrow_target(receiver_mode, target, environment, target)
                         loan_targets[idx] = (target, p_dom)
-                        if receiver_mode == "out":
-                            out_loan_names.add(target_name)
                     self.unify(pre_evaluated_recv.type, p_dom)
                     if receiver_mode is None:
                         self._check_value_copy(target, pre_evaluated_recv.type)
@@ -2390,8 +2864,19 @@ class _IntrinsicsMixin:
             res_type = self.substitute(res_type, cast("int", sv.value), cv)
         for vname in out_loan_names:
             self.uninitialized_out_params.discard(vname)
+        fn_head, fn_partial_args = self.spine(self.resolve(fn_term))
+        u_param_ids: tuple[int, ...] = ()
+        idx_to_term: dict[int, _Term] = {}
+        if fn_head.kind == "const" and isinstance(fn_head.value, str):
+            u_param_ids, idx_to_term = self.callable_ref_updates.get(fn_head.value, ((), {}))
+        full_call_args = [*fn_partial_args, *m_gen_args, *arg_terms]
         for idx, (t_node, t_dom) in loan_targets.items():
-            upd_term = self.fresh(t_dom)
+            if idx in idx_to_term and len(full_call_args) >= len(u_param_ids):
+                upd_term = idx_to_term[idx]
+                for pid, aval in zip(u_param_ids, full_call_args, strict=False):
+                    upd_term = self.substitute(upd_term, pid, aval)
+            else:
+                upd_term = self.fresh(t_dom)
             self._record_call_update(t_node, _Binding(upd_term, t_dom), index=indices.get(idx))
         if mspec.name in ensures_dict:
             rem_m_ids, ens_props = ensures_dict[mspec.name]
