@@ -230,9 +230,10 @@ class Session:
                 _, destination, tag, bits = effect.split()
                 if int(destination) == number:
                     fields = {"tag": int(tag), "bits": int(bits, 16)}
-                elif (item.text == "cgetlen" and dialect.REGISTERS[item.args[1]] == number
+                elif (item.text in ("cgetlen", "cgetperm") and dialect.REGISTERS[item.args[1]] == number
                       and dialect.REGISTERS[item.args[0]] == int(destination)):
-                    fields["length"] = int(bits, 16)
+                    field_name = "length" if item.text == "cgetlen" else "permissions"
+                    fields[field_name] = int(bits, 16)
         if field:
             return {"status": "available", "value": fields[field]} if field in fields else {"status": "unavailable"}
         return {"status": "available", **fields} if fields else {"status": "unavailable"}

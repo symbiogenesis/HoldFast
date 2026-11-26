@@ -662,14 +662,15 @@ resulting ELF, the simulator executable and its configuration.
 
 Run the passing control at its packet-view length query with
 `python tools/run.py holdfast-parser debug-simulator --command "until 102" --command stack --command step --command "eval c13.length"`.
-At line 102, PC `0x80000168`, the stack shows `main` called from `_start` at
+At line 102, PC `0x80000164`, the stack shows `main` called from `_start` at
 line 20. One machine step retires `cgetlen`, making `c13.length` available as
 4. Use `--command source` to see the numbered assembly and `--control tag-trap`
 to inspect the cleared tag before its fault. Commands accept register names and
 observed fields. The register bits and tag come from Sail's merged-register
-writes. A length comes from an executed query on that register and expires on
-the next register write. Unobserved fields, including base, permissions, sealing
-and provenance, report `unavailable`. Evaluation grants no memory access.
+writes. Length and permissions come from executed queries on that register and
+expire on its next write. On success, `cgetperm` reports 2 for the payload view,
+granting data loads alone. Unobserved fields such as base, sealing and provenance
+report `unavailable`. Evaluation grants no memory access.
 
 Each control first runs to HTIF completion within 256 instructions. For a
 requested stop, the backend reruns the exact image with Sail's native PC stop
@@ -689,7 +690,7 @@ four controls explicitly, append
 to either command. Use `python3` inside Linux. Qualification checks independently
 expected PCs, stacks, register values, capability observations, disconnect and
 reconnect, exhausted inspection budgets and refused commands. The passing
-control retires 93 instructions and exits with HTIF 0. The tag, bounds and
+control retires 95 instructions and exits with HTIF 0. The tag, bounds and
 permission controls each reach the trap handler with cause 28 and HTIF 284.
 [Qualification](../../tools/toolchain/simulator_debug_check.py) ·
 [Malformed and stale controls](../../tools/tests/test_simulator_debug.py)
