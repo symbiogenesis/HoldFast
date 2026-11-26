@@ -32,12 +32,14 @@ def _execution_fixture(outputs: Path, *, available: bool = False) -> dict[str, o
                    "R 80008000 8 1 0000000000000042"]
     normalized = ["I 0000000080000000 FEA0825B", *trace_lines[1:]]
     digest = hashlib.sha256("\n".join(normalized).encode()).hexdigest()[:16]
-    for mode in ("pass", "bounds-trap", "tag-trap", "perm-trap"):
+    for mode, verdict, code in (("pass", "pass", 0), ("bounds-trap", "trap", 284),
+                                ("tag-trap", "trap", 284), ("perm-trap", "trap", 284),
+                                ("writable-view", "fail", 2)):
         elf = outputs / f"purecap_{mode}.elf"
         refused, size = slice_harness.cd.assemble(slice_harness._purecap_cheri_asm_stream(mode), elf.stem, elf)
         ensure(not refused, "independent receipt fixture image did not assemble")
-        stdout = ("\n".join(trace_lines)
-                  + ("\nSUCCESS\n" if mode == "pass" else "\nFAILURE: 284 (0x0000011c)\n")).encode()
+        terminal = "SUCCESS" if code == 0 else f"FAILURE: {code} (0x{code:08x})"
+        stdout = ("\n".join([*trace_lines, terminal]) + "\n").encode()
         stderr = "diagnostic λ\n".encode()
         log = outputs / f"purecap_{mode}.sail.log"
         log.write_bytes(stdout + stderr)
@@ -50,7 +52,7 @@ def _execution_fixture(outputs: Path, *, available: bool = False) -> dict[str, o
             "stdout_bytes": len(stdout), "stdout_sha256": hashlib.sha256(stdout).hexdigest(),
             "stderr_bytes": len(stderr), "stderr_sha256": hashlib.sha256(stderr).hexdigest(),
         }
-        runs[mode] = {"verdict": "pass" if mode == "pass" else "trap", "code": 0 if mode == "pass" else 284,
+        runs[mode] = {"verdict": verdict, "code": code,
                       "records": 3, "trace_digest": digest, "cap_roundtrip": True,
                       "image_bytes": size, "process": process}
     compiler: dict[str, object] = {"available": available}

@@ -44,12 +44,12 @@ def qualify_controls(simulator: Path, profile: Path, directory: Path) -> dict[st
     _expect([(row["name"], row["pc"]) for row in stack], [("main", 0x80000098), ("_start", 0x8000004C)])
     _expect(passing.evaluate(passing.handle, "cra.tag"), {"status": "available", "value": 1})
     stop = passing.advance(passing.handle, _line(passing, "cgetlen t0, c13"))
-    _expect((stop["pc"], stop["retired"]), (0x80000168, 72))
+    _expect((stop["pc"], stop["retired"]), (0x80000164, 71))
     _expect(passing.evaluate(passing.handle, "c13.tag"), {"status": "available", "value": 1})
     _expect(passing.evaluate(passing.handle, "c13.length"), {"status": "unavailable"})
     _expect(passing.evaluate(passing.handle, "t0.bits"), {"status": "available", "value": 0x40})
     stop = passing.advance(passing.handle)
-    _expect(stop["pc"], 0x8000016C)
+    _expect(stop["pc"], 0x80000168)
     _expect(passing.evaluate(passing.handle, "t0.bits"), {"status": "available", "value": 4})
     _expect(passing.evaluate(passing.handle, "c13.length"), {"status": "available", "value": 4})
     _expect(passing.evaluate(passing.handle, "c13.permissions"), {"status": "unavailable"})
@@ -62,11 +62,14 @@ def qualify_controls(simulator: Path, profile: Path, directory: Path) -> dict[st
     for expression in ("t0 = 3", "mem[0]", "call(main)", "c32.tag", "cap(1)"):
         _refusal(lambda expression=expression: command(passing, "eval " + expression), "read-only")
     _refusal(lambda: command(passing, "eval " + "x" * 64), "32 characters")
+    passing.advance(passing.handle, _line(passing, "cgetperm t0, c13"))
+    passing.advance(passing.handle)
+    _expect(passing.evaluate(passing.handle, "c13.permissions"), {"status": "available", "value": 2})
     stop = passing.advance(passing.handle, _line(passing, "beqz    a0, __holdfast_pass"))
     _expect(stop["pc"], 0x80000050)
     _expect([row["name"] for row in passing.stack(passing.handle)], ["_start"])
     exit_state = passing.advance(passing.handle, finish=True)
-    _expect(exit_state, {"status": "exited", "retired": 93, "htif": 0})
+    _expect(exit_state, {"status": "exited", "retired": 95, "htif": 0})
     _refusal(lambda: passing.where(previous), "stale")
 
     controls = {"pass": passing.identities}
@@ -89,5 +92,5 @@ def qualify_controls(simulator: Path, profile: Path, directory: Path) -> dict[st
         with session.elf.open("ab") as image_stream:
             image_stream.write(b"changed")
         _refusal(session.reconnect, "stale Sail")
-    return {"status": "qualified", "sha256": controls, "pass_retirements": 93,
+    return {"status": "qualified", "sha256": controls, "pass_retirements": 95,
             "packet_view_length": 4, "trap_mcause": 28, "trap_htif": 284}

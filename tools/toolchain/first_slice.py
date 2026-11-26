@@ -64,11 +64,11 @@ ARTIFACT_ENTRIES: Final = 4_096
 ARTIFACT_BYTES: Final = 256 * 1024 * 1024
 PURECAP_CASES: Final = (("pass", "pass", 0), ("bounds-trap", "trap", cd.TRAP_BASE + 28),
                        ("tag-trap", "trap", cd.TRAP_BASE + 28),
-                       ("perm-trap", "trap", cd.TRAP_BASE + 28))
+                       ("perm-trap", "trap", cd.TRAP_BASE + 28), ("writable-view", "fail", 2))
 # Canonical instruction families for the handwritten capability controls and their
 # startup and trap code. The assembler's table also covers the vector configuration.
 PURECAP_CONTROL_ROWS: Final = tuple(dialect.TABLE[name] for name in (
-    "addi", "addiw", "andi", "auipcc", "beq", "bne", "candperm", "cgetlen", "cgettag",
+    "addi", "addiw", "andi", "auipcc", "beq", "bne", "candperm", "cgetlen", "cgetperm", "cgettag",
     "cincoffsetimm", "cjal", "cjalr", "cmove", "csetaddr", "csetbounds", "cspecialrw",
     "csrrs", "lbu", "lc", "lui", "ori", "sb", "sc", "sd", "slli",
 ))
@@ -2014,20 +2014,9 @@ def _check_purecap_control_image(raw: bytes) -> memoryview:
 
 
 def _purecap_cheri_asm_stream(mode: str) -> str:
-    """Emit a purecap CHERI-RISC-V assembly stream exercising hardware capability bounds/tags.
-
-    - `mode == "pass"`: initializes a 16-byte stack frame with `dst` (8 bytes) and `pkt`
-      (8 bytes), validates the header and checksum, copies the 4-byte payload into `dst+4`,
-      narrows `PayloadView` (`c13`) to `[dst+4, dst+8)` with `csetbounds` and strips store
-      permission (`candperm`), verifies `cgetlen == 4`, `cgettag == 1`, and all 4 payload
-      bytes via capability loads, and restores the parent `dst` capability (`cgetlen == 8`).
-    - `mode == "bounds-trap"`: narrows `PayloadView` (`c13`) to `[dst+4, dst+8)` with
-      `csetbounds` and attempts an out-of-bounds byte load at offset 4 (`lbu t0, 4(c13)`),
-      which MUST trigger a hardware CHERI bounds fault (`mcause == 28`, HTIF exit `284`).
-    - `mode == "tag-trap"`: invalidates `emptyView` (`c13`) with `ccleartag` on the error
-      exit path and attempts to dereference `lbu t0, 0(c13)`, which MUST trigger a hardware
-      CHERI tag violation (`mcause == 28`, HTIF exit `284`).
-    """
+    """Copy a packet fixture, narrow its payload view, and check live capability fields and traps."""
+    # Expanded permission bit 1 grants data loads. The regression mask also leaves data stores enabled.
+    view_mask = "0xFF7" if mode == "writable-view" else "0x002"
     tail_op = {
         "pass": """\
         lbu     t0, 0(c13)
@@ -2045,6 +2034,9 @@ def _purecap_cheri_asm_stream(mode: str) -> str:
         cgetlen t0, c12
         li      t1, 8
         bne     t0, t1, __slice_fail
+        cgetperm t0, c13
+        li      t1, 2
+        bne     t0, t1, __slice_bad_permissions
         li      a0, 0
         j       __slice_ret
 """,
@@ -2060,12 +2052,11 @@ def _purecap_cheri_asm_stream(mode: str) -> str:
         j       __slice_ret
 """,
         "perm-trap": """\
-        candperm c13, c13, x0
         sb      t0, 0(c13)
         li      a0, 97
         j       __slice_ret
 """,
-    }[mode]
+    }["pass" if mode == "writable-view" else mode]
     return f"""\
         .text
         .globl main
@@ -2118,9 +2109,12 @@ main:
         cincoffsetimm c13, c12, 4
         li      t0, 4
         csetbounds c13, c13, t0
-        li      t0, 0xFF7
+        li      t0, {view_mask}
         candperm c13, c13, t0
 {tail_op}\
+__slice_bad_permissions:
+        li      a0, 2
+        j       __slice_ret
 __slice_fail:
         li      a0, 1
 __slice_ret:

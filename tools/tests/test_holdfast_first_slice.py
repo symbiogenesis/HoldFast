@@ -538,7 +538,7 @@ def _clight_lowering_and_purecap_assembly() -> None:
 
     with tempfile.TemporaryDirectory(prefix="holdfast-slice-asm-") as tmp:
         workdir = Path(tmp)
-        for mode in ("pass", "bounds-trap", "tag-trap", "perm-trap"):
+        for mode in ("pass", "bounds-trap", "tag-trap", "perm-trap", "writable-view"):
             stream = holdfast_first_slice._purecap_cheri_asm_stream(mode)
             elf = workdir / f"purecap_{mode}.elf"
             refusals, size = cd.assemble(stream, f"purecap_{mode}", elf)
