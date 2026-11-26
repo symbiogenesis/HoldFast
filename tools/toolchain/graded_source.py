@@ -6,6 +6,8 @@ import json
 import re
 import subprocess
 import tempfile
+import time
+from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import StrEnum
 from itertools import batched
@@ -27,6 +29,7 @@ _PRIMITIVES = frozenset({"Nat", "Vec", *GradeDomain})
 _ROCQ_FILES = ("graded_pure.v", "graded_domains.v", "graded_source.v")
 _MODAL_FILES = ("graded_pure.v", "graded_domains.v", "graded_modal.v", "graded_modal_source.v")
 SUPPORT_FILES = tuple(dict.fromkeys((*_ROCQ_FILES, *_MODAL_FILES)))
+REPLAY_DEADLINE: ContextVar[float | None] = ContextVar("graded_replay_deadline", default=None)
 _REPORT = re.compile(r"=\s*(\[[0-9\s;\[\]]*\])\s*:\s*list\s+\(list\s+\(list\s+nat\)\)")
 
 
@@ -528,9 +531,14 @@ def _certificate(definitions: list[_Definition], source_hash: str, domain: Grade
     return "\n".join(lines) + "\n"
 
 
-def _run_rocq(directory: Path, unit: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run([*proofenv.rocq_command(), "-q", unit], cwd=directory, capture_output=True,
-                          text=True, encoding="utf-8", check=False, timeout=30)
+def _run_rocq(compiler: list[str], directory: Path, unit: str) -> subprocess.CompletedProcess[str]:
+    command = [*compiler, "-q", unit]
+    deadline = REPLAY_DEADLINE.get()
+    budget = 30.0 if deadline is None else min(30.0, deadline - time.monotonic())
+    if budget <= 0:
+        raise subprocess.TimeoutExpired(command, 0)
+    return subprocess.run(command, cwd=directory, capture_output=True,
+                          text=True, encoding="utf-8", check=False, timeout=budget)
 
 
 def _verdict(projection: _Projection, replay: subprocess.CompletedProcess[str]) -> list[list[list[int]]]:
@@ -553,28 +561,29 @@ def _verdict(projection: _Projection, replay: subprocess.CompletedProcess[str]) 
     return rows
 
 
-def _support(root: Path, directory: Path, files: tuple[str, ...]) -> dict[str, str]:
+def _support(root: Path, compiler: list[str], directory: Path, files: tuple[str, ...]) -> dict[str, str]:
     hashes = {}
     for name in files:
         source = (root / "tools" / "rocq" / name).read_bytes()
         hashes[name] = hashlib.sha256(source).hexdigest()
         (directory / name).write_bytes(source)
-        compiled = _run_rocq(directory, name)
+        compiled = _run_rocq(compiler, directory, name)
         if compiled.returncode:
             raise RuntimeError(f"graded Rocq support failed: {compiled.stderr.strip()}")
     return hashes
 
 
-def _replay(directory: Path, projection: _Projection, certificate: str) -> tuple[list[list[int]], str]:
+def _replay(compiler: list[str], directory: Path, projection: _Projection,
+            certificate: str) -> tuple[list[list[int]], str]:
     (directory / "SourceReplay.v").write_text(certificate, encoding="utf-8", newline="\n")
-    rows = _verdict(projection, _run_rocq(directory, "SourceReplay.v"))
+    rows = _verdict(projection, _run_rocq(compiler, directory, "SourceReplay.v"))
     expected = json.dumps(rows).replace(",", ";")
     pinned_rows = (f"Example source_rows_match : source_reports = {expected}.\n"
                    "Proof. vm_compute. reflexivity. Qed.\n")
     report = directory / "SourceReport.v"
     report.write_text("From Stdlib Require Import Lists.List.\nRequire Import SourceReplay.\n"
                       "Import ListNotations.\n" + pinned_rows, encoding="utf-8", newline="\n")
-    verified = _run_rocq(directory, report.name)
+    verified = _run_rocq(compiler, directory, report.name)
     if verified.returncode:
         raise RuntimeError(f"graded demand certificate failed: {verified.stderr.strip()}")
     return rows[-1], certificate + pinned_rows
@@ -660,16 +669,20 @@ def replay_module(root: Path, protocol: _Protocol, syntax: Node) -> tuple[set[in
     if not pending:
         return accepted, ()
 
+    try:
+        compiler = proofenv.rocq_command()
+    except SystemExit as error:
+        raise protocol.error("unsupported", "graded checking requires an available Rocq prover", pending[0][1].source) from error
     files = tuple(dict.fromkeys(name for _, definition in pending
                                 for name in (_ROCQ_FILES if definition.context is None else _MODAL_FILES)))
     receipts = []
     source_hash = hashlib.sha256(protocol.source).hexdigest()
     with tempfile.TemporaryDirectory(prefix="holdfast-graded-module-") as temporary:
         directory = Path(temporary)
-        hashes = _support(root, directory, files)
+        hashes = _support(root, compiler, directory, files)
         for projection, definition in pending:
             certificate = _certificate(list(projection.completed.values()), source_hash, projection.domain)
-            _, checked = _replay(directory, projection, certificate)
+            _, checked = _replay(compiler, directory, projection, certificate)
             dependencies = _ROCQ_FILES if definition.context is None else _MODAL_FILES
             evidence = json.dumps({"certificate": checked, "support": {name: hashes[name] for name in dependencies}},
                                   sort_keys=True, separators=(",", ":"))
@@ -690,10 +703,11 @@ def check(root: Path, path: Path, declaration: str, *, modal: bool = False,
     definitions = list(projection.completed.values())
     source_hash = hashlib.sha256(snapshot.data).hexdigest()
     certificate = _certificate(definitions, source_hash, domain)
+    compiler = proofenv.rocq_command()
     with tempfile.TemporaryDirectory(prefix="holdfast-graded-source-") as temporary:
         directory = Path(temporary)
-        kernel_hashes = _support(root, directory, _MODAL_FILES if modal else _ROCQ_FILES)
-        demand, certificate = _replay(directory, projection, certificate)
+        kernel_hashes = _support(root, compiler, directory, _MODAL_FILES if modal else _ROCQ_FILES)
+        demand, certificate = _replay(compiler, directory, projection, certificate)
     ensure_unchanged(snapshot)
     return {
         "status": "checked",

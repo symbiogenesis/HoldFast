@@ -87,7 +87,8 @@ FRONTEND_SOURCES = (
     "elaborate_protocol.py", "elaborate_whnf.py", "elaborate_patterns.py", "elaborate_proofs.py", "elaborate_holes.py",
     "elaborate_statements.py", "elaborate_strings.py", "elaborate_solver.py", "elaborate_intrinsics.py",
     "elaborate_declarations.py", "elaborate_contract_lints.py", "elaborate_descriptor_lints.py",
-    "elaborate_flow_lints.py", "elaborate_resource_lints.py", "graded_source.py", "package_navigation.py",
+    "elaborate_flow_lints.py", "elaborate_resource_lints.py", "graded_source.py", "source_file.py",
+    "package_navigation.py",
 )
 
 __all__ = [

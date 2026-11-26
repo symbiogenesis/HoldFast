@@ -29,7 +29,7 @@ from toolchain.authoring import Finding
 from toolchain.cli import holdfast_playground as playground_cli
 from toolchain.commands import COMMANDS
 from toolchain.mathematical import Compilation
-from toolchain.playground_worker import compile_request
+from toolchain.playground_worker import TIMEOUT_EXIT, compile_request
 
 _PURE = "module Simple; public Nat Value() => 42;"
 _SOURCE = ("module Indexed;\n// supplementary comment: \U0001f680\n"
@@ -114,7 +114,7 @@ def _worker_reply_binding() -> None:
         semantic_error: dict[str, object] = {"kind": "type", "message": "expression: wrong vector length",
                                             "line": 1, "column": 1}
         semantic: dict[str, object] = {"ok": False, "sourceHash": _DIGEST, "error": semantic_error}
-        for kind in ("type", "inference", "protocol"):
+        for kind in ("type", "inference", "protocol", "grade"):
             semantic_error["kind"] = kind
             with patch.object(playground.subprocess, "run", return_value=_process(semantic)):
                 ensure(_post(server, "/api/evaluate", request) == semantic,
@@ -128,6 +128,41 @@ def _worker_reply_binding() -> None:
         with patch.object(playground.subprocess, "run", return_value=_process(_result())):
             ensure(_post(server, "/api/evaluate", request) == _result(),
                    "mathematical transport failed recovery after rejected worker replies")
+        interrupted = playground.subprocess.CompletedProcess([], TIMEOUT_EXIT, b"", b"")
+        with patch.object(playground.subprocess, "run", return_value=interrupted):
+            refused = _post(server, "/api/evaluate", request)
+        ensure(cast("dict[str, object]", refused["error"])["kind"] == "timeout",
+               "native tool interruption lost its timeout outcome")
+
+
+def _changed_grade_support_refuses() -> None:
+    with _running() as server:
+        support = Path(__file__).resolve().parents[1] / "rocq" / "graded_source.v"
+        ensure(support in server.compiler_inputs, "grade checker omitted from the prepared compiler generation")
+        original_hash = playground.file_sha256
+
+        def changed(path: Path) -> str:
+            return "0" * 64 if path == support else original_hash(path)
+
+        with patch.object(playground, "file_sha256", side_effect=changed):
+            ensure(_post(server, "/api/compiler-generation", {})["current"] is False,
+                   "a changed grade checker retained the prepared generation")
+            refused = _post(server, "/api/compile", {"source": _SOURCE})
+        ensure(refused["ok"] is False and "gallina" not in refused,
+               "a stale grade checker retained compilation authority")
+
+
+def _native_grade_diagnostics() -> None:
+    source = "module Graded; definition Nat Read(Nat n @ NatExact(1)) => n;"
+    with _native_running() as server:
+        accepted = _post(server, "/api/compile", {"source": source})
+        ensure(accepted["ok"] is True and "Graded replay Read NatExact" in cast("str", accepted["gallina"]),
+               f"graded compilation failed through the native worker: {accepted}")
+        invalid = source.replace("NatExact(1)", "NatExact(0)")
+        refused = _post(server, "/api/compile", {"source": invalid})
+        ensure(refused["ok"] is False and cast("dict[str, object]", refused["error"])["kind"] == "grade"
+               and refused["sourceHash"] == hashlib.sha256(invalid.encode()).hexdigest(),
+               f"the native worker did not preserve the source-bound grade refusal: {refused}")
 
 
 def _changed_parser_refuses() -> None:
@@ -1481,6 +1516,8 @@ def cases() -> list[Case]:
             Case("unified-http-source-routing-and-request-field-refusals", _http_dispatch_and_strict_fields),
             Case("mathematical-worker-source-type-and-schema-refusals-with-recovery", _worker_reply_binding),
             Case("mathematical-changed-parser-identity-refuses-before-worker", _changed_parser_refuses),
+            Case("changed-graded-checker-refuses-before-worker", _changed_grade_support_refuses),
+            Case("native-http-default-grade-checking-and-source-refusal", _native_grade_diagnostics, lane="toolchain"),
             Case("native-http-named-goals-bound-edit-and-repair", _native_goal_diagnostics, lane="toolchain"),
             Case("native-http-pending-assertion-budget-context-and-replay", _native_pending_assertion,
                  lane="toolchain"),
