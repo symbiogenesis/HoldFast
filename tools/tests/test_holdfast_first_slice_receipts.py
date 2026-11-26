@@ -100,7 +100,6 @@ def _compiler_fixture(directory: Path, files: dict[str, object], trace_lines: li
         stages = (
             (fresh / f"{name}.preprocess.log", [*command, "-E", source.name, "-o", str(unit)], directory, ""),
             (fresh / f"{name}.compile.log", [*command, "-S", unit.name, "-o", assembly.name], fresh, ""),
-            (interpreted / f"{name}.preprocess.log", [*command, "-E", unit.name, "-o", str(interp_unit)], fresh, ""),
             (interpreted / f"{name}.interpret.log", [*command, "-interp", interp_unit.name], interpreted,
              f"Time 42: program terminated (exit code = {code})\n"),
             (directory / f"{name}.sail.log",
@@ -110,11 +109,12 @@ def _compiler_fixture(directory: Path, files: dict[str, object], trace_lines: li
         )
         processes: list[dict[str, object]] = []
         for log, argv, working, stdout in stages:
+            returncode = code if "-interp" in argv else int(code != 0 and working is None)
             stderr = "diagnostic \u03bb\n"
             raw = (stdout + stderr).encode()
             log.write_bytes(raw)
             process: dict[str, object] = {
-                "command": argv, "returncode": 1 if code != 0 and working is None else 0,
+                "command": argv, "returncode": returncode,
                 "log": str(log), "log_sha256": hashlib.sha256(raw).hexdigest(),
                 "stdout_bytes": len(stdout.encode()), "stdout_sha256": hashlib.sha256(stdout.encode()).hexdigest(),
                 "stderr_bytes": len(stderr.encode()), "stderr_sha256": hashlib.sha256(stderr.encode()).hexdigest(),
@@ -902,7 +902,8 @@ def _compiler_process_coverage() -> None:
                  "process-exit", "boolean-exit", "log-hash", "stream-length", "stream-hash", "source",
                  "effective-input", "interpreter-input", "image", "image-size", "boolean-image-size",
                  "interpreter-verdict", "interpreter-stderr", "interpreter-duplicate", "target-verdict",
-                 "target-trace", "target-empty", "summary-trace", "summary-count", "summary-roundtrip")
+                 "target-trace", "target-empty", "summary-trace", "summary-count", "summary-roundtrip",
+                 "interpreter-status")
     with tempfile.TemporaryDirectory(prefix="holdfast-slice-compiler-processes-") as temporary:
         directory = Path(temporary) / "slice-fixture"
         directory.mkdir()
@@ -947,8 +948,11 @@ def _compiler_process_coverage() -> None:
                                   "summary-count": ("sail_records", 4),
                                   "summary-roundtrip": ("sail_cap_roundtrip", False)}[mutation]
                 compiler[field] = changed
+            elif mutation == "interpreter-status":
+                control = cast("list[dict[str, object]]", programs[1]["processes"])
+                control[-2]["returncode"] = 0
             elif mutation != "none":
-                process = processes[3 if mutation.startswith("interpreter-") else 4]
+                process = processes[-2 if mutation.startswith("interpreter-") else -1]
                 stdout = slice_harness._retained_stdout(process).decode()
                 stderr = "diagnostic \u03bb\n"
                 if mutation == "interpreter-verdict":
@@ -1108,7 +1112,7 @@ def _compiler_observations() -> None:
                 (working / argv[-1]).write_bytes(b".text\n.globl main\nmain:\nli a0, 7\nret\n")
             said = ("Time 1: program terminated (exit code = 7)\n" if "-interp" in argv else
                     "I 1 0000000080000000 00000013\nFAILURE: 7\n" if "--config" in argv else stdout)
-            return subprocess.CompletedProcess(argv, 1 if "--config" in argv else 0, said, stderr)
+            return subprocess.CompletedProcess(argv, 7 if "-interp" in argv else int("--config" in argv), said, stderr)
 
         observations: list[dict[str, object]] = []
         program = slice_harness.cd.Program("independent", "given", "int main(void) { return 7; }\n", 1, 7)
@@ -1116,7 +1120,7 @@ def _compiler_observations() -> None:
             report = slice_harness.cd.run_program(program, ["ccomp", "-dclight"], directory, ["simulator"],
                                                   directory / "profile.json", "", interp=True, observations=observations)
         ensure(slice_harness.cd.as_expected(report) and report.interpreted is not None
-               and report.interpreted.code == 7 and len(observations) == 5,
+               and report.interpreted.code == 7 and len(observations) == 4,
                "observing compiler stages changed interpretation or lost a process")
         for observation in observations:
             log = Path(str(observation["log"]))
@@ -1126,8 +1130,18 @@ def _compiler_observations() -> None:
                    "compiler observation truncated or misbound diagnostics")
             slice_harness._retained_stdout(observation)
         ensure([Path(str(row["log"])).name for row in observations] == [
-            "independent.preprocess.log", "independent.compile.log", "independent.preprocess.log",
+            "independent.preprocess.log", "independent.compile.log",
             "independent.interpret.log", "independent.sail.log"], "compiler process order is incomplete")
+
+        unit = directory / "independent/independent.i"
+        copied = directory / "independent.interp/independent.i"
+        ensure(copied.read_bytes() == unit.read_bytes(), "the interpreter received a different effective unit")
+        with patch.object(slice_harness.cd.subprocess, "run") as invoke:
+            same = slice_harness.cd.preprocess_c(["ccomp"], unit, unit.parent)
+            stale = slice_harness.cd.interpret_c(["ccomp"], unit, directory / "stale.interp", expected_sha256="0" * 64)
+        ensure(same.sha256 == hashlib.sha256(unit.read_bytes()).hexdigest()
+               and stale.code is None and not invoke.called,
+               "in-place .i input was lost or an unbound input reached the interpreter")
 
         def failed_interpreter(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
             completed = run(argv, **kwargs)
