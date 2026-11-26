@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Locked Python dependencies and a separate environment for each checkout and OS."""
 
+import contextlib
 import hashlib
 import os
 import platform
@@ -9,6 +10,7 @@ import subprocess
 import sys
 import sysconfig
 import tomllib
+from collections.abc import Generator
 from pathlib import Path
 
 from toolchain import env, pyversion
@@ -91,16 +93,37 @@ def ensure_rumdl(root: Path) -> Path | None:
     return binary
 
 
+def _lock_digest(root: Path) -> str:
+    digest = hashlib.sha256()
+    for name in (PROJECT, LOCK):
+        digest.update((root / name).read_bytes())
+    return digest.hexdigest()
+
+
+def _require_persistent_native(root: Path, target: Path, label: str) -> Path:
+    resolved = root.resolve()
+    if (target.is_relative_to(resolved)
+            # These are refused locations, never temporary-file destinations.
+            or target.is_relative_to(Path("/tmp"))  # noqa: S108
+            or target.is_relative_to(Path("/var/tmp"))  # noqa: S108
+            or env.filesystem(target) in env.CROSS_OS_FILESYSTEMS | env.VOLATILE_FILESYSTEMS):
+        raise ValueError(f"the guest {label} needs persistent native storage: {target}")
+    return target
+
+
+def pycache_prefix(root: Path, platform_name: str) -> Path | None:
+    """Return a persistent native bytecode directory when the checkout crosses OS boundaries."""
+    if platform_name == "linux" and env.filesystem(root.resolve()) in env.CROSS_OS_FILESYSTEMS:
+        return _require_persistent_native(root, env.build_root().resolve() / "pycache", "Python bytecode cache")
+    return None
+
+
 def environment(root: Path, platform_name: str) -> Path:
     if platform_name == "linux" and env.filesystem(root.resolve()) in env.CROSS_OS_FILESYSTEMS:
-        target = env.lane_root(env.lane_of(root)).resolve() / "venv-linux"
-        if (target.is_relative_to(root.resolve())
-                # These are refused locations, never temporary-file destinations.
-                or target.is_relative_to(Path("/tmp"))  # noqa: S108
-                or target.is_relative_to(Path("/var/tmp"))  # noqa: S108
-                or env.filesystem(target) in env.CROSS_OS_FILESYSTEMS | env.VOLATILE_FILESYSTEMS):
-            raise ValueError(f"the guest Python environment needs persistent native storage: {target}")
-        return target
+        lane = env.lane_of(root)
+        base = env.build_root().resolve()
+        target = base / "venv-linux" if not lane else base / "venvs" / _lock_digest(root)[:16]
+        return _require_persistent_native(root, target, "Python environment")
     return root / "out" / f"venv-{platform_name}"
 
 
@@ -109,6 +132,63 @@ def identity(root: Path, platform_name: str) -> str:
     for name in (PROJECT, LOCK):
         digest.update((root / name).read_bytes())
     return digest.hexdigest()
+
+
+@contextlib.contextmanager
+def _sync_lock(target: Path) -> Generator[None]:
+    if sys.platform == "win32":
+        yield
+        return
+    import fcntl
+
+    lock_path = target.parent / f".{target.name}.sync.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _venv_python(target: Path) -> Path:
+    return target / ("Scripts" if sys.platform == "win32" else "bin") / ("python.exe" if sys.platform == "win32" else "python")
+
+
+def _warm_environment(target: Path, token: str) -> bool:
+    stamp = target / ".holdfast-env-token"
+    try:
+        return _venv_python(target).is_file() and stamp.read_text(encoding="utf-8").strip() == token
+    except OSError, UnicodeDecodeError:
+        return False
+
+
+def _sync_environment(root: Path, target: Path, token: str, child_env: dict[str, str]) -> int:
+    uv = shutil.which("uv")
+    if uv is None:
+        print(f"uv is required; install the version in {PROJECT}'s "
+              "tool.uv.required-version, then rerun this command", file=sys.stderr)
+        return 1
+    with _sync_lock(target):
+        if _warm_environment(target, token):
+            return 0
+        sync = subprocess.run(
+            [uv, "sync", "--project", str((root / PROJECT).parent), "--locked", "--exact",
+             "--no-python-downloads"],
+            env=child_env, check=False,
+        )
+        if sync.returncode != 0:
+            return sync.returncode
+        stamp = target / ".holdfast-env-token"
+        pending = target / f".holdfast-env-token.{os.getpid()}"
+        pending.write_text(token + "\n", encoding="utf-8", newline="\n")
+        pending.replace(stamp)
+    return 0
+
+
+def _dispatch(python_exe: Path, script: Path, argv: list[str], child_env: dict[str, str]) -> int:
+    command = [str(python_exe), str(script), *argv]
+    return subprocess.run(command, env=child_env, check=False).returncode
 
 
 def bootstrap(root: Path, argv: list[str]) -> int | None:
@@ -121,27 +201,28 @@ def bootstrap(root: Path, argv: list[str]) -> int | None:
     try:
         target = environment(root, sys.platform)
         token = identity(root, sys.platform)
+        pycache = pycache_prefix(root, sys.platform)
     except (OSError, ValueError) as err:
         print(f"the tools require {PROJECT} and {LOCK}: {err}", file=sys.stderr)
         return 1
+    if pycache is not None:
+        os.environ.setdefault("PYTHONPYCACHEPREFIX", str(pycache))
+        if sys.pycache_prefix is None:
+            sys.pycache_prefix = str(pycache)
     if Path(sys.prefix) == target and os.environ.get(READY) == token:
         return None
-    uv = shutil.which("uv")
-    if uv is None:
-        print(f"uv is required; install the version in {PROJECT}'s "
-              "tool.uv.required-version, then rerun this command", file=sys.stderr)
-        return 1
     child_env = os.environ.copy()
     child_env.pop("VIRTUAL_ENV", None)
     child_env["UV_PROJECT_ENVIRONMENT"] = str(target)
     child_env["PYTHONUTF8"] = "1"
+    if pycache is not None:
+        pycache.mkdir(parents=True, exist_ok=True)
+        child_env.setdefault("PYTHONPYCACHEPREFIX", str(pycache))
     child_env[READY] = token
     try:
-        return subprocess.run(
-            [uv, "run", "--project", str((root / PROJECT).parent), "--locked", "--exact",
-             "--no-python-downloads", "python",
-             str(root / "tools" / "run.py"), *argv],
-            env=child_env, check=False).returncode
+        if not _warm_environment(target, token) and (code := _sync_environment(root, target, token, child_env)) != 0:
+            return code
+        return _dispatch(_venv_python(target), root / "tools" / "run.py", argv, child_env)
     except OSError as err:
         print(f"the tools environment could not be started: {err}", file=sys.stderr)
         return 1
