@@ -22,6 +22,7 @@ runner dispatches guest-only commands to WSL on Windows. Run the runner with
 | `python tools/run.py holdfast` | host | Pure HoldFast prototype checker, formatter, linter, Gallina emitter, and generated-test runner |
 | `python tools/run.py holdfast-borrow-compare` | host / guest | Replay pinned Rust and optional Ante decisions and execute accepted observations for the [borrowing comparison](../docs/language/loan-analysis.md#conditional-borrowing-comparison) |
 | `python tools/run.py holdfast sarif` | host | Export source-bound pure batch diagnostics and optional format previews as [SARIF 2.1.0](../docs/tooling/tooling-protocols.md#qualified-pure-batch-sarif), with an explicit external schema |
+| `python tools/run.py holdfast-copy-trial` | Linux / WSL | Replay the [frozen Q25bb public observations](#copy-service-trial-replay) with a native C compiler |
 | `python tools/run.py holdfast-lsp` | host / guest | Serve pure HoldFast editor features over stdio, with optional wire-transcript recording |
 | `python tools/run.py holdfast-lsp --qualify-clients` | host / guest | Check [editor interoperability](../docs/tooling/lsp-prototype.md#acceptance-and-remaining-qualification) with pinned Neovim and Vim clients |
 | `python tools/run.py holdfast-lsp --qualify-rename` | Ubuntu ARM64 / WSL | Check versioned rename application and stale refusal in pinned Neovim and Emacs Eglot with [retained editor and wire evidence](../docs/tooling/lsp-prototype.md#local-rename-previews) |
@@ -90,6 +91,25 @@ The Ubuntu ARM64 replay builds Ante with the Rust toolchain's bundled LLD
 wrapper directory `lib/rustlib/aarch64-unknown-linux-gnu/bin/gcc-ld` on PATH,
 `RUSTFLAGS=-Clink-arg=-fuse-ld=lld`, `CARGO_PROFILE_DEV_CODEGEN_UNITS=1` and
 `CARGO_PROFILE_DEV_DEBUG=0`.
+
+### Copy-service trial replay
+
+Run this opt-in development check from Linux or WSL with a native C compiler on
+PATH. Supply the local VerifiedOS Git directory and the C header from the
+[frozen source-preparation recipe](https://github.com/symbiogenesis/VerifiedOS/blob/498127d6be3d1a70581ba4a9cc025c2d923e66f7/copy-service/README.md#standalone-source-preparation).
+
+```console
+python3 tools/run.py holdfast-copy-trial --verifiedos-git-dir /path/to/VerifiedOS/.git --prepared-header /path/to/prepared/include/copy_service_config.h
+```
+
+The checker reads pinned source and checks the prepared header digest. The
+[caller fixture](tests/fixtures/q25bb-copy-client.c) runs through the
+[frozen public ABI](tests/fixtures/q25bb-copy-client.h). A positive replay and
+four compiled controls check the observed result, prefix, suffix and refusal
+outputs. The JSON binds the checked inputs, compiler and native images. The
+syntax check uses the target ABI declarations with the native compiler.
+[Q25bb](../PLAN.md#q25bb) still requires caller proof replay, installed target
+execution, measured target costs and exact-image admission.
 
 ## Validation profiles
 
