@@ -1675,14 +1675,22 @@ class _IntrinsicsMixin:
             return None
         offsets: list[_Term] = []
         length = None
+        read_only = False
         while span != owner:
             head, args = self.spine(span)
+            if head == _constant("Span_ReadOnly") and len(args) == 2:
+                # ReadOnly preserves a shared operand's backing and footprint.
+                read_only = True
+                span = self.whnf(args[1])
+                continue
             if head != _constant("Span_Slice") or len(args) != 4:
                 break
             if length is None:
                 length = args[3]
             offsets.append(args[2])
             span = self.whnf(args[1])
+        if length is None and read_only:
+            length = _apps(_constant("Span_Length"), _U8, span)
         # The checked slice extents and element bound keep the composed index in range.
         displacement = _int_term(_INT_SPECS["usize"], 0)
         for offset in reversed(offsets):
@@ -1831,7 +1839,7 @@ class _IntrinsicsMixin:
             is_view = root in self.slice_views
             if collection is not None and self.spine(self.whnf(collection.type))[0] == _constant("Span"):
                 span = self.whnf(collection.term)
-                is_view = is_view or self.spine(span)[0] == _constant("Span_Slice")
+                is_view = is_view or self.spine(span)[0] in {_constant("Span_Slice"), _constant("Span_ReadOnly")}
                 pending = [span]
                 while pending:
                     base = self._root_span(pending.pop())

@@ -1755,12 +1755,24 @@ public byte Client(ref Span<byte> values, usize i, usize j)
     updated = nested.replace(b"public byte Nested", b"public byte Updated").replace(
         b"return CopyPeer", b"values[0usize] = 9u8;\n        return CopyPeer",
     )
+    readonly = updated.replace(
+        b"Span.Slice(values, 1usize, 3usize)", b"Span.Slice(Span.ReadOnly(values), 1usize, 3usize)",
+    ).replace(
+        b"Span.Slice(shifted, 1usize, 2usize)", b"Span.ReadOnly(Span.Slice(shifted, 1usize, 2usize))",
+    )
+    whole_readonly = source.replace(
+        b"i < 3usize", b"i < 4usize",
+    ).replace(
+        b"j != 1usize + i", b"j != i",
+    ).replace(
+        b"Span.Slice(values, 1usize, 3usize)", b"Span.ReadOnly(values)",
+    )
     branch_update = updated.replace(
         b"values[0usize] = 9u8;",
         b"if (j < 2usize) { values[j] = 9u8; } else { values[1usize] = 8u8; }",
     )
     combined = (source + nested[nested.index(b"public byte Nested"):] + inline[inline.index(b"public byte Inline"):]
-                + updated[updated.index(b"public byte Updated"):])
+                + readonly[readonly.index(b"public byte Updated"):])
     effectful = source.replace(b"public byte Client", b"""private usize Pick(ref Span<byte> values, usize idx)
     requires values.CanRead && values.CanWrite
     requires values.Length == 4usize
@@ -1775,8 +1787,18 @@ public byte Client""").replace(b"ref values[j]", b"ref values[Pick(ref values, j
         gallina = elaborate(combined, tree).gallina
         for valid in (
             source.replace(b"return CopyPeer", b"values[0usize] = 5u8;\n        return CopyPeer"),
+            updated,
             updated.replace(b"values[0usize] = 9u8;", b"Span.Fill(ref values, 0usize, 2usize, 9u8);"),
             branch_update,
+            whole_readonly,
+            whole_readonly.replace(
+                b"return CopyPeer", b"Span.Fill(ref values, 4usize, 0usize, 9u8);\n        return CopyPeer",
+            ),
+            readonly.replace(b"values[0usize] = 9u8;", b"Span.Fill(ref values, 0usize, 2usize, 9u8);"),
+            readonly.replace(
+                b"values[0usize] = 9u8;",
+                b"if (j < 2usize) { values[j] = 9u8; } else { values[1usize] = 8u8; }",
+            ),
         ):
             elaborate(valid, parser.parse_source(compiled, valid, surface=True))
         temporary = nested.replace(
@@ -1801,10 +1823,16 @@ public byte Client""").replace(b"ref values[j]", b"ref values[Pick(ref values, j
             updated.replace(b"values[0usize] = 9u8;", b"values[2usize + i] = 9u8;"),
             updated.replace(b"values[0usize] = 9u8;", b"Span.Fill(ref values, 0usize, 3usize, 9u8);"),
             branch_update.replace(b"values[1usize] = 8u8;", b"values[j] = 8u8;"),
-            nested.replace(
-                b"return CopyPeer(in nested[i]",
-                b"let readOnly = Span.ReadOnly(nested);\n        return CopyPeer(in readOnly[i]",
+            whole_readonly.replace(b"ref values[j]", b"ref values[i]"),
+            whole_readonly.replace(b"return CopyPeer", b"values[0usize] = 5u8;\n        return CopyPeer"),
+            source.replace(
+                b"return CopyPeer(in shifted[i]",
+                b"let readOnly = Span.ReadOnly(shifted);\n        Span.Restore(ref values, shifted);\n"
+                b"        return CopyPeer(in readOnly[i]",
             ),
+            readonly.replace(b"ref values[j]", b"ref values[2usize + i]"),
+            readonly.replace(b"values[0usize] = 9u8;", b"values[2usize + i] = 9u8;"),
+            readonly.replace(b"values[0usize] = 9u8;", b"Span.Fill(ref values, 0usize, 3usize, 9u8);"),
             effectful,
             effectful.replace(b"CopyPeer(in byte source, ref byte target)", b"CopyPeer(ref byte target, in byte source)").replace(
                 b"CopyPeer(in shifted[i], ref values[Pick(ref values, j)])",
@@ -1844,6 +1872,13 @@ Proof.
     (holdfast_int_add 4 (holdfast_int_add 4 outer inner) i)).
   now rewrite holdfast_int_add_assoc.
 Qed.
+
+Local Lemma composed_readonly_slice_read : forall (values : holdfast_Span (holdfast_int 0))
+    outer inner outer_count inner_count i,
+  holdfast_Span_Read _ (holdfast_Span_ReadOnly _ (holdfast_Span_Slice _
+    (holdfast_Span_Slice _ (holdfast_Span_ReadOnly _ values) outer outer_count) inner inner_count)) i =
+  holdfast_Span_Read _ values (holdfast_int_add 4 (holdfast_int_add 4 outer inner) i).
+Proof. exact composed_slice_read. Qed.
 """
     exports = solver_ledger.math_exports(gallina)
     for name in ("Client", "Nested", "Inline"):
@@ -1931,7 +1966,7 @@ Proof.
   all: match type of allowed with
        | _ = ?outcome => change (can_copy i j = outcome) in allowed
        end; rewrite allowed.
-  - rewrite !composed_slice_read. split.
+  - rewrite !composed_readonly_slice_read. split.
     + intros _. split; [reflexivity |]. split.
       * apply holdfast_Span_Read_write_same.
       * intro apart. unfold trial_read.
