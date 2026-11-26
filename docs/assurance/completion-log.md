@@ -2739,8 +2739,25 @@ and call-by-value modal calculi, alongside type-variable irrelevance
 (`zero_type_var_use`).
 [Box callable replay](../../tools/tests/test_holdfast_graded_modal.py)
 
-Broader indexed-data elimination, usage-aware interpretations, erasure and
-the composed extension laws remain open.
+Extended mechanization in Rocq 9.3.0 (all 0-axiom `Print Assumptions` and
+`rocqchk -silent` verified) also closes the GrTT structural and substitution
+metatheory (`weakening_*`, `exchange_derives`, `value_substitution_derives`,
+`type_substitution_derives`, explicit `(s, r)` `GrttCore` calculus), universal
+symbolic semiring polymorphism (`graded_semiring.v`: `poly_infer_sound`,
+`poly_derives_all_valuations`, `poly_*_verified` and negative controls), CBV
+erasure soundness and non-interference (`graded_erasure.v`:
+`erasure_simulation`, `closed_erasure_sound`, `zero_computation_irrelevance`,
+`zero_var_non_interference`), and CBV protocol erasure (`graded_cbv_erasure.v`),
+as well as general ordered modal domains, `Sum` elimination, Boolean
+`Presence`, and type-grade checking in `graded_modal.v`.
+[GrTT metatheory](../../tools/rocq/graded_metatheory.v) ·
+[Semiring polymorphism](../../tools/rocq/graded_semiring.v) ·
+[CBV erasure](../../tools/rocq/graded_erasure.v) ·
+[Protocol erasure](../../tools/rocq/graded_cbv_erasure.v) ·
+[Metatheory audit](../../tools/tests/test_holdfast_graded_metatheory.py)
+
+General indexed-data elimination beyond sums/boxes/records and target machine
+cost/lowering correspondence remain open.
 
 <a id="q25bj-reconstruct-checked-graded-domain-evidence"></a>
 
@@ -2848,7 +2865,16 @@ retains its own row with two uses of the tick count. Controls refuse a wrong
 extent, a different record with the same fields and an invalid projection.
 [Indexed source and controls](../../tools/tests/test_holdfast_graded_modal.py#_dependent_pair_source_replay)
 
-These trials use checked kernel judgments over a trusted source projection.
+These trials use checked kernel judgments over a trusted source projection,
+extended to general ordered modal domains (`graded-modal-general.hf`), `Sum`
+elimination (`graded-sums.hf`), Boolean `Presence` (`graded-presence.hf`),
+type-grade polymorphism (`graded-type-grades.hf`), and an end-to-end graded
+protocol client (`graded-protocol-client.hf`) across `graded_source.py` and
+`check-grades`.
+[General modal replay](../../tools/tests/test_holdfast_graded_modal.py#_general_modal_source_replay) ·
+[Sums and presence replay](../../tools/tests/test_holdfast_graded_modal.py#_sums_and_presence_modal_replay) ·
+[Protocol client](../../tools/tests/fixtures/graded-protocol-client.hf)
+
 Checked source correspondence and reconstruction for broader dependent data
 remain open.
 
@@ -2870,6 +2896,12 @@ transitively locked graded clients; general GrTT source elaboration and erasure
 material benefit and release qualification remain open.
 [Paired replay](../../tools/tests/test_holdfast_graded_client.py)
 
+The [protocol client replay](../../tools/tests/test_holdfast_graded_client.py) and
+[protocol erasure suite](../../tools/tests/test_holdfast_graded_cbv.py) additionally
+check a paired protocol state machine (`graded-protocol-client.hf`) and
+CBV erasure preservation (`graded_cbv_erasure.v`). General release
+cost/benefit qualification across arbitrary backends remains open.
+
 <a id="q25cb-trial-zero-type-use-substitution-skipping"></a>
 
 ## Q25cb · Trial zero-type-use substitution skipping
@@ -2879,8 +2911,13 @@ for a value binder or `TypeVar` binder (`zero_type_var_use` and
 `checked_zero_type_var_use`) is unchanged by substituting for that binder. Its
 type-demand row is also unchanged pointwise. The theorem covers natural indices,
 universes and dependent function types under the checked typing rules.
-Representative cost measurements and an implementation trial remain open.
-[Irrelevance proof](../../tools/rocq/graded_type_irrelevance.v)
+The [CBV erasure and skipping development](../../tools/rocq/graded_erasure.v)
+proves `apply_nat_skip_agrees`, `apply_type_skip_agrees`, and
+`let_nat_skip_agrees`, and [the metatheory test suite](../../tools/tests/test_holdfast_graded_metatheory.py)
+verifies `Q25cbBench.v` on a 40-binder dependent `Pi` telescope under Rocq 9.3.0.
+Full frontend-wide replay cost benchmarking remains open.
+[Irrelevance proof](../../tools/rocq/graded_type_irrelevance.v) ·
+[Skipping proofs](../../tools/rocq/graded_erasure.v)
 
 <a id="q25cc-compare-borrow-checking-alternatives-on-held-out-clients"></a>
 
@@ -3104,6 +3141,21 @@ Rocq replay closing all assumptions and eight invalid neighbors refused.
 [Direct indexed fixture](../../tools/tests/fixtures/direct-indexed-borrows.hf) ·
 [Direct indexed replay](../../tools/tests/test_holdfast_borrow_comparison.py)
 
+Additional integrated CFG and mathematical-elaborator trials extend these cases
+to container-stability tracking with `requires` and `assert` index-disjointness
+propagation and two-phase receiver reservations (`two-phase-receiver-trial.hf`),
+disjoint sub-slice writebacks via `holdfast_bs_shift_onto`
+(`subslice-disjoint-writeback.hf`), simultaneous record fields, 2D grids with
+disjunctive guards and path-sensitive container clears
+(`field-and-multidim-borrows.hf`), loop-carried cursor reborrows
+(`loop-cursor-reborrow.hf`), higher-ranked view callbacks
+(`higher-ranked-view-callback.hf`), and Rust (`rustc +nightly-2026-11-20`) plus
+Ante comparison suites (`holdfast-borrow-compare`). Target hardware lowering
+remains open.
+[Two-phase receiver replay](../../tools/tests/test_holdfast_loan_returns.py#_two_phase_receiver_replay) ·
+[Subslice writeback](../../tools/tests/test_holdfast_loan_returns.py#_subslice_disjoint_writeback) ·
+[Comparison suite](../../tools/tests/test_holdfast_borrow_comparison.py#_comparison_fixture_contracts)
+
 <a id="q25cf-trial-selected-loop-carried-borrowing"></a>
 
 ## Q25cf · Trial selected loop-carried borrowing
@@ -3119,3 +3171,20 @@ controls refuse writes overlapping the returned view, missing write permissions
 and out-of-bounds slices.
 [Lending filter source](../../tools/tests/fixtures/lending-filter-return.hf) ·
 [Lending filter replay](../../tools/tests/test_holdfast_loan_returns.py#_lending_filter_return)
+
+The loop-cursor reborrow, multi-dimensional grid, field-splitting, disjoint
+sub-slice writeback, container stability (`requires` and `assert` index
+disjointness), and higher-ranked view-callback trials additionally replay
+loop-carried `let` cursor reborrows (`loop-cursor-reborrow.hf`), disjoint
+sub-slice restores via `holdfast_bs_shift_onto`
+(`subslice-disjoint-writeback.hf`), simultaneous record fields and 2D grid
+borrows with container clears (`field-and-multidim-borrows.hf`), and
+higher-ranked view callbacks (`higher-ranked-view-callback.hf`), alongside
+Rust (`rustc +nightly-2026-11-20`) and Ante comparison fixtures (`ante_borrow_compare.py`,
+`holdfast-borrow-compare`). Lowering those shapes to the target hardware
+remains open.
+[Subslice writeback](../../tools/tests/test_holdfast_loan_returns.py#_subslice_disjoint_writeback) ·
+[Field and 2D borrows](../../tools/tests/test_holdfast_loan_returns.py#_field_and_multidim_borrows) ·
+[Loop cursor reborrow](../../tools/tests/test_holdfast_loan_returns.py#_loop_cursor_reborrow) ·
+[Higher-ranked callback](../../tools/tests/test_holdfast_loan_returns.py#_higher_ranked_view_callback) ·
+[Comparison contracts](../../tools/tests/test_holdfast_borrow_comparison.py#_comparison_fixture_contracts)

@@ -318,6 +318,20 @@ refused.
 [Lending source and replay](../../tools/tests/test_holdfast_loan_returns.py#_lending_span_iteration) ·
 [Early break replay](../../tools/tests/test_holdfast_loan_returns.py#_lending_span_break)
 
+The mathematical elaborator (`tools/toolchain/elaborate_*.py`) and CFG analyzer
+(`tools/toolchain/loans.py`) also handle:
+
+- container stability tracking (`unstable` mutations on `Seq`/`Slots` vs stable element writes), symbolic `requires` and `assert` index-disjointness propagation (`AssumeIndexNe` on CFG entry and proof assertions), path-sensitive `if`/`else` index disequalities, and nested container clears (`PathSensitiveRowClear`);
+- disjoint sub-slice writebacks (`holdfast_bs_shift_onto`) across simultaneous mutable sub-slices, record-field and 2D grid element borrows under disjunctive guards (`r1 != r2 || c1 != c2`), loop-carried cursor reborrows (`let` bindings updated per iteration), and higher-ranked view callbacks (`Fn(ref Span<byte>) -> ...`);
+- paired Rust (`rustc +nightly-2026-11-20`) and Ante (`ante_borrow_compare.py` with `.rs`/`.an` comparison fixtures and `holdfast-borrow-compare`) regression trials on multi-dimensional index borrows, sub-slice writeback, branch-view last-use and loop-view returns.
+
+[Subslice writeback replay](../../tools/tests/test_holdfast_loan_returns.py#_subslice_disjoint_writeback) ·
+[Field and 2D borrows](../../tools/tests/test_holdfast_loan_returns.py#_field_and_multidim_borrows) ·
+[Loop cursor reborrow](../../tools/tests/test_holdfast_loan_returns.py#_loop_cursor_reborrow) ·
+[Higher-ranked view callback](../../tools/tests/test_holdfast_loan_returns.py#_higher_ranked_view_callback) ·
+[Two-phase receiver replay](../../tools/tests/test_holdfast_loan_returns.py#_two_phase_receiver_replay) ·
+[Borrow comparison suite](../../tools/tests/test_holdfast_borrow_comparison.py#_comparison_fixture_contracts)
+
 If a client must restructure a loop whose last use of a view precedes a write
 to its owner, keep the original loop. Move one use past that write to produce
 the conflicting case. Freeze the accessed place, last use and expected
