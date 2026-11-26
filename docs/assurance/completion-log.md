@@ -2655,10 +2655,21 @@ state and events. All 20 audited declarations have closed assumptions, and
 `rocqchk` checks the compiled module.
 [Sequencing replay](../../tools/tests/test_holdfast_graded_cbv.py)
 
-The dependent pair trial checks a telescope whose vector field depends on
-its preceding length field. Its elimination judgment checks the common
-computation grade, scales the scrutinee's computation demand and checks
-the independent type-demand substitutions for the branch and result.
+The scoped-span trial uses the emitted `Span<byte>` operations to evaluate
+stateful natural arguments. In both outcomes, a write through the checked view
+restores the owner descriptor and preserves every byte outside its owner
+index. Bounded replay connects body reads to the returned values. Examples
+cover an unused argument with an observable write, repeated reads of the next
+value, failure after writeback, and refusal of invalid or shared slices before
+the write. The proofs replay with closed assumptions and `rocqchk`.
+[Scoped argument proofs](../../tools/rocq/graded_cbv_span.v)
+
+The indexed-record trial checks a telescope whose vector field has an extent
+built from its preceding natural field, literals and addition. Its elimination
+judgment checks the common computation grade, scales the scrutinee's
+computation demand and checks the independent type-demand substitutions for
+the branch and result. Construction and elimination preserve the record's
+declared identity and specialize the same extent family.
 [Pair rules and proofs](../../tools/rocq/graded_modal.v)
 
 Broader indexed-data elimination, usage-aware interpretations, erasure and
@@ -2713,6 +2724,13 @@ unequal field counts under a common bound. Controls refuse exact asymmetry,
 bounded overuse, an inconsistent motive and a stale certified type row.
 [Dependent pair source](../../tools/tests/fixtures/graded-dependent-pair.hf) ·
 [Kernel replay](../../tools/tests/test_holdfast_graded_modal.py)
+
+The `StereoFrame` record exercises the extent `Ticks + Ticks + 1`. The
+checker reconstructs zero computation uses of both inputs, four type uses
+of the tick count and two type uses of the vector. The vector annotation
+retains its own row with two uses of the tick count. Controls refuse a wrong
+extent, a different record with the same fields and an invalid projection.
+[Indexed source and controls](../../tools/tests/test_holdfast_graded_modal.py#_dependent_pair_source_replay)
 
 These trials use checked kernel judgments over a trusted source projection.
 Checked source correspondence and reconstruction for broader dependent data
@@ -2821,17 +2839,29 @@ observations for all six indices in each mode.
 [HoldFast replay](../../tools/tests/test_holdfast_loan_returns.py#_joined_view_return) ·
 [Rust fixture](../../tools/tests/fixtures/joined_view_return.rs)
 
+The shared-view loop trial retains a one-byte view of the final owner element
+while a symbolic loop fills a prefix. The HoldFast return check uses the prefix
+bound to establish disjointness from the retained view. Rocq checks the byte
+against the entry and post-state owner, the prefix contents, the frame and the
+unchanged error state. Widening the bound to permit a write to the final byte
+fails at the return check. All four pinned Rust modes reject the direct and
+overlapping forms with `E0506` at the loop write. The `split_at_mut` version
+passes the returned-byte and owner-state observations for `n` from zero through
+five in each mode.
+[HoldFast replay](../../tools/tests/test_holdfast_loan_returns.py#_loop_view_return) ·
+[Rust fixture](../../tools/tests/fixtures/loop_view_return.rs)
+
 Legacy also accepts the loop-carried conditional reborrow. Its executed test
 checks the visit counts when the cursor stays on a node, advances and reaches
 the end. NLL and Alpha report `E0499` and `E0503` at the loop reborrow. All
 three reject the neighbor that clears the cursor with the node loan still live.
 [Loop fixture](../../tools/tests/fixtures/loop_reborrowing.rs)
 
-`python tools/run.py holdfast-borrow-compare` replays all 76 Rust configurations
-and executes the 24 accepted observation tests. The unflagged default
-agrees with Alpha on these fixtures. HoldFast loop source and restoration
-replay, held-out clients, checker cost measurements and checked runtime
-correspondence remain open.
+`python tools/run.py holdfast-borrow-compare` replays all 88 Rust configurations
+and executes the 28 accepted observation tests. The unflagged default
+agrees with Alpha on these fixtures. Held-out clients, checked lending-loop
+restoration, checker cost measurements and checked runtime correspondence
+remain open.
 
 The loan diagnostic keeps branch-specific grants through joins. The controls
 require independent restoration of three alternative exclusive grants, detect
