@@ -12,7 +12,7 @@ import hashlib
 import re
 from collections import Counter
 from collections.abc import Callable, Sequence
-from contextlib import AbstractContextManager, nullcontext
+from contextlib import AbstractContextManager, ExitStack, nullcontext
 from pathlib import Path
 from types import MappingProxyType
 from typing import cast
@@ -220,6 +220,7 @@ class _Elaborator(
         self.sealed_updates: dict[str, tuple[tuple[int, ...], dict[int, _Term]]] = {}
         self.private_symbols: set[str] = set()
         self.available_modules: dict[str, _Elaborator] = {}
+        self.grade_exports: dict[str, graded_source.GradeExport] = {}
         self.imported_modules: set[str] = set()
         self.module_aliases: set[str] = set()
         self.interfaces_by_identity: dict[str, _InterfaceInfo] = {}
@@ -2432,12 +2433,20 @@ def _checked_elaboration(
             raise elaborator.hole_inspection.refusal(elaborator.nodes(root["declarations"]))
         chunk_origins: dict[int, tuple[tuple[int, int], tuple[int, int], str]] = {}
         declarations: list[tuple[int, int]] = []
-        with phase("resolve-and-elaborate"):
-            elaborator.checked_grade_annotations, grade_receipts = graded_source.replay_module(
-                Path(__file__).resolve().parents[2], protocol, root,
-            )
+        imported_grade_exports = {name: export for mod in elaborator.available_modules.values()
+                                  for name, export in mod.grade_exports.items()}
+
+        def resolve_grade_import(name: str) -> graded_source.GradeExport | None:
+            binding = elaborator.globals.get(name)
+            if binding is None or binding.term.kind != "const":
+                return None
+            return imported_grade_exports.get(str(binding.term.value))
+
+        with phase("resolve-and-elaborate"), ExitStack() as grade_stack:
+            grade_replay = graded_source.ModuleReplay(Path(__file__).resolve().parents[2], protocol, root, grade_stack)
             for declaration in elaborator.nodes(root["declarations"]):
                 first = len(elaborator.output)
+                elaborator.checked_grade_annotations = grade_replay.check(declaration, resolve_grade_import)
                 elaborator.declaration(declaration)
                 if elaborator.freeze_checks:
                     elaborator.output.append("\n".join(
@@ -2469,6 +2478,8 @@ def _checked_elaboration(
                         chunk_origins[len(elaborator.output) + offset] = ((start, end), declarations[owner], "word-equation")
                 elaborator.output.extend(elaborator.word_proofs.values())
         elaborator.checked_grade_annotations.clear()
+        elaborator.grade_exports = {str(elaborator.globals[name].term.value): export
+                                    for name, export in grade_replay.exports.items()}
         source_digest = hashlib.sha256(source).hexdigest()
         with phase("generate-gallina"):
             # REUSE-IgnoreStart
@@ -2476,7 +2487,7 @@ def _checked_elaboration(
                        # REUSE-IgnoreEnd
                        "(* HoldFast mathematical elaboration: unqualified kernel proposal. "
                        f"Source SHA256: {source_digest} *)\n"
-                       + "".join(grade_receipts) + f"Module {generated_module}.\n\n" + _PRELUDE + "\n")
+                      + "".join(grade_replay.receipts) + f"Module {generated_module}.\n\n" + _PRELUDE + "\n")
             body, hoisted_lines = _proof_module_body(elaborator.output)
             gallina = header + body + f"\n\nEnd {generated_module}.\n"
         if len(gallina.encode("utf-8")) > MAX_OUTPUT_BYTES:

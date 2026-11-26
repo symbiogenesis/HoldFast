@@ -131,7 +131,63 @@ def _locked_grading() -> None:
         ensure(bundle.read_bytes() == checked, "failed graded build changed the retained bundle")
 
 
+def _locked_graded_import() -> None:
+    with tempfile.TemporaryDirectory(prefix="holdfast-graded-import-") as temporary:
+        workspace = Path(temporary)
+        lib = _write(workspace, "library", "v1", {}, "SignedGrade") / "module.hf"
+        client = _write(workspace, "main", "v1", {"library": "v1"}, "GradeClient") / "module.hf"
+        provider = ("module SignedGrade;\n"
+                    "public definition Vec<Nat, (n + n)> Preserve(Nat n @ NatExact(0),\n"
+                    "    Vec<Nat, (n + n)> samples @ NatExact(1)) => samples;\n")
+        consumer = ("module GradeClient;\nimport SignedGrade as Provider;\n"
+                    "public definition Vec<Nat, (n + n)> Route(Nat n @ NatExact(0),\n"
+                    "    Vec<Nat, (n + n)> samples @ NatExact(1)) => Provider.Preserve(n, samples);\n")
+        lock = workspace / "holdfast.lock.json"
+        bundle = workspace / "checked.json"
+        lock_command = ["lock-package", str(workspace), "main", "v1", "--output", str(lock)]
+        build_command = ["build-package", str(workspace), str(lock), "--output", str(bundle)]
+
+        def relock() -> None:
+            status, _, error = _parser_command(lock_command)
+            ensure(status == 0, error)
+
+        def checked_client() -> str:
+            relock()
+            status, _, error = _parser_command(build_command)
+            ensure(status == 0, error)
+            emitted = str(json.loads(bundle.read_bytes())["modules"]["GradeClient"])
+            return next(line for line in emitted.splitlines() if "Graded replay Route NatExact" in line)
+
+        lib.write_text(provider, encoding="utf-8")
+        client.write_text(consumer, encoding="utf-8")
+        first = checked_client()
+        client.write_text(consumer.replace("as Provider;", "{ Preserve as Keep };")
+                          .replace("Provider.Preserve", "Keep"), encoding="utf-8")
+        checked_client()
+        client.write_text(consumer, encoding="utf-8")
+        ensure(checked_client() == first, "identical source closures produced different grade evidence")
+
+        lib.write_text(provider + "\n", encoding="utf-8")
+        status, output, error = _parser_command(build_command)
+        ensure(status == 1 and not output and "stale" in error, error)
+        ensure(checked_client() != first, "changed provider source did not invalidate the client grade receipt")
+        checked = bundle.read_bytes()
+
+        lib.write_text(provider.replace("NatExact", "NatBound"), encoding="utf-8")
+        relock()
+        status, output, error = _parser_command(build_command)
+        ensure(status == 1 and not output and "requires the NatBound grade domain" in error, error)
+
+        lib.write_text(provider, encoding="utf-8")
+        client.write_text(consumer.replace("Preserve(n, samples)", "Preserve(n + n, samples)"), encoding="utf-8")
+        relock()
+        status, output, error = _parser_command(build_command)
+        ensure(status == 1 and not output and "computation demand or natural-index checking" in error, error)
+        ensure(bundle.read_bytes() == checked, "invalid graded import changed the retained bundle")
+
+
 def cases() -> list[Case]:
     return [Case("exact-natural zero type-use substitution law", _type_irrelevance, lane="toolchain"),
             Case("paired graded and ordinary audio routing replay", _audio_route, lane="toolchain"),
-            Case("default graded replay in a locked package", _locked_grading, lane="toolchain")]
+            Case("default graded replay in a locked package", _locked_grading, lane="toolchain"),
+            Case("graded dependent calls through a locked import", _locked_graded_import, lane="toolchain")]
