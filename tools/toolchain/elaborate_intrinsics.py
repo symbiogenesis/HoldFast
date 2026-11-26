@@ -1965,8 +1965,8 @@ class _IntrinsicsMixin:
             argument = self._unwrap_group(self.node(args[i]["value"]))
             target = self._unwrap_group(self.node(argument["value"]))
             receiver = self._unwrap_group(self.node(target["value"]))
-            binding = environment[self.name(receiver["name"])]
-            if self.whnf(binding.type) == _app(_constant("Span"), _U8):
+            binding = environment.get(self.name(receiver["name"]))
+            if binding is not None and self.whnf(binding.type) == _app(_constant("Span"), _U8):
                 self._check_span_view_use(binding.term, environment, target, use="read")
 
     def _elaborate_interface_method_call(

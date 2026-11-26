@@ -174,6 +174,13 @@ def _branch_view_last_use() -> None:
                    and "cannot prove Span view read is disjoint from an update to 'values'" in error.message,
                    f"wrong refusal for a live Span view in a range read: {error}")
 
+        constant = b"""module GlobalIndexedBorrow;
+private const Vec<Nat,1> Tag = "A";
+private Nat ReadElement(in Nat value) { return value; }
+public Nat ReadTag() { return ReadElement(in Tag[0]); }
+"""
+        elaborate(constant, parser.parse_source(compiled, constant, surface=True))
+
     [client] = re.findall(r"^Definition (holdfast_d\d+_ObserveAndWrite) :", gallina, re.MULTILINE)
     proof = rf"""
 Import HoldFast_BranchViewLastUse.
