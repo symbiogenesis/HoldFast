@@ -39,6 +39,12 @@ _SPAN_AUDITED = (
     "out_of_bounds_slice_fails_without_taking_the_loan",
     "shared_owner_fails_without_taking_the_exclusive_loan",
 )
+_MODAL_AUDITED = (
+    "dependent_pair_counts_reads",
+    "checked_box_open_preserves_argument_with",
+    "unused_box_payload_keeps_effect_and_type",
+    "repeated_box_payload_reuses_one_effect",
+)
 
 
 def cases() -> list[Case]:
@@ -49,5 +55,9 @@ def cases() -> list[Case]:
         Case("graded call-by-value scoped Span exits",
              partial(_replay, "graded_cbv_span", "GradedCbvSpan", _SPAN_AUDITED,
                      ("graded_pure", "graded_domains", "graded_cbv"), (("graded_cbv_span_carrier", _PRELUDE),)),
+             lane="toolchain"),
+        Case("graded dependent box call-by-value replay",
+             partial(_replay, "graded_modal_cbv", "GradedModalCbv", _MODAL_AUDITED,
+                     ("graded_pure", "graded_domains", "graded_modal", "graded_cbv")),
              lane="toolchain"),
     ]

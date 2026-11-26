@@ -215,6 +215,12 @@ Source elaboration and the spatial interpretation on the admitted machine
 carrier remain open. [Scoped argument model](../../tools/rocq/graded_cbv_span.v)
 [`GF-cbv` qualification](#proof-and-qualification-obligations)
 
+The dependent box model connects a checked elimination to an arithmetic result
+and a vector identity specialized by the same payload. The evaluator uses the
+payload returned by a single argument evaluation. Its read count satisfies the
+selected grade order, and the resolved result kind retains the specialized
+index. [Dependent box interpretation](../../tools/rocq/graded_modal_cbv.v)
+
 Torczon et al.'s [Effects and Coeffects in Call-by-Push-Value](https://doi.org/10.1145/3689750)
 (OOPSLA 2024; [extended paper](https://arxiv.org/abs/2311.11795v2)) mechanizes
 effect/coeffect soundness and CBV/CBN translations in Coq for clock effects and
