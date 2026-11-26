@@ -158,6 +158,22 @@ contributes two more uses of the index without any computation demand.
 [Dependent pair fixture](../../tools/tests/fixtures/graded-dependent-pair.hf) ·
 [Elimination rules](../../tools/rocq/graded_modal.v)
 
+### General modal domains, sums and type-grade replay
+
+`holdfast-parser check-grades` (`tools/toolchain/graded_source.py`) and
+`tools/rocq/graded_modal_source.v` / `graded_source.v` also support general
+ordered semiring domains (`Domain` records in `tools/rocq/graded_modal.v` with
+arbitrary carrier, meet/join/order and custom modal operators), `Sum` / `InjLeft`
+/ `InjRight` indexed sum elimination, Boolean `Presence` demand rows, and
+type-level grade parameters (`TypeVar` and `grade q : ...` in dependent
+definitions), plus full GrTT metatheory, polymorphic semiring, CBV erasure and
+`Q25cb` deep-telescope Rocq replay suites.
+[General modal replay](../../tools/tests/test_holdfast_graded_modal.py#_general_modal_source_replay) ·
+[Sums and presence replay](../../tools/tests/test_holdfast_graded_modal.py#_sums_and_presence_modal_replay) ·
+[GrTT metatheory suite](../../tools/tests/test_holdfast_graded_metatheory.py) ·
+[Protocol client replay](../../tools/tests/test_holdfast_graded_client.py) ·
+[CBV erasure replay](../../tools/tests/test_holdfast_graded_cbv.py)
+
 These trials establish demand checking for the projected pure terms. The
 [extension qualification](../extensions/graded-foundation.md#extension-selection-and-qualification)
 owns source correspondence, evaluation, erasure and domain generalization.

@@ -19,8 +19,16 @@ that image. [Frontend admission](full-language-review.md#frontend-admission)
 The [graded research comparison](../assurance/verification-strategy.md#reading-the-graded-type-claims)
 describes the roles and limits of GrTT, GraD and the Agda erasure development.
 The [source replay](../tooling/elaboration-prototype.md#pure-graded-source-replay)
-checks a pure fragment with `NatExact` and `NatBound`, including graded boxes
-and dependent records in both domains.
+checks a pure fragment with `NatExact`, `NatBound`, general modal semirings and
+Boolean `Presence`, including graded boxes, indexed sums, type-grade variables
+and dependent records. On the Rocq kernel side, dedicated closed-assumption
+developments mechanize the GrTT structural and substitution metatheory (`weakening`,
+`exchange`, simultaneous value and type-variable substitution, and the explicit
+`(s, r)` core calculus), symbolic semiring polymorphism, CBV erasure with
+non-interference, and verified zero-type-use substitution skipping.
+[GrTT metatheory](../../tools/rocq/graded_metatheory.v) ·
+[Symbolic semiring polymorphism](../../tools/rocq/graded_semiring.v) ·
+[CBV erasure and skipping](../../tools/rocq/graded_erasure.v)
 
 ## Extension selection and qualification
 
@@ -69,8 +77,14 @@ reasoning, and its donor measurements establish no HoldFast speedup.
 The pure `NatExact` calculus proves that substitution for a variable with
 checked zero type demand leaves the inferred type and all its demand counts
 unchanged. This uses exact natural addition and the checked dependency row.
-The optimization comparison still requires representative checking and replay
-measurements. [Irrelevance theorem](../../tools/rocq/graded_type_irrelevance.v)
+The [CBV erasure and skipping development](../../tools/rocq/graded_erasure.v)
+additionally proves `apply_nat_skip_agrees`, `apply_type_skip_agrees`, and
+`let_nat_skip_agrees` together with a 40-binder deep-telescope verification,
+`erasure_simulation`, `closed_erasure_sound`, `zero_computation_irrelevance`,
+and `zero_var_non_interference` under closed assumptions. Representative
+frontend-wide replay benchmarking remains open.
+[Irrelevance theorem](../../tools/rocq/graded_type_irrelevance.v) ·
+[Metatheory audit](../../tools/tests/test_holdfast_graded_metatheory.py)
 
 ### Audio routing candidate
 
