@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import cast, override
 
 from toolchain import parser, proofenv
-from toolchain.elaborate_protocol import _Protocol
+from toolchain.elaborate_protocol import _Protocol, syntax_nodes
 from toolchain.elaborate_types import Node
 from toolchain.source_file import ensure_unchanged, read_source
 
@@ -26,6 +26,7 @@ class GradeDomain(StrEnum):
 _PRIMITIVES = frozenset({"Nat", "Vec", *GradeDomain})
 _ROCQ_FILES = ("graded_pure.v", "graded_domains.v", "graded_source.v")
 _MODAL_FILES = ("graded_pure.v", "graded_domains.v", "graded_modal.v", "graded_modal_source.v")
+SUPPORT_FILES = tuple(dict.fromkeys((*_ROCQ_FILES, *_MODAL_FILES)))
 _REPORT = re.compile(r"=\s*(\[[0-9\s;\[\]]*\])\s*:\s*list\s+\(list\s+\(list\s+nat\)\)")
 
 
@@ -63,13 +64,13 @@ class _Definition:
 class _Projection:
     reserved = _PRIMITIVES
 
-    def __init__(self, source: bytes, parsed: object, domain: GradeDomain) -> None:
-        self.protocol = _Protocol(source)
+    def __init__(self, protocol: _Protocol, syntax: Node, domain: GradeDomain) -> None:
+        self.protocol = protocol
         self.domain = domain
-        syntax = self.protocol.decode(parsed)
         self.declarations: dict[str, Node] = {}
         self.parameters: list[_Parameter] = []
         self.completed: dict[str, _Definition] = {}
+        self.annotations: set[int] = set()
         for declaration in cast("list[Node]", syntax["declarations"]):
             if declaration["kind"] in {"import", "import_item"}:
                 raise self.protocol.error("unsupported", "graded source replay requires a self-contained module", declaration)
@@ -99,7 +100,9 @@ class _Projection:
             if callee["kind"] == "name" and _name(callee["name"]) == self.domain and len(arguments) == 1:
                 [argument] = arguments
                 if argument["label"] is None:
-                    return self._literal(cast("Node", argument["value"]))
+                    allowance = self._literal(cast("Node", argument["value"]))
+                    self.annotations.add(id(node))
+                    return allowance
         raise self.protocol.error("unsupported", f"graded binders require an explicit @ {self.domain}(n) allowance", node)
 
     def _parameter(self, node: Node, scope: dict[str, _Parameter]) -> _Parameter:
@@ -257,8 +260,8 @@ class _IndexedRecord:
 class _ModalProjection(_Projection):
     reserved = _PRIMITIVES | {"Box"}
 
-    def __init__(self, source: bytes, parsed: object, domain: GradeDomain) -> None:
-        super().__init__(source, parsed, domain)
+    def __init__(self, protocol: _Protocol, syntax: Node, domain: GradeDomain) -> None:
+        super().__init__(protocol, syntax, domain)
         self.records: set[str] = set()
         self.record_ids = {name: index for index, (name, node) in enumerate(self.declarations.items())
                            if node["kind"] == "record" and name != "Box"}
@@ -550,29 +553,31 @@ def _verdict(projection: _Projection, replay: subprocess.CompletedProcess[str]) 
     return rows
 
 
-def _replay(root: Path, projection: _Projection, certificate: str, *, modal: bool) -> tuple[dict[str, str], list[list[int]], str]:
-    with tempfile.TemporaryDirectory(prefix="holdfast-graded-source-") as temporary:
-        directory = Path(temporary)
-        hashes = {}
-        for name in _MODAL_FILES if modal else _ROCQ_FILES:
-            source = (root / "tools" / "rocq" / name).read_bytes()
-            hashes[name] = hashlib.sha256(source).hexdigest()
-            (directory / name).write_bytes(source)
-            compiled = _run_rocq(directory, name)
-            if compiled.returncode:
-                raise RuntimeError(f"graded Rocq support failed: {compiled.stderr.strip()}")
-        (directory / "SourceReplay.v").write_text(certificate, encoding="utf-8", newline="\n")
-        rows = _verdict(projection, _run_rocq(directory, "SourceReplay.v"))
-        expected = json.dumps(rows).replace(",", ";")
-        pinned_rows = (f"Example source_rows_match : source_reports = {expected}.\n"
-                       "Proof. vm_compute. reflexivity. Qed.\n")
-        report = directory / "SourceReport.v"
-        report.write_text("From Stdlib Require Import Lists.List.\nRequire Import SourceReplay.\n"
-                          "Import ListNotations.\n" + pinned_rows, encoding="utf-8", newline="\n")
-        verified = _run_rocq(directory, report.name)
-        if verified.returncode:
-            raise RuntimeError(f"graded demand certificate failed: {verified.stderr.strip()}")
-        return hashes, rows[-1], certificate + pinned_rows
+def _support(root: Path, directory: Path, files: tuple[str, ...]) -> dict[str, str]:
+    hashes = {}
+    for name in files:
+        source = (root / "tools" / "rocq" / name).read_bytes()
+        hashes[name] = hashlib.sha256(source).hexdigest()
+        (directory / name).write_bytes(source)
+        compiled = _run_rocq(directory, name)
+        if compiled.returncode:
+            raise RuntimeError(f"graded Rocq support failed: {compiled.stderr.strip()}")
+    return hashes
+
+
+def _replay(directory: Path, projection: _Projection, certificate: str) -> tuple[list[list[int]], str]:
+    (directory / "SourceReplay.v").write_text(certificate, encoding="utf-8", newline="\n")
+    rows = _verdict(projection, _run_rocq(directory, "SourceReplay.v"))
+    expected = json.dumps(rows).replace(",", ";")
+    pinned_rows = (f"Example source_rows_match : source_reports = {expected}.\n"
+                   "Proof. vm_compute. reflexivity. Qed.\n")
+    report = directory / "SourceReport.v"
+    report.write_text("From Stdlib Require Import Lists.List.\nRequire Import SourceReplay.\n"
+                      "Import ListNotations.\n" + pinned_rows, encoding="utf-8", newline="\n")
+    verified = _run_rocq(directory, report.name)
+    if verified.returncode:
+        raise RuntimeError(f"graded demand certificate failed: {verified.stderr.strip()}")
+    return rows[-1], certificate + pinned_rows
 
 
 def _dependency_row(parameters: list[_Parameter], counts: list[int]) -> list[dict[str, object]]:
@@ -580,17 +585,115 @@ def _dependency_row(parameters: list[_Parameter], counts: list[int]) -> list[dic
             for index, uses in batched(counts, 2, strict=True)]
 
 
+def _domain(protocol: _Protocol, parameter: Node) -> GradeDomain:
+    annotation = cast("Node", parameter["grade"])
+    if annotation["kind"] == "call":
+        callee = cast("Node", annotation["callee"])
+        if callee["kind"] == "name" and (name := _name(callee["name"])) in GradeDomain:
+            return GradeDomain(name)
+    raise protocol.error("unsupported", "graded checking requires a NatExact(n) or NatBound(n) allowance", annotation)
+
+
+def _local_box(protocol: _Protocol, declarations: list[Node]) -> Node | None:
+    for declaration in declarations:
+        if declaration["kind"] != "record" or _name(declaration["name"]) != "Box":
+            continue
+        generics = cast("list[Node]", declaration["generics"])
+        if not any(node["mode"] == "grade" for node in generics):
+            continue
+        if declaration["modifiers"] or not any(_valid_box_record(declaration, domain) for domain in GradeDomain):
+            raise protocol.error("unsupported", "graded Box requires a module-private canonical declaration", declaration)
+        return declaration
+    return None
+
+
+def replay_module(root: Path, protocol: _Protocol, syntax: Node) -> tuple[set[int], tuple[str, ...]]:
+    """Replay each annotated declaration before ordinary elaboration lowers its binders."""
+    declarations = cast("list[Node]", syntax["declarations"])
+    record_names = {_name(node["name"]) for node in declarations if node["kind"] == "record"}
+    accepted: set[int] = set()
+    box = _local_box(protocol, declarations)
+    if box is not None:
+        accepted.add(id(cast("list[Node]", box["generics"])[1]))
+        accepted.add(id(cast("list[Node]", box["parameters"])[0]))
+    pending: list[tuple[_Projection, _Definition]] = []
+    for declaration in declarations:
+        if declaration is box:
+            continue
+        modal = False
+        annotations: list[Node] = []
+        box_uses: list[Node] = []
+        for node in syntax_nodes(declaration):
+            if node["kind"] == "generic_parameter" and node["mode"] == "grade":
+                raise protocol.error("unsupported", "grade generics require a qualified representation", node)
+            if node.get("grade") is not None:
+                annotations.append(node)
+            if (box is not None and node["kind"] in {"type", "name", "constructor_pattern"}
+                    and _name(node["name"]) == "Box"):
+                if node["kind"] == "type":
+                    raise protocol.error("unsupported", "graded Box values require a checked callable interface", node)
+                box_uses.append(node)
+                modal = True
+            if (node["kind"] in {"match_expression", "tuple", "tuple_type"}
+                    or (node["kind"] == "type" and _name(node["name"]) in record_names)):
+                modal = True
+        if not annotations:
+            if box_uses:
+                raise protocol.error("unsupported", "graded Box operations require an annotated pure definition", box_uses[0])
+            continue
+        if declaration["kind"] != "definition":
+            raise protocol.error("unsupported", "graded checking supports pure mathematical definitions", annotations[0])
+        domain = _domain(protocol, annotations[0])
+        for annotation in annotations:
+            if _domain(protocol, annotation) != domain:
+                raise protocol.error("unsupported", "a graded definition requires a single grade domain", annotation)
+            if annotation["kind"] in {"parameter", "lambda_parameter"} and annotation["type"] is not None and any(
+                node["kind"] == "function_type" for node in syntax_nodes(cast("Node", annotation["type"]))
+            ):
+                raise protocol.error("unsupported", "graded callable inputs require checked interface transport", annotation)
+        projection = (_ModalProjection if modal else _Projection)(protocol, syntax, domain)
+        selected = projection.definition(_name(declaration["name"]))
+        for annotation in annotations:
+            if id(annotation) not in projection.annotations:
+                raise protocol.error("unsupported", "grade annotation has no checked projection", annotation)
+        pending.append((projection, selected))
+    if not pending:
+        return accepted, ()
+
+    files = tuple(dict.fromkeys(name for _, definition in pending
+                                for name in (_ROCQ_FILES if definition.context is None else _MODAL_FILES)))
+    receipts = []
+    source_hash = hashlib.sha256(protocol.source).hexdigest()
+    with tempfile.TemporaryDirectory(prefix="holdfast-graded-module-") as temporary:
+        directory = Path(temporary)
+        hashes = _support(root, directory, files)
+        for projection, definition in pending:
+            certificate = _certificate(list(projection.completed.values()), source_hash, projection.domain)
+            _, checked = _replay(directory, projection, certificate)
+            dependencies = _ROCQ_FILES if definition.context is None else _MODAL_FILES
+            evidence = json.dumps({"certificate": checked, "support": {name: hashes[name] for name in dependencies}},
+                                  sort_keys=True, separators=(",", ":"))
+            receipts.append(f"(* Graded replay {definition.name} {projection.domain}: SHA256 "
+                            f"{hashlib.sha256(evidence.encode()).hexdigest()} *)\n")
+            accepted.update(projection.annotations)
+    return accepted, tuple(receipts)
+
+
 def check(root: Path, path: Path, declaration: str, *, modal: bool = False,
           domain: GradeDomain = GradeDomain.EXACT) -> dict[str, object]:
     snapshot = read_source(path)
     with parser.cached_build(root) as compiled:
         parsed = parser.parse_source(compiled, snapshot.data, surface=True)
-    projection = (_ModalProjection if modal else _Projection)(snapshot.data, parsed, domain)
+    protocol = _Protocol(snapshot.data)
+    projection = (_ModalProjection if modal else _Projection)(protocol, protocol.decode(parsed), domain)
     selected = projection.definition(declaration)
     definitions = list(projection.completed.values())
     source_hash = hashlib.sha256(snapshot.data).hexdigest()
     certificate = _certificate(definitions, source_hash, domain)
-    kernel_hashes, demand, certificate = _replay(root, projection, certificate, modal=modal)
+    with tempfile.TemporaryDirectory(prefix="holdfast-graded-source-") as temporary:
+        directory = Path(temporary)
+        kernel_hashes = _support(root, directory, _MODAL_FILES if modal else _ROCQ_FILES)
+        demand, certificate = _replay(directory, projection, certificate)
     ensure_unchanged(snapshot)
     return {
         "status": "checked",
