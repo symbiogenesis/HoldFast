@@ -30,6 +30,7 @@ from toolchain import (
     dialect,
     env,
     gallina_module_name,
+    graded_source,
     image,
     packet_runtime,
     packet_trace,
@@ -391,6 +392,7 @@ def _inputs(root: Path) -> dict[str, str]:
              "tools/opam/rocq.lock", "tools/opam/sail.lock",
              "tools/generated/dialect-table.json"}
     paths.update(f"tools/toolchain/parser/{name}" for name in holdfast_parser.SOURCES)
+    paths.update(f"tools/rocq/{name}" for name in graded_source.SUPPORT_FILES)
     paths.update(path.relative_to(root).as_posix()
                  for path in (root / "tools/toolchain").rglob("*.py"))
     return {name: file_sha256(root / name) for name in sorted(paths)}

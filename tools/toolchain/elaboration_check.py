@@ -21,6 +21,7 @@ import toolchain as holdfast
 from toolchain import (
     HoldFastError,
     env,
+    graded_source,
     proofenv,
     solver_ledger,
 )
@@ -1813,6 +1814,7 @@ def _inputs(root: Path) -> dict[str, str]:
         "tools/toolchain/proofenv.py",
         "tools/toolchain/env.py",
         *(f"tools/toolchain/{name}" for name in holdfast_elaborate.FRONTEND_SOURCES),
+        *(f"tools/rocq/{name}" for name in graded_source.SUPPORT_FILES),
         "tools/toolchain/solver_ledger.py",
         "tools/toolchain/elaboration_check.py",
         "tools/toolchain/atomic.py",
