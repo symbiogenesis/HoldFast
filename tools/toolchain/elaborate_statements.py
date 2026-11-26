@@ -9,7 +9,7 @@ from toolchain.ast import HoldFastError
 from toolchain.elaborate_flow_lints import branch as lint_branch
 from toolchain.elaborate_flow_lints import observe, range_loop, stable_loop_fact, while_entry
 from toolchain.elaborate_protocol import _ASSIGN_OPERATORS
-from toolchain.elaborate_resource_lints import lint_extra_lifts
+from toolchain.elaborate_resource_lints import _walk, lint_extra_lifts
 from toolchain.elaborate_types import (
     _BOOL,
     _INT_SPECS,
@@ -1993,6 +1993,15 @@ class _StatementsMixin:
         result, _ = self._unpack_guard_state(names, entry, _Binding(folded, initial.type))
         return result
 
+    def _symbolic_span_aliases(self: _Elaborator, owner: str, environment: dict[str, _Binding]) -> set[str]:
+        root = self._root_span(environment[owner].term)
+        backing_variables = self.free(root)
+        return {
+            name for name, binding in environment.items()
+            if name != owner and self._static_scalar_kind(self.whnf(binding.type)) is None
+            and (self._root_span(binding.term) == root or self.free(binding.term) & backing_variables)
+        }
+
     def _elaborate_foreach_collection_statement(
         self: _Elaborator,
         statement: Node,
@@ -2163,6 +2172,25 @@ class _StatementsMixin:
                 if mname in sym_env and mname not in {var_name, coll_name}:
                     m_ty = sym_env[mname].type
                     sym_env[mname] = _Binding(self.fresh(m_ty), m_ty)
+            lends_span = mode == "ref" and kind_tag == "span"
+            span_owner = None
+            owner_access = None
+            aliases: set[str] = set()
+            ordinal = self.fresh(_NAT)
+            index = _app(_constant("nat_to_usize"), ordinal)
+            if (lends_span and coll_name is not None and coll_name != var_name
+                    and coll_name not in self.local_borrows and coll_name not in self.slice_views):
+                # The model writes through the element at the scope exit. Any
+                # other access would require checked alias liveness and restoration.
+                aliases = self._symbolic_span_aliases(coll_name, extended)
+                suspended = aliases | {coll_name}
+                owner_access = next(
+                    (node for node in _walk(body_node)
+                     if node["kind"] == "name" and self.name(node["name"]) in suspended), None,
+                )
+                if owner_access is None and not aliases:
+                    span_owner = coll_name
+                    sym_env[span_owner] = _Binding(self.fresh(coll_b.type), coll_b.type)
             elem_var = self.fresh(elem_type)
             if mode == "ref":
                 self.mutable_locals.add(var_name)
@@ -2172,6 +2200,15 @@ class _StatementsMixin:
                     self.readonly_span_vars.add(cast("int", elem_var.value))
             sym_env[var_name] = _Binding(elem_var, elem_type)
             saved_facts_len = len(self.active_facts)
+            if span_owner is not None:
+                current = sym_env[span_owner].term
+                length = _apps(_constant("Span_Length"), _U8, current)
+                entry_length = _apps(_constant("Span_Length"), _U8, coll_b.term)
+                self.active_facts.extend((
+                    _apps(_constant("Span_CanRead"), _U8, current),
+                    _apps(_constant("Span_CanWrite"), _U8, current),
+                    _apps(_constant("int_eq_usize"), length, entry_length),
+                ))
             if kind_tag == "span":
                 coll_model = self.whnf(_apps(_constant("Span_Model"), _U8, coll_b.term))
             elif kind_tag == "slots":
@@ -2186,33 +2223,63 @@ class _StatementsMixin:
                     self.active_facts.append(self.whnf(_app(f_args[2], elem_var)))
             assumed = self._assume_loop_invariants(contracts, sym_env)
             self.active_facts.extend(assumed)
+            prior_element_write = lends_span and var_name in self.runtime_writes
+            if lends_span:
+                self.runtime_writes.discard(var_name)
             try:
                 before_sym_m = self._eval_loop_decreases(contracts, sym_env)
                 after_sym, _ = self._elaborate_non_returning_block(body_node, sym_env, facts)
+                writes_element = after_sym[var_name].term != elem_var or (
+                    lends_span and var_name in self.runtime_writes
+                )
                 step_env = dict(sym_env)
                 for k in list(sym_env):
                     if k != var_name and k in after_sym and k in self.mutable_locals:
                         step_env[k] = after_sym[k]
+                if span_owner is not None and writes_element:
+                    current = sym_env[span_owner]
+                    if step_env[span_owner] != current:
+                        raise self.fail("type", f"cannot mutate suspended Span owner '{span_owner}' during element iteration",
+                                        statement)
+                    step_env[span_owner] = _Binding(
+                        _apps(_constant("Span_Write"), _U8, current.term, index, after_sym[var_name].term), current.type,
+                    )
+                    self._note_runtime_write(coll_node)
                 self._check_loop_invariants(contracts, step_env, statement, "inductive step")
                 self._check_loop_decreases(before_sym_m, step_env, "inductive step")
             finally:
+                if prior_element_write:
+                    self.runtime_writes.add(var_name)
                 self.uninitialized_out_params = saved_uninit
                 del self.active_facts[saved_facts_len:]
             if self._contains_break_statement(body_node):
                 raise self.fail("unsupported", "symbolic collection break needs a represented early-exit state", statement)
-            if mode == "ref" and after_sym[var_name].term != elem_var:
+            if mode == "ref" and span_owner is None and writes_element:
+                if owner_access is not None:
+                    raise self.fail("type", f"cannot access suspended Span owner '{coll_name}' during element iteration",
+                                    owner_access)
+                if aliases:
+                    names = ", ".join(sorted(aliases))
+                    raise self.fail("type", f"cannot establish exclusive iteration of '{coll_name}' with retained "
+                                    f"Span views or aliases ({names})", statement)
                 raise self.fail("unsupported", "symbolic mutable element iteration needs represented writeback", statement)
             changed = [name for name in extended if name in self.mutable_locals and name != var_name
                        and sym_env[name].term != step_env[name].term]
             if changed:
-                ordinal = self.fresh(_NAT)
-                default = self._sequence_lookup_default(elem_type, coll_model)
-                element = _apps(_constant("Seq_At"), elem_type, default, coll_model, ordinal)
+                if span_owner is not None:
+                    element = _apps(_constant("Span_Read"), _U8, sym_env[span_owner].term, index)
+                    count = _app(_constant("int_to_nat_usize"), _apps(_constant("Span_Length"), _U8, coll_b.term))
+                else:
+                    default = self._sequence_lookup_default(elem_type, coll_model)
+                    element = _apps(_constant("Seq_At"), elem_type, default, coll_model, ordinal)
+                    count = _apps(_constant("Seq_Count"), elem_type, coll_model)
                 for name in changed:
                     step_env[name] = _Binding(self.substitute(step_env[name].term, cast("int", elem_var.value), element),
                                               step_env[name].type)
-                count = _apps(_constant("Seq_Count"), elem_type, coll_model)
                 cur_env = self._fold_loop(extended, sym_env, step_env, changed, count, ordinal)
+                if span_owner is not None and span_owner in changed:
+                    restored = _apps(_constant("Span_ReplaceStore"), _U8, coll_b.term, cur_env[span_owner].term)
+                    cur_env[span_owner] = _Binding(restored, coll_b.type)
             post_assumed = self._assume_loop_invariants(contracts, cur_env)
             self.active_facts.extend(post_assumed)
             return cur_env

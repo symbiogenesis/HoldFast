@@ -473,6 +473,9 @@ class _Elaborator(
             telescope((a,), self.pi(span_a, self.pi(span_a, span_a))),
             1,
         )
+        self.constants["Span_ReplaceStore"] = _Binding(
+            _constant("Span_ReplaceStore"), telescope((a,), self.pi(span_a, self.pi(span_a, span_a))), 1,
+        )
         bind("Seq", telescope((a,), _SORT))
         seq_a = _app(_constant("Seq"), a)
         self.constants["Seq_Empty"] = _Binding(_constant("Seq_Empty"), telescope((a,), seq_a), 1)
