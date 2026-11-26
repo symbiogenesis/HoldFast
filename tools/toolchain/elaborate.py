@@ -268,12 +268,21 @@ class _Elaborator(
         self.static_effect_sites: list[Node] = []
         self.nonstatic_callables: set[str] = set()
         self.slice_views: dict[str, str] = {}
+        self.slice_view_own_updates: dict[str, set[int]] = {}
         self.restored_view_terms: set[_Term] = set()
         self.local_borrows: dict[str, tuple[str, str, tuple[str, ...]]] = {}
         self.indexed_local_borrows: dict[str, _IndexedLocalBorrow] = {}
         self.indexed_borrow_peers: list[_IndexedBorrowPeer] = []
         self.indexed_borrow_serial: int = 0
         self.readonly_in_params: set[str] = set()
+        self.pi_hr_regions: dict[int, tuple[frozenset[str], tuple[str | None, ...], str | None]] = {}
+        self.var_hr_regions: dict[int, tuple[frozenset[str], tuple[str | None, ...], str | None]] = {}
+        self.param_type_regions: dict[int, str] = {}
+        self.scoped_term_regions: dict[int, str] = {}
+        self.local_value_regions: dict[str, tuple[int, str]] = {}
+        self.scoped_hr_regions: set[str] = set()
+        self.hr_region_serial: int = 0
+        self.active_lambda_outer_mutables: set[str] = set()
         self.output: list[str] = []
         self.site: Node | None = None
         self._builtins()
@@ -1122,6 +1131,8 @@ class _Elaborator(
             head, args = self.spine(w)
             if head == _constant("Span_Restore") and len(args) == 3:
                 return self._term_contains_restored_view(args[1])
+            if head in {_constant("Span_Read"), _constant("Span_Length")}:
+                return False
         return any(self._term_contains_restored_view(child) for child in w.args)
 
     def operator(self, raw: object) -> str:
@@ -1335,6 +1346,92 @@ class _Elaborator(
                 and self._owns_fields(value_type)):
             raise self.fail("type", "copying a value with owned fields requires an explicit whole-value move", source)
 
+    def _extract_type_region(self, type_node: Node) -> str | None:
+        cur = type_node
+        while cur["kind"] in {"group_type", "type_argument"}:
+            cur = self.node(cur["type"])
+        if cur["kind"] == "modified_type":
+            if cur.get("lifetime") is not None:
+                lt_node = self.node(cur["lifetime"], "lifetime")
+                return self.lifetime_name(lt_node["name"])
+            return self._extract_type_region(self.node(cur["type"]))
+        if cur["kind"] == "type":
+            for arg in self.nodes(cur["arguments"]):
+                if arg["kind"] == "lifetime":
+                    return self.lifetime_name(arg["name"])
+        return None
+
+    def _contains_span_type(self, ty: _Term) -> bool:
+        w = self.whnf(ty)
+        head, args = self.spine(w)
+        if head == _constant("Span"):
+            return True
+        if head.kind == "const" and isinstance(head.value, str):
+            if rinfo := self.records_by_type.get(head.value):
+                return any(
+                    self._contains_span_type(self._instantiate_record_type(rinfo, args, rf.type))
+                    for rf in rinfo.fields
+                )
+            if union := self.unions_by_type.get(head.value):
+                return any(
+                    self._contains_span_type(self._instantiate_generic_type(union.generic_vars, args, f.type))
+                    for ctor in union.constructors
+                    for f in ctor.fields
+                )
+        return any(self._contains_span_type(arg) for arg in args)
+
+    def _term_hr_region(self, term: _Term, environment: dict[str, _Binding] | None = None) -> str | None:
+        if id(term) in self.scoped_term_regions:
+            return self.scoped_term_regions[id(term)]
+        w = self.whnf(term)
+        if id(w) in self.scoped_term_regions:
+            return self.scoped_term_regions[id(w)]
+        if environment is not None:
+            for k, (reg_tid, reg_tag) in self.local_value_regions.items():
+                if k in environment and id(environment[k].term) == reg_tid and self.whnf(environment[k].term) == w:
+                    return reg_tag
+        if w.kind == "if":
+            return self._term_hr_region(w.args[2], environment) or self._term_hr_region(w.args[3], environment)
+        if w.kind in {"pair", "existT", "inl", "inr"}:
+            for child in w.args[2:]:
+                if (reg := self._term_hr_region(child, environment)) is not None:
+                    return reg
+            return None
+        head, args = self.spine(w)
+        if head in {_constant("Span_ReadOnly"), _constant("Span_Slice"), _constant("Span_Write"),
+                    _constant("Span_Fill"), _constant("Span_Restore")} and len(args) >= 2:
+            return self._term_hr_region(args[1], environment)
+        if head.kind == "const" and isinstance(head.value, str):
+            if record := self.records_by_ctor.get(head.value):
+                for child in args[len(record.generic_vars):]:
+                    if (reg := self._term_hr_region(child, environment)) is not None:
+                        return reg
+            if union_ctor := self.unions_by_ctor.get(head.value):
+                union, _ = union_ctor
+                for child in args[len(union.generic_vars):]:
+                    if (reg := self._term_hr_region(child, environment)) is not None:
+                        return reg
+        return None
+
+    def _is_tracked_span_view_call(self, node: Node) -> bool:
+        cur = self._unwrap_group(node)
+        while cur["kind"] == "call":
+            callee = self._unwrap_group(self.node(cur["callee"]))
+            path = self._dotted_member_path(callee)
+            if path not in {"Span.ReadOnly", "Span.Slice"}:
+                return False
+            call_args = self.nodes(cur["arguments"])
+            if not call_args:
+                return False
+            first_arg = self._unwrap_group(self.node(call_args[0]["value"]))
+            if first_arg["kind"] == "name":
+                return True
+            if first_arg["kind"] == "call":
+                cur = first_arg
+                continue
+            return False
+        return False
+
     def _check_argument_mode(self, expected: str | None, actual: object, site: Node) -> None:
         marker = "move" if expected == "owned" else expected
         if actual == marker:
@@ -1342,11 +1439,13 @@ class _Elaborator(
                 raise self.fail("type", f"an erased proof cannot pass a '{marker}' argument", site)
             if expected == "in" and self.in_executable_function:
                 marked = self._unwrap_group(self.node(site["value"]))
-                place = self._unwrap_group(self.node(marked["value"]))
-                while place["kind"] in {"member", "index"}:
-                    place = self._unwrap_group(self.node(place["value"]))
-                if place["kind"] != "name":
-                    raise self.fail("type", "an 'in' loan requires a place; bind the value to a local first", marked)
+                direct = self._unwrap_group(self.node(marked["value"]))
+                if not self._is_tracked_span_view_call(direct):
+                    place = direct
+                    while place["kind"] in {"member", "index"}:
+                        place = self._unwrap_group(self.node(place["value"]))
+                    if place["kind"] != "name":
+                        raise self.fail("type", "an 'in' loan requires a place; bind the value to a local first", marked)
             return
         if expected is not None:
             article = "an" if expected in {"in", "out", "owned"} else "a"
@@ -1516,6 +1615,16 @@ class _Elaborator(
         call_site = self.site
         term, value_type = binding.term, binding.type
         callee_head, callee_gen_args = self.spine(self.resolve(term))
+        init_vt_w = self.whnf(value_type)
+        call_hr_info = (
+            self.var_hr_regions.get(cast("int", callee_head.value))
+            if callee_head.kind == "var"
+            else None
+        ) or (
+            self.pi_hr_regions.get(cast("int", init_vt_w.value))
+            if init_vt_w.kind == "pi"
+            else None
+        )
         if callee_head.kind == "const" and str(callee_head.value) in self.specification_values and call_site is not None:
             self.phase_uses.append((call_site, self.specification_values[str(callee_head.value)]))
         is_rec_call = (
@@ -1662,8 +1771,11 @@ class _Elaborator(
                         else arg_val_node
                     )
                     if is_ref_param and arg_ident_node["kind"] != "name":
-                        self._resolve_local_borrow_target("ref", arg_ident_node, environment, node)
-                        loan_targets[idx] = (arg_ident_node, value_type.args[0])
+                        if self._is_tracked_span_view_call(arg_ident_node):
+                            pass
+                        else:
+                            self._resolve_local_borrow_target("ref", arg_ident_node, environment, node)
+                            loan_targets[idx] = (arg_ident_node, value_type.args[0])
                     if arg_ident_node["kind"] == "name":
                         arg_vname = self.name(arg_ident_node["name"])
                         lifted_set = self.lifted_invariants.get(arg_vname)
@@ -1735,6 +1847,7 @@ class _Elaborator(
                 term = _app(term, argument)
                 value_type = self.substitute(value_type.args[1], param_var_id, argument)
         self._check_indexed_call_loans(arguments, indices, shared_indices, environment)
+        self._check_slice_argument_overlap(arguments, val_args, environment)
         for arg_node, arg_type in by_value:
             if self._owns_fields(arg_type):
                 raise self.fail("type", "passing a value with owned fields requires an owned parameter and explicit move", arg_node)
@@ -1825,9 +1938,12 @@ class _Elaborator(
             idx_to_term: dict[int, _Term] = {}
             signature_writes = None
             callee = str(callee_head.value)
+            is_ctor = callee_head.kind == "const" and (
+                callee in self.records_by_ctor or callee in self.unions_by_ctor
+            )
             if callee_head.kind == "const" and self._call_arity_matches(callee, len(callee_gen_args), len(val_args)):
                 u_param_ids, idx_to_term = self.callable_ref_updates.get(callee, ((), {}))
-                signature_writes = self.callable_effect_writes.get(callee)
+                signature_writes = set() if is_ctor else self.callable_effect_writes.get(callee)
             for idx, (t_node, t_dom) in loan_targets.items():
                 writes = signature_writes is None or idx in signature_writes
                 if not writes:
@@ -1901,6 +2017,13 @@ class _Elaborator(
             term = self.specialize(specialized_term) if specializing else specialized_term
             for variable, argument in reversed(runtime_arguments):
                 term = _term("let", self.types[cast("int", variable.value)], argument, term, value=variable.value)
+        if call_hr_info is not None:
+            hr_regions, _, hr_result_region = call_hr_info
+            if hr_result_region is not None and hr_result_region in hr_regions:
+                self.hr_region_serial += 1
+                hr_tag = f"__hr_{self.hr_region_serial}"
+                self.scoped_hr_regions.add(hr_tag)
+                self.scoped_term_regions[id(term)] = hr_tag
         return _Binding(term, value_type)
 
     def _scalar_callback_contract(self, node: Node, domain: _Term) -> _FnContract:
@@ -2032,6 +2155,11 @@ class _Elaborator(
             source_type = {**param_type_node, "effects": [], "contracts": []} if annotated_fn else param_type_node
             domain = self.type(source_type, extended, allow_out=True)
             variable = self.fresh(domain)
+            dom_w = self.whnf(domain)
+            if dom_w.kind == "pi" and cast("int", dom_w.value) in self.pi_hr_regions:
+                self.var_hr_regions[cast("int", variable.value)] = self.pi_hr_regions[cast("int", dom_w.value)]
+            if (p_reg := self._extract_type_region(param_type_node)) is not None:
+                self.param_type_regions[cast("int", variable.value)] = p_reg
             if annotated_fn:
                 if node.get("const", False):
                     raise self.fail("unsupported", "contracted Fn parameters must be runtime parameters", node)
@@ -2171,11 +2299,44 @@ class _Elaborator(
         elif kind == "computed_type":
             result = self.expression(self.node(node["value"]), environment).term
         elif kind == "function_type":
-            self.no_roles(node, "captures", "effects", "contracts")
+            eff_nodes = self.nodes(node["effects"])
+            allow_none_eff = (
+                len(eff_nodes) == 1
+                and eff_nodes[0]["kind"] == "type"
+                and self.name(eff_nodes[0]["name"]) == "none"
+                and not eff_nodes[0]["arguments"]
+            )
+            self.no_roles(node, "captures", "contracts")
+            if not allow_none_eff:
+                self.no_roles(node, "effects")
             if node["mode"] != "Fn":
                 raise self.fail("unsupported", "only pure Fn callable types are supported")
-            variables, extended = self.telescope(self.nodes(node["generics"]), self.nodes(node["parameters"]), environment, unit=True)
-            result = self.wrap("pi", variables, self.type(self.node(node["result"]), extended))
+            fn_generics = self.nodes(node["generics"])
+            fn_params = self.nodes(node["parameters"])
+            _, hr_regions = self._extract_regions(fn_generics)
+            prev_active_regions = set(self.active_regions)
+            prev_readonly_in = set(self.readonly_in_params)
+            prev_mutable = set(self.mutable_locals)
+            prev_out = set(self.out_param_names)
+            prev_uninit = set(self.uninitialized_out_params)
+            try:
+                variables, extended = self.telescope(fn_generics, fn_params, environment, unit=True)
+                param_regions = tuple(self._extract_type_region(self.node(p["type"])) for p in fn_params)
+                result_node = self.node(node["result"])
+                result_region = self._extract_type_region(result_node)
+                result = self.wrap("pi", variables, self.type(result_node, extended))
+            finally:
+                self.active_regions = prev_active_regions
+                self.readonly_in_params = prev_readonly_in
+                self.mutable_locals = prev_mutable
+                self.out_param_names = prev_out
+                self.uninitialized_out_params = prev_uninit
+            if hr_regions and result.kind == "pi":
+                self.pi_hr_regions[cast("int", result.value)] = (
+                    frozenset(hr_regions),
+                    param_regions,
+                    result_region,
+                )
         elif kind == "modified_type":
             modifier = node.get("modifier")
             if node.get("lifetime") is not None:
@@ -2320,71 +2481,165 @@ class _Elaborator(
 
     def lambda_(self, node: Node, environment: dict[str, _Binding], expected: _Term | None = None) -> _Binding:
         parameter_role = "lambda_parameter"
+        lambda_regions: set[str] = set()
+        decl_result_region: str | None = None
+        decl_param_regions: list[str | None] = []
+        expected_w = self.whnf(expected) if expected is not None else None
+        expected_hr = (
+            self.pi_hr_regions.get(cast("int", expected_w.value))
+            if expected_w is not None and expected_w.kind == "pi"
+            else None
+        )
         if node["kind"] == "typed_lambda":
             parameter_role = "parameter"
             signature = self.type(self.node(node["signature"]), environment)
             if expected is not None:
                 self.unify(signature, expected)
             signature_node = self.node(node["signature"], "function_type")
-            if self.nodes(signature_node["generics"]):
+            gen_nodes = self.nodes(signature_node["generics"])
+            non_region_gens, lambda_regions = self._extract_regions(gen_nodes)
+            if non_region_gens:
                 raise self.fail("unsupported", "generic lambda telescopes require explicit declarations", node)
+            decl_param_regions = [
+                self._extract_type_region(self.node(p["type"])) for p in self.nodes(signature_node["parameters"])
+            ]
+            decl_result_region = self._extract_type_region(self.node(signature_node["result"]))
             node = {"kind": "lambda", "parameters": signature_node["parameters"], "body": node["body"], "span": node["span"]}
             expected = signature
         parameters = self.nodes(node["parameters"])
         variables: list[_Term] = []
+        param_regions_by_vid: dict[int, str] = {}
         extended = dict(environment)
         current = expected
-        if not parameters:
-            variable = self.fresh(_UNIT)
-            self.nullary_parameters.add(cast("int", variable.value))
-            variables.append(variable)
-            if current is not None:
-                current = self.whnf(current)
-                if current.kind != "pi":
-                    raise self.fail("type", "lambda requires a callable expected type", node)
-                if cast("int", current.value) not in self.nullary_parameters:
-                    raise self.fail("type", "an empty lambda requires a zero-parameter source interface", node)
-                self.unify(current.args[0], _UNIT)
-                current = self.substitute(current.args[1], cast("int", current.value), variable)
-        for parameter in parameters:
-            self.site = parameter
-            if parameter["kind"] != parameter_role:
-                raise self.fail("protocol", "invalid lambda parameter syntax role")
-            self.no_roles(parameter, "grade")
-            annotation = parameter["type"]
-            if annotation is None and parameter_role != "lambda_parameter":
-                raise self.fail("protocol", "a declared callable parameter requires a type")
-            domain = (self.meta(_SORT, extended) if annotation is None
-                      else self.type(self.node(annotation), extended))
-            expected_pi = None if current is None else self.whnf(current)
-            if expected_pi is not None:
-                if expected_pi.kind != "pi":
-                    raise self.fail("type", "lambda has more parameters than its expected type")
-                if cast("int", expected_pi.value) in self.nullary_parameters:
-                    raise self.fail("type", "an explicit lambda parameter cannot satisfy a zero-parameter source interface")
-                self.unify(domain, expected_pi.args[0])
-            variable = self.fresh(domain)
-            variables.append(variable)
-            static = cast("bool", parameter.get("const", False))
-            if expected_pi is not None:
-                expected_static = cast("int", expected_pi.value) in self.constant_parameters
-                if annotation is None:
-                    static = expected_static
-                elif static != expected_static:
-                    raise self.fail("type", "lambda constant-parameter requirement differs from its expected type")
-            if static:
-                self.constant_parameters.add(cast("int", variable.value))
-            name = self.name(parameter["name"])
-            self.parameter_names[cast("int", variable.value)] = name
-            self.bind_local(extended, name, _Binding(variable, domain, constant=static))
-            if expected_pi is not None:
-                current = self.substitute(expected_pi.args[1], cast("int", expected_pi.value), variable)
-        body_node = self.node(node["body"])
-        if current is None:
-            body = self.block(body_node, extended) if body_node["kind"] == "block" else self.expression(body_node, extended)
-        else:
-            body = _Binding(self.check(body_node, current, extended), current)
-        return _Binding(self.wrap("lam", variables, body.term), self.wrap("pi", variables, body.type))
+        prev_active_regions = set(self.active_regions)
+        prev_readonly_in = set(self.readonly_in_params)
+        prev_ret = self.current_return_type
+        prev_outer_mutables = set(self.active_lambda_outer_mutables)
+        is_hr_lambda = bool(lambda_regions) or expected_hr is not None
+        self.active_regions.update(lambda_regions)
+        if is_hr_lambda:
+            self.active_lambda_outer_mutables = set(self.mutable_locals)
+        try:
+            if not parameters:
+                variable = self.fresh(_UNIT)
+                self.nullary_parameters.add(cast("int", variable.value))
+                variables.append(variable)
+                if current is not None:
+                    current = self.whnf(current)
+                    if current.kind != "pi":
+                        raise self.fail("type", "lambda requires a callable expected type", node)
+                    if cast("int", current.value) not in self.nullary_parameters:
+                        raise self.fail("type", "an empty lambda requires a zero-parameter source interface", node)
+                    self.unify(current.args[0], _UNIT)
+                    current = self.substitute(current.args[1], cast("int", current.value), variable)
+            for p_idx, parameter in enumerate(parameters):
+                self.site = parameter
+                if parameter["kind"] != parameter_role:
+                    raise self.fail("protocol", "invalid lambda parameter syntax role")
+                self.no_roles(parameter, "grade")
+                annotation = parameter["type"]
+                if annotation is None and parameter_role != "lambda_parameter":
+                    raise self.fail("protocol", "a declared callable parameter requires a type")
+                domain = (self.meta(_SORT, extended) if annotation is None
+                          else self.type(self.node(annotation), extended))
+                expected_pi = None if current is None else self.whnf(current)
+                is_in_param = (
+                    annotation is not None
+                    and self.node(annotation)["kind"] == "modified_type"
+                    and self.node(annotation).get("modifier") == "in"
+                )
+                if expected_pi is not None:
+                    if expected_pi.kind != "pi":
+                        raise self.fail("type", "lambda has more parameters than its expected type")
+                    if cast("int", expected_pi.value) in self.nullary_parameters:
+                        raise self.fail("type", "an explicit lambda parameter cannot satisfy a zero-parameter source interface")
+                    self.unify(domain, expected_pi.args[0])
+                    if cast("int", expected_pi.value) in self.readonly_span_vars:
+                        is_in_param = True
+                variable = self.fresh(domain)
+                variables.append(variable)
+                if is_in_param:
+                    self.readonly_span_vars.add(cast("int", variable.value))
+                if p_idx < len(decl_param_regions) and decl_param_regions[p_idx] is not None:
+                    param_regions_by_vid[cast("int", variable.value)] = cast("str", decl_param_regions[p_idx])
+                static = cast("bool", parameter.get("const", False))
+                if expected_pi is not None:
+                    expected_static = cast("int", expected_pi.value) in self.constant_parameters
+                    if annotation is None:
+                        static = expected_static
+                    elif static != expected_static:
+                        raise self.fail("type", "lambda constant-parameter requirement differs from its expected type")
+                if static:
+                    self.constant_parameters.add(cast("int", variable.value))
+                name = self.name(parameter["name"])
+                self.parameter_names[cast("int", variable.value)] = name
+                if is_in_param:
+                    self.readonly_in_params.add(name)
+                self.bind_local(extended, name, _Binding(variable, domain, constant=static))
+                if expected_pi is not None:
+                    current = self.substitute(expected_pi.args[1], cast("int", expected_pi.value), variable)
+            body_node = self.node(node["body"])
+            if current is None:
+                body = self.block(body_node, extended) if body_node["kind"] == "block" else self.expression(body_node, extended)
+            else:
+                self.current_return_type = current
+                body = _Binding(self.check(body_node, current, extended), current)
+            body_free = self.free(body.term)
+            if lambda_regions and decl_result_region is not None and decl_result_region not in lambda_regions:
+                for pvid, preg in param_regions_by_vid.items():
+                    if preg in lambda_regions and pvid in body_free:
+                        raise self.fail(
+                            "type",
+                            f"cannot escape higher-ranked region '{preg}' into outer region '{decl_result_region}'",
+                            node,
+                        )
+            if expected_hr is not None:
+                hr_regions, _, exp_res_reg = expected_hr
+                if (
+                    exp_res_reg is not None
+                    and exp_res_reg not in hr_regions
+                    and decl_result_region is not None
+                    and decl_result_region in lambda_regions
+                ):
+                    raise self.fail(
+                        "type",
+                        f"cannot escape higher-ranked region '{decl_result_region}' into outer region '{exp_res_reg}'",
+                        node,
+                    )
+                if exp_res_reg is not None and exp_res_reg in hr_regions:
+                    if decl_result_region is not None and decl_result_region not in lambda_regions:
+                        raise self.fail(
+                            "type",
+                            f"cannot escape outer region '{decl_result_region}' into higher-ranked callback result",
+                            node,
+                        )
+                    param_ids = {cast("int", v.value) for v in variables}
+                    captured_free = body_free - param_ids
+                    for env_k, env_b in environment.items():
+                        if (
+                            env_b.term.kind == "var"
+                            and cast("int", env_b.term.value) in captured_free
+                            and self._contains_span_type(env_b.type)
+                        ):
+                            raise self.fail(
+                                "type",
+                                f"cannot capture or escape outer region binding '{env_k}' in higher-ranked callback",
+                                node,
+                            )
+            lam_term = self.wrap("lam", variables, body.term)
+            pi_type = self.wrap("pi", variables, body.type)
+            if lambda_regions and pi_type.kind == "pi":
+                self.pi_hr_regions[cast("int", pi_type.value)] = (
+                    frozenset(lambda_regions),
+                    tuple(decl_param_regions),
+                    decl_result_region,
+                )
+            return _Binding(lam_term, pi_type)
+        finally:
+            self.active_regions = prev_active_regions
+            self.readonly_in_params = prev_readonly_in
+            self.current_return_type = prev_ret
+            self.active_lambda_outer_mutables = prev_outer_mutables
 
 
 

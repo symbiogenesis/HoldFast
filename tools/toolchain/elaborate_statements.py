@@ -4,7 +4,7 @@
 from collections.abc import Callable, Collection, Generator
 from contextlib import contextmanager
 from dataclasses import replace
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 from toolchain.ast import HoldFastError
 from toolchain.elaborate_flow_lints import branch as lint_branch
@@ -47,11 +47,13 @@ class _StatementsMixin:
         # A proof sees the current values and permissions. Only its stated facts
         # may reach the next runtime statement, including when a binder name is reused.
         mutable, borrows, views = self.mutable_locals, self.local_borrows, self.slice_views
+        own_updates = self.slice_view_own_updates
         indexed_borrows, peers = self.indexed_local_borrows, self.indexed_borrow_peers
         restored, uninitialized = self.restored_view_terms, self.uninitialized_out_params
         verdicts, updates, active = self.result_bindings, self.last_call_updates, self.active_facts
         exit_env, exit_facts, theorem_facts = self.final_ref_bindings, self.final_return_facts, self.final_theorem_facts
         self.mutable_locals, self.local_borrows, self.slice_views = mutable.copy(), borrows.copy(), views.copy()
+        self.slice_view_own_updates = {k: set(v) for k, v in own_updates.items()}
         self.indexed_local_borrows, self.indexed_borrow_peers = indexed_borrows.copy(), peers.copy()
         self.restored_view_terms, self.uninitialized_out_params = restored.copy(), uninitialized.copy()
         self.result_bindings, self.last_call_updates, self.active_facts = {}, [], active.copy()
@@ -62,6 +64,7 @@ class _StatementsMixin:
         finally:
             self.in_inline_proof = False
             self.mutable_locals, self.local_borrows, self.slice_views = mutable, borrows, views
+            self.slice_view_own_updates = own_updates
             self.indexed_local_borrows, self.indexed_borrow_peers = indexed_borrows, peers
             self.restored_view_terms, self.uninitialized_out_params = restored, uninitialized
             self.result_bindings, self.last_call_updates, self.active_facts = verdicts, updates, active
@@ -156,6 +159,8 @@ class _StatementsMixin:
             self.local_borrows.pop(name, None)
             self.indexed_local_borrows.pop(name, None)
             self.slice_views.pop(name, None)
+            self.slice_view_own_updates.pop(name, None)
+            self.local_value_regions.pop(name, None)
         return {name: binding for name, binding in environment.items() if name in visible}
 
     def _guard_conditional(
@@ -655,6 +660,140 @@ class _StatementsMixin:
                     site if site is not None else cast("Node", self.site),
                 )
 
+    def _restore_slice_view_to_parent(
+        self: _Elaborator,
+        view_name: str,
+        new_view_term: _Term,
+        updated: dict[str, _Binding],
+        *,
+        span_write_idx: _Term | None = None,
+        span_write_val: _Term | None = None,
+    ) -> None:
+        if view_name not in self.slice_views:
+            return
+        parent_name = self.slice_views[view_name]
+        if parent_name not in updated:
+            return
+        p_b = updated[parent_name]
+        if span_write_idx is not None and span_write_val is not None:
+            ext = self._span_extent_in_owner(new_view_term, self._root_span(p_b.term))
+            if ext is not None:
+                owner_idx = self._add_usize_offset(ext[0], span_write_idx)
+            else:
+                base_diff = _apps(
+                    _constant("int_sub_usize"),
+                    _apps(_constant("Span_Base"), _U8, new_view_term),
+                    _apps(_constant("Span_Base"), _U8, p_b.term),
+                )
+                owner_idx = self._add_usize_offset(base_diff, span_write_idx)
+            new_parent_term = _apps(_constant("Span_Write"), _U8, p_b.term, owner_idx, span_write_val)
+        else:
+            new_parent_term = _apps(_constant("Span_Restore"), _U8, p_b.term, new_view_term)
+        updated[parent_name] = _Binding(new_parent_term, p_b.type)
+        self.slice_view_own_updates.setdefault(view_name, set()).add(id(new_parent_term))
+        if parent_name in self.slice_views:
+            self._restore_slice_view_to_parent(
+                parent_name,
+                new_parent_term,
+                updated,
+                span_write_idx=span_write_idx,
+                span_write_val=span_write_val,
+            )
+
+    def _build_collection_element_write(
+        self: _Elaborator,
+        col_b: _Binding,
+        idx_node: Node,
+        rhs_b_fn: Callable[[_Term], _Term],
+        updated: dict[str, _Binding],
+        site: Node,
+    ) -> _Binding:
+        cur_type = self.whnf(col_b.type)
+        head, type_args = self.spine(cur_type)
+        if head == _constant("Span") and len(type_args) == 1 and self.whnf(type_args[0]) == _U8:
+            idx_t = self.check(idx_node, _USIZE, updated)
+            self._check_span_can_write(col_b.term, updated, site)
+            len_t = _apps(_constant("Span_Length"), _U8, col_b.term)
+            in_bounds = _apps(_constant("int_lt_usize"), idx_t, len_t)
+            if not self._prove_bool_precondition(in_bounds, updated):
+                raise self.fail(
+                    "type",
+                    "cannot prove Span indexed write is in bounds (index < span.Length)",
+                    site,
+                )
+            old_elem = _apps(_constant("Span_Read"), _U8, col_b.term, idx_t)
+            rhs_t = rhs_b_fn(old_elem)
+            return _Binding(_apps(_constant("Span_Write"), _U8, col_b.term, idx_t, rhs_t), col_b.type)
+        if head == _constant("Slots") and len(type_args) == 2:
+            elem_t, cap_t = type_args[0], type_args[1]
+            idx_t = self._slots_usize_arg(idx_node, updated)
+            can_w = _apps(_constant("Slots_CanWrite"), elem_t, cap_t, col_b.term)
+            if not self._prove_bool_precondition(can_w, updated):
+                raise self.fail(
+                    "type",
+                    "cannot prove Slots has valid tag and write permission (Slots.CanWrite)",
+                    site,
+                )
+            live_t = _apps(_constant("Slots_LiveCount"), elem_t, cap_t, col_b.term)
+            lt_live = _apps(_constant("int_lt_usize"), idx_t, live_t)
+            eq_live = _apps(_constant("int_eq_usize"), idx_t, live_t)
+            cap_u = self._slots_cap_usize_term(cap_t)
+            lt_cap = (
+                _apps(_constant("int_lt_usize"), idx_t, cap_u)
+                if self.whnf(cap_u).kind == "int"
+                else _apps(_constant("<"), _app(_constant("int_to_nat_usize"), idx_t), cap_t)
+            )
+            if not (
+                self._prove_bool_precondition(lt_live, updated)
+                or (
+                    self._prove_bool_precondition(eq_live, updated)
+                    and self._prove_bool_precondition(lt_cap, updated)
+                )
+            ):
+                raise self.fail(
+                    "type",
+                    "cannot prove Slots indexed write is in bounds (index < LiveCount or (index == LiveCount and index < capacity))",
+                    site,
+                )
+            d_val = self._sequence_lookup_default(elem_t, _apps(_constant("Slots_Model"), elem_t, cap_t, col_b.term))
+            old_elem = _apps(_constant("Slots_Read"), elem_t, cap_t, d_val, col_b.term, idx_t)
+            rhs_t = rhs_b_fn(old_elem)
+            return _Binding(_apps(_constant("Slots_Write"), elem_t, cap_t, col_b.term, idx_t, rhs_t), col_b.type)
+        if head == _constant("Seq") and len(type_args) == 1:
+            elem_t = type_args[0]
+            cnt_t = _apps(_constant("Seq_Count"), elem_t, col_b.term)
+            idx_nat = self._nat_or_usize_index(idx_node, updated, "Seq")
+            in_bounds = _apps(_constant("<"), idx_nat, cnt_t)
+            if not self._prove_bool_precondition(in_bounds, updated):
+                raise self.fail(
+                    "type",
+                    "cannot prove Seq indexed write is in bounds (index < seq.Count)",
+                    site,
+                )
+            d_val = self._sequence_lookup_default(elem_t, col_b.term)
+            old_elem = _apps(_constant("Seq_At"), elem_t, d_val, col_b.term, idx_nat)
+            rhs_t = rhs_b_fn(old_elem)
+            return _Binding(_apps(_constant("Seq_Update"), elem_t, col_b.term, idx_nat, rhs_t), col_b.type)
+        if head == _constant("Vec") and len(type_args) == 2:
+            elem_t, len_t = type_args[0], type_args[1]
+            idx_nat = self._nat_or_usize_index(idx_node, updated, "Vec")
+            in_bounds = _apps(_constant("<"), idx_nat, len_t)
+            if not self._prove_bool_precondition(in_bounds, updated):
+                raise self.fail(
+                    "type",
+                    "cannot prove Vec indexed write is in bounds (index < n)",
+                    site,
+                )
+            d_val = self._default_term_for_type(elem_t)
+            old_elem = _apps(_constant("Vec_At_Nat"), elem_t, len_t, d_val, idx_nat, col_b.term)
+            rhs_t = rhs_b_fn(old_elem)
+            return _Binding(_apps(_constant("Vec_Update"), elem_t, len_t, idx_nat, rhs_t, col_b.term), col_b.type)
+        raise self.fail(
+            "type",
+            "indexed assignment target must have type Span<byte>, Slots<T, capacity>, Seq<T> or Vec<T, n>",
+            site,
+        )
+
     def _elaborate_assignment(self: _Elaborator, statement: Node, extended: dict[str, _Binding]) -> dict[str, _Binding]:
         self.site = statement
         target = self._unwrap_group(self.node(statement["target"]))
@@ -693,6 +832,8 @@ class _StatementsMixin:
                     f"cannot assign to immutable binding '{tname}'; declare it with 'var' or 'ref'",
                     target,
                 )
+            if tname in self.active_lambda_outer_mutables:
+                raise self.fail("type", f"cannot mutate outer variable '{tname}' inside higher-ranked callback", statement)
             if tname in self.local_borrows:
                 self._refresh_local_borrows(updated, target)
             elif tname in self.indexed_local_borrows:
@@ -726,6 +867,14 @@ class _StatementsMixin:
                 }
                 rhs_term = self.check(bin_node, cur_b.type, updated)
                 self._consume_call_updates(updated, statement)
+            if (rhs_hr := self._term_hr_region(rhs_term, updated)) is not None:
+                cur_hr = self.local_value_regions.get(tname)
+                if cur_hr is None or cur_hr[1] != rhs_hr:
+                    raise self.fail(
+                        "type",
+                        f"cannot assign value from higher-ranked callback region to outer binding '{tname}'",
+                        statement,
+                    )
             if tname in self.local_borrows:
                 self._apply_borrow_write(tname, _Binding(rhs_term, cur_b.type), updated, statement)
                 return updated
@@ -749,6 +898,127 @@ class _StatementsMixin:
         if target["kind"] == "member":
             recv_node = self._unwrap_group(self.node(target["value"]))
             fname = self.name(target["name"])
+            if recv_node["kind"] == "index":
+                index_chain: list[Node] = []
+                cur_idx_n = recv_node
+                while cur_idx_n["kind"] == "index":
+                    index_chain.append(cur_idx_n)
+                    cur_idx_n = self._unwrap_group(self.node(cur_idx_n["value"]))
+                index_chain.reverse()
+                if cur_idx_n["kind"] != "name":
+                    raise self.fail("type", "member assignment requires a named record variable target", target)
+                rname = self.name(cur_idx_n["name"])
+                if rname not in updated:
+                    raise self.fail("name", f"unknown identifier '{rname}'", cur_idx_n)
+                if rname in self.frozen_collections:
+                    raise self.fail("type", f"cannot mutate collection '{rname}' while iterating over it", statement)
+                if rname in self.uninitialized_out_params:
+                    raise self.fail(
+                        "type",
+                        f"cannot mutate field '{fname}' of uninitialized 'out' parameter '{rname}'; initialize the whole value first",
+                        target,
+                    )
+                if rname in self.local_borrows and self.local_borrows[rname][0] != "ref":
+                    raise self.fail(
+                        "type",
+                        f"cannot mutate field '{fname}' through shared 'in' borrow '{rname}' (write-through-shared)",
+                        target,
+                    )
+                if rname in self.indexed_local_borrows and self.indexed_local_borrows[rname].mode != "ref":
+                    raise self.fail(
+                        "type",
+                        f"cannot mutate field '{fname}' through shared 'in' borrow '{rname}' (write-through-shared)",
+                        target,
+                    )
+                if rname not in self.mutable_locals:
+                    raise self.fail(
+                        "type",
+                        f"cannot mutate field '{fname}' of immutable record '{rname}'; declare it with 'var' or 'ref'",
+                        target,
+                    )
+                if rname in self.local_borrows:
+                    self._refresh_local_borrows(updated, target)
+                elif rname in self.indexed_local_borrows:
+                    self._check_indexed_local_borrow_access(rname, updated, target)
+                cur_b = updated[rname]
+                if self._is_readonly_span(cur_b.term):
+                    raise self.fail("type", f"cannot mutate a read-only 'in' parameter '{rname}'", target)
+                rhs_expr_m: Node = (
+                    val_node
+                    if op == "="
+                    else {
+                        "kind": "binary",
+                        "span": statement["span"],
+                        "operator": {"text": op[:-1], "span": cast("Node", statement["operator"])["span"]},
+                        "left": target,
+                        "right": val_node,
+                    }
+                )
+                rhs_b_val = self.expression(rhs_expr_m, updated)
+                self._consume_call_updates(updated, statement)
+
+                def apply_member_at_chain(col_b: _Binding, chain_idx: int) -> _Binding:
+                    if chain_idx == len(index_chain):
+                        rec_type_m = self.whnf(col_b.type)
+                        m_head, m_targs = self.spine(rec_type_m)
+                        if (
+                            m_head.kind != "const"
+                            or not isinstance(m_head.value, str)
+                            or m_head.value not in self.records_by_type
+                        ):
+                            raise self.fail("type", f"member assignment target '{rname}' must be a record", target)
+                        record_info_m = self.records_by_type[m_head.value]
+                        f_index = next((idx for idx, rf in enumerate(record_info_m.fields) if rf.name == fname), None)
+                        if f_index is None:
+                            raise self.fail("name", f"record '{record_info_m.name}' has no mutable field '{fname}'", target)
+                        final_fields_m: list[_Term] = []
+                        for idx, rf in enumerate(record_info_m.fields):
+                            ftype = self._instantiate_record_type(record_info_m, m_targs, rf.type)
+                            for j in range(idx):
+                                ftype = self.substitute(ftype, cast("int", record_info_m.fields[j].var.value), final_fields_m[j])
+                            if idx == f_index:
+                                self.unify(rhs_b_val.type, ftype)
+                                final_fields_m.append(rhs_b_val.term)
+                            else:
+                                old_ftype = self._instantiate_record_field_type(record_info_m, m_targs, idx, col_b.term)
+                                if not self._try_unify(old_ftype, ftype):
+                                    raise self.fail(
+                                        "type",
+                                        f"field assignment changes an index that field '{rf.name}' depends on; use 'with' to update dependent fields together",
+                                        statement,
+                                    )
+                                final_fields_m.append(_apps(_constant(rf.proj_const), *m_targs, col_b.term))
+                        new_rec = _apps(_constant(record_info_m.ctor_const), *m_targs, *final_fields_m)
+                        self._check_record_invariants(record_info_m, m_targs, new_rec, updated, statement)
+                        return _Binding(new_rec, col_b.type)
+                    idx_node_cur = self.node(index_chain[chain_idx]["index"])
+                    cur_head, cur_targs = self.spine(self.whnf(col_b.type))
+                    if (
+                        (cur_head == _constant("Vec") and len(cur_targs) == 2)
+                        or (cur_head == _constant("Seq") and len(cur_targs) == 1)
+                        or (cur_head == _constant("Slots") and len(cur_targs) == 2)
+                    ):
+                        sub_ty = cur_targs[0]
+                    else:
+                        raise self.fail("type", "indexed record assignment requires Vec, Seq, or Slots", target)
+                    return self._build_collection_element_write(
+                        col_b,
+                        idx_node_cur,
+                        lambda old_elem: apply_member_at_chain(_Binding(old_elem, sub_ty), chain_idx + 1).term,
+                        updated,
+                        statement,
+                    )
+
+                new_col_m = apply_member_at_chain(cur_b, 0)
+                if rname in self.local_borrows:
+                    self._apply_borrow_write(rname, new_col_m, updated, statement)
+                    return updated
+                if rname in self.indexed_local_borrows:
+                    self._apply_indexed_borrow_write(rname, new_col_m, updated, statement)
+                    return updated
+                updated[rname] = new_col_m
+                self._refresh_local_borrows(updated, statement)
+                return updated
             if recv_node["kind"] != "name":
                 raise self.fail("type", "member assignment requires a named record variable target", target)
             rname = self.name(recv_node["name"])
@@ -840,6 +1110,91 @@ class _StatementsMixin:
         if target["kind"] == "index":
             recv_node = self._unwrap_group(self.node(target["value"]))
             idx_node = self.node(target["index"])
+            if recv_node["kind"] == "index":
+                index_chain_i: list[Node] = [target]
+                cur_in = recv_node
+                while cur_in["kind"] == "index":
+                    index_chain_i.append(cur_in)
+                    cur_in = self._unwrap_group(self.node(cur_in["value"]))
+                index_chain_i.reverse()
+                if cur_in["kind"] != "name":
+                    raise self.fail("type", "indexed assignment requires a named mutable variable target", target)
+                rname = self.name(cur_in["name"])
+                if rname not in updated:
+                    raise self.fail("name", f"unknown identifier '{rname}'", cur_in)
+                if rname in self.frozen_collections:
+                    raise self.fail("type", f"cannot mutate collection '{rname}' while iterating over it", statement)
+                if rname in self.uninitialized_out_params:
+                    raise self.fail(
+                        "type",
+                        f"cannot mutate indexed element of uninitialized 'out' parameter '{rname}'; initialize the whole value first",
+                        target,
+                    )
+                if rname in self.indexed_local_borrows:
+                    if self.indexed_local_borrows[rname].mode != "ref":
+                        raise self.fail(
+                            "type",
+                            f"cannot mutate indexed element through shared 'in' borrow '{rname}' (write-through-shared)",
+                            target,
+                        )
+                    self._check_indexed_local_borrow_access(rname, updated, target)
+                if rname not in self.mutable_locals:
+                    raise self.fail(
+                        "type",
+                        f"cannot mutate indexed element of immutable binding '{rname}'; declare it with 'var' or 'ref'",
+                        target,
+                    )
+                cur_b = updated[rname]
+                if self._is_readonly_span(cur_b.term):
+                    raise self.fail("type", f"cannot mutate a read-only 'in' parameter '{rname}'", target)
+                rhs_expr_i: Node = (
+                    val_node
+                    if op == "="
+                    else {
+                        "kind": "binary",
+                        "span": statement["span"],
+                        "operator": {"text": op[:-1], "span": cast("Node", statement["operator"])["span"]},
+                        "left": target,
+                        "right": val_node,
+                    }
+                )
+                rhs_b_i = self.expression(rhs_expr_i, updated)
+                self._consume_call_updates(updated, statement)
+
+                def apply_nested_write(col_b: _Binding, chain_idx: int) -> _Binding:
+                    idx_cur = self.node(index_chain_i[chain_idx]["index"])
+                    if chain_idx == len(index_chain_i) - 1:
+                        cur_h, cur_ta = self.spine(self.whnf(col_b.type))
+                        expected_elem = _U8 if cur_h == _constant("Span") else cur_ta[0]
+                        self.unify(rhs_b_i.type, expected_elem)
+                        return self._build_collection_element_write(
+                            col_b, idx_cur, lambda _old: rhs_b_i.term, updated, statement
+                        )
+                    cur_h, cur_ta = self.spine(self.whnf(col_b.type))
+                    if cur_h not in {_constant("Vec"), _constant("Seq"), _constant("Slots")}:
+                        raise self.fail(
+                            "type",
+                            "nested indexed assignment target must have outer type Vec, Seq, or Slots",
+                            target,
+                        )
+                    sub_ty = cur_ta[0]
+                    return self._build_collection_element_write(
+                        col_b,
+                        idx_cur,
+                        lambda old_elem: apply_nested_write(_Binding(old_elem, sub_ty), chain_idx + 1).term,
+                        updated,
+                        statement,
+                    )
+
+                new_nested = apply_nested_write(cur_b, 0)
+                if rname in self.indexed_local_borrows:
+                    self._apply_indexed_borrow_write(rname, new_nested, updated, statement)
+                    return updated
+                if rname in self.local_borrows:
+                    self._apply_borrow_write(rname, new_nested, updated, statement)
+                    return updated
+                updated[rname] = new_nested
+                return updated
             if recv_node["kind"] != "name":
                 raise self.fail("type", "indexed assignment requires a named mutable variable target", target)
             rname = self.name(recv_node["name"])
@@ -883,12 +1238,14 @@ class _StatementsMixin:
             )
             cur_type = self.whnf(cur_b.type)
             head, type_args = self.spine(cur_type)
+            span_idx_t: _Term | None = None
+            span_rhs_t: _Term | None = None
             if head == _constant("Span") and len(type_args) == 1 and self.whnf(type_args[0]) == _U8:
-                idx_t = self.check(idx_node, _USIZE, updated)
-                rhs_t = self.check(rhs_expr, _U8, updated)
+                span_idx_t = self.check(idx_node, _USIZE, updated)
+                span_rhs_t = self.check(rhs_expr, _U8, updated)
                 self._check_span_can_write(cur_b.term, updated, statement)
                 len_t = _apps(_constant("Span_Length"), _U8, cur_b.term)
-                in_bounds = _apps(_constant("int_lt_usize"), idx_t, len_t)
+                in_bounds = _apps(_constant("int_lt_usize"), span_idx_t, len_t)
                 if not self._prove_bool_precondition(in_bounds, updated):
                     raise self.fail(
                         "type",
@@ -896,7 +1253,7 @@ class _StatementsMixin:
                         statement,
                     )
                 new_col_b = _Binding(
-                    _apps(_constant("Span_Write"), _U8, cur_b.term, idx_t, rhs_t), cur_b.type
+                    _apps(_constant("Span_Write"), _U8, cur_b.term, span_idx_t, span_rhs_t), cur_b.type
                 )
             elif head == _constant("Slots") and len(type_args) == 2:
                 elem_t, cap_t = type_args[0], type_args[1]
@@ -973,12 +1330,9 @@ class _StatementsMixin:
                 return updated
             updated[rname] = new_col_b
             if head == _constant("Span") and rname in self.slice_views:
-                parent_name = self.slice_views[rname]
-                if parent_name in updated:
-                    p_b = updated[parent_name]
-                    updated[parent_name] = _Binding(
-                        _apps(_constant("Span_Restore"), _U8, p_b.term, new_col_b.term), p_b.type
-                    )
+                self._restore_slice_view_to_parent(
+                    rname, new_col_b.term, updated, span_write_idx=span_idx_t, span_write_val=span_rhs_t
+                )
             return updated
         raise self.fail("type", "assignment target must be a mutable local variable or record field", target)
 
@@ -1090,22 +1444,84 @@ class _StatementsMixin:
             raise self.fail("name", f"unknown identifier '{info.owner}'", site_node)
         self._check_indexed_local_borrow_access(bname, updated, site_node)
         owner_b = updated[info.owner]
-        if info.collection_kind == "vec":
-            new_owner_term = _apps(
-                _constant("Vec_Update"), *info.type_args, info.index_term, new_binding.term, owner_b.term
+
+        def read_collection_at(
+            ckind: Literal["vec", "seq", "span", "slots"],
+            targs: tuple[_Term, ...],
+            col_term: _Term,
+            idx_t: _Term,
+        ) -> _Term:
+            if ckind == "vec":
+                d_val = self._default_term_for_type(targs[0])
+                return _apps(_constant("Vec_At_Nat"), targs[0], targs[1], d_val, idx_t, col_term)
+            if ckind == "seq":
+                d_val = self._sequence_lookup_default(targs[0], col_term)
+                return _apps(_constant("Seq_At"), targs[0], d_val, col_term, idx_t)
+            if ckind == "span":
+                return _apps(_constant("Span_Read"), _U8, col_term, idx_t)
+            d_val = self._sequence_lookup_default(
+                targs[0], _apps(_constant("Slots_Model"), targs[0], targs[1], col_term)
             )
-        elif info.collection_kind == "seq":
-            new_owner_term = _apps(
-                _constant("Seq_Update"), *info.type_args, owner_b.term, info.index_term, new_binding.term
-            )
-        elif info.collection_kind == "span":
-            new_owner_term = _apps(
-                _constant("Span_Write"), *info.type_args, owner_b.term, info.index_term, new_binding.term
-            )
-        else:
-            new_owner_term = _apps(
-                _constant("Slots_Write"), *info.type_args, owner_b.term, info.index_term, new_binding.term
-            )
+            return _apps(_constant("Slots_Read"), targs[0], targs[1], d_val, col_term, idx_t)
+
+        def write_collection_at(
+            ckind: Literal["vec", "seq", "span", "slots"],
+            targs: tuple[_Term, ...],
+            col_term: _Term,
+            idx_t: _Term,
+            val_t: _Term,
+        ) -> _Term:
+            if ckind == "vec":
+                return _apps(_constant("Vec_Update"), *targs, idx_t, val_t, col_term)
+            if ckind == "seq":
+                return _apps(_constant("Seq_Update"), *targs, col_term, idx_t, val_t)
+            if ckind == "span":
+                return _apps(_constant("Span_Write"), *targs, col_term, idx_t, val_t)
+            return _apps(_constant("Slots_Write"), *targs, col_term, idx_t, val_t)
+
+        def build_updated_leaf(cur_elem: _Term, cur_ty: _Term, fpath: tuple[str, ...]) -> _Term:
+            if not fpath:
+                return new_binding.term
+            r_head, r_targs = self.spine(self.whnf(cur_ty))
+            if r_head.kind != "const" or not isinstance(r_head.value, str) or r_head.value not in self.records_by_type:
+                raise self.fail("type", f"borrowed element of '{info.owner}' is not a record", site_node)
+            record_info = self.records_by_type[r_head.value]
+            f_idx = next((k for k, rf in enumerate(record_info.fields) if rf.name == fpath[0]), None)
+            if f_idx is None:
+                raise self.fail("name", f"record '{record_info.name}' has no field '{fpath[0]}'", site_node)
+            final_fields: list[_Term] = []
+            for k, rf in enumerate(record_info.fields):
+                proj = _apps(_constant(rf.proj_const), *r_targs, cur_elem)
+                if k == f_idx:
+                    ft = self._instantiate_record_field_type(record_info, r_targs, k, cur_elem)
+                    final_fields.append(build_updated_leaf(proj, ft, fpath[1:]))
+                else:
+                    final_fields.append(proj)
+            new_rec = _apps(_constant(record_info.ctor_const), *r_targs, *final_fields)
+            self._check_record_invariants(record_info, r_targs, new_rec, updated, site_node)
+            return new_rec
+
+        def build_nested(
+            col_term: _Term,
+            levels: tuple[tuple[Literal["vec", "seq", "span", "slots"], _Term, _Term, tuple[_Term, ...], _Term], ...],
+        ) -> _Term:
+            ckind, idx_t, _, targs, elem_ty = levels[0]
+            if len(levels) == 1:
+                if info.field_path:
+                    old_leaf = read_collection_at(ckind, targs, col_term, idx_t)
+                    leaf_val = build_updated_leaf(old_leaf, elem_ty, info.field_path)
+                else:
+                    leaf_val = new_binding.term
+                return write_collection_at(ckind, targs, col_term, idx_t, leaf_val)
+            sub_col = read_collection_at(ckind, targs, col_term, idx_t)
+            updated_sub = build_nested(sub_col, levels[1:])
+            return write_collection_at(ckind, targs, col_term, idx_t, updated_sub)
+
+        all_levels = (
+            (info.collection_kind, info.index_term, info.index_type, info.type_args, info.elem_type),
+            *info.nested_indices,
+        )
+        new_owner_term = build_nested(owner_b.term, all_levels)
         new_owner_b = _Binding(new_owner_term, owner_b.type)
         if info.owner in self.indexed_local_borrows:
             self._apply_indexed_borrow_write(info.owner, new_owner_b, updated, site_node)
@@ -1114,12 +1530,13 @@ class _StatementsMixin:
         else:
             updated[info.owner] = new_owner_b
             if info.collection_kind == "span" and info.owner in self.slice_views:
-                parent_name = self.slice_views[info.owner]
-                if parent_name in updated:
-                    p_b = updated[parent_name]
-                    updated[parent_name] = _Binding(
-                        _apps(_constant("Span_Restore"), _U8, p_b.term, new_owner_term), p_b.type
-                    )
+                self._restore_slice_view_to_parent(
+                    info.owner,
+                    new_owner_term,
+                    updated,
+                    span_write_idx=info.index_term if not info.nested_indices and not info.field_path else None,
+                    span_write_val=new_binding.term if not info.nested_indices and not info.field_path else None,
+                )
             self._refresh_local_borrows(updated, site_node)
         updated[bname] = new_binding
         self.indexed_local_borrows[bname] = replace(info, owner_term=self.whnf(updated[info.owner].term))
@@ -1221,12 +1638,7 @@ class _StatementsMixin:
                 self.uninitialized_out_params.discard(vname)
                 updated[vname] = new_binding
                 if vname in self.slice_views:
-                    parent_name = self.slice_views[vname]
-                    if parent_name in updated:
-                        p_b = updated[parent_name]
-                        updated[parent_name] = _Binding(
-                            _apps(_constant("Span_Restore"), _U8, p_b.term, new_binding.term), p_b.type
-                        )
+                    self._restore_slice_view_to_parent(vname, new_binding.term, updated)
                 self._refresh_local_borrows(updated, site)
                 return True
             return False
@@ -2069,11 +2481,14 @@ class _StatementsMixin:
                 pre_uninit = set(self.uninitialized_out_params)
                 pre_indexed = dict(self.indexed_local_borrows)
                 pre_peer_len = len(self.indexed_borrow_peers)
+                pre_slice_views = dict(self.slice_views)
+                pre_own_updates = {k: set(v) for k, v in self.slice_view_own_updates.items()}
                 cond_raw = self.node(if_stmt["condition"])
                 condition = self.check(cond_raw, _BOOL, pre_env)
                 self._consume_call_updates(pre_env, cond_raw)
                 lint_branch(self, cond_raw, condition, pre_env)
                 self.active_facts.append(condition)
+                ret_term: _Term | None = None
                 try:
                     then_env, _ = self._non_returning_statements(
                         {"kind": "block", "span": if_stmt["span"], "statements": then_prefix},
@@ -2099,6 +2514,12 @@ class _StatementsMixin:
                     else:
                         ret_term = self.check(self.node(ret_stmt["value"]), ret_type, then_env)
                         self._consume_call_updates(then_env, ret_stmt)
+                        if self._term_hr_region(ret_term, then_env) is not None:
+                            raise self.fail(
+                                "type",
+                                "cannot return value borrowing higher-ranked callback region outside its invocation",
+                                ret_stmt,
+                            )
                         self._check_span_view_use(ret_term, then_env, ret_stmt, use="return", baseline=sym_env)
                         ret_b = _Binding(ret_term, ret_type)
                     then_env = self._leave_statement_scope(pre_env.keys(), then_env)
@@ -2108,6 +2529,8 @@ class _StatementsMixin:
                     self.uninitialized_out_params = set(pre_uninit)
                     self.indexed_local_borrows = dict(pre_indexed)
                     del self.indexed_borrow_peers[pre_peer_len:]
+                    self.slice_views = dict(pre_slice_views)
+                    self.slice_view_own_updates = {k: set(v) for k, v in pre_own_updates.items()}
                 self.active_facts.append(self._negate_bool_term(condition))
                 try:
                     cont_env, _ = self._elaborate_non_returning_block(
@@ -2116,6 +2539,37 @@ class _StatementsMixin:
                         (*facts, *self._branch_guard(condition, False)),
                     )
                     cont_env = self._leave_statement_scope(sym_env.keys(), cont_env)
+                    if ret_term is not None:
+                        span_u8 = _app(_constant("Span"), _U8)
+                        j_var = self.fresh(elem_type)
+                        iter_check_env = dict(extended)
+                        changed_in_step = False
+                        for k_name, k_ext in extended.items():
+                            if (
+                                k_name in self.entry_env
+                                and self.entry_env[k_name].term.kind == "var"
+                                and self.entry_env[k_name].term.value in self.ref_parameters
+                                and self.whnf(k_ext.type) == span_u8
+                                and k_name in cont_env
+                                and k_name in sym_env
+                                and cont_env[k_name].term != sym_env[k_name].term
+                            ):
+                                changed_in_step = True
+                                step_t = cont_env[k_name].term
+                                if sym_env[k_name].term.kind == "var":
+                                    step_t = self.substitute(step_t, cast("int", sym_env[k_name].term.value), k_ext.term)
+                                step_t = self.substitute(step_t, cast("int", i_var.value), j_var)
+                                iter_check_env[k_name] = _Binding(step_t, k_ext.type)
+                        if changed_in_step:
+                            saved_j_facts = len(self.active_facts)
+                            self.active_facts.append(_apps(_constant(ge_op), j_var, start_term))
+                            self.active_facts.append(_apps(_constant(lt_op), j_var, i_var))
+                            try:
+                                self._check_span_view_use(
+                                    ret_term, iter_check_env, ret_stmt, use="return", baseline=extended
+                                )
+                            finally:
+                                del self.active_facts[saved_j_facts:]
                     step_env = dict(sym_env)
                     for k in list(sym_env):
                         if k != var_name and k in cont_env and k in self.mutable_locals:
@@ -3270,6 +3724,12 @@ class _StatementsMixin:
                         else _Binding(self.check(value_node, expected, extended), expected)
                     )
                     self._consume_call_updates(extended, cur_stmt)
+                    if self._term_hr_region(result.term, extended) is not None:
+                        raise self.fail(
+                            "type",
+                            "cannot return value borrowing higher-ranked callback region outside its invocation",
+                            cur_stmt,
+                        )
                     if self._term_contains_restored_view(result.term):
                         raise self.fail(
                             "type",

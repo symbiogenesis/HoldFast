@@ -221,6 +221,11 @@ class _IndexedLocalBorrow:
     type_args: tuple[_Term, ...]
     birth_id: int
     site: Node
+    field_path: tuple[str, ...] = ()
+    nested_indices: tuple[
+        tuple[Literal["vec", "seq", "span", "slots"], _Term, _Term, tuple[_Term, ...], _Term],
+        ...,
+    ] = ()
 
 
 @dataclass(frozen=True)
@@ -234,6 +239,11 @@ class _IndexedBorrowPeer:
     index_type: _Term
     guards: tuple[_Term, ...]
     site: Node
+    field_path: tuple[str, ...] = ()
+    nested_indices: tuple[
+        tuple[Literal["vec", "seq", "span", "slots"], _Term, _Term, tuple[_Term, ...], _Term],
+        ...,
+    ] = ()
 
 
 @dataclass(frozen=True)
@@ -1480,6 +1490,18 @@ Fixpoint holdfast_bs_shift (off : holdfast_int (4 : nat)) (st : holdfast_ByteSto
       holdfast_bs_copy (holdfast_int_add (4 : nat) off doff) soff count src_st (holdfast_bs_shift off rest)
   end.
 
+Fixpoint holdfast_bs_shift_onto (base : holdfast_ByteStore) (off : holdfast_int (4 : nat)) (st : holdfast_ByteStore) {struct st} : holdfast_ByteStore :=
+  match st with
+  | holdfast_bs_empty => base
+  | holdfast_bs_slice _ _ _ => base
+  | holdfast_bs_fill foff len val rest =>
+      holdfast_bs_fill (holdfast_int_add (4 : nat) off foff) len val (holdfast_bs_shift_onto base off rest)
+  | holdfast_bs_write widx val rest =>
+      holdfast_bs_write (holdfast_int_add (4 : nat) off widx) val (holdfast_bs_shift_onto base off rest)
+  | holdfast_bs_copy doff soff count src_st rest =>
+      holdfast_bs_copy (holdfast_int_add (4 : nat) off doff) soff count src_st (holdfast_bs_shift_onto base off rest)
+  end.
+
 Inductive holdfast_Span (A : Type@{holdfast_u0}) : Type@{holdfast_u0} :=
 | holdfast_mk_span :
     holdfast_int (4 : nat) ->
@@ -1603,7 +1625,7 @@ Definition holdfast_Span_Restore (A : Type@{holdfast_u0}) (parent view : holdfas
     (holdfast_Span_Tag A parent)
     (holdfast_Span_PermRead A parent)
     (holdfast_Span_PermWrite A parent)
-    (holdfast_bs_shift (holdfast_store_slice_offset (holdfast_Span_Store A view)) (holdfast_Span_Store A view)).
+    (holdfast_bs_shift_onto (holdfast_Span_Store A parent) (holdfast_store_slice_offset (holdfast_Span_Store A view)) (holdfast_Span_Store A view)).
 
 Definition holdfast_Span_ReplaceStore (A : Type@{holdfast_u0}) (owner updated : holdfast_Span A) : holdfast_Span A :=
   holdfast_mk_span A

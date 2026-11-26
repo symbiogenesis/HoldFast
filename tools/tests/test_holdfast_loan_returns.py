@@ -24,6 +24,15 @@ def _replay_view_proof(gallina: str, proof: str, module: str, theorems: list[str
                                 encoding="utf-8", timeout=180, check=False)
         ensure(replay.returncode == 0, replay.stderr)
         solver_ledger.audit(replay.stdout, len(exports), f"HoldFast_{module}", entries)
+        chk = subprocess.run(
+            ["opam", "exec", "--switch", proofenv.ROCQ_SWITCH, "--", "rocqchk", "-silent", module],
+            cwd=tmp,
+            capture_output=True,
+            encoding="utf-8",
+            timeout=180,
+            check=False,
+        )
+        ensure(chk.returncode == 0, chk.stderr)
 
 
 def _conditional_view_return() -> None:
@@ -904,6 +913,541 @@ Proof. vm_compute. repeat split; reflexivity. Qed.
     ])
 
 
+def _subslice_disjoint_writeback() -> None:
+    source = (TOOLS / "tests" / "fixtures" / "subslice-disjoint-writeback.hf").read_bytes()
+    with parser.cached_build(TOOLS.parent) as compiled:
+        gallina = elaborate(source, parser.parse_source(compiled, source, surface=True)).gallina
+        for invalid, needle, message in (
+            (
+                source.replace(b"requires (a + m <= b) || (b + n <= a)", b"requires a < buf.Length"),
+                b"var right = Span.Slice(buf, b, n);",
+                "cannot prove mutable slice 'right' is disjoint from live mutable slice 'left' of 'buf'",
+            ),
+            (
+                source.replace(
+                    b"((a + m <= b) || (b + n <= a)) || (m == 0usize || n == 0usize)",
+                    b"a < buf.Length",
+                ),
+                b"let right = ref Span.Slice(buf, b, n);",
+                "cannot prove mutable slice 'right' is disjoint from live mutable slice 'left' of 'buf'",
+            ),
+            (
+                source.replace(b"    left[k1] = 11u8;", b"    left[k1] = 11u8;\n    Span.Fill(ref buf, a, m, 99u8);"),
+                b"return DualBytes(left[k1], right[k2]);",
+                "cannot prove Span view read is disjoint from an update to 'buf'",
+            ),
+        ):
+            parsed = parser.parse_source(compiled, invalid, surface=True)
+            with raises(HoldFastError, msg="overlapping mutable sub-slice reached Gallina emission") as failure:
+                elaborate(invalid, parsed)
+            error = failure.exception
+            target_line = next(num for num, line in enumerate(invalid.splitlines(), 1) if needle in line)
+            ensure(error.kind == "type" and error.line == target_line and message in error.message,
+                   f"wrong rejection for overlapping mutable sub-slice: {error.line}:{error.column}: {error}")
+
+    [dual_var] = re.findall(r"^Definition (holdfast_d\d+_DualWriteVar) :", gallina, re.MULTILINE)
+    [dual_let] = re.findall(r"^Definition (holdfast_d\d+_DualWriteRefLet) :", gallina, re.MULTILINE)
+    [zero_fn] = re.findall(r"^Definition (holdfast_d\d+_ZeroLenSlices) :", gallina, re.MULTILINE)
+    [left_proj] = re.findall(r"^Definition (holdfast_d\d+_DualBytes_Left) :", gallina, re.MULTILINE)
+    [right_proj] = re.findall(r"^Definition (holdfast_d\d+_DualBytes_Right) :", gallina, re.MULTILINE)
+    proof = rf"""
+Import HoldFast_SubsliceDisjointWriteback.
+Local Definition trial_index (n : nat) := holdfast_mk_int 4 (holdfast_nat_to_bits 64 n).
+Local Definition trial_byte (n : nat) := holdfast_mk_int 0 (holdfast_nat_to_bits 8 n).
+Local Definition trial_read := holdfast_Span_Read (holdfast_int 0).
+Local Definition trial_buf :=
+  let initial := holdfast_mk_span (holdfast_int 0) (trial_index 11) (trial_index 8) true true true holdfast_bs_empty in
+  let wr s i v := holdfast_Span_Write (holdfast_int 0) s (trial_index i) (trial_byte v) in
+  wr (wr (wr (wr (wr (wr (wr (wr initial 0 100) 1 101) 2 102) 3 103) 4 104) 5 105) 6 106) 7 107.
+Local Definition observe_span (s : holdfast_Span (holdfast_int 0)) :=
+  (holdfast_int_to_nat 0 (trial_read s (trial_index 0)),
+   holdfast_int_to_nat 0 (trial_read s (trial_index 1)),
+   holdfast_int_to_nat 0 (trial_read s (trial_index 2)),
+   holdfast_int_to_nat 0 (trial_read s (trial_index 3)),
+   holdfast_int_to_nat 0 (trial_read s (trial_index 4)),
+   holdfast_int_to_nat 0 (trial_read s (trial_index 5)),
+   holdfast_int_to_nat 0 (trial_read s (trial_index 6)),
+   holdfast_int_to_nat 0 (trial_read s (trial_index 7))).
+Theorem dual_var_writeback_and_frame :
+  let r1 := {dual_var} trial_buf (trial_index 1) (trial_index 2) (trial_index 4) (trial_index 3) (trial_index 1) (trial_index 2) in
+  let p1 := {dual_var}_post_buf trial_buf (trial_index 1) (trial_index 2) (trial_index 4) (trial_index 3) (trial_index 1) (trial_index 2) in
+  let r2 := {dual_var} trial_buf (trial_index 5) (trial_index 2) (trial_index 1) (trial_index 2) (trial_index 0) (trial_index 1) in
+  let p2 := {dual_var}_post_buf trial_buf (trial_index 5) (trial_index 2) (trial_index 1) (trial_index 2) (trial_index 0) (trial_index 1) in
+  (holdfast_int_to_nat 0 ({left_proj} r1), holdfast_int_to_nat 0 ({right_proj} r1)) = (33, 44) /\
+  observe_span p1 = (100, 101, 33, 103, 104, 105, 44, 107) /\
+  (holdfast_int_to_nat 0 ({left_proj} r2), holdfast_int_to_nat 0 ({right_proj} r2)) = (33, 44) /\
+  observe_span p2 = (100, 101, 44, 103, 104, 33, 106, 107).
+Proof. vm_compute. repeat split; reflexivity. Qed.
+Theorem dual_ref_let_and_zero_len_writeback :
+  let r_let := {dual_let} trial_buf (trial_index 1) (trial_index 2) (trial_index 5) (trial_index 2) (trial_index 0) (trial_index 1) in
+  let p_let := {dual_let}_post_buf trial_buf (trial_index 1) (trial_index 2) (trial_index 5) (trial_index 2) (trial_index 0) (trial_index 1) in
+  let r_zero := {zero_fn} trial_buf (trial_index 3) (trial_index 2) (trial_index 4) (trial_index 1) in
+  let p_zero := {zero_fn}_post_buf trial_buf (trial_index 3) (trial_index 2) (trial_index 4) (trial_index 1) in
+  holdfast_int_to_nat 0 r_let = 12 /\
+  observe_span p_let = (100, 5, 102, 103, 104, 105, 7, 107) /\
+  holdfast_int_to_nat 0 r_zero = 77 /\
+  observe_span p_zero = (100, 101, 102, 77, 104, 105, 106, 107).
+Proof. vm_compute. repeat split; reflexivity. Qed.
+Theorem dual_writeback_preserves_metadata : forall buf a m b n k1 k2,
+  holdfast_Span_Base _ ({dual_var}_post_buf buf a m b n k1 k2) = holdfast_Span_Base _ buf /\
+  holdfast_Span_Length _ ({dual_var}_post_buf buf a m b n k1 k2) = holdfast_Span_Length _ buf /\
+  holdfast_Span_Tag _ ({dual_var}_post_buf buf a m b n k1 k2) = holdfast_Span_Tag _ buf.
+Proof. intros buf a m b n k1 k2. repeat split; reflexivity. Qed.
+"""
+    _replay_view_proof(gallina, proof, "SubsliceDisjointWriteback", [
+        "dual_var_writeback_and_frame",
+        "dual_ref_let_and_zero_len_writeback",
+        "dual_writeback_preserves_metadata",
+    ])
+
+
+def _field_and_multidim_borrows() -> None:
+    source = (TOOLS / "tests" / "fixtures" / "field-and-multidim-borrows.hf").read_bytes()
+    with parser.cached_build(TOOLS.parent) as compiled:
+        gallina = elaborate(source, parser.parse_source(compiled, source, surface=True)).gallina
+        sibling_valid = source.replace(
+            b"    if (resetOther) {\n        rows[j] = Seq.Empty<byte>();\n        return elem;\n    } else {\n        return elem;\n    }",
+            b"    if (resetOther) {\n        rows[i] = Seq.Empty<byte>();\n        return 0u8;\n    } else {\n        return elem;\n    }",
+        )
+        elaborate(sibling_valid, parser.parse_source(compiled, sibling_valid, surface=True))
+        for invalid, needle, message in (
+            (
+                source.replace(b"items[i].Payload = 9u8;", b"items[i].Header = 9u8;"),
+                b"return h;",
+                "cannot prove indexed borrow 'h' remains valid after update to owner 'items'",
+            ),
+            (
+                source.replace(b"let p = ref items[i].Payload;", b"let p = ref items[i].Header;"),
+                b"h = 4u8;",
+                "cannot prove indexed borrow 'h' is disjoint from overlapping borrow of 'items'",
+            ),
+            (
+                source.replace(b"requires r1 != r2 || c1 != c2", b"requires r1 < grid.Count"),
+                b"return x;",
+                "cannot prove indexed borrow 'x' remains valid after update to owner 'grid'",
+            ),
+            (
+                source.replace(b"rows[j] = Seq.Empty<byte>();", b"rows[i] = Seq.Empty<byte>();"),
+                b"return elem;",
+                "cannot prove indexed borrow 'elem' remains valid after update to owner 'rows'",
+            ),
+        ):
+            parsed = parser.parse_source(compiled, invalid, surface=True)
+            with raises(HoldFastError, msg="conflicting field/2D/unstable borrow reached Gallina emission") as failure:
+                elaborate(invalid, parsed)
+            error = failure.exception
+            target_line = next(num for num, line in enumerate(invalid.splitlines(), 1) if needle in line)
+            ensure(error.kind == "type" and error.line == target_line and message in error.message,
+                   f"wrong rejection for field/2D/unstable borrow: {error.line}:{error.column}: {error}")
+
+    [entry_ctor] = re.findall(r"^Definition (holdfast_d\d+_Entry_ctor) :", gallina, re.MULTILINE)
+    [entry_hdr] = re.findall(r"^Definition (holdfast_d\d+_Entry_Header) :", gallina, re.MULTILINE)
+    [entry_pay] = re.findall(r"^Definition (holdfast_d\d+_Entry_Payload) :", gallina, re.MULTILINE)
+    [split_fn] = re.findall(r"^Definition (holdfast_d\d+_SplitFieldsWrite) :", gallina, re.MULTILINE)
+    [dual_fld] = re.findall(r"^Definition (holdfast_d\d+_DualFieldRefBorrows) :", gallina, re.MULTILINE)
+    [grid_fn] = re.findall(r"^Definition (holdfast_d\d+_GridDisjunctiveGuard) :", gallina, re.MULTILINE)
+    [dual_grid] = re.findall(r"^Definition (holdfast_d\d+_DualGridRefBorrows) :", gallina, re.MULTILINE)
+    [row_fn] = re.findall(r"^Definition (holdfast_d\d+_PathSensitiveRowClear) :", gallina, re.MULTILINE)
+    proof = rf"""
+Import HoldFast_FieldAndMultidimBorrows.
+Local Definition trial_byte (n : nat) := holdfast_mk_int 0 (holdfast_nat_to_bits 8 n).
+Local Definition trial_seq2 (A : Type) (x y : A) :=
+  holdfast_Seq_Append A (holdfast_Seq_Singleton A x) (holdfast_Seq_Singleton A y).
+Local Definition default_entry := {entry_ctor} (trial_byte 0) (trial_byte 0).
+Local Definition trial_items :=
+  trial_seq2 _ ({entry_ctor} (trial_byte 11) (trial_byte 12)) ({entry_ctor} (trial_byte 21) (trial_byte 22)).
+Local Definition trial_grid :=
+  trial_seq2 _ (trial_seq2 _ (trial_byte 10) (trial_byte 20)) (trial_seq2 _ (trial_byte 30) (trial_byte 40)).
+Theorem field_split_and_dual_writeback :
+  let r_split := {split_fn} trial_items 0 in
+  let p_split := {split_fn}_post_items trial_items 0 in
+  let r_dual := {dual_fld} trial_items 1 in
+  let p_dual := {dual_fld}_post_items trial_items 1 in
+  let e0 := holdfast_Seq_At _ default_entry p_split 0 in
+  let e1s := holdfast_Seq_At _ default_entry p_split 1 in
+  let e0d := holdfast_Seq_At _ default_entry p_dual 0 in
+  let e1 := holdfast_Seq_At _ default_entry p_dual 1 in
+  holdfast_int_to_nat 0 r_split = 11 /\
+  holdfast_int_to_nat 0 ({entry_hdr} e0) = 11 /\
+  holdfast_int_to_nat 0 ({entry_pay} e0) = 9 /\
+  holdfast_int_to_nat 0 ({entry_hdr} e1s) = 21 /\
+  holdfast_int_to_nat 0 ({entry_pay} e1s) = 22 /\
+  holdfast_int_to_nat 0 r_dual = 13 /\
+  holdfast_int_to_nat 0 ({entry_hdr} e0d) = 11 /\
+  holdfast_int_to_nat 0 ({entry_pay} e0d) = 12 /\
+  holdfast_int_to_nat 0 ({entry_hdr} e1) = 4 /\
+  holdfast_int_to_nat 0 ({entry_pay} e1) = 9.
+Proof. vm_compute. repeat split; reflexivity. Qed.
+Theorem grid_2d_and_row_clear_replay :
+  let read_cell g r c :=
+    holdfast_int_to_nat 0 (holdfast_Seq_At _ (trial_byte 0) (holdfast_Seq_At _ (holdfast_Seq_Empty _) g r) c) in
+  let r_grid1 := {grid_fn} trial_grid 0 1 0 0 in
+  let p_grid1 := {grid_fn}_post_grid trial_grid 0 1 0 0 in
+  let r_grid2 := {dual_grid} trial_grid 0 1 1 0 in
+  let p_grid2 := {dual_grid}_post_grid trial_grid 0 1 1 0 in
+  let r_clear := {row_fn} trial_grid 0 1 true in
+  let p_clear := {row_fn}_post_rows trial_grid 0 1 true in
+  let r_keep := {row_fn} trial_grid 0 1 false in
+  let p_keep := {row_fn}_post_rows trial_grid 0 1 false in
+  holdfast_int_to_nat 0 r_grid1 = 20 /\
+  (read_cell p_grid1 0 0, read_cell p_grid1 0 1, read_cell p_grid1 1 0, read_cell p_grid1 1 1) = (7, 20, 30, 40) /\
+  holdfast_int_to_nat 0 r_grid2 = 10 /\
+  (read_cell p_grid2 0 0, read_cell p_grid2 0 1, read_cell p_grid2 1 0, read_cell p_grid2 1 1) = (10, 3, 7, 40) /\
+  holdfast_int_to_nat 0 r_clear = 10 /\
+  holdfast_Seq_Count _ (holdfast_Seq_At _ (holdfast_Seq_Empty _) p_clear 1) = 0 /\
+  read_cell p_clear 0 0 = 10 /\
+  holdfast_int_to_nat 0 r_keep = 10 /\
+  read_cell p_keep 1 0 = 30.
+Proof. vm_compute. repeat split; reflexivity. Qed.
+"""
+    _replay_view_proof(gallina, proof, "FieldAndMultidimBorrows", [
+        "field_split_and_dual_writeback",
+        "grid_2d_and_row_clear_replay",
+    ])
+
+
+def _loop_cursor_reborrow() -> None:
+    source = (TOOLS / "tests" / "fixtures" / "loop-cursor-reborrow.hf").read_bytes()
+    with parser.cached_build(TOOLS.parent) as compiled:
+        gallina = elaborate(source, parser.parse_source(compiled, source, surface=True)).gallina
+        for invalid, needle, message in (
+            (
+                source.replace(
+                    b"let hit = Span.ReadOnly(Span.Slice(buf, i, 1usize));\n            return Ok(ByteView(in hit));",
+                    b"let hit = Span.ReadOnly(Span.Slice(buf, i, 1usize));\n            buf[i] = 7u8;\n            return Ok(ByteView(in hit));",
+                ),
+                b"return Ok(ByteView(in hit));",
+                "cannot prove returned slice is disjoint from an update to 'buf'",
+            ),
+            (
+                source.replace(
+                    b"let sub = Span.Slice(buf, i, 1usize);\n            return Ok(ByteView(in Span.ReadOnly(sub)));",
+                    b"let sub = Span.Slice(buf, i, 1usize);\n            buf[i] = 7u8;\n            return Ok(ByteView(in Span.ReadOnly(sub)));",
+                ),
+                b"return Ok(ByteView(in Span.ReadOnly(sub)));",
+                "cannot prove returned slice is disjoint from an update to 'buf'",
+            ),
+            (
+                source.replace(
+                    b"    let len = buf.Length;\n    foreach (let i in 0usize..len)\n        invariant buf.CanRead\n        invariant buf.CanWrite\n        invariant buf.Length == len\n    {\n        var cell = Span.Slice(buf, i, 1usize);\n        cell[0usize] = 3u8;\n    }\n    return buf[0usize];",
+                    b"    let len = buf.Length;\n    let head = Span.ReadOnly(Span.Slice(buf, 0usize, 1usize));\n    foreach (let i in 0usize..len)\n        invariant buf.CanRead\n        invariant buf.CanWrite\n        invariant buf.Length == len\n    {\n        var cell = Span.Slice(buf, i, 1usize);\n        cell[0usize] = 3u8;\n    }\n    return head[0usize];",
+                ),
+                b"return head[0usize];",
+                "cannot prove Span view read is disjoint from an update to 'buf'",
+            ),
+        ):
+            parsed = parser.parse_source(compiled, invalid, surface=True)
+            with raises(HoldFastError, msg="conflicting loop cursor borrow reached Gallina emission") as failure:
+                elaborate(invalid, parsed)
+            error = failure.exception
+            target_line = next(num for num, line in enumerate(invalid.splitlines(), 1) if needle in line)
+            ensure(error.kind == "type" and error.line == target_line and message in error.message,
+                   f"wrong rejection for loop cursor borrow: {error.line}:{error.column}: {error}")
+
+    [scan_fn] = re.findall(r"^Definition (holdfast_d\d+_ScanMarkAndReturnView) :", gallina, re.MULTILINE)
+    [mut_fn] = re.findall(r"^Definition (holdfast_d\d+_ForeachCursorMutReturn) :", gallina, re.MULTILINE)
+    [fill_fn] = re.findall(r"^Definition (holdfast_d\d+_ShrinkingCursorFill) :", gallina, re.MULTILINE)
+    [view_ty] = re.findall(r"^Definition (holdfast_d\d+_ByteView) :", gallina, re.MULTILINE)
+    [view_proj] = re.findall(r"^Definition (holdfast_d\d+_ByteView_Bytes) :", gallina, re.MULTILINE)
+    proof = rf"""
+Import HoldFast_LoopCursorReborrow.
+Local Definition trial_index (n : nat) := holdfast_mk_int 4 (holdfast_nat_to_bits 64 n).
+Local Definition trial_byte (n : nat) := holdfast_mk_int 0 (holdfast_nat_to_bits 8 n).
+Local Definition trial_read := holdfast_Span_Read (holdfast_int 0).
+Local Definition trial_buf a b c d :=
+  let initial := holdfast_mk_span (holdfast_int 0) (trial_index 23) (trial_index 4) true true true holdfast_bs_empty in
+  let wr s i v := holdfast_Span_Write (holdfast_int 0) s (trial_index i) (trial_byte v) in
+  wr (wr (wr (wr initial 0 a) 1 b) 2 c) 3 d.
+Local Definition observe_span (s : holdfast_Span (holdfast_int 0)) :=
+  (holdfast_int_to_nat 0 (trial_read s (trial_index 0)),
+   holdfast_int_to_nat 0 (trial_read s (trial_index 1)),
+   holdfast_int_to_nat 0 (trial_read s (trial_index 2)),
+   holdfast_int_to_nat 0 (trial_read s (trial_index 3))).
+Local Definition observe_res (res : bool + {view_ty}) :=
+  match res with
+  | inr view => Some (holdfast_int_to_nat 0 (trial_read ({view_proj} view) (trial_index 0)))
+  | inl _ => None
+  end.
+Theorem loop_cursor_reborrow_observations :
+  let b1 := trial_buf 5 6 7 8 in
+  let b2 := trial_buf 5 6 0 8 in
+  observe_res ({scan_fn} b1 (trial_byte 7)) = Some 7 /\
+  observe_span ({scan_fn}_post_buf b1 (trial_byte 7)) = (1, 1, 7, 8) /\
+  observe_res ({scan_fn} b1 (trial_byte 99)) = None /\
+  observe_span ({scan_fn}_post_buf b1 (trial_byte 99)) = (1, 1, 1, 1) /\
+  observe_res ({mut_fn} b2 (trial_byte 0)) = Some 10 /\
+  observe_span ({mut_fn}_post_buf b2 (trial_byte 0)) = (2, 2, 10, 8) /\
+  observe_res ({mut_fn} b2 (trial_byte 99)) = None /\
+  observe_span ({mut_fn}_post_buf b2 (trial_byte 99)) = (2, 2, 2, 2) /\
+  holdfast_int_to_nat 0 ({fill_fn} b1) = 3 /\
+  observe_span ({fill_fn}_post_buf b1) = (3, 3, 3, 3).
+Proof. vm_compute. repeat split; reflexivity. Qed.
+Theorem loop_cursor_preserves_metadata : forall buf target,
+  holdfast_Span_Length _ ({scan_fn}_post_buf buf target) = holdfast_Span_Length _ buf /\
+  holdfast_Span_Length _ ({mut_fn}_post_buf buf target) = holdfast_Span_Length _ buf /\
+  holdfast_Span_Length _ ({fill_fn}_post_buf buf) = holdfast_Span_Length _ buf.
+Proof. intros buf target. repeat split; reflexivity. Qed.
+"""
+    _replay_view_proof(gallina, proof, "LoopCursorReborrow", [
+        "loop_cursor_reborrow_observations",
+        "loop_cursor_preserves_metadata",
+    ])
+
+
+def _higher_ranked_view_callback() -> None:
+    source = (TOOLS / "tests" / "fixtures" / "higher-ranked-view-callback.hf").read_bytes()
+    with parser.cached_build(TOOLS.parent) as compiled:
+        gallina = elaborate(source, parser.parse_source(compiled, source, surface=True)).gallina
+        escape_return = source + b"""
+public in<'outer> Span<byte> EscapeReturn<region 'outer>(
+    in<'outer> Span<byte> buf,
+    Fn<region 'fresh>(in<'fresh> Span<byte>) -> in<'fresh> Span<byte> select
+)
+    requires buf.CanRead
+{
+    return select(in buf);
+}
+"""
+        for invalid, needle, message in (
+            (
+                source.replace(
+                    b"    let selected = makeView(in buf);",
+                    b"    var saved = ByteView(in Span.ReadOnly(buf));\n"
+                    b"    saved = makeView(in buf);\n"
+                    b"    let selected = makeView(in buf);",
+                ),
+                b"saved = makeView(in buf);",
+                "cannot assign value from higher-ranked callback region to outer binding 'saved'",
+            ),
+            (
+                escape_return,
+                b"return select(in buf);",
+                "cannot return value borrowing higher-ranked callback region outside its invocation",
+            ),
+            (
+                source.replace(
+                    b"Fn<region 'r>(in<'r> Span<byte> s) -> in<'r> Span<byte> => s",
+                    b"Fn<region 'r>(in<'r> Span<byte> s) -> in<'r> Span<byte> => buf",
+                ),
+                b"ApplyFreshRead(in buf, Fn<region 'r>(in<'r> Span<byte> s) -> in<'r> Span<byte> => buf, idx);",
+                "cannot capture or escape outer region binding 'buf' in higher-ranked callback",
+            ),
+            (
+                source.replace(
+                    b"Fn<region 'fresh>(in<'fresh> Span<byte>) -> in<'fresh> Span<byte> select",
+                    b"Fn<region 'fresh>(in<'fresh> Span<byte>) -> in<'outer> Span<byte> select",
+                ),
+                b"ApplyFreshRead(in buf, Fn<region 'r>(in<'r> Span<byte> s) -> in<'r> Span<byte> => s, idx);",
+                "cannot escape higher-ranked region",
+            ),
+            (
+                source.replace(
+                    b"    return ApplyFreshRead(in buf, Fn<region 'r>(in<'r> Span<byte> s) -> in<'r> Span<byte> => s, idx);",
+                    b"    var count = 0usize;\n"
+                    b"    return ApplyFreshRead(in buf, Fn<region 'r>(in<'r> Span<byte> s) -> in<'r> Span<byte> => "
+                    b"{ count = 1usize; return s; }, idx);",
+                ),
+                b"count = 1usize;",
+                "cannot mutate outer variable 'count' inside higher-ranked callback",
+            ),
+        ):
+            parsed = parser.parse_source(compiled, invalid, surface=True)
+            with raises(HoldFastError, msg="escaping higher-ranked callback region reached Gallina emission") as failure:
+                elaborate(invalid, parsed)
+            error = failure.exception
+            target_line = next(num for num, line in enumerate(invalid.splitlines(), 1) if needle in line)
+            ensure(error.kind == "type" and error.line == target_line and message in error.message,
+                   f"wrong rejection for escaping higher-ranked callback: {error.line}:{error.column}: {error}")
+
+    [apply_fresh] = re.findall(r"^Definition (holdfast_d\d+_ApplyFreshRead) :", gallina, re.MULTILINE)
+    [apply_id] = re.findall(r"^Definition (holdfast_d\d+_ApplyIdentity) :", gallina, re.MULTILINE)
+    [apply_first] = re.findall(r"^Definition (holdfast_d\d+_ApplyFirstByte) :", gallina, re.MULTILINE)
+    [apply_bv] = re.findall(r"^Definition (holdfast_d\d+_ApplyByteViewCallback) :", gallina, re.MULTILINE)
+    [bv_ctor] = re.findall(r"^Definition (holdfast_d\d+_ByteView_ctor) :", gallina, re.MULTILINE)
+    [bv_proj] = re.findall(r"^Definition (holdfast_d\d+_ByteView_Bytes) :", gallina, re.MULTILINE)
+    [use_bv] = re.findall(r"^Definition (holdfast_d\d+_UseByteViewIdentity) :", gallina, re.MULTILINE)
+    proof = rf"""
+Import HoldFast_HigherRankedViewCallback.
+Local Definition trial_index (n : nat) := holdfast_mk_int 4 (holdfast_nat_to_bits 64 n).
+Local Definition trial_byte (n : nat) := holdfast_mk_int 0 (holdfast_nat_to_bits 8 n).
+Local Definition trial_read := holdfast_Span_Read (holdfast_int 0).
+Theorem higher_ranked_identity_functional : forall buf idx,
+  holdfast_Span_CanRead (holdfast_int 0) buf = true ->
+  holdfast_int_lt 4 idx (holdfast_Span_Length (holdfast_int 0) buf) = true ->
+  {apply_fresh} buf (fun s => s) idx = trial_read buf idx /\
+  {apply_id} buf idx = trial_read buf idx /\
+  {use_bv} buf idx = trial_read buf idx.
+Proof.
+  intros buf idx Hread Hlt.
+  unfold {apply_id}, {use_bv}, {apply_fresh}, {apply_bv}, {bv_proj}, {bv_ctor}, holdfast_and, trial_read.
+  cbv beta.
+  simpl fst.
+  rewrite Hread, Hlt.
+  repeat split; reflexivity.
+Qed.
+Local Definition trial_buf :=
+  let initial := holdfast_mk_span (holdfast_int 0) (trial_index 29) (trial_index 4) true true false holdfast_bs_empty in
+  let wr s i v := holdfast_Span_Write (holdfast_int 0) s (trial_index i) (trial_byte v) in
+  wr (wr (wr (wr initial 0 41) 1 42) 2 43) 3 44.
+Theorem higher_ranked_callback_observations :
+  holdfast_int_to_nat 0 ({apply_id} trial_buf (trial_index 2)) = 43 /\
+  holdfast_int_to_nat 0 ({apply_first} trial_buf) = 42 /\
+  holdfast_int_to_nat 0 ({use_bv} trial_buf (trial_index 3)) = 44.
+Proof. vm_compute. repeat split; reflexivity. Qed.
+"""
+    _replay_view_proof(gallina, proof, "HigherRankedViewCallback", [
+        "higher_ranked_identity_functional",
+        "higher_ranked_callback_observations",
+    ])
+
+
+def _two_phase_receiver_replay() -> None:
+    source = b"""// SPDX-License-Identifier: Apache-2.0
+module TwoPhaseReceiver;
+
+public record ByteBox(byte Count, byte Accum);
+
+public interface CounterOps<T> {
+    public byte ReadCount(in T self);
+    public byte MutateCount(ref T self);
+    public Unit Update(ref T self, byte delta);
+    public Unit UpdateFromView(ref T self, in byte delta);
+}
+
+public impl CounterOps<ByteBox> {
+    public byte ReadCount(in ByteBox self) {
+        return self.Count;
+    }
+
+    public byte MutateCount(ref ByteBox self) {
+        self = ByteBox(self.Count.WrappingAdd(2u8), self.Accum);
+        return self.Count;
+    }
+
+    public Unit Update(ref ByteBox self, byte delta) {
+        self = ByteBox(self.Count.WrappingAdd(1u8), self.Accum.WrappingAdd(delta));
+        return ();
+    }
+
+    public Unit UpdateFromView(ref ByteBox self, in byte delta) {
+        self = ByteBox(self.Count.WrappingAdd(1u8), self.Accum.WrappingAdd(delta));
+        return ();
+    }
+}
+
+public interface FieldOps<T> {
+    public Unit AddCount(ref T self, in byte count);
+}
+
+public impl FieldOps<byte> {
+    public Unit AddCount(ref byte self, in byte count) {
+        self = self.WrappingAdd(count);
+        return ();
+    }
+}
+
+private byte BumpOther(ref ByteBox other) {
+    other = ByteBox(other.Count.WrappingAdd(10u8), other.Accum);
+    return other.Count;
+}
+
+public ByteBox TwoPhaseSelfRead(ref ByteBox buf) {
+    buf.Update(buf.ReadCount());
+    return buf;
+}
+
+public ByteBox TwoPhaseEffectfulArg(ref ByteBox buf, ref ByteBox other) {
+    buf.Update(BumpOther(ref other));
+    return buf;
+}
+
+public ByteBox TwoPhaseDisjointFieldView(ref ByteBox buf) {
+    buf.Accum.AddCount(in buf.Count);
+    return buf;
+}
+"""
+    with parser.cached_build(TOOLS.parent) as compiled:
+        gallina = elaborate(source, parser.parse_source(compiled, source, surface=True)).gallina
+        for old_stmt, new_stmt, column_needle, message in (
+            (
+                b"    buf.Update(buf.ReadCount());",
+                b"    buf.Update(BumpOther(ref buf));",
+                b"ref buf",
+                "conflicting-receiver-reservation",
+            ),
+            (
+                b"    buf.Update(buf.ReadCount());",
+                b"    buf.Update(buf.MutateCount());",
+                b"buf.MutateCount()",
+                "conflicting-receiver-reservation",
+            ),
+            (
+                b"    buf.Update(buf.ReadCount());",
+                b"    buf.UpdateFromView(in buf.Count);",
+                b"buf.UpdateFromView",
+                "competing-loans",
+            ),
+            (
+                b"    buf.Accum.AddCount(in buf.Count);",
+                b"    buf.Accum.AddCount(in buf.Accum);",
+                b"buf.Accum.AddCount",
+                "competing-loans",
+            ),
+        ):
+            invalid = source.replace(old_stmt, new_stmt)
+            parsed = parser.parse_source(compiled, invalid, surface=True)
+            with raises(HoldFastError, msg="conflicting two-phase receiver access reached Gallina emission") as failure:
+                elaborate(invalid, parsed)
+            error = failure.exception
+            target_line = next(num for num, line in enumerate(invalid.splitlines(), 1) if new_stmt in line)
+            target_col = invalid.splitlines()[target_line - 1].index(column_needle) + 1
+            ensure(
+                error.kind == "type" and (error.line, error.column) == (target_line, target_col) and message in error.message,
+                f"wrong rejection for two-phase receiver conflict: {error.line}:{error.column}: {error}",
+            )
+
+    [box_ctor] = re.findall(r"^Definition (holdfast_d\d+_ByteBox_ctor) :", gallina, re.MULTILINE)
+    [box_cnt] = re.findall(r"^Definition (holdfast_d\d+_ByteBox_Count) :", gallina, re.MULTILINE)
+    [box_acc] = re.findall(r"^Definition (holdfast_d\d+_ByteBox_Accum) :", gallina, re.MULTILINE)
+    [self_read] = re.findall(r"^Definition (holdfast_d\d+_TwoPhaseSelfRead) :", gallina, re.MULTILINE)
+    [eff_arg] = re.findall(r"^Definition (holdfast_d\d+_TwoPhaseEffectfulArg) :", gallina, re.MULTILINE)
+    [field_view] = re.findall(r"^Definition (holdfast_d\d+_TwoPhaseDisjointFieldView) :", gallina, re.MULTILINE)
+    proof = rf"""
+Import HoldFast_TwoPhaseReceiver.
+Local Definition trial_byte (n : nat) := holdfast_mk_int 0 (holdfast_nat_to_bits 8 n).
+Local Definition wrap_add := holdfast_int_wrap_add 0.
+Theorem two_phase_eval_order_and_post_state : forall buf other,
+  let r_self := {self_read} buf in
+  let r_eff := {eff_arg} buf other in
+  let p_other := {eff_arg}_post_other buf other in
+  let r_fld := {field_view} buf in
+  r_self = {box_ctor} (wrap_add ({box_cnt} buf) (trial_byte 1)) (wrap_add ({box_acc} buf) ({box_cnt} buf)) /\
+  {self_read}_post_buf buf = r_self /\
+  p_other = {box_ctor} (wrap_add ({box_cnt} other) (trial_byte 10)) ({box_acc} other) /\
+  r_eff = {box_ctor} (wrap_add ({box_cnt} buf) (trial_byte 1))
+                     (wrap_add ({box_acc} buf) (wrap_add ({box_cnt} other) (trial_byte 10))) /\
+  {eff_arg}_post_buf buf other = r_eff /\
+  r_fld = {box_ctor} ({box_cnt} buf) (wrap_add ({box_acc} buf) ({box_cnt} buf)) /\
+  {field_view}_post_buf buf = r_fld.
+Proof.
+  intros buf other.
+  repeat split; reflexivity.
+Qed.
+Theorem two_phase_concrete_observations :
+  let b1 := {box_ctor} (trial_byte 5) (trial_byte 100) in
+  let o1 := {box_ctor} (trial_byte 7) (trial_byte 50) in
+  ({box_cnt} ({self_read} b1), {box_acc} ({self_read} b1)) = (trial_byte 6, trial_byte 105) /\
+  ({box_cnt} ({eff_arg} b1 o1), {box_acc} ({eff_arg} b1 o1)) = (trial_byte 6, trial_byte 117) /\
+  ({box_cnt} ({eff_arg}_post_other b1 o1), {box_acc} ({eff_arg}_post_other b1 o1)) = (trial_byte 17, trial_byte 50) /\
+  ({box_cnt} ({field_view} b1), {box_acc} ({field_view} b1)) = (trial_byte 5, trial_byte 105).
+Proof. vm_compute. repeat split; reflexivity. Qed.
+"""
+    _replay_view_proof(gallina, proof, "TwoPhaseReceiver", [
+        "two_phase_eval_order_and_post_state",
+        "two_phase_concrete_observations",
+    ])
+
+
 def cases() -> list[Case]:
     return [
         Case("conditional view return and sibling owner writeback", _conditional_view_return, lane="toolchain"),
@@ -914,4 +1458,9 @@ def cases() -> list[Case]:
         Case("scoped lending and symbolic Span element writeback", _lending_span_iteration, lane="toolchain"),
         Case("scoped lending and early break exits on Span", _lending_span_break, lane="toolchain"),
         Case("lending filtering range loop with early borrowed view return", _lending_filter_return, lane="toolchain"),
+        Case("simultaneous exclusive disjoint sub-slice writeback", _subslice_disjoint_writeback, lane="toolchain"),
+        Case("same-index disjoint record fields, 2D borrows, and path-sensitive clear", _field_and_multidim_borrows, lane="toolchain"),
+        Case("loop-carried cursor reborrowing and conditional returned view", _loop_cursor_reborrow, lane="toolchain"),
+        Case("higher-ranked region-polymorphic view callbacks", _higher_ranked_view_callback, lane="toolchain"),
+        Case("two-phase receiver elaboration, evaluation order, and Rocq replay", _two_phase_receiver_replay, lane="toolchain"),
     ]

@@ -1,0 +1,77 @@
+// SPDX-License-Identifier: Apache-2.0
+module SubsliceDisjointWriteback;
+
+public record DualBytes(byte Left, byte Right);
+
+private Unit WriteSliceByte(ref Span<byte> slice, usize idx, byte value)
+    requires slice.CanRead && slice.CanWrite
+    requires idx < slice.Length
+{
+    slice[idx] = value;
+    return ();
+}
+
+public DualBytes DualWriteVar(
+    ref Span<byte> buf,
+    usize a,
+    usize m,
+    usize b,
+    usize n,
+    usize k1,
+    usize k2
+)
+    requires buf.CanRead && buf.CanWrite
+    requires a <= buf.Length && m <= buf.Length - a
+    requires b <= buf.Length && n <= buf.Length - b
+    requires (a + m <= b) || (b + n <= a)
+    requires k1 < m && k2 < n
+{
+    var left = Span.Slice(buf, a, m);
+    var right = Span.Slice(buf, b, n);
+    left[k1] = 11u8;
+    right[k2] = 22u8;
+    WriteSliceByte(ref left, k1, 33u8);
+    WriteSliceByte(ref right, k2, 44u8);
+    return DualBytes(left[k1], right[k2]);
+}
+
+public byte DualWriteRefLet(
+    ref Span<byte> buf,
+    usize a,
+    usize m,
+    usize b,
+    usize n,
+    usize k1,
+    usize k2
+)
+    requires buf.CanRead && buf.CanWrite
+    requires a <= buf.Length && m <= buf.Length - a
+    requires b <= buf.Length && n <= buf.Length - b
+    requires ((a + m <= b) || (b + n <= a)) || (m == 0usize || n == 0usize)
+    requires k1 < m && k2 < n
+{
+    let left = ref Span.Slice(buf, a, m);
+    let right = ref Span.Slice(buf, b, n);
+    left[k1] = 5u8;
+    right[k2] = 7u8;
+    let total = left[k1].WrappingAdd(right[k2]);
+    return total;
+}
+
+private usize TouchSlice(ref Span<byte> slice)
+    requires slice.CanRead && slice.CanWrite
+{
+    return slice.Length;
+}
+
+public byte ZeroLenSlices(ref Span<byte> buf, usize a, usize b, usize n, usize k)
+    requires buf.CanRead && buf.CanWrite
+    requires a <= buf.Length && b <= buf.Length && n <= buf.Length - b
+    requires k < n
+{
+    var empty = Span.Slice(buf, a, 0usize);
+    var live = Span.Slice(buf, b, n);
+    live[k] = 77u8;
+    let ignored = TouchSlice(ref empty);
+    return live[k];
+}

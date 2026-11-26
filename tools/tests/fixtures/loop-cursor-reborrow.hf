@@ -1,0 +1,65 @@
+// SPDX-License-Identifier: Apache-2.0
+module LoopCursorReborrow;
+
+public record ByteView<region 'owner>(in<'owner> Span<byte> Bytes);
+
+public Result<ByteView<'owner>, bool> ScanMarkAndReturnView<region 'owner>(
+    ref<'owner> Span<byte> buf,
+    byte target
+)
+    effects writes(buf)
+    requires buf.CanRead && buf.CanWrite
+{
+    let len = buf.Length;
+    foreach (let i in 0usize..len)
+        invariant buf.CanRead
+        invariant buf.CanWrite
+        invariant buf.Length == len
+    {
+        if (buf[i] == target) {
+            let hit = Span.ReadOnly(Span.Slice(buf, i, 1usize));
+            return Ok(ByteView(in hit));
+        }
+        buf[i] = 1u8;
+    }
+    return Err(false);
+}
+
+public Result<ByteView<'owner>, bool> ForeachCursorMutReturn<region 'owner>(
+    ref<'owner> Span<byte> buf,
+    byte target
+)
+    effects writes(buf)
+    requires buf.CanRead && buf.CanWrite
+{
+    let len = buf.Length;
+    foreach (let i in 0usize..len)
+        invariant buf.CanRead
+        invariant buf.CanWrite
+        invariant buf.Length == len
+    {
+        if (buf[i] == target) {
+            buf[i] = buf[i].WrappingAdd(10u8);
+            let sub = Span.Slice(buf, i, 1usize);
+            return Ok(ByteView(in Span.ReadOnly(sub)));
+        }
+        buf[i] = 2u8;
+    }
+    return Err(false);
+}
+
+public byte ShrinkingCursorFill(ref Span<byte> buf)
+    requires buf.CanRead && buf.CanWrite
+    requires buf.Length > 0usize
+{
+    let len = buf.Length;
+    foreach (let i in 0usize..len)
+        invariant buf.CanRead
+        invariant buf.CanWrite
+        invariant buf.Length == len
+    {
+        var cell = Span.Slice(buf, i, 1usize);
+        cell[0usize] = 3u8;
+    }
+    return buf[0usize];
+}
