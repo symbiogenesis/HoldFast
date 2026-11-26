@@ -49,6 +49,27 @@ _MODAL_AUDITED = (
     "bounded_slice_box_reuses_the_original_payload",
     "failed_slice_box_keeps_writeback_without_an_extent",
 )
+_ERASURE_AUDITED = (
+    "evaluate_index_reads",
+    "evaluate_index_extensional",
+    "erased_sequence_agrees_derives",
+    "sentinel_sequence_agrees_derives",
+    "cbv_zero_grade_erasure_sound_with",
+    "cbv_zero_grade_erasure_sound",
+    "cbv_exact_zero_grade_erasure_sound",
+    "cbv_bounded_zero_grade_erasure_sound",
+    "cbv_sentinel_erasure_sound",
+    "cbv_zero_grade_erasure_preserves_failure",
+    "slice_writeback_exact",
+    "span_sequence_prefix_writeback",
+    "cbv_span_erasure_preserves_owner_and_frame",
+    "cbv_span_erasure_preserves_returned_reads",
+    "exact_zero_grade_erasure_example",
+    "bound_zero_grade_erasure_example",
+    "erasure_preserves_failure_prefix_example",
+    "span_zero_grade_erasure_preserves_owner_and_writeback",
+    "span_erasure_failure_preserves_prefix_and_writeback",
+)
 
 
 def cases() -> list[Case]:
@@ -63,6 +84,11 @@ def cases() -> list[Case]:
         Case("graded dependent box call-by-value replay",
              partial(_replay, "graded_modal_cbv", "GradedModalCbv", _MODAL_AUDITED,
                      ("graded_pure", "graded_domains", "graded_modal", "graded_cbv", "graded_cbv_span"),
+                     (("graded_cbv_span_carrier", _PRELUDE),)),
+             lane="toolchain"),
+        Case("graded call-by-value zero-grade erasure replay",
+             partial(_replay, "graded_cbv_erasure", "GradedCbvErasure", _ERASURE_AUDITED,
+                     ("graded_pure", "graded_domains", "graded_cbv", "graded_cbv_span"),
                      (("graded_cbv_span_carrier", _PRELUDE),)),
              lane="toolchain"),
     ]
