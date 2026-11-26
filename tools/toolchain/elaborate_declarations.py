@@ -662,6 +662,9 @@ class _DeclarationsMixin:
                 base_env[pname] = _Binding(_apps(_constant(rp.prop_const), *generic_vars, self_var), rp_type)
         self.mutable_locals = set()
         self.local_borrows.clear()
+        self.indexed_local_borrows.clear()
+        self.indexed_borrow_peers.clear()
+        self.indexed_borrow_serial = 0
         self.readonly_in_params.clear()
         self.final_return_facts = []
         m_vars, method_env = self.telescope(m_generics, m_params, base_env, unit=True)
@@ -1398,6 +1401,9 @@ class _DeclarationsMixin:
                 self.site = mnode
                 self.mutable_locals.clear()
                 self.local_borrows.clear()
+                self.indexed_local_borrows.clear()
+                self.indexed_borrow_peers.clear()
+                self.indexed_borrow_serial = 0
                 self.readonly_in_params.clear()
                 self.out_param_names.clear()
                 self.uninitialized_out_params.clear()
@@ -1603,6 +1609,9 @@ class _DeclarationsMixin:
             self.active_interface_ensures.pop(active_key, None)
             self.mutable_locals.clear()
             self.local_borrows.clear()
+            self.indexed_local_borrows.clear()
+            self.indexed_borrow_peers.clear()
+            self.indexed_borrow_serial = 0
             self.readonly_in_params.clear()
             self.out_param_names.clear()
             self.uninitialized_out_params.clear()
@@ -1777,6 +1786,9 @@ class _DeclarationsMixin:
                 m_first_meta = len(self.metas)
                 self.mutable_locals.clear()
                 self.local_borrows.clear()
+                self.indexed_local_borrows.clear()
+                self.indexed_borrow_peers.clear()
+                self.indexed_borrow_serial = 0
                 self.readonly_in_params.clear()
                 self.out_param_names.clear()
                 self.uninitialized_out_params.clear()
@@ -2064,6 +2076,9 @@ class _DeclarationsMixin:
                 l_first_meta = len(self.metas)
                 self.mutable_locals.clear()
                 self.local_borrows.clear()
+                self.indexed_local_borrows.clear()
+                self.indexed_borrow_peers.clear()
+                self.indexed_borrow_serial = 0
                 self.readonly_in_params.clear()
                 self.out_param_names.clear()
                 self.uninitialized_out_params.clear()
@@ -2195,6 +2210,9 @@ class _DeclarationsMixin:
                 self.active_interface_ensures.pop(wk, None)
             self.mutable_locals.clear()
             self.local_borrows.clear()
+            self.indexed_local_borrows.clear()
+            self.indexed_borrow_peers.clear()
+            self.indexed_borrow_serial = 0
             self.readonly_in_params.clear()
             self.out_param_names.clear()
             self.uninitialized_out_params.clear()
@@ -2772,6 +2790,9 @@ class _DeclarationsMixin:
         self.whnf_cache.clear()
         self.mutable_locals.clear()
         self.local_borrows.clear()
+        self.indexed_local_borrows.clear()
+        self.indexed_borrow_peers.clear()
+        self.indexed_borrow_serial = 0
         self.readonly_in_params.clear()
         self.out_param_names.clear()
         self.uninitialized_out_params.clear()

@@ -175,6 +175,16 @@ ends at the mathematical model. [HoldFast fixture](../../tools/tests/fixtures/ne
 [Ante direct fixture](../../tools/tests/fixtures/nested_indexed_invalidation.an) ·
 [Ante rewrite](../../tools/tests/fixtures/nested_indexed_invalidation_rewrite.an)
 
+On the default mathematical frontend, local element borrows (`let x = in coll[i];`
+and `let x = ref coll[i];`) over `Vec<T, n>`, `Seq<T>`, `Span<byte>`, and
+`Slots<T, capacity>` are also checked directly without helper-call workarounds.
+At each later read or write of a bound element borrow, the elaborator checks that
+reachable owner updates preserve the element index and that any conflicting peer
+borrows created afterwards on the current or joined control-flow paths have proved
+index separation.
+[Direct indexed fixture](../../tools/tests/fixtures/direct-indexed-borrows.hf) ·
+[Direct indexed replay](../../tools/tests/test_holdfast_borrow_comparison.py)
+
 On a lane with Cargo and a C compiler, add `--ante-checkout CHECKOUT` to the
 comparison command. It verifies the pinned checkout and submodule,
 builds the compiler from an isolated copy with its lockfile and C backend,

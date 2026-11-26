@@ -4,6 +4,7 @@
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from typing import Literal
 
 from toolchain.ast import MAX_LITERAL_DIGITS
 
@@ -204,6 +205,35 @@ class _Binding:
     type: _Term
     generics: int = 0
     constant: bool = False
+
+
+@dataclass(frozen=True)
+class _IndexedLocalBorrow:
+    """Tracks a live direct local borrow of a collection element."""
+
+    mode: Literal["in", "ref"]
+    owner: str
+    collection_kind: Literal["vec", "seq", "span", "slots"]
+    index_term: _Term
+    index_type: _Term
+    owner_term: _Term
+    elem_type: _Term
+    type_args: tuple[_Term, ...]
+    birth_id: int
+    site: Node
+
+
+@dataclass(frozen=True)
+class _IndexedBorrowPeer:
+    """Records a sibling indexed local borrow created under path guards."""
+
+    birth_id: int
+    owner: str
+    mode: Literal["in", "ref"]
+    index_term: _Term
+    index_type: _Term
+    guards: tuple[_Term, ...]
+    site: Node
 
 
 @dataclass(frozen=True)

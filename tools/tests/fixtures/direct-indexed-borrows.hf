@@ -1,0 +1,91 @@
+// SPDX-License-Identifier: Apache-2.0
+module DirectIndexedBorrows;
+
+private Unit TouchRow(ref Seq<byte> row) {
+    row = Seq.Empty<byte>();
+}
+
+public Result<byte, bool> ReadAfterClearDirect(ref Vec<Seq<byte>, 3> rows, Nat i, Nat j) {
+    if (i < 2 && j < 2 && i != j) {
+        let selected = in rows[i];
+        rows[j] = Seq.Empty<byte>();
+        if (0 < selected.Count) {
+            return Ok(selected[0]);
+        } else {
+            return Err(false);
+        }
+    } else {
+        return Err(false);
+    }
+}
+
+public byte BranchLastUseOrDisjoint(ref Vec<byte, 3> values, Nat i, Nat j, bool flag) {
+    if (i < 2 && j < 2) {
+        let a = ref values[i];
+        if (flag) {
+            let saved = a;
+            let b = ref values[i];
+            b = 7u8;
+            return saved.WrappingAdd(b);
+        } else {
+            a = 5u8;
+            return a;
+        }
+    } else {
+        return 0u8;
+    }
+}
+
+public byte JoinedDisjointClear(ref Vec<byte, 3> values, Nat i, Nat j, Nat k) {
+    if (i < 3 && j < 3 && k < 3 && i != k) {
+        let a = in values[i];
+        if (i != j) {
+            let b = ref values[j];
+            b = 4u8;
+        } else {
+            values[k] = 9u8;
+        }
+        return a;
+    }
+    return 0u8;
+}
+
+public byte UpdatePairDirect(ref Vec<byte, 3> values, Nat i, Nat j) {
+    if (i < 3 && j < 3 && i != j) {
+        let a = ref values[i];
+        let b = ref values[j];
+        a = 11u8;
+        b = 22u8;
+        return a + b;
+    }
+    return 0u8;
+}
+
+public byte UpdateSpanPair(ref Span<byte> buf, usize i, usize j) {
+    if (buf.CanRead && buf.CanWrite && i < buf.Length && j < buf.Length && i != j) {
+        let a = ref buf[i];
+        let b = ref buf[j];
+        a = 11u8;
+        b = 22u8;
+        return a + b;
+    }
+    return 0u8;
+}
+
+public byte ReadSlotsDirect(ref Slots<byte, 4> slots, usize i, usize j) {
+    if (slots.CanRead && slots.CanWrite && i < slots.LiveCount && j < slots.LiveCount && i != j) {
+        let a = ref slots[i];
+        slots[j] = 13u8;
+        return a;
+    }
+    return 0u8;
+}
+
+public byte ReadSeqDirect(in Seq<byte> xs, Nat i, Nat j) {
+    if (i < xs.Count && j < xs.Count) {
+        let a = in xs[i];
+        let b = in xs[j];
+        return a.WrappingAdd(b);
+    }
+    return 0u8;
+}

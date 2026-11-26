@@ -66,6 +66,8 @@ from toolchain.elaborate_types import (
     _constant,
     _FnContract,
     _ImplInstance,
+    _IndexedBorrowPeer,
+    _IndexedLocalBorrow,
     _int_term,
     _InterfaceInfo,
     _IntSpec,
@@ -268,6 +270,9 @@ class _Elaborator(
         self.slice_views: dict[str, str] = {}
         self.restored_view_terms: set[_Term] = set()
         self.local_borrows: dict[str, tuple[str, str, tuple[str, ...]]] = {}
+        self.indexed_local_borrows: dict[str, _IndexedLocalBorrow] = {}
+        self.indexed_borrow_peers: list[_IndexedBorrowPeer] = []
+        self.indexed_borrow_serial: int = 0
         self.readonly_in_params: set[str] = set()
         self.output: list[str] = []
         self.site: Node | None = None
@@ -1180,6 +1185,8 @@ class _Elaborator(
             if requirement == "box":
                 raise self.fail("grade", f"'{name}' uses a graded Box interface and requires a checked caller")
             raise self.fail("grade", f"'{name}' accepts a graded callback and requires a checked caller")
+        if name in self.indexed_local_borrows and self.in_executable_function and not self.in_inline_proof:
+            self._check_indexed_local_borrow_access(name, environment, self.site)
         return binding if raw else self.instantiate(binding, environment)
 
     def argument(self, node: Node, expected: _Term, environment: dict[str, _Binding]) -> _Term:
@@ -1668,6 +1675,12 @@ class _Elaborator(
                                 node,
                             )
                         if is_ref_param or arg_mod == "ref":
+                            if arg_vname in self.indexed_local_borrows and self.indexed_local_borrows[arg_vname].mode != "ref":
+                                raise self.fail(
+                                    "type",
+                                    f"cannot borrow shared 'in' borrow '{arg_vname}' as exclusive 'ref' (write-through-shared)",
+                                    node,
+                                )
                             if arg_vname not in self.mutable_locals:
                                 raise self.fail("type", f"cannot pass immutable binding '{arg_vname}' as a 'ref' argument", node)
                             if arg_vname in self.frozen_collections:

@@ -3,6 +3,7 @@
 
 from collections.abc import Callable, Collection, Generator
 from contextlib import contextmanager
+from dataclasses import replace
 from typing import TYPE_CHECKING, cast
 
 from toolchain.ast import HoldFastError
@@ -23,6 +24,8 @@ from toolchain.elaborate_types import (
     _apps,
     _Binding,
     _constant,
+    _IndexedBorrowPeer,
+    _IndexedLocalBorrow,
     _int_term,
     _IntSpec,
     _Pat,
@@ -44,10 +47,12 @@ class _StatementsMixin:
         # A proof sees the current values and permissions. Only its stated facts
         # may reach the next runtime statement, including when a binder name is reused.
         mutable, borrows, views = self.mutable_locals, self.local_borrows, self.slice_views
+        indexed_borrows, peers = self.indexed_local_borrows, self.indexed_borrow_peers
         restored, uninitialized = self.restored_view_terms, self.uninitialized_out_params
         verdicts, updates, active = self.result_bindings, self.last_call_updates, self.active_facts
         exit_env, exit_facts, theorem_facts = self.final_ref_bindings, self.final_return_facts, self.final_theorem_facts
         self.mutable_locals, self.local_borrows, self.slice_views = mutable.copy(), borrows.copy(), views.copy()
+        self.indexed_local_borrows, self.indexed_borrow_peers = indexed_borrows.copy(), peers.copy()
         self.restored_view_terms, self.uninitialized_out_params = restored.copy(), uninitialized.copy()
         self.result_bindings, self.last_call_updates, self.active_facts = {}, [], active.copy()
         self.final_ref_bindings, self.final_return_facts, self.final_theorem_facts = {}, [], ()
@@ -57,6 +62,7 @@ class _StatementsMixin:
         finally:
             self.in_inline_proof = False
             self.mutable_locals, self.local_borrows, self.slice_views = mutable, borrows, views
+            self.indexed_local_borrows, self.indexed_borrow_peers = indexed_borrows, peers
             self.restored_view_terms, self.uninitialized_out_params = restored, uninitialized
             self.result_bindings, self.last_call_updates, self.active_facts = verdicts, updates, active
             self.final_ref_bindings, self.final_return_facts, self.final_theorem_facts = exit_env, exit_facts, theorem_facts
@@ -148,6 +154,7 @@ class _StatementsMixin:
         for name in environment.keys() - visible:
             self.mutable_locals.discard(name)
             self.local_borrows.pop(name, None)
+            self.indexed_local_borrows.pop(name, None)
             self.slice_views.pop(name, None)
         return {name: binding for name, binding in environment.items() if name in visible}
 
@@ -674,6 +681,12 @@ class _StatementsMixin:
                     f"cannot assign through shared 'in' borrow '{tname}' (write-through-shared)",
                     target,
                 )
+            if tname in self.indexed_local_borrows and self.indexed_local_borrows[tname].mode != "ref":
+                raise self.fail(
+                    "type",
+                    f"cannot assign through shared 'in' borrow '{tname}' (write-through-shared)",
+                    target,
+                )
             if tname not in self.mutable_locals:
                 raise self.fail(
                     "type",
@@ -682,6 +695,8 @@ class _StatementsMixin:
                 )
             if tname in self.local_borrows:
                 self._refresh_local_borrows(updated, target)
+            elif tname in self.indexed_local_borrows:
+                self._check_indexed_local_borrow_access(tname, updated, target)
             cur_b = updated[tname]
             if self._is_readonly_span(cur_b.term):
                 raise self.fail("type", f"cannot mutate a read-only 'in' parameter '{tname}'", target)
@@ -713,6 +728,9 @@ class _StatementsMixin:
                 self._consume_call_updates(updated, statement)
             if tname in self.local_borrows:
                 self._apply_borrow_write(tname, _Binding(rhs_term, cur_b.type), updated, statement)
+                return updated
+            if tname in self.indexed_local_borrows:
+                self._apply_indexed_borrow_write(tname, _Binding(rhs_term, cur_b.type), updated, statement)
                 return updated
             rec_head, rec_targs = self.spine(self.whnf(cur_b.type))
             if (
@@ -750,6 +768,12 @@ class _StatementsMixin:
                     f"cannot mutate field '{fname}' through shared 'in' borrow '{rname}' (write-through-shared)",
                     target,
                 )
+            if rname in self.indexed_local_borrows and self.indexed_local_borrows[rname].mode != "ref":
+                raise self.fail(
+                    "type",
+                    f"cannot mutate field '{fname}' through shared 'in' borrow '{rname}' (write-through-shared)",
+                    target,
+                )
             if rname not in self.mutable_locals:
                 raise self.fail(
                     "type",
@@ -758,6 +782,8 @@ class _StatementsMixin:
                 )
             if rname in self.local_borrows:
                 self._refresh_local_borrows(updated, target)
+            elif rname in self.indexed_local_borrows:
+                self._check_indexed_local_borrow_access(rname, updated, target)
             cur_b = updated[rname]
             if self._is_readonly_span(cur_b.term):
                 raise self.fail("type", f"cannot mutate a read-only 'in' parameter '{rname}'", target)
@@ -801,6 +827,9 @@ class _StatementsMixin:
             if rname in self.local_borrows:
                 self._apply_borrow_write(rname, _Binding(new_rec_term, cur_b.type), updated, statement)
                 return updated
+            if rname in self.indexed_local_borrows:
+                self._apply_indexed_borrow_write(rname, _Binding(new_rec_term, cur_b.type), updated, statement)
+                return updated
             lifted = self.lifted_invariants.get(rname, set())
             self._check_record_invariants(
                 record_info, type_args, new_rec_term, updated, statement, exclude_clauses=lifted
@@ -824,6 +853,14 @@ class _StatementsMixin:
                     f"cannot mutate indexed element of uninitialized 'out' parameter '{rname}'; initialize the whole value first",
                     target,
                 )
+            if rname in self.indexed_local_borrows:
+                if self.indexed_local_borrows[rname].mode != "ref":
+                    raise self.fail(
+                        "type",
+                        f"cannot mutate indexed element through shared 'in' borrow '{rname}' (write-through-shared)",
+                        target,
+                    )
+                self._check_indexed_local_borrow_access(rname, updated, target)
             if rname not in self.mutable_locals:
                 raise self.fail(
                     "type",
@@ -858,19 +895,10 @@ class _StatementsMixin:
                         "cannot prove Span indexed write is in bounds (index < span.Length)",
                         statement,
                     )
-                new_span_b = _Binding(
+                new_col_b = _Binding(
                     _apps(_constant("Span_Write"), _U8, cur_b.term, idx_t, rhs_t), cur_b.type
                 )
-                updated[rname] = new_span_b
-                if rname in self.slice_views:
-                    parent_name = self.slice_views[rname]
-                    if parent_name in updated:
-                        p_b = updated[parent_name]
-                        updated[parent_name] = _Binding(
-                            _apps(_constant("Span_Restore"), _U8, p_b.term, new_span_b.term), p_b.type
-                        )
-                return updated
-            if head == _constant("Slots") and len(type_args) == 2:
+            elif head == _constant("Slots") and len(type_args) == 2:
                 elem_t, cap_t = type_args[0], type_args[1]
                 idx_t = self._slots_usize_arg(idx_node, updated)
                 rhs_t = self.check(rhs_expr, elem_t, updated)
@@ -902,11 +930,10 @@ class _StatementsMixin:
                         "cannot prove Slots indexed write is in bounds (index < LiveCount or (index == LiveCount and index < capacity))",
                         statement,
                     )
-                updated[rname] = _Binding(
+                new_col_b = _Binding(
                     _apps(_constant("Slots_Write"), elem_t, cap_t, cur_b.term, idx_t, rhs_t), cur_b.type
                 )
-                return updated
-            if head == _constant("Seq") and len(type_args) == 1:
+            elif head == _constant("Seq") and len(type_args) == 1:
                 elem_t = type_args[0]
                 cnt_t = _apps(_constant("Seq_Count"), elem_t, cur_b.term)
                 idx_nat = self._nat_or_usize_index(idx_node, updated, "Seq")
@@ -918,11 +945,10 @@ class _StatementsMixin:
                         "cannot prove Seq indexed write is in bounds (index < seq.Count)",
                         statement,
                     )
-                updated[rname] = _Binding(
+                new_col_b = _Binding(
                     _apps(_constant("Seq_Update"), elem_t, cur_b.term, idx_nat, rhs_t), cur_b.type
                 )
-                return updated
-            if head == _constant("Vec") and len(type_args) == 2:
+            elif head == _constant("Vec") and len(type_args) == 2:
                 elem_t, len_t = type_args[0], type_args[1]
                 idx_nat = self._nat_or_usize_index(idx_node, updated, "Vec")
                 rhs_t = self.check(rhs_expr, elem_t, updated)
@@ -933,15 +959,27 @@ class _StatementsMixin:
                         "cannot prove Vec indexed write is in bounds (index < n)",
                         statement,
                     )
-                updated[rname] = _Binding(
+                new_col_b = _Binding(
                     _apps(_constant("Vec_Update"), elem_t, len_t, idx_nat, rhs_t, cur_b.term), cur_b.type
                 )
+            else:
+                raise self.fail(
+                    "type",
+                    "indexed assignment target must have type Span<byte>, Slots<T, capacity>, Seq<T> or Vec<T, n>",
+                    target,
+                )
+            if rname in self.indexed_local_borrows:
+                self._apply_indexed_borrow_write(rname, new_col_b, updated, statement)
                 return updated
-            raise self.fail(
-                "type",
-                "indexed assignment target must have type Span<byte>, Slots<T, capacity>, Seq<T> or Vec<T, n>",
-                target,
-            )
+            updated[rname] = new_col_b
+            if head == _constant("Span") and rname in self.slice_views:
+                parent_name = self.slice_views[rname]
+                if parent_name in updated:
+                    p_b = updated[parent_name]
+                    updated[parent_name] = _Binding(
+                        _apps(_constant("Span_Restore"), _U8, p_b.term, new_col_b.term), p_b.type
+                    )
+            return updated
         raise self.fail("type", "assignment target must be a mutable local variable or record field", target)
 
     @staticmethod
@@ -1034,6 +1072,60 @@ class _StatementsMixin:
             updated[owner_name] = _Binding(new_rec_term, owner_b.type)
         self._refresh_local_borrows(updated, site_node)
 
+    def _apply_indexed_borrow_write(
+        self: _Elaborator,
+        bname: str,
+        new_binding: _Binding,
+        updated: dict[str, _Binding],
+        site_node: Node,
+    ) -> None:
+        info = self.indexed_local_borrows[bname]
+        if info.mode != "ref":
+            raise self.fail(
+                "type",
+                f"cannot mutate through shared 'in' borrow '{bname}' (write-through-shared)",
+                site_node,
+            )
+        if info.owner not in updated:
+            raise self.fail("name", f"unknown identifier '{info.owner}'", site_node)
+        self._check_indexed_local_borrow_access(bname, updated, site_node)
+        owner_b = updated[info.owner]
+        if info.collection_kind == "vec":
+            new_owner_term = _apps(
+                _constant("Vec_Update"), *info.type_args, info.index_term, new_binding.term, owner_b.term
+            )
+        elif info.collection_kind == "seq":
+            new_owner_term = _apps(
+                _constant("Seq_Update"), *info.type_args, owner_b.term, info.index_term, new_binding.term
+            )
+        elif info.collection_kind == "span":
+            new_owner_term = _apps(
+                _constant("Span_Write"), *info.type_args, owner_b.term, info.index_term, new_binding.term
+            )
+        else:
+            new_owner_term = _apps(
+                _constant("Slots_Write"), *info.type_args, owner_b.term, info.index_term, new_binding.term
+            )
+        new_owner_b = _Binding(new_owner_term, owner_b.type)
+        if info.owner in self.indexed_local_borrows:
+            self._apply_indexed_borrow_write(info.owner, new_owner_b, updated, site_node)
+        elif info.owner in self.local_borrows:
+            self._apply_borrow_write(info.owner, new_owner_b, updated, site_node)
+        else:
+            updated[info.owner] = new_owner_b
+            if info.collection_kind == "span" and info.owner in self.slice_views:
+                parent_name = self.slice_views[info.owner]
+                if parent_name in updated:
+                    p_b = updated[parent_name]
+                    updated[parent_name] = _Binding(
+                        _apps(_constant("Span_Restore"), _U8, p_b.term, new_owner_term), p_b.type
+                    )
+            self._refresh_local_borrows(updated, site_node)
+        updated[bname] = new_binding
+        self.indexed_local_borrows[bname] = replace(info, owner_term=self.whnf(updated[info.owner].term))
+        if not self.in_inline_proof:
+            self.runtime_writes.add(self.slice_views.get(info.owner, info.owner))
+
     def _note_runtime_access(self: _Elaborator, target: Node, footprint: set[str]) -> None:
         if self.in_inline_proof:
             return
@@ -1042,6 +1134,8 @@ class _StatementsMixin:
             place = self._unwrap_group(self.node(place["value"]))
         if place["kind"] == "name":
             name = self.name(place["name"])
+            if name in self.indexed_local_borrows:
+                name = self.indexed_local_borrows[name].owner
             if name in self.local_borrows:
                 name = self.local_borrows[name][1]
             footprint.add(self.slice_views.get(name, name))
@@ -1118,6 +1212,9 @@ class _StatementsMixin:
             if vname in updated:
                 if vname in self.frozen_collections:
                     raise self.fail("type", f"cannot mutate frozen collection '{vname}'", site)
+                if vname in self.indexed_local_borrows:
+                    self._apply_indexed_borrow_write(vname, new_binding, updated, site)
+                    return True
                 if vname in self.local_borrows:
                     self._apply_borrow_write(vname, new_binding, updated, site)
                     return True
@@ -1649,6 +1746,8 @@ class _StatementsMixin:
                                 return extended, ctrl
                         continue
                     saved_uninit = set(self.uninitialized_out_params)
+                    saved_indexed: dict[str, _IndexedLocalBorrow] = dict(self.indexed_local_borrows)
+                    saved_peer_len = len(self.indexed_borrow_peers)
                     yes_guard = self._branch_guard(condition, True)
                     no_guard = self._branch_guard(condition, False)
                     self.active_facts.append(condition)
@@ -1657,9 +1756,13 @@ class _StatementsMixin:
                             then_block, dict(extended), (*facts, *statement_facts, *yes_guard)
                         )
                         then_uninit = set(self.uninitialized_out_params)
+                        then_indexed: dict[str, _IndexedLocalBorrow] = dict(self.indexed_local_borrows)
+                        then_peers: list[_IndexedBorrowPeer] = self.indexed_borrow_peers[saved_peer_len:]
                     finally:
                         self.active_facts.pop()
                     self.uninitialized_out_params = set(saved_uninit)
+                    self.indexed_local_borrows = dict(saved_indexed)
+                    del self.indexed_borrow_peers[saved_peer_len:]
                     if else_block is not None:
                         self.active_facts.append(_app(_constant("!"), condition))
                         try:
@@ -1667,11 +1770,39 @@ class _StatementsMixin:
                                 else_block, dict(extended), (*facts, *statement_facts, *no_guard)
                             )
                             else_uninit = set(self.uninitialized_out_params)
+                            else_indexed: dict[str, _IndexedLocalBorrow] = dict(self.indexed_local_borrows)
+                            else_peers: list[_IndexedBorrowPeer] = self.indexed_borrow_peers[saved_peer_len:]
                         finally:
                             self.active_facts.pop()
                     else:
                         else_env, else_ctrl = dict(extended), None
                         else_uninit = set(saved_uninit)
+                        else_indexed = dict(saved_indexed)
+                        else_peers = []
+                    self.indexed_borrow_peers = [
+                        *self.indexed_borrow_peers[:saved_peer_len],
+                        *(then_peers if then_ctrl is None else []),
+                        *(else_peers if else_ctrl is None else []),
+                    ]
+                    restored_indexed: dict[str, _IndexedLocalBorrow] = {}
+                    for bk, orig_info in saved_indexed.items():
+                        if bk not in extended:
+                            continue
+                        t_info = then_indexed.get(bk, orig_info)
+                        e_info = else_indexed.get(bk, orig_info)
+                        if t_info.owner_term != e_info.owner_term and orig_info.owner in extended:
+                            joined_owner = self.whnf(self._branch_value(
+                                extended[orig_info.owner].type,
+                                condition,
+                                self.whnf(t_info.owner_term),
+                                self.whnf(e_info.owner_term),
+                                yes_guard,
+                                no_guard,
+                            ))
+                            restored_indexed[bk] = replace(orig_info, owner_term=joined_owner)
+                        else:
+                            restored_indexed[bk] = orig_info
+                    self.indexed_local_borrows = restored_indexed
                     if then_ctrl != else_ctrl:
                         if (terminal_break is None or statement is not statements[-1]
                                 or {then_ctrl, else_ctrl} != {None, "break"}):
@@ -2890,6 +3021,8 @@ class _StatementsMixin:
                     self._consume_call_updates(extended, cond_raw)
                     lint_branch(self, cond_raw, condition, extended)
                     saved_uninit = set(self.uninitialized_out_params)
+                    saved_indexed = dict(self.indexed_local_borrows)
+                    saved_peer_len = len(self.indexed_borrow_peers)
                     yes_guard = self._branch_guard(condition, True)
                     no_guard = self._branch_guard(condition, False)
                     self.active_facts.append(condition)
@@ -2902,6 +3035,8 @@ class _StatementsMixin:
                     finally:
                         self.active_facts.pop()
                     self.uninitialized_out_params = set(saved_uninit)
+                    self.indexed_local_borrows = dict(saved_indexed)
+                    del self.indexed_borrow_peers[saved_peer_len:]
                     self.active_facts.append(_app(_constant("!"), condition))
                     try:
                         no = self.branch(
@@ -2911,6 +3046,8 @@ class _StatementsMixin:
                         no_uninit = set(self.uninitialized_out_params)
                     finally:
                         self.active_facts.pop()
+                    self.indexed_local_borrows = dict(saved_indexed)
+                    del self.indexed_borrow_peers[saved_peer_len:]
                     self.uninitialized_out_params = yes_uninit | no_uninit
                     merged_refs = dict(extended)
                     for rk in set(yes_refs) & set(no_refs):

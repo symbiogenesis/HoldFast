@@ -1896,11 +1896,156 @@ class _IntrinsicsMixin:
         finally:
             del self.active_facts[saved_facts:]
 
+    def _indexed_history_preserves_index(
+        self: _Elaborator, base: _Term, current: _Term, index: _Term, index_type: _Term,
+        environment: dict[str, _Binding],
+    ) -> bool:
+        zero = _int_term(_INT_SPECS["usize"], 0)
+        one = _int_term(_INT_SPECS["usize"], 1)
+        pending: list[tuple[_Term, _Term, tuple[_Term, ...]]] = [(self.whnf(current), self.whnf(base), ())]
+        saved_facts = len(self.active_facts)
+        try:
+            while pending:
+                self.tick()
+                cur, base_term, guards = pending.pop()
+                self.active_facts[saved_facts:] = guards
+                while cur != base_term:
+                    self.tick()
+                    if cur.kind == "if" and base_term.kind == "if" and cur.args[1] == base_term.args[1]:
+                        condition = cur.args[1]
+                        negative = self._negate_bool_term(condition)
+                        for guard, opposite, cur_b, base_b in (
+                            (condition, negative, cur.args[2], base_term.args[2]),
+                            (negative, condition, cur.args[3], base_term.args[3]),
+                        ):
+                            if not self._prove_bool_precondition(opposite, environment):
+                                pending.append((self.whnf(cur_b), self.whnf(base_b), (*guards, guard)))
+                        break
+                    if cur.kind == "if":
+                        _, condition, yes, no = cur.args
+                        negative = self._negate_bool_term(condition)
+                        for guard, opposite, branch in ((condition, negative, yes), (negative, condition, no)):
+                            if not self._prove_bool_precondition(opposite, environment):
+                                pending.append((self.whnf(branch), base_term, (*guards, guard)))
+                        break
+                    update, operands = self.spine(cur)
+                    if (
+                        update == _constant("Vec_Update")
+                        and len(operands) == 5
+                        and index_type == _NAT
+                        and self._prove_bool_precondition(_apps(_constant("ne_nat"), operands[2], index), environment)
+                    ):
+                        cur = self.whnf(operands[4])
+                        continue
+                    if (
+                        update == _constant("Seq_Update")
+                        and len(operands) == 4
+                        and index_type == _NAT
+                        and self._prove_bool_precondition(_apps(_constant("ne_nat"), operands[2], index), environment)
+                    ):
+                        cur = self.whnf(operands[1])
+                        continue
+                    if (
+                        update == _constant("Span_Write")
+                        and len(operands) == 4
+                        and index_type == _USIZE
+                        and self._prove_bool_precondition(
+                            _apps(_constant("int_ne_usize"), operands[2], index), environment
+                        )
+                    ):
+                        cur = self.whnf(operands[1])
+                        continue
+                    if (
+                        update == _constant("Slots_Write")
+                        and len(operands) == 5
+                        and index_type == _USIZE
+                        and self._prove_bool_precondition(
+                            _apps(_constant("int_ne_usize"), operands[3], index), environment
+                        )
+                    ):
+                        cur = self.whnf(operands[2])
+                        continue
+                    if update == _constant("Span_Fill") and len(operands) == 5 and index_type == _USIZE:
+                        _, parent, offset, count, _ = operands
+                        empty = _apps(_constant("int_eq_usize"), count, zero)
+                        before = _apps(_constant("int_le_usize"), self._add_usize_offset(offset, count), index)
+                        after = _apps(_constant("int_le_usize"), self._add_usize_offset(index, one), offset)
+                        if any(self._prove_bool_precondition(fact, environment) for fact in (empty, before, after)):
+                            cur = self.whnf(parent)
+                            continue
+                    return False
+            return True
+        finally:
+            del self.active_facts[saved_facts:]
+
+    def _check_indexed_local_borrow_access(
+        self: _Elaborator, bname: str, environment: dict[str, _Binding], site: Node | None,
+    ) -> None:
+        info = self.indexed_local_borrows[bname]
+        if info.owner not in environment:
+            raise self.fail("name", f"unknown identifier '{info.owner}'", site or info.site)
+        owner_term = self.whnf(environment[info.owner].term)
+        if not self._indexed_history_preserves_index(
+            info.owner_term, owner_term, info.index_term, info.index_type, environment
+        ):
+            raise self.fail(
+                "type",
+                f"cannot prove indexed borrow '{bname}' remains valid after update to owner '{info.owner}'",
+                site or info.site,
+            )
+        saved_facts = len(self.active_facts)
+        try:
+            for peer in self.indexed_borrow_peers:
+                if peer.birth_id <= info.birth_id or peer.owner != info.owner:
+                    continue
+                if info.mode != "ref" and peer.mode != "ref":
+                    continue
+                if any(
+                    self._prove_bool_precondition(self._negate_bool_term(guard), environment)
+                    for guard in peer.guards
+                ):
+                    continue
+                self.active_facts[saved_facts:] = peer.guards
+                if info.index_type == peer.index_type:
+                    ne = _constant("ne_nat") if info.index_type == _NAT else _constant("int_ne_usize")
+                    if self._prove_bool_precondition(
+                        _apps(ne, info.index_term, peer.index_term), environment
+                    ):
+                        continue
+                raise self.fail(
+                    "type",
+                    f"cannot prove indexed borrow '{bname}' is disjoint from overlapping borrow of '{info.owner}'",
+                    site or info.site,
+                )
+        finally:
+            del self.active_facts[saved_facts:]
+
     def _check_indexed_argument_overlap(
         self: _Elaborator, args: list[Node], positions: dict[int, _Term], shared_positions: dict[int, _Term],
         environment: dict[str, _Binding],
     ) -> None:
-        if not positions:
+        eff_positions = dict(positions)
+        eff_shared = dict(shared_positions)
+        exclusive_whole_indices: set[int] = set()
+        for idx, arg in enumerate(args):
+            arg_val = self._unwrap_group(self.node(arg["value"]))
+            arg_mod = (
+                cast("str", cast("Node", arg_val["operator"]).get("text"))
+                if arg_val["kind"] == "unary" and isinstance(arg_val.get("operator"), dict)
+                else None
+            )
+            target = self._unwrap_group(self.node(arg_val["value"])) if arg_mod in {"in", "ref", "out", "move"} else arg_val
+            if idx not in eff_positions and idx not in eff_shared and target["kind"] == "name":
+                tname = self.name(target["name"])
+                if tname in self.indexed_local_borrows:
+                    info = self.indexed_local_borrows[tname]
+                    if arg_mod == "ref":
+                        eff_positions[idx] = info.index_term
+                    else:
+                        eff_shared[idx] = info.index_term
+                elif arg_mod in {"ref", "out", "move"}:
+                    exclusive_whole_indices.add(idx)
+        if not eff_positions and not eff_shared:
             return
         places: list[tuple[str | None, set[str], set[_Term], bool]] = []
         for arg in args:
@@ -1909,7 +2054,11 @@ class _IntrinsicsMixin:
                 place = self._unwrap_group(self.node(place["value"]))
             while place["kind"] in {"index", "member"}:
                 place = self._unwrap_group(self.node(place["value"]))
-            name = self.name(place["name"]) if place["kind"] == "name" else None
+            raw_name = self.name(place["name"]) if place["kind"] == "name" else None
+            if raw_name in self.indexed_local_borrows:
+                name: str | None = self.indexed_local_borrows[raw_name].owner
+            else:
+                name = raw_name
             root = self.local_borrows[name][1] if name in self.local_borrows else name
             collection = environment.get(name) if name is not None else None
             ancestry: set[str] = set()
@@ -1932,13 +2081,13 @@ class _IntrinsicsMixin:
                     if base.kind == "if":
                         pending.extend(base.args[2:])
             places.append((name, ancestry, backing, is_view))
-        for i, pos in positions.items():
+        for i, pos in eff_positions.items():
             name, ancestry, backing, is_view = places[i]
             for j, (other_name, other_ancestry, other_backing, other_is_view) in enumerate(places):
                 if i == j or (not (ancestry & other_ancestry) and not (backing & other_backing)):
                     continue
-                other = positions.get(j, shared_positions.get(j))
-                if (other is not None and name != other_name and j in shared_positions and not is_view
+                other = eff_positions.get(j, eff_shared.get(j))
+                if (other is not None and name != other_name and j in eff_shared and not is_view
                         and name is not None and ancestry == {name}
                         and other_name is not None and other_is_view and not self.last_call_updates):
                     if self._span_indexed_arguments_disjoint(
@@ -1955,6 +2104,18 @@ class _IntrinsicsMixin:
                 root = self.local_borrows[name][1] if name in self.local_borrows else name
                 owner = self.slice_views.get(root, root) if root is not None else root
                 raise self.fail("type", f"cannot prove indexed loan of '{owner}' is disjoint from argument {j + 1}", args[i])
+        for i in eff_shared:
+            arg_val = self._unwrap_group(self.node(args[i]["value"]))
+            target = self._unwrap_group(self.node(arg_val["value"])) if arg_val["kind"] == "unary" else arg_val
+            if target["kind"] != "name" or self.name(target["name"]) not in self.indexed_local_borrows:
+                continue
+            name, ancestry, backing, _ = places[i]
+            for j in exclusive_whole_indices:
+                if i == j:
+                    continue
+                _, other_ancestry, other_backing, _ = places[j]
+                if (ancestry & other_ancestry) or (backing & other_backing):
+                    raise self.fail("type", f"cannot prove indexed loan of '{name}' is disjoint from argument {j + 1}", args[i])
 
     def _check_indexed_call_loans(
         self: _Elaborator, args: list[Node], positions: dict[int, _Term], shared_positions: dict[int, _Term],
