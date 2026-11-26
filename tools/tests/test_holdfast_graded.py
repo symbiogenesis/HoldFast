@@ -515,6 +515,85 @@ def _support_cache_controls() -> None:
                    "editing support source did not invalidate the cache key")
 
 
+def _type_grades_and_presence_replay() -> None:
+    source = TOOLS / "tests" / "fixtures" / "graded-type-grades.hf"
+    raw = source.read_text(encoding="utf-8")
+    with tempfile.TemporaryDirectory(prefix="holdfast-graded-type-grades-") as temporary:
+        directory = Path(temporary)
+        candidate = directory / source.name
+        proof = directory / "Generated.v"
+
+        status, output, error = _source_command(source, "KeepDouble")
+        ensure(status == 0, error)
+        report = json.loads(output)
+        ensure(_demand(report["binders"]) == [("n", 0, 4), ("values", 1, 0)], f"wrong KeepDouble grades: {report}")
+
+        status, output, error = _source_command(source, "ShareLength")
+        ensure(status == 0, error)
+        shared = json.loads(output)
+        ensure(_demand(shared["binders"]) == [("n", 0, 6), ("left", 1, 0), ("right", 0, 0)],
+               f"wrong ShareLength grades: {shared}")
+
+        status, gallina, error = _elaborate_command(source)
+        ensure(status == 0 and all(f"Graded replay {name} NatExact: SHA256" in gallina
+                                   for name in ("Identity", "KeepDouble", "Relay", "ShareLength")), error)
+        proof.write_text(gallina + """
+Import HoldFast_GradedTypeGrades.
+Theorem keep_double_id : forall n (values : holdfast_Vec nat (n + n)),
+  holdfast_d1_KeepDouble n values = values.
+Proof. reflexivity. Qed.
+Print Assumptions keep_double_id.
+""", encoding="utf-8")
+        kernel = subprocess.run([*proofenv.rocq_command(), "-q", proof.name], cwd=directory,
+                                capture_output=True, text=True, encoding="utf-8", check=False, timeout=30)
+        ensure(kernel.returncode == 0, kernel.stderr)
+        solver_ledger.audit(kernel.stdout, 1, "GradedTypeGrades", ())
+
+        for original, replacement, failure in (
+            ("Type a @ NatExact(0, 2)", "Type a @ NatExact(0, 1)", "fails exact type-use demand"),
+            ("Type a @ NatExact(0, 2)", "Type a @ NatExact(0, 3)", "fails exact type-use demand"),
+            ("a x @ NatExact(1, 0)", "a x @ NatExact(1, 1)", "fails exact type-use demand"),
+            ("Nat n @ NatExact(0, 4)", "Nat n @ NatExact(0, 2)", "fails exact type-use demand"),
+            ("Nat n @ NatExact(0, 6)", "Nat n @ NatExact(0, 4)", "fails exact type-use demand"),
+        ):
+            ensure(original in raw, f"missing (s, r) control: {original!r}")
+            candidate.write_text(raw.replace(original, replacement), encoding="utf-8")
+            status, output, error = _elaborate_command(candidate)
+            ensure(status == 1 and not output and failure in error, error)
+
+        bounded = raw.replace("NatExact(0, 4)", "NatBound(0, 5)").replace("NatExact", "NatBound")
+        candidate.write_text(bounded, encoding="utf-8")
+        status, output, error = _source_command(candidate, "KeepDouble", "--domain", "NatBound")
+        ensure(status == 0, error)
+        candidate.write_text(bounded.replace("NatBound(0, 5)", "NatBound(0, 3)"), encoding="utf-8")
+        status, output, error = _source_command(candidate, "KeepDouble", "--domain", "NatBound")
+        ensure(status == 1 and not output and "fails bounded type-use demand" in error, error)
+
+        presence = (
+            raw.replace("NatExact(0, 2)", "Presence(0, 1)")
+            .replace("NatExact(0, 4)", "Presence(0, 1)")
+            .replace("NatExact(0, 6)", "Presence(0, 1)")
+            .replace("NatExact", "Presence")
+        )
+        candidate.write_text(presence, encoding="utf-8")
+        status, output, error = _source_command(candidate, "KeepDouble", "--domain", "Presence")
+        ensure(status == 0, error)
+        presence_report = json.loads(output)
+        ensure(presence_report["domain"] == "Presence", "wrong Presence domain in report")
+        _verify_source_certificate(directory, presence_report["kernel_sha256"], presence_report["gallina"],
+                                   "presence_source_check_sound", ("[0; 0; 4]", "[0; 0; 3]"))
+
+        candidate.write_text(presence.replace("Nat n @ Presence(0, 1)", "Nat n @ Presence(0, 0)", 1), encoding="utf-8")
+        status, output, error = _source_command(candidate, "KeepDouble", "--domain", "Presence")
+        ensure(status == 1 and not output and "fails presence type-use demand" in error, error)
+
+        let_bad = ("module LetTypeGrade;\n"
+                   "definition Nat Bad(Nat n @ NatExact(1, 0)) => let Nat x @ NatExact(1, 0) = n in x;\n")
+        candidate.write_text(let_bad, encoding="utf-8")
+        status, output, error = _source_command(candidate, "Bad")
+        ensure(status == 1 and not output and ": unsupported: " in error, error)
+
+
 def cases() -> list[Case]:
     return [Case("support cache reuses verified .vo artifacts and repairs corruption", _support_cache_controls),
             Case("pure dependent usage and telescope substitution replay",
@@ -530,4 +609,6 @@ def cases() -> list[Case]:
                  lane="toolchain"),
             Case("graded let sequences the initializer and substitutes independent type demand", _graded_let,
                  lane="toolchain"),
-            Case("default elaboration checks source grades before Gallina emission", _default_source_replay, lane="toolchain")]
+            Case("default elaboration checks source grades before Gallina emission", _default_source_replay, lane="toolchain"),
+            Case("explicit (s, r) type grades and Presence domain source replay", _type_grades_and_presence_replay,
+                 lane="toolchain")]

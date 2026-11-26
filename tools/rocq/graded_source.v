@@ -1,6 +1,6 @@
 (* SPDX-License-Identifier: Apache-2.0 *)
 From Corelib Require Import Init.Datatypes.
-From Stdlib Require Import Lists.List Arith.PeanoNat.
+From Stdlib Require Import Lists.List Arith.PeanoNat Bool.Bool.
 Require Import graded_pure graded_domains.
 Import ListNotations GradedPure.
 
@@ -73,6 +73,21 @@ Qed.
 Definition source_check := source_check_with (@GradedDomains.allowsb GradedDomains.NatExact).
 Definition bounded_source_check := source_check_with (@GradedDomains.allowsb GradedDomains.NatBound).
 
+Definition presence_allows (actual allowance : nat) : Prop :=
+  actual > 0 -> allowance > 0.
+
+Definition presence_allowsb (actual allowance : nat) : bool :=
+  implb (negb (Nat.eqb actual 0)) (negb (Nat.eqb allowance 0)).
+
+Lemma presence_allowsb_sound : forall actual allowance,
+  presence_allowsb actual allowance = true -> presence_allows actual allowance.
+Proof.
+  intros [| a] [| b] checked pos; cbn in checked; try discriminate;
+    try inversion pos; apply Nat.lt_0_succ.
+Qed.
+
+Definition presence_source_check := source_check_with presence_allowsb.
+
 Theorem source_check_sound : forall subject expected,
   accepted (source_check subject expected) = true ->
   exists result row,
@@ -94,6 +109,17 @@ Proof.
   intros demand allowance admitted.
   destruct (GradedDomains.allows_reflect GradedDomains.NatBound demand allowance);
     [assumption | discriminate].
+Qed.
+
+Theorem presence_source_check_sound : forall subject expected,
+  accepted (presence_source_check subject expected) = true ->
+  exists result row,
+    DerivesWith presence_allows [] subject result /\
+    TypeDemand [] expected row /\
+    canonical_type [] (result_type result) = canonical_type [] expected.
+Proof.
+  unfold presence_source_check. apply source_check_with_sound.
+  exact presence_allowsb_sound.
 Qed.
 
 End GradedSource.

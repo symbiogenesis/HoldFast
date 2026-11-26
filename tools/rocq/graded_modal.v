@@ -50,11 +50,16 @@ Inductive type_index :=
 
 Inductive kind :=
 | NatKind
-| BoxNat (grade : nat)
+| BoxKind (grade : nat) (payload : kind)
 | IndexedKind (shape : indexed_shape)
 | VecKind (length : type_index)
 | ArrowKind (allowance : nat) (domain codomain : kind)
-| ProductKind (first second : kind).
+| ProductKind (first second : kind)
+| BoolKind
+| SumKind (left right : kind)
+| PiKind (name allowance : nat) (domain codomain : kind).
+
+Abbreviation BoxNat grade := (BoxKind grade NatKind).
 
 Definition env := list (nat * kind).
 Definition find_kind (scope : env) (name : nat) : option kind :=
@@ -107,10 +112,10 @@ Lemma indexed_uses_sound : forall scope shape pair row,
 Proof.
   intros scope shape [name | actual length payload] row checked; cbn in checked.
   - destruct (find_kind scope name) as [k |] eqn:found; try discriminate.
-    destruct k as [| | actual | | |]; try discriminate.
+    destruct k as [| | actual | | | | | |]; try discriminate.
     destruct (indexed_shape_eq_dec actual shape); inversion checked; subst. now constructor.
   - destruct (find_kind scope payload) as [k |] eqn:found; try discriminate.
-    destruct k as [| | | [expected | | |] | |]; try discriminate.
+    destruct k as [| | | [expected | | |] | | | | |]; try discriminate.
     destruct (index_demand (naturals scope) length) as [d |] eqn:length_ok; try discriminate.
     destruct (indexed_shape_eq_dec actual shape); try discriminate.
     destruct (index_eq_dec expected (instantiate_extent (payload_extent shape) length));
@@ -145,7 +150,8 @@ Proof.
   intros scope [value | name | q value | shape pair] d checked; cbn in checked.
   - constructor. now apply index_demand_sound.
   - destruct (find_kind scope name) as [k |] eqn:found; try discriminate.
-    destruct k; inversion checked; subst. eapply BoxContentsUses; eassumption.
+    destruct k as [| q [| | | | | | | |] | | | | | | |]; inversion checked; subst.
+    eapply BoxContentsUses; eassumption.
   - destruct (index_demand (naturals scope) value) eqn:used;
       inversion checked; subst. constructor. now apply index_demand_sound.
   - constructor. now apply indexed_uses_sound.
@@ -153,36 +159,60 @@ Qed.
 
 Inductive TypeUses (scope : env) : kind -> demand -> Prop :=
 | NatUses : TypeUses scope NatKind []
-| BoxUses : forall q, TypeUses scope (BoxNat q) []
+| BoxUses : forall q payload_k d, TypeUses scope payload_k d ->
+    TypeUses scope (BoxKind q payload_k) d
 | IndexedKindUses : forall shape, TypeUses scope (IndexedKind shape) []
 | VecUses : forall i d, IndexUses scope i d -> TypeUses scope (VecKind i) d
 | ArrowUses : forall q a b d e, TypeUses scope a d -> TypeUses scope b e ->
     TypeUses scope (ArrowKind q a b) (d ++ e)
 | ProductUses : forall a b d e, TypeUses scope a d -> TypeUses scope b e ->
-    TypeUses scope (ProductKind a b) (d ++ e).
+    TypeUses scope (ProductKind a b) (d ++ e)
+| BoolUses : TypeUses scope BoolKind []
+| SumUses : forall a b d e, TypeUses scope a d -> TypeUses scope b e ->
+    TypeUses scope (SumKind a b) (d ++ e)
+| PiUses : forall x allowance a b d e,
+    is_fresh scope x = true -> TypeUses scope a d ->
+    TypeUses ((x, a) :: scope) b e ->
+    TypeUses scope (PiKind x allowance a b) (d ++ without x e).
 
 Fixpoint type_uses (scope : env) (k : kind) : option demand :=
   match k with
-  | NatKind | BoxNat _ | IndexedKind _ => Some []
+  | NatKind | IndexedKind _ | BoolKind => Some []
+  | BoxKind _ payload_k => type_uses scope payload_k
   | VecKind i => index_uses scope i
-  | ArrowKind _ a b | ProductKind a b =>
+  | ArrowKind _ a b | ProductKind a b | SumKind a b =>
       match type_uses scope a, type_uses scope b with
       | Some d, Some e => Some (d ++ e)
       | _, _ => None
       end
+  | PiKind x _ a b =>
+      if is_fresh scope x then
+        match type_uses scope a, type_uses ((x, a) :: scope) b with
+        | Some d, Some e => Some (d ++ without x e)
+        | _, _ => None
+        end
+      else None
   end.
 
 Lemma type_uses_sound : forall k scope d,
   type_uses scope k = Some d -> TypeUses scope k d.
 Proof.
-  induction k; intros scope d checked; cbn in checked.
+  induction k as [| q payload IH | shape | i | allowance a IHa b IHb
+    | a IHa b IHb | | a IHa b IHb | x allowance a IHa b IHb];
+    intros scope d checked; cbn in checked.
   - inversion checked. constructor.
-  - inversion checked. constructor.
+  - constructor. auto.
   - inversion checked. constructor.
   - constructor. now apply index_uses_sound.
-  - destruct (type_uses scope k1) eqn:left, (type_uses scope k2) eqn:right;
+  - destruct (type_uses scope a) eqn:left, (type_uses scope b) eqn:right;
       inversion checked; subst. constructor; auto.
-  - destruct (type_uses scope k1) eqn:left, (type_uses scope k2) eqn:right;
+  - destruct (type_uses scope a) eqn:left, (type_uses scope b) eqn:right;
+      inversion checked; subst. constructor; auto.
+  - inversion checked. constructor.
+  - destruct (type_uses scope a) eqn:left, (type_uses scope b) eqn:right;
+      inversion checked; subst. constructor; auto.
+  - destruct (is_fresh scope x) eqn:fresh; try discriminate.
+    destruct (type_uses scope a) eqn:left, (type_uses ((x, a) :: scope) b) eqn:right;
       inversion checked; subst. constructor; auto.
 Qed.
 
@@ -238,7 +268,8 @@ Lemma infer_box_sound : forall scope subject q d contents,
 Proof.
   intros scope [name | q i] q' d contents checked; cbn in checked.
   - destruct (find_kind scope name) as [k |] eqn:found; try discriminate.
-    destruct k; inversion checked; subst. now constructor.
+    destruct k as [| q [| | | | | | | |] | | | | | | |]; inversion checked; subst.
+    now constructor.
   - destruct (index_demand (naturals scope) i) eqn:used;
       inversion checked; subst. constructor. now apply index_demand_sound.
 Qed.
@@ -247,10 +278,43 @@ Qed.
    free names in scope. *)
 Fixpoint map_indices (replace : type_index -> type_index) (k : kind) : kind :=
   match k with
+  | BoxKind q payload => BoxKind q (map_indices replace payload)
   | VecKind i => VecKind (replace i)
   | ArrowKind q a b => ArrowKind q (map_indices replace a) (map_indices replace b)
   | ProductKind a b => ProductKind (map_indices replace a) (map_indices replace b)
+  | SumKind a b => SumKind (map_indices replace a) (map_indices replace b)
   | _ => k
+  end.
+
+Definition substitute_indexed_pair (x : nat) (value : index) (p : indexed) : indexed :=
+  match p with
+  | IndexedName _ => p
+  | BuildIndexed shape length payload =>
+      BuildIndexed shape (substitute_index x value length) payload
+  end.
+
+Definition substitute_type_index (x : nat) (value : index) (ti : type_index) : type_index :=
+  match ti with
+  | PlainIndex i => PlainIndex (substitute_index x value i)
+  | BoxContents _ => ti
+  | PromotedContents q i => PromotedContents q (substitute_index x value i)
+  | IndexedLength shape p => IndexedLength shape (substitute_indexed_pair x value p)
+  end.
+
+Fixpoint substitute_kind (x : nat) (value : index) (k : kind) : kind :=
+  match k with
+  | NatKind | IndexedKind _ | BoolKind => k
+  | BoxKind q payload => BoxKind q (substitute_kind x value payload)
+  | VecKind i => VecKind (substitute_type_index x value i)
+  | ArrowKind allowance a b =>
+      ArrowKind allowance (substitute_kind x value a) (substitute_kind x value b)
+  | ProductKind a b =>
+      ProductKind (substitute_kind x value a) (substitute_kind x value b)
+  | SumKind a b =>
+      SumKind (substitute_kind x value a) (substitute_kind x value b)
+  | PiKind y allowance a b =>
+      PiKind y allowance (substitute_kind x value a)
+        (if Nat.eqb x y then b else substitute_kind x value b)
   end.
 
 Definition specialize (binder : nat) (contents : type_index) : kind -> kind :=
@@ -280,7 +344,97 @@ Inductive value :=
 | LetIndexed (shape : indexed_shape) (length payload motive_name : nat)
     (subject : indexed) (motive : kind) (body : value)
 | Apply (callee argument : value)
-| LetBoxValue (name motive_name : nat) (subject : value) (motive : kind) (body : value).
+| LetBoxValue (name motive_name : nat) (subject : value) (motive : kind) (body : value)
+| PromoteValue (grade : nat) (inner : value)
+| BoolLit (b : bool)
+| IfValue (cond then_b else_b : value)
+| InlValue (right : kind) (v : value)
+| InrValue (left : kind) (v : value)
+| MatchSum (l_name r_name : nat) (scrutinee l_body r_body : value)
+| LetNatValue (name allowance : nat) (init : index) (body : value)
+| DepLambda (name allowance : nat) (domain : kind) (body : value)
+| ApplyNatValue (callee : value) (argument : index).
+
+Fixpoint join_keys (keys : list nat) (d1 d2 : demand) : demand :=
+  match keys with
+  | [] => []
+  | k :: rest =>
+      if existsb (Nat.eqb k) rest
+      then join_keys rest d1 d2
+      else (k, Nat.max (uses d1 k) (uses d2 k)) :: join_keys rest d1 d2
+  end.
+
+Definition join_demand (d1 d2 : demand) : demand :=
+  join_keys (map fst (d1 ++ d2)) d1 d2.
+
+Lemma join_keys_fst_subset : forall keys d1 d2 x,
+  In x (map fst (join_keys keys d1 d2)) -> In x keys.
+Proof.
+  induction keys as [| k rest IH]; intros d1 d2 x present; cbn in *.
+  - contradiction.
+  - destruct (existsb (Nat.eqb k) rest) eqn:dup.
+    + right. eapply IH; eassumption.
+    + cbn in present. destruct present as [-> | present].
+      * now left.
+      * right. eapply IH; eassumption.
+Qed.
+
+Lemma uses_join_keys_in : forall keys d1 d2 x,
+  In x keys -> uses (join_keys keys d1 d2) x = Nat.max (uses d1 x) (uses d2 x).
+Proof.
+  induction keys as [| k rest IH]; intros d1 d2 x present; cbn in *.
+  - contradiction.
+  - destruct (existsb (Nat.eqb k) rest) eqn:dup.
+    + apply existsb_exists in dup as [y [yin yeq]].
+      apply Nat.eqb_eq in yeq. subst y.
+      destruct present as [<- | present]; now apply IH.
+    + cbn. destruct present as [-> | present].
+      * rewrite Nat.eqb_refl.
+        assert (absent_rest : ~ In x (map fst (join_keys rest d1 d2))).
+        { intro in_rest. apply join_keys_fst_subset in in_rest.
+          assert (found : existsb (Nat.eqb x) rest = true).
+          { apply existsb_exists. exists x. split; [exact in_rest | apply Nat.eqb_refl]. }
+          congruence. }
+        rewrite (absent_use _ _ absent_rest). apply Nat.add_0_r.
+      * destruct (Nat.eqb x k) eqn:eq.
+        -- apply Nat.eqb_eq in eq. subst k.
+           assert (found : existsb (Nat.eqb x) rest = true).
+           { apply existsb_exists. exists x. split; [exact present | apply Nat.eqb_refl]. }
+           congruence.
+        -- cbn. now apply IH.
+Qed.
+
+Lemma uses_join_demand : forall d1 d2 x,
+  uses (join_demand d1 d2) x = Nat.max (uses d1 x) (uses d2 x).
+Proof.
+  intros d1 d2 x. unfold join_demand.
+  destruct (in_dec Nat.eq_dec x (map fst (d1 ++ d2))) as [present | absent].
+  - now apply uses_join_keys_in.
+  - assert (not_joined : ~ In x (map fst (join_keys (map fst (d1 ++ d2)) d1 d2))).
+    { intro in_joined. apply join_keys_fst_subset in in_joined. contradiction. }
+    rewrite (absent_use _ _ not_joined).
+    rewrite map_app in absent.
+    rewrite !absent_use; [reflexivity | |]; intro H; apply absent, in_or_app; auto.
+Qed.
+
+Definition BranchDemand (exact_branches : bool) (d1 d2 d : demand) : Prop :=
+  if exact_branches then same_demand d1 d2 /\ same_demand d d1
+  else same_demand d (join_demand d1 d2).
+
+Definition branch_demand (exact_branches : bool) (d1 d2 : demand) : option demand :=
+  if exact_branches then
+    if demand_eqb d1 d2 then Some d1 else None
+  else
+    Some (join_demand d1 d2).
+
+Lemma branch_demand_sound : forall exact_branches d1 d2 d,
+  branch_demand exact_branches d1 d2 = Some d -> BranchDemand exact_branches d1 d2 d.
+Proof.
+  intros [|] d1 d2 d checked; cbn in checked.
+  - destruct (demand_eqb d1 d2) eqn:eq; inversion checked; subst.
+    split; [now apply demand_eqb_sound | intro x; reflexivity].
+  - inversion checked; subst. intro x. reflexivity.
+Qed.
 
 Record usage := {
   value_kind : kind;
@@ -466,6 +620,7 @@ Fixpoint infer_with (allowsb : nat -> nat -> bool) (scope : env) (subject : valu
         | _ => None
         end
       else None
+  | _ => None
   end.
 
 Lemma infer_with_sound : forall (allows : nat -> nat -> Prop) allowsb,
@@ -476,8 +631,11 @@ Proof.
   intros allows allowsb admission_sound.
   induction subject as [name | i | payload | shape pair | name allowance domain body IH | left IHl right IHr
     | name motive_name payload motive body IH | shape length field motive_name pair motive body IH
-    | callee IHc argument IHa | name motive_name subject IHs motive body IHb];
-    intros scope result checked; cbn in checked.
+    | callee IHc argument IHa | name motive_name subject IHs motive body IHb
+    | q inner IH | b | cond IHc th IHt el IHe | right_k inner IH | left_k inner IH
+    | ln rn scrut IHs lb IHl rb IHr | name allowance init body IH
+    | name allowance domain body IH | callee IH arg];
+    intros scope result checked; cbn in checked; try discriminate.
   - destruct (find_kind scope name) eqn:found; try discriminate.
     cbn in checked. destruct (type_uses scope k) eqn:typed; inversion checked; subst.
     constructor; auto using type_uses_sound.
@@ -553,14 +711,14 @@ Proof.
     cbn [bind_option] in checked.
     destruct (infer_with allowsb scope argument) as [[ak z a] |] eqn:arg_ok; try discriminate.
     cbn [bind_option value_kind subject_uses] in checked.
-    destruct fk as [| | | | allowance domain codomain |]; try discriminate.
+    destruct fk as [| | | | allowance domain codomain | | | |]; try discriminate.
     destruct (kind_eq_dec ak domain) as [same_domain | different]; try discriminate.
     destruct (type_uses scope codomain) as [b |] eqn:out_ok; inversion checked; subst.
     eapply ApplyRule; eauto using type_uses_sound.
   - destruct (binder_checks scope name motive_name) eqn:fresh; try discriminate.
     destruct (infer_with allowsb scope subject) as [[sk z subj_row] |] eqn:subj_ok; try discriminate.
     cbn [bind_option value_kind subject_uses] in checked.
-    destruct sk as [| q | | | |]; try discriminate.
+    destruct sk as [| q [| | | | | | | |] | | | | | | |]; try discriminate.
     destruct (type_uses ((motive_name, BoxNat q) :: scope) motive) as [motive_row |] eqn:motive_ok;
       try discriminate.
     cbn [bind_option] in checked.
@@ -586,9 +744,6 @@ Qed.
 Definition check_with (allowsb : nat -> nat -> bool) (scope : env) (subject : value) : option usage :=
   if well_formed scope then infer_with allowsb scope subject else None.
 
-Definition check := check_with (@GradedDomains.allowsb GradedDomains.NatExact).
-Definition bounded_check := check_with (@GradedDomains.allowsb GradedDomains.NatBound).
-
 Theorem check_with_sound : forall (allows : nat -> nat -> Prop) allowsb,
   (forall actual allowance, allowsb actual allowance = true -> allows actual allowance) ->
   forall scope subject result,
@@ -599,17 +754,561 @@ Proof.
   split; eauto using well_formed_sound, infer_with_sound.
 Qed.
 
-Theorem check_sound : forall scope subject result,
-  check scope subject = Some result -> WellFormed scope /\ Derives scope subject result.
+Inductive DerivesModal (allows : nat -> nat -> Prop) (exact_branches : bool) (scope : env) : value -> usage -> Prop :=
+| ModalNameRule : forall name k row, find_kind scope name = Some k -> TypeUses scope k row ->
+    DerivesModal allows exact_branches scope (Name name) (used k [(name, 1)] row)
+| ModalNatRule : forall i d, IndexDemand (naturals scope) i d ->
+    DerivesModal allows exact_branches scope (NaturalValue i) (used NatKind d [])
+| ModalBoxRule : forall payload q d contents, BoxDerives scope payload q d contents ->
+    DerivesModal allows exact_branches scope (BoxValue payload) (used (BoxNat q) d [])
+| ModalIndexedRule : forall shape pair d, IndexedUses scope shape pair d ->
+    DerivesModal allows exact_branches scope (IndexedValue shape pair) (used (IndexedKind shape) d [])
+| ModalLambdaRule : forall name allowance domain body codomain a u v row,
+    is_fresh scope name = true -> TypeUses scope domain a ->
+    DerivesModal allows exact_branches ((name, domain) :: scope) body (used codomain u v) ->
+    allows (uses u name) allowance -> TypeUses scope (ArrowKind allowance domain codomain) row ->
+    DerivesModal allows exact_branches scope (Lambda name allowance domain body)
+      (used (ArrowKind allowance domain codomain) (without name u) row)
+| ModalPairRule : forall left right a b u v w z,
+    DerivesModal allows exact_branches scope left (used a u v) ->
+    DerivesModal allows exact_branches scope right (used b w z) ->
+    DerivesModal allows exact_branches scope (Pair left right) (used (ProductKind a b) (u ++ w) (v ++ z))
+| ModalLetBoxRule : forall name motive_name subject motive body q z contents w body_row motive_row output,
+    is_fresh scope name = true -> is_fresh scope motive_name = true -> name <> motive_name ->
+    BoxDerives scope subject q z contents ->
+    TypeUses ((motive_name, BoxNat q) :: scope) motive motive_row ->
+    DerivesModal allows exact_branches ((name, NatKind) :: scope) body
+      (used (specialize motive_name (PromotedContents q (IndexVar name)) motive) w body_row) ->
+    allows (uses w name) q ->
+    same_demand body_row (substitute_demand motive_name (scale q [(name, 1)]) motive_row) ->
+    TypeUses scope (specialize motive_name contents motive) output ->
+    same_demand output (substitute_demand motive_name z motive_row) ->
+    DerivesModal allows exact_branches scope (LetBox name motive_name subject motive body)
+      (used (specialize motive_name contents motive) (without name w ++ z) output)
+| ModalLetIndexedRule : forall shape length payload motive_name subject motive body z w body_row motive_row output s,
+    indexed_binders scope shape length payload motive_name = true ->
+    IndexedUses scope shape subject z ->
+    TypeUses ((motive_name, IndexedKind shape) :: scope) motive motive_row ->
+    DerivesModal allows exact_branches (indexed_scope scope shape length payload) body
+      (used (specialize_indexed motive_name (BuildIndexed shape (IndexVar length) payload) motive) w body_row) ->
+    allows (uses w length) s -> allows (uses w payload) s ->
+    same_demand body_row (substitute_demand motive_name (fields_used length payload) motive_row) ->
+    TypeUses scope (specialize_indexed motive_name subject motive) output ->
+    same_demand output (substitute_demand motive_name z motive_row) ->
+    DerivesModal allows exact_branches scope (LetIndexed shape length payload motive_name subject motive body)
+      (used (specialize_indexed motive_name subject motive) (without length (without payload w) ++ scale s z) output)
+| ModalApplyRule : forall callee argument allowance domain codomain w v z a b,
+    DerivesModal allows exact_branches scope callee (used (ArrowKind allowance domain codomain) w v) ->
+    DerivesModal allows exact_branches scope argument (used domain z a) ->
+    TypeUses scope codomain b ->
+    DerivesModal allows exact_branches scope (Apply callee argument)
+      (used codomain (w ++ scale allowance z) b)
+| ModalLetBoxValueRule : forall name motive_name subject motive body q payload_k z subj_row w body_row motive_row output,
+    is_fresh scope name = true -> is_fresh scope motive_name = true -> name <> motive_name ->
+    DerivesModal allows exact_branches scope subject (used (BoxKind q payload_k) z subj_row) ->
+    TypeUses ((motive_name, BoxKind q payload_k) :: scope) motive motive_row ->
+    uses motive_row motive_name = 0 ->
+    DerivesModal allows exact_branches ((name, payload_k) :: scope) body (used motive w body_row) ->
+    allows (uses w name) q ->
+    same_demand body_row motive_row ->
+    TypeUses scope motive output ->
+    same_demand output motive_row ->
+    DerivesModal allows exact_branches scope (LetBoxValue name motive_name subject motive body)
+      (used motive (without name w ++ z) output)
+| ModalPromoteRule : forall q inner k u v,
+    DerivesModal allows exact_branches scope inner (used k u v) ->
+    DerivesModal allows exact_branches scope (PromoteValue q inner) (used (BoxKind q k) (scale q u) v)
+| ModalBoolRule : forall b,
+    DerivesModal allows exact_branches scope (BoolLit b) (used BoolKind [] [])
+| ModalIfRule : forall cond then_b else_b out_k u_cond v_cond u1 v1 u2 v2 u_branch v_branch,
+    DerivesModal allows exact_branches scope cond (used BoolKind u_cond v_cond) ->
+    DerivesModal allows exact_branches scope then_b (used out_k u1 v1) ->
+    DerivesModal allows exact_branches scope else_b (used out_k u2 v2) ->
+    BranchDemand exact_branches u1 u2 u_branch ->
+    BranchDemand exact_branches v1 v2 v_branch ->
+    DerivesModal allows exact_branches scope (IfValue cond then_b else_b)
+      (used out_k (u_cond ++ u_branch) v_branch)
+| ModalInlRule : forall right_k inner left_k u d r,
+    DerivesModal allows exact_branches scope inner (used left_k u d) ->
+    TypeUses scope right_k r ->
+    DerivesModal allows exact_branches scope (InlValue right_k inner)
+      (used (SumKind left_k right_k) u (d ++ r))
+| ModalInrRule : forall left_k inner right_k l u d,
+    TypeUses scope left_k l ->
+    DerivesModal allows exact_branches scope inner (used right_k u d) ->
+    DerivesModal allows exact_branches scope (InrValue left_k inner)
+      (used (SumKind left_k right_k) u (l ++ d))
+| ModalMatchSumRule : forall l_name r_name scrutinee l_body r_body left_k right_k out_k
+    u_scrut v_scrut u1 v1 u2 v2 u_branch out_row s,
+    is_fresh scope l_name = true -> is_fresh scope r_name = true ->
+    DerivesModal allows exact_branches scope scrutinee (used (SumKind left_k right_k) u_scrut v_scrut) ->
+    DerivesModal allows exact_branches ((l_name, left_k) :: scope) l_body (used out_k u1 v1) ->
+    DerivesModal allows exact_branches ((r_name, right_k) :: scope) r_body (used out_k u2 v2) ->
+    s = Nat.max 1 (Nat.max (uses u1 l_name) (uses u2 r_name)) ->
+    allows (uses u1 l_name) s -> allows (uses u2 r_name) s ->
+    BranchDemand exact_branches (without l_name u1) (without r_name u2) u_branch ->
+    TypeUses scope out_k out_row ->
+    same_demand v1 out_row -> same_demand v2 out_row ->
+    DerivesModal allows exact_branches scope (MatchSum l_name r_name scrutinee l_body r_body)
+      (used out_k (scale s u_scrut ++ u_branch) out_row)
+| ModalLetNatRule : forall name allowance init body k z w body_row output,
+    is_fresh scope name = true -> IndexDemand (naturals scope) init z ->
+    DerivesModal allows exact_branches ((name, NatKind) :: scope) body (used k w body_row) ->
+    allows (uses w name) allowance ->
+    TypeUses scope (substitute_kind name init k) output ->
+    same_demand (substitute_demand name z body_row) output ->
+    DerivesModal allows exact_branches scope (LetNatValue name allowance init body)
+      (used (substitute_kind name init k) (z ++ without name w) output)
+| ModalDepLambdaRule : forall name allowance domain body codomain a u v row,
+    is_fresh scope name = true -> TypeUses scope domain a ->
+    DerivesModal allows exact_branches ((name, domain) :: scope) body (used codomain u v) ->
+    allows (uses u name) allowance ->
+    TypeUses scope (PiKind name allowance domain codomain) row ->
+    DerivesModal allows exact_branches scope (DepLambda name allowance domain body)
+      (used (PiKind name allowance domain codomain) (without name u) row)
+| ModalApplyNatRule : forall callee arg_index x allowance codomain w v z b output,
+    DerivesModal allows exact_branches scope callee (used (PiKind x allowance NatKind codomain) w v) ->
+    IndexDemand (naturals scope) arg_index z ->
+    TypeUses ((x, NatKind) :: scope) codomain b ->
+    TypeUses scope (substitute_kind x arg_index codomain) output ->
+    same_demand (substitute_demand x z b) output ->
+    DerivesModal allows exact_branches scope (ApplyNatValue callee arg_index)
+      (used (substitute_kind x arg_index codomain) (w ++ scale allowance z) output).
+
+Fixpoint infer_modal (allowsb : nat -> nat -> bool) (exact_branches : bool)
+    (scope : env) (subject : value) : option usage :=
+  match subject with
+  | Name name =>
+      let? k := find_kind scope name in
+      let? row := type_uses scope k in Some (used k [(name, 1)] row)
+  | NaturalValue i => option_map (fun d => used NatKind d []) (index_demand (naturals scope) i)
+  | BoxValue payload =>
+      let? data := infer_box scope payload in
+      let '(q, d, _) := data in Some (used (BoxNat q) d [])
+  | IndexedValue shape packed =>
+      option_map (fun d => used (IndexedKind shape) d []) (indexed_uses scope shape packed)
+  | Lambda name allowance domain body =>
+      if is_fresh scope name then
+        let? _ := type_uses scope domain in
+        let? result := infer_modal allowsb exact_branches ((name, domain) :: scope) body in
+        let k := ArrowKind allowance domain (value_kind result) in
+        if allowsb (uses (subject_uses result) name) allowance then
+          let? row := type_uses scope k in Some (used k (without name (subject_uses result)) row)
+        else None
+      else None
+  | Pair first second =>
+      let? a := infer_modal allowsb exact_branches scope first in
+      let? b := infer_modal allowsb exact_branches scope second in
+      Some (used (ProductKind (value_kind a) (value_kind b))
+        (subject_uses a ++ subject_uses b) (result_type_uses a ++ result_type_uses b))
+  | LetBox name motive_name payload motive body =>
+      if binder_checks scope name motive_name then
+        let? data := infer_box scope payload in
+        let '(q, z, contents) := data in
+        let? motive_row := type_uses ((motive_name, BoxNat q) :: scope) motive in
+        let? result := infer_modal allowsb exact_branches ((name, NatKind) :: scope) body in
+        let expected := specialize motive_name (PromotedContents q (IndexVar name)) motive in
+        let k := specialize motive_name contents motive in
+        if kind_eq_dec (value_kind result) expected then
+          let? output := type_uses scope k in
+          if allowsb (uses (subject_uses result) name) q
+             && demand_eqb (result_type_uses result)
+                           (substitute_demand motive_name (scale q [(name, 1)]) motive_row)
+             && demand_eqb output (substitute_demand motive_name z motive_row)
+          then Some (used k (without name (subject_uses result) ++ z) output) else None
+        else None
+      else None
+  | LetIndexed shape length payload motive_name packed motive body =>
+      if indexed_binders scope shape length payload motive_name then
+        let? z := indexed_uses scope shape packed in
+        let? motive_row := type_uses ((motive_name, IndexedKind shape) :: scope) motive in
+        let? result := infer_modal allowsb exact_branches (indexed_scope scope shape length payload) body in
+        let expected := specialize_indexed motive_name (BuildIndexed shape (IndexVar length) payload) motive in
+        let k := specialize_indexed motive_name packed motive in
+        if kind_eq_dec (value_kind result) expected then
+          let? output := type_uses scope k in
+          let w := subject_uses result in
+          let s := tensor_grade w length payload in
+          if allowsb (uses w length) s && allowsb (uses w payload) s
+             && demand_eqb (result_type_uses result)
+                           (substitute_demand motive_name (fields_used length payload) motive_row)
+             && demand_eqb output (substitute_demand motive_name z motive_row)
+          then Some (used k (without length (without payload w) ++ scale s z) output) else None
+        else None
+      else None
+  | Apply callee argument =>
+      let? fn := infer_modal allowsb exact_branches scope callee in
+      let? arg := infer_modal allowsb exact_branches scope argument in
+      match value_kind fn with
+      | ArrowKind allowance domain codomain =>
+          if kind_eq_dec (value_kind arg) domain then
+            let? b := type_uses scope codomain in
+            Some (used codomain (subject_uses fn ++ scale allowance (subject_uses arg)) b)
+          else None
+      | _ => None
+      end
+  | LetBoxValue name motive_name subject motive body =>
+      if binder_checks scope name motive_name then
+        let? subj := infer_modal allowsb exact_branches scope subject in
+        match value_kind subj with
+        | BoxKind q payload_k =>
+            let? motive_row := type_uses ((motive_name, BoxKind q payload_k) :: scope) motive in
+            if Nat.eqb (uses motive_row motive_name) 0 then
+              let? result := infer_modal allowsb exact_branches ((name, payload_k) :: scope) body in
+              if kind_eq_dec (value_kind result) motive then
+                let? output := type_uses scope motive in
+                if allowsb (uses (subject_uses result) name) q
+                   && demand_eqb (result_type_uses result) motive_row
+                   && demand_eqb output motive_row
+                then Some (used motive (without name (subject_uses result) ++ subject_uses subj) output)
+                else None
+              else None
+            else None
+        | _ => None
+        end
+      else None
+  | PromoteValue q inner =>
+      let? res := infer_modal allowsb exact_branches scope inner in
+      Some (used (BoxKind q (value_kind res)) (scale q (subject_uses res)) (result_type_uses res))
+  | BoolLit _ => Some (used BoolKind [] [])
+  | IfValue cond then_b else_b =>
+      let? c := infer_modal allowsb exact_branches scope cond in
+      match value_kind c with
+      | BoolKind =>
+          let? t := infer_modal allowsb exact_branches scope then_b in
+          let? e := infer_modal allowsb exact_branches scope else_b in
+          if kind_eq_dec (value_kind t) (value_kind e) then
+            let? u_branch := branch_demand exact_branches (subject_uses t) (subject_uses e) in
+            let? v_branch := branch_demand exact_branches (result_type_uses t) (result_type_uses e) in
+            Some (used (value_kind t) (subject_uses c ++ u_branch) v_branch)
+          else None
+      | _ => None
+      end
+  | InlValue right_k inner =>
+      let? res := infer_modal allowsb exact_branches scope inner in
+      let? r := type_uses scope right_k in
+      Some (used (SumKind (value_kind res) right_k) (subject_uses res) (result_type_uses res ++ r))
+  | InrValue left_k inner =>
+      let? l := type_uses scope left_k in
+      let? res := infer_modal allowsb exact_branches scope inner in
+      Some (used (SumKind left_k (value_kind res)) (subject_uses res) (l ++ result_type_uses res))
+  | MatchSum l_name r_name scrutinee l_body r_body =>
+      if is_fresh scope l_name && is_fresh scope r_name then
+        let? scrut := infer_modal allowsb exact_branches scope scrutinee in
+        match value_kind scrut with
+        | SumKind left_k right_k =>
+            let? l_res := infer_modal allowsb exact_branches ((l_name, left_k) :: scope) l_body in
+            let? r_res := infer_modal allowsb exact_branches ((r_name, right_k) :: scope) r_body in
+            if kind_eq_dec (value_kind l_res) (value_kind r_res) then
+              let? out_row := type_uses scope (value_kind l_res) in
+              let s := Nat.max 1 (Nat.max (uses (subject_uses l_res) l_name)
+                                          (uses (subject_uses r_res) r_name)) in
+              if allowsb (uses (subject_uses l_res) l_name) s
+                 && allowsb (uses (subject_uses r_res) r_name) s
+                 && demand_eqb (result_type_uses l_res) out_row
+                 && demand_eqb (result_type_uses r_res) out_row then
+                let? u_branch := branch_demand exact_branches
+                                   (without l_name (subject_uses l_res))
+                                   (without r_name (subject_uses r_res)) in
+                Some (used (value_kind l_res) (scale s (subject_uses scrut) ++ u_branch) out_row)
+              else None
+            else None
+        | _ => None
+        end
+      else None
+  | LetNatValue name allowance init body =>
+      if is_fresh scope name then
+        let? z := index_demand (naturals scope) init in
+        let? res := infer_modal allowsb exact_branches ((name, NatKind) :: scope) body in
+        let specialized := substitute_kind name init (value_kind res) in
+        let? output := type_uses scope specialized in
+        if allowsb (uses (subject_uses res) name) allowance
+           && demand_eqb (substitute_demand name z (result_type_uses res)) output then
+          Some (used specialized (z ++ without name (subject_uses res)) output)
+        else None
+      else None
+  | DepLambda name allowance domain body =>
+      if is_fresh scope name then
+        let? _ := type_uses scope domain in
+        let? result := infer_modal allowsb exact_branches ((name, domain) :: scope) body in
+        let k := PiKind name allowance domain (value_kind result) in
+        if allowsb (uses (subject_uses result) name) allowance then
+          let? row := type_uses scope k in Some (used k (without name (subject_uses result)) row)
+        else None
+      else None
+  | ApplyNatValue callee arg_index =>
+      let? fn := infer_modal allowsb exact_branches scope callee in
+      match value_kind fn with
+      | PiKind x allowance NatKind codomain =>
+          let? z := index_demand (naturals scope) arg_index in
+          let? b := type_uses ((x, NatKind) :: scope) codomain in
+          let specialized := substitute_kind x arg_index codomain in
+          let? output := type_uses scope specialized in
+          if demand_eqb (substitute_demand x z b) output then
+            Some (used specialized (subject_uses fn ++ scale allowance z) output)
+          else None
+      | _ => None
+      end
+  end.
+
+Lemma infer_modal_sound : forall (allows : nat -> nat -> Prop) allowsb exact_branches,
+  (forall actual allowance, allowsb actual allowance = true -> allows actual allowance) ->
+  forall subject scope result,
+    infer_modal allowsb exact_branches scope subject = Some result ->
+    DerivesModal allows exact_branches scope subject result.
 Proof.
-  unfold check, Derives. apply check_with_sound. intros. now apply Nat.eqb_eq.
+  intros allows allowsb exact_branches admission_sound.
+  induction subject as [name | i | payload | shape pair | name allowance domain body IH | left IHl right IHr
+    | name motive_name payload motive body IH | shape length field motive_name pair motive body IH
+    | callee IHc argument IHa | name motive_name subject IHs motive body IHb
+    | q inner IH | b | cond IHc th IHt el IHe | right_k inner IH | left_k inner IH
+    | ln rn scrut IHs lb IHl rb IHr | name allowance init body IH
+    | name allowance domain body IH | callee IH arg];
+    intros scope result checked; cbn in checked.
+  - destruct (find_kind scope name) eqn:found; try discriminate.
+    cbn in checked. destruct (type_uses scope k) eqn:typed; inversion checked; subst.
+    constructor; auto using type_uses_sound.
+  - destruct (index_demand (naturals scope) i) eqn:used_index; inversion checked; subst.
+    constructor. now apply index_demand_sound.
+  - destruct (infer_box scope payload) as [[[q d] contents] |] eqn:boxed_ok;
+      inversion checked; subst. econstructor. eapply infer_box_sound; eassumption.
+  - destruct (indexed_uses scope shape pair) as [row |] eqn:pair_ok; inversion checked; subst.
+    constructor. now apply indexed_uses_sound.
+  - destruct (is_fresh scope name) eqn:fresh; try discriminate.
+    destruct (type_uses scope domain) eqn:typed; try discriminate.
+    cbn in checked. destruct (infer_modal allowsb exact_branches ((name, domain) :: scope) body) as [[k u v] |] eqn:body_ok;
+      try discriminate.
+    cbn in checked. destruct (allowsb (uses u name) allowance) eqn:bound; try discriminate.
+    destruct (type_uses scope k) eqn:formed; inversion checked; subst.
+    eapply ModalLambdaRule; eauto using admission_sound, type_uses_sound, ArrowUses.
+  - destruct (infer_modal allowsb exact_branches scope left) as [[a u v] |] eqn:left_ok; try discriminate.
+    cbn in checked. destruct (infer_modal allowsb exact_branches scope right) as [[b w z] |] eqn:right_ok;
+      inversion checked; subst. constructor; auto.
+  - destruct (binder_checks scope name motive_name) eqn:fresh; try discriminate.
+    destruct (infer_box scope payload) as [[[q z] contents] |] eqn:boxed_ok; try discriminate.
+    cbn [bind_option] in checked. destruct (type_uses ((motive_name, BoxNat q) :: scope) motive)
+      as [motive_row |] eqn:motive_ok; try discriminate.
+    cbn [bind_option] in checked.
+    destruct (infer_modal allowsb exact_branches ((name, NatKind) :: scope) body) as [[k w row] |] eqn:body_ok;
+      try discriminate.
+    cbn [bind_option value_kind subject_uses result_type_uses] in checked.
+    destruct (kind_eq_dec k (specialize motive_name (PromotedContents q (IndexVar name)) motive))
+      as [same_kind | different]; try discriminate.
+    destruct (type_uses scope (specialize motive_name contents motive)) as [output |] eqn:out_ok;
+      try discriminate.
+    cbn [bind_option] in checked.
+    change ((if allowsb (uses w name) q
+      && demand_eqb row (substitute_demand motive_name (scale q [(name, 1)]) motive_row)
+      && demand_eqb output (substitute_demand motive_name z motive_row)
+      then Some (used (specialize motive_name contents motive) (without name w ++ z) output)
+      else None) = Some result) in checked.
+    destruct (allowsb (uses w name) q
+      && demand_eqb row (substitute_demand motive_name (scale q [(name, 1)]) motive_row)
+      && demand_eqb output (substitute_demand motive_name z motive_row)) eqn:agrees;
+      inversion checked; subst.
+    unfold binder_checks in fresh.
+    apply andb_true_iff in fresh as [fresh distinct].
+    apply andb_true_iff in fresh as [fresh_name fresh_motive].
+    apply negb_true_iff, Nat.eqb_neq in distinct.
+    apply andb_true_iff in agrees as [agrees out_demand].
+    apply andb_true_iff in agrees as [bound body_demand].
+    eapply ModalLetBoxRule; eauto using admission_sound, infer_box_sound, type_uses_sound, demand_eqb_sound.
+  - destruct (indexed_binders scope shape length field motive_name) eqn:fresh; try discriminate.
+    destruct (indexed_uses scope shape pair) as [z |] eqn:pair_ok; try discriminate.
+    cbn [bind_option] in checked.
+    destruct (type_uses ((motive_name, IndexedKind shape) :: scope) motive) as [motive_row |] eqn:motive_ok;
+      try discriminate.
+    cbn [bind_option] in checked.
+    destruct (infer_modal allowsb exact_branches (indexed_scope scope shape length field) body) as [[k w row] |] eqn:body_ok;
+      try discriminate.
+    cbn [bind_option value_kind subject_uses result_type_uses] in checked.
+    destruct (kind_eq_dec k (specialize_indexed motive_name (BuildIndexed shape (IndexVar length) field) motive))
+      as [same_kind | different]; try discriminate.
+    destruct (type_uses scope (specialize_indexed motive_name pair motive)) as [output |] eqn:out_ok;
+      try discriminate.
+    cbn [bind_option] in checked.
+    set (s := tensor_grade w length field) in *.
+    destruct (allowsb (uses w length) s && allowsb (uses w field) s
+      && demand_eqb row (substitute_demand motive_name (fields_used length field) motive_row)
+      && demand_eqb output (substitute_demand motive_name z motive_row)) eqn:agrees;
+      inversion checked; subst.
+    apply andb_true_iff in agrees as [agrees out_demand].
+    apply andb_true_iff in agrees as [bounds body_demand].
+    apply andb_true_iff in bounds as [length_bound field_bound].
+    eapply ModalLetIndexedRule; eauto using admission_sound, indexed_uses_sound, type_uses_sound, demand_eqb_sound.
+  - destruct (infer_modal allowsb exact_branches scope callee) as [[fk w v] |] eqn:fn_ok; try discriminate.
+    cbn [bind_option] in checked.
+    destruct (infer_modal allowsb exact_branches scope argument) as [[ak z a] |] eqn:arg_ok; try discriminate.
+    cbn [bind_option value_kind subject_uses] in checked.
+    destruct fk as [| | | | allowance domain codomain | | | |]; try discriminate.
+    destruct (kind_eq_dec ak domain) as [same_domain | different]; try discriminate.
+    destruct (type_uses scope codomain) as [b |] eqn:out_ok; inversion checked; subst.
+    eapply ModalApplyRule; eauto using type_uses_sound.
+  - destruct (binder_checks scope name motive_name) eqn:fresh; try discriminate.
+    destruct (infer_modal allowsb exact_branches scope subject) as [[sk z subj_row] |] eqn:subj_ok; try discriminate.
+    cbn [bind_option value_kind subject_uses] in checked.
+    destruct sk as [| q payload_k | | | | | | |]; try discriminate.
+    destruct (type_uses ((motive_name, BoxKind q payload_k) :: scope) motive) as [motive_row |] eqn:motive_ok;
+      try discriminate.
+    cbn [bind_option] in checked.
+    destruct (Nat.eqb (uses motive_row motive_name) 0) eqn:motive_unused; try discriminate.
+    destruct (infer_modal allowsb exact_branches ((name, payload_k) :: scope) body) as [[bk w row] |] eqn:body_ok;
+      try discriminate.
+    cbn [bind_option value_kind subject_uses result_type_uses] in checked.
+    destruct (kind_eq_dec bk motive) as [same_kind | different]; try discriminate.
+    destruct (type_uses scope motive) as [output |] eqn:out_ok; try discriminate.
+    cbn [bind_option] in checked.
+    destruct (allowsb (uses w name) q && demand_eqb row motive_row && demand_eqb output motive_row)
+      eqn:agrees; inversion checked; subst.
+    unfold binder_checks in fresh.
+    apply andb_true_iff in fresh as [fresh distinct].
+    apply andb_true_iff in fresh as [fresh_name fresh_motive].
+    apply negb_true_iff, Nat.eqb_neq in distinct.
+    apply Nat.eqb_eq in motive_unused.
+    apply andb_true_iff in agrees as [agrees out_demand].
+    apply andb_true_iff in agrees as [bound body_demand].
+    eapply ModalLetBoxValueRule; eauto using admission_sound, type_uses_sound, demand_eqb_sound.
+  - destruct (infer_modal allowsb exact_branches scope inner) as [[k u v] |] eqn:inner_ok;
+      inversion checked; subst.
+    eapply ModalPromoteRule; eauto.
+  - inversion checked; subst. constructor.
+  - destruct (infer_modal allowsb exact_branches scope cond) as [[ck u_cond v_cond] |] eqn:cond_ok;
+      try discriminate.
+    cbn [bind_option value_kind subject_uses] in checked.
+    destruct ck; try discriminate.
+    destruct (infer_modal allowsb exact_branches scope th) as [[tk u1 v1] |] eqn:th_ok; try discriminate.
+    cbn [bind_option] in checked.
+    destruct (infer_modal allowsb exact_branches scope el) as [[ek u2 v2] |] eqn:el_ok; try discriminate.
+    cbn [bind_option value_kind subject_uses result_type_uses] in checked.
+    destruct (kind_eq_dec tk ek) as [-> | different]; try discriminate.
+    destruct (branch_demand exact_branches u1 u2) as [u_branch |] eqn:ub_ok; try discriminate.
+    cbn [bind_option] in checked.
+    destruct (branch_demand exact_branches v1 v2) as [v_branch |] eqn:vb_ok;
+      inversion checked; subst.
+    eapply ModalIfRule; eauto using branch_demand_sound.
+  - destruct (infer_modal allowsb exact_branches scope inner) as [[lk u d] |] eqn:inner_ok; try discriminate.
+    cbn [bind_option] in checked.
+    destruct (type_uses scope right_k) as [r |] eqn:right_ok; inversion checked; subst.
+    eapply ModalInlRule; eauto using type_uses_sound.
+  - destruct (type_uses scope left_k) as [l |] eqn:left_ok; try discriminate.
+    cbn [bind_option] in checked.
+    destruct (infer_modal allowsb exact_branches scope inner) as [[rk u d] |] eqn:inner_ok;
+      inversion checked; subst.
+    eapply ModalInrRule; eauto using type_uses_sound.
+  - destruct (is_fresh scope ln && is_fresh scope rn) eqn:fresh; try discriminate.
+    apply andb_true_iff in fresh as [fresh_ln fresh_rn].
+    destruct (infer_modal allowsb exact_branches scope scrut) as [[sk u_scrut v_scrut] |] eqn:scrut_ok;
+      try discriminate.
+    cbn [bind_option value_kind subject_uses] in checked.
+    destruct sk as [| | | | | | | left_k right_k |]; try discriminate.
+    destruct (infer_modal allowsb exact_branches ((ln, left_k) :: scope) lb) as [[lk u1 v1] |] eqn:lb_ok;
+      try discriminate.
+    cbn [bind_option] in checked.
+    destruct (infer_modal allowsb exact_branches ((rn, right_k) :: scope) rb) as [[rk u2 v2] |] eqn:rb_ok;
+      try discriminate.
+    cbn [bind_option value_kind subject_uses result_type_uses] in checked.
+    destruct (kind_eq_dec lk rk) as [-> | different]; try discriminate.
+    destruct (type_uses scope rk) as [out_row |] eqn:out_ok; try discriminate.
+    cbn [bind_option] in checked.
+    set (s := Nat.max 1 (Nat.max (uses u1 ln) (uses u2 rn))).
+    change (match Nat.max (uses u1 ln) (uses u2 rn) with 0 => 1 | S m' => S m' end) with s in checked.
+    destruct (allowsb (uses u1 ln) s && allowsb (uses u2 rn) s
+      && demand_eqb v1 out_row && demand_eqb v2 out_row) eqn:agrees; try discriminate.
+    cbn [bind_option] in checked.
+    destruct (branch_demand exact_branches (without ln u1) (without rn u2)) as [u_branch |] eqn:ub_ok;
+      inversion checked; subst.
+    apply andb_true_iff in agrees as [agrees v2_eq].
+    apply andb_true_iff in agrees as [agrees v1_eq].
+    apply andb_true_iff in agrees as [l_bound r_bound].
+    eapply ModalMatchSumRule;
+      eauto using admission_sound, type_uses_sound, demand_eqb_sound, branch_demand_sound.
+  - destruct (is_fresh scope name) eqn:fresh; try discriminate.
+    destruct (index_demand (naturals scope) init) as [z |] eqn:init_ok; try discriminate.
+    cbn [bind_option] in checked.
+    destruct (infer_modal allowsb exact_branches ((name, NatKind) :: scope) body) as [[k w row] |] eqn:body_ok;
+      try discriminate.
+    cbn [bind_option value_kind subject_uses result_type_uses] in checked.
+    destruct (type_uses scope (substitute_kind name init k)) as [output |] eqn:out_ok; try discriminate.
+    cbn [bind_option] in checked.
+    destruct (allowsb (uses w name) allowance && demand_eqb (substitute_demand name z row) output)
+      eqn:agrees; inversion checked; subst.
+    apply andb_true_iff in agrees as [bound same_out].
+    eapply ModalLetNatRule; eauto using admission_sound, index_demand_sound, type_uses_sound, demand_eqb_sound.
+  - destruct (is_fresh scope name) eqn:fresh; try discriminate.
+    destruct (type_uses scope domain) eqn:typed; try discriminate.
+    cbn in checked.
+    destruct (infer_modal allowsb exact_branches ((name, domain) :: scope) body) as [[k u v] |] eqn:body_ok;
+      try discriminate.
+    cbn in checked. destruct (allowsb (uses u name) allowance) eqn:bound; try discriminate.
+    destruct (type_uses ((name, domain) :: scope) k) as [b |] eqn:formed; try discriminate.
+    cbn in checked. inversion checked; subst.
+    eapply ModalDepLambdaRule; eauto using admission_sound, type_uses_sound, PiUses.
+  - destruct (infer_modal allowsb exact_branches scope callee) as [[fk w v] |] eqn:fn_ok; try discriminate.
+    cbn [bind_option value_kind subject_uses] in checked.
+    destruct fk as [| | | | | | | | x allowance domain codomain]; try discriminate.
+    destruct domain; try discriminate.
+    destruct (index_demand (naturals scope) arg) as [z |] eqn:arg_ok; try discriminate.
+    cbn [bind_option] in checked.
+    destruct (type_uses ((x, NatKind) :: scope) codomain) as [b |] eqn:b_ok; try discriminate.
+    cbn [bind_option] in checked.
+    destruct (type_uses scope (substitute_kind x arg codomain)) as [output |] eqn:out_ok; try discriminate.
+    cbn [bind_option] in checked.
+    destruct (demand_eqb (substitute_demand x z b) output) eqn:agrees; inversion checked; subst.
+    eapply ModalApplyNatRule; eauto using index_demand_sound, type_uses_sound, demand_eqb_sound.
+Qed.
+
+Definition presence_allows (actual allowance : nat) : Prop :=
+  actual > 0 -> allowance > 0.
+
+Definition presence_allowsb (actual allowance : nat) : bool :=
+  implb (negb (Nat.eqb actual 0)) (negb (Nat.eqb allowance 0)).
+
+Lemma presence_allowsb_sound : forall actual allowance,
+  presence_allowsb actual allowance = true -> presence_allows actual allowance.
+Proof.
+  intros [| a] [| b] checked pos; cbn in checked; try discriminate;
+    try inversion pos; apply Nat.lt_0_succ.
+Qed.
+
+Definition check_modal (allowsb : nat -> nat -> bool) (exact_branches : bool)
+    (scope : env) (subject : value) : option usage :=
+  if well_formed scope then infer_modal allowsb exact_branches scope subject else None.
+
+Definition check := check_modal (@GradedDomains.allowsb GradedDomains.NatExact) true.
+Definition bounded_check := check_modal (@GradedDomains.allowsb GradedDomains.NatBound) false.
+Definition presence_check := check_modal presence_allowsb false.
+
+Theorem check_modal_sound : forall (allows : nat -> nat -> Prop) allowsb exact_branches,
+  (forall actual allowance, allowsb actual allowance = true -> allows actual allowance) ->
+  forall scope subject result,
+    check_modal allowsb exact_branches scope subject = Some result ->
+    WellFormed scope /\ DerivesModal allows exact_branches scope subject result.
+Proof.
+  intros allows allowsb exact_branches admission_sound scope subject result checked.
+  unfold check_modal in checked.
+  destruct (well_formed scope) eqn:valid; try discriminate.
+  split; eauto using well_formed_sound, infer_modal_sound.
+Qed.
+
+Theorem check_sound : forall scope subject result,
+  check scope subject = Some result ->
+  WellFormed scope /\ DerivesModal (@GradedDomains.allows GradedDomains.NatExact) true scope subject result.
+Proof.
+  unfold check. apply check_modal_sound. intros. now apply Nat.eqb_eq.
 Qed.
 
 Theorem bounded_check_sound : forall scope subject result,
   bounded_check scope subject = Some result ->
-  WellFormed scope /\ DerivesWith (@GradedDomains.allows GradedDomains.NatBound) scope subject result.
+  WellFormed scope /\ DerivesModal (@GradedDomains.allows GradedDomains.NatBound) false scope subject result.
 Proof.
-  unfold bounded_check. apply check_with_sound. intros. now apply Nat.leb_le.
+  unfold bounded_check. apply check_modal_sound. intros. now apply Nat.leb_le.
+Qed.
+
+Theorem presence_check_sound : forall scope subject result,
+  presence_check scope subject = Some result ->
+  WellFormed scope /\ DerivesModal presence_allows false scope subject result.
+Proof.
+  unfold presence_check. apply check_modal_sound. exact presence_allowsb_sound.
 Qed.
 
 Lemma uses_scale : forall q row name, uses (scale q row) name = q * uses row name.
@@ -644,25 +1343,30 @@ Qed.
 Lemma zero_type_use : forall scope k row name,
   TypeUses scope k row -> find_kind scope name = None -> uses row name = 0.
 Proof.
-  intros scope k row name typed absent.
-  induction typed as [| q | shape | i d index_typed | q a b d e dl IHl dr IHr | a b d e dl IHl dr IHr].
+  intros scope k row name typed. revert name.
+  induction typed; intros name absent.
   - reflexivity.
+  - now apply IHtyped.
   - reflexivity.
-  - reflexivity.
-  - destruct index_typed as [i d natural | key q found | q i d natural | shape pair d pair_typed].
+  - destruct H as [i d natural | key q found | q i d natural | shape pair d pair_typed].
     + eapply zero_natural_use; eauto.
     + cbn. destruct (name =? key) eqn:equal; [| reflexivity].
       apply Nat.eqb_eq in equal. subst key. congruence.
-    + rewrite uses_scale. rewrite (zero_natural_use scope i d name natural absent).
+    + rewrite uses_scale. rewrite (zero_natural_use _ i d name natural absent).
       now rewrite Nat.mul_0_r.
     + destruct pair_typed as [key found | length payload d length_ok payload_ok].
       * cbn. destruct (name =? key) eqn:equal; [| reflexivity].
         apply Nat.eqb_eq in equal. subst key. congruence.
-      * rewrite uses_append, (zero_natural_use scope length d name length_ok absent).
+      * rewrite uses_append, (zero_natural_use _ length d name length_ok absent).
         cbn. destruct (name =? payload) eqn:equal; [| reflexivity].
         apply Nat.eqb_eq in equal. subst payload. congruence.
-  - now rewrite uses_append, IHl, IHr.
-  - now rewrite uses_append, IHl, IHr.
+  - now rewrite uses_append, IHtyped1, IHtyped2.
+  - now rewrite uses_append, IHtyped1, IHtyped2.
+  - reflexivity.
+  - now rewrite uses_append, IHtyped1, IHtyped2.
+  - rewrite uses_append, uses_without, (IHtyped1 _ absent).
+    destruct (Nat.eqb name x) eqn:equal; [reflexivity |].
+    apply IHtyped2. unfold find_kind. cbn. rewrite equal. exact absent.
 Qed.
 
 Theorem checked_let_box_demands_with : forall (allows : nat -> nat -> Prop) allowsb,
@@ -848,5 +1552,66 @@ Example reject_mismatched_box_grade_application :
     (Apply (Lambda 1 1 (BoxNat 2) (LetBox 2 3 (BoxName 1) NatKind (NaturalValue (IndexAdd (IndexVar 2) (IndexVar 2)))))
       (BoxValue (PromoteNat 1 (IndexVar 0)))) = None.
 Proof. reflexivity. Qed.
+
+Example promote_and_open_nested_box :
+  check [(0, NatKind)]
+    (LetBoxValue 1 2 (PromoteValue 1 (BoxValue (PromoteNat 2 (IndexVar 0)))) NatKind
+      (LetBox 3 4 (BoxName 1) NatKind (NaturalValue (IndexAdd (IndexVar 3) (IndexVar 3))))) =
+    Some (used NatKind [(0, 2)] []).
+Proof. reflexivity. Qed.
+
+Example promote_and_open_vector_box :
+  check [(1, VecKind (PlainIndex (IndexVar 0))); (0, NatKind)]
+    (LetBoxValue 2 3 (PromoteValue 2 (Name 1))
+      (ProductKind (VecKind (PlainIndex (IndexVar 0))) (VecKind (PlainIndex (IndexVar 0))))
+      (Pair (Name 2) (Name 2))) =
+    Some (used (ProductKind (VecKind (PlainIndex (IndexVar 0))) (VecKind (PlainIndex (IndexVar 0))))
+      [(1, 2)] [(0, 1); (0, 1)]).
+Proof. reflexivity. Qed.
+
+Example exact_if_requires_matching_branches :
+  check [(1, NatKind); (0, BoolKind)]
+    (IfValue (Name 0) (NaturalValue (IndexVar 1)) (NaturalValue (IndexVar 1))) =
+    Some (used NatKind [(0, 1); (1, 1)] []) /\
+  check [(2, NatKind); (1, NatKind); (0, BoolKind)]
+    (IfValue (Name 0) (NaturalValue (IndexVar 1)) (NaturalValue (IndexVar 2))) = None.
+Proof. split; reflexivity. Qed.
+
+Example bounded_if_joins_branches_with_max :
+  bounded_check [(2, NatKind); (1, NatKind); (0, BoolKind)]
+    (IfValue (Name 0)
+      (NaturalValue (IndexAdd (IndexVar 1) (IndexVar 1)))
+      (NaturalValue (IndexAdd (IndexVar 1) (IndexVar 2)))) =
+    Some (used NatKind [(0, 1); (1, 2); (2, 1)] []).
+Proof. reflexivity. Qed.
+
+Example match_sum_exact_and_bounded :
+  check [(0, SumKind NatKind BoolKind)]
+    (MatchSum 1 2 (Name 0) (NaturalValue (IndexVar 1))
+      (IfValue (Name 2) (NaturalValue (IndexLit 1)) (NaturalValue (IndexLit 0)))) =
+    Some (used NatKind [(0, 1)] []) /\
+  check [(0, SumKind NatKind BoolKind)]
+    (MatchSum 1 2 (Name 0) (NaturalValue (IndexLit 1)) (NaturalValue (IndexLit 0))) = None /\
+  bounded_check [(0, SumKind NatKind BoolKind)]
+    (MatchSum 1 2 (Name 0) (NaturalValue (IndexLit 1)) (NaturalValue (IndexLit 0))) =
+    Some (used NatKind [(0, 1)] []).
+Proof. repeat split; reflexivity. Qed.
+
+Example let_nat_value_substitutes_index :
+  check [(1, VecKind (PlainIndex (IndexAdd (IndexVar 0) (IndexVar 0)))); (0, NatKind)]
+    (LetNatValue 2 0 (IndexAdd (IndexVar 0) (IndexVar 0))
+      (Lambda 3 1 (VecKind (PlainIndex (IndexVar 2))) (Name 3))) =
+    Some (used (ArrowKind 1 (VecKind (PlainIndex (IndexAdd (IndexVar 0) (IndexVar 0))))
+                           (VecKind (PlainIndex (IndexAdd (IndexVar 0) (IndexVar 0)))))
+      [(0, 1); (0, 1)] [(0, 1); (0, 1); (0, 1); (0, 1)]).
+Proof. reflexivity. Qed.
+
+Example presence_domain_checks_and_rejects :
+  presence_check [(1, NatKind); (0, BoolKind)]
+    (IfValue (Name 0) (NaturalValue (IndexAdd (IndexVar 1) (IndexVar 1))) (NaturalValue (IndexLit 0))) =
+    Some (used NatKind [(0, 1); (1, 2)] []) /\
+  presence_allowsb 2 1 = true /\
+  presence_allowsb 1 0 = false.
+Proof. repeat split; reflexivity. Qed.
 
 End GradedModal.

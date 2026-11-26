@@ -1,0 +1,17 @@
+// SPDX-License-Identifier: Apache-2.0
+module GradedTypeGrades;
+
+public definition a Identity(Type a @ NatExact(0, 2), a x @ NatExact(1, 0)) => x;
+
+public definition Vec<Nat, (n + n)> KeepDouble(
+    Nat n @ NatExact(0, 4),
+    Vec<Nat, (n + n)> values @ NatExact(1, 0)
+) => Identity(type Vec<Nat, (n + n)>, values);
+
+public definition a Relay(Type a @ NatExact(0, 2), a x @ NatExact(1, 0)) => Identity(a, x);
+
+public definition Vec<Nat, (n + n)> ShareLength(
+    Nat n @ NatExact(0, 6),
+    Vec<Nat, (n + n)> left @ NatExact(1, 0),
+    Vec<Nat, (n + n)> right @ NatExact(0, 0)
+) => left;

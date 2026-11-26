@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import Any
 
 from tests.harness import TOOLS, Case, ensure
 from toolchain import proofenv, solver_ledger
@@ -16,9 +17,15 @@ from toolchain.cli.holdfast_parser import main as parser_main
 
 _AUDITED = (
     "instantiate_extent_typed",
+    "uses_join_demand",
+    "branch_demand_sound",
+    "infer_modal_sound",
+    "check_modal_sound",
+    "presence_allowsb_sound",
     "check_sound",
     "checked_let_box_demands",
     "bounded_check_sound",
+    "presence_check_sound",
     "bounded_checked_let_box_demands",
     "checked_let_indexed_demands",
     "bounded_checked_let_indexed_demands",
@@ -35,6 +42,13 @@ _AUDITED = (
     "reject_computing_with_zero_use_payload",
     "box_interface_application",
     "reject_mismatched_box_grade_application",
+    "promote_and_open_nested_box",
+    "promote_and_open_vector_box",
+    "exact_if_requires_matching_branches",
+    "bounded_if_joins_branches_with_max",
+    "match_sum_exact_and_bounded",
+    "let_nat_value_substitutes_index",
+    "presence_domain_checks_and_rejects",
 )
 _SUPPORT = ("graded_pure.v", "graded_domains.v", "graded_modal.v", "graded_modal_source.v")
 
@@ -272,8 +286,157 @@ def _dependent_pair_source_replay() -> None:
                            "source_check_sound", ("[0; 0; 4]", "[0; 0; 3]"))
 
 
+def _elaborate_command(path: Path) -> tuple[int, str, str]:
+    output, error = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
+        status = parser_main(["elaborate", str(path)])
+    return status, output.getvalue(), error.getvalue()
+
+
+def _general_modal_source_replay() -> None:
+    source = TOOLS / "tests" / "fixtures" / "graded-modal-general.hf"
+    raw = source.read_text(encoding="utf-8")
+    reports: dict[str, Any] = {}
+    for declaration, expected in (
+        ("OpenNested", [("n", 2, 0)]),
+        ("DuplicateBoxed", [("packed", 1, 0)]),
+        ("WrapVec", [("n", 0, 2), ("values", 2, 0)]),
+        ("UnpackVec", [("n", 0, 3), ("packed", 1, 0)]),
+        ("UseWrapVec", [("m", 0, 4), ("items", 2, 0)]),
+        ("ModalLet", [("n", 2, 4)]),
+    ):
+        status, output, error = _source_command(source, declaration)
+        ensure(status == 0, error)
+        report = json.loads(output)
+        demands = [(b["name"], b["computation"], b["type"]) for b in report["binders"]]
+        ensure(demands == expected, f"wrong generalized modal demands for {declaration}: {demands}")
+        reports[declaration] = report
+    use_wrap = reports["UseWrapVec"]
+
+    with tempfile.TemporaryDirectory(prefix="holdfast-general-modal-") as temporary:
+        directory = Path(temporary)
+        changed = directory / source.name
+        proof = directory / "Generated.v"
+
+        status, gallina, error = _elaborate_command(source)
+        ensure(status == 0 and all(f"Graded replay {name} NatExact: SHA256" in gallina
+                                   for name in ("OpenNested", "DuplicateBoxed", "WrapVec",
+                                                "UnpackVec", "UseWrapVec", "ModalLet")), error)
+        proof.write_text(gallina + """
+Import HoldFast_GradedModalGeneral.
+Theorem open_nested_doubles : forall n, holdfast_d3_OpenNested n = n + n.
+Proof. reflexivity. Qed.
+Print Assumptions open_nested_doubles.
+""", encoding="utf-8")
+        kernel = subprocess.run([*proofenv.rocq_command(), "-q", proof.name], cwd=directory,
+                                capture_output=True, text=True, encoding="utf-8", check=False, timeout=30)
+        ensure(kernel.returncode == 0, kernel.stderr)
+        solver_ledger.audit(kernel.stdout, 1, "GradedModalGeneral", ())
+
+        for original, replacement, failure in (
+            ("Box<Box<Nat, 1>, 2> packed", "Box<Box<Nat, 1>, 1> packed", "fails exact computation demand"),
+            ("Vec<Nat, n> values @ NatExact(2, 0)", "Vec<Nat, n> values @ NatExact(1, 0)",
+             "fails exact computation demand"),
+            ("WrapVec(m + m, items)", "WrapVec(m, items)", "fails exact computation demand"),
+            ("Nat n @ NatExact(0, 3)", "Nat n @ NatExact(0, 2)", "fails exact type-use demand"),
+            ("Nat n @ NatExact(2, 4)", "Nat n @ NatExact(1, 4)", "fails exact computation demand"),
+        ):
+            ensure(original in raw, f"missing generalized modal control: {original!r}")
+            changed.write_text(raw.replace(original, replacement), encoding="utf-8")
+            status, output, error = _elaborate_command(changed)
+            ensure(status == 1 and not output and failure in error, error)
+
+        _audit_certificate(directory, use_wrap["kernel_sha256"], use_wrap["gallina"],
+                           "source_check_sound", ("[0; 0; 4]", "[0; 0; 3]"))
+
+
+def _sums_and_presence_modal_replay() -> None:
+    sums = TOOLS / "tests" / "fixtures" / "graded-sums.hf"
+    sums_raw = sums.read_text(encoding="utf-8")
+    presence = TOOLS / "tests" / "fixtures" / "graded-presence.hf"
+    presence_raw = presence.read_text(encoding="utf-8")
+
+    with tempfile.TemporaryDirectory(prefix="holdfast-sums-presence-") as temporary:
+        directory = Path(temporary)
+        candidate = directory / "Candidate.hf"
+        proof = directory / "Generated.v"
+
+        status, gallina, error = _elaborate_command(sums)
+        ensure(status == 0 and all(f"Graded replay {name} NatExact: SHA256" in gallina
+                                   for name in ("ExactIf", "ExactChoice", "MakeLeft", "ExactEither")), error)
+        proof.write_text(gallina + """
+Import HoldFast_GradedSums.
+Theorem exact_choice_runs : forall n, holdfast_d7_ExactChoice (holdfast_d1_Choice_First n) = n.
+Proof. reflexivity. Qed.
+Print Assumptions exact_choice_runs.
+""", encoding="utf-8")
+        kernel = subprocess.run([*proofenv.rocq_command(), "-q", proof.name], cwd=directory,
+                                capture_output=True, text=True, encoding="utf-8", check=False, timeout=30)
+        ensure(kernel.returncode == 0, kernel.stderr)
+        solver_ledger.audit(kernel.stdout, 1, "GradedSums", ())
+
+        status, output, error = _source_command(sums, "ExactEither")
+        ensure(status == 0, error)
+        exact_either = json.loads(output)
+        _audit_certificate(directory, exact_either["kernel_sha256"], exact_either["gallina"],
+                           "source_check_sound", ("[0; 2; 0]", "[0; 1; 0]"))
+
+        for original, replacement in (
+            ("if (cond) x + 1 else 2 + x", "if (cond) x + x else x"),
+            ("First(n) => n", "First(n) => 1"),
+        ):
+            ensure(original in sums_raw, f"missing sums exact control: {original!r}")
+            candidate.write_text(sums_raw.replace(original, replacement), encoding="utf-8")
+            status, output, error = _elaborate_command(candidate)
+            ensure(status == 1 and not output and "fails exact computation demand" in error, error)
+
+        bounded_if = """module BoundedIf;
+union Either<A, B> {
+    Left(A value);
+    Right(B value);
+}
+definition Nat JoinIf(bool b @ NatBound(1), Nat x @ NatBound(2), Nat y @ NatBound(1)) =>
+    if (b) x + x else y;
+definition Nat DropSum(Either<Nat, bool> e @ NatBound(1)) =>
+    match (e) as whole : Nat {
+        Left(x) => 1,
+        Right(flag) => 2,
+    };
+"""
+        candidate.write_text(bounded_if, encoding="utf-8")
+        status, output, error = _source_command(candidate, "JoinIf", "--domain", "NatBound")
+        ensure(status == 0, error)
+        status, output, error = _source_command(candidate, "DropSum", "--domain", "NatBound")
+        ensure(status == 0, error)
+        candidate.write_text(bounded_if.replace("x @ NatBound(2)", "x @ NatBound(1)"), encoding="utf-8")
+        status, output, error = _source_command(candidate, "JoinIf", "--domain", "NatBound")
+        ensure(status == 1 and not output and "fails bounded computation demand" in error, error)
+
+        status, gallina, error = _elaborate_command(presence)
+        ensure(status == 0 and all(f"Graded replay {name} Presence: SHA256" in gallina
+                                   for name in ("BranchPresence", "SumPresence", "TypePresence")), error)
+        status, output, error = _source_command(presence, "TypePresence", "--domain", "Presence")
+        ensure(status == 0, error)
+        presence_report = json.loads(output)
+        _audit_certificate(directory, presence_report["kernel_sha256"], presence_report["gallina"],
+                           "presence_source_check_sound", ("[0; 0; 4]", "[0; 0; 3]"))
+
+        for original, replacement, failure in (
+            ("if (b) x + x else 0", "if (b) x + x else y", "fails presence computation demand"),
+            ("Nat n @ Presence(0, 1)", "Nat n @ Presence(0, 0)", "fails presence type-use demand"),
+        ):
+            ensure(original in presence_raw, f"missing presence control: {original!r}")
+            candidate.write_text(presence_raw.replace(original, replacement), encoding="utf-8")
+            status, output, error = _elaborate_command(candidate)
+            ensure(status == 1 and not output and failure in error, error)
+
+
 def cases() -> list[Case]:
     return [Case("natural box promotion and dependent elimination replay", _replay, lane="toolchain"),
             Case("graded box declaration, motive and telescope source replay", _source_replay, lane="toolchain"),
             Case("bounded box declaration and dependent motive source replay", _bounded_source_replay, lane="toolchain"),
-            Case("graded dependent pair tensor and motive source replay", _dependent_pair_source_replay, lane="toolchain")]
+            Case("graded dependent pair tensor and motive source replay", _dependent_pair_source_replay, lane="toolchain"),
+            Case("generalized modal boxes, dependent calls and modal let replay", _general_modal_source_replay,
+                 lane="toolchain"),
+            Case("graded booleans, finite sums and Presence domain modal replay", _sums_and_presence_modal_replay,
+                 lane="toolchain")]

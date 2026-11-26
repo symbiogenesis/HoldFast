@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: Apache-2.0
+module GradedSums;
+
+union Choice {
+    First(Nat value);
+    Second(bool flag);
+}
+
+union Either<A, B> {
+    Left(A value);
+    Right(B value);
+}
+
+definition Nat ExactIf(bool cond @ NatExact(1, 0), Nat x @ NatExact(1, 0)) =>
+    if (cond) x + 1 else 2 + x;
+
+definition Nat ExactChoice(Choice c @ NatExact(1, 0)) =>
+    match (c) as whole : Nat {
+        First(n) => n,
+        Second(flag) => if (flag) 1 else 0,
+    };
+
+definition Either<Nat, bool> MakeLeft(Nat n @ NatExact(1, 0)) => Left<Nat, bool>(n);
+
+definition Nat ExactEither(Either<Nat, Nat> e @ NatExact(2, 0), Nat offset @ NatExact(1, 0)) =>
+    match (e) as whole : Nat {
+        Left(x) => x + x + offset,
+        Right(y) => offset + y + y,
+    };
