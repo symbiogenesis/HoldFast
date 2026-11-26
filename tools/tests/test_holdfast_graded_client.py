@@ -4,10 +4,12 @@
 import contextlib
 import io
 import json
+import math
 import re
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 from tests.harness import TOOLS, Case, ensure
@@ -443,9 +445,252 @@ Print Assumptions round_trip_doubles.
         ensure(bundle.read_bytes() == checked, "box domain mismatch changed the retained bundle")
 
 
+def _check_protocol_client_behavior(directory: Path, name: str, gallina: str) -> float:
+    [route_fn] = re.findall(r"^Definition (\S+_RouteTelemetry) :", gallina, re.MULTILINE)
+    [header_fn] = re.findall(r"^Definition (\S+_FrameHeader) :", gallina, re.MULTILINE)
+    proof = directory / f"{name}.v"
+    proof.write_text(
+        gallina + f"""
+Import HoldFast_TelemetryFrameRouter.
+Theorem telemetry_route_returns_payload :
+  forall (slots audit_len : nat)
+    (payload : @holdfast_Vec nat (slots + slots))
+    (audit_trail : @holdfast_Vec nat audit_len),
+    {route_fn} slots audit_len payload audit_trail = payload.
+Proof. reflexivity. Qed.
+Theorem telemetry_route_independent_of_audit_len :
+  forall (slots audit_len_a audit_len_b : nat)
+    (payload : @holdfast_Vec nat (slots + slots))
+    (trail_a : @holdfast_Vec nat audit_len_a)
+    (trail_b : @holdfast_Vec nat audit_len_b),
+    {route_fn} slots audit_len_a payload trail_a =
+      {route_fn} slots audit_len_b payload trail_b /\\
+    {route_fn} slots audit_len_a payload trail_a = payload.
+Proof. split; reflexivity. Qed.
+Theorem frame_header_doubles_tag :
+  forall tag : nat, {header_fn} tag = tag + tag.
+Proof. reflexivity. Qed.
+Print Assumptions telemetry_route_returns_payload.
+Print Assumptions telemetry_route_independent_of_audit_len.
+Print Assumptions frame_header_doubles_tag.
+""",
+        encoding="utf-8",
+    )
+    started = time.perf_counter()
+    checked = subprocess.run([*proofenv.rocq_command(), "-q", proof.name], cwd=directory,
+                             capture_output=True, text=True, encoding="utf-8", check=True, timeout=30)
+    elapsed = time.perf_counter() - started
+    solver_ledger.audit(checked.stdout, 3, f"{name} behavior", ())
+    return elapsed
+
+
+def _graded_protocol_client_comparison() -> None:
+    fixture = TOOLS / "tests" / "fixtures" / "graded-protocol-client.hf"
+    source = fixture.read_text(encoding="utf-8")
+    grade_annotations = re.compile(r" @ NatExact\([0-9]+\)")
+    baseline_text, graded_annotations = grade_annotations.subn("", source)
+    baseline_annotations = len(grade_annotations.findall(baseline_text))
+    ensure(graded_annotations == 17 and baseline_annotations == 0,
+           f"unexpected annotation counts: graded={graded_annotations}, baseline={baseline_annotations}")
+
+    started = time.perf_counter()
+    status, output, error = _parser_command(["check-grades", str(fixture), "RouteTelemetry"])
+    check_grades_elapsed = time.perf_counter() - started
+    ensure(status == 0, error)
+    report = json.loads(output)
+    binders = report["binders"]
+    demands = [(binder["name"], binder["computation"], binder["type"]) for binder in binders]
+    ensure(demands == [("slots", 0, 4), ("auditLen", 0, 1), ("payload", 1, 0), ("auditTrail", 0, 0)],
+           f"wrong protocol router demands: {demands}")
+    slots_use = {"name": "slots", "span": binders[0]["span"], "uses": 2}
+    audit_use = {"name": "auditLen", "span": binders[1]["span"], "uses": 1}
+    ensure(binders[2]["annotation_type_uses"] == report["result_type_uses"] == [slots_use],
+           "payload and result type lost their shared slots index")
+    ensure(all(entry["name"] != "auditLen" for entry in report["result_type_uses"]),
+           "result type unexpectedly depends on auditLen")
+    ensure(binders[3]["annotation_type_uses"] == [audit_use],
+           "auditTrail lost its independent auditLen index")
+    ensure(report["dependencies"] == ["RouteSpec", "ForwardPayload"],
+           f"unexpected protocol router dependencies: {report['dependencies']}")
+
+    status, header_output, error = _parser_command(["check-grades", str(fixture), "FrameHeader"])
+    ensure(status == 0, error)
+    header_report = json.loads(header_output)
+    header_demands = [(b["name"], b["computation"], b["type"]) for b in header_report["binders"]]
+    ensure(header_demands == [("headerTag", 2, 0)] and header_report["result_type_uses"] == [],
+           f"wrong FrameHeader demands: {header_report}")
+
+    with tempfile.TemporaryDirectory(prefix="holdfast-protocol-client-") as temporary:
+        directory = Path(temporary)
+        baseline = directory / "TelemetryBaseline.hf"
+        baseline.write_text(baseline_text, encoding="utf-8")
+
+        timings: dict[str, float] = {"check_grades": check_grades_elapsed}
+        for path, label, prefix in ((baseline, "ProtocolBaseline", "baseline"),
+                                    (fixture, "ProtocolGraded", "graded")):
+            started = time.perf_counter()
+            status, gallina, error = _parser_command(["elaborate", str(path)])
+            timings[f"{prefix}_elaborate"] = time.perf_counter() - started
+            ensure(status == 0, error)
+            timings[f"{prefix}_replay"] = _check_protocol_client_behavior(directory, label, gallina)
+        ensure(all(math.isfinite(value) and value >= 0.0 for value in timings.values()),
+               f"invalid timing measurements: {timings}")
+
+        candidate = directory / "ProtocolEdit.hf"
+        # Computation edits: wrong allowance on payload, wrong usage in FrameHeader, and returning auditTrail.
+        bad_allowance = source.replace("payload @ NatExact(1)", "payload @ NatExact(0)")
+        ensure(grade_annotations.subn("", bad_allowance)[0] == baseline_text,
+               "allowance edit changed the ungraded baseline")
+        candidate.write_text(bad_allowance, encoding="utf-8")
+        status, output, error = _parser_command(["elaborate", str(candidate)])
+        ensure(status == 1 and not output and "fails exact computation demand" in error, error)
+
+        bad_header = source.replace("headerTag + headerTag", "headerTag")
+        candidate.write_text(bad_header, encoding="utf-8")
+        status, output, error = _parser_command(["elaborate", str(candidate)])
+        ensure(status == 1 and not output and "fails exact computation demand" in error, error)
+
+        bad_return = source.replace("ForwardPayload(slots, auditLen, payload, auditTrail)", "auditTrail")
+        candidate.write_text(bad_return, encoding="utf-8")
+        status, output, error = _parser_command(["elaborate", str(candidate)])
+        ensure(status == 1 and not output, "returning auditTrail unexpectedly succeeded")
+
+        # Dependency edits: result type depending on auditLen or swapping index arguments.
+        bad_dep = source.replace("public definition Vec<Nat, (slots + slots)> RouteTelemetry(",
+                                 "public definition Vec<Nat, (slots + auditLen)> RouteTelemetry(")
+        candidate.write_text(bad_dep, encoding="utf-8")
+        status, output, error = _parser_command(["elaborate", str(candidate)])
+        ensure(status == 1 and not output and "declared dependent type" in error, error)
+        baseline.write_text(grade_annotations.sub("", bad_dep), encoding="utf-8")
+        status, output, error = _parser_command(["elaborate", str(baseline)])
+        ensure(status == 1 and not output and "dependent indices are not definitionally equal" in error, error)
+
+        swapped_dep = source.replace("ForwardPayload(slots, auditLen, payload, auditTrail)",
+                                     "ForwardPayload(auditLen, slots, payload, auditTrail)")
+        candidate.write_text(swapped_dep, encoding="utf-8")
+        status, output, error = _parser_command(["elaborate", str(candidate)])
+        ensure(status == 1 and not output, "swapped dependent index unexpectedly succeeded")
+
+        # Locked-package rebuild & stale-lock refusal on both provider and importing client.
+        workspace = directory / "workspace"
+        workspace.mkdir()
+        provider_path = _write(workspace, "library", "v1", {}, "TelemetryProvider") / "module.hf"
+        client_path = _write(workspace, "main", "v1", {"library": "v1"}, "TelemetryClient") / "module.hf"
+        provider_src = source.replace("module TelemetryFrameRouter;", "module TelemetryProvider;")
+        client_src = (
+            "module TelemetryClient;\n"
+            "import TelemetryProvider as Router;\n"
+            "public definition Vec<Nat, (slots + slots)> ClientRoute(\n"
+            "    Nat slots @ NatExact(0),\n"
+            "    Nat auditLen @ NatExact(0),\n"
+            "    Vec<Nat, (slots + slots)> payload @ NatExact(1),\n"
+            "    Vec<Nat, auditLen> auditTrail @ NatExact(0)\n"
+            ") => Router.RouteTelemetry(slots, auditLen, payload, auditTrail);\n"
+        )
+        lock = workspace / "holdfast.lock.json"
+        bundle = workspace / "checked.json"
+        lock_command = ["lock-package", str(workspace), "main", "v1", "--output", str(lock)]
+        build_command = ["build-package", str(workspace), str(lock), "--output", str(bundle)]
+
+        def relock() -> None:
+            st, _, err = _parser_command(lock_command)
+            ensure(st == 0, err)
+
+        provider_path.write_text(provider_src, encoding="utf-8")
+        client_path.write_text(client_src, encoding="utf-8")
+        relock()
+        status, _, error = _parser_command(build_command)
+        ensure(status == 0, error)
+        checked_bundle = bundle.read_bytes()
+        emitted_modules = json.loads(checked_bundle)["modules"]
+        ensure("Graded replay RouteTelemetry NatExact: SHA256" in str(emitted_modules["TelemetryProvider"]),
+               "provider build lost RouteTelemetry grade receipt")
+        client_v = str(emitted_modules["TelemetryClient"])
+        ensure("Graded replay ClientRoute NatExact: SHA256" in client_v,
+               "client build lost ClientRoute grade receipt")
+
+        pkg_rocq = directory / "pkg-rocq"
+        pkg_rocq.mkdir()
+        [pkg_mod] = re.findall(r"^Module (HoldFastPackage_\S+)\.", client_v, re.MULTILINE)
+        [client_fn] = re.findall(r"^Definition (\S+_ClientRoute) :", client_v, re.MULTILINE)
+        (pkg_rocq / "ClientVerify.v").write_text(
+            client_v + f"""
+Import {pkg_mod}.
+Theorem client_route_independent_of_audit_len :
+  forall (slots audit_len_a audit_len_b : nat)
+    (payload : @holdfast_Vec nat (slots + slots))
+    (trail_a : @holdfast_Vec nat audit_len_a)
+    (trail_b : @holdfast_Vec nat audit_len_b),
+    {client_fn} slots audit_len_a payload trail_a =
+      {client_fn} slots audit_len_b payload trail_b /\\
+    {client_fn} slots audit_len_a payload trail_a = payload.
+Proof. split; reflexivity. Qed.
+Print Assumptions client_route_independent_of_audit_len.
+""",
+            encoding="utf-8",
+        )
+        replay = subprocess.run([*proofenv.rocq_command(), "-q", "ClientVerify.v"], cwd=pkg_rocq,
+                                capture_output=True, text=True, encoding="utf-8", check=True, timeout=30)
+        solver_ledger.audit(replay.stdout, 1, "TelemetryClient", ())
+
+        # 1. Provider computation edit: stale lock refusal, then computation demand failure.
+        provider_path.write_text(provider_src.replace("payload @ NatExact(1)", "payload @ NatExact(0)"),
+                                 encoding="utf-8")
+        status, output, error = _parser_command(build_command)
+        ensure(status == 1 and not output and "stale" in error, error)
+        relock()
+        status, output, error = _parser_command(build_command)
+        ensure(status == 1 and not output and "fails exact computation demand" in error, error)
+        ensure(bundle.read_bytes() == checked_bundle, "provider computation edit changed the retained bundle")
+
+        # 2. Provider dependency edit: stale lock refusal, then declared dependent type failure.
+        provider_path.write_text(provider_src, encoding="utf-8")
+        relock()
+        provider_path.write_text(
+            provider_src.replace("public definition Vec<Nat, (slots + slots)> RouteTelemetry(",
+                                 "public definition Vec<Nat, (slots + auditLen)> RouteTelemetry("),
+            encoding="utf-8",
+        )
+        status, output, error = _parser_command(build_command)
+        ensure(status == 1 and not output and "stale" in error, error)
+        relock()
+        status, output, error = _parser_command(build_command)
+        ensure(status == 1 and not output and "declared dependent type" in error, error)
+        ensure(bundle.read_bytes() == checked_bundle, "provider dependency edit changed the retained bundle")
+
+        # 3. Client computation edit: stale lock refusal, then computation demand failure.
+        provider_path.write_text(provider_src, encoding="utf-8")
+        relock()
+        client_path.write_text(client_src.replace("payload @ NatExact(1)", "payload @ NatExact(0)"),
+                               encoding="utf-8")
+        status, output, error = _parser_command(build_command)
+        ensure(status == 1 and not output and "stale" in error, error)
+        relock()
+        status, output, error = _parser_command(build_command)
+        ensure(status == 1 and not output and "fails exact computation demand" in error, error)
+        ensure(bundle.read_bytes() == checked_bundle, "client computation edit changed the retained bundle")
+
+        # 4. Client dependency edit: stale lock refusal, then declared dependent type failure.
+        client_path.write_text(client_src, encoding="utf-8")
+        relock()
+        client_path.write_text(
+            client_src.replace("public definition Vec<Nat, (slots + slots)> ClientRoute(",
+                               "public definition Vec<Nat, (slots + auditLen)> ClientRoute("),
+            encoding="utf-8",
+        )
+        status, output, error = _parser_command(build_command)
+        ensure(status == 1 and not output and "stale" in error, error)
+        relock()
+        status, output, error = _parser_command(build_command)
+        ensure(status == 1 and not output and "declared dependent type" in error, error)
+        ensure(bundle.read_bytes() == checked_bundle, "client dependency edit changed the retained bundle")
+
+
 def cases() -> list[Case]:
     return [Case("exact-natural zero type-use substitution law", _type_irrelevance, lane="toolchain"),
             Case("paired graded and ordinary audio routing replay", _audio_route, lane="toolchain"),
+            Case("independent Q25by telemetry protocol client comparison",
+                 _graded_protocol_client_comparison, lane="toolchain"),
             Case("default graded replay in a locked package", _locked_grading, lane="toolchain"),
             Case("graded dependent calls through a locked import", _locked_graded_import, lane="toolchain"),
             Case("graded dependent calls through a transitive locked import", _locked_transitive_grade_import,
