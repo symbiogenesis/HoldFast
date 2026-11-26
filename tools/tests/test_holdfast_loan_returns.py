@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Replay returned views and their owner states on source control-flow paths."""
+"""Replay shared views and their owner states on source control-flow paths."""
 
 import re
 import subprocess
@@ -105,6 +105,133 @@ Proof. repeat split; reflexivity. Qed.
 """
     _replay_view_proof(gallina, proof, "ConditionalViewReturn", [
         "conditional_view_and_writeback", "conditional_view_entry_is_inhabited",
+    ])
+
+
+def _branch_view_last_use() -> None:
+    source = (TOOLS / "tests" / "fixtures" / "branch-view-last-use.hf").read_bytes()
+    with parser.cached_build(TOOLS.parent) as compiled:
+        gallina = elaborate(source, parser.parse_source(compiled, source, surface=True)).gallina
+        for read, site, prefix in (
+            (b"selected[0usize]", b"selected[0usize]", b""),
+            (b"Span.Read(selected, 0usize)", b"Span.Read", b""),
+            (b"selected.Model[0usize]", b"selected.Model", b""),
+            (b"ReadElement(in selected[0usize])", b"selected[0usize]",
+             b"private byte ReadElement(in byte value) { return value; }\n\n"),
+        ):
+            candidate = source.replace(b"selected[0usize]", read).replace(
+                b"public byte ObserveAndWrite", prefix + b"public byte ObserveAndWrite",
+            )
+            elaborate(candidate, parser.parse_source(compiled, candidate, surface=True))
+            for invalid, access in (
+                (candidate.replace(
+                    b"        let observed = " + read + b";\n        values[i] = 9u8;",
+                    b"        values[i] = 9u8;\n        let observed = " + read + b";",
+                ), b"let observed = " + read),
+                (candidate.replace(b"values[0usize] = 8u8;", b"values[i] = 8u8;"), b"return " + read),
+            ):
+                tree = parser.parse_source(compiled, invalid, surface=True)
+                with raises(HoldFastError, msg="a read through an overlapping branch write was accepted") as failure:
+                    elaborate(invalid, tree)
+                error = failure.exception
+                line, row = next((n, row) for n, row in enumerate(invalid.splitlines(), 1) if access in row)
+                ensure(error.kind == "type" and (error.line, error.column) == (line, row.index(site) + 1)
+                       and "cannot prove Span view read is disjoint from an update to 'values'" in error.message,
+                       f"wrong refusal for a live slice read: {error}")
+
+        whole = source.replace(b"Span.ReadOnly(Span.Slice(values, i, 1usize))", b"Span.ReadOnly(values)").replace(
+            b"selected[0usize]", b"selected[i]",
+        )
+        valid_whole = whole.replace(b"        values[0usize] = 8u8;\n", b"")
+        elaborate(valid_whole, parser.parse_source(compiled, valid_whole, surface=True))
+        with raises(HoldFastError, msg="a live read-only view of the full owner survived an overlapping write") as failure:
+            elaborate(whole, parser.parse_source(compiled, whole, surface=True))
+        ensure(failure.exception.kind == "type"
+               and "cannot prove Span view read is disjoint from an update to 'values'" in failure.exception.message,
+               f"wrong refusal for a live full-owner view: {failure.exception}")
+
+        live_read = b"        return selected[0usize];"
+        iteration = source.replace(live_read, b"""        var observed = 0u8;
+        foreach (let element in selected) {
+            observed = element;
+        }
+        return observed;""")
+        copy = source.replace(
+            b"ref Span<byte> values, usize i", b"ref Span<byte> values, ref Span<byte> dest, usize i",
+        ).replace(b"effects writes(values)", b"effects writes(values, dest)").replace(
+            b"    requires i < 4usize",
+            b"    requires i < 4usize\n    requires dest.CanRead && dest.CanWrite\n"
+            b"    requires dest.Length == 1usize\n    requires Span.Disjoint(values, dest)",
+        ).replace(live_read, b"        Span.CopyPrefix(ref dest, selected, 1usize);\n        return dest[0usize];")
+        for candidate, access in ((iteration, b"in selected"), (copy, b"Span.CopyPrefix")):
+            elaborate(candidate, parser.parse_source(compiled, candidate, surface=True))
+            invalid = candidate.replace(b"values[0usize] = 8u8;", b"values[i] = 8u8;")
+            with raises(HoldFastError, msg="a range read ignored an overlapping owner write") as failure:
+                elaborate(invalid, parser.parse_source(compiled, invalid, surface=True))
+            error = failure.exception
+            line = next(n for n, row in enumerate(invalid.splitlines(), 1) if access in row)
+            ensure(error.kind == "type" and error.line == line
+                   and "cannot prove Span view read is disjoint from an update to 'values'" in error.message,
+                   f"wrong refusal for a live Span view in a range read: {error}")
+
+    [client] = re.findall(r"^Definition (holdfast_d\d+_ObserveAndWrite) :", gallina, re.MULTILINE)
+    proof = rf"""
+Import HoldFast_BranchViewLastUse.
+Local Definition trial_index (n : nat) := holdfast_mk_int 4 (holdfast_nat_to_bits 64 n).
+Local Definition trial_byte (n : nat) := holdfast_mk_int 0 (holdfast_nat_to_bits 8 n).
+Local Definition trial_read := holdfast_Span_Read (holdfast_int 0).
+Local Definition trial_write := holdfast_Span_Write (holdfast_int 0).
+Local Definition nonzero i := holdfast_int_ne 4 i (trial_index 0).
+
+Theorem branch_view_observation_and_restoration : forall values i read_first,
+  {client} values i read_first = trial_read values i /\
+  {client}_post_values values i read_first =
+    if read_first then trial_write values i (trial_byte 9)
+    else if nonzero i then trial_write values (trial_index 0) (trial_byte 8)
+    else values.
+Proof.
+  intros values i read_first.
+  unfold {client}, {client}_post_values, nonzero. cbv beta.
+  destruct read_first; split; try reflexivity.
+  match goal with
+  | |- context [if ?guard then _ else _] => destruct guard eqn:decision
+  end.
+  all: try reflexivity.
+  all: match type of decision with
+       | _ = ?outcome => change (holdfast_int_ne 4 i (trial_index 0) = outcome) in decision
+       end; rewrite decision; reflexivity.
+Qed.
+
+Theorem branch_view_frame : forall values i read_first k,
+  (read_first = true -> holdfast_int_ne 4 i k = true) ->
+  (read_first = false -> nonzero i = true -> holdfast_int_ne 4 (trial_index 0) k = true) ->
+  trial_read ({client}_post_values values i read_first) k = trial_read values k.
+Proof.
+  intros values i read_first k after_read before_read.
+  rewrite (proj2 (branch_view_observation_and_restoration values i read_first)).
+  destruct read_first.
+  - apply holdfast_Span_Read_write_other_ne. now apply after_read.
+  - destruct (nonzero i) eqn:separate.
+    + apply holdfast_Span_Read_write_other_ne. now apply before_read.
+    + reflexivity.
+Qed.
+
+Local Definition trial_span :=
+  trial_write (holdfast_mk_span (holdfast_int 0) (trial_index 11)
+    (trial_index 4) true true true holdfast_bs_empty) (trial_index 2) (trial_byte 42).
+Example branch_view_entry_is_inhabited :
+  holdfast_Span_CanRead _ trial_span = true /\
+  holdfast_Span_CanWrite _ trial_span = true /\
+  holdfast_Span_Length _ trial_span = trial_index 4 /\
+  holdfast_int_lt 4 (trial_index 2) (trial_index 4) = true /\
+  {client} trial_span (trial_index 2) true = trial_byte 42 /\
+  {client} trial_span (trial_index 2) false = trial_byte 42 /\
+  trial_read ({client}_post_values trial_span (trial_index 2) true) (trial_index 2) = trial_byte 9 /\
+  trial_read ({client}_post_values trial_span (trial_index 2) false) (trial_index 0) = trial_byte 8.
+Proof. repeat split; reflexivity. Qed.
+"""
+    _replay_view_proof(gallina, proof, "BranchViewLastUse", [
+        "branch_view_observation_and_restoration", "branch_view_frame", "branch_view_entry_is_inhabited",
     ])
 
 
@@ -479,6 +606,7 @@ Proof. vm_compute. split; reflexivity. Qed.
 def cases() -> list[Case]:
     return [
         Case("conditional view return and sibling owner writeback", _conditional_view_return, lane="toolchain"),
+        Case("branch-specific last use of a shared Span view", _branch_view_last_use, lane="toolchain"),
         Case("returned view and branch-specific owner writeback at a join", _joined_view_return, lane="toolchain"),
         Case("conditional view origin and correlated owner writeback", _correlated_view_return, lane="toolchain"),
         Case("returned view and disjoint symbolic loop writeback", _loop_view_return, lane="toolchain"),

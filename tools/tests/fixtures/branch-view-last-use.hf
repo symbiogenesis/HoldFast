@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: Apache-2.0
+module BranchViewLastUse;
+
+public byte ObserveAndWrite(ref Span<byte> values, usize i, bool readFirst)
+    effects writes(values)
+    requires values.CanRead && values.CanWrite
+    requires values.Length == 4usize
+    requires i < 4usize
+{
+    let selected = Span.ReadOnly(Span.Slice(values, i, 1usize));
+    if (readFirst) {
+        let observed = selected[0usize];
+        values[i] = 9u8;
+        return observed;
+    }
+    if (i != 0usize) {
+        values[0usize] = 8u8;
+        return selected[0usize];
+    }
+    return selected[0usize];
+}
