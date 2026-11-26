@@ -379,6 +379,76 @@ def _bounded_source_replay() -> None:
                                    "bounded_source_check_sound", ("[0; 0; 4]", "[0; 0; 3]"))
 
 
+def _type_identity_source_replay() -> None:
+    source = TOOLS / "tests" / "fixtures" / "graded-type-identity.hf"
+    raw = source.read_text(encoding="utf-8")
+    with tempfile.TemporaryDirectory(prefix="holdfast-graded-type-identity-") as temporary:
+        directory = Path(temporary)
+        candidate = directory / source.name
+        proof = directory / "Generated.v"
+        for domain in ("NatExact", "NatBound"):
+            text = raw.replace("NatExact", domain)
+            candidate.write_text(text, encoding="utf-8")
+
+            status, output, error = _source_command(candidate, "Identity", "--domain", domain)
+            ensure(status == 0, error)
+            id_report = json.loads(output)
+            a, x = id_report["binders"]
+            ensure(_demand([a, x]) == [("a", 0, 2), ("x", 1, 0)], f"wrong Identity demands: {id_report}")
+            a_row = [{"name": "a", "uses": 1, "span": a["span"]}]
+            ensure(x["annotation_type_uses"] == id_report["result_type_uses"] == a_row,
+                   "type-valued identity lost type dependency rows")
+
+            status, output, error = _source_command(candidate, "KeepDouble", "--domain", domain)
+            ensure(status == 0, error)
+            keep_report = json.loads(output)
+            n, values = keep_report["binders"]
+            ensure(_demand([n, values]) == [("n", 0, 4), ("values", 1, 0)],
+                   f"wrong KeepDouble demands: {keep_report}")
+            n_row = [{"name": "n", "uses": 2, "span": n["span"]}]
+            ensure(values["annotation_type_uses"] == keep_report["result_type_uses"] == n_row,
+                   "type-identity specialization lost vector dependency rows")
+            ensure(keep_report["dependencies"] == ["Identity"], "KeepDouble lost Identity dependency")
+
+            status, output, error = _source_command(candidate, "Relay", "--domain", domain)
+            ensure(status == 0, error)
+            relay_report = json.loads(output)
+            ensure(_demand(relay_report["binders"]) == [("a", 0, 2), ("x", 1, 0)],
+                   f"wrong Relay demands: {relay_report}")
+
+            status, gallina, error = _elaborate_command(candidate)
+            ensure(status == 0 and all(f"Graded replay {name} {domain}: SHA256" in gallina
+                                       for name in ("Identity", "KeepDouble", "Relay")), error)
+            proof.write_text(gallina + """
+Import HoldFast_GradedTypeIdentity.
+Theorem keep_double_returns_values : forall n (values : holdfast_Vec nat (n + n)),
+  holdfast_d1_KeepDouble n values = values.
+Proof. reflexivity. Qed.
+Print Assumptions keep_double_returns_values.
+""", encoding="utf-8")
+            kernel = subprocess.run([*proofenv.rocq_command(), "-q", proof.name], cwd=directory,
+                                    capture_output=True, text=True, encoding="utf-8", check=False, timeout=30)
+            ensure(kernel.returncode == 0, kernel.stderr)
+            solver_ledger.audit(kernel.stdout, 1, f"GradedTypeIdentity_{domain}", ())
+
+        for declaration, original, replacement, failure in (
+            ("KeepDouble", "Identity(type Vec<Nat, (n + n)>, values)", "Identity(type Type, values)", "computation demand"),
+            ("Identity", "Type a @ NatExact(0)", "Type a @ NatExact(1)", "exact computation demand"),
+            ("Identity", "a x @ NatExact(1)", "a x @ NatExact(2)", "exact computation demand"),
+            ("KeepDouble", "Identity(type Vec<Nat, (n + n)>, values)", "Identity(type Vec<Nat, n>, values)",
+             "natural-index checking"),
+            ("KeepDouble", "public definition Vec<Nat, (n + n)> KeepDouble",
+             "public definition Vec<Nat, n> KeepDouble", "declared dependent type"),
+        ):
+            ensure(original in raw, f"missing type-identity control: {original!r}")
+            candidate.write_text(raw.replace(original, replacement), encoding="utf-8")
+            status, output, error = _source_command(candidate, declaration)
+            ensure(status == 1 and not output and ": grade: " in error and failure in error, error)
+
+        _verify_source_certificate(directory, keep_report["kernel_sha256"], keep_report["gallina"],
+                                   "bounded_source_check_sound", ("[0; 0; 4]", "[0; 0; 3]"))
+
+
 def cases() -> list[Case]:
     return [Case("pure dependent usage and telescope substitution replay",
                  partial(_replay, "graded_pure", "GradedPure", _PURE_PROOFS), lane="toolchain"),
@@ -387,6 +457,8 @@ def cases() -> list[Case]:
                  lane="toolchain"),
             Case("source-bound exact grades and dependent partial application replay", _source_replay, lane="toolchain"),
             Case("source-bound natural bounds and exact type dependencies", _bounded_source_replay, lane="toolchain"),
+            Case("graded type-valued identity and universe specialization replay", _type_identity_source_replay,
+                 lane="toolchain"),
             Case("graded value application preserves dependent and callable argument types", _value_application,
                  lane="toolchain"),
             Case("graded let sequences the initializer and substitutes independent type demand", _graded_let,

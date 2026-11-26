@@ -17,7 +17,13 @@ from toolchain.cli.holdfast_parser import main as parser_main
 
 
 def _type_irrelevance() -> None:
-    audited = ("zero_type_use", "zero_use_preserves_row", "checked_zero_type_use")
+    audited = (
+        "zero_type_use",
+        "zero_type_var_use",
+        "zero_use_preserves_row",
+        "checked_zero_type_use",
+        "checked_zero_type_var_use",
+    )
     compiler = [*proofenv.rocq_command(), "-q"]
     with tempfile.TemporaryDirectory(prefix="holdfast-type-use-") as temporary:
         directory = Path(temporary)
@@ -306,6 +312,61 @@ def _locked_graded_callback_import() -> None:
         ensure(bundle.read_bytes() == checked, "provider callback change corrupted the retained bundle")
 
 
+def _locked_graded_type_import() -> None:
+    with tempfile.TemporaryDirectory(prefix="holdfast-graded-type-import-") as temporary:
+        workspace = Path(temporary)
+        lib = _write(workspace, "library", "v1", {}, "TypeProvider") / "module.hf"
+        client = _write(workspace, "main", "v1", {"library": "v1"}, "TypeClient") / "module.hf"
+        provider = ("module TypeProvider;\n"
+                    "public definition a Identity(Type a @ NatExact(0), a x @ NatExact(1)) => x;\n")
+        consumer = ("module TypeClient;\nimport TypeProvider as Provider;\n"
+                    "public definition Vec<Nat, (n + n)> Route(Nat n @ NatExact(0),\n"
+                    "    Vec<Nat, (n + n)> samples @ NatExact(1)) => Provider.Identity(type Vec<Nat, (n + n)>, samples);\n")
+        lock = workspace / "holdfast.lock.json"
+        bundle = workspace / "checked.json"
+        lock_command = ["lock-package", str(workspace), "main", "v1", "--output", str(lock)]
+        build_command = ["build-package", str(workspace), str(lock), "--output", str(bundle)]
+
+        def relock() -> None:
+            status, _, error = _parser_command(lock_command)
+            ensure(status == 0, error)
+
+        def checked_route() -> str:
+            relock()
+            status, _, error = _parser_command(build_command)
+            ensure(status == 0, error)
+            emitted = str(json.loads(bundle.read_bytes())["modules"]["TypeClient"])
+            return next(line for line in emitted.splitlines() if "Graded replay Route NatExact" in line)
+
+        lib.write_text(provider, encoding="utf-8")
+        client.write_text(consumer, encoding="utf-8")
+        first = checked_route()
+        client.write_text(consumer.replace("as Provider;", "{ Identity as KeepId };")
+                          .replace("Provider.Identity", "KeepId"), encoding="utf-8")
+        checked_route()
+        client.write_text(consumer, encoding="utf-8")
+        ensure(checked_route() == first, "identical type-polymorphic closure produced different grade receipts")
+        checked = bundle.read_bytes()
+
+        lib.write_text(provider + "\n", encoding="utf-8")
+        status, output, error = _parser_command(build_command)
+        ensure(status == 1 and not output and "stale" in error, error)
+        ensure(checked_route() != first, "provider edit did not invalidate the type-polymorphic client receipt")
+        checked = bundle.read_bytes()
+
+        lib.write_text(provider.replace("NatExact", "NatBound"), encoding="utf-8")
+        relock()
+        status, output, error = _parser_command(build_command)
+        ensure(status == 1 and not output and "requires the NatBound grade domain" in error, error)
+
+        lib.write_text(provider, encoding="utf-8")
+        client.write_text(consumer.replace("type Vec<Nat, (n + n)>", "type Type"), encoding="utf-8")
+        relock()
+        status, output, error = _parser_command(build_command)
+        ensure(status == 1 and not output and "computation demand or natural-index checking" in error, error)
+        ensure(bundle.read_bytes() == checked, "invalid type-polymorphic import changed the retained bundle")
+
+
 def cases() -> list[Case]:
     return [Case("exact-natural zero type-use substitution law", _type_irrelevance, lane="toolchain"),
             Case("paired graded and ordinary audio routing replay", _audio_route, lane="toolchain"),
@@ -314,4 +375,6 @@ def cases() -> list[Case]:
             Case("graded dependent calls through a transitive locked import", _locked_transitive_grade_import,
                  lane="toolchain"),
             Case("graded higher-order calls and callbacks through a locked import", _locked_graded_callback_import,
+                 lane="toolchain"),
+            Case("graded type-polymorphic calls through a locked import", _locked_graded_type_import,
                  lane="toolchain")]

@@ -17,20 +17,21 @@ declarations are part of the [metaprogramming design](../extensions/metaprogramm
 Ordinary `holdfast-parser elaborate` and locked mathematical builds replay
 explicit natural-grade annotations before emitting the checked module. A pure
 definition can use `NatExact` or `NatBound` across its graded dependency
-closure. The replay checks annotated dependent functions, applications of
-earlier named definitions, natural indices, natural `let` bindings and indexed
-records in the supported fragment. A canonical module-private `Box` can be
-constructed and opened within a checked definition. Its grade and payload
-remain distinct in the checked source.
+closure. The replay checks annotated dependent functions, type-valued
+polymorphic definitions over predicative `Type` / `Type<n>` universes,
+applications of earlier named definitions, natural indices, natural `let`
+bindings and indexed records in the supported fragment. A canonical
+module-private `Box` can be constructed and opened within a checked definition.
+Its grade and payload remain distinct in the checked source.
 A grade unsupported by replay produces a located refusal before publication.
 
 Each graded declaration contributes a receipt digest binding the source,
 certificate and Rocq support. The locked build also binds the support sources
 in its producer identity. The `check-grades` command reports the separate demand
 rows and certificate for inspection. A pure graded caller can apply a public
-first-order or higher-order definition imported under its name, module alias or
-selected alias, and pass imported graded definitions as callback values. Replay
-checks all arguments in the provider's grade domain. Definitions that accept a
+first-order, type-polymorphic or higher-order definition imported under its
+name, module alias or selected alias, and pass imported graded definitions as
+callback values. Replay checks all arguments in the provider's grade domain. Definitions that accept a
 graded callback require a grade-checked caller. The caller's receipt binds each
 reached provider's locked identity and grade receipt, including providers reached
 through a private helper in another module. Graded boxes at module interfaces
@@ -42,15 +43,18 @@ and general domains require further qualification.
 Run `python tools/run.py holdfast-parser check-grades tools/tests/fixtures/graded-dependent.hf Specialize`
 to check a definition and its same-module dependencies in the
 [pure graded calculus](../../tools/rocq/graded_pure.v). This investigation accepts
-lambdas with typed parameters and pure `Fn` telescopes over `Nat` and
-`Vec<Nat, n>` with explicit
+lambdas with typed parameters and pure `Fn` telescopes over `Type`, `Type<n>`,
+type variables, `Nat` and `Vec<Nat, n>` with explicit
 `@ NatExact(n)` computation allowances. Dependent application indices use
-variables, decimal literals and addition. Applications to vectors and checked
-local function values use positional arguments and check the argument's type,
-including its grades, up to renaming of binders. This value rule requires a
-codomain well formed without the applied binder. The checker computes type use
-separately from the computation demand and checks the specialized codomain.
-[Application fixture](../../tools/tests/fixtures/graded-application.hf)
+variables, decimal literals and addition. Type arguments use `type ...` or a
+bound type variable and enforce predicative universe levels. Applications to
+vectors and checked local function values use positional arguments and check the
+argument's type, including its grades, up to renaming of binders. This value
+rule requires a codomain well formed without the applied binder. The checker
+computes type use separately from the computation demand and checks the
+specialized codomain.
+[Application fixture](../../tools/tests/fixtures/graded-application.hf) ·
+[Type-identity fixture](../../tools/tests/fixtures/graded-type-identity.hf)
 
 A natural `let` accepts a stable initializer formed from names, natural
 literals and addition. The checking rule counts that initializer once, checks

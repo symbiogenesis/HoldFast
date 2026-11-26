@@ -29,7 +29,7 @@ class GradeDomain(StrEnum):
     BOUND = "NatBound"
 
 
-_PRIMITIVES = frozenset({"Nat", "Vec", *GradeDomain})
+_PRIMITIVES = frozenset({"Nat", "Vec", "Type", *GradeDomain})
 _ROCQ_FILES = ("graded_pure.v", "graded_domains.v", "graded_source.v")
 _MODAL_FILES = ("graded_pure.v", "graded_domains.v", "graded_modal.v", "graded_modal_source.v")
 SUPPORT_FILES = tuple(dict.fromkeys((*_ROCQ_FILES, *_MODAL_FILES)))
@@ -176,8 +176,24 @@ class _Projection:
             arguments = cast("list[Node]", node["arguments"])
             if name == "Nat" and not arguments:
                 return "Natural"
+            if name == "Type":
+                if not arguments:
+                    return "(Universe 0)"
+                if len(arguments) == 1 and arguments[0]["kind"] == "nat" and not arguments[0]["suffix"]:
+                    spelling = cast("str", arguments[0]["value"]).replace("_", "")
+                    if spelling.isdecimal():
+                        level = int(spelling)
+                        if level > 8:
+                            raise self.protocol.error("limit", "graded universe levels are bounded at 8", arguments[0])
+                        return f"(Universe {level})"
+                raise self.protocol.error("unsupported", "graded Type<n> requires a natural literal level", node)
             if name == "Vec" and len(arguments) == 2 and self._type(arguments[0], scope) == "Natural":
                 return f"(Vector {self._index(arguments[1], scope)})"
+            if not arguments and name in scope:
+                parameter = scope[name]
+                if parameter.domain.startswith("(Universe "):
+                    return f"(TypeVar {parameter.index})"
+                raise self.protocol.error("grade", f"value binder '{name}' is not a type", node)
         if (node["kind"] == "function_type" and node["mode"] == "Fn" and node["parameters"]
                 and not any(node[field] for field in ("generics", "captures", "effects", "contracts"))):
             extended = scope.copy()
@@ -186,13 +202,21 @@ class _Projection:
             for parameter in reversed(parameters):
                 codomain = parameter.abstract("Pi", codomain)
             return codomain
-        raise self.protocol.error("unsupported", "graded replay supports Nat, Vec<Nat, n> and pure Fn types", node)
+        raise self.protocol.error(
+            "unsupported",
+            "graded replay supports Nat, Type, Type<n>, type variables, Vec<Nat, n> and pure Fn types",
+            node,
+        )
 
     def _application(self, callee: str, node: Node, scope: dict[str, _Parameter], declaration: Node) -> str:
         if node["kind"] == "group":
             return self._application(callee, cast("Node", node["value"]), scope, declaration)
+        if node["kind"] == "type_expression":
+            return f"(ApplyType {callee} {self._type(cast('Node', node['type']), scope)})"
         if node["kind"] == "name":
             parameter = scope.get(_name(node["name"]))
+            if parameter is not None and parameter.domain.startswith("(Universe "):
+                return f"(ApplyType {callee} (TypeVar {parameter.index}))"
             is_index = parameter is not None and parameter.domain == "Natural"
         else:
             is_index = node["kind"] in {"nat", "binary"}
