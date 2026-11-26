@@ -128,7 +128,9 @@ class _Elaborator(
         self.hole_inspection: HoleInspection | None = None
         self.navigation: Navigation | None = None
         self.checked_grade_annotations: set[int] = set()
-        self.checked_caller_required: set[str] = set()
+        self.checked_caller_required: dict[str, str] = {}
+        self.graded_box_type: str | None = None
+        self.graded_box_domain: str | None = None
         self.checked_receivers: dict[tuple[int, ...], loans._Receiver | None] = {}
         self.checked_scalar_calls: set[tuple[int, ...]] = set()
         self.scalar_callables: set[str] = set()
@@ -1173,8 +1175,10 @@ class _Elaborator(
             raise self.fail("name", f"unknown or forward name '{name}'")
         if self.static_forbidden is not None and id(binding) in self.static_forbidden:
             raise self.fail("type", f"constant initializer depends on nonstatic binding '{name}'")
-        if (binding.term.kind == "const" and str(binding.term.value) in self.checked_caller_required
+        if (binding.term.kind == "const" and (requirement := self.checked_caller_required.get(str(binding.term.value))) is not None
                 and not self.checked_grade_annotations):
+            if requirement == "box":
+                raise self.fail("grade", f"'{name}' uses a graded Box interface and requires a checked caller")
             raise self.fail("grade", f"'{name}' accepts a graded callback and requires a checked caller")
         return binding if raw else self.instantiate(binding, environment)
 
@@ -2439,8 +2443,13 @@ def _checked_elaboration(
         declarations: list[tuple[int, int]] = []
         imported_grade_exports = {name: export for mod in elaborator.available_modules.values()
                                   for name, export in mod.grade_exports.items()}
-        elaborator.checked_caller_required.update(identity for mod in elaborator.available_modules.values()
-                                                 for identity in mod.checked_caller_required)
+        for mod in elaborator.available_modules.values():
+            elaborator.checked_caller_required.update(mod.checked_caller_required)
+        imported_boxes = {
+            mod.graded_box_type: graded_source.GradeDomain(mod.graded_box_domain)
+            for mod in elaborator.available_modules.values()
+            if mod.graded_box_type is not None and mod.graded_box_domain is not None
+        }
 
         def resolve_grade_import(name: str) -> tuple[str, graded_source.GradeExport] | None:
             binding = elaborator.globals.get(name)
@@ -2450,15 +2459,30 @@ def _checked_elaboration(
             export = imported_grade_exports.get(identity)
             return (identity, export) if export is not None else None
 
+        def resolve_box_import(name: str) -> graded_source.GradeDomain | None:
+            record = elaborator.records.get(name)
+            if record is None:
+                return None
+            return imported_boxes.get(record.type_const)
+
         with phase("resolve-and-elaborate"), ExitStack() as grade_stack:
-            grade_replay = graded_source.ModuleReplay(Path(__file__).resolve().parents[2], protocol, root, grade_stack)
+            grade_replay = graded_source.ModuleReplay(
+                Path(__file__).resolve().parents[2], protocol, root, grade_stack, resolve_box=resolve_box_import
+            )
             for declaration in elaborator.nodes(root["declarations"]):
                 first = len(elaborator.output)
-                elaborator.checked_grade_annotations, callable_input = grade_replay.check(declaration, resolve_grade_import)
+                elaborator.checked_grade_annotations, caller_requirement = grade_replay.check(
+                    declaration, resolve_grade_import
+                )
                 elaborator.declaration(declaration)
-                if callable_input:
+                if caller_requirement is not None:
                     name = elaborator.name(declaration["name"])
-                    elaborator.checked_caller_required.add(str(elaborator.globals[name].term.value))
+                    elaborator.checked_caller_required[str(elaborator.globals[name].term.value)] = caller_requirement
+                if declaration is grade_replay.box and grade_replay.box_domain is not None:
+                    box_record = elaborator.records.get("Box")
+                    if box_record is not None and declaration["modifiers"] == ["public"]:
+                        elaborator.graded_box_type = box_record.type_const
+                        elaborator.graded_box_domain = grade_replay.box_domain.value
                 if elaborator.freeze_checks:
                     elaborator.output.append("\n".join(
                         f"Definition {elaborator.emission_prefix}_freeze_check_{first}_{index} : "

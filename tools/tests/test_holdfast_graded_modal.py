@@ -33,6 +33,8 @@ _AUDITED = (
     "reject_wrong_motive_specialization",
     "reject_bypassing_open",
     "reject_computing_with_zero_use_payload",
+    "box_interface_application",
+    "reject_mismatched_box_grade_application",
 )
 _SUPPORT = ("graded_pure.v", "graded_domains.v", "graded_modal.v", "graded_modal_source.v")
 

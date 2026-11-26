@@ -132,6 +132,20 @@ definition Nat ReadTwice(Nat n @ NatExact(4)) =>
         kernel = subprocess.run([*proofenv.rocq_command(), "-q", proof.name], cwd=directory,
                                 capture_output=True, text=True, encoding="utf-8", check=False, timeout=30)
         ensure(kernel.returncode == 0, kernel.stderr)
+        box_interface = (
+            closed_box
+            + "definition Box<Nat, 2> Escape(Nat n @ NatExact(2)) => Box<Nat, 2>(n);\n"
+            + "definition Nat UseEscape(Nat n @ NatExact(2)) => match (Escape(n)) as whole : Nat { Box(x) => x + x, };\n"
+        )
+        box_positive = directory / "BoxInterfacePositive.hf"
+        box_positive.write_text(box_interface, encoding="utf-8")
+        status, output, error = _elaborate_command(box_positive)
+        ensure(status == 0 and all(f"Graded replay {name} NatExact: SHA256" in output
+                                   for name in ("ReadTwice", "Escape", "UseEscape")), error)
+        proof.write_text(output, encoding="utf-8")
+        kernel = subprocess.run([*proofenv.rocq_command(), "-q", proof.name], cwd=directory,
+                                capture_output=True, text=True, encoding="utf-8", check=False, timeout=30)
+        ensure(kernel.returncode == 0, kernel.stderr)
         for candidate, message in (
             ((fixtures / "graded-dependent.hf").read_text(encoding="utf-8")
              .replace("NatExact(4)", "NatExact(3)"), "fails exact computation demand"),
@@ -139,8 +153,10 @@ definition Nat ReadTwice(Nat n @ NatExact(4)) =>
              "fails bounded computation demand"),
             (closed_box + "definition Nat Unchecked(Nat n) => Box<Nat, 2>(n).Value;\n",
              "graded Box operations require an annotated pure definition"),
-            (closed_box + "definition Box<Nat, 2> Escape(Nat n @ NatExact(2)) => Box<Nat, 2>(n);\n",
-             "graded Box values require a checked callable interface"),
+            (box_interface + "definition Nat Unchecked(Nat n) => Escape(n).Value;\n",
+             "uses a graded Box interface and requires a checked caller"),
+            (box_interface.replace("UseEscape(Nat n @ NatExact(2))", "UseEscape(Nat n @ NatExact(1))"),
+             "fails exact computation demand"),
             (callback_header + "definition Nat Unchecked() => Call((Nat n) => n);\n",
              "accepts a graded callback and requires a checked caller"),
             (callback_header + "definition Nat BadGrade(Nat x @ NatExact(0)) => Call((Nat n @ NatExact(2)) => n + n);\n",

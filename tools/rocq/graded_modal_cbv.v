@@ -18,11 +18,11 @@ Lemma dependent_pair_counts_reads : forall allows scope body extent k computatio
   count_occ Nat.eq_dec (snd (evaluate_index values body)) name = GradedPure.uses computation name.
 Proof.
   intros allows scope body extent k computation dependency values name typed.
-  inversion typed as [| | | | | left right a b u v w z arithmetic vector | |]; subst.
+  inversion typed as [| | | | | left right a b u v w z arithmetic vector | | | |]; subst.
   inversion arithmetic; subst.
   unfold vec_identity in vector.
   inversion vector as [| | | | binder allowance domain term codomain a' u' v' row
-    fresh domain_ok identity allowed formed | | |]; subst.
+    fresh domain_ok identity allowed formed | | | | |]; subst.
   inversion identity; subst.
   rewrite GradedPure.uses_append, GradedPure.uses_without.
   assert ((if name =? 3 then 0 else GradedPure.uses [(3, 1)] name) = 0) as no_reads.

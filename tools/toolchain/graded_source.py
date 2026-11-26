@@ -76,9 +76,12 @@ class GradeExport:
     domain: GradeDomain
     receipt: str
     imports: Mapping[str, tuple[str, GradeExport]]
+    modal: bool = False
+    box_imports: Mapping[str, GradeDomain] = MappingProxyType({})
 
 
 type GradeResolver = Callable[[str], tuple[str, GradeExport] | None]
+type BoxResolver = Callable[[str], GradeDomain | None]
 
 
 class _Projection:
@@ -376,22 +379,87 @@ class _IndexedRecord:
 class _ModalProjection(_Projection):
     reserved = _PRIMITIVES | {"Box"}
 
-    def __init__(self, protocol: _Protocol, syntax: Node, domain: GradeDomain) -> None:
+    def __init__(self, protocol: _Protocol, syntax: Node, domain: GradeDomain, *,
+                 resolve_box: BoxResolver | None = None) -> None:
         super().__init__(protocol, syntax, domain)
+        self.resolve_box = resolve_box
+        self.box_imports: dict[str, GradeDomain] = {}
+        self.local_box = _local_box(protocol, cast("list[Node]", syntax["declarations"]))
         self.records: set[str] = set()
         self.record_ids = {name: index for index, (name, node) in enumerate(self.declarations.items())
                            if node["kind"] == "record" and name != "Box"}
         self.indexed_records: dict[str, _IndexedRecord] = {}
         self.indexed_bindings: dict[int, _IndexedRecord] = {}
 
-    def _box_record(self, node: Node) -> None:
-        record = self.declarations.get("Box")
+    def _is_box_name(self, name: str | None) -> bool:
+        if name is None:
+            return False
+        if name == "Box" and "Box" in self.declarations:
+            return self.local_box is not None
+        return self.resolve_box is not None and self.resolve_box(name) is not None
+
+    def _box_record(self, node: Node, box_name: str = "Box") -> None:
         expected = f"Box<T, grade q : {self.domain}>(T Value @ q)"
-        if record is None or _span(record)[0] >= _span(node)[0]:
-            raise self.protocol.error("unsupported", f"modal replay requires an earlier record {expected}", node)
-        if not _valid_box_record(record, self.domain):
-            raise self.protocol.error("unsupported", f"modal replay requires record {expected}", record)
-        self.records.add("Box")
+        if box_name == "Box" and "Box" in self.declarations:
+            record = self.declarations["Box"]
+            if _span(record)[0] >= _span(node)[0]:
+                raise self.protocol.error("unsupported", f"modal replay requires an earlier record {expected}", node)
+            if not _valid_box_record(record, self.domain):
+                raise self.protocol.error("unsupported", f"modal replay requires record {expected}", record)
+            self.records.add("Box")
+            return
+        if self.resolve_box is not None and (imported_domain := self.resolve_box(box_name)) is not None:
+            if imported_domain != self.domain:
+                raise self.protocol.error("grade", f"imported '{box_name}' requires the {imported_domain} grade domain", node)
+            self.box_imports[box_name] = imported_domain
+            self.records.add("Box")
+            return
+        raise self.protocol.error("unsupported", f"modal replay requires an earlier record {expected}", node)
+
+    @override
+    def _imported_definition(self, name: str, node: Node) -> _Definition | None:
+        resolved = self.resolve_import(name) if self.resolve_import is not None else None
+        if resolved is None:
+            return None
+        identity, provider = resolved
+        if provider.domain != self.domain:
+            raise self.protocol.error("grade", f"imported '{name}' requires the {provider.domain} grade domain", node)
+        self.imports[name] = resolved
+        module = id(provider.syntax)
+        if module not in self.providers:
+            projection = _ModalProjection(provider.protocol, provider.syntax, self.domain,
+                                          resolve_box=provider.box_imports.get)
+            projection.parameters = self.parameters
+            projection.definitions = self.definitions
+            projection.providers = self.providers
+            projection.provider_receipts = self.provider_receipts
+            self.providers[module] = projection
+        projection = cast("_ModalProjection", self.providers[module])
+        projection.resolve_import = provider.imports.get
+        definition = projection.definition(provider.name, closed=True)
+        self.provider_receipts.add((identity, provider.receipt))
+        return definition
+
+    @override
+    def _reference(self, node: Node, scope: dict[str, _Parameter], declaration: Node,
+                   *, nullary: bool = False) -> str | None:
+        name = _IntrinsicsMixin._dotted_member_path(node)
+        if name is None or name.split(".", 1)[0] in scope:
+            return None
+        if name in self.declarations:
+            local = self.declarations[name]
+            if local["kind"] != "definition" or _span(local)[0] >= _span(declaration)[0]:
+                return None
+            definition = self.definition(name, closed=True)
+        else:
+            definition = self._imported_definition(name, node)
+        if definition is None:
+            return None
+        if bool(definition.source["parameters"]) == nullary:
+            message = ("graded nullary calls require a zero-parameter definition" if nullary
+                       else "graded zero-parameter definitions require a nullary call")
+            raise self.protocol.error("unsupported", message, node)
+        return f"source_term_{definition.index}"
 
     def _extent(self, node: Node, field: str) -> str:
         kind = node["kind"]
@@ -444,9 +512,9 @@ class _ModalProjection(_Projection):
             self.indexed_bindings[parameter.index] = self.indexed_records[name]
         return parameter
 
-    def _box_grade(self, arguments: list[Node], node: Node) -> int:
+    def _box_grade(self, arguments: list[Node], node: Node, box_name: str = "Box") -> int:
         if len(arguments) == 2 and _plain_type(arguments[0], "Nat"):
-            self._box_record(node)
+            self._box_record(node, box_name)
             return self._literal(arguments[1])
         raise self.protocol.error("unsupported", "modal replay requires Box<Nat, q> with a natural literal q", node)
 
@@ -456,18 +524,24 @@ class _ModalProjection(_Projection):
             arguments = cast("list[Node]", node["arguments"])
             if callee["kind"] == "generic_application" and len(arguments) == 1 and arguments[0]["label"] is None:
                 head = cast("Node", callee["value"])
-                if head["kind"] == "name" and _name(head["name"]) == "Box":
-                    grade = self._box_grade(cast("list[Node]", callee["arguments"]), callee)
+                box_name = _IntrinsicsMixin._dotted_member_path(head)
+                if self._is_box_name(box_name) and box_name is not None:
+                    grade = self._box_grade(cast("list[Node]", callee["arguments"]), callee, box_name)
                     return grade, self._index(cast("Node", arguments[0]["value"]), scope)
         raise self.protocol.error("unsupported", "modal replay promotes a natural index with Box<Nat, q>(value)", node)
 
-    def _boxed(self, node: Node, scope: dict[str, _Parameter]) -> str:
+    def _boxed(self, node: Node, scope: dict[str, _Parameter]) -> str | None:
         if node["kind"] == "group":
             return self._boxed(cast("Node", node["value"]), scope)
         if node["kind"] == "name" and _name(node["name"]) in scope:
             return f"(BoxName {scope[_name(node['name'])].index})"
-        grade, index = self._promote(node, scope)
-        return f"(PromoteNat {grade} {index})"
+        if node["kind"] == "call":
+            callee = cast("Node", node["callee"])
+            if (callee["kind"] == "generic_application"
+                    and self._is_box_name(_IntrinsicsMixin._dotted_member_path(cast("Node", callee["value"])))):
+                grade, index = self._promote(node, scope)
+                return f"(PromoteNat {grade} {index})"
+        return None
 
     def _indexed(self, node: Node, scope: dict[str, _Parameter]) -> tuple[str, _IndexedRecord] | None:
         if node["kind"] == "group":
@@ -515,8 +589,8 @@ class _ModalProjection(_Projection):
             arguments = cast("list[Node]", node["arguments"])
             if name == "Nat" and not arguments:
                 return "NatKind"
-            if name == "Box":
-                return f"(BoxNat {self._box_grade(arguments, node)})"
+            if self._is_box_name(name):
+                return f"(BoxNat {self._box_grade(arguments, node, name)})"
             if name in self.record_ids and not arguments:
                 return f"(IndexedKind {self._indexed_record(name, node).shape})"
             if name == "Vec" and len(arguments) == 2 and _plain_type(arguments[0], "Nat"):
@@ -543,11 +617,12 @@ class _ModalProjection(_Projection):
         if pattern["kind"] != "constructor_pattern":
             raise self.protocol.error("unsupported", "modal replay requires a Box or indexed record binder pattern", pattern)
         name = _name(pattern["name"])
-        record = None if name == "Box" else self._indexed_record(name, pattern)
-        if name == "Box":
-            self._box_record(pattern)
+        is_box = self._is_box_name(name)
+        record = None if is_box else self._indexed_record(name, pattern)
+        if is_box:
+            self._box_record(pattern, name)
         arguments = cast("list[Node]", pattern["arguments"])
-        if len(arguments) != (1 if name == "Box" else 2) or any(arg["kind"] != "binding_pattern" for arg in arguments):
+        if len(arguments) != (1 if is_box else 2) or any(arg["kind"] != "binding_pattern" for arg in arguments):
             raise self.protocol.error("unsupported", f"modal replay requires named {name} fields", pattern)
         subject = cast("Node", node["value"])
         motive_scope = scope.copy()
@@ -560,7 +635,10 @@ class _ModalProjection(_Projection):
         body = cast("Node", case["value"])
         if record is None:
             boxed = self._boxed(subject, scope)
-            return f"(LetBox {first.index} {motive_parameter.index} {boxed} {motive_type} {self._term(body, extended, declaration)})"
+            if boxed is not None:
+                return f"(LetBox {first.index} {motive_parameter.index} {boxed} {motive_type} {self._term(body, extended, declaration)})"
+            subject_term = self._term(subject, scope, declaration)
+            return f"(LetBoxValue {first.index} {motive_parameter.index} {subject_term} {motive_type} {self._term(body, extended, declaration)})"
         payload = self._bind(arguments[1], extended, f"(payload_kind {record.shape} (IndexVar {first.index}))", 0)
         indexed = self._indexed(subject, scope)
         if indexed is None:
@@ -573,11 +651,13 @@ class _ModalProjection(_Projection):
         kind = node["kind"]
         if kind == "group":
             return self._term(cast("Node", node["value"]), scope, declaration)
-        if kind == "name":
-            name = _name(node["name"])
-            if name in scope:
+        if kind in {"name", "member"}:
+            if kind == "name" and (name := _name(node["name"])) in scope:
                 return f"(Name {scope[name].index})"
-            raise self.protocol.error("grade", f"unbound value '{name}'", node)
+            if (reference := self._reference(node, scope, declaration)) is not None:
+                return reference
+            path = _IntrinsicsMixin._dotted_member_path(node) or _name(node["name"])
+            raise self.protocol.error("grade", f"unbound value '{path}'", node)
         if kind == "lambda" and node["parameters"]:
             extended = scope.copy()
             parameters = self._telescope(node, extended)
@@ -593,19 +673,49 @@ class _ModalProjection(_Projection):
             if (indexed := self._indexed(node, scope)) is not None:
                 value, record = indexed
                 return f"(IndexedValue {record.shape} {value})"
-            return f"(BoxValue {self._boxed(node, scope)})"
+            if (boxed := self._boxed(node, scope)) is not None:
+                return f"(BoxValue {boxed})"
+            callee = cast("Node", node["callee"])
+            while callee["kind"] == "group":
+                callee = cast("Node", callee["value"])
+            arguments = cast("list[Node]", node["arguments"])
+            if any(argument["label"] is not None for argument in arguments):
+                raise self.protocol.error("unsupported", "modal replay requires positional arguments or an earlier nullary definition", node)
+            if not arguments:
+                result = self._reference(callee, scope, declaration, nullary=True)
+                if result is None:
+                    raise self.protocol.error("unsupported", "modal replay requires an earlier or imported nullary definition", node)
+                return result
+            result = self._term(callee, scope, declaration)
+            for argument in arguments:
+                result = f"(Apply {result} {self._term(cast('Node', argument['value']), scope, declaration)})"
+            return result
         return f"(NaturalValue {self._index(node, scope)})"
 
     @override
-    def definition(self, name: str) -> _Definition:
+    def definition(self, name: str, *, closed: bool = False) -> _Definition:
+        if name in self.completed:
+            return self.completed[name]
         node = self._definition_node(name)
         scope: dict[str, _Parameter] = {}
         parameters = self._telescope(node, scope)
         expected = self._type(cast("Node", node["result"]), scope)
         term = self._term(cast("Node", node["value"]), scope, node)
-        context = "; ".join(f"{{| name := {parameter.index}; domain := {parameter.domain}; allowance := {parameter.allowance} |}}"
-                            for parameter in reversed(parameters))
-        result = _Definition(0, name, node, term, expected, f"[{context}]", tuple(sorted(self.records)))
+        if closed:
+            if any(f"(IndexVar {p.index})" in expected or f"(BoxContents {p.index})" in expected
+                   or f"(IndexedName {p.index})" in expected for p in parameters):
+                raise self.protocol.error("unsupported", "called modal definitions require non-dependent result kinds", node)
+            for parameter in reversed(parameters):
+                term = parameter.abstract("Lambda", term)
+                expected = f"(ArrowKind {parameter.allowance} {parameter.domain} {expected})"
+            context = "[]"
+        else:
+            context_rows = "; ".join(
+                f"{{| name := {parameter.index}; domain := {parameter.domain}; allowance := {parameter.allowance} |}}"
+                for parameter in reversed(parameters)
+            )
+            context = f"[{context_rows}]"
+        result = _Definition(len(self.definitions), name, node, term, expected, context, tuple(sorted(self.records)))
         self.completed[name] = result
         self.definitions.append(result)
         return result
@@ -720,67 +830,93 @@ def _domain(protocol: _Protocol, parameter: Node) -> GradeDomain:
     raise protocol.error("unsupported", "graded checking requires a NatExact(n) or NatBound(n) allowance", annotation)
 
 
-def _local_box(protocol: _Protocol, declarations: list[Node]) -> Node | None:
+def _local_box(protocol: _Protocol, declarations: list[Node]) -> tuple[Node, GradeDomain] | None:
     for declaration in declarations:
         if declaration["kind"] != "record" or _name(declaration["name"]) != "Box":
             continue
         generics = cast("list[Node]", declaration["generics"])
         if not any(node["mode"] == "grade" for node in generics):
             continue
-        if declaration["modifiers"] or not any(_valid_box_record(declaration, domain) for domain in GradeDomain):
-            raise protocol.error("unsupported", "graded Box requires a module-private canonical declaration", declaration)
-        return declaration
+        for domain in GradeDomain:
+            if _valid_box_record(declaration, domain):
+                return declaration, domain
+        raise protocol.error("unsupported", "graded Box requires a canonical declaration", declaration)
     return None
 
 
 class ModuleReplay:
     """Replay each declaration in its resolved import context."""
 
-    def __init__(self, root: Path, protocol: _Protocol, syntax: Node, stack: ExitStack) -> None:
+    def __init__(self, root: Path, protocol: _Protocol, syntax: Node, stack: ExitStack,
+                 *, resolve_box: BoxResolver | None = None) -> None:
         self.root = root
         self.protocol = protocol
         self.syntax = syntax
         self.stack = stack
+        self.resolve_box = resolve_box
         declarations = cast("list[Node]", syntax["declarations"])
         self.record_names = {_name(node["name"]) for node in declarations if node["kind"] == "record"}
-        self.box = _local_box(protocol, declarations)
+        box_info = _local_box(protocol, declarations)
+        self.box = None if box_info is None else box_info[0]
+        self.box_domain = None if box_info is None else box_info[1]
         self.compiler: list[str] = []
         self.directory: Path | None = None
         self.hashes: dict[str, str] = {}
         self.receipts: list[str] = []
         self.exports: dict[str, GradeExport] = {}
+        self.modal_definitions: set[str] = set()
 
-    def check(self, declaration: Node, resolve_import: GradeResolver) -> tuple[set[int], bool]:
+    def _lookup_box_domain(self, name: str | None) -> GradeDomain | None:
+        if name is None:
+            return None
+        if name == "Box" and self.box_domain is not None:
+            return self.box_domain
+        if self.resolve_box is not None:
+            return self.resolve_box(name)
+        return None
+
+    def check(self, declaration: Node, resolve_import: GradeResolver) -> tuple[set[int], str | None]:
         protocol = self.protocol
         if declaration is self.box:
             return ({id(cast("list[Node]", declaration["generics"])[1]),
-                     id(cast("list[Node]", declaration["parameters"])[0])}, False)
+                     id(cast("list[Node]", declaration["parameters"])[0])}, None)
         modal = False
         annotations: list[Node] = []
         box_uses: list[Node] = []
+        signature = (
+            [*cast("list[Node]", declaration["parameters"]), cast("Node", declaration["result"])]
+            if declaration["kind"] == "definition" else []
+        )
+        interface_nodes = {id(node) for part in signature for node in syntax_nodes(part)}
+        box_interface = False
         for node in syntax_nodes(declaration):
             if node["kind"] == "generic_parameter" and node["mode"] == "grade":
                 raise protocol.error("unsupported", "grade generics require a qualified representation", node)
             if node.get("grade") is not None:
                 annotations.append(node)
-            if (self.box is not None and node["kind"] in {"type", "name", "constructor_pattern"}
-                    and _name(node["name"]) == "Box"):
-                if node["kind"] == "type":
-                    raise protocol.error("unsupported", "graded Box values require a checked callable interface", node)
-                box_uses.append(node)
-                modal = True
+            if node["kind"] in {"type", "name", "member", "constructor_pattern"}:
+                path = _IntrinsicsMixin._dotted_member_path(node) or (
+                    _name(node["name"]) if isinstance(node.get("name"), dict) else None
+                )
+                if path is not None:
+                    if self._lookup_box_domain(path) is not None:
+                        box_uses.append(node)
+                        modal = True
+                        if id(node) in interface_nodes:
+                            box_interface = True
+                    elif (path in self.modal_definitions
+                          or ((imported := resolve_import(path)) is not None and imported[1].modal)):
+                        modal = True
             if (node["kind"] in {"match_expression", "tuple", "tuple_type"}
                     or (node["kind"] == "type" and _name(node["name"]) in self.record_names)):
                 modal = True
         if not annotations:
             if box_uses:
                 raise protocol.error("unsupported", "graded Box operations require an annotated pure definition", box_uses[0])
-            return set(), False
+            return set(), None
         if declaration["kind"] != "definition":
             raise protocol.error("unsupported", "graded checking supports pure mathematical definitions", annotations[0])
         domain = _domain(protocol, annotations[0])
-        signature = [*cast("list[Node]", declaration["parameters"]), cast("Node", declaration["result"])]
-        interface_nodes = {id(node) for part in signature for node in syntax_nodes(part)}
         callable_input = False
         for annotation in annotations:
             if _domain(protocol, annotation) != domain:
@@ -790,15 +926,20 @@ class ModuleReplay:
                 node["kind"] == "function_type" for node in syntax_nodes(cast("Node", annotation["type"]))
             )):
                 callable_input = True
-        projection = (_ModalProjection if modal else _Projection)(protocol, self.syntax, domain)
-        if not modal:
-            projection.resolve_import = resolve_import
+        projection = (
+            _ModalProjection(protocol, self.syntax, domain, resolve_box=self.resolve_box)
+            if modal else _Projection(protocol, self.syntax, domain)
+        )
+        projection.resolve_import = resolve_import
         selected = projection.definition(_name(declaration["name"]))
         for annotation in annotations:
             if id(annotation) not in projection.annotations:
                 raise protocol.error("unsupported", "grade annotation has no checked projection", annotation)
         self._check_projection(projection, selected)
-        return projection.annotations, callable_input
+        if modal:
+            self.modal_definitions.add(selected.name)
+        caller_requirement = "callback" if callable_input else ("box" if box_interface else None)
+        return projection.annotations, caller_requirement
 
     def _check_projection(self, projection: _Projection, definition: _Definition) -> None:
         if self.directory is None:
@@ -818,10 +959,17 @@ class ModuleReplay:
                               sort_keys=True, separators=(",", ":"))
         receipt = hashlib.sha256(evidence.encode()).hexdigest()
         self.receipts.append(f"(* Graded replay {definition.name} {projection.domain}: SHA256 {receipt} *)\n")
-        if definition.context is None and definition.source["modifiers"] == ["public"]:
-            self.exports[definition.name] = GradeExport(self.protocol, self.syntax, definition.name,
-                                                        projection.domain, receipt,
-                                                        MappingProxyType(projection.imports.copy()))
+        if definition.source["modifiers"] == ["public"]:
+            box_imports = projection.box_imports.copy() if isinstance(projection, _ModalProjection) else {}
+            if self.box is not None and self.box_domain is not None and self.box["modifiers"] == ["public"]:
+                box_imports.setdefault("Box", self.box_domain)
+            self.exports[definition.name] = GradeExport(
+                self.protocol, self.syntax, definition.name,
+                projection.domain, receipt,
+                MappingProxyType(projection.imports.copy()),
+                modal=definition.context is not None,
+                box_imports=MappingProxyType(box_imports),
+            )
 
 
 def check(root: Path, path: Path, declaration: str, *, modal: bool = False,

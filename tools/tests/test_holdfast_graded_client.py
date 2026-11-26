@@ -367,6 +367,82 @@ def _locked_graded_type_import() -> None:
         ensure(bundle.read_bytes() == checked, "invalid type-polymorphic import changed the retained bundle")
 
 
+def _locked_graded_box_import() -> None:
+    with tempfile.TemporaryDirectory(prefix="holdfast-graded-box-import-") as temporary:
+        workspace = Path(temporary)
+        lib = _write(workspace, "library", "v1", {}, "BoxProvider") / "module.hf"
+        client = _write(workspace, "main", "v1", {"library": "v1"}, "BoxClient") / "module.hf"
+        provider = ("module BoxProvider;\n"
+                    "public record Box<T, grade q : NatExact>(T Value @ q);\n"
+                    "public definition Box<Nat, 2> Pack(Nat n @ NatExact(2)) => Box<Nat, 2>(n);\n"
+                    "public definition Nat Unpack(Box<Nat, 2> packed @ NatExact(1)) =>\n"
+                    "    match (packed) as whole : Nat { Box(x) => x + x, };\n")
+        consumer = ("module BoxClient;\nimport BoxProvider { Box, Pack, Unpack };\n"
+                    "public definition Nat RoundTrip(Nat n @ NatExact(2)) => Unpack(Pack(n));\n"
+                    "public definition Nat Forward(Box<Nat, 2> b @ NatExact(1)) => Unpack(b);\n")
+        lock = workspace / "holdfast.lock.json"
+        bundle = workspace / "checked.json"
+        lock_command = ["lock-package", str(workspace), "main", "v1", "--output", str(lock)]
+        build_command = ["build-package", str(workspace), str(lock), "--output", str(bundle)]
+
+        def relock() -> None:
+            status, _, error = _parser_command(lock_command)
+            ensure(status == 0, error)
+
+        lib.write_text(provider, encoding="utf-8")
+        client.write_text(consumer, encoding="utf-8")
+        relock()
+        status, _, error = _parser_command(build_command)
+        ensure(status == 0, error)
+        checked = bundle.read_bytes()
+        emitted = json.loads(checked)["modules"]
+        client_v = str(emitted["BoxClient"])
+        ensure("Graded replay RoundTrip NatExact: SHA256" in client_v
+               and "Graded replay Forward NatExact: SHA256" in client_v,
+               "locked graded box build lost its grade receipt")
+
+        proof_dir = Path(temporary) / "rocq"
+        proof_dir.mkdir()
+        [module_name] = re.findall(r"^Module (HoldFastPackage_\S+)\.", client_v, re.MULTILINE)
+        [round_trip] = re.findall(r"^Definition (\S+_RoundTrip) :", client_v, re.MULTILINE)
+        (proof_dir / "BoxVerify.v").write_text(
+            client_v + f"""
+Import {module_name}.
+Theorem round_trip_doubles : forall n, {round_trip} n = n + n.
+Proof. reflexivity. Qed.
+Print Assumptions round_trip_doubles.
+""",
+            encoding="utf-8",
+        )
+        replay = subprocess.run([*proofenv.rocq_command(), "-q", "BoxVerify.v"], cwd=proof_dir,
+                                capture_output=True, text=True, encoding="utf-8", check=True, timeout=30)
+        solver_ledger.audit(replay.stdout, 1, "BoxClient", ())
+
+        client.write_text("module BoxClient;\nimport BoxProvider { Box, Pack, Unpack };\n"
+                          "public definition Nat Unchecked(Nat n) => Unpack(Pack(n));\n",
+                          encoding="utf-8")
+        relock()
+        status, output, error = _parser_command(build_command)
+        ensure(status == 1 and not output and "uses a graded Box interface and requires a checked caller" in error, error)
+
+        client.write_text("module BoxClient;\nimport BoxProvider { Box, Pack, Unpack };\n"
+                          "public definition Nat WrongGrade(Box<Nat, 3> b @ NatExact(1)) => Unpack(b);\n",
+                          encoding="utf-8")
+        relock()
+        status, output, error = _parser_command(build_command)
+        ensure(status == 1 and not output and "exact computation demand" in error, error)
+        ensure(bundle.read_bytes() == checked, "invalid box import changed the retained bundle")
+
+        client.write_text(consumer, encoding="utf-8")
+        lib.write_text(provider.replace("NatExact", "NatBound"), encoding="utf-8")
+        status, output, error = _parser_command(build_command)
+        ensure(status == 1 and not output and "stale" in error, error)
+        relock()
+        status, output, error = _parser_command(build_command)
+        ensure(status == 1 and not output and "requires the NatBound grade domain" in error, error)
+        ensure(bundle.read_bytes() == checked, "box domain mismatch changed the retained bundle")
+
+
 def cases() -> list[Case]:
     return [Case("exact-natural zero type-use substitution law", _type_irrelevance, lane="toolchain"),
             Case("paired graded and ordinary audio routing replay", _audio_route, lane="toolchain"),
@@ -377,4 +453,6 @@ def cases() -> list[Case]:
             Case("graded higher-order calls and callbacks through a locked import", _locked_graded_callback_import,
                  lane="toolchain"),
             Case("graded type-polymorphic calls through a locked import", _locked_graded_type_import,
+                 lane="toolchain"),
+            Case("graded box callable and locked module interfaces", _locked_graded_box_import,
                  lane="toolchain")]

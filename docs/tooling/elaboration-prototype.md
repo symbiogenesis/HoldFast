@@ -20,22 +20,24 @@ definition can use `NatExact` or `NatBound` across its graded dependency
 closure. The replay checks annotated dependent functions, type-valued
 polymorphic definitions over predicative `Type` / `Type<n>` universes,
 applications of earlier named definitions, natural indices, natural `let`
-bindings and indexed records in the supported fragment. A canonical
-module-private `Box` can be constructed and opened within a checked definition.
-Its grade and payload remain distinct in the checked source.
+bindings and indexed records in the supported fragment. A canonical `Box` can be constructed, opened, and passed or returned across
+graded callable and public locked-module interfaces. Its grade and payload
+remain distinct in the checked source, and callers of definitions that accept
+or return a graded `Box` must themselves be grade-checked.
 A grade unsupported by replay produces a located refusal before publication.
 
 Each graded declaration contributes a receipt digest binding the source,
 certificate and Rocq support. The locked build also binds the support sources
 in its producer identity. The `check-grades` command reports the separate demand
 rows and certificate for inspection. A pure graded caller can apply a public
-first-order, type-polymorphic or higher-order definition imported under its
-name, module alias or selected alias, and pass imported graded definitions as
-callback values. Replay checks all arguments in the provider's grade domain. Definitions that accept a
-graded callback require a grade-checked caller. The caller's receipt binds each
+first-order, type-polymorphic, graded-box or higher-order definition imported
+under its name, module alias or selected alias, and pass imported graded
+definitions as callback values. Replay checks all arguments in the provider's
+grade domain. Definitions that accept a graded callback or use a graded `Box`
+interface require a grade-checked caller. The caller's receipt binds each
 reached provider's locked identity and grade receipt, including providers reached
-through a private helper in another module. Graded boxes at module interfaces
-and general domains require further qualification.
+through a private helper in another module. General grade domains require
+further qualification.
 [First-release contract](../language/first-release.md#default-graded-checking)
 
 ## Pure graded source replay

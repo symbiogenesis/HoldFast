@@ -278,7 +278,9 @@ Inductive value :=
 | Pair (left right : value)
 | LetBox (name motive_name : nat) (subject : boxed) (motive : kind) (body : value)
 | LetIndexed (shape : indexed_shape) (length payload motive_name : nat)
-    (subject : indexed) (motive : kind) (body : value).
+    (subject : indexed) (motive : kind) (body : value)
+| Apply (callee argument : value)
+| LetBoxValue (name motive_name : nat) (subject : value) (motive : kind) (body : value).
 
 Record usage := {
   value_kind : kind;
@@ -346,7 +348,25 @@ Inductive DerivesWith (allows : nat -> nat -> Prop) (scope : env) : value -> usa
     TypeUses scope (specialize_indexed motive_name subject motive) output ->
     same_demand output (substitute_demand motive_name z motive_row) ->
     DerivesWith allows scope (LetIndexed shape length payload motive_name subject motive body)
-      (used (specialize_indexed motive_name subject motive) (without length (without payload w) ++ scale s z) output).
+      (used (specialize_indexed motive_name subject motive) (without length (without payload w) ++ scale s z) output)
+  | ApplyRule : forall callee argument allowance domain codomain w v z a b,
+      DerivesWith allows scope callee (used (ArrowKind allowance domain codomain) w v) ->
+      DerivesWith allows scope argument (used domain z a) ->
+      TypeUses scope codomain b ->
+      DerivesWith allows scope (Apply callee argument)
+        (used codomain (w ++ scale allowance z) b)
+  | LetBoxValueRule : forall name motive_name subject motive body q z subj_row w body_row motive_row output,
+      is_fresh scope name = true -> is_fresh scope motive_name = true -> name <> motive_name ->
+      DerivesWith allows scope subject (used (BoxNat q) z subj_row) ->
+      TypeUses ((motive_name, BoxNat q) :: scope) motive motive_row ->
+      uses motive_row motive_name = 0 ->
+      DerivesWith allows ((name, NatKind) :: scope) body (used motive w body_row) ->
+      allows (uses w name) q ->
+      same_demand body_row motive_row ->
+      TypeUses scope motive output ->
+      same_demand output motive_row ->
+      DerivesWith allows scope (LetBoxValue name motive_name subject motive body)
+        (used motive (without name w ++ z) output).
 
 Definition Derives := DerivesWith (@GradedDomains.allows GradedDomains.NatExact).
 
@@ -415,6 +435,37 @@ Fixpoint infer_with (allowsb : nat -> nat -> bool) (scope : env) (subject : valu
           then Some (used k (without length (without payload w) ++ scale s z) output) else None
         else None
       else None
+  | Apply callee argument =>
+      let? fn := infer_with allowsb scope callee in
+      let? arg := infer_with allowsb scope argument in
+      match value_kind fn with
+      | ArrowKind allowance domain codomain =>
+          if kind_eq_dec (value_kind arg) domain then
+            let? b := type_uses scope codomain in
+            Some (used codomain (subject_uses fn ++ scale allowance (subject_uses arg)) b)
+          else None
+      | _ => None
+      end
+  | LetBoxValue name motive_name subject motive body =>
+      if binder_checks scope name motive_name then
+        let? subj := infer_with allowsb scope subject in
+        match value_kind subj with
+        | BoxNat q =>
+            let? motive_row := type_uses ((motive_name, BoxNat q) :: scope) motive in
+            if Nat.eqb (uses motive_row motive_name) 0 then
+              let? result := infer_with allowsb ((name, NatKind) :: scope) body in
+              if kind_eq_dec (value_kind result) motive then
+                let? output := type_uses scope motive in
+                if allowsb (uses (subject_uses result) name) q
+                   && demand_eqb (result_type_uses result) motive_row
+                   && demand_eqb output motive_row
+                then Some (used motive (without name (subject_uses result) ++ subject_uses subj) output)
+                else None
+              else None
+            else None
+        | _ => None
+        end
+      else None
   end.
 
 Lemma infer_with_sound : forall (allows : nat -> nat -> Prop) allowsb,
@@ -424,7 +475,8 @@ Lemma infer_with_sound : forall (allows : nat -> nat -> Prop) allowsb,
 Proof.
   intros allows allowsb admission_sound.
   induction subject as [name | i | payload | shape pair | name allowance domain body IH | left IHl right IHr
-    | name motive_name payload motive body IH | shape length field motive_name pair motive body IH];
+    | name motive_name payload motive body IH | shape length field motive_name pair motive body IH
+    | callee IHc argument IHa | name motive_name subject IHs motive body IHb];
     intros scope result checked; cbn in checked.
   - destruct (find_kind scope name) eqn:found; try discriminate.
     cbn in checked. destruct (type_uses scope k) eqn:typed; inversion checked; subst.
@@ -497,6 +549,38 @@ Proof.
     apply andb_true_iff in agrees as [bounds body_demand].
     apply andb_true_iff in bounds as [length_bound field_bound].
     eapply LetIndexedRule; eauto using admission_sound, indexed_uses_sound, type_uses_sound, demand_eqb_sound.
+  - destruct (infer_with allowsb scope callee) as [[fk w v] |] eqn:fn_ok; try discriminate.
+    cbn [bind_option] in checked.
+    destruct (infer_with allowsb scope argument) as [[ak z a] |] eqn:arg_ok; try discriminate.
+    cbn [bind_option value_kind subject_uses] in checked.
+    destruct fk as [| | | | allowance domain codomain |]; try discriminate.
+    destruct (kind_eq_dec ak domain) as [same_domain | different]; try discriminate.
+    destruct (type_uses scope codomain) as [b |] eqn:out_ok; inversion checked; subst.
+    eapply ApplyRule; eauto using type_uses_sound.
+  - destruct (binder_checks scope name motive_name) eqn:fresh; try discriminate.
+    destruct (infer_with allowsb scope subject) as [[sk z subj_row] |] eqn:subj_ok; try discriminate.
+    cbn [bind_option value_kind subject_uses] in checked.
+    destruct sk as [| q | | | |]; try discriminate.
+    destruct (type_uses ((motive_name, BoxNat q) :: scope) motive) as [motive_row |] eqn:motive_ok;
+      try discriminate.
+    cbn [bind_option] in checked.
+    destruct (Nat.eqb (uses motive_row motive_name) 0) eqn:motive_unused; try discriminate.
+    destruct (infer_with allowsb ((name, NatKind) :: scope) body) as [[bk w row] |] eqn:body_ok;
+      try discriminate.
+    cbn [bind_option value_kind subject_uses result_type_uses] in checked.
+    destruct (kind_eq_dec bk motive) as [same_kind | different]; try discriminate.
+    destruct (type_uses scope motive) as [output |] eqn:out_ok; try discriminate.
+    cbn [bind_option] in checked.
+    destruct (allowsb (uses w name) q && demand_eqb row motive_row && demand_eqb output motive_row)
+      eqn:agrees; inversion checked; subst.
+    unfold binder_checks in fresh.
+    apply andb_true_iff in fresh as [fresh distinct].
+    apply andb_true_iff in fresh as [fresh_name fresh_motive].
+    apply negb_true_iff, Nat.eqb_neq in distinct.
+    apply Nat.eqb_eq in motive_unused.
+    apply andb_true_iff in agrees as [agrees out_demand].
+    apply andb_true_iff in agrees as [bound body_demand].
+    eapply LetBoxValueRule; eauto using admission_sound, type_uses_sound, demand_eqb_sound.
 Qed.
 
 Definition check_with (allowsb : nat -> nat -> bool) (scope : env) (subject : value) : option usage :=
@@ -601,7 +685,7 @@ Proof.
   intros allows allowsb admission_sound scope name motive_name payload motive body result checked.
   pose proof (check_with_sound allows allowsb admission_sound _ _ _ checked) as [_ derivation].
   inversion derivation as [| | | | | | x p b m t q z contents w body_row motive_row output
-    fresh_name fresh_motive distinct boxed_ok motive_ok body_ok bound body_demand out_kind out_demand |];
+    fresh_name fresh_motive distinct boxed_ok motive_ok body_ok bound body_demand out_kind out_demand | | |];
     subst.
   do 6 eexists. repeat split; eauto.
   - rewrite (body_demand name).
@@ -667,7 +751,7 @@ Proof.
   intros allows allowsb admission_sound scope shape length payload motive_name subject motive body result checked.
   pose proof (check_with_sound allows allowsb admission_sound _ _ _ checked) as [outer derivation].
   inversion derivation as [| | | | | | | indicated_shape l p n t m b z w body_row motive_row output s
-    fresh pair_ok motive_ok body_ok length_ok payload_ok body_demand out_kind out_demand]; subst.
+    fresh pair_ok motive_ok body_ok length_ok payload_ok body_demand out_kind out_demand | |]; subst.
   split; [eauto using indexed_scope_well_formed |].
   exists z, w, body_row, motive_row, s. repeat apply conj; try assumption; try reflexivity.
   intro x. cbn [subject_uses used]. rewrite uses_append, !uses_without, uses_scale.
@@ -750,6 +834,19 @@ Proof. reflexivity. Qed.
 
 Example reject_computing_with_zero_use_payload :
   check [(0, BoxNat 0)] (LetBox 1 2 (BoxName 0) NatKind (NaturalValue (IndexVar 1))) = None.
+Proof. reflexivity. Qed.
+
+Example box_interface_application :
+  check [(0, NatKind)]
+    (Apply (Lambda 1 1 (BoxNat 2) (LetBox 2 3 (BoxName 1) NatKind (NaturalValue (IndexAdd (IndexVar 2) (IndexVar 2)))))
+      (BoxValue (promoted_twice 0))) =
+    Some (used NatKind [(0, 2); (0, 2)] []).
+Proof. reflexivity. Qed.
+
+Example reject_mismatched_box_grade_application :
+  check [(0, NatKind)]
+    (Apply (Lambda 1 1 (BoxNat 2) (LetBox 2 3 (BoxName 1) NatKind (NaturalValue (IndexAdd (IndexVar 2) (IndexVar 2)))))
+      (BoxValue (PromoteNat 1 (IndexVar 0)))) = None.
 Proof. reflexivity. Qed.
 
 End GradedModal.
