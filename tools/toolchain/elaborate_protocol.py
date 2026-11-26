@@ -3,6 +3,7 @@
 
 import hashlib
 import re
+from collections.abc import Iterator
 from itertools import accumulate
 from typing import cast
 
@@ -17,6 +18,18 @@ from toolchain.ast import (
 )
 from toolchain.elaborate_holes import MAX_HOLES
 from toolchain.elaborate_types import MAX_DEPTH, Node
+
+
+def syntax_nodes(node: Node) -> Iterator[Node]:
+    """Walk located AST roles after protocol validation."""
+    pending = [node]
+    while pending:
+        current = pending.pop()
+        yield current
+        for value in current.values():
+            children = value if isinstance(value, list) else [value]
+            pending.extend(child for child in children if isinstance(child, dict) and "kind" in child)
+
 
 _FIELDS: dict[str, set[str]] = {
     "surface_file": {"name", "declarations"},
@@ -400,18 +413,18 @@ class _Protocol:
                 cursor = self._child(node, span, cursor, node["result"])
             cursor = self._token(node, cursor, b";")
         elif kind in {"let", "var", "typed_local", "parameter", "lambda_parameter", "generic_parameter"}:
-            if node.get("grade") is not None:
-                return
             if kind == "generic_parameter":
                 if node["mode"] == "ghost":
                     cursor = self._token(node, cursor, b"ghost")
                     cursor = self._child(node, span, cursor, node["type"])
                 elif node["mode"] == "region":
                     cursor = self._token(node, cursor, b"region")
+                elif node["mode"] == "grade":
+                    cursor = self._token(node, cursor, b"grade")
                 elif node["mode"] != "type":
                     return
                 cursor = self._child(node, span, cursor, node["name"])
-                if node["mode"] == "type" and node["type"] is not None:
+                if node["mode"] == "grade" or (node["mode"] == "type" and node["type"] is not None):
                     cursor = self._token(node, cursor, b":")
                     cursor = self._child(node, span, cursor, node["type"])
             else:
@@ -428,6 +441,9 @@ class _Protocol:
                         raise self.error("protocol", "an argument label needs a local parameter", node)
                     cursor = self._token(node, cursor, b"as")
                     cursor = self._child(node, span, cursor, node["label"])
+                if node["grade"] is not None:
+                    cursor = self._token(node, cursor, b"@")
+                    cursor = self._child(node, span, cursor, node["grade"])
                 if kind in {"let", "var", "typed_local"}:
                     cursor = self._token(node, cursor, b"=")
                     cursor = self._child(node, span, cursor, node["value"])

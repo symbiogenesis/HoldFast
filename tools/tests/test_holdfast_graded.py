@@ -78,6 +78,61 @@ def _source_command(path: Path, declaration: str, *options: str) -> tuple[int, s
     return status, output.getvalue(), error.getvalue()
 
 
+def _elaborate_command(path: Path) -> tuple[int, str, str]:
+    output, error = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
+        status = parser_main(["elaborate", str(path)])
+    return status, output.getvalue(), error.getvalue()
+
+
+def _default_source_replay() -> None:
+    fixtures = TOOLS / "tests" / "fixtures"
+    definitions = {
+        "graded-dependent.hf": ("Specialize NatExact", "Quadruple NatExact"),
+        "graded-bounded.hf": ("Specialize NatBound",),
+        "graded-dependent-pair.hf": ("OpenStereo NatExact", "OpenBounded NatBound"),
+    }
+    closed_box = """module ClosedBox;
+record Box<T, grade q : NatExact>(T Value @ q);
+definition Nat ReadTwice(Nat n @ NatExact(4)) =>
+    match (Box<Nat, 2>(n + n)) as whole : Nat {
+        Box(x) => x + x,
+    };
+"""
+    with tempfile.TemporaryDirectory(prefix="holdfast-default-grades-") as temporary:
+        directory = Path(temporary)
+        source = directory / "Candidate.hf"
+        proof = directory / "Generated.v"
+        cases = [(fixtures / name, labels) for name, labels in definitions.items()]
+        for domain, allowance in (("NatExact", "4"), ("NatBound", "5")):
+            candidate = directory / f"Closed{domain}.hf"
+            candidate.write_text(closed_box.replace("NatExact(4)", f"{domain}({allowance})")
+                                 .replace("NatExact", domain), encoding="utf-8")
+            cases.append((candidate, (f"ReadTwice {domain}",)))
+        for candidate, labels in cases:
+            status, output, error = _elaborate_command(candidate)
+            ensure(status == 0 and all(f"Graded replay {label}: SHA256" in output for label in labels), error)
+            proof.write_text(output, encoding="utf-8")
+            kernel = subprocess.run([*proofenv.rocq_command(), "-q", proof.name], cwd=directory,
+                                    capture_output=True, text=True, encoding="utf-8", check=False, timeout=30)
+            ensure(kernel.returncode == 0, kernel.stderr)
+        for candidate, message in (
+            ((fixtures / "graded-dependent.hf").read_text(encoding="utf-8")
+             .replace("NatExact(4)", "NatExact(3)"), "fails exact computation demand"),
+            (closed_box.replace("NatExact(4)", "NatBound(3)").replace("NatExact", "NatBound"),
+             "fails bounded computation demand"),
+            (closed_box + "definition Nat Unchecked(Nat n) => Box<Nat, 2>(n).Value;\n",
+             "graded Box operations require an annotated pure definition"),
+            (closed_box + "definition Box<Nat, 2> Escape(Nat n @ NatExact(2)) => Box<Nat, 2>(n);\n",
+             "graded Box values require a checked callable interface"),
+            ("module Callback; definition Nat Call(Fn(Nat n @ NatExact(1)) -> Nat f @ NatExact(1)) => f(0);\n",
+             "graded callable inputs require checked interface transport"),
+        ):
+            source.write_text(candidate, encoding="utf-8")
+            status, output, error = _elaborate_command(source)
+            ensure(status == 1 and not output and message in error, error)
+
+
 def _demand(bindings: list[dict[str, object]]) -> list[tuple[object, object, object]]:
     return [(binding["name"], binding["computation"], binding["type"]) for binding in bindings]
 
@@ -214,4 +269,5 @@ def cases() -> list[Case]:
                  partial(_replay, "graded_domains", "GradedDomains", _DOMAIN_PROOFS, ("graded_pure",)),
                  lane="toolchain"),
             Case("source-bound exact grades and dependent partial application replay", _source_replay, lane="toolchain"),
-            Case("source-bound natural bounds and exact type dependencies", _bounded_source_replay, lane="toolchain")]
+            Case("source-bound natural bounds and exact type dependencies", _bounded_source_replay, lane="toolchain"),
+            Case("default elaboration checks source grades before Gallina emission", _default_source_replay, lane="toolchain")]

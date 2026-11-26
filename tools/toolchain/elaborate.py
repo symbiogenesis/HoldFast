@@ -13,10 +13,11 @@ import re
 from collections import Counter
 from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager, nullcontext
+from pathlib import Path
 from types import MappingProxyType
 from typing import cast
 
-from toolchain import StaticEvaluation, gallina_module_name, loans
+from toolchain import StaticEvaluation, gallina_module_name, graded_source, loans
 from toolchain.ast import MAX_SOURCE_BYTES, HoldFastError, ValueType
 from toolchain.elaborate_contract_lints import _ContractLintsMixin
 from toolchain.elaborate_declarations import _DeclarationsMixin
@@ -86,7 +87,7 @@ FRONTEND_SOURCES = (
     "elaborate_protocol.py", "elaborate_whnf.py", "elaborate_patterns.py", "elaborate_proofs.py", "elaborate_holes.py",
     "elaborate_statements.py", "elaborate_strings.py", "elaborate_solver.py", "elaborate_intrinsics.py",
     "elaborate_declarations.py", "elaborate_contract_lints.py", "elaborate_descriptor_lints.py",
-    "elaborate_flow_lints.py", "elaborate_resource_lints.py", "package_navigation.py",
+    "elaborate_flow_lints.py", "elaborate_resource_lints.py", "graded_source.py", "package_navigation.py",
 )
 
 __all__ = [
@@ -125,6 +126,7 @@ class _Elaborator(
         self.protocol = protocol
         self.hole_inspection: HoleInspection | None = None
         self.navigation: Navigation | None = None
+        self.checked_grade_annotations: set[int] = set()
         self.checked_receivers: dict[tuple[int, ...], loans._Receiver | None] = {}
         self.checked_scalar_calls: set[tuple[int, ...]] = set()
         self.scalar_callables: set[str] = set()
@@ -1117,6 +1119,8 @@ class _Elaborator(
     def no_roles(self, node: Node, *roles: str) -> None:
         for role in roles:
             value = node.get(role)
+            if role == "grade" and id(node) in self.checked_grade_annotations:
+                continue
             if value is not None and value != []:
                 raise self.fail("unsupported", f"'{role}' requires the full frontend", node)
 
@@ -1960,15 +1964,17 @@ class _Elaborator(
                     raise self.fail("name", f"invalid region parameter '{rname}'", node)
                 self.active_regions.add(rname)
                 continue
-            if not isinstance(mode, str) or mode not in {"type", "ghost"}:
+            checked_grade = mode == "grade" and id(node) in self.checked_grade_annotations
+            if not checked_grade and (not isinstance(mode, str) or mode not in {"type", "ghost"}):
                 raise self.fail("unsupported", f"generic mode '{mode}' requires the full frontend")
             if mode == "ghost" and node["type"] is None:
                 raise self.fail("protocol", "ghost binder lacks its type")
-            domain = _SORT if node["type"] is None else self.type(self.node(node["type"]), extended)
+            domain = (_NAT if checked_grade else _SORT if node["type"] is None
+                      else self.type(self.node(node["type"]), extended))
             if mode == "type" and self.whnf(domain).kind != "sort":
                 raise self.fail("type", "a type generic requires a universe kind")
             variable = self.fresh(domain)
-            if mode == "ghost":
+            if mode == "ghost" or checked_grade:
                 self.ghost_parameters.add(cast("int", variable.value))
             variables.append(variable)
             self.bind_local(extended, self.name(node["name"]), _Binding(variable, domain))
@@ -2423,6 +2429,9 @@ def _checked_elaboration(
         chunk_origins: dict[int, tuple[tuple[int, int], tuple[int, int], str]] = {}
         declarations: list[tuple[int, int]] = []
         with phase("resolve-and-elaborate"):
+            elaborator.checked_grade_annotations, grade_receipts = graded_source.replay_module(
+                Path(__file__).resolve().parents[2], protocol, root,
+            )
             for declaration in elaborator.nodes(root["declarations"]):
                 first = len(elaborator.output)
                 elaborator.declaration(declaration)
@@ -2455,6 +2464,7 @@ def _checked_elaboration(
                             raise protocol.error("protocol", "word proof origin outside its declaration")
                         chunk_origins[len(elaborator.output) + offset] = ((start, end), declarations[owner], "word-equation")
                 elaborator.output.extend(elaborator.word_proofs.values())
+        elaborator.checked_grade_annotations.clear()
         source_digest = hashlib.sha256(source).hexdigest()
         with phase("generate-gallina"):
             # REUSE-IgnoreStart
@@ -2462,7 +2472,7 @@ def _checked_elaboration(
                        # REUSE-IgnoreEnd
                        "(* HoldFast mathematical elaboration: unqualified kernel proposal. "
                        f"Source SHA256: {source_digest} *)\n"
-                       f"Module {generated_module}.\n\n" + _PRELUDE + "\n")
+                       + "".join(grade_receipts) + f"Module {generated_module}.\n\n" + _PRELUDE + "\n")
             body, hoisted_lines = _proof_module_body(elaborator.output)
             gallina = header + body + f"\n\nEnd {generated_module}.\n"
         if len(gallina.encode("utf-8")) > MAX_OUTPUT_BYTES:
