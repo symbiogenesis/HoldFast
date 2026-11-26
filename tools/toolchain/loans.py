@@ -2823,6 +2823,25 @@ class _FunctionLowerer:
                 return f"@{lname}", f"@{rname}", on_true
         return None
 
+    def _emit_conjunctive_index_facts(self, current: str, expr: object) -> str:
+        if not isinstance(expr, dict):
+            return current
+        pending = [expr]
+        while pending:
+            operand = pending.pop()
+            if operand.get("kind") == "group":
+                inner = operand.get("expression") or operand.get("value")
+                if isinstance(inner, dict):
+                    pending.append(inner)
+                continue
+            if operand.get("kind") == "binary" and _op_text(operand.get("operator")) == "&&":
+                pending.extend((_ast_node(operand["right"]), _ast_node(operand["left"])))
+                continue
+            ne_fact = self._extract_index_ne(operand)
+            if ne_fact is not None and ne_fact[2]:
+                current = self._emit(current, AssumeIndexNe(ne_fact[0], ne_fact[1]), "assume_ne")
+        return current
+
     def _lower_condition(
         self, current: str | None, condition: dict[str, object],
     ) -> tuple[str | None, str, dict[str, str]]:
@@ -3811,7 +3830,9 @@ class _FunctionLowerer:
                     current, _ = self._lower_expr(current, expr)
                 finally:
                     self.in_proof = False
-                return current
+                if current is None:
+                    return None
+                return self._emit_conjunctive_index_facts(current, expr)
 
             return current
         finally:
@@ -3821,17 +3842,24 @@ class _FunctionLowerer:
         self._collect_signature_facts()
         self.visible_results = set(self.result_parameters)
         entry = self._fresh_node("entry")
+        current = entry
+        for contract in _ast_nodes(self.fn_node.get("contracts", [])):
+            if contract.get("kind") == "requires" or (
+                contract.get("kind") == "contract" and contract.get("role") == "requires"
+            ):
+                clause = contract.get("value") or contract.get("expression") or contract.get("condition")
+                current = self._emit_conjunctive_index_facts(current, clause)
         body = (
             self.fn_node.get("body")
             if self.fn_node.get("body") is not None
             else self.fn_node.get("value")
         )
         if isinstance(body, list) or (isinstance(body, dict) and body.get("kind") == "block"):
-            end = self._lower_statements(entry, _body_statements(body))
+            end = self._lower_statements(current, _body_statements(body))
             if end is not None and not isinstance(self.events.get(end), Return):
                 self._emit(end, Return("return"), "ret")
         elif isinstance(body, dict):
-            end, caps = self._lower_expr(entry, body, handles_result=True)
+            end, caps = self._lower_expr(current, body, handles_result=True)
             ret_caps = (
                 ()
                 if self.returns_scalar_value and _extract_borrow_expr(body) is None
@@ -3840,7 +3868,7 @@ class _FunctionLowerer:
             if end is not None and not isinstance(self.events.get(end), Return):
                 self._emit(end, Return("return", ret_caps), "ret")
         else:
-            self._emit(entry, Return("return"), "ret")
+            self._emit(current, Return("return"), "ret")
 
         # Keep only reachable nodes from entry so dead post-return placeholders are excluded.
         reached: set[str] = set()
