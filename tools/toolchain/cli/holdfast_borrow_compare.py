@@ -26,13 +26,17 @@ class Trial:
     fixture: str
     configuration: str | None
     expected: tuple[Diagnostic, ...] = ()
+    next_solver: bool = False
 
 
 def trials(mode: str) -> tuple[Trial, ...]:
     sibling = (("E0506", "sibling-write"),) if mode == "off" else ()
     loop = () if mode == "legacy" else (("E0499", "loop-reborrow"), ("E0503", "loop-reborrow"))
     nonzero_write = ("E0506", "nonzero-write")
-    return (
+    filtered = (("E0499", "filtered-reborrow"),) if mode == "off" else ()
+    owner_conflict = (("E0503", "owner-conflict"), ("E0506", "owner-conflict"))
+    escaping = (("E0521", "escaping-view"),)
+    common = (
         Trial("indexed_loans.rs", "direct", (("E0499", "direct-conflict"),)),
         Trial("indexed_loans.rs", "coincident", (("E0499", "coincident-conflict"),)),
         Trial("indexed_loans.rs", None),
@@ -55,7 +59,17 @@ def trials(mode: str) -> tuple[Trial, ...]:
         Trial("loop_view_return.rs", None),
         Trial("loop_reborrowing.rs", None, loop),
         Trial("loop_reborrowing.rs", "live_conflict", (("E0506", "live-conflict"),)),
+        Trial("lending_iterator.rs", None),
+        Trial("lending_iterator.rs", "filter_return", filtered),
+        Trial("lending_iterator.rs", "live_conflict", (("E0499", "live-conflict"),)),
+        Trial("lending_iterator.rs", "owner_conflict", owner_conflict),
+        Trial("lifetime_callback.rs", None),
+        Trial("lifetime_callback.rs", "escaping_view", escaping),
     )
+    if mode == "default":
+        return (*common, Trial("lifetime_callback.rs", None, next_solver=True),
+                Trial("lifetime_callback.rs", "escaping_view", escaping, next_solver=True))
+    return common
 
 
 def _errors(output: str, fixture: str) -> list[tuple[str, int]]:
@@ -86,13 +100,17 @@ def _marker_line(source: str, marker: str) -> int:
 
 
 def _run_trial(compiler: list[str], mode: str, trial: Trial, work: Path) -> dict[str, object]:
-    argv = [*compiler, "--edition", EDITION, "--test", "--error-format=json"]
+    flags: list[str] = []
     if mode != "default":
-        argv.append(f"-Zpolonius={mode}")
+        flags.append(f"-Zpolonius={mode}")
+    if trial.next_solver:
+        flags.append("-Znext-solver=globally")
     if trial.configuration is not None:
-        argv.extend(("--cfg", trial.configuration))
-    argv.append(trial.fixture)
-    binary = work / f"{Path(trial.fixture).stem}-{mode}-{trial.configuration or 'plain'}.exe"
+        flags.extend(("--cfg", trial.configuration))
+    argv = [*compiler, "--edition", EDITION, "--test", "--error-format=json", *flags, trial.fixture]
+    config = trial.configuration or "plain"
+    solver = "-next-solver" if trial.next_solver else ""
+    binary = work / f"{Path(trial.fixture).stem}-{mode}-{config}{solver}.exe"
     argv.extend(("--emit=mir=-",) if trial.expected else ("-o", str(binary)))
     compiled = subprocess.run(argv, cwd=work, capture_output=True, text=True,
                               encoding="utf-8", check=False, timeout=TIMEOUT)
@@ -101,7 +119,7 @@ def _run_trial(compiler: list[str], mode: str, trial: Trial, work: Path) -> dict
     observed = _errors(compiled.stderr, trial.fixture)
     expected_exit = 1 if expected else 0
     if compiled.returncode != expected_exit or observed != expected:
-        raise ValueError(f"{mode} {trial.fixture} {trial.configuration}: "
+        raise ValueError(f"{mode} {trial.fixture} {flags}: "
                          f"exit={compiled.returncode}, errors={observed}, expected={expected}")
     if not expected:
         output = subprocess.run([str(binary), "--exact", "expected_observations"], cwd=work,
@@ -110,6 +128,7 @@ def _run_trial(compiler: list[str], mode: str, trial: Trial, work: Path) -> dict
         if "test expected_observations ... ok" not in output.splitlines():
             raise ValueError(f"{trial.fixture} did not execute its expected observations")
     return {"mode": mode, "fixture": trial.fixture, "cfg": trial.configuration,
+            "flags": flags,
             "decision": "rejected" if expected else "accepted",
             "diagnostics": [{"code": code, "line": line} for code, line in observed],
             "observations": "n/a" if expected else "passed"}
