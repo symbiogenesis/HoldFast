@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: Apache-2.0
+
+import Std.Collections.Vec.module, type
+import Std.Fail.abort_on_fail
+
+observe_distinct (selected: ref Vec U8) (c1: Usz) (changed: mut Vec U8): Maybe U8 can Panic, Mutate 'changed =
+    held = selected.[c1]
+    Vec.clear changed
+    Some held.*
+
+observe (left: mut Vec U8) (right: mut Vec U8) (r1: Usz) (c1: Usz) (r2: Usz) (c2: Usz): Maybe U8 can Panic, Mutate 'left, Mutate 'right =
+    if r1 == 0 and r2 == 1 and c1 < 2 and c2 < 2 then observe_distinct left c1 right
+    else if r1 == 1 and r2 == 0 and c1 < 2 and c2 < 2 then observe_distinct right c1 left
+    else None
+
+main () =
+    print_to_stdout do
+    abort_on_panic do
+    abort_on_fail do
+    for r1 in 0usz .. 2 do
+        for c1 in 0usz .. 2 do
+            for r2 in 0usz .. 2 do
+                for c2 in 0usz .. 2 do
+                    var left = Vec.of [1u8, 2u8]
+                    var right = Vec.of [3u8, 4u8]
+                    frame = Vec.of [5u8, 6u8]
+                    observed = observe left right r1 c1 r2 c2
+                    if r1 == 0 and r2 == 1 and c1 == 0 then
+                        assert <| observed is Some 1u8
+                        assert <| Vec.is_empty right
+                        assert <| left == Vec.of [1u8, 2u8]
+                    else if r1 == 0 and r2 == 1 and c1 == 1 then
+                        assert <| observed is Some 2u8
+                        assert <| Vec.is_empty right
+                        assert <| left == Vec.of [1u8, 2u8]
+                    else if r1 == 1 and r2 == 0 and c1 == 0 then
+                        assert <| observed is Some 3u8
+                        assert <| Vec.is_empty left
+                        assert <| right == Vec.of [3u8, 4u8]
+                    else if r1 == 1 and r2 == 0 and c1 == 1 then
+                        assert <| observed is Some 4u8
+                        assert <| Vec.is_empty left
+                        assert <| right == Vec.of [3u8, 4u8]
+                    else
+                        assert <| observed is None
+                        assert <| left == Vec.of [1u8, 2u8]
+                        assert <| right == Vec.of [3u8, 4u8]
+                    assert <| frame == Vec.of [5u8, 6u8]
+    println "verified 16 cases"

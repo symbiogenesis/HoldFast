@@ -1,0 +1,12 @@
+// SPDX-License-Identifier: Apache-2.0
+
+import Std.Collections.Vec.module, type
+
+observe (grid: mut Vec (Vec U8)) (r1: Usz) (c1: Usz) (r2: Usz) (c2: Usz): Maybe U8 can Panic, Mutate 'grid! =
+    if r1 < 2 and r2 < 2 and c1 < 2 and c2 < 2 and r1 != r2 then
+        selected = grid.[r1].[c1]
+        Vec.clear grid.[r2]
+        Some selected.*
+    else None
+
+main () = ()
