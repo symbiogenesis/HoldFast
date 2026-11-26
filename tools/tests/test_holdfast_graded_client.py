@@ -40,6 +40,23 @@ def _parser_command(arguments: list[str]) -> tuple[int, str, str]:
     return status, output.getvalue(), error.getvalue()
 
 
+def _check_audio_route_behavior(directory: Path, name: str, gallina: str) -> None:
+    proof = directory / f"{name}.v"
+    proof.write_text(gallina + """
+Import HoldFast_GradedAudioRoute.
+Theorem stereo_route_returns_samples :
+  forall (period label_count : nat)
+    (stereo : @holdfast_Vec nat ((period + 1) + (period + 1)))
+    (labels : @holdfast_Vec nat label_count),
+    holdfast_d1_StereoRoute period label_count stereo labels = stereo.
+Proof. reflexivity. Qed.
+Print Assumptions stereo_route_returns_samples.
+""", encoding="utf-8")
+    checked = subprocess.run([*proofenv.rocq_command(), "-q", proof.name], cwd=directory,
+                             capture_output=True, text=True, encoding="utf-8", check=True, timeout=30)
+    solver_ledger.audit(checked.stdout, 1, f"{name} behavior", ())
+
+
 def _audio_route() -> None:
     fixture = TOOLS / "tests" / "fixtures" / "graded-audio-route.hf"
     source = fixture.read_text(encoding="utf-8")
@@ -64,27 +81,15 @@ def _audio_route() -> None:
         baseline_text, annotations = grade_annotations.subn("", source)
         ensure(annotations == 12, "baseline changed the audio route annotation budget")
         baseline.write_text(baseline_text, encoding="utf-8")
-        status, gallina, error = _parser_command(["elaborate", str(baseline)])
-        ensure(status == 0, error)
-        proof = directory / "AudioRoute.v"
-        proof.write_text(gallina + """
-Import HoldFast_GradedAudioRoute.
-Theorem stereo_route_returns_samples :
-  forall (period label_count : nat)
-    (stereo : @holdfast_Vec nat ((period + 1) + (period + 1)))
-    (labels : @holdfast_Vec nat label_count),
-    holdfast_d1_StereoRoute period label_count stereo labels = stereo.
-Proof. reflexivity. Qed.
-Print Assumptions stereo_route_returns_samples.
-""", encoding="utf-8")
-        checked = subprocess.run([*proofenv.rocq_command(), "-q", proof.name], cwd=directory,
-                                 capture_output=True, text=True, encoding="utf-8", check=True, timeout=30)
-        solver_ledger.audit(checked.stdout, 1, "StereoRoute baseline behavior", ())
+        for path, name in ((baseline, "AudioRouteBaseline"), (fixture, "AudioRouteGraded")):
+            status, gallina, error = _parser_command(["elaborate", str(path)])
+            ensure(status == 0, error)
+            _check_audio_route_behavior(directory, name, gallina)
 
         stale = source.replace("RouteInputs()(period + 1, labelCount)", "RouteInputs()(period, labelCount)")
         graded_stale = directory / "GradedStale.hf"
         graded_stale.write_text(stale, encoding="utf-8")
-        status, output, error = _parser_command(["check-grades", str(graded_stale), "StereoRoute"])
+        status, output, error = _parser_command(["elaborate", str(graded_stale)])
         ensure(status == 1 and not output and "declared dependent type" in error, error)
         baseline.write_text(grade_annotations.sub("", stale), encoding="utf-8")
         status, output, error = _parser_command(["elaborate", str(baseline)])
@@ -93,7 +98,7 @@ Print Assumptions stereo_route_returns_samples.
         bad_allowance = source.replace("samples @ NatExact(1)", "samples @ NatExact(0)")
         ensure(grade_annotations.sub("", bad_allowance) == baseline_text, "allowance control changed behavior")
         graded_stale.write_text(bad_allowance, encoding="utf-8")
-        status, output, error = _parser_command(["check-grades", str(graded_stale), "StereoRoute"])
+        status, output, error = _parser_command(["elaborate", str(graded_stale)])
         ensure(status == 1 and not output and "fails exact computation demand" in error, error)
 
 
