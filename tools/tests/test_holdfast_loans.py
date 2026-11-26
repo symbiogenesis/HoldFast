@@ -2010,6 +2010,120 @@ End UpdatedTrial.
                 solver_ledger.audit(result.stdout.decode("utf-8"), len(exports), "HoldFast_OwnerCoordinateLoans", entries)
 
 
+def _correlated_indexed_loans() -> None:
+    source = b"""module CorrelatedIndexedLoans;
+
+private byte CopyPeer(in byte source, ref byte target) {
+    target = source;
+    return source;
+}
+
+public byte CopySelected(ref Span<byte> values, bool first)
+    effects writes(values)
+    requires values.CanRead && values.CanWrite
+    requires values.Length == 4usize
+{
+    let selected = if (first) Span.ReadOnly(Span.Slice(values, 0usize, 1usize))
+                   else Span.ReadOnly(Span.Slice(values, 1usize, 1usize));
+    if (first) {
+        values[1usize] = 8u8;
+    } else {
+        values[0usize] = 9u8;
+    }
+    return CopyPeer(in selected[0usize], ref values[2usize]);
+}
+"""
+    with parser.cached_build(TOOLS.parent) as compiled:
+        gallina = elaborate(source, parser.parse_source(compiled, source, surface=True)).gallina
+        selected_preconditions = b"""module SelectedPreconditions;
+public byte ReadSelected(Span<byte> left, Span<byte> right, bool first, usize i)
+    requires (if (first) left else right).CanRead
+    requires i < (if (first) left else right).Length
+{
+    let selected = if (first) left else right;
+    return selected[i];
+}
+"""
+        elaborate(selected_preconditions, parser.parse_source(compiled, selected_preconditions, surface=True))
+        for invalid in (
+            source.replace(b"values[1usize] = 8u8;", b"values[0usize] = 8u8;"),
+            source.replace(b"values[0usize] = 9u8;", b"values[1usize] = 9u8;"),
+            source.replace(b"bool first)", b"bool first, bool patchFirst)").replace(b"    if (first)", b"    if (patchFirst)"),
+            source.replace(b"ref values[2usize]", b"ref values[0usize]"),
+            source.replace(b"ref values[2usize]", b"ref values[1usize]"),
+        ):
+            tree = parser.parse_source(compiled, invalid, surface=True)
+            with raises(HoldFastError, msg="an overlapping joined call loan reached Gallina emission") as failure:
+                elaborate(invalid, tree)
+            error = failure.exception
+            line, call = next((n, row) for n, row in enumerate(invalid.splitlines(), 1) if b"return CopyPeer" in row)
+            ensure(error.kind == "type" and (error.line, error.column) == (line, call.index(b"ref values") + 1)
+                   and "cannot prove indexed loan of 'values' is disjoint from argument 1" in error.message,
+                   f"wrong refusal for an overlapping indexed loan: {error}")
+
+        empty_alternative = source.replace(b"1usize, 1usize));", b"1usize, 0usize));")
+        with raises(HoldFastError, msg="an empty slice alternative supplied an out-of-bounds element") as failure:
+            elaborate(empty_alternative, parser.parse_source(compiled, empty_alternative, surface=True))
+        ensure(failure.exception.kind == "type" and "cannot prove Span index is within Span.Length bounds" in failure.exception.message,
+               f"wrong refusal for an empty view alternative: {failure.exception}")
+
+    [client] = re.findall(r"^Definition (holdfast_d\d+_CopySelected) :", gallina, re.MULTILINE)
+    [copy] = re.findall(r"^Definition (holdfast_d\d+_CopyPeer) :", gallina, re.MULTILINE)
+    proof = rf"""
+Import HoldFast_CorrelatedIndexedLoans.
+Local Definition trial_index (n : nat) := holdfast_mk_int 4 (holdfast_nat_to_bits 64 n).
+Local Definition trial_byte (n : nat) := holdfast_mk_int 0 (holdfast_nat_to_bits 8 n).
+Local Definition trial_read := holdfast_Span_Read (holdfast_int 0).
+Local Definition read_index (first : bool) := trial_index (if first then 0 else 1).
+Local Definition patch_index (first : bool) := trial_index (if first then 1 else 0).
+Local Definition patch_byte (first : bool) := trial_byte (if first then 8 else 9).
+
+Theorem correlated_indexed_writeback : forall values first,
+  let post := {client}_post_values values first in
+  {client} values first = trial_read values (read_index first) /\
+  trial_read post (trial_index 2) = trial_read values (read_index first) /\
+  trial_read post (patch_index first) = patch_byte first /\
+  (forall k, holdfast_int_ne 4 (patch_index first) k = true ->
+             holdfast_int_ne 4 (trial_index 2) k = true ->
+    trial_read post k = trial_read values k).
+Proof.
+  intros values []; unfold {client}, {client}_post_values, {copy}, {copy}_post_target,
+    read_index, patch_index, patch_byte; cbv beta iota zeta.
+  all: split; [reflexivity |]; split; [apply holdfast_Span_Read_write_same |]; split.
+  all: unfold trial_read.
+  1,3: rewrite holdfast_Span_Read_write_other_ne by reflexivity; apply holdfast_Span_Read_write_same.
+  all: intros k outside_patch outside_target; etransitivity;
+    [apply holdfast_Span_Read_write_other_ne; exact outside_target |
+     apply holdfast_Span_Read_write_other_ne; exact outside_patch].
+Qed.
+
+Local Definition initial_span := List.fold_left
+  (fun values k => holdfast_Span_Write _ values (trial_index k) (trial_byte (S k)))
+  (List.seq 0 4) (holdfast_mk_span (holdfast_int 0) (trial_index 0)
+    (trial_index 4) true true true holdfast_bs_empty).
+Example correlated_indexed_observations :
+  holdfast_Span_CanRead _ initial_span = true /\
+  holdfast_Span_CanWrite _ initial_span = true /\
+  holdfast_Span_Length _ initial_span = trial_index 4 /\
+  {client} initial_span true = trial_byte 1 /\
+  {client} initial_span false = trial_byte 2 /\
+  trial_read ({client}_post_values initial_span true) (trial_index 2) = trial_byte 1 /\
+  trial_read ({client}_post_values initial_span false) (trial_index 2) = trial_byte 2.
+Proof. vm_compute. repeat split; reflexivity. Qed.
+"""
+    entries = solver_ledger.ledger(gallina)
+    ensure(not entries, "branch-selected indexed loans depended on a solver assumption")
+    exports = [*solver_ledger.math_exports(gallina), "correlated_indexed_writeback", "correlated_indexed_observations"]
+    audit = "".join(f"Print Assumptions {name}.\n" for name in exports)
+    with TemporaryDirectory(prefix="holdfast-correlated-indexed-") as tmp:
+        unit = Path(tmp) / "CorrelatedIndexedLoans.v"
+        unit.write_text(gallina + proof + audit, encoding="utf-8")
+        replay = subprocess.run([*proofenv.rocq_command(), "-q", unit.name], cwd=tmp, capture_output=True,
+                                encoding="utf-8", timeout=180, check=False)
+        ensure(replay.returncode == 0, replay.stderr)
+        solver_ledger.audit(replay.stdout, len(exports), "HoldFast_CorrelatedIndexedLoans", entries)
+
+
 def cases() -> list[Case]:
     return [
         Case("located receiver order, snapshots, views and retained loans", _located_receiver_timing, lane="toolchain"),
@@ -2022,6 +2136,7 @@ def cases() -> list[Case]:
              lane="toolchain"),
         Case("ordered mixed indexed call loans and possible alias controls", _mixed_indexed_loans, lane="toolchain"),
         Case("owner-coordinate shared and exclusive element loans", _owner_coordinate_indexed_loans, lane="toolchain"),
+        Case("branch-selected shared and exclusive element loans", _correlated_indexed_loans, lane="toolchain"),
             Case("last-use restoration and unresolved facts", _last_use_and_residuals),
             Case("nested restoration and suspended ancestors", _nested_restoration_and_suspension),
             Case("receiver reservation, activation and cancellation", _receiver_reservations),

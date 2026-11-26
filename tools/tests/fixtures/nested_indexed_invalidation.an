@@ -1,0 +1,12 @@
+// SPDX-License-Identifier: Apache-2.0
+
+import Std.Collections.Vec.module, type
+
+observe (rows: mut Vec (Vec U8)) (i: Usz) (j: Usz): Maybe U8 can Panic, Mutate 'rows! =
+    if i < 2 and j < 2 and i != j then
+        selected = rows.[i].[0]
+        Vec.clear rows.[j]
+        Some selected.*
+    else None
+
+main () = ()

@@ -2827,6 +2827,33 @@ measurements and an implementation trial remain open.
 
 ## Q25cc · Compare borrow-checking alternatives on held-out clients
 
+The nested-row trial starts with three nonempty rows, borrows one of the
+first two, clears a different row under `i < 2 && j < 2 && i != j`, then
+reads the borrowed row.
+HoldFast accepts the source after recognizing the scoped `Nat` inequality.
+The coincident and guard-free neighbors are refused at the exclusive
+argument. Rocq 9.3.0 replays the observed byte and the whole restored vector
+for arbitrary mathematical row contents and indices with closed assumptions.
+[HoldFast source](../../tools/tests/fixtures/nested-indexed-invalidation.hf) ·
+[Kernel replay](../../tools/tests/test_holdfast_borrow_comparison.py)
+
+On Ubuntu ARM64, Rust `nightly-2026-11-20`
+(`6905905bb7727fd0f9223f5fdc9ad4e62236d5a2`) rejects the direct and
+coincident sources with E0502 in default, explicit NLL, legacy Polonius and
+Polonius Alpha modes. Ante `3916c257dd01e23a05564f925ea15b1f70a7435e` rejects
+both at the read after mutation. The Rust `split_at_mut` variant and the Ante
+named-row variant each pass the returned-byte, cleared-row and unchanged-row
+observations for all 16 index pairs. The HoldFast evidence ends at the
+mathematical model. [Comparison and reproduction](../language/loan-analysis.md#nested-row-invalidation)
+
+In the correlated indexed call, the same Boolean chooses a read-only slice
+and the owner write that must preserve it. A common call reads the selected
+byte and writes a third element. The checker proves separation on every
+reachable selection path. Rocq replays the result, both writes and the frame
+with closed assumptions. The controls refuse either overlapping write,
+independent branch selection, either overlapping call target, and an empty
+slice alternative. [Source controls and kernel replay](../../tools/tests/test_holdfast_loans.py#_correlated_indexed_loans)
+
 The symbolic-index trial takes a four-byte owner and two indices. It writes
 `9` and `8` through two simultaneous exclusive call arguments on distinct
 in-bounds indices. Equal or out-of-bounds inputs return `false` and preserve

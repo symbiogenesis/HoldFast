@@ -154,6 +154,38 @@ the observation tests for accepted configurations and records the fixture
 digests and compiler flags. The higher-ranked callback replay also runs with the
 next-generation trait solver. [Recorded comparison](../assurance/completion-log.md#q25cc-compare-borrow-checking-alternatives-on-held-out-clients)
 
+### Nested row invalidation
+
+The nested-row client starts with three nonempty rows. It borrows row `i`,
+clears row `j` and observes the first byte of the borrowed row after the
+clear. The indices must be below two and different. The observation includes
+all three rows after the operation, with a third row to check the frame.
+Equal or out-of-range indices leave every row unchanged and produce no byte.
+
+On the default mathematical frontend, the `Nat` inequality justifies the
+shared `in rows[i]` and exclusive `ref rows[j]` arguments to the helper. The
+coincident and guard-free controls are refused at the exclusive argument.
+Rocq checks the returned byte and restored vector for arbitrary row contents
+and indices in the emitted model. The pinned Rust modes and Ante reject the
+direct and coincident forms. Rust's `split_at_mut` rewrite and Ante's
+separate named row owners pass the 16 observation pairs. The HoldFast result
+ends at the mathematical model. [HoldFast fixture](../../tools/tests/fixtures/nested-indexed-invalidation.hf) ·
+[Rocq replay](../../tools/tests/test_holdfast_borrow_comparison.py) ·
+[Rust fixture](../../tools/tests/fixtures/nested_indexed_invalidation.rs) ·
+[Ante direct fixture](../../tools/tests/fixtures/nested_indexed_invalidation.an) ·
+[Ante rewrite](../../tools/tests/fixtures/nested_indexed_invalidation_rewrite.an)
+
+On a lane with Cargo and a C compiler, add `--ante-checkout CHECKOUT` to the
+comparison command. It verifies the pinned checkout and submodule,
+builds the compiler from an isolated copy with its lockfile and C backend,
+checks both invalidation diagnostics at the live read and executes the
+accepted rewrite. Run
+`python3 tools/run.py test --only holdfast_borrow_comparison --require-toolchain`
+on the guest for the HoldFast verdict and kernel replay.
+[Ante prerequisite](../../tools/README.md#ante-borrow-comparison)
+
+### Symbolic Span separation
+
 The mathematical frontend checks same-collection indexed call arguments using
 scoped arithmetic facts. When an exclusive argument and another indexed
 argument share a collection, the frontend must establish that their indices
@@ -181,6 +213,13 @@ writeback, framed elements and untouched failure state for single and nested
 slices, including read-only wrappers and a write to owner index zero before
 the call.
 [Owner-coordinate replay](../../tools/tests/test_holdfast_loans.py#_owner_coordinate_indexed_loans)
+
+A conditional can select the shared indexed argument's slice before the
+owner's updates join. The checker verifies readability, bounds and owner
+coordinates on each reachable selection path. A subsequent common call can
+read from that slice and exclusively borrow another element when the scoped
+facts preserve the slice and separate both elements on every path.
+[Correlated indexed call replay](../../tools/tests/test_holdfast_loans.py#_correlated_indexed_loans)
 
 In the conditional-return trial, the mathematical frontend checks a returned
 slice against the current `ref Span<byte>` on its return path. For a slice
