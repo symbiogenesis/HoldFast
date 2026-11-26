@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Span, Seq, Slots, fixed-width integer intrinsics, and expression elaboration for HoldFast."""
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 from toolchain import loans
 from toolchain.ast import HoldFastError
@@ -262,6 +262,7 @@ class _IntrinsicsMixin:
             in_bounds = _apps(_constant("int_lt_usize"), idx_t, len_t)
             if not self._prove_bool_precondition(in_bounds, environment):
                 raise self.fail("type", "cannot prove Span.Read index is within Span.Length bounds", node)
+            self._check_span_view_use(s_t, environment, node, use="read")
             return _Binding(_apps(_constant("Span_Read"), _U8, s_t, idx_t), _U8)
         if member_name == "Write":
             if len(arg_nodes) != 3:
@@ -302,6 +303,7 @@ class _IntrinsicsMixin:
             cnt_t = self.check(arg_nodes[2], _USIZE, environment)
             self._check_span_can_write(dst_t, environment, node)
             self._check_span_can_read(src_t, environment, node)
+            self._check_span_view_use(src_t, environment, node, use="read")
             dst_len = _apps(_constant("Span_Length"), _U8, dst_t)
             src_len = _apps(_constant("Span_Length"), _U8, src_t)
             if not self._prove_bool_precondition(_apps(_constant("int_le_usize"), cnt_t, dst_len), environment):
@@ -1576,10 +1578,10 @@ class _IntrinsicsMixin:
         )
 
     def _elaborate_index(self: _Elaborator, node: Node, environment: dict[str, _Binding]) -> _Binding:
-        return self._read_indexed_place(node, environment)[0]
+        return self._read_indexed_place(node, environment, check_view=True)[0]
 
     def _read_indexed_place(
-        self: _Elaborator, node: Node, environment: dict[str, _Binding]
+        self: _Elaborator, node: Node, environment: dict[str, _Binding], *, check_view: bool = False,
     ) -> tuple[_Binding, _Binding]:
         self.site = node
         recv_node = self.node(node["value"])
@@ -1602,6 +1604,8 @@ class _IntrinsicsMixin:
                 raise self.fail("type", "cannot prove Span has valid tag and read permission (Span.CanRead)", node)
             if not in_bounds(recv_b.term) and not self._every_guarded_span(recv_b.term, environment, in_bounds):
                 raise self.fail("type", "cannot prove Span index is within Span.Length bounds", node)
+            if check_view:
+                self._check_span_view_use(recv_b.term, environment, node, use="read")
             return _Binding(_apps(_constant("Span_Read"), _U8, recv_b.term, idx_t), _U8), _Binding(idx_t, _USIZE)
         if head == _constant("Slots") and len(targs) == 2:
             elem_t, cap_t = targs
@@ -1750,9 +1754,12 @@ class _IntrinsicsMixin:
 
         return self._every_guarded_span(view, environment, separate)
 
-    def _check_returned_span_views(
-        self: _Elaborator, result: _Term, environment: dict[str, _Binding], site: Node,
+    def _check_span_view_use(
+        self: _Elaborator, value: _Term, environment: dict[str, _Binding], site: Node, *,
+        use: Literal["read", "return"],
     ) -> None:
+        if not self.in_executable_function or self.in_inline_proof:
+            return
         span_u8 = _app(_constant("Span"), _U8)
         changed_owners = {
             entry.term: (name, self.whnf(environment[name].term))
@@ -1762,30 +1769,37 @@ class _IntrinsicsMixin:
         }
         if not changed_owners:
             return
-        # Follow returned payloads. A scalar computed from an earlier read is a value snapshot.
-        pending: list[tuple[_Term, tuple[_Term, ...]]] = [(result, ())]
+        # A scalar computed from an earlier read is a value snapshot.
+        pending: list[tuple[_Term, tuple[_Term, ...], bool]] = [(value, (), False)]
         saved_facts = len(self.active_facts)
         try:
             while pending:
                 self.tick()
-                payload, guards = pending.pop()
+                payload, guards, readonly = pending.pop()
                 self.active_facts[saved_facts:] = guards
-                returned = self.whnf(payload)
-                head, args = self.spine(returned)
+                term = self.whnf(payload)
+                head, args = self.spine(term)
                 if head == _constant("Span_ReadOnly") and len(args) == 2:
                     children = (args[1],)
+                    readonly = True
                 elif head == _constant("Span_Slice") and len(args) == 4:
-                    self._check_returned_slice(args[1], args[2], args[3], changed_owners, environment, site)
+                    self._check_slice_use(args[1], args[2], args[3], changed_owners, environment, site, use=use)
                     continue
-                elif returned.kind == "if":
-                    _, condition, yes, no = returned.args
+                elif term.kind == "if":
+                    _, condition, yes, no = term.args
                     negative = self._negate_bool_term(condition)
                     for guard, opposite, branch in ((condition, negative, yes), (negative, condition, no)):
                         if not self._prove_bool_precondition(opposite, environment):
-                            pending.append((branch, (*guards, guard)))
+                            pending.append((branch, (*guards, guard), readonly))
                     continue
-                elif returned.kind in {"pair", "existT", "inl", "inr"}:
-                    children = returned.args[2:]
+                elif use == "read":
+                    if readonly:
+                        start = _int_term(_INT_SPECS["usize"], 0)
+                        length = _apps(_constant("Span_Length"), _U8, term)
+                        self._check_slice_use(term, start, length, changed_owners, environment, site, use=use)
+                    continue
+                elif term.kind in {"pair", "existT", "inl", "inr"}:
+                    children = term.args[2:]
                 elif record := self.records_by_ctor.get(str(head.value)):
                     children = args[len(record.generic_vars):]
                 elif union_ctor := self.unions_by_ctor.get(str(head.value)):
@@ -1793,13 +1807,13 @@ class _IntrinsicsMixin:
                     children = args[len(union.generic_vars):]
                 else:
                     continue
-                pending.extend((child, guards) for child in children)
+                pending.extend((child, guards, readonly) for child in children)
         finally:
             del self.active_facts[saved_facts:]
 
-    def _check_returned_slice(
+    def _check_slice_use(
         self: _Elaborator, base: _Term, start: _Term, length: _Term, changed_owners: dict[_Term, tuple[str, _Term]],
-        environment: dict[str, _Binding], site: Node,
+        environment: dict[str, _Binding], site: Node, *, use: Literal["read", "return"],
     ) -> None:
         base = self.whnf(base)
         backing: set[_Term] = set()
@@ -1814,11 +1828,11 @@ class _IntrinsicsMixin:
                 backing.add(root)
         for root, (name, current) in changed_owners.items():
             if root in backing:
-                self._check_returned_slice_history(base, start, length, name, current, environment, site)
+                self._check_slice_history(base, start, length, name, current, environment, site, use=use)
 
-    def _check_returned_slice_history(
+    def _check_slice_history(
         self: _Elaborator, base: _Term, start: _Term, length: _Term, name: str, current: _Term,
-        environment: dict[str, _Binding], site: Node,
+        environment: dict[str, _Binding], site: Node, *, use: Literal["read", "return"],
     ) -> None:
         while base != current:
             parent, operands = self.spine(base)
@@ -1830,7 +1844,8 @@ class _IntrinsicsMixin:
             start = self._add_usize_offset(operands[2], start)
             base = self.whnf(operands[1])
         if not self._span_history_preserves_extent(base, current, start, length, environment):
-            raise self.fail("type", f"cannot prove returned slice is disjoint from an update to '{name}'", site)
+            goal = "returned slice" if use == "return" else "Span view read"
+            raise self.fail("type", f"cannot prove {goal} is disjoint from an update to '{name}'", site)
 
     def _span_history_preserves_extent(
         self: _Elaborator, base: _Term, current: _Term, start: _Term, length: _Term,
@@ -1940,6 +1955,19 @@ class _IntrinsicsMixin:
                 root = self.local_borrows[name][1] if name in self.local_borrows else name
                 owner = self.slice_views.get(root, root) if root is not None else root
                 raise self.fail("type", f"cannot prove indexed loan of '{owner}' is disjoint from argument {j + 1}", args[i])
+
+    def _check_indexed_call_loans(
+        self: _Elaborator, args: list[Node], positions: dict[int, _Term], shared_positions: dict[int, _Term],
+        environment: dict[str, _Binding],
+    ) -> None:
+        self._check_indexed_argument_overlap(args, positions, shared_positions, environment)
+        for i in shared_positions:
+            argument = self._unwrap_group(self.node(args[i]["value"]))
+            target = self._unwrap_group(self.node(argument["value"]))
+            receiver = self._unwrap_group(self.node(target["value"]))
+            binding = environment.get(self.name(receiver["name"]))
+            if binding is not None and self.whnf(binding.type) == _app(_constant("Span"), _U8):
+                self._check_span_view_use(binding.term, environment, target, use="read")
 
     def _elaborate_interface_method_call(
         self: _Elaborator,
@@ -2113,8 +2141,9 @@ class _IntrinsicsMixin:
                             element, indices[idx] = self._indexed_call_loan(arg_ident_node, environment)
                             loan_targets[idx] = (arg_ident_node, p_dom)
                         else:
-                            element, index = self._read_indexed_place(arg_ident_node, environment)
-                            if self._unwrap_group(self.node(arg_ident_node["value"]))["kind"] == "name":
+                            named = self._unwrap_group(self.node(arg_ident_node["value"]))["kind"] == "name"
+                            element, index = self._read_indexed_place(arg_ident_node, environment, check_view=not named)
+                            if named:
                                 shared_indices[idx] = index.term
                         self.unify(element.type, p_dom)
                         arg_terms.append(element.term)
@@ -2167,7 +2196,7 @@ class _IntrinsicsMixin:
                     expected_ret = self.substitute(expected_ret, cast("int", pv.value), arg_terms[j])
                 self._try_unify(expected_ret, self.expected_call_type)
         offset = int(pre_evaluated_recv is not None)
-        self._check_indexed_argument_overlap(
+        self._check_indexed_call_loans(
             call_args, {i - offset: pos for i, pos in indices.items()},
             {i - offset: pos for i, pos in shared_indices.items()}, environment,
         )
@@ -2565,7 +2594,7 @@ class _IntrinsicsMixin:
                 selected = f".{member_name}"
                 if any(path != selected and not path.startswith(selected + ".") for path in paths):
                     raise self.fail("type", "unexamined Result in temporary receiver: bind it before selecting a field", recv_node)
-            return self._project_member(receiver, member_name, node)
+            return self._project_member(receiver, member_name, node, environment)
         if kind in {"name", "operator"}:
             name = self.operator(node["name"]) if kind == "operator" else self.name(node["name"])
             if kind == "name" and name in self.uninitialized_out_params:
@@ -2851,7 +2880,7 @@ class _IntrinsicsMixin:
                 if gen_args:
                     raise self.fail("unsupported", "explicit generics require a declared callable name", callee)
                 return self.apply(
-                    self._project_member(recv_for_method, member_name, base_callee), call_args, environment
+                    self._project_member(recv_for_method, member_name, base_callee, environment), call_args, environment
                 )
             if base_callee["kind"] == "name":
                 cname = self.name(base_callee["name"])

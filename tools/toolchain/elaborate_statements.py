@@ -2052,6 +2052,7 @@ class _StatementsMixin:
             kind_tag = "span"
             elem_type = _U8
             self._check_span_can_read(coll_b.term, extended, coll_node)
+            self._check_span_view_use(coll_b.term, extended, coll_node, use="read")
             if mode == "ref":
                 self._check_span_can_write(coll_b.term, extended, coll_node)
             len_t = self.whnf(_apps(_constant("Span_Length"), _U8, coll_b.term))
@@ -2813,8 +2814,7 @@ class _StatementsMixin:
                             "cannot return a view borrowed from a span that was already restored",
                             cur_stmt,
                         )
-                    if self.in_executable_function and not self.in_inline_proof:
-                        self._check_returned_span_views(result.term, extended, cur_stmt)
+                    self._check_span_view_use(result.term, extended, cur_stmt, use="return")
                     if self.uninitialized_out_params:
                         uninit_list = ", ".join(sorted(self.uninitialized_out_params))
                         raise self.fail(
@@ -3116,13 +3116,16 @@ class _StatementsMixin:
         }
         return self.match(synthetic, environment, _BOOL, expression_arms=True, synthetic=True)
 
-    def _project_member(self: _Elaborator, receiver: _Binding, member_name: str, node: Node) -> _Binding:
+    def _project_member(
+        self: _Elaborator, receiver: _Binding, member_name: str, node: Node, environment: dict[str, _Binding],
+    ) -> _Binding:
         self.site = node
         receiver_type = self.whnf(receiver.type)
         head, type_args = self.spine(receiver_type)
         if head == _constant("Span") and len(type_args) == 1 and self.whnf(type_args[0]) == _U8:
             if member_name == "Model":
-                self._check_span_can_read(receiver.term, {}, node)
+                self._check_span_can_read(receiver.term, environment, node)
+                self._check_span_view_use(receiver.term, environment, node, use="read")
                 return _Binding(
                     _apps(_constant("Span_Model"), _U8, receiver.term),
                     _app(_constant("Seq"), _U8),

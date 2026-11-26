@@ -184,6 +184,26 @@ accepted rewrite. Run
 on the guest for the HoldFast verdict and kernel replay.
 [Ante prerequisite](../../tools/README.md#ante-borrow-comparison)
 
+### Branch-local view use
+
+A shared one-byte slice of `values[i]` is created before a branch. On one
+path the caller reads through the slice, overwrites `values[i]` and returns
+the saved byte. On the other path the guard `i != 0` proves that the write to
+`values[0]` preserves the slice before the caller reads it. When `i == 0`
+on that path the caller skips the write. The default mathematical frontend
+checks the reachable owner write history at each read. Using the view after
+the first path's overwrite or changing the second write to `values[i]` is
+refused at the affected read.
+[HoldFast fixture](../../tools/tests/fixtures/branch-view-last-use.hf) ·
+[Checked replay](../../tools/tests/test_holdfast_loan_returns.py#_branch_view_last_use)
+
+The four pinned Rust modes reject the direct spelling at the disjoint write
+and reject both overlapping controls. The safe rewrite splits at `i` on the
+path where the view remains live. It uses `split_at_mut`'s usual bounds
+check and passes the shared returned-byte, writeback and frame observations
+for all 16 tested inputs.
+[Rust fixture](../../tools/tests/fixtures/view_last_use.rs)
+
 ### Symbolic Span separation
 
 The mathematical frontend checks same-collection indexed call arguments using
@@ -316,6 +336,10 @@ proof obligations and supplies no source acceptance. Compare matching behavior
 without weakening ownership, dependent facts, effects or required guarantees.
 Retain manual rewrites, annotations and the first intended diagnostic; an
 unrelated parse/type failure supplies no borrowing rejection evidence.
+For each pinned baseline, count a precision gain when HoldFast accepts a
+matched positive that the baseline refuses on borrowing grounds, replays the
+declared guarantees and refuses the corresponding conflicts. Keep unsupported
+cases outside that count.
 
 Reuse the applicable [measurement record and sampling](../assurance/workflow-contract.md#measurement-record-and-sampling)
 for diagnostic latency, elapsed/CPU time, peak memory and environment identity.

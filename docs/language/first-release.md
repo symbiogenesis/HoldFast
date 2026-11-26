@@ -95,10 +95,11 @@ Unresolved overlap or restoration produces a located obligation.
 [Borrow-analysis promotion](core-design.md#borrow-analysis-promotion)
 
 Qualification demonstrates where the default checker accepts direct source
-that the pinned Rust modes reject, and records passing Rust API rewrites and
-any runtime checks they require. It exercises conditional returns, lending
-iteration and generic composition with the same expected behavior and matched
-evidence endpoints. Claims of improved precision apply to the tested workload.
+that the pinned Rust modes or the implemented Ante subset reject. It records
+passing rewrites and any runtime checks they require. It exercises conditional
+returns, lending iteration and generic composition with the same expected
+behavior and matched evidence endpoints. Claims of improved precision apply to
+the tested workload.
 [Borrowing comparison](loan-analysis.md#conditional-borrowing-comparison)
 
 ## Primitive semantics

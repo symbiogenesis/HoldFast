@@ -7,13 +7,14 @@ import re
 import subprocess
 import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import ExitStack
 from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import StrEnum
 from itertools import batched
 from pathlib import Path
+from types import MappingProxyType
 from typing import cast, override
 
 from toolchain import parser, proofenv
@@ -74,6 +75,7 @@ class GradeExport:
     name: str
     domain: GradeDomain
     receipt: str
+    imports: Mapping[str, tuple[str, GradeExport]]
 
 
 type GradeResolver = Callable[[str], tuple[str, GradeExport] | None]
@@ -91,6 +93,7 @@ class _Projection:
         self.definitions: list[_Definition] = []
         self.annotations: set[int] = set()
         self.resolve_import: GradeResolver | None = None
+        self.imports: dict[str, tuple[str, GradeExport]] = {}
         self.providers: dict[str, _Projection] = {}
         self.provider_receipts: set[tuple[str, str]] = set()
         for declaration in cast("list[Node]", syntax["declarations"]):
@@ -204,13 +207,17 @@ class _Projection:
         identity, provider = resolved
         if provider.domain != self.domain:
             raise self.protocol.error("grade", f"imported '{name}' requires the {provider.domain} grade domain", node)
+        self.imports[name] = resolved
         module = _name(provider.syntax["name"])
         if module not in self.providers:
             projection = _Projection(provider.protocol, provider.syntax, self.domain)
             projection.parameters = self.parameters
             projection.definitions = self.definitions
+            projection.providers = self.providers
+            projection.provider_receipts = self.provider_receipts
             self.providers[module] = projection
         projection = self.providers[module]
+        projection.resolve_import = provider.imports.get
         definition = projection.definition(provider.name)
         if len(cast("list[Node]", definition.source["parameters"])) != arity:
             raise self.protocol.error("unsupported", "graded imported calls require all declared arguments", node)
@@ -775,10 +782,10 @@ class ModuleReplay:
         self.receipts.append(f"(* Graded replay {definition.name} {projection.domain}: SHA256 {receipt} *)\n")
         signature = [*cast("list[Node]", definition.source["parameters"]), cast("Node", definition.source["result"])]
         if (definition.context is None and definition.source["modifiers"] == ["public"]
-                and not projection.provider_receipts
                 and all(node["kind"] != "function_type" for part in signature for node in syntax_nodes(part))):
             self.exports[definition.name] = GradeExport(self.protocol, self.syntax, definition.name,
-                                                        projection.domain, receipt)
+                                                        projection.domain, receipt,
+                                                        MappingProxyType(projection.imports.copy()))
 
 
 def check(root: Path, path: Path, declaration: str, *, modal: bool = False,

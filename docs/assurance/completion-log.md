@@ -2751,6 +2751,13 @@ revision changes the caller receipt. Editing the provider source invalidates
 the lock and changes the caller receipt on rebuild. A different provider domain or
 an incompatible index is refused. [Locked import replay](../../tools/tests/test_holdfast_graded_client.py#_locked_graded_import)
 
+The three-package replay applies a first-order graded leaf through a private
+relay helper and its public caller. The final caller's receipt changes when a
+leaf edit changes which binder contributes the result's type demand while
+preserving the computation allowances. The stale lock is refused. An invalid
+leaf allowance under a fresh lock leaves the published bundle intact.
+[Transitive locked replay](../../tools/tests/test_holdfast_graded_client.py#_locked_transitive_grade_import)
+
 The natural `let` replay counts the initializer once under exact and bounded
 allowances. A local can be read twice in computation or used only to fix a
 later vector extent. The controls reject incorrect computation allowances
@@ -2869,6 +2876,17 @@ both at the read after mutation. The Rust `split_at_mut` variant and the Ante
 named-row variant each pass the returned-byte, cleared-row and unchanged-row
 observations for all 16 index pairs. The HoldFast evidence ends at the
 mathematical model. [Comparison and reproduction](../language/loan-analysis.md#nested-row-invalidation)
+
+The branch-view trial uses one shared slice across two access orders. The
+default mathematical elaborator accepts a write after the selected byte's last
+use and a symbolically disjoint write before a live read. Moving the read after
+the first write and changing the second write to overlap each fail at the read.
+Rocq 9.3.0 checks the original byte, the owner after writeback and the frame
+in the emitted `Span` model with closed assumptions. On Windows ARM64, the
+same pinned Rust revision rejects the direct spelling and both controls with
+E0506 in all four modes. Each accepts the `split_at_mut` rewrite and passes
+the 16 observation inputs.
+[Branch-view comparison](../language/loan-analysis.md#branch-local-view-use)
 
 In the correlated indexed call, the same Boolean chooses a read-only slice
 and the owner write that must preserve it. A common call reads the selected
