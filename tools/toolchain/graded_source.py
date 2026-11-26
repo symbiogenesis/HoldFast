@@ -243,50 +243,91 @@ def _valid_box_record(node: Node, domain: GradeDomain) -> bool:
             and annotation is not None and annotation["kind"] == "name" and _name(annotation["name"]) == grade_name)
 
 
-def _valid_indexed_record(node: Node) -> bool:
-    if (node["kind"] != "record" or node["generics"] or node["contracts"] or node["declarations"]
-            or node["modifiers"] not in ([], ["public"])):
-        return False
-    fields = cast("list[Node]", node["parameters"])
-    if len(fields) != 2 or any(field.get("const") or field.get("label") or field["grade"] for field in fields):
-        return False
-    length, payload = fields
-    if (length["name"] is None or _name(length["name"]) != "Length" or not _plain_type(cast("Node", length["type"]), "Nat")
-            or payload["name"] is None or _name(payload["name"]) != "Payload"):
-        return False
-    payload_type = cast("Node", payload["type"])
-    if payload_type["kind"] != "type" or _name(payload_type["name"]) != "Vec":
-        return False
-    arguments = cast("list[Node]", payload_type["arguments"])
-    if len(arguments) != 2 or not _plain_type(arguments[0], "Nat"):
-        return False
-    index = arguments[1]
-    while index["kind"] == "group":
-        index = cast("Node", index["value"])
-    return index["kind"] == "name" and _name(index["name"]) == "Length"
+@dataclass(frozen=True)
+class _IndexedRecord:
+    identity: int
+    length_field: str
+    extent: str
+
+    @property
+    def shape(self) -> str:
+        return f"{{| record_id := {self.identity}; payload_extent := {self.extent} |}}"
 
 
 class _ModalProjection(_Projection):
-    reserved = _PRIMITIVES | {"Box", "Indexed"}
+    reserved = _PRIMITIVES | {"Box"}
 
     def __init__(self, source: bytes, parsed: object, domain: GradeDomain) -> None:
         super().__init__(source, parsed, domain)
         self.records: set[str] = set()
+        self.record_ids = {name: index for index, (name, node) in enumerate(self.declarations.items())
+                           if node["kind"] == "record" and name != "Box"}
+        self.indexed_records: dict[str, _IndexedRecord] = {}
+        self.indexed_bindings: dict[int, _IndexedRecord] = {}
 
-    def _record(self, name: str, node: Node) -> None:
-        record = self.declarations.get(name)
-        expected = (f"Box<T, grade q : {self.domain}>(T Value @ q)" if name == "Box"
-                    else "Indexed(Nat Length, Vec<Nat, (Length)> Payload)")
+    def _box_record(self, node: Node) -> None:
+        record = self.declarations.get("Box")
+        expected = f"Box<T, grade q : {self.domain}>(T Value @ q)"
         if record is None or _span(record)[0] >= _span(node)[0]:
             raise self.protocol.error("unsupported", f"modal replay requires an earlier record {expected}", node)
-        valid = _valid_box_record(record, self.domain) if name == "Box" else _valid_indexed_record(record)
-        if not valid:
+        if not _valid_box_record(record, self.domain):
             raise self.protocol.error("unsupported", f"modal replay requires record {expected}", record)
+        self.records.add("Box")
+
+    def _extent(self, node: Node, field: str) -> str:
+        kind = node["kind"]
+        if kind == "group":
+            return self._extent(cast("Node", node["value"]), field)
+        if kind == "nat":
+            return f"(ExtentLiteral {self._literal(node)})"
+        if (kind == "name" or (kind == "type" and not node["arguments"])) and _name(node["name"]) == field:
+            return "ExtentField"
+        if kind == "binary" and _name(node["operator"]) == "+":
+            left = self._extent(cast("Node", node["left"]), field)
+            right = self._extent(cast("Node", node["right"]), field)
+            return f"(ExtentAdd {left} {right})"
+        raise self.protocol.error("unsupported", f"indexed record extent may use '{field}', natural literals and addition", node)
+
+    def _indexed_record(self, name: str, node: Node) -> _IndexedRecord:
+        record = self.declarations.get(name)
+        if record is None or name not in self.record_ids or _span(record)[0] >= _span(node)[0]:
+            raise self.protocol.error("unsupported", f"modal replay requires an earlier indexed record '{name}'", node)
+        if name in self.indexed_records:
+            return self.indexed_records[name]
+        error = "indexed records require a plain Nat field followed by a Vec<Nat, extent> field"
+        fields = cast("list[Node]", record["parameters"])
+        if (record["generics"] or record["contracts"] or record["declarations"]
+                or record["modifiers"] not in ([], ["public"]) or len(fields) != 2
+                or any(field["name"] is None or field.get("const") or field.get("label") or field["grade"]
+                       for field in fields)):
+            raise self.protocol.error("unsupported", error, record)
+        length, payload = fields
+        first, second = _name(length["name"]), _name(payload["name"])
+        vector = cast("Node", payload["type"])
+        if (first == second or "_" in {first, second} or not _plain_type(cast("Node", length["type"]), "Nat")
+                or vector["kind"] != "type" or _name(vector["name"]) != "Vec"):
+            raise self.protocol.error("unsupported", error, record)
+        arguments = cast("list[Node]", vector["arguments"])
+        if len(arguments) != 2 or not _plain_type(arguments[0], "Nat"):
+            raise self.protocol.error("unsupported", error, vector)
+        result = _IndexedRecord(self.record_ids[name], first, self._extent(arguments[1], first))
+        self.indexed_records[name] = result
         self.records.add(name)
+        return result
+
+    @override
+    def _parameter(self, node: Node, scope: dict[str, _Parameter]) -> _Parameter:
+        parameter = super()._parameter(node, scope)
+        annotation = cast("Node", node["type"])
+        while annotation["kind"] in {"type_argument", "group_type"}:
+            annotation = cast("Node", annotation["type"])
+        if annotation["kind"] == "type" and (name := _name(annotation["name"])) in self.record_ids:
+            self.indexed_bindings[parameter.index] = self.indexed_records[name]
+        return parameter
 
     def _box_grade(self, arguments: list[Node], node: Node) -> int:
         if len(arguments) == 2 and _plain_type(arguments[0], "Nat"):
-            self._record("Box", node)
+            self._box_record(node)
             return self._literal(arguments[1])
         raise self.protocol.error("unsupported", "modal replay requires Box<Nat, q> with a natural literal q", node)
 
@@ -309,34 +350,40 @@ class _ModalProjection(_Projection):
         grade, index = self._promote(node, scope)
         return f"(PromoteNat {grade} {index})"
 
-    def _indexed(self, node: Node, scope: dict[str, _Parameter]) -> str:
+    def _indexed(self, node: Node, scope: dict[str, _Parameter]) -> tuple[str, _IndexedRecord] | None:
         if node["kind"] == "group":
             return self._indexed(cast("Node", node["value"]), scope)
-        self._record("Indexed", node)
-        if node["kind"] == "name" and _name(node["name"]) in scope:
-            return f"(IndexedName {scope[_name(node['name'])].index})"
+        if (node["kind"] == "name" and (binding := scope.get(_name(node["name"]))) is not None
+                and (record := self.indexed_bindings.get(binding.index)) is not None):
+            return f"(IndexedName {binding.index})", record
         if node["kind"] == "call":
             callee = cast("Node", node["callee"])
-            arguments = cast("list[Node]", node["arguments"])
-            if (callee["kind"] == "name" and _name(callee["name"]) == "Indexed"
-                    and len(arguments) == 2 and all(argument["label"] is None for argument in arguments)):
-                length, payload = [cast("Node", argument["value"]) for argument in arguments]
-                if payload["kind"] == "name" and (binding := scope.get(_name(payload["name"]))) is not None:
-                    return f"(BuildIndexed {self._index(length, scope)} {binding.index})"
-        raise self.protocol.error("unsupported", "modal replay requires a named Indexed value or Indexed(length, payload) with a named vector payload", node)
+            if callee["kind"] == "name" and (name := _name(callee["name"])) in self.record_ids and name not in scope:
+                record = self._indexed_record(name, callee)
+                arguments = cast("list[Node]", node["arguments"])
+                if len(arguments) == 2 and all(argument["label"] is None for argument in arguments):
+                    length, payload = [cast("Node", argument["value"]) for argument in arguments]
+                    if payload["kind"] == "name" and (binding := scope.get(_name(payload["name"]))) is not None:
+                        return f"(BuildIndexed {record.shape} {self._index(length, scope)} {binding.index})", record
+                raise self.protocol.error("unsupported", "indexed constructors require a natural index and a named vector", node)
+        return None
 
     def _type_index(self, node: Node, scope: dict[str, _Parameter]) -> str:
         if node["kind"] == "group":
             return self._type_index(cast("Node", node["value"]), scope)
-        if node["kind"] == "member" and _name(node["name"]) == "Value":
-            box = cast("Node", node["value"])
-            if box["kind"] == "name" and _name(box["name"]) in scope:
-                return f"(BoxContents {scope[_name(box['name'])].index})"
-            grade, index = self._promote(box, scope)
-            return f"(PromotedContents {grade} {index})"
-        if node["kind"] == "member" and _name(node["name"]) == "Length":
+        if node["kind"] == "member":
+            field = _name(node["name"])
             subject = cast("Node", node["value"])
-            return f"(IndexedLength {self._indexed(subject, scope)})"
+            if (indexed := self._indexed(subject, scope)) is not None:
+                value, record = indexed
+                if field != record.length_field:
+                    raise self.protocol.error("grade", f"'{field}' is not the indexed record's natural field", node)
+                return f"(IndexedLength {record.shape} {value})"
+            if field == "Value":
+                if subject["kind"] == "name" and _name(subject["name"]) in scope:
+                    return f"(BoxContents {scope[_name(subject['name'])].index})"
+                grade, index = self._promote(subject, scope)
+                return f"(PromotedContents {grade} {index})"
         return f"(PlainIndex {self._index(node, scope)})"
 
     @override
@@ -351,9 +398,8 @@ class _ModalProjection(_Projection):
                 return "NatKind"
             if name == "Box":
                 return f"(BoxNat {self._box_grade(arguments, node)})"
-            if name == "Indexed" and not arguments:
-                self._record("Indexed", node)
-                return "IndexedKind"
+            if name in self.record_ids and not arguments:
+                return f"(IndexedKind {self._indexed_record(name, node).shape})"
             if name == "Vec" and len(arguments) == 2 and _plain_type(arguments[0], "Nat"):
                 return f"(VecKind {self._type_index(arguments[1], scope)})"
         if (kind == "function_type" and node["mode"] == "Fn" and node["parameters"]
@@ -366,7 +412,7 @@ class _ModalProjection(_Projection):
             return codomain
         if kind == "tuple_type" and len(types := cast("list[Node]", node["types"])) == 2:
             return f"(ProductKind {self._type(types[0], scope)} {self._type(types[1], scope)})"
-        raise self.protocol.error("unsupported", "modal replay supports Nat, Box<Nat, q>, Indexed, Vec<Nat, n>, pairs and pure Fn types", node)
+        raise self.protocol.error("unsupported", "modal replay supports Nat, Box<Nat, q>, indexed records, Vec<Nat, n>, pairs and pure Fn types", node)
 
     def _match(self, node: Node, scope: dict[str, _Parameter], declaration: Node) -> str:
         motive = cast("Node | None", node["motive"])
@@ -375,25 +421,32 @@ class _ModalProjection(_Projection):
             raise self.protocol.error("unsupported", "modal replay requires an explicit motive and one record arm", node)
         [case] = cases
         pattern = cast("Node", case["pattern"])
-        if pattern["kind"] != "constructor_pattern" or (name := _name(pattern["name"])) not in {"Box", "Indexed"}:
-            raise self.protocol.error("unsupported", "modal replay requires a Box or Indexed binder pattern", pattern)
-        self._record(name, pattern)
+        if pattern["kind"] != "constructor_pattern":
+            raise self.protocol.error("unsupported", "modal replay requires a Box or indexed record binder pattern", pattern)
+        name = _name(pattern["name"])
+        record = None if name == "Box" else self._indexed_record(name, pattern)
+        if name == "Box":
+            self._box_record(pattern)
         arguments = cast("list[Node]", pattern["arguments"])
         if len(arguments) != (1 if name == "Box" else 2) or any(arg["kind"] != "binding_pattern" for arg in arguments):
             raise self.protocol.error("unsupported", f"modal replay requires named {name} fields", pattern)
         subject = cast("Node", node["value"])
         motive_scope = scope.copy()
         motive_parameter = self._bind(motive, motive_scope, "", 0)
+        if record is not None:
+            self.indexed_bindings[motive_parameter.index] = record
         motive_type = self._type(cast("Node", motive["type"]), motive_scope)
         extended = scope.copy()
         first = self._bind(arguments[0], extended, "NatKind", 0)
         body = cast("Node", case["value"])
-        if name == "Box":
+        if record is None:
             boxed = self._boxed(subject, scope)
             return f"(LetBox {first.index} {motive_parameter.index} {boxed} {motive_type} {self._term(body, extended, declaration)})"
-        payload = self._bind(arguments[1], extended, f"(payload_kind (IndexVar {first.index}))", 0)
+        payload = self._bind(arguments[1], extended, f"(payload_kind {record.shape} (IndexVar {first.index}))", 0)
         indexed = self._indexed(subject, scope)
-        return (f"(LetIndexed {first.index} {payload.index} {motive_parameter.index} {indexed} {motive_type} "
+        if indexed is None:
+            raise self.protocol.error("unsupported", "modal replay matches a named or constructed indexed record", subject)
+        return (f"(LetIndexed {record.shape} {first.index} {payload.index} {motive_parameter.index} {indexed[0]} {motive_type} "
                 f"{self._term(body, extended, declaration)})")
 
     @override
@@ -418,9 +471,9 @@ class _ModalProjection(_Projection):
         if kind == "match_expression":
             return self._match(node, scope, declaration)
         if kind == "call":
-            callee = cast("Node", node["callee"])
-            if callee["kind"] == "name" and _name(callee["name"]) == "Indexed":
-                return f"(IndexedValue {self._indexed(node, scope)})"
+            if (indexed := self._indexed(node, scope)) is not None:
+                value, record = indexed
+                return f"(IndexedValue {record.shape} {value})"
             return f"(BoxValue {self._boxed(node, scope)})"
         return f"(NaturalValue {self._index(node, scope)})"
 

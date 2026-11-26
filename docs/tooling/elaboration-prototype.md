@@ -95,10 +95,13 @@ an altered type-demand row fails replay.
 
 Run `python tools/run.py holdfast-parser check-grades tools/tests/fixtures/graded-dependent-pair.hf OpenIndexed --modal`
 to check a match on `record Indexed(Nat Length, Vec<Nat, (Length)> Payload)`.
-The branch binds the length first and the vector at that length second. An
-explicit motive can refer to the pair through `whole.Length`. The checker
-specializes the motive at both the pattern and the scrutinee and checks the
-two type-use rows.
+The replay accepts named records with a `Nat` field followed by a natural
+vector. The vector extent can use the first field, natural literals and
+addition. Construction checks the vector against the extent instantiated at the
+first argument. Matching checks the record identity and binds the vector at the
+extent instantiated at the first pattern binder. An explicit motive can
+project the record's first field. The checker specializes the motive at both
+the pattern and the scrutinee and checks the two type-use rows.
 
 One computation grade governs both fields. Under `NatExact` the field counts
 must agree. Under `NatBound` the checker uses the least common upper bound
@@ -107,7 +110,10 @@ row. The motive scales its type-use row independently. `OpenIndexed` checks
 two computation uses and two type uses of `packed`. `BuildAndOpen` keeps
 the length and payload in the result type with zero computation demand.
 Use `OpenBounded --modal --domain NatBound` with the same fixture to replay
-an asymmetric body under a shared bound.
+an asymmetric body under a shared bound. `OpenStereo` constructs and opens a
+record whose vector has extent `Ticks + Ticks + 1`. The extent contributes
+two type uses in the vector parameter's annotation, and the specialized motive
+contributes two more uses of the index without any computation demand.
 [Dependent pair fixture](../../tools/tests/fixtures/graded-dependent-pair.hf) ·
 [Elimination rules](../../tools/rocq/graded_modal.v)
 

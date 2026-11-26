@@ -3,6 +3,9 @@ module GradedDependentPairTrial;
 
 record Indexed(Nat Length, Vec<Nat, (Length)> Payload);
 
+record StereoFrame(Nat Ticks, Vec<Nat, (Ticks + Ticks + 1)> Samples);
+record StereoMirror(Nat Ticks, Vec<Nat, (Ticks + Ticks + 1)> Samples);
+
 definition (Nat, ((Indexed, Indexed), Fn(Vec<Nat, (packed.Length)> values @ NatExact(1)) -> Vec<Nat, (packed.Length)>))
 OpenIndexed(Indexed packed @ NatExact(2)) =>
     match (packed) as whole : (Nat, ((Indexed, Indexed), Fn(Vec<Nat, (whole.Length)> values @ NatExact(1)) -> Vec<Nat, (whole.Length)>)) {
@@ -21,4 +24,10 @@ OpenBounded(Indexed packed @ NatBound(2)) =>
     match (packed) as whole : (Nat, (Indexed, Fn(Vec<Nat, (whole.Length)> values @ NatBound(1)) -> Vec<Nat, (whole.Length)>)) {
         Indexed(length, payload) => (length, (Indexed(length, payload),
             (Vec<Nat, (Indexed(length, payload).Length)> values @ NatBound(1)) => values)),
+    };
+
+definition Fn(Vec<Nat, (StereoFrame(n, samples).Ticks)> values @ NatExact(1)) -> Vec<Nat, (StereoFrame(n, samples).Ticks)>
+OpenStereo(Nat n @ NatExact(0), Vec<Nat, (n + n + 1)> samples @ NatExact(0)) =>
+    match (StereoFrame(n, samples)) as frame : Fn(Vec<Nat, (frame.Ticks)> values @ NatExact(1)) -> Vec<Nat, (frame.Ticks)> {
+        StereoFrame(ticks, vector) => (Vec<Nat, (StereoFrame(ticks, vector).Ticks)> same @ NatExact(1)) => same,
     };

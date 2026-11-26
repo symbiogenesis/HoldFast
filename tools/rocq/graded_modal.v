@@ -7,9 +7,37 @@ Import ListNotations.
 Module GradedModal.
 Import GradedPure.
 
+Inductive extent :=
+| ExtentField
+| ExtentLiteral (n : nat)
+| ExtentAdd (left right : extent).
+
+Record indexed_shape := {
+  record_id : nat;
+  payload_extent : extent
+}.
+
+Fixpoint instantiate_extent (family : extent) (field : index) : index :=
+  match family with
+  | ExtentField => field
+  | ExtentLiteral n => IndexLit n
+  | ExtentAdd lhs rhs => IndexAdd (instantiate_extent lhs field) (instantiate_extent rhs field)
+  end.
+
+Lemma instantiate_extent_typed : forall scope family field d,
+  IndexDemand scope field d ->
+  exists row, IndexDemand scope (instantiate_extent family field) row.
+Proof.
+  intros scope family. induction family as [| n | lhs IHl rhs IHr]; intros field d typed; cbn.
+  - now exists d.
+  - exists []. constructor.
+  - destruct (IHl field d typed) as [l dl], (IHr field d typed) as [r dr].
+    exists (l ++ r). now constructor.
+Qed.
+
 Inductive indexed :=
 | IndexedName (name : nat)
-| BuildIndexed (length : index) (payload : nat).
+| BuildIndexed (shape : indexed_shape) (length : index) (payload : nat).
 
 (* A type index can refer to the contents of a box or the length of an indexed
    pair. An explicit pair constructor contributes both fields before projection.
@@ -18,12 +46,12 @@ Inductive type_index :=
 | PlainIndex (value : index)
 | BoxContents (name : nat)
 | PromotedContents (grade : nat) (value : index)
-| IndexedLength (pair : indexed).
+| IndexedLength (shape : indexed_shape) (pair : indexed).
 
 Inductive kind :=
 | NatKind
 | BoxNat (grade : nat)
-| IndexedKind
+| IndexedKind (shape : indexed_shape)
 | VecKind (length : type_index)
 | ArrowKind (allowance : nat) (domain codomain : kind)
 | ProductKind (first second : kind).
@@ -41,42 +69,52 @@ Fixpoint naturals (scope : env) : context :=
   | _ :: rest => naturals rest
   end.
 
-Definition payload_kind (length : index) : kind := VecKind (PlainIndex length).
+Definition payload_kind (shape : indexed_shape) (length : index) : kind :=
+  VecKind (PlainIndex (instantiate_extent (payload_extent shape) length)).
 Definition index_eq_dec : forall left right : index, {left = right} + {left <> right}.
 Proof. repeat decide equality. Defined.
+Definition indexed_shape_eq_dec : forall left right : indexed_shape, {left = right} + {left <> right}.
+Proof. repeat decide equality. Defined.
 
-Inductive IndexedUses (scope : env) : indexed -> demand -> Prop :=
-| IndexedNameUses : forall name, find_kind scope name = Some IndexedKind ->
-    IndexedUses scope (IndexedName name) [(name, 1)]
+Inductive IndexedUses (scope : env) (shape : indexed_shape) : indexed -> demand -> Prop :=
+| IndexedNameUses : forall name, find_kind scope name = Some (IndexedKind shape) ->
+    IndexedUses scope shape (IndexedName name) [(name, 1)]
 | BuildIndexedUses : forall length payload d,
-    IndexDemand (naturals scope) length d -> find_kind scope payload = Some (payload_kind length) ->
-    IndexedUses scope (BuildIndexed length payload) (d ++ [(payload, 1)]).
+    IndexDemand (naturals scope) length d -> find_kind scope payload = Some (payload_kind shape length) ->
+    IndexedUses scope shape (BuildIndexed shape length payload) (d ++ [(payload, 1)]).
 
-Definition indexed_uses (scope : env) (pair : indexed) : option demand :=
+Definition indexed_uses (scope : env) (shape : indexed_shape) (pair : indexed) : option demand :=
   match pair with
   | IndexedName name =>
       match find_kind scope name with
-      | Some IndexedKind => Some [(name, 1)]
+      | Some (IndexedKind actual) =>
+          if indexed_shape_eq_dec actual shape then Some [(name, 1)] else None
       | _ => None
       end
-  | BuildIndexed length payload =>
+  | BuildIndexed actual length payload =>
       match find_kind scope payload, index_demand (naturals scope) length with
       | Some (VecKind (PlainIndex expected)), Some d =>
-          if index_eq_dec expected length then Some (d ++ [(payload, 1)]) else None
+          if indexed_shape_eq_dec actual shape then
+            if index_eq_dec expected (instantiate_extent (payload_extent shape) length)
+            then Some (d ++ [(payload, 1)]) else None
+          else None
       | _, _ => None
       end
   end.
 
-Lemma indexed_uses_sound : forall scope pair row,
-  indexed_uses scope pair = Some row -> IndexedUses scope pair row.
+Lemma indexed_uses_sound : forall scope shape pair row,
+  indexed_uses scope shape pair = Some row -> IndexedUses scope shape pair row.
 Proof.
-  intros scope [name | length payload] row checked; cbn in checked.
+  intros scope shape [name | actual length payload] row checked; cbn in checked.
   - destruct (find_kind scope name) as [k |] eqn:found; try discriminate.
-    destruct k; inversion checked; subst. now constructor.
+    destruct k as [| | actual | | |]; try discriminate.
+    destruct (indexed_shape_eq_dec actual shape); inversion checked; subst. now constructor.
   - destruct (find_kind scope payload) as [k |] eqn:found; try discriminate.
     destruct k as [| | | [expected | | |] | |]; try discriminate.
     destruct (index_demand (naturals scope) length) as [d |] eqn:length_ok; try discriminate.
-    destruct (index_eq_dec expected length); inversion checked; subst. constructor; auto using index_demand_sound.
+    destruct (indexed_shape_eq_dec actual shape); try discriminate.
+    destruct (index_eq_dec expected (instantiate_extent (payload_extent shape) length));
+      inversion checked; subst. constructor; auto using index_demand_sound.
 Qed.
 
 Inductive IndexUses (scope : env) : type_index -> demand -> Prop :=
@@ -86,8 +124,8 @@ Inductive IndexUses (scope : env) : type_index -> demand -> Prop :=
     IndexUses scope (BoxContents name) [(name, 1)]
 | PromotedContentsUses : forall q i d, IndexDemand (naturals scope) i d ->
     IndexUses scope (PromotedContents q i) (scale q d)
-| IndexedLengthUses : forall pair d, IndexedUses scope pair d ->
-    IndexUses scope (IndexedLength pair) d.
+| IndexedLengthUses : forall shape pair d, IndexedUses scope shape pair d ->
+    IndexUses scope (IndexedLength shape pair) d.
 
 Definition index_uses (scope : env) (i : type_index) : option demand :=
   match i with
@@ -98,13 +136,13 @@ Definition index_uses (scope : env) (i : type_index) : option demand :=
       | _ => None
       end
   | PromotedContents q value => option_map (scale q) (index_demand (naturals scope) value)
-  | IndexedLength packed => indexed_uses scope packed
+  | IndexedLength shape packed => indexed_uses scope shape packed
   end.
 
 Lemma index_uses_sound : forall scope i d,
   index_uses scope i = Some d -> IndexUses scope i d.
 Proof.
-  intros scope [value | name | q value | pair] d checked; cbn in checked.
+  intros scope [value | name | q value | shape pair] d checked; cbn in checked.
   - constructor. now apply index_demand_sound.
   - destruct (find_kind scope name) as [k |] eqn:found; try discriminate.
     destruct k; inversion checked; subst. eapply BoxContentsUses; eassumption.
@@ -116,7 +154,7 @@ Qed.
 Inductive TypeUses (scope : env) : kind -> demand -> Prop :=
 | NatUses : TypeUses scope NatKind []
 | BoxUses : forall q, TypeUses scope (BoxNat q) []
-| IndexedKindUses : TypeUses scope IndexedKind []
+| IndexedKindUses : forall shape, TypeUses scope (IndexedKind shape) []
 | VecUses : forall i d, IndexUses scope i d -> TypeUses scope (VecKind i) d
 | ArrowUses : forall q a b d e, TypeUses scope a d -> TypeUses scope b e ->
     TypeUses scope (ArrowKind q a b) (d ++ e)
@@ -125,7 +163,7 @@ Inductive TypeUses (scope : env) : kind -> demand -> Prop :=
 
 Fixpoint type_uses (scope : env) (k : kind) : option demand :=
   match k with
-  | NatKind | BoxNat _ | IndexedKind => Some []
+  | NatKind | BoxNat _ | IndexedKind _ => Some []
   | VecKind i => index_uses scope i
   | ArrowKind _ a b | ProductKind a b =>
       match type_uses scope a, type_uses scope b with
@@ -223,7 +261,8 @@ Definition specialize (binder : nat) (contents : type_index) : kind -> kind :=
 
 Definition specialize_indexed (binder : nat) (replacement : indexed) : kind -> kind :=
   map_indices (fun i => match i with
-    | IndexedLength (IndexedName name) => if Nat.eqb name binder then IndexedLength replacement else i
+    | IndexedLength shape (IndexedName name) =>
+        if Nat.eqb name binder then IndexedLength shape replacement else i
     | _ => i
     end).
 
@@ -234,11 +273,12 @@ Inductive value :=
 | Name (name : nat)
 | NaturalValue (payload : index)
 | BoxValue (payload : boxed)
-| IndexedValue (payload : indexed)
+| IndexedValue (shape : indexed_shape) (payload : indexed)
 | Lambda (name allowance : nat) (domain : kind) (body : value)
 | Pair (left right : value)
 | LetBox (name motive_name : nat) (subject : boxed) (motive : kind) (body : value)
-| LetIndexed (length payload motive_name : nat) (subject : indexed) (motive : kind) (body : value).
+| LetIndexed (shape : indexed_shape) (length payload motive_name : nat)
+    (subject : indexed) (motive : kind) (body : value).
 
 Record usage := {
   value_kind : kind;
@@ -252,12 +292,12 @@ Definition used (k : kind) (u v : demand) : usage :=
 Definition binder_checks (scope : env) (name motive_name : nat) : bool :=
   is_fresh scope name && is_fresh scope motive_name && negb (Nat.eqb name motive_name).
 
-Definition indexed_scope (scope : env) (length payload : nat) : env :=
-  (payload, payload_kind (IndexVar length)) :: (length, NatKind) :: scope.
+Definition indexed_scope (scope : env) (shape : indexed_shape) (length payload : nat) : env :=
+  (payload, payload_kind shape (IndexVar length)) :: (length, NatKind) :: scope.
 
-Definition indexed_binders (scope : env) (length payload motive_name : nat) : bool :=
+Definition indexed_binders (scope : env) (shape : indexed_shape) (length payload motive_name : nat) : bool :=
   is_fresh scope length && is_fresh ((length, NatKind) :: scope) payload &&
-  is_fresh (indexed_scope scope length payload) motive_name.
+  is_fresh (indexed_scope scope shape length payload) motive_name.
 
 Definition fields_used (length payload : nat) : demand := [(length, 1); (payload, 1)].
 
@@ -272,8 +312,8 @@ Inductive DerivesWith (allows : nat -> nat -> Prop) (scope : env) : value -> usa
     DerivesWith allows scope (NaturalValue i) (used NatKind d [])
 | BoxRule : forall payload q d contents, BoxDerives scope payload q d contents ->
     DerivesWith allows scope (BoxValue payload) (used (BoxNat q) d [])
-| IndexedRule : forall pair d, IndexedUses scope pair d ->
-    DerivesWith allows scope (IndexedValue pair) (used IndexedKind d [])
+| IndexedRule : forall shape pair d, IndexedUses scope shape pair d ->
+    DerivesWith allows scope (IndexedValue shape pair) (used (IndexedKind shape) d [])
 | LambdaRule : forall name allowance domain body codomain a u v row,
     is_fresh scope name = true -> TypeUses scope domain a ->
     DerivesWith allows ((name, domain) :: scope) body (used codomain u v) ->
@@ -295,17 +335,17 @@ Inductive DerivesWith (allows : nat -> nat -> Prop) (scope : env) : value -> usa
     same_demand output (substitute_demand motive_name z motive_row) ->
     DerivesWith allows scope (LetBox name motive_name subject motive body)
       (used (specialize motive_name contents motive) (without name w ++ z) output)
-| LetIndexedRule : forall length payload motive_name subject motive body z w body_row motive_row output s,
-    indexed_binders scope length payload motive_name = true ->
-    IndexedUses scope subject z ->
-    TypeUses ((motive_name, IndexedKind) :: scope) motive motive_row ->
-    DerivesWith allows (indexed_scope scope length payload) body
-      (used (specialize_indexed motive_name (BuildIndexed (IndexVar length) payload) motive) w body_row) ->
+| LetIndexedRule : forall shape length payload motive_name subject motive body z w body_row motive_row output s,
+    indexed_binders scope shape length payload motive_name = true ->
+    IndexedUses scope shape subject z ->
+    TypeUses ((motive_name, IndexedKind shape) :: scope) motive motive_row ->
+    DerivesWith allows (indexed_scope scope shape length payload) body
+      (used (specialize_indexed motive_name (BuildIndexed shape (IndexVar length) payload) motive) w body_row) ->
     allows (uses w length) s -> allows (uses w payload) s ->
     same_demand body_row (substitute_demand motive_name (fields_used length payload) motive_row) ->
     TypeUses scope (specialize_indexed motive_name subject motive) output ->
     same_demand output (substitute_demand motive_name z motive_row) ->
-    DerivesWith allows scope (LetIndexed length payload motive_name subject motive body)
+    DerivesWith allows scope (LetIndexed shape length payload motive_name subject motive body)
       (used (specialize_indexed motive_name subject motive) (without length (without payload w) ++ scale s z) output).
 
 Definition Derives := DerivesWith (@GradedDomains.allows GradedDomains.NatExact).
@@ -324,7 +364,8 @@ Fixpoint infer_with (allowsb : nat -> nat -> bool) (scope : env) (subject : valu
   | BoxValue payload =>
       let? data := infer_box scope payload in
       let '(q, d, _) := data in Some (used (BoxNat q) d [])
-  | IndexedValue packed => option_map (fun d => used IndexedKind d []) (indexed_uses scope packed)
+  | IndexedValue shape packed =>
+      option_map (fun d => used (IndexedKind shape) d []) (indexed_uses scope shape packed)
   | Lambda name allowance domain body =>
       if is_fresh scope name then
         let? _ := type_uses scope domain in
@@ -356,12 +397,12 @@ Fixpoint infer_with (allowsb : nat -> nat -> bool) (scope : env) (subject : valu
           then Some (used k (without name (subject_uses result) ++ z) output) else None
         else None
       else None
-  | LetIndexed length payload motive_name packed motive body =>
-      if indexed_binders scope length payload motive_name then
-        let? z := indexed_uses scope packed in
-        let? motive_row := type_uses ((motive_name, IndexedKind) :: scope) motive in
-        let? result := infer_with allowsb (indexed_scope scope length payload) body in
-        let expected := specialize_indexed motive_name (BuildIndexed (IndexVar length) payload) motive in
+  | LetIndexed shape length payload motive_name packed motive body =>
+      if indexed_binders scope shape length payload motive_name then
+        let? z := indexed_uses scope shape packed in
+        let? motive_row := type_uses ((motive_name, IndexedKind shape) :: scope) motive in
+        let? result := infer_with allowsb (indexed_scope scope shape length payload) body in
+        let expected := specialize_indexed motive_name (BuildIndexed shape (IndexVar length) payload) motive in
         let k := specialize_indexed motive_name packed motive in
         if kind_eq_dec (value_kind result) expected then
           let? output := type_uses scope k in
@@ -382,8 +423,8 @@ Lemma infer_with_sound : forall (allows : nat -> nat -> Prop) allowsb,
     infer_with allowsb scope subject = Some result -> DerivesWith allows scope subject result.
 Proof.
   intros allows allowsb admission_sound.
-  induction subject as [name | i | payload | pair | name allowance domain body IH | left IHl right IHr
-    | name motive_name payload motive body IH | length field motive_name pair motive body IH];
+  induction subject as [name | i | payload | shape pair | name allowance domain body IH | left IHl right IHr
+    | name motive_name payload motive body IH | shape length field motive_name pair motive body IH];
     intros scope result checked; cbn in checked.
   - destruct (find_kind scope name) eqn:found; try discriminate.
     cbn in checked. destruct (type_uses scope k) eqn:typed; inversion checked; subst.
@@ -392,7 +433,7 @@ Proof.
     constructor. now apply index_demand_sound.
   - destruct (infer_box scope payload) as [[[q d] contents] |] eqn:boxed_ok;
       inversion checked; subst. econstructor. eapply infer_box_sound; eassumption.
-  - destruct (indexed_uses scope pair) as [row |] eqn:pair_ok; inversion checked; subst.
+  - destruct (indexed_uses scope shape pair) as [row |] eqn:pair_ok; inversion checked; subst.
     constructor. now apply indexed_uses_sound.
   - destruct (is_fresh scope name) eqn:fresh; try discriminate.
     destruct (type_uses scope domain) eqn:typed; try discriminate.
@@ -433,16 +474,16 @@ Proof.
     apply andb_true_iff in agrees as [agrees out_demand].
     apply andb_true_iff in agrees as [bound body_demand].
     eapply LetBoxRule; eauto using admission_sound, infer_box_sound, type_uses_sound, demand_eqb_sound.
-  - destruct (indexed_binders scope length field motive_name) eqn:fresh; try discriminate.
-    destruct (indexed_uses scope pair) as [z |] eqn:pair_ok; try discriminate.
+  - destruct (indexed_binders scope shape length field motive_name) eqn:fresh; try discriminate.
+    destruct (indexed_uses scope shape pair) as [z |] eqn:pair_ok; try discriminate.
     cbn [bind_option] in checked.
-    destruct (type_uses ((motive_name, IndexedKind) :: scope) motive) as [motive_row |] eqn:motive_ok;
+    destruct (type_uses ((motive_name, IndexedKind shape) :: scope) motive) as [motive_row |] eqn:motive_ok;
       try discriminate.
     cbn [bind_option] in checked.
-    destruct (infer_with allowsb (indexed_scope scope length field) body) as [[k w row] |] eqn:body_ok;
+    destruct (infer_with allowsb (indexed_scope scope shape length field) body) as [[k w row] |] eqn:body_ok;
       try discriminate.
     cbn [bind_option value_kind subject_uses result_type_uses] in checked.
-    destruct (kind_eq_dec k (specialize_indexed motive_name (BuildIndexed (IndexVar length) field) motive))
+    destruct (kind_eq_dec k (specialize_indexed motive_name (BuildIndexed shape (IndexVar length) field) motive))
       as [same_kind | different]; try discriminate.
     destruct (type_uses scope (specialize_indexed motive_name pair motive)) as [output |] eqn:out_ok;
       try discriminate.
@@ -520,11 +561,11 @@ Lemma zero_type_use : forall scope k row name,
   TypeUses scope k row -> find_kind scope name = None -> uses row name = 0.
 Proof.
   intros scope k row name typed absent.
-  induction typed as [| q | | i d index_typed | q a b d e dl IHl dr IHr | a b d e dl IHl dr IHr].
+  induction typed as [| q | shape | i d index_typed | q a b d e dl IHl dr IHr | a b d e dl IHl dr IHr].
   - reflexivity.
   - reflexivity.
   - reflexivity.
-  - destruct index_typed as [i d natural | key q found | q i d natural | pair d pair_typed].
+  - destruct index_typed as [i d natural | key q found | q i d natural | shape pair d pair_typed].
     + eapply zero_natural_use; eauto.
     + cbn. destruct (name =? key) eqn:equal; [| reflexivity].
       apply Nat.eqb_eq in equal. subst key. congruence.
@@ -586,33 +627,36 @@ Definition bounded_checked_let_box_demands := checked_let_box_demands_with
   (@GradedDomains.allowsb GradedDomains.NatBound)
   (fun actual allowance => proj1 (Nat.leb_le actual allowance)).
 
-Lemma indexed_scope_well_formed : forall scope length payload motive_name,
-  WellFormed scope -> indexed_binders scope length payload motive_name = true ->
-  WellFormed (indexed_scope scope length payload).
+Lemma indexed_scope_well_formed : forall scope shape length payload motive_name,
+  WellFormed scope -> indexed_binders scope shape length payload motive_name = true ->
+  WellFormed (indexed_scope scope shape length payload).
 Proof.
-  intros scope length payload motive_name outer checked.
+  intros scope shape length payload motive_name outer checked.
   unfold indexed_binders in checked.
   apply andb_true_iff in checked as [fresh _].
   apply andb_true_iff in fresh as [fresh_length fresh_payload].
   unfold indexed_scope.
-  eapply ExtendScope with (d := [(length, 1)]).
+  assert (typed : IndexDemand (naturals ((length, NatKind) :: scope)) (IndexVar length) [(length, 1)]).
+  { eapply NaturalVariable with (entry := natural_binding length).
+    - cbn. now rewrite Nat.eqb_refl.
+    - reflexivity. }
+  destruct (instantiate_extent_typed _ (payload_extent shape) _ _ typed) as [row extent_typed].
+  eapply ExtendScope with (d := row).
   - eapply ExtendScope with (d := []); eauto using NatUses.
   - exact fresh_payload.
-  - do 2 constructor. eapply NaturalVariable with (entry := natural_binding length).
-    + cbn. now rewrite Nat.eqb_refl.
-    + reflexivity.
+  - now do 2 constructor.
 Qed.
 
 Theorem checked_let_indexed_demands_with : forall (allows : nat -> nat -> Prop) allowsb,
   (forall actual advertised, allowsb actual advertised = true -> allows actual advertised) ->
-  forall scope length payload motive_name subject motive body result,
-  check_with allowsb scope (LetIndexed length payload motive_name subject motive body) = Some result ->
-  WellFormed (indexed_scope scope length payload) /\
+  forall scope shape length payload motive_name subject motive body result,
+  check_with allowsb scope (LetIndexed shape length payload motive_name subject motive body) = Some result ->
+  WellFormed (indexed_scope scope shape length payload) /\
   exists z w body_row motive_row s,
-    IndexedUses scope subject z /\
-    TypeUses ((motive_name, IndexedKind) :: scope) motive motive_row /\
-    DerivesWith allows (indexed_scope scope length payload) body
-      (used (specialize_indexed motive_name (BuildIndexed (IndexVar length) payload) motive) w body_row) /\
+    IndexedUses scope shape subject z /\
+    TypeUses ((motive_name, IndexedKind shape) :: scope) motive motive_row /\
+    DerivesWith allows (indexed_scope scope shape length payload) body
+      (used (specialize_indexed motive_name (BuildIndexed shape (IndexVar length) payload) motive) w body_row) /\
     allows (uses w length) s /\ allows (uses w payload) s /\
     same_demand body_row (substitute_demand motive_name (fields_used length payload) motive_row) /\
     value_kind result = specialize_indexed motive_name subject motive /\
@@ -620,9 +664,9 @@ Theorem checked_let_indexed_demands_with : forall (allows : nat -> nat -> Prop) 
       (if (x =? length) || (x =? payload) then 0 else uses w x) + s * uses z x) /\
     same_demand (result_type_uses result) (substitute_demand motive_name z motive_row).
 Proof.
-  intros allows allowsb admission_sound scope length payload motive_name subject motive body result checked.
+  intros allows allowsb admission_sound scope shape length payload motive_name subject motive body result checked.
   pose proof (check_with_sound allows allowsb admission_sound _ _ _ checked) as [outer derivation].
-  inversion derivation as [| | | | | | | l p n t m b z w body_row motive_row output s
+  inversion derivation as [| | | | | | | indicated_shape l p n t m b z w body_row motive_row output s
     fresh pair_ok motive_ok body_ok length_ok payload_ok body_demand out_kind out_demand]; subst.
   split; [eauto using indexed_scope_well_formed |].
   exists z, w, body_row, motive_row, s. repeat apply conj; try assumption; try reflexivity.

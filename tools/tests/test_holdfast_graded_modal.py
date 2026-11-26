@@ -15,6 +15,7 @@ from toolchain import proofenv, solver_ledger
 from toolchain.cli.holdfast_parser import main as parser_main
 
 _AUDITED = (
+    "instantiate_extent_typed",
     "check_sound",
     "checked_let_box_demands",
     "bounded_check_sound",
@@ -217,7 +218,7 @@ def _dependent_pair_source_replay() -> None:
             ("OpenBounded", "NatBound", b"packed @ NatBound(2)", b"packed @ NatBound(1)", ": grade: "),
             ("BuildAndOpen", "NatExact", b"match (Indexed(n + n, payload))", b"match (Indexed(n + 1, payload))", ": grade: "),
             ("BuildAndOpen", "NatExact", b"(Indexed(length, values).Length)> same", b"length> same", ": grade: "),
-            ("OpenIndexed", "NatExact", b"Vec<Nat, (Length)> Payload", b"Vec<Nat, (Length + 1)> Payload", ": unsupported: "),
+            ("OpenIndexed", "NatExact", b"Vec<Nat, (Length)> Payload", b"Vec<Nat, (Payload + 1)> Payload", ": unsupported: "),
         ):
             ensure(raw.count(original) == 1, f"pair control does not identify one occurrence: {original!r}")
             changed.write_bytes(raw.replace(original, replacement))
@@ -232,6 +233,41 @@ def _dependent_pair_source_replay() -> None:
         ensure(status == 1 and not output and ": grade: " in error, error)
         _audit_certificate(directory, result["kernel_sha256"], result["gallina"],
                            "source_check_sound", ("[0; 0; 6]", "[0; 0; 5]"))
+
+    status, output, error = _source_command(source, "OpenStereo")
+    ensure(status == 0, error)
+    stereo = json.loads(output)
+    n, samples = stereo["binders"]
+    ensure(stereo["dependencies"] == ["StereoFrame"] and n["computation"] == samples["computation"] == 0
+           and n["type"] == 4 and samples["type"] == 2,
+           "indexed family replay lost the record identity or confused type and computation demand")
+    length_row = {"name": "n", "uses": 2, "span": n["span"]}
+    ensure(samples["annotation_type_uses"] == [length_row]
+           and stereo["result_type_uses"] == [{"name": "samples", "uses": 2, "span": samples["span"]}, length_row],
+           "indexed family replay lost a dependency in the telescope or specialized motive")
+
+    with tempfile.TemporaryDirectory(prefix="holdfast-indexed-family-controls-") as temporary:
+        directory = Path(temporary)
+        changed = directory / source.name
+        changed.write_bytes(raw.replace(b"NatExact(0)", b"NatBound(1)").replace(b"NatExact", b"NatBound"))
+        status, output, error = _source_command(changed, "OpenStereo", "--domain", "NatBound")
+        ensure(status == 0, error)
+        bounded_n, bounded_samples = json.loads(output)["binders"]
+        ensure(bounded_n["computation"] == bounded_samples["computation"] == 1
+               and bounded_n["type"] == n["type"] and bounded_samples["type"] == samples["type"],
+               "bounded indexed family replay changed exact type demand")
+
+        for original, replacement in (
+            (b"Vec<Nat, (n + n + 1)> samples", b"Vec<Nat, (n + n + 2)> samples"),
+            (b"match (StereoFrame(n, samples))", b"match (StereoMirror(n, samples))"),
+            (b"Vec<Nat, (frame.Ticks)>", b"Vec<Nat, (frame.Samples)>"),
+        ):
+            ensure(original in raw, f"indexed family control is absent: {original!r}")
+            changed.write_bytes(raw.replace(original, replacement))
+            status, output, error = _source_command(changed, "OpenStereo")
+            ensure(status == 1 and not output and ": grade: " in error, error)
+        _audit_certificate(directory, stereo["kernel_sha256"], stereo["gallina"],
+                           "source_check_sound", ("[0; 0; 4]", "[0; 0; 3]"))
 
 
 def cases() -> list[Case]:
