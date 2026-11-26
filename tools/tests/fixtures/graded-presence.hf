@@ -1,0 +1,27 @@
+// SPDX-License-Identifier: Apache-2.0
+module GradedPresence;
+
+union Either<A, B> {
+    Left(A value);
+    Right(B value);
+}
+
+definition Nat BranchPresence(
+    bool b @ Presence(1, 0),
+    Nat x @ Presence(1, 0),
+    Nat y @ Presence(0, 0)
+) => if (b) x + x else 0;
+
+definition Nat SumPresence(
+    Either<Nat, bool> e @ Presence(1, 0),
+    Nat scale @ Presence(1, 0)
+) =>
+    match (e) as whole : Nat {
+        Left(x) => x + scale + scale,
+        Right(flag) => if (flag) 1 else 0,
+    };
+
+definition Vec<Nat, (n + n)> TypePresence(
+    Nat n @ Presence(0, 1),
+    Vec<Nat, (n + n)> values @ Presence(1, 0)
+) => values;

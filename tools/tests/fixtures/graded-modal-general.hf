@@ -1,0 +1,46 @@
+// SPDX-License-Identifier: Apache-2.0
+module GradedModalGeneral;
+
+record Box<T, grade q : NatExact>(T Value @ q);
+
+definition Nat OpenNested(Nat n @ NatExact(2, 0)) =>
+    match (Box<Box<Nat, 2>, 1>(Box<Nat, 2>(n))) as outer : Nat {
+        Box(inner) => match (inner) as w : Nat {
+            Box(x) => x + x,
+        },
+    };
+
+definition (Nat, Nat) DuplicateBoxed(Box<Box<Nat, 1>, 2> packed @ NatExact(1, 0)) =>
+    match (packed) as outer : (Nat, Nat) {
+        Box(inner) => (
+            match (inner) as w1 : Nat { Box(x) => x, },
+            match (inner) as w2 : Nat { Box(y) => y, }
+        ),
+    };
+
+definition Box<Vec<Nat, n>, 2> WrapVec(
+    Nat n @ NatExact(0, 2),
+    Vec<Nat, n> values @ NatExact(2, 0)
+) => Box<Vec<Nat, n>, 2>(values);
+
+definition (Vec<Nat, n>, Vec<Nat, n>) UnpackVec(
+    Nat n @ NatExact(0, 3),
+    Box<Vec<Nat, n>, 2> packed @ NatExact(1, 0)
+) =>
+    match (packed) as whole : (Vec<Nat, n>, Vec<Nat, n>) {
+        Box(values) => (values, values),
+    };
+
+definition Box<Vec<Nat, (m + m)>, 2> UseWrapVec(
+    Nat m @ NatExact(0, 4),
+    Vec<Nat, (m + m)> items @ NatExact(2, 0)
+) => WrapVec(m + m, items);
+
+definition Fn(Vec<Nat, (n + n)> values @ NatExact(1)) -> Vec<Nat, (n + n)> ModalLet(
+    Nat n @ NatExact(2, 4)
+) =>
+    let Nat doubled @ NatExact(0) = n + n in
+    (Vec<Nat, doubled> values @ NatExact(1)) =>
+        match (Box<Vec<Nat, doubled>, 1>(values)) as whole : Vec<Nat, doubled> {
+            Box(inner) => inner,
+        };
