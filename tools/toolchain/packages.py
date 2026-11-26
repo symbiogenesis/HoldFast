@@ -17,6 +17,7 @@ from toolchain.atomic import atomic_path
 from toolchain.authoring import OPT_IN_MATHEMATICAL_LINTS, Finding
 from toolchain.elaborate import FRONTEND_SOURCES, elaborate_package
 from toolchain.elaborate_types import CheckedElaboration, PackageScope
+from toolchain.graded_source import SUPPORT_FILES
 from toolchain.hashing import file_sha256
 from toolchain.hashing import sha256_bytes as _sha
 from toolchain.jsonutil import unique_object
@@ -37,6 +38,7 @@ MAX_GENERATED_BYTES = 32 * MAX_INPUT_BYTES
 
 PRODUCER_INPUTS = (
     *(f"toolchain/{name}" for name in FRONTEND_SOURCES),
+    *(f"rocq/{name}" for name in SUPPORT_FILES),
     "run.py", "pyproject.toml", "uv.lock", "opam/rocq.lock", "opam/sail.lock", "toolchain/atomic.py",
     "toolchain/cli/__init__.py", "toolchain/cli/holdfast_parser.py", "toolchain/packages.py", "toolchain/commands.py", "toolchain/pyversion.py",
     "toolchain/toolenv.py", "toolchain/corpus.py", "toolchain/env.py", "toolchain/proofenv.py",

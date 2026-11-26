@@ -28,9 +28,9 @@ on the 31 floating-point axioms remains open under F-480 (R-05-164).
 The retained `holdfast-parser first-slice` result names the blocking producers in
 `inventory.blocking_dependencies`. [First-slice qualification](docs/language/first-release.md#first-slice-qualification)
 
-Run graded source reconstruction, graded interpretation laws and borrowing
-precision in parallel with artifact qualification. Use the checked record extent
-families to widen indexed elimination and establish source correspondence.
+Qualify default graded checking and proof-backed borrowing for the first release
+in parallel with artifact qualification. Connect graded replay to the ordinary
+build and use the checked record extent families to establish source correspondence.
 Carry the sequenced natural-argument and scoped-span model laws into dependent
 modal values and the admitted machine resource interpretation.
 Use the composed-view, conditional-return and loop-carried shared-view trials to
@@ -51,6 +51,8 @@ the owner and the evidence needed to resume, then take another row whose inputs 
 | Checked frontend results | Diagnostics can consume checked derivations ([Q25au](#q25au)). The repair trial constructs its fixture from the core laws, checked frontend and concrete resources ([Q25av](#q25av)). The mathematical frontend builds locked packages against the frozen module and instance rules ([Q25ax](#q25ax)). |
 | Accepted validator | Publish the scalar and text representations ([Q25aw](#q25aw)). Use the required primitive laws to build the ownership libraries ([Q25ay](#q25ay)). General lowering consumes published representation laws and returns a checked receipt for each operation, so each library can finish qualification ([Q25az](#q25az)). |
 | Core loan and effect derivations, locked package graph | Qualify implicit `ref` receiver reservations ([Q25cd](#q25cd)) and inference for package-internal effects ([Q25em](#q25em)) before the supported release. |
+| Natural grade derivations, checked source and resource interpretations | Qualify [default graded checking](docs/language/first-release.md#default-graded-checking) through [Q25be](#q25be), [Q25bj](#q25bj) and the [graded client replay](#q25by). |
+| Checked loan derivations, concrete resource laws and frozen comparison inputs | Qualify [default borrow checking](docs/language/first-release.md#default-borrow-checking) through the [held-out comparison](#q25cc) and [loop borrowing](#q25cf). |
 | Independent second client and baseline | Freeze the public observations, resource envelope and benefit thresholds before adapting the client. When its packages, libraries and lowering qualify, run the trial and obtain its own admission receipt ([Q25bb](#q25bb)). Close shared coverage across both clients, publish the reproducible release, then rehearse one upgrade ([Q25bc](#q25bc), [Q25bd](#q25bd)). |
 | Independent hosted application and pinned host | Freeze the application, ABI and baseline ([Q25eh](#q25eh)). Use the common language rules and qualify the hosted runtime and bindings through their own evidence endpoint. Exercise the actual application workflow and recovery once those interfaces qualify ([Q25ei](#q25ei)). |
 
@@ -271,7 +273,7 @@ open until the parent's acceptance conditions are met.
 
 - [ ] **Q25bc · Publish a supported and reproducible release closure**
   - **Owner** `holdfast-release`
-  - **Start** Use the [accepted validator](#q25ba), [independent package trial](#q25bb), qualified [receiver borrowing](#q25cd) and [package effect inference](#q25em), and all required [producer receipts](#q25ar).
+  - **Start** Use the [accepted validator](#q25ba), [independent package trial](#q25bb), qualified [receiver borrowing](#q25cd) and [package effect inference](#q25em), and all required [producer receipts](#q25ar). Use the selected default grading evidence from [Q25be](#q25be), [Q25bj](#q25bj) and [Q25by](#q25by), and default borrowing evidence from [Q25cc](#q25cc) and [Q25cf](#q25cf).
   - **Check** Publish the versioned language and libraries, conformance and refusal corpus, compatibility policy, installation guide, tutorial, reference, dependency notices and reproducible Windows and Linux artifacts. Verify cold installation, build and proof replay, and obtain independent release review. Name each published guarantee's endpoint. Assess feasibility, recurring developer value and adoption separately, including setup, maintenance and per-case target tradeoffs within hard limits. [Adoption protocol](docs/assurance/workflow-contract.md#first-release-qualification-and-adoption).
   - Run the [packet walkthrough](docs/tooling/packet-walkthrough.md) from the release installation. Check the three published byte traces and the diagnostic for each edited program.
 
@@ -376,7 +378,7 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
 <a id="q25be"></a>
 
 - [ ] **Q25be · Qualify the six graded-foundation law packages**
-  - **Owner:** `graded-laws`. **Start:** Exercise the pure GF-domain and GF-substitution rules with exact natural grades and a dependent function fixture. Release synchronous resources and select the independent graded client for extension qualification. **Check:** Discharge GF-domain, GF-substitution, GF-elimination, GF-cbv, GF-control-mutation and GF-erasure-source under the [reviewed extension predicates](docs/extensions/full-language-review.md#reviewed-implementation-pricing). This single cell aggregates their six existing ranges without extending core-soundness's baseline.
+  - **Owner:** `graded-laws`. **Start:** Exercise the pure GF-domain and GF-substitution rules with exact natural grades and a dependent function fixture. Use the qualified synchronous resources and independent graded client as they become available. **Check:** Discharge GF-domain, GF-substitution, GF-elimination, GF-cbv, GF-control-mutation and GF-erasure-source under the [reviewed extension predicates](docs/extensions/full-language-review.md#reviewed-implementation-pricing). Publish the separate law qualification for the [selected first-release fragment](docs/language/first-release.md#default-graded-checking), including source and representation erasure. The combined handler and cell laws retain their wider scope.
   - In the pure investigation, reconstruct separate computation and type demand and update the rows of later dependent declarations under substitution. Replay a binder with zero computation demand and nonzero type demand. Reject an incorrect computation allowance and a stale type-demand certificate. Connect the executable checks to declarative rules in Rocq. [Pure dependent identity](docs/extensions/graded-foundation.md#pure-dependent-identity)
   - The pure Rocq trial checks dependent functions, natural-index applications and telescope row substitution with exact natural demand. [Partial evidence](docs/assurance/completion-log.md#q25be-qualify-the-six-graded-foundation-law-packages)
   - The ordered domain trial checks `NatExact`, `NatBound` and Boolean presence. Extend the proved demand arithmetic with the selected value and type-use interpretations. [Domain laws and certificates](docs/extensions/graded-foundation.md#dimensions-and-lawful-domains)
@@ -407,9 +409,11 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
 
 - [ ] **Q25bj · Reconstruct checked graded-domain evidence**
   - **Owner:** `graded-frontend`. **Start:** Use the pure derivations as they become available to project a parsed dependent function and its applications into Rocq. Use the graded laws and checked core frontend for extension qualification. **Check:** Implement the existing reviewed elaboration/domain/grade reconstruction row, carrying dictionaries, substitutions and replayable certificates; unresolved or exhausted solver work remains an explicit goal.
+  - Qualify grading on the ordinary source and locked-package build paths. Replay the selected exact and bounded dependent, modal and record forms, reject violated allowances and stale source or grade evidence, and check the default behavior under a dependency edit. Bind the grade derivation and emitted interpretation to the same resolved source.
   - Start with `PreserveLength` in the [dependent example](examples/dependent.hf). Check a zero-use length binder, a once-used vector and partial application at `n + n` for an open index `n`. Bind the result function's domain, codomain and reconstructed dependency rows to the source. Exercise altered allowances and a changed argument or dependency.
   - The opt-in graded source trial replays exact natural demands for dependent functions, box promotion and explicit match motives over natural payloads. Extend checked source correspondence and domain reconstruction from these fragments. [Partial evidence](docs/assurance/completion-log.md#q25bj-reconstruct-checked-graded-domain-evidence)
   - The bounded natural trial uses the checked `NatBound` order for dependent functions, natural application and modal elimination while retaining exact type-use rows. Indexed records carry their own identity and checked vector extent family into the exact and bounded elimination rules. Bind the supported forms through checked source correspondence. [Partial evidence](docs/assurance/completion-log.md#q25bj-reconstruct-checked-graded-domain-evidence)
+  - The default mathematical and locked-package routes require this replay for supported grades. Extend the checked closure to imported graded declarations, grade-preserving callable and box interfaces, and source-to-Gallina correspondence. [Current support](docs/tooling/elaboration-prototype.md#default-grade-checking)
 
 <a id="q25bk"></a>
 
@@ -492,7 +496,7 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
 <a id="q25by"></a>
 
 - [ ] **Q25by · Compare fixed modes with a bounded grading increment**
-  - **Owner:** `grading-trial`. **Start:** Prepare an independent client candidate, its baseline and benefit thresholds alongside the pure investigation. Select the client when synchronous resources qualify. **Check:** Run the [graded selection protocol](docs/extensions/graded-foundation.md#extension-selection-and-qualification), separately justifying general domains and type-use accounting. Retain the smaller supported account when prerequisite laws or material benefit are absent.
+  - **Owner:** `grading-trial`. **Start:** Prepare an independent client candidate, its baseline and benefit thresholds alongside the pure investigation. **Check:** Run the [graded qualification protocol](docs/extensions/graded-foundation.md#extension-selection-and-qualification) for the first-release natural grades and type-use accounting. Record the exact evidence endpoint and measured benefit. Use separate selection evidence for general domains.
   - The audio-routing candidate checks two independent type dependencies and an exact value-use allowance. Use the ordinary replay to establish the baseline behavior and select a common endpoint for measuring benefit. [Partial evidence](docs/assurance/completion-log.md#q25by-compare-fixed-modes-with-a-bounded-grading-increment)
 
 <a id="q25bz"></a>
@@ -514,7 +518,7 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
 <a id="q25cc"></a>
 
 - [ ] **Q25cc · Compare borrow-checking alternatives on held-out clients**
-  - **Owner:** `borrow-comparison`. **Start:** Compare proof-backed disjoint symbolic indices against pinned Rust modes on a paired source fixture. Use package-trial friction measurements to select held-out clients for qualification. **Check:** Run the [borrow comparison boundary](docs/language/loan-analysis.md#conditional-borrowing-comparison) with fixed behavior and evidence endpoints. Include conditional returned borrows, lending iteration and higher-ranked or associated-item composition, comparing pinned default and experimental Rust modes on identical positives and invalid neighbors. Report unsupported cases and budget exhaustion.
+  - **Owner:** `borrow-comparison`. **Start:** Compare proof-backed disjoint symbolic indices against pinned Rust modes on a paired source fixture. Select held-out clients with independent intended behavior and freeze their baseline before adaptation. **Check:** Run the [borrow comparison boundary](docs/language/loan-analysis.md#conditional-borrowing-comparison) on the default HoldFast build with fixed behavior and evidence endpoints. Include conditional returned borrows, lending iteration and higher-ranked or associated-item composition, comparing pinned default and experimental Rust modes on identical positives and invalid neighbors. Report unsupported cases and budget exhaustion.
   - Hold two exclusive element loans from one owner under scoped evidence that the indices differ. Write through both and check the restored owner contents. Force the second loan to reuse the first index and require rejection at the call. Report direct Rust acceptance and any safe rewrite separately, including its source edits and required runtime checks.
   - The symbolic-index trial replays both writes and the frame in the HoldFast mathematical model. All three pinned Rust modes reject the direct indexing form and accept the safe slice API version. [Partial evidence](docs/assurance/completion-log.md#q25cc-compare-borrow-checking-alternatives-on-held-out-clients)
   - The ordered mixed-loan trial checks a simultaneous shared read and exclusive write at symbolic indices. Use its guard, returned value and frame controls when selecting held-out client cases.
@@ -530,7 +534,8 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
 <a id="q25cf"></a>
 
 - [ ] **Q25cf · Trial selected loop-carried borrowing**
-  - **Owner:** `loop-borrow`. **Start:** Measured loop-client need and borrow-comparison selection. **Check:** Qualify one loop-carried loan shape with loop/exit invariants, termination, initialization and borrow restoration, and held-out valid/invalid neighbors; reuse general flow and concrete laws.
+  - **Owner:** `loop-borrow`. **Start:** Use the symbolic view and lending clients and the borrow comparison. **Check:** Qualify the default lending checker and one selected loop-carried loan shape with loop/exit invariants, termination, initialization and borrow restoration. Replay held-out valid and invalid neighbors using general flow and concrete laws.
+  - The default symbolic `Span<byte>` lending loop closes and writes back each element loan per iteration. Extend the checked restoration to the carried-loan client and bind the represented result to runtime lowering. [Current lending replay](docs/language/loan-analysis.md#conditional-borrowing-comparison)
 
 <a id="q25cg"></a>
 

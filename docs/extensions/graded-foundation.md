@@ -1,7 +1,7 @@
 # Graded dependent foundation
 
-> Design for graded dependent types beyond the
-> [first-release subset](../language/first-release.md#release-boundary).
+> Rules for [first-release graded typing](../language/first-release.md#default-graded-checking)
+> and extensions to its domains and resource interpretation.
 
 ## Scope and research boundary
 
@@ -18,24 +18,24 @@ that image. [Frontend admission](full-language-review.md#frontend-admission)
 
 The [graded research comparison](../assurance/verification-strategy.md#reading-the-graded-type-claims)
 describes the roles and limits of GrTT, GraD and the Agda erasure development.
-The [source replay experiments](../tooling/elaboration-prototype.md#pure-graded-source-replay)
-check a pure fragment with `NatExact` and `NatBound`, and a separate `NatExact`
-box fragment. Their results inform the selection protocol below.
+The [source replay](../tooling/elaboration-prototype.md#pure-graded-source-replay)
+checks a pure fragment with `NatExact` and `NatBound`, including graded boxes
+and dependent records in both domains.
 
 ## Extension selection and qualification
 
-The [delivery plan](../../PLAN.md#holdfast-first-release-delivery) selects a
-concrete client after the synchronous resource discipline qualifies. Freeze its
-behavior, resource/representation contract, evidence endpoint, toolchain, positive
-cases and semantic refusals independently of the proposed grading API. Compare the following
-increments in order; stop when the smaller supported account meets the client's
-needs without a material benefit from the next increment.
+The [first-release contract](../language/first-release.md#default-graded-checking)
+selects natural computation grades and separate type-use accounting. Use a
+concrete client's independently frozen behavior, resource and representation
+contract, evidence endpoint, toolchain, positives and semantic refusals to
+qualify that selection and measure its value against fixed use modes. Use the
+same comparison to decide whether a client needs a larger grading discipline.
 
 | Candidate | Comparison and admission evidence |
 | --- | --- |
 | Fixed use modes and checked library contracts | Baseline: state-indexed operations and natural-valued exact or bounded trace judgments, using the existing ownership and phase rules. Retain the client's actual proof and maintenance obligations. |
-| A bounded `NatExact`/`NatBound` extension | Identify the repeated-use or composition obligation that source grading improves. Qualify the selected boxes, polymorphism and arithmetic with checked domain laws, usage-aware call-by-value interpretation and exact-source correspondence. Connect value demand to the requested trace property explicitly; grade arithmetic alone is not an invocation-count theorem. |
-| General domains or separate type-use accounting | Select each independently. For domains, demonstrate an analysis the qualified fixed instances cannot conveniently express and prove its interpretation/composition laws. For type use, compare the proposed vectors and dependency rows with the simplest sound dependency account meeting the same contract; identify the additional dependency or parametricity guarantee, or measured authoring benefit, that warrants the extra machinery. |
+| `NatExact`/`NatBound` with separate type use | Qualify the selected boxes, dependent data and arithmetic with checked domain laws, usage-aware call-by-value interpretation and exact-source correspondence. Connect value demand to the requested trace property and compare the dependency rows with the simplest sound account meeting the same contract. Identify the dependency or parametricity guarantee, or measured authoring benefit. |
+| General domains | Demonstrate an analysis the qualified natural domains cannot conveniently express and prove its interpretation and composition laws. |
 
 Before a trial, freeze material-benefit thresholds and budgets for annotations,
 proof/review/repair effort, diagnostic quality, checking time and memory. Separate
@@ -44,9 +44,9 @@ fresh and changed-input runs, unresolved goals and budget refusals. Keep the sam
 behavior, preconditions and assurance endpoint across candidates, and account for
 setup and maintenance separately from recurring benefit. Run benchmarks and proof
 acceptance through the [validation handoff](../../AGENTS.md#tool-execution-and-validation).
-Absent benefit, missing prerequisite laws or exhausted budgets retain the smaller
-qualified discipline; none permits weakening a client contract or treating
-unsupported syntax as a semantic rejection.
+Missing prerequisite laws and exhausted budgets leave the affected claim open.
+Retain the client's contract and record unsupported inputs separately from
+semantic refusals. A domain extension additionally requires measured benefit.
 
 Gerty's [substitution-skipping experiment](../assurance/verification-strategy.md#reading-the-graded-type-claims)
 is a separate optional optimization. It requires a proved zero-type-use
@@ -214,6 +214,12 @@ sequence. It also checks that bounded body reads reuse the returned values.
 Source elaboration and the spatial interpretation on the admitted machine
 carrier remain open. [Scoped argument model](../../tools/rocq/graded_cbv_span.v)
 [`GF-cbv` qualification](#proof-and-qualification-obligations)
+
+The dependent box model connects a checked elimination to an arithmetic result
+and a vector identity specialized by the same payload. The evaluator uses the
+payload returned by a single argument evaluation. Its read count satisfies the
+selected grade order, and the resolved result kind retains the specialized
+index. [Dependent box interpretation](../../tools/rocq/graded_modal_cbv.v)
 
 Torczon et al.'s [Effects and Coeffects in Call-by-Push-Value](https://doi.org/10.1145/3689750)
 (OOPSLA 2024; [extended paper](https://arxiv.org/abs/2311.11795v2)) mechanizes

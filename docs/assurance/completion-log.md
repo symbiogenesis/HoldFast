@@ -2664,6 +2664,13 @@ value, failure after writeback, and refusal of invalid or shared slices before
 the write. The proofs replay with closed assumptions and `rocqchk`.
 [Scoped argument proofs](../../tools/rocq/graded_cbv_span.v)
 
+The dependent box interpretation relates checked elimination to the reads of
+one evaluated payload and to the specialized index in the returned vector
+identity's type. Exact zero use keeps the argument effect and type dependency.
+Bounded repeated reads observe the same returned payload. All four audited
+declarations have closed assumptions and the compiled module passes `rocqchk`.
+[Dependent box proofs](../../tools/rocq/graded_modal_cbv.v)
+
 The indexed-record trial checks a telescope whose vector field has an extent
 built from its preceding natural field, literals and addition. Its elimination
 judgment checks the common computation grade, scales the scrutinee's
@@ -2679,10 +2686,21 @@ the composed extension laws remain open.
 
 ## Q25bj · Reconstruct checked graded-domain evidence
 
-The opt-in source trial projects annotated mathematical definitions into the
-pure exact-natural checker and replays the inferred type against the authored
-dependent signature. The receipt binds the source bytes, the generated Rocq
-unit and the checker inputs. Applying `PreserveLength` to `n + n` reconstructs
+The default mathematical elaborator replays graded definitions before
+lowering the accepted binders. It binds the source, certificate and Rocq
+support into each receipt digest. The locked package producer records those
+support files. The ordinary path checks exact and bounded functions and indexed
+records, and closed construction and matching on private boxes. Refusals cover
+incorrect allowances, missing promotion evidence and unsupported box or graded
+callback interfaces. [Default frontend replay](../../tools/tests/test_holdfast_graded.py)
+
+The locked-build replay retains the grade receipt with its emitted module.
+An allowance edit invalidates the old lock. Rebuilding with a fresh lock
+reaches the exact-use refusal and preserves the previously published bundle.
+[Locked-build replay](../../tools/tests/test_holdfast_graded_client.py)
+
+The source inspector reports the demand rows from the same checker. Applying
+`PreserveLength` to `n + n` reconstructs
 four type uses and zero computation uses of `n`. The returned function
 uses its vector once. The term that computes `(n + n) + (n + n)` checks an exact
 allowance of four.
@@ -2743,11 +2761,11 @@ remain open.
 The audio-routing candidate specializes a function at separate frame and
 label extents. Exact replay checks zero computation uses of both indices,
 four type uses of the period, one of the label count and one value use of
-the sample vector. Ordinary mathematical replay of the same source with its
-12 grade annotations removed proves the routing behavior in Rocq. Both
-checkers refuse the stale frame extent. The graded checker also refuses an
-altered allowance. Client selection, material benefit and the shared
-qualification endpoint remain open.
+the sample vector. The default mathematical build proves the same routing
+equation in Rocq for the graded source and the baseline with its 12 grade
+annotations removed. Both builds refuse the stale frame extent. The graded
+build additionally refuses an altered allowance. Independent client selection,
+material benefit and release qualification remain open.
 [Paired replay](../../tools/tests/test_holdfast_graded_client.py)
 
 <a id="q25cb-trial-zero-type-use-substitution-skipping"></a>
@@ -2851,17 +2869,38 @@ five in each mode.
 [HoldFast replay](../../tools/tests/test_holdfast_loan_returns.py#_loop_view_return) ·
 [Rust fixture](../../tools/tests/fixtures/loop_view_return.rs)
 
+The default elaborator checks symbolic `foreach (ref byte element in values)`
+for a directly named `Span<byte>`. Each iteration reads through its element
+loan and restores the owner with the element writeback. The model replays the
+iteration count, updated bytes, untouched frame and owner descriptor. The
+source controls refuse a competing owner or alias read, a related view retained
+across a mutating loop, missing permissions and an invalid loop invariant.
+[Lending source](../../tools/tests/fixtures/lending-span-iteration.hf) ·
+[Lending replay](../../tools/tests/test_holdfast_loan_returns.py#_lending_span_iteration)
+
 Legacy also accepts the loop-carried conditional reborrow. Its executed test
 checks the visit counts when the cursor stays on a node, advances and reaches
 the end. NLL and Alpha report `E0499` and `E0503` at the loop reborrow. All
 three reject the neighbor that clears the cursor with the node loan still live.
 [Loop fixture](../../tools/tests/fixtures/loop_reborrowing.rs)
 
-`python tools/run.py holdfast-borrow-compare` replays all 88 Rust configurations
-and executes the 28 accepted observation tests. The unflagged default
-agrees with Alpha on these fixtures. Held-out clients, checked lending-loop
-restoration, checker cost measurements and checked runtime correspondence
-remain open.
+The Rust lending cursor borrows a mutable element through its associated item.
+All four pinned modes pass the bounded prefix fill and reject a second call with
+the previous element still live and a write to the owner with that loan live.
+The default, legacy and Alpha accept a conditional return from a filtering
+loop. Explicit NLL refuses that case with `E0499`.
+[Lending fixture](../../tools/tests/fixtures/lending_iterator.rs)
+
+The higher-ranked callback returns a view tied to each fresh input loan and
+rejects storing that input in longer-lived state with `E0521`. The default,
+NLL, legacy, Alpha and next-generation trait solver runs agree on both cases.
+[Callback fixture](../../tools/tests/fixtures/lifetime_callback.rs)
+
+`python tools/run.py holdfast-borrow-compare` replays 114 pinned Rust
+configurations, including 40 accepted observation tests and 74 expected
+refusals. The unflagged default agrees with Alpha on the shared fixtures.
+Held-out clients, matched checker cost measurements and checked runtime
+correspondence remain open.
 
 The loan diagnostic keeps branch-specific grants through joins. The controls
 require independent restoration of three alternative exclusive grants, detect

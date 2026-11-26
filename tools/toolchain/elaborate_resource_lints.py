@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, cast
 
 from toolchain import loans
+from toolchain.elaborate_protocol import syntax_nodes as _walk
 from toolchain.elaborate_types import _BOOL, _CHAR, _NAT, _UNIT, _parse_numeric_magnitude
 
 if TYPE_CHECKING:
@@ -13,16 +14,6 @@ if TYPE_CHECKING:
 
     from toolchain.elaborate import _Elaborator
     from toolchain.elaborate_types import Node, _Binding, _RecordInfo, _RecordInvariant
-
-
-def _walk(node: Node) -> Iterator[Node]:
-    pending = [node]
-    while pending:
-        current = pending.pop()
-        yield current
-        for value in current.values():
-            children = value if isinstance(value, list) else [value]
-            pending.extend(child for child in children if isinstance(child, dict) and "kind" in child)
 
 
 def _report(elab: _Elaborator, code: str, site: Node, message: str) -> None:

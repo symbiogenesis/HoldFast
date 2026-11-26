@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: Apache-2.0
+module LendingSpanIteration;
+
+public Nat RewriteElements(ref Span<byte> values)
+    effects writes(values)
+    requires values.CanRead && values.CanWrite
+{
+    var visits = 0;
+    foreach (ref byte element in values) {
+        element = if (element == 0u8) 9u8 else 1u8;
+        visits += 1;
+    }
+    return visits;
+}

@@ -251,6 +251,7 @@ def _source_inventory() -> None:
     expected = {slice_harness.EXAMPLE, "tools/generated/dialect-table.json",
                 "tools/toolchain/elaborate.py", "tools/toolchain/solver_ledger.py",
                 "tools/toolchain/first_slice.py", "tools/toolchain/jsonutil.py",
+                "tools/rocq/graded_source.v", "tools/rocq/graded_modal_source.v",
                 "tools/toolchain/source.py", "tools/opam/rocq.lock", "tools/uv.lock"}
     ensure(expected <= inputs.keys(), "receipt omitted a source, data or dependency input")
     with tempfile.TemporaryDirectory(prefix="holdfast-slice-inputs-") as temporary:

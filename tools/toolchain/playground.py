@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import re
 import secrets
+import shutil
 import socket
 import subprocess
 import sys
@@ -16,6 +17,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import cast, override
 
+from toolchain import proofenv
 from toolchain.ast import IDENTIFIER, MAX_SOURCE_BYTES
 from toolchain.authoring import (
     LINT_CODES,
@@ -25,10 +27,11 @@ from toolchain.authoring import (
 )
 from toolchain.elaborate import FRONTEND_SOURCES
 from toolchain.elaborate_holes import MAX_GOAL_BYTES, MAX_HOLES
+from toolchain.graded_source import SUPPORT_FILES
 from toolchain.hashing import file_sha256
 from toolchain.lsp import Server
 from toolchain.parser import bytecode_interpreter
-from toolchain.playground_worker import require_parser
+from toolchain.playground_worker import TIMEOUT_EXIT, require_parser
 from toolchain.protocol_json import MAX_BODY_BYTES, decode_message, encode_body
 from toolchain.source import SourceSnapshot
 
@@ -72,7 +75,7 @@ def _validate_result(response: dict[str, object], request: dict[str, object], di
         error = response.get("error")
         kinds = {"syntax", "name", "type", "unsupported", "limit", "encoding"}
         if request["action"] != "authoring" and (not compilation or not response["editorServices"]):
-            kinds.update({"protocol", "inference"})
+            kinds.update({"protocol", "inference", "grade"})
         if request["action"] == "authoring":
             kinds.update({"inspection-limit", "lint-preview", "format"})
         fields = {"ok", "sourceHash", "error"} | ({"editorServices"} if compilation else set())
@@ -193,12 +196,16 @@ def _validate_findings(findings: object, source: str, *, mathematical: bool = Fa
 def _compiler_response(request: dict[str, object], digest: str, *,
                        mathematical_parser: Path, parser_sha256: str) -> dict[str, object]:
     directory = str(Path(__file__).resolve().parents[1])
+    # Leave time for the worker to reap a timed-out Rocq process.
+    deadline = time.monotonic() + WORKER_SECONDS - 0.5
     script = (f"import sys; sys.path.insert(0, {directory!r}); from pathlib import Path; "
               "from toolchain.playground_worker import main; "
               f"raise SystemExit(main(mathematical_parser=Path({str(mathematical_parser)!r}), "
-              f"parser_sha256={parser_sha256!r}))")
+              f"parser_sha256={parser_sha256!r}, deadline={deadline!r}))")
     done = subprocess.run([sys.executable, "-I", "-c", script], input=encode_body(request),
                           capture_output=True, timeout=WORKER_SECONDS, check=False)
+    if done.returncode == TIMEOUT_EXIT:
+        raise subprocess.TimeoutExpired(done.args, WORKER_SECONDS)
     if done.returncode != 0:
         raise ValueError("compiler worker unavailable or output exceeds its budget")
     response = decode_message(done.stdout)
@@ -252,7 +259,9 @@ class PlaygroundServer(HTTPServer):
         self.parser_sha256 = file_sha256(mathematical_parser)
         tools = Path(__file__).resolve().parent
         self.compiler_inputs = [tools / name for name in (*FRONTEND_SOURCES, "parser.py", "surface.py",
-                                                          "mathematical.py", "playground_worker.py")]
+                                                          "mathematical.py", "playground_worker.py", "proofenv.py")]
+        self.compiler_inputs.extend(tools.parent / "rocq" / name for name in SUPPORT_FILES)
+        self.compiler_inputs.append(tools.parent / "opam" / "rocq.lock")
         self.compiler_inputs.extend((mathematical_parser, Path(sys.executable)))
         with mathematical_parser.open("rb") as stream:
             if stream.read(3) == b"#!/":
@@ -273,6 +282,13 @@ class PlaygroundServer(HTTPServer):
         digest = hashlib.sha256()
         for path in self.compiler_inputs:
             digest.update(bytes.fromhex(file_sha256(path)))
+        try:
+            prover = shutil.which(proofenv.rocq_command()[0])
+        except SystemExit:
+            prover = None
+        if prover is not None:
+            digest.update(prover.encode("utf-8"))
+            digest.update(bytes.fromhex(file_sha256(Path(prover))))
         return digest.hexdigest()
 
     def compiler_current(self) -> bool:

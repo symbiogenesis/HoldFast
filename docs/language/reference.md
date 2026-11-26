@@ -142,6 +142,7 @@ Use the implementing type or a receiver value to call an interface method.
 | `TextBuilder<capacity>` | Bounded text buffer for allocation-free formatting | M |
 | Generics `<T>`, `<ghost Nat n>` | Type parameters and erased value indices; declaration generics are rigid | M |
 | `Type`, `Type<n>`, `Prop`, `Fn(A a) -> B` | Universes, propositions and dependent function types | M |
+| `Fn(Nat n @ NatExact(q)) -> B` and `NatBound(q)` | Natural computation grades with separately reconstructed type uses. [Supported grade fragment](../tooling/elaboration-prototype.md#default-grade-checking) | M (pure definitions), D |
 | `ghost T` | Erased, duplicable specification data with no computation use | M |
 | `tracked T` | Erased resource evidence that cannot be copied | S |
 | `Fn`, `FnMut`, `FnOnce` with `captures C` | Shared-call, exclusive-call and consuming-call function types with their capture sets | S |
@@ -493,15 +494,14 @@ public Result<u32, ArithmeticError> AddTwice(u32 a, u32 b)
 ## Extensions outside the first release
 
 The [extension index](../extensions/README.md) lists the designs outside the
-first-release boundary. The separate
-[`check-grades` investigations](../tooling/elaboration-prototype.md#pure-graded-source-replay)
-replay restricted `NatExact` and `NatBound` definitions and a pure `NatExact`
-box fragment in Rocq. The [graded selection protocol](../extensions/graded-foundation.md#extension-selection-and-qualification)
-governs qualification beyond those experiments.
+first-release boundary. The [first-release grading contract](first-release.md#default-graded-checking)
+covers the natural domains and separate type-use accounting. The
+[graded selection protocol](../extensions/graded-foundation.md#extension-selection-and-qualification)
+governs additional domains and grade-directed authoring tools.
 
 | Construct | Extension | Status |
 | --- | --- | --- |
-| `x @ q`, `grade q : D`, `domain` declarations | [Graded foundation](../extensions/graded-foundation.md) | S |
+| User-defined `domain` declarations and grade parameters over those domains | [Graded foundation](../extensions/graded-foundation.md) | S |
 | `effect`, `handle`, `resume`, `dispose`, `rehandle`, `shallow` | [Handlers](../extensions/handlers-async.md) | S |
 | `async`, `scope`, `spawn`, `await`, `commit`, `on cancel` | [Structured tasks](../extensions/handlers-async.md) | S |
 | Cells, snapshots and local aliases | [Interior mutability](../extensions/interior-mutability.md) | D |

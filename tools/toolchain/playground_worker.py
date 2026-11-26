@@ -2,6 +2,7 @@
 """Isolated compiler worker for the local browser playground."""
 
 import hashlib
+import subprocess
 import sys
 from dataclasses import asdict
 from pathlib import Path
@@ -18,8 +19,11 @@ from toolchain import (
 )
 from toolchain.authoring import OPT_IN_MATHEMATICAL_LINTS, lint_source, preview_bindings
 from toolchain.elaborate_holes import AssertionGoalError, OpenGoalsError
+from toolchain.graded_source import REPLAY_DEADLINE
 from toolchain.hashing import file_sha256
 from toolchain.protocol_json import MAX_BODY_BYTES, decode_message, encode_body
+
+TIMEOUT_EXIT = 124
 
 
 def _editor_translation(source: bytes) -> Translation | HoldFastError | None:
@@ -93,13 +97,16 @@ def require_parser(parser: Path, digest: str) -> None:
         raise ValueError("prepared mathematical parser is unavailable or changed")
 
 
-def main(*, mathematical_parser: Path, parser_sha256: str) -> int:
+def main(*, mathematical_parser: Path, parser_sha256: str, deadline: float) -> int:
     try:
         request = decode_message(sys.stdin.buffer.read(MAX_BODY_BYTES + 1))
         if request["action"] != "authoring":
             require_parser(mathematical_parser, parser_sha256)
-        response = compile_request(request, mathematical_parser=mathematical_parser)
+        with REPLAY_DEADLINE.set(deadline):
+            response = compile_request(request, mathematical_parser=mathematical_parser)
         raw = encode_body(response)
+    except subprocess.TimeoutExpired:
+        return TIMEOUT_EXIT
     except (KeyError, TypeError, ValueError, UnicodeError, OSError, RuntimeError):
         return 1
     sys.stdout.buffer.write(raw)
