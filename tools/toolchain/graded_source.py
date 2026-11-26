@@ -76,6 +76,9 @@ class GradeExport:
     receipt: str
 
 
+type GradeResolver = Callable[[str], tuple[str, GradeExport] | None]
+
+
 class _Projection:
     reserved = _PRIMITIVES
 
@@ -87,9 +90,9 @@ class _Projection:
         self.completed: dict[str, _Definition] = {}
         self.definitions: list[_Definition] = []
         self.annotations: set[int] = set()
-        self.resolve_import: Callable[[str], GradeExport | None] | None = None
+        self.resolve_import: GradeResolver | None = None
         self.providers: dict[str, _Projection] = {}
-        self.provider_receipts: set[str] = set()
+        self.provider_receipts: set[tuple[str, str]] = set()
         for declaration in cast("list[Node]", syntax["declarations"]):
             if declaration["kind"] in {"import", "import_item"}:
                 continue
@@ -195,9 +198,10 @@ class _Projection:
         return f"(ApplyValue {callee} {self._term(node, scope, declaration)})"
 
     def _imported_call(self, name: str, node: Node, arity: int) -> str | None:
-        provider = self.resolve_import(name) if self.resolve_import is not None else None
-        if provider is None:
+        resolved = self.resolve_import(name) if self.resolve_import is not None else None
+        if resolved is None:
             return None
+        identity, provider = resolved
         if provider.domain != self.domain:
             raise self.protocol.error("grade", f"imported '{name}' requires the {provider.domain} grade domain", node)
         module = _name(provider.syntax["name"])
@@ -210,7 +214,7 @@ class _Projection:
         definition = projection.definition(provider.name)
         if len(cast("list[Node]", definition.source["parameters"])) != arity:
             raise self.protocol.error("unsupported", "graded imported calls require all declared arguments", node)
-        self.provider_receipts.add(provider.receipt)
+        self.provider_receipts.add((identity, provider.receipt))
         return f"source_term_{definition.index}"
 
     def _term(self, node: Node, scope: dict[str, _Parameter], declaration: Node) -> str:
@@ -564,14 +568,15 @@ class _ModalProjection(_Projection):
 
 
 def _certificate(definitions: list[_Definition], source_hash: str, domain: GradeDomain,
-                 provider_receipts: set[str] | None = None) -> str:
+                 provider_receipts: set[tuple[str, str]] | None = None) -> str:
     modal = definitions[-1].context is not None
     files = _MODAL_FILES if modal else _ROCQ_FILES
     modules = "GradedPure GradedModal GradedModalSource" if modal else "GradedPure GradedSource"
     check_name = "bounded_source_check" if domain == GradeDomain.BOUND else "source_check"
     lines = [
         f"(* Source SHA-256 {source_hash} *)",
-        *(f"(* Graded provider receipt SHA-256 {receipt} *)" for receipt in sorted(provider_receipts or ())),
+        *(f"(* Graded provider {identity} receipt SHA-256 {receipt} *)"
+          for identity, receipt in sorted(provider_receipts or ())),
         "From Stdlib Require Import Lists.List.",
         f"Require Import {' '.join(Path(name).stem for name in files)}.",
         f"Import ListNotations {modules}.",
@@ -701,7 +706,7 @@ class ModuleReplay:
         self.receipts: list[str] = []
         self.exports: dict[str, GradeExport] = {}
 
-    def check(self, declaration: Node, resolve_import: Callable[[str], GradeExport | None]) -> set[int]:
+    def check(self, declaration: Node, resolve_import: GradeResolver) -> set[int]:
         protocol = self.protocol
         if declaration is self.box:
             return {id(cast("list[Node]", declaration["generics"])[1]),

@@ -12,7 +12,7 @@ from pathlib import Path
 
 from tests.harness import TOOLS, Case, ensure
 from tests.test_holdfast_packages import _write
-from toolchain import proofenv, solver_ledger
+from toolchain import packages, proofenv, solver_ledger
 from toolchain.cli.holdfast_parser import main as parser_main
 
 
@@ -166,6 +166,15 @@ def _locked_graded_import() -> None:
         checked_client()
         client.write_text(consumer, encoding="utf-8")
         ensure(checked_client() == first, "identical source closures produced different grade evidence")
+
+        manifest = client.parent / packages.MANIFEST
+        original_manifest = manifest.read_text(encoding="utf-8")
+        alternative = _write(workspace, "library", "v2", {}, "SignedGrade") / "module.hf"
+        alternative.write_text(provider, encoding="utf-8")
+        manifest.write_text(original_manifest.replace('library = "v1"', 'library = "v2"'), encoding="utf-8")
+        ensure(checked_client() != first, "different provider identity reused the client grade receipt")
+        manifest.write_text(original_manifest, encoding="utf-8")
+        relock()
 
         lib.write_text(provider + "\n", encoding="utf-8")
         status, output, error = _parser_command(build_command)

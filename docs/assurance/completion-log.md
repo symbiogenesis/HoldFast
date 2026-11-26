@@ -2710,9 +2710,10 @@ reaches the exact-use refusal and preserves the previously published bundle.
 
 The locked import replay checks a public dependent natural/vector call through
 module and selected aliases. It checks a zero-computation index that appears
-in both the argument and result types. The caller receipt includes the
-resolved provider's receipt, so an edit to that module invalidates the lock
-and changes the caller evidence on rebuild. A different provider domain or
+in both the argument and result types. The caller receipt binds the provider's
+identity and grade receipt. A byte-identical replacement at a different locked
+revision changes the caller receipt. Editing the provider source invalidates
+the lock and changes the caller receipt on rebuild. A different provider domain or
 an incompatible index is refused. [Locked import replay](../../tools/tests/test_holdfast_graded_client.py#_locked_graded_import)
 
 The natural `let` replay counts the initializer once under exact and bounded

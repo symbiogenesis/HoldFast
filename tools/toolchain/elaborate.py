@@ -2436,11 +2436,13 @@ def _checked_elaboration(
         imported_grade_exports = {name: export for mod in elaborator.available_modules.values()
                                   for name, export in mod.grade_exports.items()}
 
-        def resolve_grade_import(name: str) -> graded_source.GradeExport | None:
+        def resolve_grade_import(name: str) -> tuple[str, graded_source.GradeExport] | None:
             binding = elaborator.globals.get(name)
             if binding is None or binding.term.kind != "const":
                 return None
-            return imported_grade_exports.get(str(binding.term.value))
+            identity = str(binding.term.value)
+            export = imported_grade_exports.get(identity)
+            return (identity, export) if export is not None else None
 
         with phase("resolve-and-elaborate"), ExitStack() as grade_stack:
             grade_replay = graded_source.ModuleReplay(Path(__file__).resolve().parents[2], protocol, root, grade_stack)
