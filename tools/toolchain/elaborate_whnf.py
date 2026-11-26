@@ -983,7 +983,7 @@ class _WhnfMixin:
             if sname == "Span_CopyPrefix" and len(s_args) == 4:
                 self.tick(True)
                 return self.whnf(_apps(_constant(name), elem, s_args[1]))
-            if sname == "Span_Restore" and len(s_args) == 3:
+            if sname in {"Span_Restore", "Span_ReplaceStore"} and len(s_args) == 3:
                 self.tick(True)
                 return self.whnf(_apps(_constant(name), elem, s_args[1]))
             if s != arguments[1]:

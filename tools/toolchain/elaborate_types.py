@@ -413,6 +413,7 @@ _GALLINA = {
     "Span_Slice": "holdfast_Span_Slice",
     "Span_CopyPrefix": "holdfast_Span_CopyPrefix",
     "Span_Restore": "holdfast_Span_Restore",
+    "Span_ReplaceStore": "holdfast_Span_ReplaceStore",
     "nat_to_usize": "holdfast_nat_to_usize",
     "nat_hex_bytes": "holdfast_nat_hex_bytes", "ValidUtf8": "holdfast_ValidUtf8",
     "WrittenBytes": "holdfast_WrittenBytes",
@@ -1573,6 +1574,15 @@ Definition holdfast_Span_Restore (A : Type@{holdfast_u0}) (parent view : holdfas
     (holdfast_Span_PermRead A parent)
     (holdfast_Span_PermWrite A parent)
     (holdfast_bs_shift (holdfast_store_slice_offset (holdfast_Span_Store A view)) (holdfast_Span_Store A view)).
+
+Definition holdfast_Span_ReplaceStore (A : Type@{holdfast_u0}) (owner updated : holdfast_Span A) : holdfast_Span A :=
+  holdfast_mk_span A
+    (holdfast_Span_Base A owner)
+    (holdfast_Span_Length A owner)
+    (holdfast_Span_Tag A owner)
+    (holdfast_Span_PermRead A owner)
+    (holdfast_Span_PermWrite A owner)
+    (holdfast_Span_Store A updated).
 
 Definition holdfast_Span_Read_write_same (A : Type@{holdfast_u0}) (s : holdfast_Span A) (idx : holdfast_int (4 : nat)) (val : holdfast_int (0 : nat))
     : @Corelib.Init.Logic.eq (holdfast_int (0 : nat))

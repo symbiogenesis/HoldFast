@@ -125,6 +125,7 @@ class _IntrinsicsMixin:
                 "Span_Slice",
                 "Span_CopyPrefix",
                 "Span_Restore",
+                "Span_ReplaceStore",
             } and len(args) >= 2:
                 curr = self.whnf(args[1])
             elif sname in {"Slots_Write", "Slots_TransferSource", "Slots_TransferDest"} and len(args) >= 3:

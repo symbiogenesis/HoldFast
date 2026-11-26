@@ -269,9 +269,128 @@ Proof. repeat split; reflexivity. Qed.
     _replay_view_proof(gallina, proof, "LoopViewReturn", ["loop_view_and_writeback", "loop_view_entry_is_inhabited"])
 
 
+def _lending_span_iteration() -> None:
+    source = (TOOLS / "tests" / "fixtures" / "lending-span-iteration.hf").read_bytes()
+    with parser.cached_build(TOOLS.parent) as compiled:
+        gallina = elaborate(source, parser.parse_source(compiled, source, surface=True)).gallina
+        bounded = source.replace(b"    requires values.CanRead",
+                                 b"    requires values.Length == 4usize\n    requires values.CanRead")
+        aliased = bounded.replace(b"    var visits", b"    let savedView = Span.ReadOnly(values);\n    var visits")
+        owner_reused = bounded.replace(b"public Nat ", b"public byte ").replace(b"return visits;", b"return values[0usize];")
+        view = b"Span.ReadOnly(Span.Slice(values, 0usize, 1usize))"
+        earlier_use = owner_reused.replace(
+            b"    var visits",
+            b"    var before = 0u8;\n    { let selected = " + view + b"; before = selected[0usize]; }\n    var visits",
+        ).replace(b"return values[0usize];", b"return before;")
+        for valid in (owner_reused, earlier_use):
+            elaborate(valid, parser.parse_source(compiled, valid, surface=True))
+        for candidate, marker, message in (
+            (bounded, b"let observed = values[0usize];", "cannot access suspended Span owner 'values'"),
+            (aliased, b"let observed = savedView[0usize];", "cannot access suspended Span owner 'values'"),
+        ):
+            invalid = candidate.replace(b"        element =", b"        " + marker + b"\n        element =")
+            with raises(HoldFastError, msg="a competing read bypassed the active element loan") as failure:
+                elaborate(invalid, parser.parse_source(compiled, invalid, surface=True))
+            error = failure.exception
+            read_line = next(number for number, line in enumerate(invalid.splitlines(), 1) if marker in line)
+            ensure(error.kind == "type" and error.line == read_line and message in error.message,
+                   f"wrong refusal for conflicting access during lending: {error}")
+        for invalid, message in (
+            (source.replace(b" && values.CanWrite", b""), "Span.CanWrite"),
+            (source.replace(b"in values) {", b"in values) invariant visits == 0 {"),
+             "could not be established on loop inductive step"),
+            (source.replace(b"writes(values)", b"none").replace(b"if (element == 0u8) 9u8 else 1u8", b"element"),
+             "write"),
+            (owner_reused.replace(b"    var visits", b"    let selected = " + view + b";\n    var visits")
+             .replace(b"return values[0usize];", b"return selected[0usize];"),
+             "cannot establish exclusive iteration of 'values' with retained Span views or aliases (selected)"),
+        ):
+            with raises(HoldFastError, msg="a loan was lent without a permission or invariant") as failure:
+                elaborate(invalid, parser.parse_source(compiled, invalid, surface=True))
+            ensure(failure.exception.kind == "type" and message in failure.exception.message,
+                   f"wrong refusal for lending iteration: {failure.exception}")
+
+    [client] = re.findall(r"^Definition (holdfast_d\d+_RewriteElements) :", gallina, re.MULTILINE)
+    proof = rf"""
+From Stdlib Require Import Arith.PeanoNat Lists.List.
+Import HoldFast_LendingSpanIteration ListNotations.
+Local Definition trial_word := holdfast_int 0.
+Local Definition trial_span := holdfast_Span trial_word.
+Local Definition trial_index := holdfast_nat_to_usize.
+Local Definition trial_byte n := holdfast_mk_int 0 (holdfast_nat_to_bits 8 n).
+Local Definition trial_read := holdfast_Span_Read trial_word.
+Local Definition trial_length values := holdfast_int_to_nat 4 (holdfast_Span_Length trial_word values).
+Local Definition trial_rewrite value :=
+  if holdfast_int_eq 0 value (trial_byte 0) then trial_byte 9 else trial_byte 1.
+Local Definition trial_step i values :=
+  holdfast_Span_Write trial_word values (trial_index i) (trial_rewrite (trial_read values (trial_index i))).
+Local Fixpoint trial_prefix values n :=
+  match n with
+  | O => values
+  | S i => trial_step i (trial_prefix values i)
+  end.
+Local Definition trial_state values n :=
+  holdfast_NatFold (trial_span * (nat * unit))
+    (fun i state => (trial_step i (fst state), (fst (snd state) + 1, tt))) (values, (0, tt)) n.
+Local Lemma trial_state_correct : forall values n,
+  trial_state values n = (trial_prefix values n, (n, tt)).
+Proof.
+  intros values n. induction n as [|n IH]; [reflexivity|].
+  change ((trial_step n (fst (trial_state values n)), (fst (snd (trial_state values n)) + 1, tt)) =
+          (trial_step n (trial_prefix values n), (S n, tt))).
+  rewrite IH. cbn [fst snd]. now rewrite Nat.add_1_r.
+Qed.
+Theorem lending_iteration_count_and_writeback : forall values,
+  {client} values = trial_length values /\
+  (forall k, trial_read ({client}_post_values values) k = trial_read (trial_prefix values (trial_length values)) k).
+Proof.
+  intros values. split.
+  - change (fst (snd (trial_state values (trial_length values))) = trial_length values).
+    now rewrite trial_state_correct.
+  - intros k. change (trial_read (fst (trial_state values (trial_length values))) k =
+                       trial_read (trial_prefix values (trial_length values)) k).
+    now rewrite trial_state_correct.
+Qed.
+Local Lemma trial_prefix_frame : forall values n k,
+  (forall i, i < n -> holdfast_int_ne 4 (trial_index i) k = true) ->
+  trial_read (trial_prefix values n) k = trial_read values k.
+Proof.
+  intros values n. induction n as [|n IH]; intros k separate; [reflexivity|].
+  change (trial_read (trial_step n (trial_prefix values n)) k = trial_read values k).
+  unfold trial_step, trial_read. rewrite holdfast_Span_Read_write_other_ne.
+  - apply IH. intros i earlier. apply separate. now apply Nat.lt_lt_succ_r.
+  - apply separate, Nat.lt_succ_diag_r.
+Qed.
+Theorem lending_iteration_frame : forall values k,
+  (forall i, i < trial_length values -> holdfast_int_ne 4 (trial_index i) k = true) ->
+  trial_read ({client}_post_values values) k = trial_read values k.
+Proof.
+  intros values k separate. rewrite (proj2 (lending_iteration_count_and_writeback values)). now apply trial_prefix_frame.
+Qed.
+Local Definition trial_values (a b c d n : nat) :=
+  let initial := holdfast_mk_span trial_word (trial_index 17) (trial_index n) true true true holdfast_bs_empty in
+  let write s i v := holdfast_Span_Write trial_word s (trial_index i) (trial_byte v) in
+  write (write (write (write initial 0 a) 1 b) 2 c) 3 d.
+Local Definition trial_observe a b c d n :=
+  let values := trial_values a b c d n in
+  let post := {client}_post_values values in
+  ({client} values, map (fun i => holdfast_int_to_nat 0 (trial_read post (trial_index i))) [0; 1; 2; 3]).
+Example lending_prefix_observations :
+  map (trial_observe 0 2 0 4) [0; 1; 2; 3; 4] =
+    [(0, [0; 2; 0; 4]); (1, [9; 2; 0; 4]); (2, [9; 1; 0; 4]); (3, [9; 1; 9; 4]); (4, [9; 1; 9; 1])] /\
+  map (trial_observe 1 0 3 0) [0; 1; 2; 3; 4] =
+    [(0, [1; 0; 3; 0]); (1, [1; 0; 3; 0]); (2, [1; 9; 3; 0]); (3, [1; 9; 1; 0]); (4, [1; 9; 1; 9])].
+Proof. vm_compute. split; reflexivity. Qed.
+"""
+    _replay_view_proof(gallina, proof, "LendingSpanIteration", [
+        "lending_iteration_count_and_writeback", "lending_iteration_frame", "lending_prefix_observations",
+    ])
+
+
 def cases() -> list[Case]:
     return [
         Case("conditional view return and sibling owner writeback", _conditional_view_return, lane="toolchain"),
         Case("returned view and branch-specific owner writeback at a join", _joined_view_return, lane="toolchain"),
         Case("returned view and disjoint symbolic loop writeback", _loop_view_return, lane="toolchain"),
+        Case("scoped lending and symbolic Span element writeback", _lending_span_iteration, lane="toolchain"),
     ]
