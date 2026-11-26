@@ -2250,7 +2250,7 @@ class _StatementsMixin:
                 if span_owner is not None:
                     if control == "break":
                         stop_after = _term("bool", value=1)
-                    elif terminal_break:
+                    elif terminal_break is not None and terminal_break:
                         stop_after = terminal_break[0]
                 writes_element = after_sym[var_name].term != elem_var or (
                     lends_span and var_name in self.runtime_writes
