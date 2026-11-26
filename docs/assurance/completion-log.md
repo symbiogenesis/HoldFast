@@ -2708,6 +2708,19 @@ An allowance edit invalidates the old lock. Rebuilding with a fresh lock
 reaches the exact-use refusal and preserves the previously published bundle.
 [Locked-build replay](../../tools/tests/test_holdfast_graded_client.py)
 
+The locked import replay checks a public dependent natural/vector call through
+module and selected aliases. It checks a zero-computation index that appears
+in both the argument and result types. The caller receipt includes the
+resolved provider's receipt, so an edit to that module invalidates the lock
+and changes the caller evidence on rebuild. A different provider domain or
+an incompatible index is refused. [Locked import replay](../../tools/tests/test_holdfast_graded_client.py#_locked_graded_import)
+
+The natural `let` replay counts the initializer once under exact and bounded
+allowances. A local can be read twice in computation or used only to fix a
+later vector extent. The controls reject incorrect computation allowances
+and a stale dependent result. [Source replay](../../tools/tests/test_holdfast_graded.py#_graded_let) ·
+[Declarative rule and checker](../../tools/rocq/graded_pure.v)
+
 The default pure replay checks positional applications of earlier named
 definitions to dependent vectors and closed higher-order applications of
 locally checked functions. The Rocq application rule compares grades under
@@ -2856,7 +2869,9 @@ copies the selected view byte at owner index `2 + i` to owner index `j`.
 HoldFast checks the earlier write against the entire live view extent, then
 uses `j != 2 + i` to separate the two call arguments. The replay checks
 writeback, the frame and the guard-failure state in the `Span` model.
-An overlapping earlier write is refused. The direct Rust source and its
+The same checks apply with `Span.ReadOnly` wrapping the owner or a composed
+slice. A reachable overlapping write or fill is refused.
+The direct Rust source and its
 overlapping neighbor both fail with E0506 in default, NLL, legacy Polonius and
 Polonius Alpha modes. The safe Rust rewrite changes the loan timing and uses
 `get_disjoint_mut` to check separation at runtime. Its returned byte and owner
@@ -2864,9 +2879,9 @@ state agree with the HoldFast model on the same 36 input pairs.
 [HoldFast replay](../../tools/tests/test_holdfast_loans.py#_owner_coordinate_indexed_loans) ·
 [Rust fixture](../../tools/tests/fixtures/updated_view_loans.rs)
 
-The Windows ARM64 Rust comparison checked 126 pinned configurations and
-recorded 44 passing observation runs and 82 expected refusals. Its optional
-sampler recorded 756 check-only measurements without linking. The sample
+The Windows ARM64 Rust comparison checks 138 pinned configurations and
+records 48 passing observation runs and 90 expected refusals. The earlier
+126-configuration run also recorded 756 check-only measurements. The sample
 includes elapsed time and resident memory at compiler pass boundaries under
 uncontrolled caches. Matched HoldFast performance and held-out client
 qualification remain open.
@@ -2896,6 +2911,18 @@ The `get_disjoint_mut` rewrite passes the returned-byte and owner-state
 observations for all six indices in each mode.
 [HoldFast replay](../../tools/tests/test_holdfast_loan_returns.py#_joined_view_return) ·
 [Rust fixture](../../tools/tests/fixtures/joined_view_return.rs)
+
+The correlated-return trial chooses the slice and the owner's updated element
+with the same Boolean guard. Rocq checks the returned descriptor's base and
+length, its byte against the updated owner, and each writeback and frame.
+Controls make either write overlap the selected view or change the write to
+depend on an independent guard. Each is refused at the return obligation.
+Default, NLL, legacy Polonius and Polonius Alpha reject the direct Rust
+spelling and its overlapping neighbor with E0506. A Rust rewrite that
+creates the view after the write in each branch passes all four combinations
+of the flag and input owner in each mode.
+[Correlated return replay](../../tools/tests/test_holdfast_loan_returns.py#_correlated_view_return) ·
+[Rust fixture](../../tools/tests/fixtures/correlated_view_return.rs)
 
 The shared-view loop trial retains a one-byte view of the final owner element
 while a symbolic loop fills a prefix. The HoldFast return check uses the prefix

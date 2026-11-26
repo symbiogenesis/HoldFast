@@ -170,13 +170,16 @@ pinned modes, while the `split_at_mut` spelling passes the observations.
 
 The frontend also checks a call that shares `view[i]` from a named `Span.Slice`
 and exclusively borrows `owner[j]` from its owner. The checker adds each slice
-offset to `i` before applying scoped separation facts. For two slices at
-offset one, `j != 2usize + i` proves separation between the call arguments.
+offset to `i` before applying scoped separation facts. A `Span.ReadOnly`
+wrapper preserves the source offset and extent for the shared argument. For
+two slices at offset one, `j != 2usize + i` proves separation between the call
+arguments.
 If the slice predates an owner write or fill, each reachable branch must
 preserve the full slice extent. Pending mutable argument updates leave
 separation unresolved. The Rocq replay checks the returned byte, owner
 writeback, framed elements and untouched failure state for single and nested
-slices, including a write to owner index zero before the call.
+slices, including read-only wrappers and a write to owner index zero before
+the call.
 [Owner-coordinate replay](../../tools/tests/test_holdfast_loans.py#_owner_coordinate_indexed_loans)
 
 In the conditional-return trial, the mathematical frontend checks a returned
@@ -197,6 +200,18 @@ the same direct source pattern. The `get_disjoint_mut` spelling checks
 overlap at runtime and passes the observations in all four modes.
 [HoldFast replay](../../tools/tests/test_holdfast_loan_returns.py#_joined_view_return) ·
 [Rust fixture](../../tools/tests/fixtures/joined_view_return.rs)
+
+When a conditional chooses the returned slice itself, the frontend checks each
+possible descriptor under its branch facts. A slice of element zero survives
+a write to element one on the true path, and a slice of element one survives
+a write to element zero on the false path. The checked model relates each
+selected descriptor to the current owner, including the unchanged byte and
+the written neighbor. An overlapping write on either path or a choice under
+an independent condition is refused. The four pinned Rust modes reject the
+direct spelling at the two disjoint writes. Moving view creation to each
+branch after its write passes the same observations using static separation.
+[Correlated return replay](../../tools/tests/test_holdfast_loan_returns.py#_correlated_view_return) ·
+[Rust fixture](../../tools/tests/fixtures/correlated_view_return.rs)
 
 The symbolic range-loop trial retains a shared view of element three while
 writing nine into the owner at each index in the prefix `[0, n)`. The loop

@@ -16,19 +16,25 @@ declarations are part of the [metaprogramming design](../extensions/metaprogramm
 
 Ordinary `holdfast-parser elaborate` and locked mathematical builds replay
 explicit natural-grade annotations before emitting the checked module. A pure
-definition can use `NatExact` or `NatBound` across its local graded dependency
-closure. The replay checks its annotated dependent functions, applications of
-earlier named definitions, natural indices and supported indexed records. A
-canonical module-private `Box` can be constructed and opened within a checked
-definition. Its grade and its payload remain distinct in the checked source.
+definition can use `NatExact` or `NatBound` across its graded dependency
+closure. The replay checks annotated dependent functions, applications of
+earlier named definitions, natural indices, natural `let` bindings and indexed
+records in the supported fragment. A canonical module-private `Box` can be
+constructed and opened within a checked definition. Its grade and payload
+remain distinct in the checked source.
 A grade unsupported by replay produces a located refusal before publication.
 
 Each graded declaration contributes a receipt digest binding the source,
 certificate and Rocq support. The locked build also binds the support sources
 in its producer identity. The `check-grades` command reports the separate demand
-rows and certificate for inspection. Imported graded dependencies, graded box
-and callable inputs at module interfaces, and general domains require further
-qualification. [First-release contract](../language/first-release.md#default-graded-checking)
+rows and certificate for inspection. A pure graded caller can apply a public
+first-order `Nat` or `Vec` definition imported under its name, module alias or
+selected alias. Replay uses the resolved provider, checks all arguments in the
+provider's grade domain and binds its grade receipt into the caller's receipt.
+The provider's graded dependency closure is local to its module. Transitive
+graded imports, graded boxes and higher-order values at module interfaces, and
+general domains require further qualification.
+[First-release contract](../language/first-release.md#default-graded-checking)
 
 ## Pure graded source replay
 
@@ -44,6 +50,13 @@ including its grades, up to renaming of binders. This value rule requires a
 codomain well formed without the applied binder. The checker computes type use
 separately from the computation demand and checks the specialized codomain.
 [Application fixture](../../tools/tests/fixtures/graded-application.hf)
+
+A natural `let` accepts a stable initializer formed from names, natural
+literals and addition. The checking rule counts that initializer once, checks
+the local's computation allowance against body demand and substitutes the
+initializer into the result type and its type-use row. The rule covers a local
+with zero computation use whose value still determines a later vector extent.
+[Natural let fixture](../../tools/tests/fixtures/graded-let.hf)
 
 The report binds the source digest and declaration span to the generated Rocq
 replay and the digests of its support files. It gives each binder's exact
