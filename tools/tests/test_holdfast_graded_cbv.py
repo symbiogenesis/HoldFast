@@ -44,6 +44,10 @@ _MODAL_AUDITED = (
     "checked_box_open_preserves_argument_with",
     "unused_box_payload_keeps_effect_and_type",
     "repeated_box_payload_reuses_one_effect",
+    "checked_slice_box_preserves_owner_with",
+    "unused_slice_box_keeps_extent_and_restores_owner",
+    "bounded_slice_box_reuses_the_original_payload",
+    "failed_slice_box_keeps_writeback_without_an_extent",
 )
 
 
@@ -58,6 +62,7 @@ def cases() -> list[Case]:
              lane="toolchain"),
         Case("graded dependent box call-by-value replay",
              partial(_replay, "graded_modal_cbv", "GradedModalCbv", _MODAL_AUDITED,
-                     ("graded_pure", "graded_domains", "graded_modal", "graded_cbv")),
+                     ("graded_pure", "graded_domains", "graded_modal", "graded_cbv", "graded_cbv_span"),
+                     (("graded_cbv_span_carrier", _PRELUDE),)),
              lane="toolchain"),
     ]
