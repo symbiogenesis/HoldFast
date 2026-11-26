@@ -17,13 +17,18 @@ from toolchain.loans import (
     Access,
     Activate,
     AnalysisRefusalError,
+    AssumeDisjoint,
+    AssumeIndexNe,
+    AssumeRefinement,
     Bind,
     Borrow,
     Checkpoint,
     CloseInvariant,
     Drop,
+    DropRefinement,
     Event,
     Graph,
+    InvalidateSymbol,
     Limits,
     Loan,
     Move,
@@ -36,6 +41,7 @@ from toolchain.loans import (
     Reserve,
     Return,
     Use,
+    UseRefinement,
     analyze,
     analyze_function,
     analyze_module,
@@ -2124,6 +2130,473 @@ Proof. vm_compute. repeat split; reflexivity. Qed.
         solver_ledger.audit(replay.stdout, len(exports), "HoldFast_CorrelatedIndexedLoans", entries)
 
 
+def _symbolic_index_projections_and_disjointness() -> None:
+    arr_owner = (Owner("arr", borrowed=True),)
+    item_owner = (Owner("items", borrowed=True, fields=(("@i", "Header"), ("@i", "Payload"))),)
+    grid_owner = (Owner("grid", borrowed=True),)
+
+    # 1D symbolic disjointness via AssumeIndexNe and AssumeDisjoint.
+    arr_i = Place("arr", ("@i",))
+    arr_j = Place("arr", ("@j",))
+    for assumption in (AssumeIndexNe("@i", "@j"), AssumeDisjoint(arr_i, arr_j)):
+        disjoint = analyze(arr_owner, _graph(
+            assumption,
+            Borrow(Loan("elem_i", "arr", arr_i)),
+            Access(arr_j, "write"),
+            Use("elem_i"),
+            Return("ok"),
+        )).paths[0]
+        ensure(not disjoint.issues and not any(o.kind == "overlap" for o in disjoint.obligations),
+               f"proved symbolic disjointness left conflicts or overlap obligations: {disjoint}")
+
+    # Missing disjointness assumption produces overlap obligation; coincident @i == @i conflicts.
+    unproven = analyze(arr_owner, _graph(
+        Borrow(Loan("elem_i", "arr", arr_i)),
+        Access(arr_j, "write"),
+        Use("elem_i"),
+    )).paths[0]
+    ensure(not unproven.issues and any(o.kind == "overlap" for o in unproven.obligations),
+           f"unproven distinct symbolic indices bypassed overlap obligation: {unproven}")
+    coincident = analyze(arr_owner, _graph(
+        AssumeIndexNe("@i", "@j"),
+        Borrow(Loan("elem_i", "arr", arr_i)),
+        Access(arr_i, "write"),
+        Use("elem_i"),
+    )).paths[0]
+    ensure("suspended-parent" in _kinds(coincident),
+           f"coincident symbolic index write did not conflict: {coincident.issues}")
+
+    # Same symbolic index @i with distinct declared sibling fields is disjoint.
+    item_hdr = Place("items", ("@i", "Header"))
+    item_pay = Place("items", ("@i", "Payload"))
+    sibling = analyze(item_owner, _graph(
+        Borrow(Loan("hdr", "items", item_hdr)),
+        Access(item_pay, "write"),
+        Use("hdr"),
+    )).paths[0]
+    ensure(not sibling.issues and not any(o.kind == "overlap" for o in sibling.obligations),
+           f"declared sibling fields under same symbolic index were not disjoint: {sibling}")
+    same_field = analyze(item_owner, _graph(
+        Borrow(Loan("hdr", "items", item_hdr)),
+        Access(item_hdr, "write"),
+        Use("hdr"),
+    )).paths[0]
+    ensure("suspended-parent" in _kinds(same_field),
+           f"same field under same symbolic index did not conflict: {same_field.issues}")
+
+    # 2D grid: disjoint if EITHER row OR col is proved disjoint.
+    cell_1 = Place("grid", ("@r1", "@c1"))
+    cell_2 = Place("grid", ("@r2", "@c2"))
+    for assumption in (
+        AssumeIndexNe("@r1", "@r2"),
+        AssumeIndexNe("@c1", "@c2"),
+        AssumeDisjoint(Place("grid", ("@r1",)), Place("grid", ("@r2",))),
+        AssumeDisjoint(cell_1, cell_2),
+    ):
+        grid_ok = analyze(grid_owner, _graph(
+            assumption,
+            Borrow(Loan("left", "grid", cell_1, "exclusive")),
+            Borrow(Loan("right", "grid", cell_2, "exclusive")),
+            Use("left"),
+            Use("right"),
+        )).paths[0]
+        ensure(not grid_ok.issues and not any(o.kind == "overlap" for o in grid_ok.obligations),
+               f"2D grid failed under {assumption}: {grid_ok}")
+
+    # Whole row vs cell when only col is disjoint must remain unknown.
+    row_vs_cell = analyze(grid_owner, _graph(
+        AssumeIndexNe("@c1", "@c2"),
+        Borrow(Loan("row", "grid", Place("grid", ("@r1",)), "exclusive")),
+        Access(cell_2, "write"),
+        Use("row"),
+    )).paths[0]
+    ensure(any(o.kind == "overlap" for o in row_vs_cell.obligations),
+           f"whole row vs cell with only col disequality did not leave overlap obligation: {row_vs_cell}")
+
+    # InvalidateSymbol drops facts involving the invalidated symbol while keeping unrelated facts,
+    # and freezes active loans mentioning that symbol.
+    invalidated = analyze(grid_owner, _graph(
+        AssumeIndexNe("@r1", "@r2"),
+        AssumeIndexNe("@c1", "@c2"),
+        InvalidateSymbol("@r1"),
+        Borrow(Loan("left", "grid", cell_1, "exclusive")),
+        Access(cell_2, "write"),
+        Use("left"),
+    )).paths[0]
+    ensure(not invalidated.issues and not any(o.kind == "overlap" for o in invalidated.obligations),
+           "InvalidateSymbol(@r1) wrongly dropped unrelated @c1 != @c2 fact")
+
+    dropped_fact = analyze(arr_owner, _graph(
+        AssumeIndexNe("@i", "@j"),
+        InvalidateSymbol("@i"),
+        Borrow(Loan("left", "arr", arr_i, "exclusive")),
+        Access(arr_j, "write"),
+        Use("left"),
+    )).paths[0]
+    ensure(any(o.kind == "overlap" for o in dropped_fact.obligations),
+           "InvalidateSymbol(@i) failed to drop @i != @j fact")
+
+    stale_loan_after_reassign = analyze(arr_owner, _graph(
+        Borrow(Loan("left", "arr", arr_i)),
+        InvalidateSymbol("@i"),
+        Access(arr_i, "write"),
+        Use("left"),
+    )).paths[0]
+    ensure("suspended-parent" not in _kinds(stale_loan_after_reassign)
+           and any(o.kind == "overlap" for o in stale_loan_after_reassign.obligations),
+           "reassigned index symbol falsely matched old loan's @i")
+
+    # Branch join must keep paths with and without disjointness separate.
+    join_graph = Graph("split", (
+        Node("split", successors=("disjoint_arm", "plain_arm")),
+        Node("disjoint_arm", AssumeIndexNe("@i", "@j"), ("join",)),
+        Node("plain_arm", Nop(), ("join",)),
+        Node("join", Borrow(Loan("left", "arr", arr_i)), ("write",)),
+        Node("write", Access(arr_j, "write", stability="unstable"), ("use",)),
+        Node("use", Use("left"), ("done",)),
+        Node("done", Return("done")),
+    ))
+    paths = analyze(arr_owner, join_graph).paths
+    ensure(len(paths) == 2, f"join unsoundly merged branches with different disjoint_facts: {paths}")
+    by_arm = {("disjoint_arm" if "disjoint_arm" in p.nodes else "plain_arm"): p for p in paths}
+    ensure(not by_arm["disjoint_arm"].issues,
+           f"disjoint arm reported unexpected conflict: {by_arm['disjoint_arm'].issues}")
+    ensure("invalidated-by-unstable-mutation" in _kinds(by_arm["plain_arm"]),
+           f"plain arm missed unstable invalidation after join: {by_arm['plain_arm'].issues}")
+
+    # Malformed symbolic projections and disjointness assumptions refuse cleanly.
+    _refuses(lambda: analyze(arr_owner, _graph(Borrow(Loan("bad", "arr", Place("arr", ("@",)))))),
+             "normalized identifiers")
+    _refuses(lambda: analyze(arr_owner, _graph(Borrow(Loan("bad", "arr", Place("arr", ("@1bad",)))))),
+             "normalized identifiers")
+    _refuses(lambda: analyze(arr_owner, _graph(AssumeDisjoint(Place("arr", ("*",)), arr_j))),
+             "disjointness assumption")
+    _refuses(lambda: analyze(arr_owner, _graph(UseRefinement("missing"))),
+             "missing refinement")
+
+
+def _ante_stable_vs_unstable_and_refinements() -> None:
+    buf_owners = (Owner("buf", borrowed=True, fields=(("length",), ("payload",))),)
+    length_p = Place("buf", ("length",))
+    payload_p = Place("buf", ("payload",))
+
+    # Stable write invalidates overlapping refinements while preserving disjoint refinements and loans.
+    stable_ok = analyze(buf_owners, _graph(
+        AssumeRefinement("r_len", length_p),
+        AssumeRefinement("r_pay", payload_p),
+        Borrow(Loan("len_view", "buf", length_p)),
+        Access(payload_p, "write", stability="stable"),
+        Use("len_view"),
+        UseRefinement("r_len"),
+        Return("done"),
+    )).paths[0]
+    ensure(not stable_ok.issues, f"disjoint stable write broke refinement or loan: {stable_ok.issues}")
+
+    stale_ref = analyze(buf_owners, _graph(
+        AssumeRefinement("r_pay", payload_p),
+        Access(payload_p, "write", stability="stable"),
+        UseRefinement("r_pay"),
+    )).paths[0]
+    ensure([(i.node, i.kind, i.resources) for i in stale_ref.issues]
+           == [("n2", "stale-refinement", ("r_pay",))],
+           f"overlapping stable write did not mark refinement stale: {stale_ref.issues}")
+
+    # Re-establishing a stale refinement makes it usable again; dropping clears it.
+    reestablished = analyze(buf_owners, _graph(
+        AssumeRefinement("r_pay", payload_p),
+        Access(payload_p, "write", stability="stable"),
+        AssumeRefinement("r_pay", payload_p),
+        UseRefinement("r_pay"),
+        DropRefinement("r_pay"),
+        UseRefinement("r_pay"),
+    )).paths[0]
+    ensure([(i.node, i.kind, i.resources) for i in reestablished.issues]
+           == [("n5", "unavailable-refinement", ("r_pay",))],
+           f"re-establish/drop refinement sequence behaved unexpectedly: {reestablished.issues}")
+
+    # Symbolic index refinements survive disjoint stable writes and invalidate on unproved/overlapping writes.
+    vec_owners = (Owner("vec", borrowed=True),)
+    vec_i = Place("vec", ("@i",))
+    vec_j = Place("vec", ("@j",))
+    sym_ref_ok = analyze(vec_owners, _graph(
+        AssumeIndexNe("@i", "@j"),
+        AssumeRefinement("r_i", vec_i),
+        Access(vec_j, "write", stability="stable"),
+        UseRefinement("r_i"),
+    )).paths[0]
+    ensure(not sym_ref_ok.issues, f"disjoint indexed write invalidated refinement: {sym_ref_ok.issues}")
+
+    sym_ref_stale = analyze(vec_owners, _graph(
+        AssumeRefinement("r_i", vec_i),
+        Borrow(Loan("elem_i", "vec", vec_i)),
+        Access(vec_j, "write", stability="stable"),
+        Use("elem_i"),
+        UseRefinement("r_i"),
+    )).paths[0]
+    ensure([(i.node, i.kind) for i in sym_ref_stale.issues] == [("n4", "stale-refinement")],
+           f"stable unproved indexed write broke address validity or missed stale refinement: {sym_ref_stale.issues}")
+
+    # Unstable container mutation invalidates live interior loan on that path, NOT on sibling path.
+    unstable_branch = Graph("lend", (
+        Node("lend", Borrow(Loan("elem", "vec", vec_i)), ("split",)),
+        Node("split", Nop(), ("clear_then_use", "safe_use")),
+        Node("clear_then_use", Access(Place("vec"), "write", stability="unstable"), ("bad_use",)),
+        Node("bad_use", Use("elem"), ("ret_bad",)),
+        Node("ret_bad", Return("Bad")),
+        Node("safe_use", Use("elem"), ("ret_ok",)),
+        Node("ret_ok", Return("Ok")),
+    ))
+    paths = analyze(vec_owners, unstable_branch).paths
+    by_outcome = {p.outcome: p for p in paths}
+    ensure(not by_outcome["Ok"].issues,
+           f"sibling branch without unstable mutation lost interior loan validity: {by_outcome['Ok'].issues}")
+    ensure("invalidated-by-unstable-mutation" in _kinds(by_outcome["Bad"])
+           and any(i.node == "bad_use" and i.kind == "invalidated-by-unstable-mutation"
+                   for i in by_outcome["Bad"].issues),
+           f"unstable mutation path did not report invalidated-by-unstable-mutation at use: {by_outcome['Bad'].issues}")
+
+    # Dead interior loan before unstable write is allowed (Polonius + Ante).
+    dead_before_clear = analyze(vec_owners, _graph(
+        Borrow(Loan("elem", "vec", vec_i)),
+        Use("elem"),
+        Access(Place("vec"), "write", stability="unstable"),
+        Return("ok"),
+    )).paths[0]
+    ensure(not dead_before_clear.issues,
+           f"unstable write after last use reported unexpected issues: {dead_before_clear.issues}")
+
+    # Unstable write to unproved vec[@j] invalidates vec[@i]; with AssumeIndexNe(@i, @j) it survives!
+    unproved_unstable = analyze(vec_owners, _graph(
+        Borrow(Loan("elem", "vec", vec_i)),
+        Access(vec_j, "write", stability="unstable"),
+        Use("elem"),
+    )).paths[0]
+    ensure([(i.node, i.kind) for i in unproved_unstable.issues]
+           == [("n2", "invalidated-by-unstable-mutation")],
+           f"unproved unstable indexed write missed invalidation: {unproved_unstable.issues}")
+    proved_unstable = analyze(vec_owners, _graph(
+        AssumeIndexNe("@i", "@j"),
+        Borrow(Loan("elem", "vec", vec_i)),
+        Access(vec_j, "write", stability="unstable"),
+        Use("elem"),
+    )).paths[0]
+    ensure(not proved_unstable.issues,
+           f"proved-disjoint unstable indexed write conflicted: {proved_unstable.issues}")
+
+
+def _loop_carried_cursor_reborrowing() -> None:
+    head_owners = (Owner("head", borrowed=True, fields=(("visits",), ("next",))),)
+
+    # 1-step cursor advancing loop: cursor = &mut cursor.next across iterations.
+    one_step = Graph("entry", (
+        Node("entry", Borrow(Loan("cursor", "head", Place("head"), mode="exclusive")), ("header",)),
+        Node("header", Nop(), ("body_borrow", "exit")),
+        Node("body_borrow", Borrow(Loan("next", "cursor", Place("head", ("next",)), mode="exclusive")),
+             ("body_move",)),
+        Node("body_move", Move("next", "cursor"), ("header",)),
+        Node("exit", Use("cursor"), ("done",)),
+        Node("done", Return("done")),
+    ))
+    report = analyze(head_owners, one_step, Limits(paths=8, work=10_000))
+    ensure(len(report.paths) == 2 and all(not p.issues for p in report.paths),
+           f"1-step cursor loop failed or exploded: {report.paths}")
+
+    # 2-step loop_reborrowing.rs pattern: node = cursor; node.visits write; if advance: cursor = &mut node.next.
+    two_step = Graph("entry", (
+        Node("entry", Borrow(Loan("cursor", "head", Place("head"), mode="exclusive")), ("header",)),
+        Node("header", Nop(), ("body_node", "exit")),
+        Node("body_node", Borrow(Loan("node", "cursor", Place("head", ("next",)), mode="exclusive")),
+             ("body_visit",)),
+        Node("body_visit", Access(Place("head", ("next",)), "write", via="node"),
+             ("body_adv", "body_stay")),
+        Node("body_adv", Borrow(Loan("next", "node", Place("head", ("next",)), mode="exclusive")),
+             ("body_move",)),
+        Node("body_move", Move("next", "cursor"), ("header",)),
+        Node("body_stay", Drop("node"), ("header",)),
+        Node("exit", Use("cursor"), ("done",)),
+        Node("done", Return("done")),
+    ))
+    two_report = analyze(head_owners, two_step, Limits(paths=16, work=20_000))
+    ensure(all(not p.issues for p in two_report.paths),
+           f"2-step cursor reborrow loop reported unexpected issues: {two_report.paths}")
+
+    # Live-conflict: overwriting *cursor while descendant loan `node` is live catches suspended-parent.
+    live_conflict = Graph("entry", (
+        Node("entry", Borrow(Loan("cursor", "head", Place("head"), mode="exclusive")), ("header",)),
+        Node("header", Nop(), ("body_node", "exit")),
+        Node("body_node", Borrow(Loan("node", "cursor", Place("head", ("next",)), mode="exclusive")),
+             ("overwrite",)),
+        Node("overwrite", Access(Place("head"), "write", via="cursor"), ("body_visit",)),
+        Node("body_visit", Access(Place("head", ("next",)), "write", via="node"), ("body_adv",)),
+        Node("body_adv", Borrow(Loan("next", "node", Place("head", ("next",)), mode="exclusive")),
+             ("body_move",)),
+        Node("body_move", Move("next", "cursor"), ("header",)),
+        Node("exit", Use("cursor"), ("done",)),
+        Node("done", Return("done")),
+    ))
+    conflict_report = analyze(head_owners, live_conflict, Limits(paths=16, work=20_000))
+    ensure(any("suspended-parent" in _kinds(p) for p in conflict_report.paths),
+           f"overwriting cursor while descendant was live missed conflict: {conflict_report.paths}")
+
+
+def _lowered_symbolic_disjointness_and_unstable_mutations() -> None:
+    with parser.cached_build(Path(__file__).resolve().parents[2]) as compiled:
+        direct_src = (TOOLS / "tests" / "fixtures" / "direct-indexed-borrows.hf").read_bytes()
+        direct_tree = parser.parse_source(compiled, direct_src, surface=True)
+        for fn_name in ("ReadAfterClearDirect", "JoinedDisjointClear", "UpdatePairDirect",
+                        "UpdateSpanPair", "ReadSlotsDirect", "ReadSeqDirect"):
+            lowered = lower_function(direct_tree, fn_name)
+            report = analyze(lowered.owners, lowered.graph)
+            ensure(all(not p.issues for p in report.paths),
+                   f"lowered {fn_name} reported unexpected issues: {report.paths}")
+            if fn_name == "ReadAfterClearDirect":
+                ensure(any(isinstance(n.event, AssumeIndexNe) for n in lowered.graph.nodes),
+                       "ReadAfterClearDirect did not lower i != j to AssumeIndexNe")
+                ensure(any(isinstance(n.event, Access) and n.event.stability == "unstable"
+                           for n in lowered.graph.nodes),
+                       "Seq.Empty assignment did not lower with stability='unstable'")
+
+        # Removing i != j in ReadAfterClearDirect must catch invalidated-by-unstable-mutation.
+        unguarded_src = direct_src.replace(b"if (i < 2 && j < 2 && i != j)", b"if (i < 2 && j < 2)")
+        unguarded_tree = parser.parse_source(compiled, unguarded_src, surface=True)
+        unguarded_report = analyze_function(unguarded_tree, "ReadAfterClearDirect")
+        ensure(any("invalidated-by-unstable-mutation" in _kinds(p) for p in unguarded_report.paths),
+               f"unguarded ReadAfterClearDirect missed unstable invalidation: {unguarded_report.paths}")
+
+        # Nested indexed invalidation fixture also lowers and checks cleanly.
+        nested_src = (TOOLS / "tests" / "fixtures" / "nested-indexed-invalidation.hf").read_bytes()
+        nested_tree = parser.parse_source(compiled, nested_src, surface=True)
+        nested_report = analyze_module(nested_tree)
+        ensure(all(not p.issues for r in nested_report.values() for p in r.paths),
+               f"nested-indexed-invalidation.hf lowered with issues: {nested_report}")
+
+        # Index reassignment invalidates prior AssumeIndexNe, and method Vec.clear lowers as unstable.
+        extra_src = b"""module ExtraSymbolicAnte;
+public Unit ReassignedIndex(ref Vec<Seq<byte>, 3> rows, Nat i, Nat j) {
+    if (i != j) {
+        let selected = in rows[i];
+        i = j;
+        rows[j] = Seq.Empty<byte>();
+        Observe(in selected);
+    }
+}
+public Unit VecClearConflict(ref Vec<byte, 4> vec, Nat i) {
+    let elem = in vec[i];
+    vec.clear();
+    Observe(in elem);
+}
+public Unit VecEmptyConflict(ref Vec<byte, 4> vec, Nat i) {
+    let elem = in vec[i];
+    vec = Vec.Empty<byte>();
+    Observe(in elem);
+}
+public Unit VecClearAfterLastUse(ref Vec<byte, 4> vec, Nat i) {
+    let elem = in vec[i];
+    Observe(in elem);
+    vec.clear();
+}
+"""
+        extra_tree = parser.parse_source(compiled, extra_src, surface=True)
+        reassigned = analyze_function(extra_tree, "ReassignedIndex")
+        ensure(any("invalidated-by-unstable-mutation" in _kinds(p) for p in reassigned.paths),
+               f"reassigned index symbol did not invalidate i != j: {reassigned.paths}")
+        vec_clear_lowered = lower_function(extra_tree, "VecClearConflict")
+        ensure(any(isinstance(n.event, Access) and n.event.stability == "unstable"
+                   for n in vec_clear_lowered.graph.nodes),
+               "vec.clear() did not lower with stability='unstable'")
+        vec_conflict = analyze(vec_clear_lowered.owners, vec_clear_lowered.graph)
+        ensure(any("competing-loans" in _kinds(p) for p in vec_conflict.paths),
+               f"vec.clear() with live elem did not conflict: {vec_conflict.paths}")
+        vec_empty = analyze_function(extra_tree, "VecEmptyConflict")
+        ensure(any("invalidated-by-unstable-mutation" in _kinds(p) for p in vec_empty.paths),
+               f"vec = Vec.Empty() with live elem did not trigger unstable invalidation: {vec_empty.paths}")
+        vec_ok = analyze_function(extra_tree, "VecClearAfterLastUse")
+        ensure(all(not p.issues for p in vec_ok.paths),
+               f"vec.clear() after last use failed: {vec_ok.paths}")
+
+
+def _two_phase_receiver_qualification() -> None:
+    fixture = TOOLS / "tests" / "fixtures" / "two-phase-receiver-trial.hf"
+    source = fixture.read_bytes()
+    with parser.cached_build(Path(__file__).resolve().parents[2]) as compiled:
+        tree = parser.parse_source(compiled, source, surface=True)
+
+    positives = (
+        "DirectCount",
+        "SnapshotCount",
+        "ComputedReceiver",
+        "EffectfulArgument",
+        "PreActivationExit",
+        "DisjointNamedView",
+        "DisjointRetainedNamedView",
+    )
+    for fn_name in positives:
+        lowered = lower_function(tree, fn_name)
+        report = analyze(lowered.owners, lowered.graph)
+        ensure(all(not p.issues for p in report.paths),
+               f"Q25cd positive {fn_name} reported issues: {report.paths}")
+        events = [node.event for node in lowered.graph.nodes]
+        if fn_name in {"DirectCount", "SnapshotCount"}:
+            read_idx = next(
+                i for i, e in enumerate(events)
+                if (isinstance(e, Reserve) and e.loan.mode == "shared")
+                or (isinstance(e, Borrow) and e.loan.mode == "shared")
+            )
+            res_idx = next(
+                i for i, e in enumerate(events) if isinstance(e, Reserve) and e.loan.mode == "exclusive"
+            )
+            act_idx = next(i for i, e in enumerate(events) if isinstance(e, Activate))
+            ensure(
+                (read_idx < res_idx < act_idx) if fn_name == "SnapshotCount" else (res_idx < read_idx < act_idx),
+                f"unexpected phase order in {fn_name}: {(read_idx, res_idx, act_idx)}",
+            )
+        if fn_name == "ComputedReceiver":
+            phases = [type(e) for e in events if isinstance(e, (Reserve, Activate))]
+            ensure(phases == [Reserve, Activate], f"computed receiver lost two-phase order: {phases}")
+        if fn_name == "EffectfulArgument":
+            bump_idx = next(
+                i for i, e in enumerate(events)
+                if isinstance(e, Access) and e.place == Place("log") and e.kind == "write"
+            )
+            res_idx = next(
+                i for i, e in enumerate(events)
+                if isinstance(e, Reserve) and e.loan.place == Place("buf")
+            )
+            read_idx = next(
+                i for i, e in enumerate(events)
+                if isinstance(e, Borrow) and e.loan.place == Place("buf") and e.loan.mode == "shared"
+            )
+            act_idx = next(i for i, e in enumerate(events) if isinstance(e, Activate))
+            ensure(res_idx < bump_idx < read_idx < act_idx,
+                   f"effectful argument did not run between Reserve and ReadCount: {(res_idx, bump_idx, read_idx, act_idx)}")
+        if fn_name == "PreActivationExit":
+            ensure(len(report.paths) == 2, f"PreActivationExit lost error/ok split: {report.paths}")
+            err_path = next(p for p in report.paths if p.outcome == "Err")
+            ok_path = next(p for p in report.paths if p.outcome != "Err")
+            ensure(err_path.moved_owners == ("item",) and not err_path.restorations,
+                   f"pre-activation early exit lost move or created receiver restoration: {err_path}")
+            ensure(ok_path.moved_owners == ("item",) and bool(ok_path.restorations),
+                   f"activated branch lost move or receiver restoration: {ok_path}")
+
+    negatives = {
+        "OverlappingMutation": ("conflicting-receiver-reservation", b"buf.Mutate"),
+        "OverlappingMove": ("conflicting-receiver-reservation", b"move buf"),
+        "RetainedView": ("competing-loans", b"buf.WithRead"),
+        "RetainedCapture": ("competing-loans", b"buf.WithRetained"),
+        "ExplicitRefMethodRead": ("competing-loans", b"buf.ReadCount"),
+        "ExplicitRefFieldRead": ("suspended-parent", b"buf.length"),
+    }
+    for fn_name, (expected_kind, expected_snippet) in negatives.items():
+        lowered = lower_function(tree, fn_name)
+        report = analyze(lowered.owners, lowered.graph)
+        issues = [issue for p in report.paths for issue in p.issues]
+        ensure(bool(issues) and issues[0].kind == expected_kind,
+               f"Q25cd negative {fn_name} expected {expected_kind}, got {issues}")
+        span = cast("list[int]", lowered.node_sites[issues[0].node]["span"])
+        ensure(source[span[0]:span[1]] == expected_snippet,
+               f"Q25cd negative {fn_name} pointed to {source[span[0]:span[1]]!r} instead of {expected_snippet!r}")
+
+
 def cases() -> list[Case]:
     return [
         Case("located receiver order, snapshots, views and retained loans", _located_receiver_timing, lane="toolchain"),
@@ -2163,4 +2636,14 @@ def cases() -> list[Case]:
                  _correlated_loan_origins_at_join),
             Case("entry loop and branch-specific view diagnostics", _loop_entry_and_conditional_view),
             Case("schema-2 surface ast to loan graph lowering pass", _surface_ast_to_loan_graph_lowering),
-            Case("holdfast_parser schema-2 surface ast lowering and site mapping", _holdfast_parser_schema2_surface_ast_lowering)]
+            Case("holdfast_parser schema-2 surface ast lowering and site mapping", _holdfast_parser_schema2_surface_ast_lowering),
+            Case("symbolic index projections, multi-d disjointness and invalidation",
+                 _symbolic_index_projections_and_disjointness),
+            Case("ante-style stable vs unstable place invalidation and content refinements",
+                 _ante_stable_vs_unstable_and_refinements),
+            Case("loop-carried cursor reborrowing fixpoint and live-conflict detection",
+                 _loop_carried_cursor_reborrowing),
+            Case("lowered symbolic disjointness and unstable container mutations",
+                 _lowered_symbolic_disjointness_and_unstable_mutations, lane="toolchain"),
+            Case("q25cd two-phase receiver trial fixture and phase verification",
+                 _two_phase_receiver_qualification, lane="toolchain")]

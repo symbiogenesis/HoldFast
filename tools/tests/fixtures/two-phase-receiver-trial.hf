@@ -1,0 +1,90 @@
+// SPDX-License-Identifier: Apache-2.0
+module TwoPhaseReceiverTrial;
+
+public struct Item {
+    public Nat tag;
+}
+
+public struct Log {
+    public Nat events;
+}
+
+public struct Buffer {
+    public Nat length;
+    public Nat payload;
+    public view Count = length;
+    public view Data = payload;
+    public Unit Update(ref this, Nat x);
+    public Unit UpdatePair(ref this, Nat step, Nat x);
+    public Unit WithRead(ref this, in Nat x);
+    public Unit WithRetained(ref this, Option<in Nat> retained);
+    public Nat ReadCount(in this);
+    public Nat Mutate(ref this);
+    public Unit WriteData(ref this.Data, Nat x);
+    public Unit WriteDataWithCount(ref this.Data, in Nat count);
+    public in<'this.length> Nat BorrowCount(in this.Count);
+}
+
+public Buffer MakeBuffer(Nat seed);
+public Nat BumpCounter(ref Log log);
+public Result<Nat, bool> TransferOrFail(owned Item item);
+public Nat ConsumeBuffer(owned Buffer buf);
+public Option<in<'buf> Nat> LendPayload(in Buffer buf);
+public Unit Observe(in Nat value);
+public Unit ExplicitUpdate(ref Buffer buf, Nat x);
+
+public Unit DirectCount(ref Buffer buf) {
+    buf.Update(buf.ReadCount());
+}
+
+public Unit SnapshotCount(ref Buffer buf) {
+    let n = buf.ReadCount();
+    buf.Update(n);
+}
+
+public Unit ComputedReceiver(Nat seed, in Buffer other) {
+    MakeBuffer(seed).Update(other.ReadCount());
+}
+
+public Unit EffectfulArgument(ref Buffer buf, ref Log log) {
+    buf.UpdatePair(BumpCounter(ref log), buf.ReadCount());
+}
+
+public Result<Nat, bool> PreActivationExit(ref Buffer buf, owned Item item) {
+    buf.UpdatePair(TransferOrFail(move item)?, buf.ReadCount());
+    return Ok(buf.ReadCount());
+}
+
+public Unit DisjointNamedView(ref Buffer buf) {
+    buf.WriteDataWithCount(in buf.Count);
+}
+
+public Unit DisjointRetainedNamedView(ref Buffer buf) {
+    let in Nat count = buf.BorrowCount();
+    buf.WriteDataWithCount(in count);
+    Observe(in count);
+}
+
+public Unit OverlappingMutation(ref Buffer buf) {
+    buf.Update(buf.Mutate());
+}
+
+public Unit OverlappingMove(owned Buffer buf) {
+    buf.Update(ConsumeBuffer(move buf));
+}
+
+public Unit RetainedView(ref Buffer buf) {
+    buf.WithRead(in buf.payload);
+}
+
+public Unit RetainedCapture(ref Buffer buf) {
+    buf.WithRetained(LendPayload(in buf));
+}
+
+public Unit ExplicitRefMethodRead(ref Buffer buf) {
+    ExplicitUpdate(ref buf, buf.ReadCount());
+}
+
+public Unit ExplicitRefFieldRead(ref Buffer buf) {
+    ExplicitUpdate(ref buf, buf.length);
+}

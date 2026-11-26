@@ -13,6 +13,7 @@ from typing import Literal, cast
 
 type Mode = Literal["shared", "exclusive"]
 type AccessKind = Literal["read", "write", "move"]
+type Stability = Literal["stable", "unstable"]
 type Overlap = Literal["yes", "no", "unknown"]
 
 _NAME = re.compile(r"[A-Za-z_][A-Za-z_0-9]*\Z")
@@ -74,6 +75,7 @@ class Access:
     place: Place
     kind: AccessKind = "read"
     via: str | None = None
+    stability: Stability = "stable"
 
 
 @dataclass(frozen=True)
@@ -132,12 +134,58 @@ class CloseInvariant:
 
 
 @dataclass(frozen=True)
+class AssumeDisjoint:
+    """Assume two places are spatially disjoint until an index symbol is invalidated."""
+
+    left: Place
+    right: Place
+
+
+@dataclass(frozen=True)
+class AssumeIndexNe:
+    """Assume two symbolic indices are distinct until either symbol is invalidated."""
+
+    left: str
+    right: str
+
+
+@dataclass(frozen=True)
+class InvalidateSymbol:
+    """Invalidate symbolic-index disjointness facts and symbol-dependent refinements."""
+
+    symbol: str
+
+
+@dataclass(frozen=True)
+class AssumeRefinement:
+    """Record a current-content refinement fact tied to a place."""
+
+    name: str
+    place: Place
+
+
+@dataclass(frozen=True)
+class UseRefinement:
+    """Require that a current-content refinement remains valid at this point."""
+
+    name: str
+
+
+@dataclass(frozen=True)
+class DropRefinement:
+    """Discard a current-content refinement without requiring it to remain valid."""
+
+    name: str
+
+
+@dataclass(frozen=True)
 class Nop:
     pass
 
 
 type Event = (Borrow | Reserve | Activate | Access | Bind | Use | Drop | Move | Return | Checkpoint
-              | OpenInvariant | CloseInvariant | Nop)
+              | OpenInvariant | CloseInvariant | AssumeDisjoint | AssumeIndexNe | InvalidateSymbol
+              | AssumeRefinement | UseRefinement | DropRefinement | Nop)
 
 
 @dataclass(frozen=True)
@@ -231,12 +279,44 @@ def _name(value: object) -> None:
         raise AnalysisRefusalError("identities must be nonempty normalized identifiers")
 
 
+def _symbol_name(value: object) -> str:
+    if not isinstance(value, str) or len(value) > 129:
+        raise AnalysisRefusalError("identities must be nonempty normalized identifiers")
+    if value.startswith("@"):
+        _name(value[1:])
+        return value
+    _name(value)
+    return f"@{value}"
+
+
+def _is_symbolic(part: object) -> bool:
+    return isinstance(part, str) and part.startswith("@")
+
+
 def _projection(value: tuple[str, ...]) -> None:
     if not isinstance(value, tuple) or len(value) > 32:
         raise AnalysisRefusalError("projection must be an immutable path of at most 32 fields")
     for part in value:
-        if part != "*":
+        if part == "*":
+            continue
+        if _is_symbolic(part):
+            _name(part[1:])
+        else:
             _name(part)
+
+
+def _validate_place(
+    place: object, owner_map: Mapping[str, Owner], *, allow_wildcard: bool = True
+) -> Place:
+    if not isinstance(place, Place):
+        raise AnalysisRefusalError("footprint must be an immutable Place record")
+    _name(place.owner)
+    _projection(place.fields)
+    if place.owner not in owner_map:
+        raise AnalysisRefusalError("missing place owner")
+    if not allow_wildcard and "*" in place.fields:
+        raise AnalysisRefusalError("disjointness assumption cannot contain unknown '*' projections")
+    return place
 
 
 def _references(event: Event) -> tuple[str, ...]:
@@ -319,6 +399,7 @@ def _validate(
 
     nodes: dict[str, Node] = {}
     known = set(owner_map)
+    known_refinements: set[str] = set()
     reservations: set[str] = set()
     invariants: set[str] = set()
     opened_conjuncts: set[tuple[str, str]] = set()
@@ -335,7 +416,9 @@ def _validate(
             raise AnalysisRefusalError("duplicate graph identity")
         nodes[node.name] = node
         if not isinstance(node.event, (Borrow, Reserve, Activate, Access, Bind, Use, Drop, Move, Return,
-                                       Checkpoint, OpenInvariant, CloseInvariant, Nop)):
+                                       Checkpoint, OpenInvariant, CloseInvariant,
+                                       AssumeDisjoint, AssumeIndexNe, InvalidateSymbol,
+                                       AssumeRefinement, UseRefinement, DropRefinement, Nop)):
             raise AnalysisRefusalError("unknown event")
         if isinstance(node.event, (Borrow, Reserve)) and not isinstance(node.event.loan, Loan):
             raise AnalysisRefusalError("borrow must contain an immutable Loan record")
@@ -348,6 +431,9 @@ def _validate(
             _name(binder)
             if binder is not None:
                 known.add(binder)
+        if isinstance(node.event, AssumeRefinement):
+            _name(node.event.name)
+            known_refinements.add(node.event.name)
         if isinstance(node.event, Reserve):
             if node.event.loan.name in reservations:
                 raise AnalysisRefusalError("duplicate receiver reservation identity")
@@ -404,12 +490,26 @@ def _validate(
         event = node.event
         if isinstance(event, (Borrow, Reserve, Access)):
             place = event.place if isinstance(event, Access) else event.loan.place
-            if not isinstance(place, Place):
-                raise AnalysisRefusalError("footprint must be an immutable Place record")
-            _name(place.owner)
-            _projection(place.fields)
-            if place.owner not in owner_map:
-                raise AnalysisRefusalError("missing place owner")
+            _validate_place(place, owner_map)
+        if isinstance(event, AssumeDisjoint):
+            _validate_place(event.left, owner_map, allow_wildcard=False)
+            _validate_place(event.right, owner_map, allow_wildcard=False)
+            budget.spend(len(event.left.fields) + len(event.right.fields) + 1)
+        if isinstance(event, AssumeIndexNe):
+            _symbol_name(event.left)
+            _symbol_name(event.right)
+            budget.spend()
+        if isinstance(event, InvalidateSymbol):
+            _symbol_name(event.symbol)
+            budget.spend()
+        if isinstance(event, AssumeRefinement):
+            _validate_place(event.place, owner_map)
+            budget.spend(len(event.place.fields) + 1)
+        if isinstance(event, (UseRefinement, DropRefinement)):
+            _name(event.name)
+            if event.name not in known_refinements:
+                raise AnalysisRefusalError(f"missing refinement reference: {event.name}")
+            budget.spend()
         if isinstance(event, (Borrow, Reserve)):
             if event.loan.mode not in ("shared", "exclusive") or type(event.loan.scoped) is not bool:
                 raise AnalysisRefusalError("malformed loan mode")
@@ -421,8 +521,11 @@ def _validate(
                     raise AnalysisRefusalError("missing invariant reference")
         if isinstance(event, Activate) and event.name not in reservations:
             raise AnalysisRefusalError("missing receiver reservation reference")
-        if isinstance(event, Access) and event.kind not in ("read", "write", "move"):
-            raise AnalysisRefusalError("unknown access kind")
+        if isinstance(event, Access):
+            if event.kind not in ("read", "write", "move"):
+                raise AnalysisRefusalError("unknown access kind")
+            if event.stability not in ("stable", "unstable"):
+                raise AnalysisRefusalError("unknown access stability")
         if isinstance(event, CloseInvariant):
             conjuncts, _ = _invariant_conjuncts(owner_map, event.name, event.clauses)
             if not all(pair in opened_conjuncts for pair in conjuncts):
@@ -555,38 +658,107 @@ def _within(child: Place, parent: Place) -> bool:
     return child.owner == parent.owner and child.fields[:len(parent.fields)] == parent.fields
 
 
-def _containment(child: Place, parent: Place) -> Overlap:
+def _canonical_place_pair(left: Place, right: Place) -> tuple[Place, Place]:
+    if (left.owner, left.fields) <= (right.owner, right.fields):
+        return left, right
+    return right, left
+
+
+def _canonical_symbol_pair(left: str, right: str) -> tuple[str, str]:
+    return (left, right) if left <= right else (right, left)
+
+
+def _replace_symbol_in_place(place: Place, symbol: str) -> Place:
+    if symbol not in place.fields:
+        return place
+    return Place(place.owner, tuple("*" if part == symbol else part for part in place.fields))
+
+
+def _containment(
+    child: Place,
+    parent: Place,
+    disjoint_places: frozenset[tuple[Place, Place]] | set[tuple[Place, Place]] = frozenset(),
+    disjoint_symbols: frozenset[tuple[str, str]] | set[tuple[str, str]] = frozenset(),
+) -> Overlap:
     """A repeated unknown index spelling establishes no index identity."""
     if child.owner != parent.owner:
         return "no"
+    for left_p, right_p in disjoint_places:
+        if (_within(child, left_p) and _within(parent, right_p)) or (
+            _within(child, right_p) and _within(parent, left_p)
+        ):
+            return "no"
     unknown = False
     for child_field, parent_field in zip(child.fields, parent.fields, strict=False):
+        if child_field == parent_field:
+            if child_field == "*":
+                unknown = True
+            continue
         if child_field == "*" or parent_field == "*":
             unknown = True
-        elif child_field != parent_field:
-            return "no"
+            continue
+        if _is_symbolic(child_field) and _is_symbolic(parent_field):
+            if _canonical_symbol_pair(child_field, parent_field) in disjoint_symbols:
+                return "no"
+            unknown = True
+            continue
+        if _is_symbolic(child_field) or _is_symbolic(parent_field):
+            unknown = True
+            continue
+        return "no"
     if len(child.fields) < len(parent.fields):
         return "unknown" if unknown else "no"
     return "unknown" if unknown else "yes"
 
 
-def _overlap(left: Place, right: Place,
-             fields_by_owner: dict[str, frozenset[tuple[str, ...]]]) -> Overlap:
+def _overlap(
+    left: Place,
+    right: Place,
+    fields_by_owner: dict[str, frozenset[tuple[str, ...]]],
+    disjoint_places: frozenset[tuple[Place, Place]] | set[tuple[Place, Place]] = frozenset(),
+    disjoint_symbols: frozenset[tuple[str, str]] | set[tuple[str, str]] = frozenset(),
+) -> Overlap:
     if left.owner != right.owner:
         return "no"
+    for left_p, right_p in disjoint_places:
+        if (_within(left, left_p) and _within(right, right_p)) or (
+            _within(left, right_p) and _within(right, left_p)
+        ):
+            return "no"
     if _within(left, right):
         return "unknown" if "*" in right.fields else "yes"
     if _within(right, left):
         return "unknown" if "*" in left.fields else "yes"
+    saw_unknown = False
     for index, (first, second) in enumerate(zip(left.fields, right.fields, strict=False)):
-        if first != second:
-            fields = fields_by_owner[left.owner]
-            if (first != "*" and second != "*" and left.fields[:index + 1] in fields
-                    and right.fields[:index + 1] in fields):
+        if first == second:
+            if first == "*":
+                saw_unknown = True
+            continue
+        if first == "*" or second == "*":
+            saw_unknown = True
+            continue
+        if _is_symbolic(first) and _is_symbolic(second):
+            if _canonical_symbol_pair(first, second) in disjoint_symbols:
                 return "no"
-            return "unknown"
-        if first == "*":
-            return "unknown"
+            left_prefix = Place(left.owner, left.fields[:index + 1])
+            right_prefix = Place(right.owner, right.fields[:index + 1])
+            if _canonical_place_pair(left_prefix, right_prefix) in disjoint_places:
+                return "no"
+            saw_unknown = True
+            continue
+        if _is_symbolic(first) or _is_symbolic(second):
+            left_prefix = Place(left.owner, left.fields[:index + 1])
+            right_prefix = Place(right.owner, right.fields[:index + 1])
+            if _canonical_place_pair(left_prefix, right_prefix) in disjoint_places:
+                return "no"
+            saw_unknown = True
+            continue
+        if not saw_unknown:
+            fields = fields_by_owner[left.owner]
+            if left.fields[:index + 1] in fields and right.fields[:index + 1] in fields:
+                return "no"
+        saw_unknown = True
     return "unknown"
 
 
@@ -658,6 +830,72 @@ def _compute_cfg_liveness(
     return demanded_before, demanded_after, reachable_names
 
 
+def _compute_cfg_relevance(
+    graph: Graph, nodes: dict[str, Node], budget: _Budget
+) -> tuple[
+    dict[str, frozenset[str]],
+    dict[str, frozenset[str]],
+    dict[str, frozenset[str]],
+]:
+    local_owners: dict[str, set[str]] = {name: set() for name in nodes}
+    local_symbols: dict[str, set[str]] = {name: set() for name in nodes}
+    local_refinements: dict[str, set[str]] = {name: set() for name in nodes}
+    for name, node in nodes.items():
+        budget.spend()
+        places: list[Place] = []
+        match node.event:
+            case Borrow(loan) | Reserve(loan):
+                places.append(loan.place)
+            case Access(place=place):
+                places.append(place)
+            case AssumeDisjoint(left, right):
+                places.extend((left, right))
+            case AssumeIndexNe(left, right):
+                local_symbols[name].update((_symbol_name(left), _symbol_name(right)))
+            case InvalidateSymbol(symbol):
+                local_symbols[name].add(_symbol_name(symbol))
+            case AssumeRefinement(rname, place):
+                local_refinements[name].add(rname)
+                places.append(place)
+            case UseRefinement(rname) | DropRefinement(rname):
+                local_refinements[name].add(rname)
+            case _:
+                pass
+        for place in places:
+            local_owners[name].add(place.owner)
+            for part in place.fields:
+                if _is_symbolic(part):
+                    local_symbols[name].add(part)
+    reachable_owners = {name: frozenset(vals) for name, vals in local_owners.items()}
+    reachable_symbols = {name: frozenset(vals) for name, vals in local_symbols.items()}
+    reachable_refinements = {name: frozenset(vals) for name, vals in local_refinements.items()}
+    ordered = tuple(reversed(graph.nodes))
+    changed = True
+    while changed:
+        changed = False
+        for node in ordered:
+            budget.spend()
+            owners_u = frozenset(local_owners[node.name]).union(
+                *(reachable_owners[succ] for succ in node.successors)
+            )
+            symbols_u = frozenset(local_symbols[node.name]).union(
+                *(reachable_symbols[succ] for succ in node.successors)
+            )
+            refs_u = frozenset(local_refinements[node.name]).union(
+                *(reachable_refinements[succ] for succ in node.successors)
+            )
+            if (
+                owners_u != reachable_owners[node.name]
+                or symbols_u != reachable_symbols[node.name]
+                or refs_u != reachable_refinements[node.name]
+            ):
+                reachable_owners[node.name] = owners_u
+                reachable_symbols[node.name] = symbols_u
+                reachable_refinements[node.name] = refs_u
+                changed = True
+    return reachable_owners, reachable_symbols, reachable_refinements
+
+
 class _State:
     def __init__(
         self,
@@ -699,6 +937,13 @@ class _State:
         self.returned: frozenset[str] = frozenset()
         self.moved: set[str] = set()
         self.invalid: set[str] = set()
+        self.disjoint_places: set[tuple[Place, Place]] = set()
+        self.disjoint_symbols: set[tuple[str, str]] = set()
+        self.refinements: dict[str, Place] = {}
+        self.stale_refinements: set[str] = set()
+        self.unstable_invalidated: set[str] = set()
+        self.frozen_places: dict[str, Place] = {}
+        self.step_bases: dict[str, str] = {}
 
     def clone(self) -> _State:
         self.budget.spend()
@@ -725,15 +970,40 @@ class _State:
         copy.returned = self.returned
         copy.moved = set(self.moved)
         copy.invalid = set(self.invalid)
+        copy.disjoint_places = set(self.disjoint_places)
+        copy.disjoint_symbols = set(self.disjoint_symbols)
+        copy.refinements = dict(self.refinements)
+        copy.stale_refinements = set(self.stale_refinements)
+        copy.unstable_invalidated = set(self.unstable_invalidated)
+        copy.frozen_places = dict(self.frozen_places)
+        copy.step_bases = dict(self.step_bases)
         return copy
 
-    def join_key(self, relevant_names: frozenset[str], history_names: set[str]) -> tuple[object, ...]:
+    def _effective_place(self, loan_name: str) -> Place:
+        return self.frozen_places.get(loan_name, self.loans[loan_name].place)
+
+    def join_key(
+        self,
+        relevant_names: frozenset[str],
+        history_names: set[str],
+        relevant_owners: frozenset[str] | None = None,
+        relevant_symbols: frozenset[str] | None = None,
+        relevant_refinements: frozenset[str] | None = None,
+    ) -> tuple[object, ...]:
         self.budget.spend(len(relevant_names) + len(self.active) + len(self.reserved))
         relevant_values = {name: self.values[name] for name in relevant_names if name in self.values}
         relevant_loans = self.ancestors(self.active | self.reserved | {
             loan for value in relevant_values.values() for loan in value.captures
         })
         relevant_binders = (relevant_names & history_names) | self.reserved
+        live_places = [self._effective_place(name) for name in relevant_loans]
+        for rname, rplace in self.refinements.items():
+            if relevant_refinements is None or rname in relevant_refinements:
+                live_places.append(rplace)
+        active_owners = set(relevant_owners or ()) | {p.owner for p in live_places}
+        active_symbols = set(relevant_symbols or ()) | {
+            part for p in live_places for part in p.fields if _is_symbolic(part)
+        }
         return (
             frozenset(relevant_values.items()),
             frozenset((name, self.loans[name], self.parents[name], self.last_demand_node.get(name))
@@ -746,6 +1016,26 @@ class _State:
             frozenset(self.explicit_invariants.items()),
             frozenset(self.moved),
             frozenset(self.invalid & relevant_loans),
+            frozenset(self.unstable_invalidated & relevant_loans),
+            frozenset((name, self.frozen_places[name]) for name in relevant_loans if name in self.frozen_places),
+            frozenset(
+                pair for pair in self.disjoint_places
+                if pair[0].owner in active_owners
+                or pair[1].owner in active_owners
+                or any(part in active_symbols for part in (*pair[0].fields, *pair[1].fields))
+            ),
+            frozenset(
+                pair for pair in self.disjoint_symbols
+                if pair[0] in active_symbols or pair[1] in active_symbols
+            ),
+            frozenset(
+                (rname, rplace) for rname, rplace in self.refinements.items()
+                if relevant_refinements is None or rname in relevant_refinements
+            ),
+            frozenset(
+                rname for rname in self.stale_refinements
+                if relevant_refinements is None or rname in relevant_refinements
+            ),
         )
 
     def merge_evidence(self, other: _State) -> bool:
@@ -819,14 +1109,20 @@ class _State:
 
     def compare(self, node: Node, place: Place, other: str) -> Overlap:
         self.budget.spend()
-        overlap = _overlap(place, self.loans[other].place, self.fields)
+        overlap = _overlap(
+            place,
+            self._effective_place(other),
+            self.fields,
+            self.disjoint_places,
+            self.disjoint_symbols,
+        )
         if overlap == "unknown":
             self.obligation(node, "overlap", place.owner, *place.fields, other)
         return overlap
 
     def containment(self, node: Node, child: Place, parent: Place, grant: str) -> Overlap:
         self.budget.spend()
-        relation = _containment(child, parent)
+        relation = _containment(child, parent, self.disjoint_places, self.disjoint_symbols)
         if relation == "unknown":
             self.obligation(node, "footprint-containment", grant, child.owner, *child.fields)
         return relation
@@ -864,9 +1160,11 @@ class _State:
             parent_place = Place(parent)
         else:
             parent_loan = self.loans[parent]
-            parent_place = parent_loan.place
+            parent_place = self._effective_place(parent)
             if parent not in self.active:
                 self.issue(node, "borrow-parent-has-no-grant", name, parent)
+            if parent in self.unstable_invalidated:
+                self.issue(node, "invalidated-by-unstable-mutation", parent)
             if parent_loan.mode == "shared" and loan.mode == "exclusive":
                 self.issue(node, "exclusive-from-shared", name, parent)
         if self.containment(node, loan.place, parent_place, parent) == "no":
@@ -895,6 +1193,19 @@ class _State:
         if event.kind != "read":
             self.obligation(node, "content-refinement-invalidation", event.place.owner)
             self.check_reserved(node, event.place)
+            for rname, rplace in list(self.refinements.items()):
+                overlap = _overlap(
+                    event.place,
+                    rplace,
+                    self.fields,
+                    self.disjoint_places,
+                    self.disjoint_symbols,
+                )
+                if overlap == "unknown":
+                    self.obligation(node, "overlap", event.place.owner, *event.place.fields, rname)
+                if overlap != "no":
+                    del self.refinements[rname]
+                    self.stale_refinements.add(rname)
         if event.place.owner in self.moved:
             self.issue(node, "use-after-owner-move", event.place.owner)
         if not event.place.fields:
@@ -907,8 +1218,10 @@ class _State:
             if route not in self.active:
                 self.issue(node, "access-route-has-no-grant", route)
                 return
+            if route in self.unstable_invalidated:
+                self.issue(node, "invalidated-by-unstable-mutation", route)
             loan = self.loans[route]
-            if self.containment(node, event.place, loan.place, route) == "no":
+            if self.containment(node, event.place, self._effective_place(route), route) == "no":
                 self.issue(node, "access-outside-loan", route)
             if event.kind != "read" and loan.mode != "exclusive":
                 self.issue(node, "write-through-shared", route)
@@ -919,6 +1232,11 @@ class _State:
             overlap = self.compare(node, event.place, other)
             if overlap == "no":
                 continue
+            if event.kind != "read" and event.stability == "unstable":
+                other_place = self._effective_place(other)
+                if len(other_place.fields) >= len(event.place.fields):
+                    self.unstable_invalidated.add(other)
+                    self.invalid.add(other)
             # An owner/ancestor route cannot bypass a live descendant permission.
             descendant = route is None or route in self.ancestors({other})
             exclusive_ancestor = (
@@ -935,6 +1253,10 @@ class _State:
                 self.issue(node, "partial-owner-move-unsupported", event.place.owner)
             else:
                 self.moved.add(event.place.owner)
+                for rname, rplace in list(self.refinements.items()):
+                    if rplace.owner == event.place.owner:
+                        del self.refinements[rname]
+                        self.stale_refinements.add(rname)
 
     def end_dead(self, fallback_node: str, live: frozenset[str]) -> None:
         # Every child is deeper than its ancestor. Lexical names only break ties.
@@ -953,6 +1275,85 @@ class _State:
             if obligation not in self.obligations:
                 self.obligations.append(obligation)
             self.active.remove(name)
+            self.unstable_invalidated.discard(name)
+            self.frozen_places.pop(name, None)
+            self.step_bases.pop(name, None)
+
+    def fold_loop_cursor(self) -> None:
+        if not self.step_bases:
+            return
+        changed = True
+        while changed:
+            changed = False
+            self.budget.spend()
+            children_map: dict[str, set[str]] = {}
+            for lname in self.active | self.reserved:
+                parent = self.parents.get(lname)
+                if parent in self.loans:
+                    children_map.setdefault(parent, set()).add(lname)
+            leaves = sorted(name for name in self.active if name not in children_map)
+            for leaf in leaves:
+                chain_rev: list[str] = []
+                curr: str | None = leaf
+                while curr is not None and curr in self.active and curr not in chain_rev:
+                    chain_rev.append(curr)
+                    parent = self.parents.get(curr)
+                    curr = parent if parent in self.loans else None
+                chain = list(reversed(chain_rev))
+                max_k = len(chain) // 2
+                for k in range(1, max_k + 1):
+                    suffix = chain[-k:]
+                    prefix = chain[-2 * k:-k]
+                    if not any(s in self.step_bases for s in suffix):
+                        continue
+                    compatible = True
+                    for idx in range(k):
+                        s = suffix[idx]
+                        p = prefix[idx]
+                        s_loan = self.loans[s]
+                        p_loan = self.loans[p]
+                        expected_child = chain[-2 * k + idx + 1]
+                        if (
+                            self.step_bases.get(s, s) != self.step_bases.get(p, p)
+                            or self._effective_place(s) != self._effective_place(p)
+                            or s_loan.mode != p_loan.mode
+                            or s_loan.scoped != p_loan.scoped
+                            or s_loan.invariant != p_loan.invariant
+                            or p in self.reserved
+                            or any(p in v.captures for v in self.values.values())
+                            or not (children_map.get(p, set()) <= {expected_child})
+                        ):
+                            compatible = False
+                            break
+                    if not compatible:
+                        continue
+                    remap = {suffix[idx]: prefix[idx] for idx in range(k)}
+                    for vname, val in list(self.values.items()):
+                        if any(s in val.captures or val.handle == s for s in remap):
+                            new_caps = frozenset(remap.get(c, c) for c in val.captures)
+                            new_handle = remap.get(val.handle, val.handle) if val.handle is not None else None
+                            self.values[vname] = _Value(new_caps, new_handle)
+                    for cname in list(self.parents):
+                        if self.parents[cname] in remap and cname not in remap:
+                            self.parents[cname] = remap[self.parents[cname]]
+                    for s, p in remap.items():
+                        if s in self.last_demand_node:
+                            self.last_demand_node[p] = self.last_demand_node.pop(s)
+                        if s in self.invalid:
+                            self.invalid.add(p)
+                            self.invalid.discard(s)
+                        if s in self.unstable_invalidated:
+                            self.unstable_invalidated.add(p)
+                            self.unstable_invalidated.discard(s)
+                        self.active.discard(s)
+                        self.loans.pop(s, None)
+                        self.parents.pop(s, None)
+                        self.frozen_places.pop(s, None)
+                        self.step_bases.pop(s, None)
+                    changed = True
+                    break
+                if changed:
+                    break
 
     def step(self, node: Node, demanded_after: frozenset[str]) -> None:
         self.budget.spend()
@@ -977,7 +1378,9 @@ class _State:
         fresh = True
         if binder is not None:
             prior = self.seen_binders.get(binder)
-            if binder in self.owners or (prior is not None and prior != node.name):
+            if binder in self.owners or (
+                prior is not None and prior != node.name and not isinstance(event, Move)
+            ):
                 fresh = False
                 self.issue(node, "ambiguous-name", binder)
             else:
@@ -995,11 +1398,34 @@ class _State:
                     else:
                         self.issue(node, "borrow-parent-has-no-grant", loan.parent)
                     if route is not None:
-                        self.loans[loan.name] = loan
-                        self.parents[loan.name] = route
+                        canonical = loan.name
+                        if canonical in self.active or canonical in self.reserved:
+                            suffix = 1
+                            while (
+                                f"{loan.name}#{suffix}" in self.loans
+                                or f"{loan.name}#{suffix}" in self.active
+                                or f"{loan.name}#{suffix}" in self.reserved
+                            ):
+                                self.budget.spend()
+                                suffix += 1
+                            canonical = f"{loan.name}#{suffix}"
+                            self.step_bases[canonical] = loan.name
+                        actual_loan = (
+                            loan if canonical == loan.name
+                            else Loan(
+                                canonical,
+                                loan.parent,
+                                loan.place,
+                                loan.mode,
+                                loan.scoped,
+                                loan.invariant,
+                            )
+                        )
+                        self.loans[canonical] = actual_loan
+                        self.parents[canonical] = route
                         if isinstance(event, Borrow):
-                            self.values[loan.name] = _Value(frozenset({loan.name}), loan.name)
-                        creates = loan.name
+                            self.values[loan.name] = _Value(frozenset({canonical}), canonical)
+                        creates = canonical
             case Activate(name):
                 if name not in self.reserved:
                     self.issue(node, "receiver-reservation-unavailable", name)
@@ -1066,7 +1492,50 @@ class _State:
                     self.access(node, Access(Place(name)), None)
                 else:
                     for captured in sorted(used):
-                        self.access(node, Access(self.loans[captured].place, via=name), captured)
+                        if captured in self.unstable_invalidated:
+                            self.issue(node, "invalidated-by-unstable-mutation", captured)
+                        self.access(node, Access(self._effective_place(captured), via=name), captured)
+            case AssumeDisjoint(left, right):
+                self.disjoint_places.add(_canonical_place_pair(left, right))
+                self.obligation(node, "disjointness-assumption", left.owner, right.owner)
+            case AssumeIndexNe(left, right):
+                left_sym = _symbol_name(left)
+                right_sym = _symbol_name(right)
+                if left_sym != right_sym:
+                    self.disjoint_symbols.add(_canonical_symbol_pair(left_sym, right_sym))
+                self.obligation(node, "disjointness-assumption", left_sym, right_sym)
+            case InvalidateSymbol(symbol):
+                sym = _symbol_name(symbol)
+                self.disjoint_symbols = {pair for pair in self.disjoint_symbols if sym not in pair}
+                self.disjoint_places = {
+                    pair for pair in self.disjoint_places
+                    if sym not in pair[0].fields and sym not in pair[1].fields
+                }
+                for lname in self.active | self.reserved:
+                    eplace = self._effective_place(lname)
+                    if sym in eplace.fields:
+                        self.frozen_places[lname] = _replace_symbol_in_place(eplace, sym)
+                for rname, rplace in list(self.refinements.items()):
+                    if sym in rplace.fields:
+                        del self.refinements[rname]
+                        self.stale_refinements.add(rname)
+            case AssumeRefinement(name, place):
+                self.refinements[name] = place
+                self.stale_refinements.discard(name)
+                self.obligation(node, "refinement-interpretation", name, place.owner, *place.fields)
+            case UseRefinement(name):
+                if name in self.stale_refinements:
+                    self.issue(node, "stale-refinement", name)
+                elif name not in self.refinements:
+                    self.issue(node, "unavailable-refinement", name)
+                elif self.refinements[name].owner in self.moved:
+                    self.issue(node, "stale-refinement", name)
+            case DropRefinement(name):
+                if name not in self.refinements and name not in self.stale_refinements:
+                    self.issue(node, "unavailable-refinement", name)
+                else:
+                    self.refinements.pop(name, None)
+                    self.stale_refinements.discard(name)
             case OpenInvariant(name, clauses):
                 conjuncts, is_explicit = _invariant_conjuncts(self.owners, name, clauses)
                 for pair in conjuncts:
@@ -1175,6 +1644,9 @@ def analyze(owners: tuple[Owner, ...], graph: Graph, limits: Limits | None = Non
     budget = _Budget(limits.work)
     nodes, dominators = _validate(owners, graph, limits, budget)
     demanded_before, demanded_after, reachable_names = _compute_cfg_liveness(graph, nodes, budget)
+    reachable_owners, reachable_symbols, reachable_refinements = _compute_cfg_relevance(
+        graph, nodes, budget
+    )
     binder_counts = Counter(_binder(node.event) for node in graph.nodes)
     # Binder history matters for ambiguous identities and conditional captures.
     history_names = {name for name, count in binder_counts.items() if name is not None and count > 1}
@@ -1215,7 +1687,13 @@ def analyze(owners: tuple[Owner, ...], graph: Graph, limits: Limits | None = Non
     initial = _State(owner_map, fields, budget, graph.entry)
     entry_key = ()
     if graph.entry in join_states:
-        entry_key = initial.join_key(reachable_names[graph.entry], history_names)
+        entry_key = initial.join_key(
+            reachable_names[graph.entry],
+            history_names,
+            reachable_owners[graph.entry],
+            reachable_symbols[graph.entry],
+            reachable_refinements[graph.entry],
+        )
         join_states[graph.entry][entry_key] = initial.clone()
     branch_worklist: list[tuple[str, _State, tuple[object, ...]]] = [(graph.entry, initial, entry_key)]
     terminal_reports: dict[tuple[str, tuple[object, ...]], PathReport] = {}
@@ -1245,17 +1723,28 @@ def analyze(owners: tuple[Owner, ...], graph: Graph, limits: Limits | None = Non
 
         for index, successor in enumerate(reversed(node.successors)):
             branch = state if index == len(node.successors) - 1 else state.clone()
-            if branch.reserved and successor in dominators[node.name]:
+            is_backedge = successor in dominators[node.name]
+            if branch.reserved and is_backedge:
                 enclosing = dominators[successor] - {successor}
                 local_reservations = {
-                    name for name in branch.reserved if branch.seen_binders[name] not in enclosing
+                    name
+                    for name in branch.reserved
+                    if branch.seen_binders[branch.step_bases.get(name, name)] not in enclosing
                 }
                 if local_reservations:
                     branch.issue(node, "receiver-reservation-at-loop-backedge", *sorted(local_reservations))
                     branch.cancel_reservations(node, local_reservations)
             branch.end_dead(node.name, branch.live_loans(demanded_before[successor]))
+            if is_backedge:
+                branch.fold_loop_cursor()
             if in_degree[successor] > 1:
-                env_key = branch.join_key(reachable_names[successor], history_names)
+                env_key = branch.join_key(
+                    reachable_names[successor],
+                    history_names,
+                    reachable_owners[successor],
+                    reachable_symbols[successor],
+                    reachable_refinements[successor],
+                )
                 buckets = join_states[successor]
                 if env_key in buckets:
                     if not buckets[env_key].merge_evidence(branch):
@@ -1665,6 +2154,96 @@ def _find_functions(
     return found
 
 
+_BUILTIN_CONTAINERS = frozenset({"Vec", "Seq", "Slots", "Span", "List", "Map"})
+_UNSTABLE_CONTAINER_METHODS = frozenset({
+    "clear",
+    "Clear",
+    "push",
+    "Push",
+    "pop",
+    "Pop",
+    "resize",
+    "Resize",
+    "truncate",
+    "Truncate",
+    "insert",
+    "Insert",
+    "remove",
+    "Remove",
+    "append",
+    "Append",
+    "empty",
+    "Empty",
+    "allocvacant",
+    "AllocVacant",
+    "restore",
+    "Restore",
+})
+_READONLY_CONTAINER_METHODS = frozenset({
+    "count",
+    "Count",
+    "length",
+    "Length",
+    "isempty",
+    "IsEmpty",
+    "canread",
+    "CanRead",
+    "canwrite",
+    "CanWrite",
+    "first",
+    "First",
+    "last",
+    "Last",
+    "livecount",
+    "LiveCount",
+})
+
+
+def _collect_function_returns(
+    declarations: list[dict[str, object]],
+    enclosing_type: str | None = None,
+) -> dict[str, str | None]:
+    returns: dict[str, str | None] = {}
+    for decl in declarations:
+        kind = decl.get("kind")
+        if kind == "namespace":
+            returns.update(
+                _collect_function_returns(_ast_nodes(decl.get("declarations", [])), enclosing_type)
+            )
+        elif kind in {"struct", "record"}:
+            tname = _id_text(decl["name"])
+            member_items = [
+                *_ast_nodes(decl.get("members", [])),
+                *_ast_nodes(decl.get("declarations", [])),
+            ]
+            for member in member_items:
+                if member.get("kind") in {"method", "function", "definition"}:
+                    mname = _id_text(member["name"])
+                    rtype = _type_base_name(member.get("result") or member.get("return_type"))
+                    returns[f"{tname}.{mname}"] = rtype
+                    returns.setdefault(mname, rtype)
+        elif kind == "impl":
+            tname = _type_base_name(decl.get("target") or decl.get("type"))
+            member_items = [
+                *_ast_nodes(decl.get("members", [])),
+                *_ast_nodes(decl.get("declarations", [])),
+            ]
+            for member in member_items:
+                if member.get("kind") in {"method", "function", "definition"}:
+                    mname = _id_text(member["name"])
+                    rtype = _type_base_name(member.get("result") or member.get("return_type"))
+                    if tname is not None:
+                        returns[f"{tname}.{mname}"] = rtype
+                    returns.setdefault(mname, rtype)
+        elif kind in {"function", "method", "definition"}:
+            fname = _id_text(decl["name"])
+            rtype = _type_base_name(decl.get("result") or decl.get("return_type"))
+            if enclosing_type is not None:
+                returns[f"{enclosing_type}.{fname}"] = rtype
+            returns[fname] = rtype
+    return returns
+
+
 class _FunctionLowerer:
     def __init__(
         self,
@@ -1672,6 +2251,7 @@ class _FunctionLowerer:
         fn_node: dict[str, object],
         enclosing_type: str | None,
         structs: dict[str, _StructInfo],
+        function_returns: dict[str, str | None] | None = None,
     ) -> None:
         self.fn_name = fn_name
         self.fn_node = fn_node
@@ -1684,10 +2264,12 @@ class _FunctionLowerer:
         self.in_receiver_argument = False
         self.enclosing_type = enclosing_type
         self.structs = structs
+        self.function_returns = function_returns or {}
         self.checked_receivers: dict[tuple[int, ...], _Receiver | None] = {}
         self.checked_scalar_calls: set[tuple[int, ...]] = set()
         self.owners: dict[str, Owner] = {}
         self.owner_types: dict[str, str] = {}
+        self.owner_type_nodes: dict[str, object] = {}
         self.owner_fields: dict[str, set[tuple[str, ...]]] = {}
         self.owner_views: dict[str, dict[str, tuple[str, ...]]] = {}
         self.owner_invariants: dict[str, list[str]] = {}
@@ -1797,6 +2379,7 @@ class _FunctionLowerer:
         *,
         borrowed: bool,
         type_name: str | None = None,
+        type_node: object = None,
     ) -> None:
         if not _NAME.fullmatch(name) or (name in self.used_binders and name not in self.owners):
             return
@@ -1804,6 +2387,8 @@ class _FunctionLowerer:
             self.owner_fields[name] = set()
             self.owner_views[name] = {}
             self.owner_invariants[name] = []
+        if type_node is not None:
+            self.owner_type_nodes[name] = type_node
         if type_name is not None:
             self.owner_types[name] = type_name
             info = self.structs.get(type_name)
@@ -1869,7 +2454,7 @@ class _FunctionLowerer:
                     and pmode != "owned"
                     and "owned" not in mods
                 )
-                self._register_owner(pname, borrowed=borrowed, type_name=ptype)
+                self._register_owner(pname, borrowed=borrowed, type_name=ptype, type_node=ptype_node)
 
         for contract in _ast_nodes(self.fn_node.get("contracts", [])):
             ckind = contract.get("kind")
@@ -1901,12 +2486,111 @@ class _FunctionLowerer:
         if not self.owners:
             self._register_owner("_unit", borrowed=False)
 
-    def _place_struct(self, place: Place) -> _StructInfo | None:
+    def _unwrap_type_node(self, type_node: object) -> object:
+        curr = type_node
+        while isinstance(curr, dict) and curr.get("kind") in {"modified_type", "group_type", "group"}:
+            curr = curr.get("type") or curr.get("value")
+        return curr
+
+    def _place_type_info(self, place: Place) -> tuple[str | None, object]:
+        type_node = self.owner_type_nodes.get(place.owner)
         type_name = self.owner_types.get(place.owner)
         for component in place.fields:
-            info = self.structs.get(type_name) if type_name is not None else None
-            type_name = info.field_types.get(component) if info is not None else None
+            if component == "*" or _is_symbolic(component):
+                unwrapped = self._unwrap_type_node(type_node)
+                if (
+                    type_name in _BUILTIN_CONTAINERS
+                    and isinstance(unwrapped, dict)
+                    and unwrapped.get("kind") in {"type", "type_application", "generic_application"}
+                ):
+                    args = _ast_nodes(unwrapped.get("arguments", []))
+                    if args:
+                        type_node = args[0]
+                        type_name = _type_base_name(type_node)
+                        continue
+                type_name = None
+                type_node = None
+            else:
+                info = self.structs.get(type_name) if type_name is not None else None
+                type_name = info.field_types.get(component) if info is not None else None
+                type_node = None
+        return type_name, type_node
+
+    def _place_struct(self, place: Place) -> _StructInfo | None:
+        type_name, _ = self._place_type_info(place)
         return self.structs.get(type_name) if type_name is not None else None
+
+    def _index_segment(self, expr: dict[str, object]) -> str:
+        if expr.get("kind") != "index":
+            return "*"
+        idx = expr.get("index")
+        while isinstance(idx, dict) and idx.get("kind") == "group":
+            idx = idx.get("expression") or idx.get("value")
+        if isinstance(idx, dict) and _is_ident(idx):
+            idx_name = _id_text(idx["name"])
+            if _NAME.fullmatch(idx_name) and idx_name not in self.handles:
+                return f"@{idx_name}"
+        return "*"
+
+    def _infer_expr_type(self, expr: dict[str, object]) -> str | None:
+        curr = expr
+        while curr.get("kind") == "group":
+            inner = curr.get("expression") or curr.get("value")
+            if not isinstance(inner, dict):
+                break
+            curr = inner
+        place = self._try_place(curr)
+        if place is not None:
+            return self._place_type_info(place)[0]
+        kind = curr.get("kind")
+        if kind == "call":
+            callee = _ast_node(curr["callee"])
+            while callee.get("kind") in {"generic_application", "group"}:
+                callee = _ast_node(callee["value"])
+            if _is_ident(callee):
+                cname = _id_text(callee["name"])
+                if cname in self.structs:
+                    return cname
+                return self.function_returns.get(cname)
+            if callee.get("kind") == "member":
+                recv = _ast_node(callee.get("receiver") or callee["value"])
+                mname = _id_text(callee.get("name") or callee.get("member"))
+                recv_type = _id_text(recv["name"]) if _is_ident(recv) else self._infer_expr_type(recv)
+                if recv_type is not None and f"{recv_type}.{mname}" in self.function_returns:
+                    return self.function_returns[f"{recv_type}.{mname}"]
+                return self.function_returns.get(mname)
+        if kind == "if_expression":
+            then_t = self._infer_expr_type(_ast_node(curr.get("then_branch") or curr["then"]))
+            else_t = self._infer_expr_type(_ast_node(curr.get("else_branch") or curr["else"]))
+            if then_t is not None and then_t == else_t:
+                return then_t
+        return None
+
+    def _is_unstable_call(self, callee: dict[str, object]) -> bool:
+        curr = callee
+        while curr.get("kind") in {"generic_application", "group"}:
+            curr = _ast_node(curr["value"])
+        if curr.get("kind") == "member":
+            mname = _id_text(curr.get("name") or curr.get("member"))
+            return mname in _UNSTABLE_CONTAINER_METHODS
+        if _is_ident(curr):
+            return _id_text(curr["name"]) in _UNSTABLE_CONTAINER_METHODS
+        return False
+
+    def _is_unstable_assignment(self, target_place: Place | None, value_expr: dict[str, object]) -> bool:
+        curr = value_expr
+        while curr.get("kind") == "group":
+            inner = curr.get("expression") or curr.get("value")
+            if not isinstance(inner, dict):
+                break
+            curr = inner
+        if curr.get("kind") == "call" and self._is_unstable_call(_ast_node(curr["callee"])):
+            return True
+        if target_place is not None:
+            tname, _ = self._place_type_info(target_place)
+            if tname in _BUILTIN_CONTAINERS:
+                return True
+        return False
 
     def _try_place(self, expr: dict[str, object]) -> Place | None:
         kind = expr.get("kind")
@@ -1942,7 +2626,7 @@ class _FunctionLowerer:
             if isinstance(recv, dict):
                 base = self._try_place(recv)
                 if base is not None:
-                    return Place(base.owner, (*base.fields, "*"))
+                    return Place(base.owner, (*base.fields, self._index_segment(expr)))
         borrow_info = _extract_borrow_expr(expr)
         if borrow_info is not None:
             return self._try_place(borrow_info[1])
@@ -1974,7 +2658,7 @@ class _FunctionLowerer:
                 fields.append(_id_text(root.get("member") or root["name"]))
                 root = cast("dict[str, object]", root.get("receiver") or root["value"])
             else:
-                fields.append("*")
+                fields.append(self._index_segment(root))
                 root = cast("dict[str, object]", root.get("receiver") or root["value"])
         fields.reverse()
         if _is_ident(root):
@@ -2103,12 +2787,50 @@ class _FunctionLowerer:
                 self._register_owner(bname, borrowed=False)
         return current
 
+    def _extract_index_ne(self, operand: dict[str, object]) -> tuple[str, str, bool] | None:
+        curr = operand
+        negated = False
+        while True:
+            if curr.get("kind") == "group":
+                curr = _ast_node(curr.get("expression") or curr["value"])
+                continue
+            if curr.get("kind") == "unary" and _op_text(curr.get("operator")) == "!":
+                negated = not negated
+                curr = _ast_node(curr.get("operand") if "operand" in curr else curr["value"])
+                continue
+            break
+        if curr.get("kind") != "binary":
+            return None
+        op = _op_text(curr.get("operator"))
+        if op in {"!=", "<", ">"}:
+            if negated and op in {"<", ">"}:
+                return None
+            on_true = not negated
+        elif op == "==":
+            on_true = negated
+        else:
+            return None
+        left = curr["left"]
+        right = curr["right"]
+        while isinstance(left, dict) and left.get("kind") == "group":
+            left = left.get("expression") or left.get("value")
+        while isinstance(right, dict) and right.get("kind") == "group":
+            right = right.get("expression") or right.get("value")
+        if isinstance(left, dict) and isinstance(right, dict) and _is_ident(left) and _is_ident(right):
+            lname = _id_text(left["name"])
+            rname = _id_text(right["name"])
+            if lname != rname and _NAME.fullmatch(lname) and _NAME.fullmatch(rname):
+                return f"@{lname}", f"@{rname}", on_true
+        return None
+
     def _lower_condition(
         self, current: str | None, condition: dict[str, object],
     ) -> tuple[str | None, str, dict[str, str]]:
         pending = [condition]
         failure = self._fresh_node("if_else")
         outer_handles: dict[str, str] | None = None
+        conjunct_count = 0
+        else_fact: tuple[str, str] | None = None
         while pending:
             operand = pending.pop()
             if operand.get("kind") == "group":
@@ -2117,6 +2839,7 @@ class _FunctionLowerer:
             if operand.get("kind") == "binary" and _op_text(operand["operator"]) == "&&":
                 pending.extend((_ast_node(operand["right"]), _ast_node(operand["left"])))
                 continue
+            conjunct_count += 1
             current, captures = self._lower_expr(current, operand)
             if outer_handles is None:
                 outer_handles = dict(self.handles)
@@ -2124,10 +2847,19 @@ class _FunctionLowerer:
             current = self._fresh_node("if_then")
             self._connect(split, current)
             self._connect(split, failure)
+            ne_fact = self._extract_index_ne(operand)
+            if ne_fact is not None:
+                left_sym, right_sym, on_true = ne_fact
+                if on_true:
+                    current = self._emit(current, AssumeIndexNe(left_sym, right_sym), "assume_ne")
+                else:
+                    else_fact = (left_sym, right_sym)
             if operand.get("kind") in {"is", "is_expression"}:
                 current = self._bind_pattern_from_captures(
                     current, _ast_node(operand["pattern"]), captures, self._try_place(_ast_node(operand["value"])),
                 )
+        if conjunct_count == 1 and else_fact is not None:
+            failure = self._emit(failure, AssumeIndexNe(*else_fact), "assume_else_ne")
         return current, failure, outer_handles if outer_handles is not None else {}
 
     def _lower_expr(
@@ -2404,6 +3136,16 @@ class _FunctionLowerer:
         finally:
             self.current_site = prev_site
 
+    def _builtin_method_signature(self, type_name: str | None, method: str) -> _Receiver | None:
+        if type_name in _BUILTIN_CONTAINERS:
+            if method in _UNSTABLE_CONTAINER_METHODS:
+                return _Receiver("exclusive", None, False, two_phase=True, scalar_result=True)
+            if method in _READONLY_CONTAINER_METHODS:
+                return _Receiver("shared", None, False, two_phase=False, scalar_result=True)
+        if type_name in _SCALAR_VALUE_TYPES:
+            return _Receiver("shared", None, False, two_phase=False, scalar_result=True)
+        return None
+
     def _lower_call(
         self, current: str | None, expr: dict[str, object]
     ) -> tuple[str | None, tuple[str, ...]]:
@@ -2416,7 +3158,9 @@ class _FunctionLowerer:
         while callee.get("kind") in {"generic_application", "group"}:
             callee = _ast_node(callee["value"])
         receiver_loan: Loan | None = None
+        receiver_footprint: Place | None = None
         reserve_receiver = False
+        call_stability: Stability = "unstable" if self._is_unstable_call(callee) else "stable"
         span = tuple(cast("list[int]", expr.get("span", [])))
         scalar_result = span in self.checked_scalar_calls
         receiver_site = callee
@@ -2434,13 +3178,27 @@ class _FunctionLowerer:
                 info = self._place_struct(place)
                 signature = info.methods.get(method) if info is not None else None
                 if info is None or signature is None:
+                    place_type, _ = self._place_type_info(place)
+                    signature = self._builtin_method_signature(place_type, method)
+                if signature is None:
                     raise AnalysisRefusalError(f"cannot resolve receiver mode for {place.owner}.{method}")
                 if signature.view is not None:
-                    if signature.view not in info.views:
+                    if info is None or signature.view not in info.views:
                         raise AnalysisRefusalError(f"unknown receiver view {signature.view!r} for {method}")
                     projection = info.views[signature.view]
-            elif not _is_ident(recv) and _view_field(recv) is None:
-                raise AnalysisRefusalError("cannot resolve receiver of computed method call")
+            else:
+                method = _id_text(callee.get("name") or callee.get("member"))
+                recv_type = self._infer_expr_type(recv)
+                info = self.structs.get(recv_type) if recv_type is not None else None
+                signature = info.methods.get(method) if info is not None else None
+                if signature is None:
+                    signature = self._builtin_method_signature(recv_type, method)
+                if signature is None and not _is_ident(recv) and _view_field(recv) is None:
+                    raise AnalysisRefusalError("cannot resolve receiver of computed method call")
+                if signature is not None and signature.view is not None:
+                    if info is None or signature.view not in info.views:
+                        raise AnalysisRefusalError(f"unknown receiver view {signature.view!r} for {method}")
+                    projection = info.views[signature.view]
             if signature is not None:
                 scalar_result = scalar_result or signature.scalar_result
                 if place is not None:
@@ -2458,6 +3216,7 @@ class _FunctionLowerer:
                     else:
                         raise AnalysisRefusalError("cannot resolve the origin of a computed receiver")
                 footprint = Place(base.owner, (*base.fields, *projection))
+                receiver_footprint = footprint
                 self._add_owner_field(footprint.owner, footprint.fields)
                 receiver_loan = Loan(self._fresh_loan("recv"), parent, footprint, mode=signature.mode,
                                      scoped=not signature.retained)
@@ -2560,7 +3319,9 @@ class _FunctionLowerer:
             if loan_mode == "shared":
                 current = self._emit(current, Use(loan_name), "call_use")
             else:
-                current = self._emit(current, Access(place, "write", via=loan_name), "call_write")
+                current = self._emit(
+                    current, Access(place, "write", via=loan_name, stability=call_stability), "call_write"
+                )
             if is_temp:
                 if loan_mode == "shared" and self.in_receiver_argument and not scalar_result:
                     captured_handles.append(loan_name)
@@ -2569,7 +3330,14 @@ class _FunctionLowerer:
 
         if receiver_loan is not None:
             self.current_site = receiver_site
-            current = self._emit(current, Use(receiver_loan.name), "call_receiver_use")
+            if receiver_loan.mode == "exclusive" and call_stability == "unstable" and receiver_footprint is not None:
+                current = self._emit(
+                    current,
+                    Access(receiver_footprint, "write", via=receiver_loan.name, stability="unstable"),
+                    "call_receiver_write",
+                )
+            else:
+                current = self._emit(current, Use(receiver_loan.name), "call_receiver_use")
             if receiver_loan.scoped:
                 current = self._emit(current, Drop(receiver_loan.name), "call_receiver_drop")
             self.current_site = expr
@@ -2662,13 +3430,13 @@ class _FunctionLowerer:
 
         inferred_type = _type_base_name(local_type)
         if inferred_type is None and value_expr.get("kind") == "call":
-            callee = _ast_node(value_expr["callee"])
-            if _is_ident(callee):
-                cname = _id_text(callee["name"])
-                if cname in self.structs:
-                    inferred_type = cname
+            inferred_type = self._infer_expr_type(value_expr)
+        if binder_name in self.owners and _NAME.fullmatch(binder_name):
+            current = self._emit(current, InvalidateSymbol(f"@{binder_name}"), f"rebind_{binder_name}")
         self.handles.pop(binder_name, None)
-        self._register_owner(binder_name, borrowed=False, type_name=inferred_type)
+        self._register_owner(
+            binder_name, borrowed=False, type_name=inferred_type, type_node=local_type
+        )
         return current
 
     def _lower_statements(
@@ -2783,25 +3551,38 @@ class _FunctionLowerer:
                     tname = _id_text(target["name"])
                     if tname in self.handles and tname in self.handle_places:
                         via = self.handles[tname]
+                        target_place = self.handle_places[tname]
+                        stability: Stability = (
+                            "unstable" if self._is_unstable_assignment(target_place, val) else "stable"
+                        )
                         return self._emit(
                             current,
-                            Access(self.handle_places[tname], "write", via=via),
+                            Access(target_place, "write", via=via, stability=stability),
                             f"write_{tname}",
                         )
                 place = self._try_place(target)
                 if place is not None:
                     if place.fields and "*" not in place.fields:
                         self._add_owner_field(place.owner, place.fields)
+                    stability = "unstable" if self._is_unstable_assignment(place, val) else "stable"
+                    if _is_ident(target):
+                        tname = _id_text(target["name"])
+                        if tname in self.owners and tname not in self.handles and _NAME.fullmatch(tname):
+                            current = self._emit(
+                                current, InvalidateSymbol(f"@{tname}"), f"invalidate_{tname}"
+                            )
                     recv = target.get("receiver") or target.get("value")
                     if isinstance(recv, dict) and _is_ident(recv):
                         rname = _id_text(recv["name"])
                         if rname in self.handles:
                             return self._emit(
                                 current,
-                                Access(place, "write", via=self.handles[rname]),
+                                Access(place, "write", via=self.handles[rname], stability=stability),
                                 "write_field",
                             )
-                    return self._emit(current, Access(place, "write"), "write_field")
+                    return self._emit(
+                        current, Access(place, "write", stability=stability), "write_field"
+                    )
                 return current
 
             if kind == "if":
@@ -2944,6 +3725,8 @@ class _FunctionLowerer:
                 elif kind == "foreach":
                     iname = _id_text(stmt["name"])
                     self._register_owner(iname, borrowed=False)
+                    if _NAME.fullmatch(iname):
+                        body_curr = self._emit(body_curr, InvalidateSymbol(f"@{iname}"), f"iter_sym_{iname}")
                 elif kind == "foreach_collection":
                     iname = _id_text(stmt["name"])
                     imode = str(stmt.get("mode", "value"))
@@ -2966,6 +3749,10 @@ class _FunctionLowerer:
                     else:
                         self.handles.pop(iname, None)
                         self._register_owner(iname, borrowed=False)
+                        if _NAME.fullmatch(iname):
+                            body_curr = self._emit(
+                                body_curr, InvalidateSymbol(f"@{iname}"), f"iter_sym_{iname}"
+                            )
                 body_exit = self._lower_statements(
                     body_curr,
                     _body_statements(stmt.get("body")),
@@ -3111,15 +3898,20 @@ def lower_function(ast: object, function_name: str | None = None) -> LoweredFunc
 
     declarations = _ast_nodes(root.get("declarations", []))
     structs = _collect_structs(declarations)
+    function_returns = _collect_function_returns(declarations)
     functions = _find_functions(declarations)
     if not functions:
         raise AnalysisRefusalError("no function with a body found in module")
     if function_name is None:
         selected_name, selected_node, enclosing = functions[0]
-        return _FunctionLowerer(selected_name, selected_node, enclosing, structs).build()
+        return _FunctionLowerer(
+            selected_name, selected_node, enclosing, structs, function_returns
+        ).build()
     for candidate_name, candidate_node, enclosing in functions:
         if candidate_name == function_name:
-            return _FunctionLowerer(candidate_name, candidate_node, enclosing, structs).build()
+            return _FunctionLowerer(
+                candidate_name, candidate_node, enclosing, structs, function_returns
+            ).build()
     raise AnalysisRefusalError(f"function {function_name!r} not found in module")
 
 
@@ -3130,13 +3922,18 @@ def lower_module(ast: object) -> tuple[LoweredFunction, ...]:
         return (lower_function(root),)
     declarations = _ast_nodes(root.get("declarations", []))
     structs = _collect_structs(declarations)
+    function_returns = _collect_function_returns(declarations)
     seen_nodes: set[int] = set()
     lowered: list[LoweredFunction] = []
     for candidate_name, candidate_node, enclosing in _find_functions(declarations):
         if id(candidate_node) in seen_nodes:
             continue
         seen_nodes.add(id(candidate_node))
-        lowered.append(_FunctionLowerer(candidate_name, candidate_node, enclosing, structs).build())
+        lowered.append(
+            _FunctionLowerer(
+                candidate_name, candidate_node, enclosing, structs, function_returns
+            ).build()
+        )
     if not lowered:
         raise AnalysisRefusalError("no function with a body found in module")
     return tuple(lowered)
