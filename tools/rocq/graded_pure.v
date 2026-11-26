@@ -1,6 +1,6 @@
 (* SPDX-License-Identifier: Apache-2.0 *)
 
-From Stdlib Require Import List Arith.PeanoNat.
+From Stdlib Require Import List Arith.PeanoNat Bool.Bool.
 Import ListNotations.
 
 Module GradedPure.
@@ -256,7 +256,8 @@ Inductive term : Type :=
 | NatValue (i : index)
 | Lambda (x allowance : nat) (domain : ty) (body : term)
 | ApplyNat (callee : term) (argument : index)
-| ApplyValue (callee argument : term).
+| ApplyValue (callee argument : term)
+| LetNat (x allowance : nat) (initializer : index) (body : term).
 
 Record judgment := {
   result_type : ty;
@@ -297,7 +298,17 @@ Inductive DerivesWith (allows : nat -> nat -> Prop) (env : context) : term -> ju
     canonical_type [] kind = canonical_type [] domain ->
     fresh env x = true -> TypeDemand env codomain b ->
     DerivesWith allows env (ApplyValue callee argument) {| result_type := codomain;
-      computation_demand := w ++ scale allowance z; type_demand_row := b |}.
+      computation_demand := w ++ scale allowance z; type_demand_row := b |}
+| GradeLetNat : forall x allowance initializer body kind z u v output,
+    fresh env x = true -> IndexDemand env initializer z ->
+    DerivesWith allows ({| binder := x; annotation := Natural; type_uses := [] |} :: env) body
+      {| result_type := kind; computation_demand := u; type_demand_row := v |} ->
+    allows (uses u x) allowance ->
+    TypeDemand env (substitute_type x initializer kind) output ->
+    same_demand (substitute_demand x z v) output ->
+    DerivesWith allows env (LetNat x allowance initializer body)
+      {| result_type := substitute_type x initializer kind;
+        computation_demand := z ++ without x u; type_demand_row := substitute_demand x z v |}.
 
 Fixpoint infer_with (allowsb : nat -> nat -> bool) (env : context) (subject : term) : option judgment :=
   match subject with
@@ -363,6 +374,24 @@ Fixpoint infer_with (allowsb : nat -> nat -> bool) (env : context) (subject : te
           else None
       | _, _ => None
       end
+  | LetNat x allowance initializer body =>
+      if fresh env x then
+        let extended := {| binder := x; annotation := Natural; type_uses := [] |} :: env in
+        match index_demand env initializer, infer_with allowsb extended body with
+        | Some z, Some {| result_type := kind; computation_demand := u; type_demand_row := v |} =>
+            let specialized := substitute_type x initializer kind in
+            match type_demand env specialized with
+            | Some output =>
+                let substituted := substitute_demand x z v in
+                if allowsb (uses u x) allowance && demand_eqb substituted output then
+                  Some {| result_type := specialized; computation_demand := z ++ without x u;
+                    type_demand_row := substituted |}
+                else None
+            | None => None
+            end
+        | _, _ => None
+        end
+      else None
   end.
 
 Lemma infer_with_sound : forall (allows : nat -> nat -> Prop) allowsb,
@@ -371,7 +400,8 @@ Lemma infer_with_sound : forall (allows : nat -> nat -> Prop) allowsb,
     infer_with allowsb env subject = Some result -> DerivesWith allows env subject result.
 Proof.
   intros allows allowsb admission_sound.
-  induction subject as [x | i | x allowance domain body IH | callee IH argument | callee IHc argument IHa];
+  induction subject as [x | i | x allowance domain body IH | callee IH argument | callee IHc argument IHa
+    | x allowance initializer body IH];
     intros env result checked; cbn in checked.
   - destruct (lookup env x) as [entry |] eqn:found; try discriminate.
     destruct (type_demand env (annotation entry)) as [row |] eqn:typed; try discriminate.
@@ -405,6 +435,15 @@ Proof.
     destruct (ty_eq_dec (canonical_type [] kind) (canonical_type [] domain)); try discriminate.
     destruct (type_demand env codomain) as [b |] eqn:typed; inversion checked; subst.
     eapply GradeApplyValue with (v := v) (a := a); eauto using type_demand_sound.
+  - destruct (fresh env x) eqn:new; try discriminate.
+    destruct (index_demand env initializer) as [z |] eqn:initializer_checked; try discriminate.
+    destruct (infer_with allowsb ({| binder := x; annotation := Natural; type_uses := [] |} :: env) body)
+      as [[kind u v] |] eqn:body_checked; try discriminate.
+    destruct (type_demand env (substitute_type x initializer kind)) as [output |] eqn:typed; try discriminate.
+    destruct (allowsb (uses u x) allowance && demand_eqb (substitute_demand x z v) output)
+      eqn:admitted; inversion checked; subst.
+    apply andb_true_iff in admitted as [allowed agrees].
+    eapply GradeLetNat; eauto using index_demand_sound, type_demand_sound, demand_eqb_sound.
 Qed.
 
 Lemma derives_type_demand : forall allows env subject result,
@@ -421,6 +460,7 @@ Proof.
       destruct (Nat.eqb name x); [reflexivity | now rewrite agrees].
   - exists output. auto.
   - exists b. split; [assumption | intros name; reflexivity].
+  - exists output. auto.
 Qed.
 
 Definition check_with (allowsb : nat -> nat -> bool) (entries : list binding) (subject : term) : option judgment :=

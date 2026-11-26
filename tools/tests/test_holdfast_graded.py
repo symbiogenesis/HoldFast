@@ -184,6 +184,58 @@ Proof. reflexivity. Qed.
             ensure(status == 1 and not output and "fails exact computation demand" in error, error)
 
 
+def _graded_let() -> None:
+    source = TOOLS / "tests" / "fixtures" / "graded-let.hf"
+    raw = source.read_text(encoding="utf-8")
+    with tempfile.TemporaryDirectory(prefix="holdfast-graded-let-") as temporary:
+        directory = Path(temporary)
+        candidate = directory / source.name
+        proof = directory / "Generated.v"
+        for domain, local_allowance in (("NatExact", 2), ("NatBound", 3)):
+            text = raw.replace("local @ NatExact(2)", f"local @ {domain}({local_allowance})").replace("NatExact", domain)
+            candidate.write_text(text, encoding="utf-8")
+            status, output, error = _elaborate_command(candidate)
+            ensure(status == 0 and all(f"Graded replay {name} {domain}: SHA256" in output
+                                       for name in ("Repeat", "Unused", "Shape")), error)
+            proof.write_text(output + """
+Import HoldFast_GradedLet.
+Example repeat_value : forall n, holdfast_d0_Repeat n = (n + n) + (n + n).
+Proof. reflexivity. Qed.
+Example unused_value : forall n, holdfast_d1_Unused n = 7.
+Proof. reflexivity. Qed.
+Example keep_shape : forall n (values : holdfast_Vec nat (n + n)),
+  holdfast_d2_Shape n values = values.
+Proof. reflexivity. Qed.
+""", encoding="utf-8")
+            replay = subprocess.run([*proofenv.rocq_command(), "-q", proof.name], cwd=directory,
+                                    capture_output=True, text=True, check=False, timeout=30)
+            ensure(replay.returncode == 0, replay.stderr)
+
+            for name in ("Repeat", "Unused"):
+                status, output, error = _source_command(candidate, name, "--domain", domain)
+                ensure(status == 0, error)
+                result = json.loads(output)
+                ensure(_demand(result["binders"]) == [("n", 2, 0)] and "LetNat" in result["gallina"],
+                       f"{name} lost the initializer's demand")
+            status, output, error = _source_command(candidate, "Shape", "--domain", domain)
+            ensure(status == 0, error)
+            result = json.loads(output)
+            n, values = result["binders"]
+            ensure(_demand([n, values]) == [("n", 2, 4), ("values", 1, 0)], "wrong specialized let demands")
+            row = [{"name": "n", "uses": 2, "span": n["span"]}]
+            ensure(values["annotation_type_uses"] == result["result_type_uses"] == row,
+                   "let substitution did not preserve the dependent rows")
+
+            for change, failure in (
+                (text.replace(f"local @ {domain}({local_allowance})", f"local @ {domain}(1)"), "computation demand"),
+                (text.replace(f"Unused(Nat n @ {domain}(2))", f"Unused(Nat n @ {domain}(0))"), "computation demand"),
+                (text.replace("(n + n)>", "n>"), "differs from the declared dependent type"),
+            ):
+                candidate.write_text(change, encoding="utf-8")
+                status, output, error = _elaborate_command(candidate)
+                ensure(status == 1 and not output and failure in error, error)
+
+
 def _verify_source_certificate(directory: Path, kernel_hashes: dict[str, str], certificate: str,
                                soundness_theorem: str, stale_row: tuple[str, str]) -> None:
     compiler = [*proofenv.rocq_command(), "-q"]
@@ -318,5 +370,7 @@ def cases() -> list[Case]:
             Case("source-bound exact grades and dependent partial application replay", _source_replay, lane="toolchain"),
             Case("source-bound natural bounds and exact type dependencies", _bounded_source_replay, lane="toolchain"),
             Case("graded value application preserves dependent and callable argument types", _value_application,
+                 lane="toolchain"),
+            Case("graded let sequences the initializer and substitutes independent type demand", _graded_let,
                  lane="toolchain"),
             Case("default elaboration checks source grades before Gallina emission", _default_source_replay, lane="toolchain")]
