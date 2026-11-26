@@ -1589,10 +1589,18 @@ class _IntrinsicsMixin:
         head, targs = self.spine(recv_ty)
         if head == _constant("Span") and len(targs) == 1 and self.whnf(targs[0]) == _U8:
             idx_t = self.check(idx_node, _USIZE, environment)
-            self._check_span_can_read(recv_b.term, environment, node)
-            len_t = _apps(_constant("Span_Length"), _U8, recv_b.term)
-            in_bounds = _apps(_constant("int_lt_usize"), idx_t, len_t)
-            if not self._prove_bool_precondition(in_bounds, environment):
+
+            def can_read(span: _Term) -> bool:
+                return self._prove_bool_precondition(_apps(_constant("Span_CanRead"), _U8, span), environment)
+
+            def in_bounds(span: _Term) -> bool:
+                length = _apps(_constant("Span_Length"), _U8, span)
+                return self._prove_bool_precondition(_apps(_constant("int_lt_usize"), idx_t, length), environment)
+
+            # A precondition can describe the selected span directly.
+            if not can_read(recv_b.term) and not self._every_guarded_span(recv_b.term, environment, can_read):
+                raise self.fail("type", "cannot prove Span has valid tag and read permission (Span.CanRead)", node)
+            if not in_bounds(recv_b.term) and not self._every_guarded_span(recv_b.term, environment, in_bounds):
                 raise self.fail("type", "cannot prove Span index is within Span.Length bounds", node)
             return _Binding(_apps(_constant("Span_Read"), _U8, recv_b.term, idx_t), _U8), _Binding(idx_t, _USIZE)
         if head == _constant("Slots") and len(targs) == 2:
@@ -1700,6 +1708,47 @@ class _IntrinsicsMixin:
         )):
             return None
         return self._add_usize_offset(displacement, index)
+
+    def _every_guarded_span(
+        self: _Elaborator, span: _Term, environment: dict[str, _Binding], check: Callable[[_Term], bool],
+    ) -> bool:
+        resolved = self.whnf(span)
+        if resolved.kind != "if":
+            return check(span)
+        pending: list[tuple[_Term, tuple[_Term, ...]]] = [(resolved, ())]
+        saved_facts = len(self.active_facts)
+        try:
+            while pending:
+                self.tick()
+                span, guards = pending.pop()
+                self.active_facts[saved_facts:] = guards
+                span = self.whnf(span)
+                if span.kind == "if":
+                    _, condition, yes, no = span.args
+                    negative = self._negate_bool_term(condition)
+                    for guard, opposite, branch in ((condition, negative, yes), (negative, condition, no)):
+                        if not self._prove_bool_precondition(opposite, environment):
+                            pending.append((branch, (*guards, guard)))
+                elif not check(span):
+                    return False
+            return True
+        finally:
+            del self.active_facts[saved_facts:]
+
+    def _span_indexed_arguments_disjoint(
+        self: _Elaborator, owner: _Term, write_index: _Term, view: _Term, read_index: _Term,
+        environment: dict[str, _Binding],
+    ) -> bool:
+        if self.whnf(self.infer(write_index)) != _USIZE or self.whnf(self.infer(read_index)) != _USIZE:
+            return False
+
+        def separate(span: _Term) -> bool:
+            index = self._span_index_in_owner(span, owner, read_index, environment)
+            return index is not None and self._prove_bool_precondition(
+                _apps(_constant("int_ne_usize"), write_index, index), environment,
+            )
+
+        return self._every_guarded_span(view, environment, separate)
 
     def _check_returned_span_views(
         self: _Elaborator, result: _Term, environment: dict[str, _Binding], site: Node,
@@ -1856,11 +1905,11 @@ class _IntrinsicsMixin:
             backing: set[_Term] = set()
             is_view = root in self.slice_views
             if collection is not None and self.spine(self.whnf(collection.type))[0] == _constant("Span"):
-                span = self.whnf(collection.term)
-                is_view = is_view or self.spine(span)[0] in {_constant("Span_Slice"), _constant("Span_ReadOnly")}
-                pending = [span]
+                pending = [collection.term]
                 while pending:
-                    base = self._root_span(pending.pop())
+                    span = self.whnf(pending.pop())
+                    is_view = is_view or self.spine(span)[0] in {_constant("Span_Slice"), _constant("Span_ReadOnly")}
+                    base = self._root_span(span)
                     if base in backing:
                         continue
                     backing.add(base)
@@ -1877,14 +1926,13 @@ class _IntrinsicsMixin:
                 if (other is not None and name != other_name and j in shared_positions and not is_view
                         and name is not None and ancestry == {name}
                         and other_name is not None and other_is_view and not self.last_call_updates):
-                    other = self._span_index_in_owner(
-                        environment[other_name].term, environment[name].term, other, environment,
-                    )
-                elif name != other_name:
-                    other = None
-                if other is not None:
+                    if self._span_indexed_arguments_disjoint(
+                        environment[name].term, pos, environment[other_name].term, other, environment,
+                    ):
+                        continue
+                elif other is not None and name == other_name:
                     index_type = self.whnf(self.infer(pos))
-                    ne = _constant("!=") if index_type == _NAT else _constant("int_ne_usize")
+                    ne = _constant("ne_nat") if index_type == _NAT else _constant("int_ne_usize")
                     if self.whnf(self.infer(other)) == index_type and self._prove_bool_precondition(
                         _apps(ne, pos, other), environment
                     ):

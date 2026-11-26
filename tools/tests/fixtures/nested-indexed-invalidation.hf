@@ -1,0 +1,17 @@
+// SPDX-License-Identifier: Apache-2.0
+module NestedIndexedInvalidation;
+
+private Result<byte, bool> ClearPeer(in Seq<byte> source, ref Seq<byte> target) {
+    target = Seq.Empty<byte>();
+    if (0 < source.Count) {
+        return Ok(source[0]);
+    }
+    return Err(false);
+}
+
+public Result<byte, bool> ReadAfterClear(ref Vec<Seq<byte>, 3> rows, Nat i, Nat j) {
+    if (i < 2 && j < 2 && i != j) {
+        return ClearPeer(in rows[i], ref rows[j]);
+    }
+    return Err(false);
+}
