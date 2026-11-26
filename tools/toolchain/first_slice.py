@@ -72,8 +72,15 @@ PURECAP_CONTROL_ROWS: Final = tuple(dialect.TABLE[name] for name in (
     "cincoffsetimm", "cjal", "cjalr", "cmove", "csetaddr", "csetbounds", "cspecialrw",
     "csrrs", "lbu", "lc", "lui", "ori", "sb", "sc", "sd", "slli",
 ))
-PERTURBED_CASES: Final = ((7, "perturbed-wrong-payload-byte"), (12, "perturbed-stale-trailing-byte"),
-                        (16, "perturbed-checksum-error-code"), (17, "perturbed-unscrubbed-checksum-dst"))
+PERTURBED_CASES: Final = (
+    (4, "perturbed-empty-view-origin"),
+    (6, "perturbed-full-view-origin"),
+    (7, "perturbed-wrong-payload-byte"),
+    (10, "perturbed-writable-partial-view"),
+    (12, "perturbed-stale-trailing-byte"),
+    (16, "perturbed-checksum-error-code"),
+    (17, "perturbed-unscrubbed-checksum-dst"),
+)
 
 DEFAULT_CCOMP_CANDIDATES: Final[tuple[str, ...]] = (
     "/root/build/lane-scalar-effects-20260926/kernel-protected-final/plain/ccomp",
@@ -817,14 +824,22 @@ def _lowering_provenance(checked: CheckedElaboration, generated: str, operations
             "integer_arithmetic_and_literals": operations}
 
 
-def _reconstruct_lowering(root: Path) -> dict[str, object]:
+def _reconstruct_lowering(
+    root: Path, *, compiler_available: bool,
+) -> tuple[dict[str, object], dict[str, str]]:
     source = (root / EXAMPLE).read_bytes()
     with holdfast_parser.cached_build(root) as local:
         parsed = holdfast_parser.parse_source(local, source, surface=True)
     checked = holdfast_elaborate.elaborate(source, parsed)
     operations: list[dict[str, object]] = []
     generated, _ = lower_to_c(source, parsed, checked=checked, observations=operations)
-    return _lowering_provenance(checked, generated, operations)
+    compiler_sources: dict[str, str] = {}
+    if compiler_available:
+        compiler_sources["first_slice"] = _sha256(generated.encode())
+        for check, name in PERTURBED_CASES:
+            variant, _ = lower_to_c(source, parsed, checked=checked, perturb_check=check)
+            compiler_sources[name] = _sha256(variant.encode())
+    return _lowering_provenance(checked, generated, operations), compiler_sources
 
 
 def _retained_proof(root: Path, report: dict[str, object], directory: Path,
@@ -1975,6 +1990,16 @@ int main(void)
     return 0;
 }}
 """
+    view_mutation = {
+        4: "if (out->ok.PayloadView.length == 0UL) out->ok.PayloadView.cursor = pkt->cursor + 4UL;",
+        6: "if (out->ok.PayloadView.length == 4UL) out->ok.PayloadView.cursor = pkt->cursor + 4UL;",
+        10: "if (out->ok.PayloadView.length == 2UL) out->ok.PayloadView.perm_write = 1;",
+    }.get(perturb_check)
+    if view_mutation is not None:
+        return_view = "holdfast_span_copy_meta(&out->ok.PayloadView, &payloadView);"
+        if c_source.count(return_view) != 1:
+            raise ValueError("packet view control requires a unique returned-view assignment")
+        c_source = c_source.replace(return_view, f"{return_view}\n    {view_mutation}")
     return c_source, 20
 
 
@@ -2679,10 +2704,13 @@ def verify_bindings(root: Path, receipt_path: Path) -> dict[str, object]:
             raise ValueError("packet compiler trace path or size changed")
         timeline = json.loads(timeline_path.read_bytes(), object_pairs_hook=unique_object)
         _check_trace(root, receipt, timeline, cast("list[dict[str, object]]", receipt["steps"]))
-    provenance = _reconstruct_lowering(root)
+    provenance, compiler_sources = _reconstruct_lowering(root, compiler_available=compiler is not None)
     if (CheckedElaboration.encode_syntax(receipt.get("lowering_provenance")) != CheckedElaboration.encode_syntax(provenance)
             or any(receipt.get(key) != provenance[key] for key in ("source_sha256", "gallina_sha256", "lowered_c_sha256"))):
         raise ValueError("retained integer lowering or generated subjects differ from the checked source")
+    for name, digest in compiler_sources.items():
+        if artifacts.get(str(output_directory / f"{name}.c")) != digest:
+            raise ValueError(f"retained compiler source {name}.c differs from the checked lowering")
     _retained_controls(receipt, output_directory, artifacts)
     _retained_execution(receipt, output_directory, artifacts)
     with tempfile.TemporaryDirectory(prefix="bindings-", dir=_work_root(root)) as temporary:

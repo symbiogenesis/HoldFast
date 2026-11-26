@@ -19,6 +19,20 @@ from toolchain.ast import HoldFastError
 from toolchain.cli import holdfast_parser as cli
 
 INDEPENDENT_CASES = True
+COMPILER_CONTROLS = (
+    (4, "perturbed-empty-view-origin"),
+    (6, "perturbed-full-view-origin"),
+    (7, "perturbed-wrong-payload-byte"),
+    (10, "perturbed-writable-partial-view"),
+    (12, "perturbed-stale-trailing-byte"),
+    (16, "perturbed-checksum-error-code"),
+    (17, "perturbed-unscrubbed-checksum-dst"),
+)
+COMPILER_PROGRAMS = ((0, "first_slice"), *COMPILER_CONTROLS)
+
+
+def _compiler_source(code: int) -> bytes:
+    return f"int main(void) {{ return {code}; }}\n".encode()
 
 
 def _execution_fixture(outputs: Path, *, available: bool = False) -> dict[str, object]:
@@ -71,8 +85,7 @@ def _execution_fixture(outputs: Path, *, available: bool = False) -> dict[str, o
             "sail_trace_digest": digest, "sail_cap_roundtrip": True,
             "perturbed_controls": [
                 {"name": label, "check_id": check, "verdict": "fail", "target_code": check, "interp_code": check}
-                for check, label in ((7, "perturbed-wrong-payload-byte"), (12, "perturbed-stale-trailing-byte"),
-                                     (16, "perturbed-checksum-error-code"), (17, "perturbed-unscrubbed-checksum-dst"))],
+                for check, label in COMPILER_CONTROLS],
         })
         compiler["programs"] = _compiler_fixture(outputs, files, trace_lines)
     return {"execution_inputs": {"files": files, "compcert_available": available},
@@ -84,15 +97,13 @@ def _compiler_fixture(directory: Path, files: dict[str, object], trace_lines: li
     compiler, simulator, profile = (cast("dict[str, str]", files[key])["path"]
                                    for key in ("ccomp", "simulator", "profile"))
     command = [compiler, "-fverifiedos-typed", "-dclight"]
-    for name, code in (("first_slice", 0), ("perturbed-wrong-payload-byte", 7),
-                       ("perturbed-stale-trailing-byte", 12), ("perturbed-checksum-error-code", 16),
-                       ("perturbed-unscrubbed-checksum-dst", 17)):
+    for code, name in COMPILER_PROGRAMS:
         fresh, interpreted = directory / name, directory / f"{name}.interp"
         fresh.mkdir(exist_ok=True)
         interpreted.mkdir(exist_ok=True)
         source, unit, interp_unit = directory / f"{name}.c", fresh / f"{name}.i", interpreted / f"{name}.i"
         for path in (source, unit, interp_unit):
-            path.write_bytes(f"int main(void) {{ return {code}; }}\n".encode())
+            path.write_bytes(_compiler_source(code))
         assembly, elf = fresh / f"{name}.s", directory / f"{name}.elf"
         assembly.write_bytes(f".text\n.globl main\nmain:\nli a0, {code}\nret\n".encode())
         refused, image_bytes = slice_harness.cd.assemble(assembly.read_text(encoding="utf-8"), name, elf)
@@ -135,7 +146,7 @@ def _fixture_lowering(source: bytes, outputs: Path) -> dict[str, object]:
 
 
 def _proof_fixture(root: Path, outputs: Path, *, trusted: bool = False,
-                   assumption_stderr: bytes = b"") -> dict[str, object]:
+                   assumption_stderr: bytes = b"", lowered_c: bytes = b"retained first_slice.c") -> dict[str, object]:
     """Retain an independently assembled local proof report for binding-only checks."""
     labels = (
         "LawInhabitedByteCase", "LawAllocZeroedRead", "LawReadOverWriteSame", "LawReadOverWriteOther",
@@ -175,8 +186,9 @@ def _proof_fixture(root: Path, outputs: Path, *, trusted: bool = False,
         f"Axioms:\n{module}.{axiom} : True\n" if trusted and index == 16
         else "Closed under the global context\n" for index in range(len(names))).encode("utf-8")
     (outputs / "FirstSlice.assumptions.log").write_bytes(assumption_stdout + assumption_stderr)
-    for name in ("FirstSlice.vo", "FirstSliceAssumptions.vo", "first_slice.c"):
+    for name in ("FirstSlice.vo", "FirstSliceAssumptions.vo"):
         (outputs / name).write_bytes(f"retained {name}".encode())
+    (outputs / "first_slice.c").write_bytes(lowered_c)
     capacity_gallina = b"Definition capacity_fixture : True := I.\n"
     for stem in ("CapSmall", "CapLarge"):
         literal = "8usize" if stem == "CapSmall" else "1_000_000_000usize"
@@ -368,7 +380,7 @@ def _binding_checks() -> None:
         parser_hashes = {name: slice_harness._sha256((parser / name).read_bytes())
                          for name in (*slice_harness.holdfast_parser.GENERATED, "holdfast-parser")}
         source_inputs = {"source": "old"}
-        execution_fixture = _execution_fixture(outputs)
+        execution_fixture = _execution_fixture(outputs, available=True)
         execution = execution_fixture["execution_inputs"]
         report: dict[str, object] = {
             "schema": 2, "scope": "holdfast-first-slice-qualification", "status": "passed",
@@ -379,7 +391,7 @@ def _binding_checks() -> None:
             "parser": {"directory": str(parser), "generated_sha256": parser_hashes,
                        "inputs": {}, "toolchain": {}},
             "parser_outputs": parser_hashes, "directory": str(outputs),
-            **_proof_fixture(root, outputs),
+            **_proof_fixture(root, outputs, lowered_c=_compiler_source(0)),
             "artifacts_sha256": slice_harness._artifacts(outputs),
         }
         receipt = root / "receipt.json"
@@ -393,8 +405,13 @@ def _binding_checks() -> None:
         stack.enter_context(patch.object(slice_harness.replay, "_toolchain", return_value={}))
         stack.enter_context(patch.object(slice_harness.replay, "_runtime", return_value={}))
 
-        stack.enter_context(patch.object(slice_harness, "_reconstruct_lowering",
-                                         side_effect=lambda root: _fixture_lowering((root / slice_harness.EXAMPLE).read_bytes(), outputs)))
+        expected_sources = {name: hashlib.sha256(_compiler_source(code)).hexdigest()
+                            for code, name in COMPILER_PROGRAMS}
+        def reconstruct(_root: Path, *, compiler_available: bool) -> tuple[dict[str, object], dict[str, str]]:
+            provenance = _fixture_lowering((_root / slice_harness.EXAMPLE).read_bytes(), outputs)
+            return provenance, expected_sources if compiler_available else {}
+
+        stack.enter_context(patch.object(slice_harness, "_reconstruct_lowering", side_effect=reconstruct))
 
         def write(value: object) -> None:
             receipt.write_text(json.dumps(value), encoding="utf-8")
@@ -433,6 +450,25 @@ def _binding_checks() -> None:
                     msg="substituted typed operation provenance retained a matching receipt") as raised:
             slice_harness.verify_bindings(root, receipt)
         ensure("integer lowering" in str(raised.exception), "changed operation map lost its binding diagnostic")
+        substituted = copy.deepcopy(report)
+        changed_source = outputs / "perturbed-full-view-origin.c"
+        previous = changed_source.read_bytes()
+        changed_source.write_bytes(_compiler_source(6) + b"/* substituted compiler driver */\n")
+        compiler = cast("dict[str, object]", substituted["compcert_sail"])
+        programs = cast("list[dict[str, object]]", compiler["programs"])
+        next(program for program in programs if program["name"] == changed_source.stem)["source_sha256"] = (
+            hashlib.sha256(changed_source.read_bytes()).hexdigest()
+        )
+        substituted["artifacts_sha256"] = slice_harness._artifacts(outputs)
+        write(substituted)
+        try:
+            with raises(ValueError, msg="a rehashed compiler control was treated as the expected lowering") as raised:
+                slice_harness.verify_bindings(root, receipt)
+            ensure(f"retained compiler source {changed_source.name} differs from the checked lowering"
+                   in str(raised.exception), "substituted compiler control lost its source-binding diagnostic")
+        finally:
+            changed_source.write_bytes(previous)
+
         write(report)
         for owner, field, original, changed in (
                 (slice_harness, "_inputs", source_inputs, {"source": "changed during probes"}),
@@ -514,7 +550,7 @@ def _binding_checks() -> None:
             with raises(ValueError, msg="oversized receipt was accepted") as raised:
                 slice_harness.verify_bindings(root, receipt)
             ensure("size bound" in str(raised.exception), "oversized receipt lost its bounded refusal")
-        trusted_report = {**report, **_proof_fixture(root, outputs, trusted=True),
+        trusted_report = {**report, **_proof_fixture(root, outputs, trusted=True, lowered_c=_compiler_source(0)),
                           "artifacts_sha256": slice_harness._artifacts(outputs)}
         write(trusted_report)
         ensure(slice_harness.verify_bindings(root, receipt)["status"] == "matched",

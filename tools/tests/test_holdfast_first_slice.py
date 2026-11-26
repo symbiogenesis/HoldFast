@@ -674,14 +674,6 @@ def _execute_generated_packet_c() -> None:
         check_program(generated.replace(bad_header, """
             if (payloadLen > 4UL) { out->err = VOS_ERR_LengthOutOfBounds; }
             else { out->err = VOS_ERR_BadMagicOrFlags; }"""), 20)
-        returned = "holdfast_span_copy_meta(&out->ok.PayloadView, &payloadView);"
-        ensure(generated.count(returned) == 1, "packet regression lost the returned view assignment")
-        for change, expected in (
-            ("if (out->ok.PayloadView.length == 0UL) out->ok.PayloadView.cursor = pkt->cursor + 4UL;", 4),
-            ("if (out->ok.PayloadView.length == 4UL) out->ok.PayloadView.cursor = pkt->cursor + 4UL;", 6),
-            ("if (out->ok.PayloadView.length == 2UL) out->ok.PayloadView.perm_write = 1;", 10),
-        ):
-            check_program(generated.replace(returned, returned + "\n    " + change), expected)
         first_read = "if (holdfast_span_read(arena, &out.ok.PayloadView, 0UL) != 16U)"
         ensure(generated.count(first_read) == 1, "packet regression lost the first full payload read")
         check_program(generated.replace(first_read, "out.ok.PayloadView.cursor = pkt.cursor;\n    " + first_read), 7)
