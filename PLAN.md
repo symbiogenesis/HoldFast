@@ -29,10 +29,10 @@ The retained `holdfast-parser first-slice` result names the blocking producers i
 `inventory.blocking_dependencies`. [First-slice qualification](docs/language/first-release.md#first-slice-qualification)
 
 Qualify default graded checking and proof-backed borrowing for the first release
-in parallel with artifact qualification. Connect graded replay to the ordinary
-build and use the checked record extent families to establish source correspondence.
-Carry the sequenced natural-argument and scoped-span model laws into dependent
-modal values and the admitted machine resource interpretation.
+in parallel with artifact qualification. Extend grade replay on the ordinary build
+through callable interfaces and establish correspondence for the checked record
+extent families. Use the dependent box and scoped-span replay to connect demand,
+erasure and restoration to the admitted machine resource interpretation.
 Use the composed-view, conditional-return and loop-carried shared-view trials to
 select held-out cases for checked restoration and lending iteration.
 [Graded laws](#q25be) · [Graded frontend](#q25bj) · [Borrow comparison](#q25cc)
@@ -383,7 +383,7 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
   - The pure Rocq trial checks dependent functions, natural-index applications and telescope row substitution with exact natural demand. [Partial evidence](docs/assurance/completion-log.md#q25be-qualify-the-six-graded-foundation-law-packages)
   - The ordered domain trial checks `NatExact`, `NatBound` and Boolean presence. Extend the proved demand arithmetic with the selected value and type-use interpretations. [Domain laws and certificates](docs/extensions/graded-foundation.md#dimensions-and-lawful-domains)
   - The modal trial checks exact and bounded computation demand for promotion, dependent box elimination and named natural/vector records with additive extent families. Extend the rules to broader indexed data and connect their demands to evaluation and erasure.
-  - The call-by-value trials relate exact and bounded grades to reads of returned argument values. The scoped-span model preserves the owner descriptor and untouched bytes on success and failure, retaining ordered effects through the first failure. Extend the interpretation to dependent modal values and the admitted machine resource exits. [Partial evidence](docs/assurance/completion-log.md#q25be-qualify-the-six-graded-foundation-law-packages)
+  - The call-by-value trials relate exact and bounded grades to reads of returned argument values. The scoped-span and dependent-box replays preserve the owner descriptor and frame on both exits, retain effects through failure and relate the specialized extent to one argument evaluation. Connect the interpretation to emitted source and the admitted machine resource exits. [Partial evidence](docs/assurance/completion-log.md#q25be-qualify-the-six-graded-foundation-law-packages)
 
 <a id="q25bf"></a>
 
@@ -413,7 +413,7 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
   - Start with `PreserveLength` in the [dependent example](examples/dependent.hf). Check a zero-use length binder, a once-used vector and partial application at `n + n` for an open index `n`. Bind the result function's domain, codomain and reconstructed dependency rows to the source. Exercise altered allowances and a changed argument or dependency.
   - The opt-in graded source trial replays exact natural demands for dependent functions, box promotion and explicit match motives over natural payloads. Extend checked source correspondence and domain reconstruction from these fragments. [Partial evidence](docs/assurance/completion-log.md#q25bj-reconstruct-checked-graded-domain-evidence)
   - The bounded natural trial uses the checked `NatBound` order for dependent functions, natural application and modal elimination while retaining exact type-use rows. Indexed records carry their own identity and checked vector extent family into the exact and bounded elimination rules. Bind the supported forms through checked source correspondence. [Partial evidence](docs/assurance/completion-log.md#q25bj-reconstruct-checked-graded-domain-evidence)
-  - The default mathematical and locked-package routes require this replay for supported grades. Extend the checked closure to imported graded declarations, grade-preserving callable and box interfaces, and source-to-Gallina correspondence. [Current support](docs/tooling/elaboration-prototype.md#default-grade-checking)
+  - The default mathematical and locked-package routes require replay for supported grades. Ordinary replay checks named dependent calls with vector arguments and locally checked higher-order calls in both natural domains. Extend the checked closure to imported graded declarations, grade-preserving callable and box interfaces, and source-to-Gallina correspondence. [Current support](docs/tooling/elaboration-prototype.md#default-grade-checking)
 
 <a id="q25bk"></a>
 
@@ -523,6 +523,7 @@ client. [Async service qualification](docs/extensions/handlers-async.md#first-as
   - The symbolic-index trial replays both writes and the frame in the HoldFast mathematical model. All three pinned Rust modes reject the direct indexing form and accept the safe slice API version. [Partial evidence](docs/assurance/completion-log.md#q25cc-compare-borrow-checking-alternatives-on-held-out-clients)
   - The ordered mixed-loan trial checks a simultaneous shared read and exclusive write at symbolic indices. Use its guard, returned value and frame controls when selecting held-out client cases.
   - The owner-coordinate trial checks a shared element loan from a composed slice against an exclusive element loan on its owner. Carry the same separation and restoration evidence into selected source control-flow cases. [Partial evidence](docs/assurance/completion-log.md#q25cc-compare-borrow-checking-alternatives-on-held-out-clients)
+  - A composed view can survive earlier owner writes when every reachable history preserves its extent. The paired Rust direct spelling is refused in all four pinned modes. The safe rewrite passes the shared observation oracle. Carry these checks to the held-out comparison.
   - The conditional-return trials check a read-only slice against owner writeback on sibling branches and before a common return. The shared-view loop trial checks the returned slice against a symbolic prefix fill. The overlapping variants are refused. Extend checked source and restoration replay to a held-out lending-iteration client. [Partial evidence](docs/assurance/completion-log.md#q25cc-compare-borrow-checking-alternatives-on-held-out-clients)
   - Use the diagnostic's branch-specific grants when replaying a joined handle and the write that conflicts on just one incoming path. Connect the reported loan ends and conflicts to checked source and restoration derivations. [Join controls](docs/language/loan-analysis.md#diagnostic-disposition)
 

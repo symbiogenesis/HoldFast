@@ -2671,6 +2671,15 @@ Bounded repeated reads observe the same returned payload. All four audited
 declarations have closed assumptions and the compiled module passes `rocqchk`.
 [Dependent box proofs](../../tools/rocq/graded_modal_cbv.v)
 
+The scoped-box replay connects that elimination to an argument in the same
+`Span<byte>` model. The restored owner keeps its descriptor and all untouched
+bytes. A successful call uses the original byte as the dependent extent and
+counts reads of that value against the checked allowance, including exact zero
+and bounded repetition. Failure after writeback retains the write and
+restoration events and produces no extent. The proof and examples replay with
+closed assumptions and `rocqchk`.
+[Scoped box replay](../../tools/tests/test_holdfast_graded_cbv.py)
+
 The indexed-record trial checks a telescope whose vector field has an extent
 built from its preceding natural field, literals and addition. Its elimination
 judgment checks the common computation grade, scales the scrutinee's
@@ -2698,6 +2707,16 @@ The locked-build replay retains the grade receipt with its emitted module.
 An allowance edit invalidates the old lock. Rebuilding with a fresh lock
 reaches the exact-use refusal and preserves the previously published bundle.
 [Locked-build replay](../../tools/tests/test_holdfast_graded_client.py)
+
+The default pure replay checks positional applications of earlier named
+definitions to dependent vectors and closed higher-order applications of
+locally checked functions. The Rocq application rule compares grades under
+binder renaming, scales the argument's computation demand by the allowance
+and checks the result's type row. An index can have zero computation use and
+four type uses across a named call. The exact and bounded controls refuse a
+wrong vector extent and an otherwise valid callback with a different grade.
+[Graded application rule](../../tools/rocq/graded_pure.v) ·
+[Source and Gallina replay](../../tools/tests/test_holdfast_graded.py)
 
 The source inspector reports the demand rows from the same checker. Applying
 `PreserveLength` to `n + n` reconstructs
@@ -2831,6 +2850,27 @@ call and its coincident neighbor with E0502. The `get_disjoint_mut` rewrite
 checks disjointness at runtime and passes all 36 index pairs in each mode.
 [HoldFast replay](../../tools/tests/test_holdfast_loans.py#_owner_coordinate_indexed_loans) ·
 [Rust fixture](../../tools/tests/fixtures/composed_view_loans.rs)
+
+The updated-view trial takes two nested slices, writes owner index zero, then
+copies the selected view byte at owner index `2 + i` to owner index `j`.
+HoldFast checks the earlier write against the entire live view extent, then
+uses `j != 2 + i` to separate the two call arguments. The replay checks
+writeback, the frame and the guard-failure state in the `Span` model.
+An overlapping earlier write is refused. The direct Rust source and its
+overlapping neighbor both fail with E0506 in default, NLL, legacy Polonius and
+Polonius Alpha modes. The safe Rust rewrite changes the loan timing and uses
+`get_disjoint_mut` to check separation at runtime. Its returned byte and owner
+state agree with the HoldFast model on the same 36 input pairs.
+[HoldFast replay](../../tools/tests/test_holdfast_loans.py#_owner_coordinate_indexed_loans) ·
+[Rust fixture](../../tools/tests/fixtures/updated_view_loans.rs)
+
+The Windows ARM64 Rust comparison checked 126 pinned configurations and
+recorded 44 passing observation runs and 82 expected refusals. Its optional
+sampler recorded 756 check-only measurements without linking. The sample
+includes elapsed time and resident memory at compiler pass boundaries under
+uncontrolled caches. Matched HoldFast performance and held-out client
+qualification remain open.
+[Comparison command](../../tools/README.md#commands)
 
 The same compiler accepts the conditional shared return in legacy and Alpha.
 The accepted runs return the indexed byte for each in-bounds index and update
