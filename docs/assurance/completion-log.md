@@ -2654,6 +2654,16 @@ Rocq 9.3.0, checks both principal theorems and all nine examples for closed
 assumptions, and runs `rocqchk`.
 [Native replay](../../tools/tests/test_holdfast_graded.py)
 
+The pure kernel extension adds predicative `Universe` levels, `TypeVar` binders,
+type application (`ApplyType`) and dependent type-telescope substitution. It
+checks the type-valued identity with zero computation demand and two type
+occurrences, and rejects self-typing universes, wrong computation allowances and
+stale type-telescope rows. Rocq 9.3.0 audits `substitute_type_telescope_sound`
+and the six type-identity examples with closed assumptions alongside the
+existing pure proofs, and checks the module with `rocqchk`.
+[Calculus and proofs](../../tools/rocq/graded_pure.v) ·
+[Native replay](../../tools/tests/test_holdfast_graded.py)
+
 The separate modal trial checks promotion and dependent box elimination for
 stable natural payloads. The checker soundness theorem connects acceptance
 to the declarative rules. Its elimination theorem gives the exact use of the
@@ -2757,6 +2767,13 @@ leaf edit changes which binder contributes the result's type demand while
 preserving the computation allowances. The stale lock is refused. An invalid
 leaf allowance under a fresh lock leaves the published bundle intact.
 [Transitive locked replay](../../tools/tests/test_holdfast_graded_client.py#_locked_transitive_grade_import)
+
+The locked higher-order import replay exports public graded definitions that
+take graded callbacks and resolves first-class references to imported graded
+definitions. Callers of definitions accepting graded callbacks must themselves be
+grade-checked, and mismatched callback grades or stale provider locks are
+refused without altering the retained bundle.
+[Higher-order locked replay](../../tools/tests/test_holdfast_graded_client.py#_locked_graded_callback_import)
 
 The natural `let` replay counts the initializer once under exact and bounded
 allowances. A local can be read twice in computation or used only to fix a
@@ -3025,6 +3042,17 @@ source controls refuse a competing owner or alias read, a related view retained
 across a mutating loop, missing permissions and an invalid loop invariant.
 [Lending source](../../tools/tests/fixtures/lending-span-iteration.hf) ·
 [Lending replay](../../tools/tests/test_holdfast_loan_returns.py#_lending_span_iteration)
+
+Lending `foreach (ref byte element in values)` loops also check unconditional
+and terminal conditional `break` exits, writing back the breaking element,
+freezing subsequent iterations, checking loop invariants on both the `break` and
+inductive paths, and restoring the owner descriptor. The Rocq replay proves the
+visit count, written prefix, frozen tail and untouched frame across empty,
+early-break and full-traversal inputs, while controls refuse competing owner or
+alias reads, retained views, non-terminal conditional breaks and invalid break
+invariants.
+[Early break source](../../tools/tests/fixtures/lending-span-break.hf) ·
+[Early break replay](../../tools/tests/test_holdfast_loan_returns.py#_lending_span_break)
 
 Legacy also accepts the loop-carried conditional reborrow. Its executed test
 checks the visit counts when the cursor stays on a node, advances and reaches
