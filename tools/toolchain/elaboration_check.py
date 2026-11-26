@@ -7,10 +7,12 @@ for the checks and their scope.
 """
 
 import copy
+import os
 import re
 import subprocess
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -2064,9 +2066,22 @@ def qualify(root: Path) -> dict[str, object]:
             attempt.update({"inputs": inputs, "toolchain": tools, "runtime": runtime,
                             "parser": parser_receipt, "parser_outputs": outputs})
             cases = fixtures(holdfast_parser.read_source(root / EXAMPLE), holdfast_parser.read_source(root / WORD_COUNT_EXAMPLE))
-            for index, case in enumerate(cases):
-                rows.append(_case(compiled, case, directory, index, steps))
+            if len(cases) > 1:
+                def run_case(item: tuple[int, Fixture]) -> tuple[dict[str, object], list[dict[str, object]]]:
+                    index, case = item
+                    case_steps: list[dict[str, object]] = []
+                    return _case(compiled, case, directory, index, case_steps), case_steps
+
+                with ThreadPoolExecutor(max_workers=min(8, os.process_cpu_count() or 1, len(cases))) as pool:
+                    results = list(pool.map(run_case, enumerate(cases)))
+                for row, case_steps in results:
+                    rows.append(row)
+                    steps.extend(case_steps)
                 publish_report(directory / "attempt.json", attempt)
+            else:
+                for index, case in enumerate(cases):
+                    rows.append(_case(compiled, case, directory, index, steps))
+                    publish_report(directory / "attempt.json", attempt)
             libraries = [str(row["library"]) for row in rows if row["category"] == "accepted"]
             _require(bool(libraries), "HoldFast replay has no accepted library to kernel-check")
             _run(_opam(["rocqchk", "-R", str(directory), "HoldFastElaboration", *libraries]),
