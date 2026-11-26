@@ -287,9 +287,14 @@ owner, the written and untouched bytes, and the unchanged error state.
 The default mathematical checker also lends an exclusive byte in each
 iteration of `foreach (ref byte element in values)` over a directly named
 `Span<byte>` with symbolic length. The model processes the elements in order
-and restores the owner after each element writeback. A competing access during
-the loan or a related view retained across a mutating loop is refused.
-[Lending source and replay](../../tools/tests/test_holdfast_loan_returns.py#_lending_span_iteration)
+and restores the owner after each element writeback. Unconditional and terminal
+conditional `break` exits write back the breaking element, freeze later
+iterations, check loop invariants on both the break and inductive paths, and
+restore the owner. A competing access during the loan, a non-terminal
+conditional `break`, or a related view retained across a mutating loop is
+refused.
+[Lending source and replay](../../tools/tests/test_holdfast_loan_returns.py#_lending_span_iteration) ·
+[Early break replay](../../tools/tests/test_holdfast_loan_returns.py#_lending_span_break)
 
 If a client must restructure a loop whose last use of a view precedes a write
 to its owner, keep the original loop. Move one use past that write to produce

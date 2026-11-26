@@ -1507,8 +1507,10 @@ class _StatementsMixin:
         block_node: Node,
         environment: dict[str, _Binding],
         facts: tuple[_Binding, ...],
+        *,
+        terminal_break: list[_Term] | None = None,
     ) -> tuple[dict[str, _Binding], str | None]:
-        after, control = self._non_returning_statements(block_node, environment, facts)
+        after, control = self._non_returning_statements(block_node, environment, facts, terminal_break=terminal_break)
         return self._leave_statement_scope(environment.keys(), after), control
 
     def _non_returning_statements(
@@ -1516,6 +1518,8 @@ class _StatementsMixin:
         block_node: Node,
         environment: dict[str, _Binding],
         facts: tuple[_Binding, ...],
+        *,
+        terminal_break: list[_Term] | None = None,
     ) -> tuple[dict[str, _Binding], str | None]:
         self.node(block_node, "block")
         statements = self.nodes(block_node["statements"])
@@ -1669,7 +1673,10 @@ class _StatementsMixin:
                         else_env, else_ctrl = dict(extended), None
                         else_uninit = set(saved_uninit)
                     if then_ctrl != else_ctrl:
-                        raise self.fail("unsupported", "a conditional loop exit needs an explicit control-flow result", statement)
+                        if (terminal_break is None or statement is not statements[-1]
+                                or {then_ctrl, else_ctrl} != {None, "break"}):
+                            raise self.fail("unsupported", "a conditional loop exit needs an explicit control-flow result", statement)
+                        terminal_break.append(condition if then_ctrl == "break" else self._negate_bool_term(condition))
                     self.uninitialized_out_params = then_uninit | else_uninit
                     for k, orig_b in list(extended.items()):
                         tb = then_env.get(k, orig_b)
@@ -1978,15 +1985,21 @@ class _StatementsMixin:
         self: _Elaborator, entry: dict[str, _Binding], symbolic: dict[str, _Binding],
         after: dict[str, _Binding], changed: list[str], count: _Term, ordinal: _Term,
         condition: _Term | None = None,
+        *,
+        stop_after: _Term | None = None,
     ) -> dict[str, _Binding]:
         names = tuple(changed)
-        unit = _Binding(_term("unit"), _UNIT)
-        initial = self._pack_guard_state(names, entry, unit)
+        status = _Binding(_term("unit"), _UNIT) if stop_after is None else _Binding(_term("bool", value=0), _BOOL)
+        initial = self._pack_guard_state(names, entry, status)
         state = self.fresh(initial.type)
-        current, _ = self._unpack_guard_state(names, entry, _Binding(state, initial.type))
-        step = self._pack_guard_state(names, after, unit).term
+        current, stopped = self._unpack_guard_state(names, entry, _Binding(state, initial.type))
+        step_status = status if stop_after is None else _Binding(stop_after, _BOOL)
+        step = self._pack_guard_state(names, after, step_status).term
         if condition is not None:
             step = _term("if", initial.type, condition, step, state)
+        if stop_after is not None:
+            # Write back the element on its breaking step before freezing the loop state.
+            step = _term("if", initial.type, stopped.term, state, step)
         step = self._at_loop_entry(step, symbolic, current)
         function = self.wrap("lam", [ordinal, state], step)
         folded = _apps(_constant("NatFold"), initial.type, function, initial.term, count)
@@ -2227,9 +2240,18 @@ class _StatementsMixin:
             prior_element_write = lends_span and var_name in self.runtime_writes
             if lends_span:
                 self.runtime_writes.discard(var_name)
+            terminal_break: list[_Term] | None = [] if lends_span else None
+            stop_after = None
             try:
                 before_sym_m = self._eval_loop_decreases(contracts, sym_env)
-                after_sym, _ = self._elaborate_non_returning_block(body_node, sym_env, facts)
+                after_sym, control = self._elaborate_non_returning_block(
+                    body_node, sym_env, facts, terminal_break=terminal_break,
+                )
+                if span_owner is not None:
+                    if control == "break":
+                        stop_after = _term("bool", value=1)
+                    elif terminal_break:
+                        stop_after = terminal_break[0]
                 writes_element = after_sym[var_name].term != elem_var or (
                     lends_span and var_name in self.runtime_writes
                 )
@@ -2246,15 +2268,22 @@ class _StatementsMixin:
                         _apps(_constant("Span_Write"), _U8, current.term, index, after_sym[var_name].term), current.type,
                     )
                     self._note_runtime_write(coll_node)
-                self._check_loop_invariants(contracts, step_env, statement, "inductive step")
-                self._check_loop_decreases(before_sym_m, step_env, "inductive step")
+                if stop_after is not None:
+                    self.active_facts.append(stop_after)
+                    try:
+                        self._check_loop_invariants(contracts, step_env, statement, "break")
+                    finally:
+                        self.active_facts.pop()
+                if stop_after != _term("bool", value=1):
+                    if stop_after is not None:
+                        self.active_facts.append(self._negate_bool_term(stop_after))
+                    self._check_loop_invariants(contracts, step_env, statement, "inductive step")
+                    self._check_loop_decreases(before_sym_m, step_env, "inductive step")
             finally:
                 if prior_element_write:
                     self.runtime_writes.add(var_name)
                 self.uninitialized_out_params = saved_uninit
                 del self.active_facts[saved_facts_len:]
-            if self._contains_break_statement(body_node):
-                raise self.fail("unsupported", "symbolic collection break needs a represented early-exit state", statement)
             if mode == "ref" and span_owner is None and writes_element:
                 if owner_access is not None:
                     raise self.fail("type", f"cannot access suspended Span owner '{coll_name}' during element iteration",
@@ -2264,6 +2293,8 @@ class _StatementsMixin:
                     raise self.fail("type", f"cannot establish exclusive iteration of '{coll_name}' with retained "
                                     f"Span views or aliases ({names})", statement)
                 raise self.fail("unsupported", "symbolic mutable element iteration needs represented writeback", statement)
+            if stop_after is None and self._contains_break_statement(body_node):
+                raise self.fail("unsupported", "symbolic collection break needs a represented early-exit state", statement)
             changed = [name for name in extended if name in self.mutable_locals and name != var_name
                        and sym_env[name].term != step_env[name].term]
             if changed:
@@ -2277,7 +2308,9 @@ class _StatementsMixin:
                 for name in changed:
                     step_env[name] = _Binding(self.substitute(step_env[name].term, cast("int", elem_var.value), element),
                                               step_env[name].type)
-                cur_env = self._fold_loop(extended, sym_env, step_env, changed, count, ordinal)
+                if stop_after is not None:
+                    stop_after = self.substitute(stop_after, cast("int", elem_var.value), element)
+                cur_env = self._fold_loop(extended, sym_env, step_env, changed, count, ordinal, stop_after=stop_after)
                 if span_owner is not None and span_owner in changed:
                     restored = _apps(_constant("Span_ReplaceStore"), _U8, coll_b.term, cur_env[span_owner].term)
                     cur_env[span_owner] = _Binding(restored, coll_b.type)
