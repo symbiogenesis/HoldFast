@@ -1,0 +1,32 @@
+// SPDX-License-Identifier: Apache-2.0
+module TelemetryFrameRouter;
+
+definition Nat FrameHeader(Nat headerTag @ NatExact(2)) =>
+    headerTag + headerTag;
+
+definition Fn(
+    Nat frameSlots @ NatExact(0),
+    Nat auditSlots @ NatExact(0),
+    Vec<Nat, (frameSlots + frameSlots)> frameBody @ NatExact(1),
+    Vec<Nat, auditSlots> auditEntries @ NatExact(0)
+) -> Vec<Nat, (frameSlots + frameSlots)> RouteSpec() =>
+    (
+        Nat width @ NatExact(0),
+        Nat auditCount @ NatExact(0),
+        Vec<Nat, (width + width)> frame @ NatExact(1),
+        Vec<Nat, auditCount> trail @ NatExact(0)
+    ) => frame;
+
+definition Vec<Nat, (width + width)> ForwardPayload(
+    Nat width @ NatExact(0),
+    Nat auditCount @ NatExact(0),
+    Vec<Nat, (width + width)> frame @ NatExact(1),
+    Vec<Nat, auditCount> trail @ NatExact(0)
+) => RouteSpec()(width, auditCount, frame, trail);
+
+public definition Vec<Nat, (slots + slots)> RouteTelemetry(
+    Nat slots @ NatExact(0),
+    Nat auditLen @ NatExact(0),
+    Vec<Nat, (slots + slots)> payload @ NatExact(1),
+    Vec<Nat, auditLen> auditTrail @ NatExact(0)
+) => ForwardPayload(slots, auditLen, payload, auditTrail);
