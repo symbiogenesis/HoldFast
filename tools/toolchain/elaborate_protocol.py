@@ -41,6 +41,7 @@ _FIELDS: dict[str, set[str]] = {
     "function": {"name", "result", "generics", "parameters", "contracts", "body", "cancel", "modifiers"},
     "interface": {"name", "generics", "contracts", "declarations", "modifiers"},
     "impl": {"type", "generics", "contracts", "declarations", "modifiers"},
+    "associated_type": {"name", "generics", "kind_annotation", "contracts", "definition", "modifiers"},
     "record": {"name", "generics", "parameters", "contracts", "declarations", "modifiers"},
     "union": {"name", "generics", "contracts", "constructors", "modifiers"},
     "constructor": {"name", "parameters", "result", "contracts"},
@@ -107,6 +108,10 @@ _OPTIONAL_FIELDS = {
     "lambda_parameter": {"const"},
     "contract": {"name"},
     "import": {"modifiers", "alias", "items"},
+    "binding_pattern": {"grade"},
+    "match_motive": {"grade"},
+    "foreach": {"grade"},
+    "foreach_collection": {"grade"},
 }
 
 # Bytes are literal source tokens; strings are fields containing located children.
@@ -115,7 +120,6 @@ _FIXED_ENVELOPES: dict[str, tuple[bytes | str, ...]] = {
     "range": ("start", b"..", "end"),
     "break": (b"break", b";"),
     "continue": (b"continue", b";"),
-    "match_motive": (b"as", "name", b":", "type"),
     "name": ("name",),
     "hole": ("name",),
     "out_variable": (b"out", b"var", "name"),
@@ -160,7 +164,7 @@ _SYNTAX_WORDS = {
     "generic_parameter": ("mode", {"type", "ghost", "region", "effect", "captures", "grade"}),
     "quantifier": ("quantifier", {"forall", "exists"}),
     "contract": ("role", {"requires", "ensures", "restores", "decreases", "progress", "invariant"}),
-    "modified_type": ("modifier", {"owned", "in", "ref", "out", "ghost", "tracked", "scoped"}),
+    "modified_type": ("modifier", {"owned", "in", "ref", "out", "ghost", "tracked", "scoped", "shared_ref"}),
     "foreach_collection": ("mode", {"value", "in", "ref"}),
 }
 
@@ -232,6 +236,17 @@ class _Protocol:
     @staticmethod
     def _word(value: bytes) -> bool:
         return value.isalnum() or value == b"_"
+
+    def _is_shared_ref_span(self, span: tuple[int, int]) -> bool:
+        start, end = span
+        before = self.source[start - 1:start] if start > 0 else b""
+        after = self.source[end:end + 1]
+        if self._word(before) or self._word(after):
+            return False
+        if self.source[start:start + 6] != b"shared" or self._word(self.source[start + 6:start + 7]):
+            return False
+        mid = trivia_end(self.source, start + 6, block_comments=True)
+        return mid >= 0 and self.source[mid:mid + 3] == b"ref" and mid + 3 == end
 
     def _token(self, node: Node, cursor: int, token: bytes) -> int:
         cursor = trivia_end(self.source, cursor, block_comments=True)
@@ -396,6 +411,30 @@ class _Protocol:
             cursor = self._token(node, cursor, b"{")
             self._sequence_envelope(node, span, "declarations", cursor, b"}")
             return
+        elif kind == "associated_type":
+            modifiers = node["modifiers"]
+            if not isinstance(modifiers, list) or any(not isinstance(item, str) for item in modifiers):
+                raise self.error("protocol", "declaration modifiers must be a name list", node)
+            for modifier in modifiers:
+                cursor = self._token(node, cursor, cast("str", modifier).encode())
+            cursor = self._token(node, cursor, b"type")
+            cursor = self._child(node, span, cursor, node["name"])
+            cursor = self._generics(node, span, cursor)
+            if node["kind_annotation"] is not None:
+                cursor = self._token(node, cursor, b":")
+                cursor = self._child(node, span, cursor, node["kind_annotation"])
+            contracts = node["contracts"]
+            if not isinstance(contracts, list) or any(
+                not isinstance(item, dict) or item.get("kind") not in ("contract", "type_constraint")
+                for item in contracts
+            ):
+                raise self.error("protocol", "associated_type requires contract or type constraint nodes", node)
+            for contract_item in contracts:
+                cursor = self._child(node, span, cursor, contract_item)
+            if node["definition"] is not None:
+                cursor = self._token(node, cursor, b"=")
+                cursor = self._child(node, span, cursor, node["definition"])
+            cursor = self._token(node, cursor, b";")
         elif kind == "constructor":
             if node.get("contracts"):
                 return
@@ -493,6 +532,9 @@ class _Protocol:
             cursor = self._token(node, cursor, b"(")
             cursor = self._token(node, cursor, b"let")
             cursor = self._child(node, span, cursor, node["name"])
+            if node.get("grade") is not None:
+                cursor = self._token(node, cursor, b"@")
+                cursor = self._child(node, span, cursor, node["grade"])
             cursor = self._token(node, cursor, b"in")
             cursor = self._child(node, span, cursor, node["range"])
             cursor = self._token(node, cursor, b")")
@@ -521,6 +563,9 @@ class _Protocol:
             if node["type"] is not None:
                 cursor = self._child(node, span, cursor, node["type"])
             cursor = self._child(node, span, cursor, node["name"])
+            if node.get("grade") is not None:
+                cursor = self._token(node, cursor, b"@")
+                cursor = self._child(node, span, cursor, node["grade"])
             cursor = self._token(node, cursor, b"in")
             cursor = self._child(node, span, cursor, node["collection"])
             cursor = self._token(node, cursor, b")")
@@ -629,6 +674,14 @@ class _Protocol:
             cursor = self._child(node, span, cursor, node["pattern"])
             cursor = self._token(node, cursor, b"=>")
             cursor = self._child(node, span, cursor, node["value"])
+        elif kind == "match_motive":
+            cursor = self._token(node, cursor, b"as")
+            cursor = self._child(node, span, cursor, node["name"])
+            if node.get("grade") is not None:
+                cursor = self._token(node, cursor, b"@")
+                cursor = self._child(node, span, cursor, node["grade"])
+            cursor = self._token(node, cursor, b":")
+            cursor = self._child(node, span, cursor, node["type"])
         elif kind == "wildcard_pattern":
             if self._word(self.source[span[0] - 1:span[0]]):
                 raise self.error("protocol", "wildcard pattern splits a source token", node)
@@ -640,6 +693,9 @@ class _Protocol:
                     or ("A" <= name["text"][0] <= "Z")):
                 raise self.error("protocol", "binding_pattern requires a lowercase or '_' non-wildcard unqualified name", node)
             cursor = self._child(node, span, cursor, name)
+            if node.get("grade") is not None:
+                cursor = self._token(node, cursor, b"@")
+                cursor = self._child(node, span, cursor, node["grade"])
         elif kind == "constructor_pattern":
             cname = node["name"]
             arguments = node["arguments"]
@@ -777,7 +833,12 @@ class _Protocol:
                     cursor = self._token(node, cursor, b",")
                 cursor = self._child(node, span, cursor, bound)
         elif kind == "modified_type":
-            cursor = self._token(node, cursor, cast("str", node["modifier"]).encode())
+            modifier = cast("str", node["modifier"])
+            if modifier == "shared_ref":
+                cursor = self._token(node, cursor, b"shared")
+                cursor = self._token(node, cursor, b"ref")
+            else:
+                cursor = self._token(node, cursor, modifier.encode())
             if node.get("lifetime") is not None:
                 cursor = self._child(node, span, cursor, node["lifetime"])
             cursor = self._child(node, span, cursor, node["type"])
@@ -957,6 +1018,10 @@ class _Protocol:
         span = self._span(node.get("span"), parent)
         if "text" in node:
             text = node["text"]
+            if text == "shared_ref" and self._is_shared_ref_span(span):
+                if set(node) != {"text", "span"}:
+                    raise self.error("protocol", "syntax identifier or operator differs from its source", node)
+                return
             if (set(node) != {"text", "span"} or not isinstance(text, str)
                     or not (_IDENTIFIER.fullmatch(text) or text in _OPERATORS
                             or text in _ASSIGN_OPERATORS
@@ -985,12 +1050,18 @@ class _Protocol:
                 raise self.error("protocol", f"invalid syntax word for '{kind}.{field}'", node)
         if node.get("const", False) and kind == "lambda_parameter" and node["type"] is None:
             raise self.error("protocol", "a constant lambda parameter requires an explicit type", node)
-        if "grade" in fields and node["grade"] is not None:
+        if ("grade" in fields or "grade" in optional) and node.get("grade") is not None:
             grade = node["grade"]
             if not isinstance(grade, dict) or not isinstance(grade.get("kind"), str):
                 raise self.error("protocol", "optional grade must be null or a located syntax node", node)
             self._span(grade.get("span"), span)
         self._ordinary_envelope(node, span)
+        if kind == "unary":
+            op = node["operator"]
+            if isinstance(op, dict) and op.get("text") == "shared_ref":
+                op_span = self._span(op.get("span"), span)
+                if not self._is_shared_ref_span(op_span):
+                    raise self.error("protocol", "shared_ref operator differs from source", node)
         if kind == "hole":
             name = node["name"]
             spelling = self.source[span[0]:span[1]]

@@ -1429,6 +1429,74 @@ public UnknownType F(ghost Nat n) {
 }
 public UnknownType F() { return missing; }
 """, ("function", "binary", "tuple")),
+    Fixture("graded-patterns-shared-ref-and-gats", """// café: graded patterns/motives/loops, shared ref borrows, FnMut/FnOnce, and GATs.
+module GradedBorrowAndGat;
+public interface LendingIterator<Self> {
+    type Item<region 'next>;
+    type Plain;
+    shared ref<'next> Self.Item<'next> Next<region 'next>(ref<'next> Self self);
+}
+public impl<T> LendingIterator<SliceIter<T>> {
+    type Item<region 'next> = ref<'next> byte;
+    type SharedItem<region 'next> = shared ref<'next> T;
+    type Plain = T;
+}
+public struct GradedFields<grade s : NatExact, grade r : NatExact, grade q : NatExact> {
+    Nat tupleGrade @ (s, r);
+    Nat sumGrade @ q + r;
+    Nat prodGrade @ q * r;
+    Nat wildGrade @ _;
+    Nat callGrade @ Domain(s, r);
+    Nat shared;
+}
+alias MutCb<T> = FnMut<region 'a>(shared ref<'a> T item @ q) -> shared ref<'a> byte;
+alias OnceCb<T> = FnOnce<region 'a>(owned T item, shared ref<'a> byte slot) -> Unit;
+public shared ref<'a> byte BorrowAndMatch<region 'a, grade k : NatExact, grade s : NatExact, grade r : NatExact, grade q : NatExact>(
+    shared ref<'a> Vec<byte, 4> vec @ (s, r),
+    shared ref byte plainLoan @ q + r,
+    Nat prodParam @ q * r,
+    Nat wildParam @ _,
+    Nat domainParam @ Domain(s, r),
+    Box<byte> boxed,
+    Pair<byte, byte> pair,
+) {
+    let shared ref<'a> byte typedShared = shared ref vec[0];
+    let inferredShared = shared ref vec;
+    let indexedShared = shared ref vec[1];
+    let shared = 1;
+    let Nat a @ (s, r) = shared;
+    let Nat b @ q + r = shared;
+    let Nat c @ q * r = shared;
+    let Nat d @ _ = shared;
+    let Nat e @ Domain(s, r) = shared;
+    let cb = (Nat p1 @ (s, r), Nat p2 @ q + r, Nat p3 @ q * r, Nat p4 @ _, Nat p5 @ Domain(s, r)) => p1;
+    let mutCb = FnMut<region 'b>(shared ref<'b> byte slot) -> Unit => { return; };
+    foreach (let elem @ q in vec) {
+        Inspect(in elem);
+    }
+    foreach (let idx @ (s, r) in 0..4) {
+        Inspect(idx);
+    }
+    let matched = match (boxed) as whole @ k : byte {
+        Box(inner @ q) => inner,
+    };
+    let pairMatched = match (pair) {
+        Pair(left @ s, right @ r) => left,
+    };
+    let tupleMatched = match (pair) {
+        (first @ (s, r), second @ Domain(s, r)) => first,
+    };
+    let bareMatched = match (matched) {
+        bound @ _ => bound,
+    };
+    if (boxed is Box(tested @ q) && shared > 0) {
+        return typedShared;
+    }
+    return inferredShared;
+}
+""", ("interface", "impl", "associated_type", "modified_type", "function_type",
+      "typed_lambda", "foreach", "foreach_collection", "match_expression",
+      "match_motive", "binding_pattern", "unary", "is")),
 )
 
 
@@ -1594,6 +1662,15 @@ NEGATIVE: tuple[tuple[str, bytes, str], ...] = (
     ("local-grade-after-initializer", b"module M; void F() { let value = Make() @ q; }", "syntax"),
     ("local-grade-without-initializer", b"module M; void F() { let value @ q; }", "syntax"),
     ("local-pattern-grade", b"module M; void F() { let (x, y) @ q = Pair(); }", "syntax"),
+    ("nullary-pattern-grade", b"module M; Nat F() => match (x) { None @ q => 0, };", "syntax"),
+    ("wildcard-pattern-grade", b"module M; Nat F() => match (x) { _ @ q => 0, };", "syntax"),
+    ("constructor-pattern-grade", b"module M; Nat F() => match (x) { Box(y) @ q => 0, };", "syntax"),
+    ("incomplete-pattern-grade", b"module M; Nat F() => match (x) { Box(y @) => 0, };", "syntax"),
+    ("incomplete-motive-grade", b"module M; Nat F() => match (x) as whole @ : Nat { _ => 0, };", "syntax"),
+    ("incomplete-foreach-grade", b"module M; void F() { foreach (let x @ in xs) {} }", "syntax"),
+    ("shared-ref-missing-operand", b"module M; void F() { let x = shared ref; }", "syntax"),
+    ("shared-ref-missing-type", b"module M; void F(shared ref) {}", "syntax"),
+    ("bare-shared-type-modifier", b"module M; void F(shared T x) {}", "syntax"),
     ("local-grade-lookahead-depth", b"module M; void F() { Nat value @ " + b"(" * 257
      + b"q" + b")" * 257 + b" = Make(); }", "limit"),
     ("domain-incomplete-telescope", b"module M; domain Product<A,,> {}", "syntax"),
@@ -4752,6 +4829,74 @@ def _ergonomic_expression_and_property_roles(source: bytes, result: dict[str, Js
         _exact_span(source, node, spelling)
 
 
+def _graded_borrow_and_gat_roles(source: bytes, result: dict[str, Json]) -> None:
+    tree = result.get("ast")
+    iface = _named(tree, "interface", "LendingIterator")
+    item_decl = _named(iface, "associated_type", "Item")
+    if item_decl.get("definition") is not None or len(_sequence(item_decl.get("generics"), "GAT generics")) != 1:
+        raise ValueError("interface GAT associated_type lost its region generic or acquired a definition")
+    _exact_span(source, item_decl, b"type Item<region 'next>;")
+    plain_decl = _named(iface, "associated_type", "Plain")
+    if plain_decl.get("generics") != [] or plain_decl.get("definition") is not None:
+        raise ValueError("plain interface associated_type fabricated generics or definition")
+    impl_node = next(node for node in nodes(tree) if node.get("kind") == "impl")
+    impl_item = _named(impl_node, "associated_type", "Item")
+    impl_def = _object(impl_item.get("definition"), "impl GAT definition")
+    if impl_def.get("kind") != "modified_type" or impl_def.get("modifier") != "ref":
+        raise ValueError("impl GAT associated_type lost its ref definition")
+    _exact_span(source, impl_item, b"type Item<region 'next> = ref<'next> byte;")
+    impl_shared = _named(impl_node, "associated_type", "SharedItem")
+    shared_def = _object(impl_shared.get("definition"), "impl shared ref GAT definition")
+    if shared_def.get("kind") != "modified_type" or shared_def.get("modifier") != "shared_ref":
+        raise ValueError("impl GAT associated_type lost its shared_ref definition")
+    _exact_span(source, shared_def, b"shared ref<'next> T")
+    mut_cb = _object(_named(tree, "alias", "MutCb").get("type"), "FnMut alias")
+    once_cb = _object(_named(tree, "alias", "OnceCb").get("type"), "FnOnce alias")
+    if mut_cb.get("mode") != "FnMut" or once_cb.get("mode") != "FnOnce":
+        raise ValueError("FnMut or FnOnce alias lost its callable mode")
+    if len(_sequence(mut_cb.get("generics"), "FnMut generics")) != 1 or len(_sequence(once_cb.get("generics"), "FnOnce generics")) != 1:
+        raise ValueError("FnMut or FnOnce alias lost its region telescope")
+    fn = _named(tree, "function", "BorrowAndMatch")
+    plain_param = _named(fn, "parameter", "plainLoan")
+    plain_ty = _object(plain_param.get("type"), "unlifetimed shared ref type")
+    if plain_ty.get("modifier") != "shared_ref" or plain_ty.get("lifetime") is not None:
+        raise ValueError("shared ref without lifetime lost its modifier or fabricated a lifetime")
+    typed_shared = _named(fn, "let", "typedShared")
+    typed_ty = _object(typed_shared.get("type"), "typed shared ref local")
+    if typed_ty.get("modifier") != "shared_ref" or _texts(typed_ty.get("lifetime")) != ["'a"]:
+        raise ValueError("typed shared ref local lost its lifetime")
+    typed_val = _object(typed_shared.get("value"), "shared ref index value")
+    if typed_val.get("kind") != "unary" or _texts(typed_val.get("operator")) != ["shared_ref"]:
+        raise ValueError("shared ref borrow initializer lost its unary shared_ref operator")
+    if _object(typed_val.get("value"), "shared ref index target").get("kind") != "index":
+        raise ValueError("shared ref v[i] lost index precedence")
+    shared_id = _named(fn, "let", "shared")
+    if _texts(shared_id.get("name")) != ["shared"] or "type" not in shared_id:
+        raise ValueError("shared identifier local lost its name")
+    loops = [node for node in nodes(fn) if node.get("kind") in {"foreach", "foreach_collection"}]
+    if len(loops) != 2:
+        raise ValueError("graded foreach fixture lost a loop")
+    coll_loop = next(node for node in loops if node.get("kind") == "foreach_collection")
+    range_loop = next(node for node in loops if node.get("kind") == "foreach")
+    if _texts(coll_loop.get("grade")) != ["q"] or _texts(range_loop.get("grade")) != ["s", "r"]:
+        raise ValueError("graded foreach lost its grade expression")
+    motive = next(node for node in nodes(fn) if node.get("kind") == "match_motive")
+    if _texts(motive.get("name")) != ["whole"] or _texts(motive.get("grade")) != ["k"]:
+        raise ValueError("graded match_motive lost its binder or grade")
+    _exact_span(source, motive, b"as whole @ k : byte")
+    graded_binders = {
+        _texts(node.get("name"))[0]: node
+        for node in nodes(fn)
+        if node.get("kind") == "binding_pattern" and "grade" in node
+    }
+    if set(graded_binders) != {"inner", "left", "right", "first", "second", "bound", "tested"}:
+        raise ValueError("graded binding_pattern set differs")
+    _exact_span(source, graded_binders["inner"], b"inner @ q")
+    _exact_span(source, graded_binders["bound"], b"bound @ _")
+    is_node = next(node for node in nodes(fn) if node.get("kind") == "is")
+    _exact_span(source, is_node, b"boxed is Box(tested @ q)")
+
+
 _SOURCE_FIXTURE_CHECKS: dict[str, str] = {
     "expressions-patterns-updates-guards-and-properties": "_ergonomic_expression_and_property_roles",
     "familiar-generic-calls-and-expression-arms": "_familiar_call_roles",
@@ -4798,6 +4943,7 @@ _SOURCE_FIXTURE_CHECKS: dict[str, str] = {
     "product-types-values-and-patterns": "_product_roles",
     "explicit-structural-type-arguments": "_explicit_type_argument_roles",
     "structural-local-and-lambda-annotations": "_structural_annotation_roles",
+    "graded-patterns-shared-ref-and-gats": "_graded_borrow_and_gat_roles",
 }
 
 _AST_FIXTURE_CHECKS: dict[str, str] = {
