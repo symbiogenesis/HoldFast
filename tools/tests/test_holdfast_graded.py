@@ -695,8 +695,7 @@ def _domains_and_grade_polymorphism() -> None:
         gallina_poly = out_io.getvalue()
         ensure("_erased_UseTiny_correspondence" in gallina_poly and "_erased_InferLocal_correspondence" in gallina_poly,
                "missing CBV erasure correspondence in elaborated Gallina")
-        poly_v = directory / "PolyCheck.v"
-        poly_v.write_text(
+        poly_text, _ = rocq_cache.use_cached_prelude(
             gallina_poly + "\nImport HoldFast_GradedDomainsPoly.\n"
             "Print Assumptions holdfast_d25_erased_UseTiny_correspondence.\n"
             if "holdfast_d25_erased_UseTiny_correspondence" in gallina_poly else
@@ -706,8 +705,10 @@ def _domains_and_grade_polymorphism() -> None:
                 for line in gallina_poly.splitlines()
                 if line.startswith("Theorem ") and "_erased_" in line and "_correspondence" in line
             ) + "\n",
-            encoding="utf-8",
+            directory,
         )
+        poly_v = directory / "PolyCheck.v"
+        poly_v.write_text(poly_text, encoding="utf-8")
         erased_count = sum(
             1 for line in gallina_poly.splitlines()
             if line.startswith("Theorem ") and "_erased_" in line and "_correspondence" in line
@@ -720,8 +721,9 @@ def _domains_and_grade_polymorphism() -> None:
         # Elaborate graded-inductive-families.hf (GFin & MyVec) and compile in Rocq
         st_i, out_i, err_i = _elaborate_command(ind_fam)
         ensure(st_i == 0, err_i)
+        ind_text, _ = rocq_cache.use_cached_prelude(out_i, directory)
         ind_v = directory / "IndCheck.v"
-        ind_v.write_text(out_i, encoding="utf-8")
+        ind_v.write_text(ind_text, encoding="utf-8")
         subprocess.run([*proofenv.rocq_command(), "-q", ind_v.name], cwd=directory,
                        capture_output=True, text=True, encoding="utf-8", check=True, timeout=60)
 
@@ -771,12 +773,13 @@ def _q25cb_zero_type_use_skip_and_benchmark() -> None:
             line.split()[1] for line in res_skip.gallina.splitlines()
             if line.startswith("Theorem ") and "_erased_" in line and "_correspondence" in line
         ]
-        v = directory / "Q25cbVerify.v"
-        v.write_text(
+        v_text, _ = rocq_cache.use_cached_prelude(
             res_skip.gallina + "\nImport HoldFast_GradedQ25cbBenchmark.\n"
             + "".join(f"Print Assumptions {thm}.\n" for thm in corresp),
-            encoding="utf-8",
+            directory,
         )
+        v = directory / "Q25cbVerify.v"
+        v.write_text(v_text, encoding="utf-8")
         rc = subprocess.run([*proofenv.rocq_command(), "-q", v.name], cwd=directory,
                             capture_output=True, text=True, encoding="utf-8", check=True, timeout=60)
         solver_ledger.audit(rc.stdout, len(corresp), "Q25cb CBV erasure", ())

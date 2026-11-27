@@ -54,9 +54,22 @@ public bool ObserveSpan(ref Span<byte> input) effects reads(input) => API.ReadSp
 """
 
 
-def _replay_gallina(gallina: str, consumer: str) -> None:
+def _replay_gallina(gallina: str, consumer: str, *, batch: rocq_cache.BatchChecker | None = None) -> None:
     ensure(not solver_ledger.ledger(gallina), "the package depended on a solver assumption")
     compiler = [*proofenv.rocq_command(), "-q"]
+    if batch is not None:
+        directory = batch.work_dir
+        stem = batch.unique_stem("Consumer")
+        unit_text, used_prelude = rocq_cache.use_cached_prelude(gallina + consumer, directory, compiler=compiler)
+        (directory / f"{stem}.v").write_text(unit_text, encoding="utf-8")
+        result = subprocess.run([*compiler, f"{stem}.v"], cwd=directory, capture_output=True, timeout=180, check=False)
+        ensure(result.returncode == 0, f"kernel refused the opaque effect client: {result.stderr[-2000:]!r}")
+        ensure(b"Closed under the global context" in result.stdout,
+               f"the client postcondition has kernel assumptions: {result.stdout[-2000:]!r}")
+        if used_prelude:
+            batch.register("HoldFastPrelude")
+        batch.register(stem)
+        return
     with TemporaryDirectory() as temporary:
         directory = Path(temporary)
         unit_text, used_prelude = rocq_cache.use_cached_prelude(gallina + consumer, directory, compiler=compiler)
@@ -68,7 +81,7 @@ def _replay_gallina(gallina: str, consumer: str) -> None:
         rocq_cache.check_kernel(directory, ["HoldFastPrelude", "Consumer"] if used_prelude else ["Consumer"])
 
 
-def _replay_opaque(gallina: str) -> None:
+def _replay_opaque(gallina: str, *, batch: rocq_cache.BatchChecker | None = None) -> None:
     [provider] = re.findall(r"^Definition (\w+_Copy) :", gallina, re.MULTILINE)
     [client] = re.findall(r"^Definition (\w+_Observe) :", gallina, re.MULTILINE)
     [postcondition] = re.findall(r"^Definition (\w+_Copy_ensures_0)\b", gallina, re.MULTILINE)
@@ -80,7 +93,7 @@ Example copied input output : {module}.{client} input output = true :=
   {module}.{postcondition} input output.
 Print Assumptions copied.
 Example span_preserved input : {module}.{span_post} input = input := eq_refl.
-""")
+""", batch=batch)
 
 
 def _locked_refactor() -> None:
@@ -104,53 +117,58 @@ def _locked_refactor() -> None:
             packages.build_package(ROOT, workspace, lock, output)
             return output.read_bytes()
 
-        relock()
-        initial = build()
-        _replay_opaque(json.loads(initial)["modules"]["Client"])
-        api.write_text(REFACTORED, encoding="utf-8")
-        with raises(ValueError) as stale:
-            build()
-        ensure("stale package lock" in str(stale.exception) and output.read_bytes() == initial,
-               "the private helper refactor reused the old lock or replaced its retained bundle")
-
-        relock()
-        refactored = build()
-        ensure(json.loads(refactored)["lock_sha256"] != json.loads(initial)["lock_sha256"],
-               "the refactored package bundle did not bind fresh inputs")
-        _replay_opaque(json.loads(refactored)["modules"]["Client"])
-
-        def refuse(source_module: str, message: str) -> None:
+        batch = rocq_cache.BatchChecker(prefix="holdfast-package-effects-")
+        try:
             relock()
-            with raises(HoldFastError) as refused:
+            initial = build()
+            _replay_opaque(json.loads(initial)["modules"]["Client"], batch=batch)
+            api.write_text(REFACTORED, encoding="utf-8")
+            with raises(ValueError) as stale:
                 build()
-            ensure(f"module '{source_module}'" in refused.exception.message and message in refused.exception.message,
-                   f"expected {message!r} from {source_module}: {refused.exception}")
-            ensure(output.read_bytes() == refactored, "a refused package replaced the retained bundle")
+            ensure("stale package lock" in str(stale.exception) and output.read_bytes() == initial,
+                   "the private helper refactor reused the old lock or replaced its retained bundle")
 
-        api.write_text(REFACTORED.replace("reads(input), writes(destination)", "writes(destination)"), encoding="utf-8")
-        refuse("Transfer.API", "reads parameter 'input'")
-        api.write_text(REFACTORED, encoding="utf-8")
-        helpers.write_text(HELPERS.replace("=> value;", """{
-    let saved = value;
-    value = 0u32;
-    value = saved;
-    return saved;
-}"""), encoding="utf-8")
-        refuse("Transfer.API", "mutates parameter 'input'")
+            relock()
+            refactored = build()
+            ensure(json.loads(refactored)["lock_sha256"] != json.loads(initial)["lock_sha256"],
+                   "the refactored package bundle did not bind fresh inputs")
+            _replay_opaque(json.loads(refactored)["modules"]["Client"], batch=batch)
 
-        api.write_text(REFACTORED.replace("reads(input), writes(destination)", "writes(input, destination)"),
-                       encoding="utf-8")
-        refuse("Client", "mutates parameter 'input'")
-        client.write_text(CLIENT.replace("reads(input), writes(output)", "writes(input, output)"), encoding="utf-8")
-        relock()
-        _replay_opaque(json.loads(build())["modules"]["Client"])
+            def refuse(source_module: str, message: str) -> None:
+                relock()
+                with raises(HoldFastError) as refused:
+                    build()
+                ensure(f"module '{source_module}'" in refused.exception.message and message in refused.exception.message,
+                       f"expected {message!r} from {source_module}: {refused.exception}")
+                ensure(output.read_bytes() == refactored, "a refused package replaced the retained bundle")
 
-        refactored = output.read_bytes()
-        client.write_text("""module Client;
+            api.write_text(REFACTORED.replace("reads(input), writes(destination)", "writes(destination)"), encoding="utf-8")
+            refuse("Transfer.API", "reads parameter 'input'")
+            api.write_text(REFACTORED, encoding="utf-8")
+            helpers.write_text(HELPERS.replace("=> value;", """{
+        let saved = value;
+        value = 0u32;
+        value = saved;
+        return saved;
+    }"""), encoding="utf-8")
+            refuse("Transfer.API", "mutates parameter 'input'")
+
+            api.write_text(REFACTORED.replace("reads(input), writes(destination)", "writes(input, destination)"),
+                           encoding="utf-8")
+            refuse("Client", "mutates parameter 'input'")
+            client.write_text(CLIENT.replace("reads(input), writes(output)", "writes(input, output)"), encoding="utf-8")
+            relock()
+            _replay_opaque(json.loads(build())["modules"]["Client"], batch=batch)
+
+            refactored = output.read_bytes()
+            client.write_text("""module Client;
 import Transfer.Helpers as Local;
 public u32 Observe(ref u32 input) effects reads(input) => Local.Inspect(ref input);
 """, encoding="utf-8")
-        refuse("Client", "cannot access private declaration 'Local.Inspect'")
+            refuse("Client", "cannot access private declaration 'Local.Inspect'")
+            batch.verify_all()
+        finally:
+            batch.close()
 
 
 def _locked_named_effects() -> None:

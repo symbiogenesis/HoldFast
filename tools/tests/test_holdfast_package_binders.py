@@ -64,10 +64,25 @@ def _in_memory() -> None:
     _exercise()
 
 
-def _kernel_consumer(gallina: str, name: str, expected: str) -> None:
+def _kernel_consumer(gallina: str, name: str, expected: str, *, batch: rocq_cache.BatchChecker | None = None) -> None:
     [module] = re.findall(r"^Module (HoldFastPackage_\w+)\.$", gallina, re.MULTILINE)
     [operation] = re.findall(rf"^Definition (\w+_{name}) :", gallina, re.MULTILINE)
     compiler = [*proofenv.rocq_command(), "-q"]
+    if batch is not None:
+        directory = batch.work_dir
+        stem = batch.unique_stem("Consumer")
+        unit_text, used_prelude = rocq_cache.use_cached_prelude(
+            gallina + f"Example read_inputs : {module}.{operation} tt = {expected} := eq_refl.\n",
+            directory,
+            compiler=compiler,
+        )
+        (directory / f"{stem}.v").write_text(unit_text, encoding="utf-8")
+        result = subprocess.run([*compiler, f"{stem}.v"], cwd=directory, capture_output=True, timeout=180, check=False)
+        ensure(result.returncode == 0, f"kernel replay failed: {(result.stdout + result.stderr)[-3000:]!r}")
+        if used_prelude:
+            batch.register("HoldFastPrelude")
+        batch.register(stem)
+        return
     with tempfile.TemporaryDirectory() as tmp:
         directory = Path(tmp)
         unit_text, used_prelude = rocq_cache.use_cached_prelude(
@@ -103,17 +118,22 @@ def _locked_static_text() -> None:
             return output.read_bytes()
 
         packages.lock_package(TOOLS.parent, workspace, "consumer", "v1", lock)
-        initial = build()
-        _kernel_consumer(json.loads(initial)["modules"]["Consumer"], "ReadByte", "169")
-        ensure(build() == initial, "same locked static table produced different output")
-        provider.write_text('module Tables; public const Vec<Nat,2> Tag = "Å";\n', encoding="utf-8")
-        with raises(ValueError) as stale:
-            build()
-        ensure("stale package lock" in str(stale.exception), "provider edit missed the package freshness check")
-        ensure(output.read_bytes() == initial, "a changed static dependency replaced the old bundle")
-        packages.lock_package(TOOLS.parent, workspace, "consumer", "v1", lock)
-        updated = build()
-        _kernel_consumer(json.loads(updated)["modules"]["Consumer"], "ReadByte", "133")
+        batch = rocq_cache.BatchChecker(prefix="holdfast-package-binders-")
+        try:
+            initial = build()
+            _kernel_consumer(json.loads(initial)["modules"]["Consumer"], "ReadByte", "169", batch=batch)
+            ensure(build() == initial, "same locked static table produced different output")
+            provider.write_text('module Tables; public const Vec<Nat,2> Tag = "Å";\n', encoding="utf-8")
+            with raises(ValueError) as stale:
+                build()
+            ensure("stale package lock" in str(stale.exception), "provider edit missed the package freshness check")
+            ensure(output.read_bytes() == initial, "a changed static dependency replaced the old bundle")
+            packages.lock_package(TOOLS.parent, workspace, "consumer", "v1", lock)
+            updated = build()
+            _kernel_consumer(json.loads(updated)["modules"]["Consumer"], "ReadByte", "133", batch=batch)
+            batch.verify_all()
+        finally:
+            batch.close()
         manifest = client / packages.MANIFEST
         manifest.write_text(manifest.read_text(encoding="utf-8").replace("rocq-gallina", "host-native"),
                             encoding="utf-8")

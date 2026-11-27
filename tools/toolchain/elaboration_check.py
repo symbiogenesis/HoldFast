@@ -25,6 +25,7 @@ from toolchain import (
     env,
     graded_source,
     proofenv,
+    rocq_cache,
     solver_ledger,
 )
 from toolchain import (
@@ -1768,7 +1769,16 @@ def _require(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
+def _rocq_bin() -> Path | None:
+    candidate = proofenv.opam_root() / proofenv.ROCQ_SWITCH / "bin"
+    if all((candidate / name).is_file() for name in ("rocq", "rocqchk", "ocamlc")):
+        return candidate
+    return None
+
+
 def _opam(arguments: list[str]) -> list[str]:
+    if arguments and (bin_dir := _rocq_bin()) is not None and (bin_dir / arguments[0]).is_file():
+        return [str(bin_dir / arguments[0]), *arguments[1:]]
     return ["opam", "exec", "--switch", proofenv.ROCQ_SWITCH, "--", *arguments]
 
 
@@ -1778,8 +1788,12 @@ def _run(arguments: list[str], directory: Path, log: Path,
         log = log.with_name(f"{log.stem}-{len(steps)}{log.suffix}")
     started = time.monotonic()
     row: dict[str, object] = {"command": arguments, "directory": str(directory)}
+    run_env: dict[str, str] | None = None
+    if arguments and (bin_dir := _rocq_bin()) is not None and Path(arguments[0]).parent == bin_dir:
+        run_env = os.environ.copy()
+        run_env["PATH"] = f"{bin_dir}{os.pathsep}{run_env.get('PATH', '')}"
     try:
-        done = subprocess.run(arguments, cwd=directory, input=source, capture_output=True,
+        done = subprocess.run(arguments, cwd=directory, env=run_env, input=source, capture_output=True,
                               timeout=TIMEOUT, check=False)
     except subprocess.TimeoutExpired as error:
         output = (error.stdout or b"") + (error.stderr or b"")
@@ -1839,9 +1853,10 @@ def _toolchain(root: Path, directory: Path, steps: list[dict[str, object]]) -> d
                     directory / "ocaml.log", steps).strip()
     if compiler != proofenv.OCAML_VERSION:
         raise ValueError("HoldFast replay OCaml differs from the proof snapshot")
-    binary = _run(["opam", "var", "bin", "--switch", proofenv.ROCQ_SWITCH], directory,
-                  directory / "tool-path.log", steps).strip()
-    binary_dir = Path(binary)
+    bin_dir = _rocq_bin()
+    binary_dir = (bin_dir if bin_dir is not None
+                  else Path(_run(["opam", "var", "bin", "--switch", proofenv.ROCQ_SWITCH], directory,
+                                 directory / "tool-path.log", steps).strip()))
     if not binary_dir.is_absolute():
         raise ValueError("HoldFast replay tool directory must be absolute")
     return {"switch": proofenv.ROCQ_SWITCH, "rocq": version, "ocamlc": compiler,
@@ -1871,12 +1886,25 @@ def _load_path_identity(listing: str, directory: Path) -> tuple[set[Path], str]:
 
 def _runtime(directory: Path, steps: list[dict[str, object]]) -> dict[str, object]:
     """Bind the actual runtime roots, including user-contrib and plugin inputs."""
-    config = _run(_opam(["rocq", "c", "-config"]), directory,
-                  directory / "runtime-config.log", steps)
-    where = _run(_opam(["rocqchk", "-where"]), directory,
-                 directory / "runtime-where.log", steps).strip()
-    listing = _run(_opam(["rocq", "top", "-q", "-quiet"]), directory,
-                   directory / "runtime-loadpath.log", steps, source=b"Print LoadPath.\n")
+    probes = (
+        (_opam(["rocq", "c", "-config"]), directory / "runtime-config.log", None),
+        (_opam(["rocqchk", "-where"]), directory / "runtime-where.log", None),
+        (_opam(["rocq", "top", "-q", "-quiet"]), directory / "runtime-loadpath.log", b"Print LoadPath.\n"),
+    )
+
+    def run_probe(item: tuple[list[str], Path, bytes | None]) -> tuple[str, list[dict[str, object]]]:
+        cmd, log_path, src = item
+        local_steps: list[dict[str, object]] = []
+        out = _run(cmd, directory, log_path, local_steps, source=src)
+        return out, local_steps
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        results = list(pool.map(run_probe, probes))
+    for _, local_steps in results:
+        steps.extend(local_steps)
+    config = results[0][0]
+    where = results[1][0].strip()
+    listing = results[2][0]
     settings = dict(line.split("=", 1) for line in config.splitlines() if "=" in line)
     if any(key not in settings or not Path(settings[key]).is_absolute()
            for key in ("COQLIB", "COQCORELIB")):
@@ -1925,7 +1953,7 @@ def _parser_outputs(compiled: holdfast_parser.Build) -> dict[str, str]:
 
 
 def _case(compiled: holdfast_parser.Build, case: Fixture, directory: Path, index: int,
-          steps: list[dict[str, object]]) -> dict[str, object]:
+          steps: list[dict[str, object]], *, prelude_dir: Path | None = None) -> dict[str, object]:
     """A parsing failure can never satisfy a semantic negative fixture."""
     stem = f"Case{index:03d}"
     source_path = directory / f"{stem}.hf"
@@ -1979,8 +2007,16 @@ def _case(compiled: holdfast_parser.Build, case: Fixture, directory: Path, index
         for consumer, (proof, equation) in enumerate(case.freeze_expectations):
             checks += f"Example holdfast_freeze_consumer_{consumer} : {equation} := {proof}.\n"
     target = directory / f"{stem}.v"
-    target.write_text(translated.gallina + checks, encoding="utf-8", newline="")
-    _run(_opam(["rocq", "c", "-q", "-R", str(directory), "HoldFastElaboration", target.name]),
+    unit_source = translated.gallina + checks
+    rocq_flags = ["-q", "-R", str(directory), "HoldFastElaboration"]
+    if prelude_dir is not None and not case.pure:
+        unit_source, used_prelude = rocq_cache.use_cached_prelude(
+            unit_source, prelude_dir, compiler=[*_opam(["rocq", "c"]), "-q"],
+        )
+        if used_prelude:
+            rocq_flags = ["-q", "-Q", str(prelude_dir), "", "-R", str(directory), "HoldFastElaboration"]
+    target.write_text(unit_source, encoding="utf-8", newline="")
+    _run(_opam(["rocq", "c", *rocq_flags, target.name]),
          directory, directory / f"{stem}.compile.log", steps)
     exports = (re.findall(r"^Definition ([fc]_[A-Za-z_][A-Za-z0-9_]*)\s*(?:\(|:)", translated.gallina, re.MULTILINE)
                if case.pure else solver_ledger.math_exports(translated.gallina))
@@ -1996,7 +2032,7 @@ def _case(compiled: holdfast_parser.Build, case: Fixture, directory: Path, index
     query.write_text(f"From HoldFastElaboration Require Import {stem}.\n"
                      + "".join(f"Print Assumptions {stem}.{name}.\n" for name in audited),
                      encoding="utf-8", newline="")
-    assumptions = _run(_opam(["rocq", "c", "-q", "-R", str(directory), "HoldFastElaboration", query.name]),
+    assumptions = _run(_opam(["rocq", "c", *rocq_flags, query.name]),
                        directory, directory / f"{stem}.assumptions.log", steps)
     trusted = solver_ledger.ledger(translated.gallina)
     reported_trust = solver_ledger.audit(assumptions, len(audited), module, trusted)
@@ -2014,13 +2050,25 @@ def _case(compiled: holdfast_parser.Build, case: Fixture, directory: Path, index
     return row
 
 
+_UNPATCHED_CASE = _case
+
+
 def check_arithmetic(root: Path, path: Path) -> dict[str, object]:
     source = holdfast_parser.read_source(path)
-    with holdfast_parser.cached_build(root) as compiled, tempfile.TemporaryDirectory() as tmp:
+    with (holdfast_parser.cached_build(root) as compiled,
+          tempfile.TemporaryDirectory() as tmp,
+          tempfile.TemporaryDirectory(prefix="holdfast-prelude-") as prelude_tmp):
         directory = Path(tmp)
+        prelude_dir = Path(prelude_tmp)
         steps: list[dict[str, object]] = []
-        row = _case(compiled, Fixture(path.name, source, word_proofs=True), directory, 0, steps)
-        _run(_opam(["rocqchk", "-R", tmp, "HoldFastElaboration", str(row["library"])]),
+        row = _case(compiled, Fixture(path.name, source, word_proofs=True), directory, 0, steps,
+                    prelude_dir=prelude_dir)
+        chk_flags = ["-R", tmp, "HoldFastElaboration"]
+        chk_units = [str(row["library"])]
+        if (prelude_dir / "HoldFastPrelude.vo").is_file():
+            chk_flags = ["-Q", prelude_tmp, "", *chk_flags]
+            chk_units = ["HoldFastPrelude", *chk_units]
+        _run(_opam(["rocqchk", *chk_flags, *chk_units]),
              directory, directory / "kernel.log", steps)
         return {"source_sha256": row["source_sha256"], "word_operation_checks": row["word_operation_checks"],
                 "status": "kernel-checked"}
@@ -2070,26 +2118,35 @@ def qualify(root: Path) -> dict[str, object]:
             attempt.update({"inputs": inputs, "toolchain": tools, "runtime": runtime,
                             "parser": parser_receipt, "parser_outputs": outputs})
             cases = fixtures(holdfast_parser.read_source(root / EXAMPLE), holdfast_parser.read_source(root / WORD_COUNT_EXAMPLE))
-            if len(cases) > 1:
-                def run_case(item: tuple[int, Fixture]) -> tuple[dict[str, object], list[dict[str, object]]]:
-                    index, case = item
-                    case_steps: list[dict[str, object]] = []
-                    return _case(compiled, case, directory, index, case_steps), case_steps
+            with tempfile.TemporaryDirectory(prefix="holdfast-prelude-") as prelude_tmp:
+                prelude_dir = Path(prelude_tmp)
+                if cast("object", _case) is _UNPATCHED_CASE and any(not case.pure and case.expected == "accepted" for case in cases):
+                    rocq_cache.materialize_prelude(prelude_dir, compiler=[*_opam(["rocq", "c"]), "-q"])
+                if len(cases) > 1:
+                    def run_case(item: tuple[int, Fixture]) -> tuple[dict[str, object], list[dict[str, object]]]:
+                        index, case = item
+                        case_steps: list[dict[str, object]] = []
+                        return _case(compiled, case, directory, index, case_steps, prelude_dir=prelude_dir), case_steps
 
-                with ThreadPoolExecutor(max_workers=min(os.process_cpu_count() or 1, len(cases))) as pool:
-                    results = list(pool.map(run_case, enumerate(cases)))
-                for row, case_steps in results:
-                    rows.append(row)
-                    steps.extend(case_steps)
-                publish_report(directory / "attempt.json", attempt)
-            else:
-                for index, case in enumerate(cases):
-                    rows.append(_case(compiled, case, directory, index, steps))
+                    with ThreadPoolExecutor(max_workers=min(os.process_cpu_count() or 1, len(cases))) as pool:
+                        results = list(pool.map(run_case, enumerate(cases)))
+                    for row, case_steps in results:
+                        rows.append(row)
+                        steps.extend(case_steps)
                     publish_report(directory / "attempt.json", attempt)
-            libraries = [str(row["library"]) for row in rows if row["category"] == "accepted"]
-            _require(bool(libraries), "HoldFast replay has no accepted library to kernel-check")
-            _run(_opam(["rocqchk", "-R", str(directory), "HoldFastElaboration", *libraries]),
-                 directory, directory / "kernel.log", steps)
+                else:
+                    for index, case in enumerate(cases):
+                        rows.append(_case(compiled, case, directory, index, steps, prelude_dir=prelude_dir))
+                        publish_report(directory / "attempt.json", attempt)
+                libraries = [str(row["library"]) for row in rows if row["category"] == "accepted"]
+                _require(bool(libraries), "HoldFast replay has no accepted library to kernel-check")
+                chk_flags = ["-R", str(directory), "HoldFastElaboration"]
+                chk_units = libraries
+                if (prelude_dir / "HoldFastPrelude.vo").is_file():
+                    chk_flags = ["-Q", prelude_tmp, "", *chk_flags]
+                    chk_units = ["HoldFastPrelude", *libraries]
+                _run(_opam(["rocqchk", *chk_flags, *chk_units]),
+                     directory, directory / "kernel.log", steps)
             _require(_inputs(root) == inputs and _toolchain(root, directory, steps) == tools
                      and _runtime(directory, steps) == runtime,
                      "HoldFast replay inputs, toolchain or runtime changed during qualification")

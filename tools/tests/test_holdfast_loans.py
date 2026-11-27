@@ -2170,8 +2170,9 @@ Proof. vm_compute. repeat split; reflexivity. Qed.
     exports = [*solver_ledger.math_exports(gallina), "correlated_indexed_writeback", "correlated_indexed_observations"]
     audit = "".join(f"Print Assumptions {name}.\n" for name in exports)
     with TemporaryDirectory(prefix="holdfast-correlated-indexed-") as tmp:
+        unit_text, _ = rocq_cache.use_cached_prelude(gallina + proof + audit, Path(tmp))
         unit = Path(tmp) / "CorrelatedIndexedLoans.v"
-        unit.write_text(gallina + proof + audit, encoding="utf-8")
+        unit.write_text(unit_text, encoding="utf-8")
         replay = subprocess.run([*proofenv.rocq_command(), "-q", unit.name], cwd=tmp, capture_output=True,
                                 encoding="utf-8", timeout=180, check=False)
         ensure(replay.returncode == 0, replay.stderr)

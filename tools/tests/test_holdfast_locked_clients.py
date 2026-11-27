@@ -42,7 +42,7 @@ def _lock(workspace: Path) -> Path:
     return lock
 
 
-def _replay(directory: Path, modules: dict[str, str]) -> None:
+def _replay(directory: Path, modules: dict[str, str], *, batch: rocq_cache.BatchChecker | None = None) -> None:
     # The expected values come from the client's scale contract.
     gallina = modules["Scale.Calibration"]
     [subject] = re.findall(r"^Module (HoldFastPackage_[a-z0-9_]+)\.$", gallina, re.MULTILINE)
@@ -53,17 +53,26 @@ def _replay(directory: Path, modules: dict[str, str]) -> None:
         for units, value in ((0, 2), (7, 9))
     )
     libraries = {"Consumer": gallina + checks, "Provider": modules["Weights.Measure"]}
+    target_dir = batch.work_dir if batch is not None else directory
     checked: list[str] = []
     compiler = [*proofenv.rocq_command(), "-q"]
-    for name, unit in libraries.items():
-        path = directory / f"{name}.v"
-        unit_text, used_prelude = rocq_cache.use_cached_prelude(unit, directory, compiler=compiler)
-        if used_prelude and "HoldFastPrelude" not in checked:
-            checked.append("HoldFastPrelude")
+    for base_name, unit in libraries.items():
+        name = batch.unique_stem(base_name) if batch is not None else base_name
+        path = target_dir / f"{name}.v"
+        unit_text, used_prelude = rocq_cache.use_cached_prelude(unit, target_dir, compiler=compiler)
+        if used_prelude:
+            if batch is not None:
+                batch.register("HoldFastPrelude")
+            elif "HoldFastPrelude" not in checked:
+                checked.append("HoldFastPrelude")
         path.write_text(unit_text, encoding="utf-8", newline="\n")
-        _kernel(directory, [*compiler, path.name])
-        checked.append(name)
-    rocq_cache.check_kernel(directory, checked)
+        _kernel(target_dir, [*compiler, path.name])
+        if batch is not None:
+            batch.register(name)
+        else:
+            checked.append(name)
+    if batch is None:
+        rocq_cache.check_kernel(target_dir, checked)
 
 
 def _kernel(directory: Path, arguments: list[str]) -> str:
@@ -99,29 +108,34 @@ def _client_upgrade() -> None:
         before = bundle.read_bytes()
         modules = json.loads(before)["modules"]
         ensure(set(modules) == {"Scale.Calibration", "Weights.Measure"}, "wrong package closure")
-        _replay(directory, modules)
-        library_lock = directory / "weights.lock"
-        library_bundle = directory / "weights.json"
-        _command("lock-package", workspace, "weights", "v1", "--output", library_lock)
-        _command("build-package", workspace, library_lock, "--output", library_bundle)
-        ensure(json.loads(library_bundle.read_bytes())["modules"] == {"Weights.Measure": modules["Weights.Measure"]},
-               "standalone library and importing client built different provider outputs")
-        _command("build-package", workspace, lock, "--output", bundle)
-        ensure(bundle.read_bytes() == before, "rebuilding the same lock changed the bundle")
+        batch = rocq_cache.BatchChecker(prefix="holdfast-locked-upgrade-")
+        try:
+            _replay(directory, modules, batch=batch)
+            library_lock = directory / "weights.lock"
+            library_bundle = directory / "weights.json"
+            _command("lock-package", workspace, "weights", "v1", "--output", library_lock)
+            _command("build-package", workspace, library_lock, "--output", library_bundle)
+            ensure(json.loads(library_bundle.read_bytes())["modules"] == {"Weights.Measure": modules["Weights.Measure"]},
+                   "standalone library and importing client built different provider outputs")
+            _command("build-package", workspace, lock, "--output", bundle)
+            ensure(bundle.read_bytes() == before, "rebuilding the same lock changed the bundle")
 
-        source = (workspace / "weights" / "v1" / "Measure.hf").read_text()
-        renamed = source.replace("local", "amount")
-        _upgrade(workspace, "v1", "v2", renamed)
-        _command("build-package", workspace, _lock(workspace), "--output", bundle)
-        accepted = bundle.read_bytes()
-        upgraded = json.loads(accepted)["modules"]
-        def weight_type(outputs: dict[str, str]) -> str:
-            provider = outputs["Weights.Measure"]
-            [definition] = re.finditer(r"^Definition (\w+_Weight) :", provider, re.MULTILINE)
-            return provider[definition.start(1):definition.end(1)]
+            source = (workspace / "weights" / "v1" / "Measure.hf").read_text()
+            renamed = source.replace("local", "amount")
+            _upgrade(workspace, "v1", "v2", renamed)
+            _command("build-package", workspace, _lock(workspace), "--output", bundle)
+            accepted = bundle.read_bytes()
+            upgraded = json.loads(accepted)["modules"]
+            def weight_type(outputs: dict[str, str]) -> str:
+                provider = outputs["Weights.Measure"]
+                [definition] = re.finditer(r"^Definition (\w+_Weight) :", provider, re.MULTILINE)
+                return provider[definition.start(1):definition.end(1)]
 
-        ensure(weight_type(upgraded) != weight_type(modules), "revisions shared a record identity")
-        _replay(directory, upgraded)
+            ensure(weight_type(upgraded) != weight_type(modules), "revisions shared a record identity")
+            _replay(directory, upgraded, batch=batch)
+            batch.verify_all()
+        finally:
+            batch.close()
 
         _upgrade(workspace, "v2", "v3", renamed.replace("as units", "as quantity"))
         _command("build-package", workspace, _lock(workspace), "--output", bundle,
@@ -148,16 +162,21 @@ public impl IMeasured<{target}> {{ public definition Nat Measure({target} value)
         original = client.read_text()
         bundle = workspace.parent / "bundle.json"
         imports = ["import Weights.First;", "import Weights.Second;"]
-        for order in (imports, imports[::-1]):
-            client.write_text(original.replace("import Weights.Measure;",
-                                               "import Weights.Measure;\n" + "\n".join(order)) + """
+        batch = rocq_cache.BatchChecker(prefix="holdfast-locked-coherence-")
+        try:
+            for order in (imports, imports[::-1]):
+                client.write_text(original.replace("import Weights.Measure;",
+                                                   "import Weights.Measure;\n" + "\n".join(order)) + """
 public lemma ImportedReadings()
     ensures bool.Measure(true) == 5
     ensures Nat.Measure(7) == 11
     proof { assert bool.Measure(true) == 5; assert Nat.Measure(7) == 11; }
 """)
-            _command("build-package", workspace, _lock(workspace), "--output", bundle)
-            _replay(workspace.parent, json.loads(bundle.read_bytes())["modules"])
+                _command("build-package", workspace, _lock(workspace), "--output", bundle)
+                _replay(workspace.parent, json.loads(bundle.read_bytes())["modules"], batch=batch)
+            batch.verify_all()
+        finally:
+            batch.close()
         client.write_text(original)
         sibling = provider / "Second.hf"
         sibling.write_text(sibling.read_text().replace("IMeasured<Nat>", "IMeasured<bool>")
@@ -212,16 +231,21 @@ public lemma PublishedLowerBound()
     proof { assert (Capacity() >= 1) == true; }
 """)
         bundle = directory / "bundle.json"
-        _command("build-package", workspace, _lock(workspace), "--output", bundle)
-        _replay(directory, json.loads(bundle.read_bytes())["modules"])
+        batch = rocq_cache.BatchChecker(prefix="holdfast-locked-opaque-")
+        try:
+            _command("build-package", workspace, _lock(workspace), "--output", bundle)
+            _replay(directory, json.loads(bundle.read_bytes())["modules"], batch=batch)
 
-        changed = source.replace("private definition Nat Chosen() => 3;", """
+            changed = source.replace("private definition Nat Chosen() => 3;", """
 private record Limit(Nat Available);
 private definition Nat Chosen() => Limit(4).Available;""")
-        _upgrade(workspace, "v1", "v2", changed)
-        _command("build-package", workspace, _lock(workspace), "--output", bundle)
-        accepted = bundle.read_bytes()
-        _replay(directory, json.loads(accepted)["modules"])
+            _upgrade(workspace, "v1", "v2", changed)
+            _command("build-package", workspace, _lock(workspace), "--output", bundle)
+            accepted = bundle.read_bytes()
+            _replay(directory, json.loads(accepted)["modules"], batch=batch)
+            batch.verify_all()
+        finally:
+            batch.close()
 
         _upgrade(workspace, "v2", "v3", changed.replace(" ensures result >= 1", ""))
         _command("build-package", workspace, _lock(workspace), "--output", bundle,

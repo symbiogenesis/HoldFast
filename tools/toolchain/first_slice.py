@@ -14,6 +14,7 @@ import sys
 import tempfile
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
@@ -2289,10 +2290,21 @@ def _run_capacity_invariance_gate(
     large_v = directory / "CapLarge.v"
     small_v.write_text(small_elab.gallina, encoding="utf-8", newline="")
     large_v.write_text(large_elab.gallina, encoding="utf-8", newline="")
-    _run(_opam(["rocq", "c", "-q", "-R", str(directory), "HoldFastFirstSlice", small_v.name]),
-         directory, directory / "CapSmall.compile.log", steps)
-    _run(_opam(["rocq", "c", "-q", "-R", str(directory), "HoldFastFirstSlice", large_v.name]),
-         directory, directory / "CapLarge.compile.log", steps)
+
+    def compile_cap(target_name: str, log_name: str) -> list[dict[str, object]]:
+        local_steps: list[dict[str, object]] = []
+        _run(_opam(["rocq", "c", "-q", "-R", str(directory), "HoldFastFirstSlice", target_name]),
+             directory, directory / log_name, local_steps)
+        return local_steps
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        cap_results = list(pool.map(
+            compile_cap,
+            (small_v.name, large_v.name),
+            ("CapSmall.compile.log", "CapLarge.compile.log"),
+        ))
+    for local_steps in cap_results:
+        steps.extend(local_steps)
     _run(_opam(["rocqchk", "-R", str(directory), "HoldFastFirstSlice",
                 "HoldFastFirstSlice.CapSmall", "HoldFastFirstSlice.CapLarge"]),
          directory, directory / "CapGate.kernel.log", steps)
