@@ -6,6 +6,7 @@ import re
 import subprocess
 import sys
 import tarfile
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -195,9 +196,19 @@ def compare_ante(
     env.pop("ANTE_STDLIB_DIR", None)
     env.pop("ANTE_MINICORO_PATH", None)
     selected = TRIALS[:1] if nested_rows_only else TRIALS
-    results = [
-        entry
-        for trial in selected
-        for entry in _run_trial(executable, fixtures, work, sources, trial, env)
-    ]
+
+    def run_isolated(item: tuple[int, AnteTrial]) -> tuple[dict[str, str], list[dict[str, object]]]:
+        idx, trial = item
+        trial_work = work / f"ante-trial-{idx}"
+        trial_work.mkdir()
+        trial_sources: dict[str, str] = {}
+        entries = _run_trial(executable, fixtures, trial_work, trial_sources, trial, env)
+        return trial_sources, entries
+
+    with ThreadPoolExecutor(max_workers=min(4, os.process_cpu_count() or 1, max(1, len(selected)))) as pool:
+        outcomes = list(pool.map(run_isolated, enumerate(selected)))
+    results: list[dict[str, object]] = []
+    for trial_sources, entries in outcomes:
+        sources.update(trial_sources)
+        results.extend(entries)
     return {**identity, "results": results}

@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Check the HoldFast endpoint of the nested-row borrowing comparison."""
 
+import os
 import re
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -393,12 +395,21 @@ def _comparison_fixture_contracts() -> None:
             work = Path(tmp)
             for name in expected_fixture_cfgs:
                 (work / name).write_bytes((fixtures / name).read_bytes())
-            observed_results = [
-                holdfast_borrow_compare._run_trial(compiler, mode, trial, work, measure=False)
+            selected_trials = [
+                (mode, trial)
                 for mode in holdfast_borrow_compare.MODES
                 for trial in holdfast_borrow_compare.trials(mode)
                 if trial.fixture in expected_fixture_cfgs
             ]
+            with ThreadPoolExecutor(
+                max_workers=min(8, os.process_cpu_count() or 1, max(1, len(selected_trials))),
+            ) as pool:
+                observed_results = list(pool.map(
+                    lambda pair: holdfast_borrow_compare._run_trial(
+                        compiler, pair[0], pair[1], work, measure=False,
+                    ),
+                    selected_trials,
+                ))
             p3_verdicts = {
                 entry["mode"]: entry["decision"]
                 for entry in observed_results

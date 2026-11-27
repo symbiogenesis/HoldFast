@@ -7,10 +7,12 @@ for the bounds, renderer, controls, and replay format.
 
 import copy
 import hashlib
+import os
 import re
 import subprocess
 import time
 from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -1353,15 +1355,15 @@ def apply_seeded_fault(
     raise ValueError(f"unknown seeded fault: {fault_name!r}")
 
 
-def verify_sentence_against_oracle(
+def _verify_sentence_with_envelope(
     terminals: Sequence[str],
     *,
     variant: str = "canonical",
     seed: int = 0,
     parser_fn: Callable[[bytes], dict[str, Json]] | None = None,
     fault_name: str | None = None,
-) -> dict[str, object]:
-    """Render `terminals`, compare parser output with `IndependentPureAstOracle`, and return observation."""
+) -> tuple[dict[str, object], dict[str, Json] | None]:
+    """Render `terminals`, compare parser output with `IndependentPureAstOracle`, and return `(obs, envelope)`."""
     rendered = render_sentence(terminals, variant=variant, seed=seed)
     expected = expected_parse_observation(rendered.source)
 
@@ -1398,16 +1400,40 @@ def verify_sentence_against_oracle(
                 raise CampaignObservationError(
                     f"refusal {key} mismatch in {variant}: actual={actual_obs[key]!r}, expected={expected[key]!r}"
                 )
+        envelope = None
     elif actual_obs["envelope"] != expected["envelope"]:
         raise CampaignObservationError(
             f"AST/span mismatch in {variant} against IndependentPureAstOracle"
         )
-    return {
-        "variant": variant,
-        "source_sha256": rendered.source_sha256,
-        "source_bytes": len(rendered.source),
-        "status": expected["status"],
-    }
+    else:
+        envelope = cast("dict[str, Json]", actual_obs["envelope"])
+    return (
+        {
+            "variant": variant,
+            "source_sha256": rendered.source_sha256,
+            "source_bytes": len(rendered.source),
+            "status": expected["status"],
+        },
+        envelope,
+    )
+
+
+def verify_sentence_against_oracle(
+    terminals: Sequence[str],
+    *,
+    variant: str = "canonical",
+    seed: int = 0,
+    parser_fn: Callable[[bytes], dict[str, Json]] | None = None,
+    fault_name: str | None = None,
+) -> dict[str, object]:
+    """Render `terminals`, compare parser output with `IndependentPureAstOracle`, and return observation."""
+    return _verify_sentence_with_envelope(
+        terminals,
+        variant=variant,
+        seed=seed,
+        parser_fn=parser_fn,
+        fault_name=fault_name,
+    )[0]
 
 
 def _is_valid_pure_sentence(terminals: Sequence[str]) -> bool:
@@ -1723,14 +1749,15 @@ def qualify(
         renderer_report = qualify_renderer()
 
         seeds = list(range(seed_start, seed_start + count))
-        generated_sentences: list[tuple[int, tuple[str, ...]]] = []
-        raw_lines: list[str] = []
-        for seed in seeds:
+
+        def generate_seed(seed: int) -> tuple[int, tuple[str, ...]]:
             if time.monotonic() - started > MAX_CAMPAIGN_SECONDS:
                 raise RuntimeError(f"syntax campaign exceeded {MAX_CAMPAIGN_SECONDS}s wall-time bound")
-            terminals = _generate_menhir_sentence(menhir, grammar, seed, goal_length)
-            generated_sentences.append((seed, terminals))
-            raw_lines.append(f"{ENTRY_POINT}: {' '.join(terminals)}")
+            return seed, _generate_menhir_sentence(menhir, grammar, seed, goal_length)
+
+        with ThreadPoolExecutor(max_workers=min(8, os.process_cpu_count() or 1, len(seeds))) as pool:
+            generated_sentences = list(pool.map(generate_seed, seeds))
+        raw_lines = [f"{ENTRY_POINT}: {' '.join(terminals)}" for _, terminals in generated_sentences]
 
         negative_lines = [
             f"{ENTRY_POINT}: MODULE SEMICOLON EOF",
@@ -1763,7 +1790,7 @@ def qualify(
             base_envelope: Json | None = None
             first_status: str | None = None
             for variant in RENDER_VARIANTS:
-                obs = verify_sentence_against_oracle(
+                obs, envelope = _verify_sentence_with_envelope(
                     terminals,
                     variant=variant,
                     seed=seed,
@@ -1774,10 +1801,8 @@ def qualify(
                     first_status = cast("str", obs["status"])
                 elif obs["status"] != first_status:
                     raise CampaignObservationError("trivia variant changed acceptance vs refusal status")
-                if obs["status"] == "accepted":
-                    rendered = render_sentence(terminals, variant=variant, seed=seed)
-                    parsed = native_parse(rendered.source)
-                    stripped = strip_spans(parsed["ast"])
+                if obs["status"] == "accepted" and envelope is not None:
+                    stripped = strip_spans(envelope["ast"])
                     if base_envelope is None:
                         base_envelope = stripped
                     elif stripped != base_envelope:

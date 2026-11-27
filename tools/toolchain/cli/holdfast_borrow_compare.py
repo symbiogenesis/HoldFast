@@ -3,10 +3,12 @@
 
 import argparse
 import json
+import os
 import platform
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter_ns
@@ -321,8 +323,16 @@ def compare(
             source = (fixtures / name).read_bytes()
             (work / name).write_bytes(source)
             sources[name] = sha256_bytes(source)
-        results = [_run_trial(compiler, mode, trial, work, measure=measure)
-                   for mode, trial in selected]
+        if measure:
+            results = [_run_trial(compiler, mode, trial, work, measure=True)
+                       for mode, trial in selected]
+        else:
+            workers = min(8, os.process_cpu_count() or 1, max(1, len(selected)))
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                results = list(pool.map(
+                    lambda pair: _run_trial(compiler, pair[0], pair[1], work, measure=False),
+                    selected,
+                ))
         ante = (
             compare_ante(ante_checkout, fixtures, work, sources, nested_rows_only=nested_rows_only)
             if ante_checkout is not None

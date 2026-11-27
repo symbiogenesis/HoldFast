@@ -130,7 +130,11 @@ def _load(name: str, split: bool | None = None) -> list[Case] | str:
     return narrowed
 
 
-_HEAVY_RE = re.compile(r"\brocqchk\b|\b_replay(?:_|\b)")
+_HEAVY_RE = re.compile(
+    r"\brocqchk\b|\b_replay(?:_|\b)|\bproofenv\.rocq_command\b|\bcheck-grades\b"
+    r"|\bbuild-package\b|\brustc\b|\bholdfast_borrow_compare\b|\bPlaygroundServer\b"
+    r"|\binspection\.inspect\b|\bauthoring_preview\b|\blsp_worker\b"
+)
 _CASE_RE = re.compile(r"\bCase\(")
 
 
@@ -141,7 +145,7 @@ def _module_profile(name: str) -> tuple[int, int]:
         raw = path.read_text(encoding="utf-8")
     except OSError, UnicodeDecodeError:
         return 0, 0
-    multiplier = 4 if _HEAVY_RE.search(raw) is not None else 1
+    multiplier = 6 if _HEAVY_RE.search(raw) is not None else 1
     case_count = len(_CASE_RE.findall(raw))
     return len(raw) * multiplier, case_count
 
@@ -150,15 +154,18 @@ def _fanout_count(name: str, total_modules: int, worker_budget: int, case_count:
     if worker_budget <= 1 or not _declares(name):
         return 1
     try:
-        size = (TESTS / f"{name}.py").stat().st_size
-    except OSError:
+        raw = (TESTS / f"{name}.py").read_text(encoding="utf-8")
+    except OSError, UnicodeDecodeError:
         return 1
+    size = len(raw)
     if total_modules == 1:
         return min(worker_budget, max(1, case_count))
     if size > 80_000 and worker_budget >= 6:
         return min(6, worker_budget, max(1, case_count))
     if size > 40_000 and worker_budget >= 4:
         return min(4, worker_budget, max(1, case_count))
+    if _HEAVY_RE.search(raw) is not None and worker_budget >= 4 and case_count >= 4:
+        return min(4, max(2, worker_budget // 3), case_count)
     return 1
 
 
