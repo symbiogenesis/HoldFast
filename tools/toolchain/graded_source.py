@@ -2432,6 +2432,8 @@ class _CoreLowerer:
                 r = self._parse_gexpr(cast("Node", args[1]["value"]), gvars)
                 return s, r, True
             return s, None, False
+        if not gvars:
+            raise self.protocol.error("unsupported", "graded checking requires a grade domain allowance", ann)
         # Symbolic bare expression such as `@ q` or `@ q + r`
         s = self._parse_gexpr(ann, gvars)
         return s, None, False

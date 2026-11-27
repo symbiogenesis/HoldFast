@@ -7,13 +7,11 @@ import hashlib
 from typing import TYPE_CHECKING, cast
 
 from toolchain import graded_source
-from toolchain.ast import HoldFastError
 from toolchain.elaborate_types import (
     _BOOL,
     _NAT,
     _SORT,
     Node,
-    _app,
     _apps,
     _Binding,
     _constant,
@@ -232,7 +230,7 @@ class _GradedMixin:
                     eqb_expr="Nat.eqb",
                     subgraded=True,
                 )
-            elif carrier_key == "bool":
+            else:
                 self.custom_grade_domains[name] = graded_source.CustomDomainSpec(
                     name=name,
                     rocq_name="PresenceJoin",
@@ -274,8 +272,8 @@ class _GradedMixin:
         generic_vars, generic_env = self.telescope(generics, [], {}, unit=False)
         generic_modes = tuple(cast("str", gp["mode"]) for gp in generics)
         generic_domains = tuple(
-            self.name(gp["type"]["name"])
-            if gp["mode"] == "grade" and isinstance(gp.get("type"), dict) and gp["type"].get("kind") == "type"
+            self.name(cast("Node", gp["type"])["name"])
+            if gp["mode"] == "grade" and isinstance(gp.get("type"), dict) and cast("Node", gp["type"]).get("kind") == "type"
             else None
             for gp in generics
         )
@@ -330,13 +328,13 @@ class _GradedMixin:
                 self.private_symbols.add(cname)
 
             cparams = self.nodes(ctor_node["parameters"])
-            param_grades: list[str | None] = []
+            ctor_param_grades: list[str | None] = []
             for pnode in cparams:
                 self.node(pnode, "parameter")
                 if pnode["name"] is None:
                     raise self.fail("protocol", "inductive constructor field requires a name", pnode)
                 g_node = cast("Node | None", pnode.get("grade"))
-                param_grades.append(self.render_ast_grade(g_node) if g_node is not None else None)
+                ctor_param_grades.append(self.render_ast_grade(g_node) if g_node is not None else None)
             field_vars, field_env = self.telescope([], cparams, generic_env, unit=False)
             field_names = [self.name(p["name"]) for p in cparams]
 
@@ -357,7 +355,7 @@ class _GradedMixin:
                 idx_args = tuple(index_vars)
                 ret_ty = _apps(_constant(type_emitted), *param_vars, *index_vars)
 
-            parsed_ctors.append((ctor_node, cname, field_names, field_vars, tuple(param_grades), ret_ty, idx_args))
+            parsed_ctors.append((ctor_node, cname, field_names, field_vars, tuple(ctor_param_grades), ret_ty, idx_args))
 
         _ = max_sort
         # Emit Coq Inductive declaration
@@ -379,7 +377,7 @@ class _GradedMixin:
         ctor_lines: list[str] = []
         raw_ctor_consts: list[str] = []
         inductive_ctors_info: list[_InductiveCtor] = []
-        for idx, (ctor_node, cname, field_names, field_vars, param_grades, ret_ty, idx_args) in enumerate(parsed_ctors):
+        for idx, (_ctor_node, cname, field_names, field_vars, param_grades, ret_ty, idx_args) in enumerate(parsed_ctors):
             raw_ctor = f"{type_emitted}_c_{cname}"
             raw_ctor_consts.append(raw_ctor)
             # Determine free index/generic variables appearing in field types or ret_ty (beyond param_vars & field_vars)
@@ -421,7 +419,7 @@ class _GradedMixin:
         self.output.append(ind_header + "\n" + "\n".join(ctor_lines) + ".")
 
         # Generate Arguments directives so implicit/explicit applications align cleanly with HoldFast arity
-        for ctor_info, (ctor_node, cname, _, field_vars, _, ret_ty, _) in zip(inductive_ctors_info, parsed_ctors, strict=True):
+        for ctor_info, (_ctor_node, cname, _, field_vars, _, ret_ty, _) in zip(inductive_ctors_info, parsed_ctors, strict=True):
             # Register global constructor binding with wrapper Definition taking ALL HoldFast generics if nullary or extra indices
             free_extra_cnt = ctor_info.ctor_binding.generics - len(param_vars)
             wrapper_const = f"{self.emission_prefix}_d{len(self.output)}_{cname}"
@@ -498,7 +496,7 @@ class _GradedMixin:
                     cname, arguments, ctor_info.fields, seen, node,
                 )
                 return _Pat("inductive", node, value=cname, args=sub_patterns)
-        return cast("_Pat", super()._parse_pattern(node, seen))  # type: ignore[misc]
+        return super()._parse_pattern(node, seen)  # type: ignore[misc]
 
     def _typecheck_pattern(
         self: _Elaborator,
@@ -542,18 +540,15 @@ class _GradedMixin:
                     )
                 )
             return _apps(_constant(ctor_info.ctor_const), *param_args, *sub_terms)
-        return cast(
-            "_Term",
-            super()._typecheck_pattern(  # type: ignore[misc]
-                pat,
-                expected_type,
-                environment,
-                pattern_bindings,
-                smaller_roots=smaller_roots,
-                destruct_roots=destruct_roots,
-                track_verdicts=track_verdicts,
-                whole_match_pattern=whole_match_pattern,
-            ),
+        return super()._typecheck_pattern(  # type: ignore[misc]
+            pat,
+            expected_type,
+            environment,
+            pattern_bindings,
+            smaller_roots=smaller_roots,
+            destruct_roots=destruct_roots,
+            track_verdicts=track_verdicts,
+            whole_match_pattern=whole_match_pattern,
         )
 
     def match(
@@ -616,8 +611,8 @@ class _GradedMixin:
                         branch_term = self.check(branch_node, result_type, b_env)
                         binder_names = [
                             (
-                                self.render(b_env[cast("list[str]", list(sp.names))[0]].term)
-                                if sp.names and cast("list[str]", list(sp.names))[0] in b_env
+                                self.render(b_env[next(iter(sp.names))].term)
+                                if sp.names and next(iter(sp.names)) in b_env
                                 else "_"
                             )
                             for sp in pat.args
@@ -630,83 +625,27 @@ class _GradedMixin:
                 _ = args
                 raw = f"(match {self.render(scrutinee.term)} with {' '.join(branches_str)} end)"
                 return _Binding(_term("raw", value=raw), result_type)
-        return cast(
-            "_Binding",
-            super().match(  # type: ignore[misc]
-                node,
-                environment,
-                expected,
-                expression_arms=expression_arms,
-                facts=facts,
-                refine_scrutinee=refine_scrutinee,
-                expected_scrutinee_type=expected_scrutinee_type,
-                visited_arms=visited_arms,
-                synthetic=synthetic,
-            ),
+        return super().match(  # type: ignore[misc]
+            node,
+            environment,
+            expected,
+            expression_arms=expression_arms,
+            facts=facts,
+            refine_scrutinee=refine_scrutinee,
+            expected_scrutinee_type=expected_scrutinee_type,
+            visited_arms=visited_arms,
+            synthetic=synthetic,
         )
 
-    def complete(self: _Elaborator, term: _Term, *args: object, **kwargs: object) -> _Term:
+    def complete(self: _Elaborator, term: _Term, memo: dict[int, tuple[_Term, _Term]] | None = None) -> _Term:
         if term.kind == "raw":
             return term
-        return cast("_Term", super().complete(term, *args, **kwargs))  # type: ignore[misc]
+        return super().complete(term, memo)  # type: ignore[misc]
 
     def render(self: _Elaborator, term: _Term) -> str:
         if term.kind == "raw":
             return str(term.value)
-        return cast("str", super().render(term))  # type: ignore[misc]
-
-    def _compile_match(
-        self: _Elaborator,
-        scrutinee: _Term,
-        scrutinee_type: _Term,
-        cases: list[tuple[_Pat, Node]],
-        motive: tuple[str, _Term] | None,
-        result_type: _Term,
-        environment: dict[str, _Binding],
-        node: Node,
-    ) -> _Term:
-        head, args = self.spine(self.whnf(scrutinee_type))
-        if head.kind == "const" and isinstance(head.value, str) and head.value in self.inductives_by_type:
-            ind_info = self.inductives_by_type[head.value]
-            param_count = len(ind_info.generic_vars) - ind_info.index_arity
-            _ = args[:param_count]
-            # Lower user inductive match to Coq `match` over raw inductive constructors
-            branches_str: list[str] = []
-            for pat, branch_node in cases:
-                if pat.kind == "wild":
-                    b_env = dict(environment)
-                    for bname in pat.names:
-                        b_env[bname] = _Binding(scrutinee, scrutinee_type)
-                    branch_term = self.check(branch_node, result_type, b_env)
-                    branches_str.append(f"| _ => {self.render(branch_term)}")
-                elif pat.kind == "inductive":
-                    cname = cast("str", pat.value)
-                    _, ctor_info = self.inductive_ctors[cname]
-                    b_env = dict(environment)
-                    self._typecheck_pattern(pat, scrutinee_type, environment, b_env)
-                    branch_term = self.check(branch_node, result_type, b_env)
-                    binder_names = [
-                        (
-                            self.render(b_env[cast("list[str]", list(sp.names))[0]].term)
-                            if sp.names and cast("list[str]", list(sp.names))[0] in b_env
-                            else "_"
-                        )
-                        for sp in pat.args
-                    ]
-                    pat_parts = [ctor_info.ctor_const, *(["_"] * param_count), *binder_names]
-                    pat_lhs = " ".join(pat_parts)
-                    branches_str.append(f"| {pat_lhs} => {self.render(branch_term)}")
-                else:
-                    raise self.fail("type", f"invalid pattern for inductive '{ind_info.name}'", pat.node)
-            _ = motive
-            raw = f"(match {self.render(scrutinee)} with {' '.join(branches_str)} end)"
-            return _term("raw", value=raw)
-        return cast(
-            "_Term",
-            super()._compile_match(  # type: ignore[misc]
-                scrutinee, scrutinee_type, cases, motive, result_type, environment, node,
-            ),
-        )
+        return super().render(term)  # type: ignore[misc]
 
     def _register_checked_zero_binders(
         self: _Elaborator,
