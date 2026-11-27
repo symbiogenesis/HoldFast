@@ -318,18 +318,29 @@ refused.
 [Lending source and replay](../../tools/tests/test_holdfast_loan_returns.py#_lending_span_iteration) ·
 [Early break replay](../../tools/tests/test_holdfast_loan_returns.py#_lending_span_break)
 
-The mathematical elaborator (`tools/toolchain/elaborate_*.py`) and CFG analyzer
-(`tools/toolchain/loans.py`) also handle:
+The mathematical elaborator (`tools/toolchain/elaborate_*.py`, including
+`tools/toolchain/elaborate_borrows.py`), region solver
+([`regions.py`](../../tools/toolchain/regions.py)), and CFG analyzer
+([`loans.py`](../../tools/toolchain/loans.py)) also handle:
 
-- container stability tracking (`unstable` mutations on `Seq`/`Slots` vs stable element writes), symbolic `requires` and `assert` index-disjointness propagation (`AssumeIndexNe` on CFG entry and proof assertions), path-sensitive `if`/`else` index disequalities, and nested container clears (`PathSensitiveRowClear`);
-- disjoint sub-slice writebacks (`holdfast_bs_shift_onto`) across simultaneous mutable sub-slices, record-field and 2D grid element borrows under disjunctive guards (`r1 != r2 || c1 != c2`), loop-carried cursor reborrows (`let` bindings updated per iteration), and higher-ranked view callbacks (`Fn(ref Span<byte>) -> ...`);
-- paired Rust (`rustc +nightly-2026-11-20`) and Ante (`ante_borrow_compare.py` with `.rs`/`.an` comparison fixtures and `holdfast-borrow-compare`) regression trials on multi-dimensional index borrows, sub-slice writeback, branch-view last-use and loop-view returns.
+- Polonius-style location-sensitive origin, subset, variance (`in` covariant, `ref` and `shared ref` invariant), `Outlives<'a, 'b>`, and multi-region disambiguation checking (`'a` vs `'b`), plus `FnMut` and `FnOnce` higher-ranked region callbacks and generalized outer-capture blocking;
+- exclusive `ref<'a>` conditional and loop returns with prophecy/lens restoration terms across multi-branch and `while`/`foreach`/`match` control flow, associated-type GAT `LendingIterator` interfaces and `impl` bindings, arbitrary-depth nested field reborrows, partial field moves with re-initialization, and loop-carried mutable cursor reborrowing;
+- safe `shared ref` aliased mutation over shape-stable scalars, record fields, and fixed-extent elements (alongside `LocalCell`/`BorrowCell` store-threaded models) with overlapping `active_facts` refinement purging while preserving proved-disjoint refinements, plus proof-backed tag-preserving union mutation (`tag(new) == tag(old)`) and capacity-preserving `Slots.Push` (`LiveCount < capacity`);
+- container stability tracking (`unstable` mutations on `Seq`/`Slots` vs stable element writes), symbolic `requires` and `assert` index-disjointness propagation (`AssumeIndexNe` on CFG entry and proof assertions), path-sensitive `if`/`else` index disequalities, nested container clears (`PathSensitiveRowClear`), and `ProvedFacts` / `path.obligations` / `check_loan_certificate` verification across the elaborator, CFG analyzer, and [zero-axiom Rocq loan soundness proofs](../../tools/rocq/loan_soundness.v);
+- disjoint sub-slice writebacks (`holdfast_bs_shift_onto`) across simultaneous mutable sub-slices, record-field and 2D grid element borrows under disjunctive guards (`r1 != r2 || c1 != c2`), two-phase receiver reservations, and 3-span conflict diagnostics (`origin`, `conflict`, `live_use`/`proposed_end`);
+- paired Rust (`rustc +nightly-2026-11-20`) and Ante (`ante_borrow_compare.py` with `.rs`/`.an` comparison fixtures and `holdfast-borrow-compare`) regression trials across 22 `comparison_matrix` cases (HoldFast accepting all 22 vs 3 in Rust NLL, 7 in Rust Polonius Legacy, 6 in Rust Polonius Alpha, and 3 expected in Ante).
 
 [Subslice writeback replay](../../tools/tests/test_holdfast_loan_returns.py#_subslice_disjoint_writeback) ·
 [Field and 2D borrows](../../tools/tests/test_holdfast_loan_returns.py#_field_and_multidim_borrows) ·
 [Loop cursor reborrow](../../tools/tests/test_holdfast_loan_returns.py#_loop_cursor_reborrow) ·
 [Higher-ranked view callback](../../tools/tests/test_holdfast_loan_returns.py#_higher_ranked_view_callback) ·
 [Two-phase receiver replay](../../tools/tests/test_holdfast_loan_returns.py#_two_phase_receiver_replay) ·
+[Exclusive ref returns](../../tools/tests/test_holdfast_loan_returns.py#_exclusive_conditional_return_and_prophecy) ·
+[GAT LendingIterator and FnMut](../../tools/tests/test_holdfast_loan_returns.py#_lending_iterator_gat_and_hrtb) ·
+[Shared ref and proof-backed updates](../../tools/tests/test_holdfast_loan_returns.py#_shared_mut_and_ante_beat_proofs) ·
+[Partial moves and loop cursors](../../tools/tests/test_holdfast_loan_returns.py#_partial_field_move_and_loop_cursor) ·
+[Loan certificate replay](../../tools/tests/test_holdfast_loan_returns.py#_loan_certificate_rocq_soundness_replay) ·
+[Rocq soundness audit](../../tools/tests/test_holdfast_loan_soundness.py) ·
 [Borrow comparison suite](../../tools/tests/test_holdfast_borrow_comparison.py#_comparison_fixture_contracts)
 
 If a client must restructure a loop whose last use of a view precedes a write

@@ -3141,19 +3141,52 @@ Rocq replay closing all assumptions and eight invalid neighbors refused.
 [Direct indexed fixture](../../tools/tests/fixtures/direct-indexed-borrows.hf) ·
 [Direct indexed replay](../../tools/tests/test_holdfast_borrow_comparison.py)
 
-Additional integrated CFG and mathematical-elaborator trials extend these cases
-to container-stability tracking with `requires` and `assert` index-disjointness
-propagation and two-phase receiver reservations (`two-phase-receiver-trial.hf`),
-disjoint sub-slice writebacks via `holdfast_bs_shift_onto`
-(`subslice-disjoint-writeback.hf`), simultaneous record fields, 2D grids with
-disjunctive guards and path-sensitive container clears
-(`field-and-multidim-borrows.hf`), loop-carried cursor reborrows
-(`loop-cursor-reborrow.hf`), higher-ranked view callbacks
-(`higher-ranked-view-callback.hf`), and Rust (`rustc +nightly-2026-11-20`) plus
-Ante comparison suites (`holdfast-borrow-compare`). Target hardware lowering
-remains open.
+Additional integrated CFG, region-solver, elaborator, and Rocq soundness trials
+extend these cases to:
+
+- Polonius-style location-sensitive origin/subset/variance solving
+  (`tools/toolchain/regions.py`) with `Outlives<'a, 'b>`, multi-region
+  disambiguation, `FnMut`/`FnOnce` higher-ranked region callbacks, and first-class
+  `in`/`ref`/`shared ref` fields in records and unions (`tools/toolchain/elaborate_borrows.py`);
+- exclusive `ref<'a>` returns across conditional branches and general returning
+  loops with prophecy/lens writeback terms (`exclusive-conditional-return.hf`),
+  associated-type GAT `LendingIterator` (`lending-iterator-gat.hf`),
+  `FnMut`/`FnOnce` HRTB callbacks (`fnmut-hrtb-callback.hf`), arbitrary-depth
+  nested field reborrows, partial field moves with re-initialization
+  (`partial-field-move.hf`), and loop-carried mutable cursor reborrows
+  (`loop-mutable-cursor.hf`);
+- safe `shared ref` aliased mutation over shape-stable scalars/fields/elements
+  with overlapping `active_facts` purging and disjoint fact preservation
+  (`shared-mut-stable-element.hf`), plus proof-backed tag-preserving union
+  mutation (`tag-preserving-union-mut.hf`) and capacity-preserving `Slots.Push`
+  (`capacity-preserving-push.hf`);
+- container-stability tracking with `requires` and `assert` index-disjointness
+  propagation, two-phase receiver reservations (`two-phase-receiver-trial.hf`),
+  disjoint sub-slice writebacks via `holdfast_bs_shift_onto`
+  (`subslice-disjoint-writeback.hf`), simultaneous record fields, 2D grids with
+  disjunctive guards and path-sensitive clears (`field-and-multidim-borrows.hf`),
+  loop-carried `let` cursor reborrows (`loop-cursor-reborrow.hf`), higher-ranked
+  view callbacks (`higher-ranked-view-callback.hf`), `ProvedFacts` and
+  `path.obligations` enforcement with 3-span conflict diagnostics, and zero-axiom
+  Rocq loan/Polonius/shared-mut/union/push soundness theorems plus
+  `check_loan_certificate` replay (`tools/rocq/loan_semantics.v`,
+  `tools/rocq/loan_soundness.v`, audited via `rocqchk -silent`);
+- paired Rust (`rustc +nightly-2026-11-20`, revision
+  `6905905bb7727fd0f9223f5fdc9ad4e62236d5a2`, edition `2024`) and Ante
+  (`ante_borrow_compare.py`, 4 trials) comparison runs via
+  `holdfast-borrow-compare`, recording 246 pinned Rust executions/refusals and a
+  22-case `comparison_matrix` (HoldFast: 22 accepted; Rust NLL: 3 accepted, 19
+  rejected; Rust Polonius Legacy: 7 accepted, 15 rejected; Rust Polonius Alpha: 6
+  accepted, 16 rejected; Ante expected: 3 accepted, 14 rejected, 5 unsupported).
+  Target hardware lowering remains open.
 [Two-phase receiver replay](../../tools/tests/test_holdfast_loan_returns.py#_two_phase_receiver_replay) ·
 [Subslice writeback](../../tools/tests/test_holdfast_loan_returns.py#_subslice_disjoint_writeback) ·
+[Exclusive ref returns](../../tools/tests/test_holdfast_loan_returns.py#_exclusive_conditional_return_and_prophecy) ·
+[GAT LendingIterator and FnMut](../../tools/tests/test_holdfast_loan_returns.py#_lending_iterator_gat_and_hrtb) ·
+[Shared ref and proof-backed updates](../../tools/tests/test_holdfast_loan_returns.py#_shared_mut_and_ante_beat_proofs) ·
+[Partial moves and loop cursors](../../tools/tests/test_holdfast_loan_returns.py#_partial_field_move_and_loop_cursor) ·
+[Loan certificate replay](../../tools/tests/test_holdfast_loan_returns.py#_loan_certificate_rocq_soundness_replay) ·
+[Rocq soundness audit](../../tools/tests/test_holdfast_loan_soundness.py) ·
 [Comparison suite](../../tools/tests/test_holdfast_borrow_comparison.py#_comparison_fixture_contracts)
 
 <a id="q25cf-trial-selected-loop-carried-borrowing"></a>
