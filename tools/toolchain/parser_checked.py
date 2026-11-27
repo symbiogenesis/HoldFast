@@ -1295,7 +1295,7 @@ def _run(arguments: list[str], directory: Path, log: Path,
 def _inputs(root: Path) -> dict[str, str]:
     return {name: file_sha256(root / name) for name in (
         "tools/opam/rocq.lock", "tools/opam/sail.lock", "tools/toolchain/parser_checked.py",
-        "tools/toolchain/hashing.py", "tools/toolchain/atomic.py",
+        "tools/toolchain/_isolated_worker.py", "tools/toolchain/hashing.py", "tools/toolchain/atomic.py",
         "tools/toolchain/parser/ast.ml", "tools/toolchain/parser/parser.mly",
         "tools/toolchain/parser/lexer.mll", "examples/pure.hf",
         "examples/constants.hf", "examples/expressions.hf")}

@@ -50,7 +50,8 @@ SURFACE_FIXTURE = "tools/tests/fixtures/surface.hf"
 INPUT_PATHS = (
     *(f"tools/toolchain/parser/{name}" for name in SOURCES),
     "tools/opam/sail.lock", "tools/toolchain/parser.py", "tools/toolchain/surface.py",
-    "tools/toolchain/hashing.py", "tools/toolchain/jsonutil.py", "tools/toolchain/atomic.py",
+    "tools/toolchain/_isolated_worker.py", "tools/toolchain/hashing.py",
+    "tools/toolchain/jsonutil.py", "tools/toolchain/atomic.py",
     "examples/pure.hf", "examples/constants.hf", "examples/expressions.hf", SURFACE_FIXTURE,
 )
 GENERATED = ("parser.ml", "parser.mli", "lexer.ml")

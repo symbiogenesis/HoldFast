@@ -86,7 +86,7 @@ from toolchain.elaborate_whnf import _WhnfMixin
 from toolchain.package_navigation import Navigation
 
 FRONTEND_SOURCES = (
-    "__init__.py", "ast.py", "authoring.py", "compiler_trace.py", "documentation.py", "facts.py", "remarks.py",
+    "__init__.py", "ast.py", "authoring.py", "compiler_trace.py", "concrete.py", "documentation.py", "facts.py", "remarks.py",
     "hashing.py", "jsonutil.py", "loans.py", "regions.py", "source.py", "trace_runtime.py", "elaborate.py",
     "elaborate_types.py", "elaborate_protocol.py", "elaborate_whnf.py", "elaborate_patterns.py", "elaborate_proofs.py",
     "elaborate_holes.py", "elaborate_statements.py", "elaborate_strings.py", "elaborate_solver.py",

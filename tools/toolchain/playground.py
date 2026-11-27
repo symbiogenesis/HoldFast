@@ -277,7 +277,8 @@ class PlaygroundServer(HTTPServer):
         self.parser_sha256 = file_sha256(mathematical_parser)
         tools = Path(__file__).resolve().parent
         self.compiler_inputs = [tools / name for name in (*FRONTEND_SOURCES, "parser.py", "surface.py",
-                                                          "mathematical.py", "playground_worker.py", "proofenv.py")]
+                                                          "_isolated_worker.py", "mathematical.py",
+                                                          "playground_worker.py", "proofenv.py")]
         self.compiler_inputs.extend(tools.parent / "rocq" / name for name in SUPPORT_FILES)
         self.compiler_inputs.append(tools.parent / "opam" / "rocq.lock")
         self.compiler_inputs.extend((mathematical_parser, Path(sys.executable)))
