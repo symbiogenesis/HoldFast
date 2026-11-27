@@ -4,6 +4,7 @@
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
+from toolchain.elaborate_lints import node_offset, report_lint
 from toolchain.elaborate_types import Node, _parse_numeric_magnitude, _Term, _term
 
 if TYPE_CHECKING:
@@ -28,10 +29,6 @@ class _Scope:
         return _Scope(self.shadowed | names, (self.scalars - names) | scalars)
 
 
-def _offset(node: Node) -> int:
-    return cast("list[int]", node["span"])[0]
-
-
 class DescriptorContractLints:
     def __init__(
         self, elaborator: _Elaborator, properties: dict[str, frozenset[str]], stable_scalars: frozenset[str],
@@ -47,8 +44,11 @@ class DescriptorContractLints:
         for clause in restores:
             target = self.elab.name(self.elab.node(clause["value"])["name"])
             if target in self.properties and target not in self.shared:
-                self.elab.semantic_lints["HOLDFAST110", _offset(clause)] = (
-                    f"restores clause for '{target}' repeats automatic ref descriptor restoration"
+                report_lint(
+                    self.elab,
+                    "HOLDFAST110",
+                    clause,
+                    f"restores clause for '{target}' repeats automatic ref descriptor restoration",
                 )
         for clause in requires:
             if clause["role"] == "requires":
@@ -93,7 +93,7 @@ class DescriptorContractLints:
                 return _Operand(_term("name", value=name))
         if node["kind"] == "nat":
             suffix = cast("str", node["suffix"])
-            chosen = suffix or self.elab.contextual_literal_types.get(_offset(node), "")
+            chosen = suffix or self.elab.contextual_literal_types.get(node_offset(node), "")
             return _Operand(_term("number", _term("type", value=chosen),
                                   value=_parse_numeric_magnitude(cast("str", node["value"]))))
         if node["kind"] == "bool":
@@ -172,11 +172,13 @@ class DescriptorContractLints:
     def _diagnostic(self, site: Node, member: _Member, *, guard: bool = False, requires: bool = False) -> None:
         name, field, _ = member
         mode = "in" if name in self.shared else ("shared ref" if name in self.elab.shared_ref_locals else "ref")
-        self.elab.semantic_lints["HOLDFAST109", _offset(site)] = (
-            f"guard repeats an equivalent bound on '{name}.{field}' preserved by {mode} descriptor mode" if guard
+        msg = (
+            f"guard repeats an equivalent bound on '{name}.{field}' preserved by {mode} descriptor mode"
+            if guard
             else f"postcondition for '{name}.{field}' follows from {mode} descriptor preservation"
                  + (" and the entry requirement" if requires else "")
         )
+        report_lint(self.elab, "HOLDFAST109", site, msg)
 
     def _visit(self, node: Node, scope: _Scope, *, guard: bool = False) -> None:
         seen: dict[_Term, tuple[_Member, ...]] = {}
@@ -233,15 +235,16 @@ class DescriptorContractLints:
             entry = self._operand(old, _Scope())
             current = self._operand(old, scope)
             if entry is not None and current is not None and entry.key == current.key:
-                self.elab.semantic_lints["HOLDFAST111", _offset(node)] = (
-                    "old is redundant because its operand is stable"
-                )
+                report_lint(self.elab, "HOLDFAST111", node, "old is redundant because its operand is stable")
             return
         if (member := self._descriptor(node, scope, entry=False)) is not None and member[2]:
             receiver = self.elab._unwrap_group(self.elab.node(node["value"]))
             if member[0] not in scope.shadowed:
-                self.elab.semantic_lints["HOLDFAST111", _offset(receiver)] = (
-                    f"old is redundant for the preserved descriptor property '{member[0]}.{member[1]}'"
+                report_lint(
+                    self.elab,
+                    "HOLDFAST111",
+                    receiver,
+                    f"old is redundant for the preserved descriptor property '{member[0]}.{member[1]}'",
                 )
             return
         # These expression forms introduce no local bindings in their operands.

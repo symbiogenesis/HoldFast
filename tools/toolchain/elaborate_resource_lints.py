@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, cast
 
 from toolchain import loans
+from toolchain.elaborate_lints import node_offset, report_lint
 from toolchain.elaborate_protocol import syntax_nodes as _walk
 from toolchain.elaborate_types import _BOOL, _CHAR, _NAT, _UNIT, _parse_numeric_magnitude
 
@@ -15,9 +16,7 @@ if TYPE_CHECKING:
     from toolchain.elaborate import _Elaborator
     from toolchain.elaborate_types import Node, _Binding, _RecordInfo, _RecordInvariant
 
-
-def _report(elab: _Elaborator, code: str, site: Node, message: str) -> None:
-    elab.semantic_lints[code, cast("list[int]", site["span"])[0]] = message
+_report = report_lint
 
 
 def _effect_entries(elab: _Elaborator, clause: Node) -> Iterator[tuple[str, str, Node]]:
@@ -55,7 +54,7 @@ def lint_unused_effects(
         return
     code = "HOLDFAST134" if public else "HOLDFAST119"
     for kind, target, site in _effect_entries(elab, clause):
-        if ("HOLDFAST118", cast("list[int]", site["span"])[0]) in elab.semantic_lints:
+        if ("HOLDFAST118", node_offset(site)) in elab.semantic_lints:
             continue
         if kind == "calls" or (kind == "reads" and target not in reads) or (kind == "writes" and target not in writes):
             _report(elab, code, site, f"effect allowance '{kind}({target})' is unused by the checked body")
@@ -68,7 +67,7 @@ def _stable_bound(elab: _Elaborator, expression: Node, stable: set[str]) -> str 
         return name if name in stable else None
     if expression["kind"] == "nat":
         suffix = cast("str", expression["suffix"])
-        literal_type = suffix or elab.contextual_literal_types.get(cast("list[int]", expression["span"])[0], "")
+        literal_type = suffix or elab.contextual_literal_types.get(node_offset(expression), "")
         return f"{_parse_numeric_magnitude(cast('str', expression['value']))}:{literal_type}"
     return None
 

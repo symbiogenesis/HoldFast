@@ -1,25 +1,21 @@
 # SPDX-License-Identifier: Apache-2.0
 """Advisories backed by checked expression, proof and loop facts."""
 
-from collections.abc import Generator
-from contextlib import contextmanager
 from typing import TYPE_CHECKING, cast
 
-from toolchain.ast import HoldFastError
-from toolchain.elaborate_types import Node, _apps, _Binding, _constant, _IntSpec, _Meta, _Term
+from toolchain.elaborate_lints import lint_probe, node_offset, report_lint
+from toolchain.elaborate_types import Node, _apps, _Binding, _constant, _IntSpec, _Term
 from toolchain.surface import nodes
 
 if TYPE_CHECKING:
     from toolchain.elaborate import _Elaborator
     from toolchain.parser import Json
 
-
-def report(compiler: _Elaborator, code: str, node: Node, message: str) -> None:
-    compiler.semantic_lints[code, cast("list[int]", node["span"])[0]] = message
+report = report_lint
 
 
 def observe(compiler: _Elaborator, code: str, node: Node, message: str | None) -> None:
-    key = code, cast("list[int]", node["span"])[0]
+    key = code, node_offset(node)
     # One source site can be checked at several iterations or branch states.
     # Require agreement before reporting a finding for the source site.
     previous = compiler.flow_lint_observations.setdefault(key, message)
@@ -27,32 +23,8 @@ def observe(compiler: _Elaborator, code: str, node: Node, message: str | None) -
         compiler.flow_lint_observations[key] = None
 
 
-@contextmanager
-def _probe(compiler: _Elaborator) -> Generator[None]:
-    work, reductions, site = compiler.work, compiler.reductions, compiler.site
-    serial = compiler.serial
-    metas, first_meta, cache = compiler.metas, compiler.decl_first_meta, compiler.whnf_cache
-    freezes, freeze_bytes = compiler.freeze_checks, compiler.freeze_check_bytes
-    compiler.metas = [_Meta(meta.type, meta.scope, meta.solution) for meta in metas]
-    compiler.whnf_cache = {}
-    compiler.freeze_checks = {}
-    compiler.work = min(work, 3000)
-    compiler.reductions = min(reductions, 1000)
-    try:
-        yield
-    except (HoldFastError, RecursionError):
-        pass
-    finally:
-        for binder in range(serial, compiler.serial, compiler.binder_stride):
-            compiler.types.pop(binder, None)
-        compiler.serial = serial
-        compiler.work, compiler.reductions, compiler.site = work, reductions, site
-        compiler.metas, compiler.decl_first_meta, compiler.whnf_cache = metas, first_meta, cache
-        compiler.freeze_checks, compiler.freeze_check_bytes = freezes, freeze_bytes
-
-
 def _truth(compiler: _Elaborator, condition: _Term, environment: dict[str, _Binding]) -> bool | None:
-    with _probe(compiler):
+    with lint_probe(compiler, work_limit=3000, reduction_limit=1000, cap_to_remaining=True):
         yes = compiler._prove_bool_precondition(condition, environment)
         no = compiler._prove_bool_precondition(compiler._negate_bool_term(condition), environment)
         if yes != no:
@@ -90,7 +62,7 @@ def checked_operation(
     if not compiler.in_executable_function:
         return
     message = None
-    with _probe(compiler):
+    with lint_probe(compiler, work_limit=3000, reduction_limit=1000, cap_to_remaining=True):
         facts = compiler._expand_bool_facts([*compiler.active_facts, *compiler._fact_bool_terms((), environment)])
         bounds = [compiler._term_bounds(term, spec, facts)[:2] for term, spec in operands]
         if all(hi is not None and lo <= hi for lo, hi in bounds):
@@ -187,6 +159,6 @@ def forwards_case(
         argument = compiler._unwrap_group(compiler.node(arg["value"]))
         if arg["label"] is not None or argument["kind"] != "name" or compiler.name(argument["name"]) != field:
             return False
-    with _probe(compiler):
+    with lint_probe(compiler, work_limit=3000, reduction_limit=1000, cap_to_remaining=True):
         return compiler.convertible(value, pattern)
     return False

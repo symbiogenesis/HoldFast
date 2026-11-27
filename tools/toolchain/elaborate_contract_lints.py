@@ -4,7 +4,7 @@
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
-from toolchain.ast import HoldFastError
+from toolchain.elaborate_lints import lint_probe, report_lint
 from toolchain.elaborate_types import (
     _BOOL,
     _CHAR,
@@ -15,7 +15,6 @@ from toolchain.elaborate_types import (
     _apps,
     _constant,
     _int_term,
-    _Meta,
     _Term,
     _term,
 )
@@ -379,14 +378,13 @@ class _ContractLintsMixin:
                 return "both possible outcomes state the same guarantee"
         return None
 
+    _CONTRACT_SUPPRESSORS = (
+        "HOLDFAST109", "HOLDFAST112", "HOLDFAST113", "HOLDFAST114", "HOLDFAST115", "HOLDFAST116",
+        "HOLDFAST117",
+    )
+
     def _contract_lint_at(self: _Elaborator, code: str, node: Node, message: str) -> None:
-        offset = cast("list[int]", node["span"])[0]
-        if any((earlier, offset) in self.semantic_lints for earlier in (
-            "HOLDFAST109", "HOLDFAST112", "HOLDFAST113", "HOLDFAST114", "HOLDFAST115", "HOLDFAST116",
-            "HOLDFAST117",
-        )):
-            return
-        self.semantic_lints[code, offset] = message
+        report_lint(self, code, node, message, suppressed_by=self._CONTRACT_SUPPRESSORS)
 
     def _lint_contracts(
         self: _Elaborator,
@@ -402,17 +400,7 @@ class _ContractLintsMixin:
     ) -> None:
         if not checked:
             return
-        work, reductions, site = self.work, self.reductions, self.site
-        saved_metas = self.metas
-        saved_inf = self.decl_first_meta
-        saved_cache = self.whnf_cache
-        saved_freezes = self.freeze_checks
-        saved_freeze_bytes = self.freeze_check_bytes
-        self.metas = [_Meta(meta.type, meta.scope, meta.solution) for meta in saved_metas]
-        self.whnf_cache = {}
-        self.freeze_checks = {}
-        self.work, self.reductions = 12_000, 2_000
-        try:
+        with lint_probe(self, work_limit=12_000, reduction_limit=2_000):
             if type_inputs:
                 type_facts += tuple(self._record_input_propositions(list(type_inputs)))
             if record_binders:
@@ -424,15 +412,6 @@ class _ContractLintsMixin:
                 checked = [(node, self._replace_images(term, [result_image])) for node, term in checked]
                 inherited = tuple(self._replace_images(term, [result_image]) for term in inherited)
             self._lint_checked_contracts(role, checked, type_facts, entry_facts, inherited)
-        except (HoldFastError, RecursionError):
-            pass
-        finally:
-            self.metas = saved_metas
-            self.decl_first_meta = saved_inf
-            self.whnf_cache = saved_cache
-            self.freeze_checks = saved_freezes
-            self.freeze_check_bytes = saved_freeze_bytes
-            self.work, self.reductions, self.site = work, reductions, site
 
     def _lint_checked_contracts(
         self: _Elaborator, role: str, checked: list[tuple[Node, _Term]], type_facts: tuple[_Term, ...],

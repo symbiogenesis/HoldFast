@@ -92,7 +92,7 @@ FRONTEND_SOURCES = (
     "elaborate_holes.py", "elaborate_statements.py", "elaborate_strings.py", "elaborate_solver.py",
     "elaborate_intrinsics.py", "elaborate_borrows.py", "elaborate_declarations.py", "elaborate_graded.py",
     "elaborate_contract_lints.py", "elaborate_descriptor_lints.py", "elaborate_flow_lints.py",
-    "elaborate_resource_lints.py", "graded_source.py", "graded_inference.py", "graded_combinators.py",
+    "elaborate_lints.py", "elaborate_resource_lints.py", "graded_source.py", "graded_inference.py", "graded_combinators.py",
     "graded_synthesis.py", "rocq_cache.py", "source_file.py", "package_navigation.py", "proof_certificates.py",
 )
 
