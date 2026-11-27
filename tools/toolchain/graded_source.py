@@ -6,16 +6,17 @@ import json
 import re
 import subprocess
 import tempfile
+import threading
 import time
 from collections.abc import Callable, Mapping
-from contextlib import ExitStack
+from contextlib import ExitStack, suppress
 from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import StrEnum
 from itertools import batched
 from pathlib import Path
 from types import MappingProxyType
-from typing import cast, override
+from typing import TextIO, cast, override
 
 from toolchain import parser, proofenv, rocq_cache
 from toolchain.elaborate_intrinsics import _IntrinsicsMixin
@@ -1351,8 +1352,117 @@ def _support(root: Path, compiler: list[str], directory: Path, files: tuple[str,
     )
 
 
+def _rocq_top_command(compiler: list[str]) -> list[str] | None:
+    if len(compiler) >= 2 and Path(compiler[-2]).name == "rocq" and compiler[-1] == "c":
+        return [*compiler[:-1], "top", "-q"]
+    if compiler and Path(compiler[-1]).name == "coqc":
+        return [*compiler[:-1], "coqtop", "-q"]
+    return None
+
+
+def _drain_stream(stream: TextIO, lines: list[str], sentinel: str | None = None,
+                  event: threading.Event | None = None) -> None:
+    try:
+        while line := stream.readline():
+            lines.append(line)
+            if sentinel is not None and event is not None and sentinel in line:
+                event.set()
+    finally:
+        if event is not None:
+            event.set()
+
+
+def _replay_single_session(compiler: list[str], directory: Path, projection: _Projection,
+                           certificate: str) -> tuple[list[list[int]], str] | None:
+    top_cmd = _rocq_top_command(compiler)
+    if top_cmd is None:
+        return None
+    deadline = REPLAY_DEADLINE.get()
+
+    def remaining() -> float:
+        budget = 30.0 if deadline is None else min(30.0, deadline - time.monotonic())
+        if budget <= 0:
+            raise subprocess.TimeoutExpired(top_cmd, 0)
+        return budget
+
+    sentinel = "     = (tt, false)"
+    out_lines: list[str] = []
+    err_lines: list[str] = []
+    phase1_done = threading.Event()
+    proc = subprocess.Popen(
+        top_cmd,
+        cwd=directory,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+    )
+    assert proc.stdin is not None and proc.stdout is not None and proc.stderr is not None  # noqa: S101
+    out_thread = threading.Thread(
+        target=_drain_stream, args=(proc.stdout, out_lines, sentinel, phase1_done), daemon=True)
+    err_thread = threading.Thread(
+        target=_drain_stream, args=(proc.stderr, err_lines), daemon=True)
+    out_thread.start()
+    err_thread.start()
+    def run_session() -> tuple[list[list[int]], str]:
+        assert proc.stdin is not None  # noqa: S101
+        proc.stdin.write(certificate + "Check source_replays.\nEval vm_compute in (tt, false).\n")
+        proc.stdin.flush()
+        budget = remaining()
+        if not phase1_done.wait(timeout=budget):
+            proc.kill()
+            out_thread.join(timeout=2)
+            err_thread.join(timeout=2)
+            proc.wait(timeout=2)
+            raise subprocess.TimeoutExpired(top_cmd, budget)
+        rc = 0 if proc.poll() is None else int(proc.returncode)
+        partial_err = "".join(err_lines)
+        if rc == 0 and "Error:" in partial_err:
+            rc = 1
+        rows = _verdict(projection, subprocess.CompletedProcess(
+            top_cmd, rc, "".join(out_lines), partial_err))
+        if proc.poll() is not None:
+            raise RuntimeError("graded source prover exited before row pin")
+        expected = json.dumps(rows).replace(",", ";")
+        pinned_rows = (f"Example source_rows_match : source_reports = {expected}.\n"
+                       "Proof. vm_compute. reflexivity. Qed.\n")
+        proc.stdin.write(pinned_rows + "Check source_rows_match.\nQuit.\n")
+        proc.stdin.flush()
+        proc.stdin.close()
+        budget = remaining()
+        rc = proc.wait(timeout=budget)
+        out_thread.join(timeout=budget)
+        err_thread.join(timeout=budget)
+        full_out = "".join(out_lines)
+        full_err = "".join(err_lines)
+        if rc != 0 or "Error:" in full_err or "source_rows_match\n     : source_reports =" not in full_out:
+            raise RuntimeError(f"graded demand certificate failed: {full_err.strip()}")
+        return rows[-1], certificate + pinned_rows
+
+    try:
+        return run_session()
+    except BaseException:
+        if proc.poll() is None:
+            with suppress(OSError):
+                proc.kill()
+            with suppress(OSError, subprocess.SubprocessError):
+                proc.wait(timeout=2)
+        raise
+    finally:
+        with suppress(OSError):
+            proc.stdin.close()
+        with suppress(OSError):
+            proc.stdout.close()
+        with suppress(OSError):
+            proc.stderr.close()
+
+
 def _replay(compiler: list[str], directory: Path, projection: _Projection,
             certificate: str) -> tuple[list[list[int]], str]:
+    single = _replay_single_session(compiler, directory, projection, certificate)
+    if single is not None:
+        return single
     (directory / "SourceReplay.v").write_text(certificate, encoding="utf-8", newline="\n")
     rows = _verdict(projection, _run_rocq(compiler, directory, "SourceReplay.v"))
     expected = json.dumps(rows).replace(",", ";")

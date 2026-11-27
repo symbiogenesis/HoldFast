@@ -7,8 +7,10 @@ import tempfile
 from pathlib import Path
 
 from tests.harness import TOOLS, Case, ensure, raises
-from toolchain import elaborate, first_slice, parser, proofenv, solver_ledger
+from toolchain import elaborate, first_slice, parser, proofenv, rocq_cache, solver_ledger
 from toolchain.ast import HoldFastError
+
+INDEPENDENT_CASES = True
 
 CLIENT = b"""module Protocol.Consumer;
 import HoldFast.FirstSlice;
@@ -77,13 +79,14 @@ Example bad_flags_before_length :
   {symbol("PacketOutcome")} ({validate} dst pkt) = holdfast_Result_Err _ _ ({symbol("ValidationError_BadMagicOrFlags")} tt)
   := {symbol("ObserveHeader")} dst pkt eq_refl eq_refl eq_refl.
 """
+    compiler = [*proofenv.rocq_command(), "-q"]
     with tempfile.TemporaryDirectory() as temporary:
         directory = Path(temporary)
-        (directory / "Consumer.v").write_text(gallina + fixture, encoding="utf-8")
-        for command in (["rocq", "c", "-q", "Consumer.v"], ["rocqchk", "-silent", "Consumer"]):
-            output = subprocess.run(["opam", "exec", "--switch", proofenv.ROCQ_SWITCH, "--", *command],
-                                    cwd=directory, capture_output=True, timeout=180, check=False)
-            ensure(output.returncode == 0, f"{command} refused the opaque caller: {output.stderr[-1800:]!r}")
+        unit_text, used_prelude = rocq_cache.use_cached_prelude(gallina + fixture, directory, compiler=compiler)
+        (directory / "Consumer.v").write_text(unit_text, encoding="utf-8")
+        output = subprocess.run([*compiler, "Consumer.v"], cwd=directory, capture_output=True, timeout=180, check=False)
+        ensure(output.returncode == 0, f"rocq c refused the opaque caller: {output.stderr[-1800:]!r}")
+        rocq_cache.check_kernel(directory, ["HoldFastPrelude", "Consumer"] if used_prelude else ["Consumer"])
 
 
 def cases() -> list[Case]:

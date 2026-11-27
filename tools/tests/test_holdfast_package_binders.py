@@ -19,9 +19,11 @@ from tests.test_holdfast_elaborate import (
     _variable,
 )
 from tests.test_holdfast_packages import _write
-from toolchain import packages, parser, proofenv
+from toolchain import packages, parser, proofenv, rocq_cache
 from toolchain.elaborate import elaborate_package
 from toolchain.elaborate_types import PackageScope
+
+INDEPENDENT_CASES = True
 
 
 def _exercise(compiled: parser.Build | None = None) -> str:
@@ -65,13 +67,18 @@ def _in_memory() -> None:
 def _kernel_consumer(gallina: str, name: str, expected: str) -> None:
     [module] = re.findall(r"^Module (HoldFastPackage_\w+)\.$", gallina, re.MULTILINE)
     [operation] = re.findall(rf"^Definition (\w+_{name}) :", gallina, re.MULTILINE)
+    compiler = [*proofenv.rocq_command(), "-q"]
     with tempfile.TemporaryDirectory() as tmp:
-        (Path(tmp) / "Consumer.v").write_text(
-            gallina + f"Example read_inputs : {module}.{operation} tt = {expected} := eq_refl.\n", encoding="utf-8")
-        for arguments in (["rocq", "c", "-q", "Consumer.v"], ["rocqchk", "-silent", "Consumer"]):
-            result = subprocess.run(["opam", "exec", "--switch", proofenv.ROCQ_SWITCH, "--", *arguments],
-                                    cwd=tmp, capture_output=True, timeout=180, check=False)
-            ensure(result.returncode == 0, f"kernel replay failed: {(result.stdout + result.stderr)[-3000:]!r}")
+        directory = Path(tmp)
+        unit_text, used_prelude = rocq_cache.use_cached_prelude(
+            gallina + f"Example read_inputs : {module}.{operation} tt = {expected} := eq_refl.\n",
+            directory,
+            compiler=compiler,
+        )
+        (directory / "Consumer.v").write_text(unit_text, encoding="utf-8")
+        result = subprocess.run([*compiler, "Consumer.v"], cwd=directory, capture_output=True, timeout=180, check=False)
+        ensure(result.returncode == 0, f"kernel replay failed: {(result.stdout + result.stderr)[-3000:]!r}")
+        rocq_cache.check_kernel(directory, ["HoldFastPrelude", "Consumer"] if used_prelude else ["Consumer"])
 
 
 def _native_replay() -> None:

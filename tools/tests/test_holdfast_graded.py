@@ -7,13 +7,14 @@ import io
 import json
 import subprocess
 import tempfile
-from functools import partial
 from pathlib import Path
 from unittest.mock import patch
 
 from tests.harness import TOOLS, Case, ensure
 from toolchain import graded_source, proofenv, rocq_cache, solver_ledger
 from toolchain.cli.holdfast_parser import main as parser_main
+
+INDEPENDENT_CASES = True
 
 _PURE_PROOFS = (
     "check_sound",
@@ -442,13 +443,14 @@ def _type_identity_source_replay() -> None:
             status, gallina, error = _elaborate_command(candidate)
             ensure(status == 0 and all(f"Graded replay {name} {domain}: SHA256" in gallina
                                        for name in ("Identity", "KeepDouble", "Relay")), error)
-            proof.write_text(gallina + """
+            unit_text, _ = rocq_cache.use_cached_prelude(gallina + """
 Import HoldFast_GradedTypeIdentity.
 Theorem keep_double_returns_values : forall n (values : holdfast_Vec nat (n + n)),
   holdfast_d1_KeepDouble n values = values.
 Proof. reflexivity. Qed.
 Print Assumptions keep_double_returns_values.
-""", encoding="utf-8")
+""", directory)
+            proof.write_text(unit_text, encoding="utf-8")
             kernel = subprocess.run([*proofenv.rocq_command(), "-q", proof.name], cwd=directory,
                                     capture_output=True, text=True, encoding="utf-8", check=False, timeout=30)
             ensure(kernel.returncode == 0, kernel.stderr)
@@ -670,18 +672,19 @@ def _cached_prelude_controls() -> None:
                "use_cached_prelude produced unexpected rewritten source")
 
 
-def cases() -> list[Case]:
+def _replay_graded_support_units() -> None:
     batch = rocq_cache.BatchChecker()
+    _replay("graded_pure", "GradedPure", _PURE_PROOFS, batch=batch)
+    _replay("graded_domains", "GradedDomains", _DOMAIN_PROOFS, ("graded_pure",), batch=batch)
+    batch.verify_all()
+
+
+def cases() -> list[Case]:
     return [Case("support cache reuses verified .vo artifacts and repairs corruption", _support_cache_controls),
             Case("rocqchk batch checker deduplicates units and cleans up", _batch_checker_controls),
             Case("cached HoldFastPrelude rewrites elaborate output cleanly", _cached_prelude_controls),
-            Case("pure dependent usage and telescope substitution replay",
-                 partial(_replay, "graded_pure", "GradedPure", _PURE_PROOFS, batch=batch), lane="toolchain"),
-            Case("ordered grade domains and dependent row certificates",
-                 partial(_replay, "graded_domains", "GradedDomains", _DOMAIN_PROOFS, ("graded_pure",),
-                         batch=batch),
-                 lane="toolchain"),
-            Case("kernel check pure and domain graded proofs with rocqchk", batch.verify_all, lane="toolchain"),
+            Case("pure dependent usage, ordered grade domains, and kernel check",
+                 _replay_graded_support_units, lane="toolchain"),
             Case("source-bound exact grades and dependent partial application replay", _source_replay, lane="toolchain"),
             Case("source-bound natural bounds and exact type dependencies", _bounded_source_replay, lane="toolchain"),
             Case("graded type-valued identity and universe specialization replay", _type_identity_source_replay,

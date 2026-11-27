@@ -3,9 +3,11 @@
 
 import copy
 import hashlib
+import os
 import re
 import subprocess
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import cast
 
@@ -656,30 +658,41 @@ def _execute_generated_packet_c() -> None:
         parsed = parser.parse_source(compiled, source, surface=True)
     checked = holdfast_elaborate.elaborate(source, parsed)
     with tempfile.TemporaryDirectory() as temporary:
-        c_file = Path(temporary) / "packet.c"
-        executable = Path(temporary) / "packet"
-        def check_program(program: str, expected: int) -> None:
-            c_file.write_text(program, encoding="utf-8")
-            for optimization in ("-O0", "-O2"):
-                subprocess.run(["cc", "-std=c11", optimization, str(c_file), "-o", str(executable)],
-                               check=True, timeout=30)
-                observed = subprocess.run([str(executable)], check=False, timeout=5).returncode
-                ensure(observed == expected, f"packet C {optimization} returned {observed}, expected {expected}")
-
+        workdir = Path(temporary)
         generated, checks = holdfast_first_slice.lower_to_c(source, parsed, checked=checked)
         ensure(checks == 20, "emitted packet scenario check count changed")
-        check_program(generated, 0)
         bad_header = "out->err = VOS_ERR_BadMagicOrFlags;"
         ensure(generated.count(bad_header) == 1, "missing lowered bad-header return")
-        check_program(generated.replace(bad_header, """
-            if (payloadLen > 4UL) { out->err = VOS_ERR_LengthOutOfBounds; }
-            else { out->err = VOS_ERR_BadMagicOrFlags; }"""), 20)
         first_read = "if (holdfast_span_read(arena, &out.ok.PayloadView, 0UL) != 16U)"
         ensure(generated.count(first_read) == 1, "packet regression lost the first full payload read")
-        check_program(generated.replace(first_read, "out.ok.PayloadView.cursor = pkt.cursor;\n    " + first_read), 7)
+        variants: list[tuple[str, str, int]] = [
+            ("base", generated, 0),
+            ("bad_header", generated.replace(bad_header, """
+            if (payloadLen > 4UL) { out->err = VOS_ERR_LengthOutOfBounds; }
+            else { out->err = VOS_ERR_BadMagicOrFlags; }"""), 20),
+            ("first_read", generated.replace(first_read, "out.ok.PayloadView.cursor = pkt.cursor;\n    " + first_read), 7),
+        ]
         for expected, _ in holdfast_first_slice.PERTURBED_CASES:
             perturbed, _ = holdfast_first_slice.lower_to_c(source, parsed, checked=checked, perturb_check=expected)
-            check_program(perturbed, expected)
+            variants.append((f"perturbed_{expected}", perturbed, expected))
+
+        tasks = [(tag, optimization, program, expected)
+                 for tag, program, expected in variants
+                 for optimization in ("-O0", "-O2")]
+
+        def check_task(item: tuple[str, str, str, int]) -> None:
+            tag, optimization, program, expected = item
+            stem = f"packet_{tag}_{optimization.removeprefix('-')}"
+            c_file = workdir / f"{stem}.c"
+            executable = workdir / stem
+            c_file.write_text(program, encoding="utf-8")
+            subprocess.run(["cc", "-std=c11", optimization, str(c_file), "-o", str(executable)],
+                           check=True, timeout=30)
+            observed = subprocess.run([str(executable)], check=False, timeout=5).returncode
+            ensure(observed == expected, f"packet C {optimization} returned {observed}, expected {expected}")
+
+        with ThreadPoolExecutor(max_workers=min(8, os.process_cpu_count() or 1, len(tasks))) as pool:
+            list(pool.map(check_task, tasks))
 
 
 def _check_packet_statements(statements: str, start: bytes = b"    var u8 acc = 0x5A ^ rawLen;",

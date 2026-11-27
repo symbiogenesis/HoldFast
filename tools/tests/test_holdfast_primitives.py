@@ -11,10 +11,12 @@ prelude to compile up to the result check that detects each fault.
 """
 
 import itertools
+import os
 import re
 import subprocess
 import tempfile
 from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
@@ -22,7 +24,7 @@ from typing import cast
 from unittest.mock import patch
 
 from tests.harness import Case, ensure
-from toolchain import elaborate_whnf, env, proofenv
+from toolchain import elaborate_whnf, env, proofenv, rocq_cache
 from toolchain.elaborate import _Elaborator
 from toolchain.elaborate_protocol import _Protocol
 from toolchain.elaborate_types import (
@@ -36,6 +38,8 @@ from toolchain.elaborate_types import (
     _Term,
     _term,
 )
+
+INDEPENDENT_CASES = True
 
 
 @dataclass(frozen=True)
@@ -452,11 +456,33 @@ def _kernel_replay() -> None:
     ensure({name for name, _, _ in rows} >= {f"int_{op}_{width}" for op in (*_BINARY, *_UNARY, *_SHIFTS)
                                              for width in _SAMPLED},
            "kernel sample omits a primitive")
+    workers = min(8, os.process_cpu_count() or 1, len(rows))
+    chunk_size = (len(rows) + workers - 1) // workers
+    batches = [(index, rows[index:index + chunk_size]) for index in range(0, len(rows), chunk_size)]
+    header = (
+        f"Require Import {rocq_cache._PRELUDE_UNIT}.\n"
+        + rocq_cache._PRELUDE_REQUIRES
+        + rocq_cache._PRELUDE_IMPORTS
+    )
     with _scratch() as temporary:
-        done = _compile(Path(temporary), "HoldFastPrimitives", _kernel_file(_PRELUDE, rows))
-    ensure(done.returncode == 0,
-           f"locked prover refused the primitive checks: {done.returncode} "
-           f"{(done.stdout + done.stderr)[-3000:]}")
+        directory = Path(temporary)
+        rocq_cache.materialize_prelude(directory)
+
+        def replay_chunk(item: tuple[int, list[tuple[str, str, str]]]) -> subprocess.CompletedProcess[str]:
+            offset, chunk = item
+            checks = "".join(
+                f"Definition holdfast_primitive_check_{offset + idx} : Corelib.Init.Logic.eq {expression} {expected} "
+                f":= Corelib.Init.Logic.eq_refl.\n"
+                for idx, (_, expression, expected) in enumerate(chunk)
+            )
+            return _compile(directory, f"HoldFastPrimitives_{offset}", header + "\n" + checks)
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            results = list(pool.map(replay_chunk, batches))
+    for done in results:
+        ensure(done.returncode == 0,
+               f"locked prover refused the primitive checks: {done.returncode} "
+               f"{(done.stdout + done.stderr)[-3000:]}")
 
 
 _PLACEHOLDERS = {
@@ -481,18 +507,22 @@ def _kernel_fault_controls() -> None:
     rows = list(_kernel_rows())
     with _scratch() as temporary:
         directory = Path(temporary)
+        tasks: list[tuple[int, str, str, int]] = []
         for index, (prefix, (pattern, placeholder)) in enumerate(_PLACEHOLDERS.items()):
             mutated, replaced = re.subn(pattern, placeholder, _PRELUDE)
             ensure(replaced == 1, f"{prefix} placeholder control no longer matches the prelude")
             prelude_lines = mutated.count("\n") + 1
             selected = [row for row in rows if row[0].startswith(prefix)]
             ensure(bool(selected), f"{prefix} placeholder control selected no checks")
-            done = _compile(directory, f"Mutant{index}", _kernel_file(mutated, selected))
-            output = done.stdout + done.stderr
-            line = re.search(r"line (\d+)", output)
-            ensure(done.returncode != 0, f"{prefix} placeholder survived the kernel checks")
-            ensure(line is not None and int(line[1]) > prelude_lines,
-                   f"{prefix} placeholder was stillborn rather than killed: {output[-2000:]}")
+            tasks.append((index, prefix, _kernel_file(mutated, selected), prelude_lines))
+        with ThreadPoolExecutor(max_workers=min(len(tasks), os.process_cpu_count() or 1)) as pool:
+            results = list(pool.map(lambda item: _compile(directory, f"Mutant{item[0]}", item[2]), tasks))
+    for (_, prefix, _, prelude_lines), done in zip(tasks, results, strict=True):
+        output = done.stdout + done.stderr
+        line = re.search(r"line (\d+)", output)
+        ensure(done.returncode != 0, f"{prefix} placeholder survived the kernel checks")
+        ensure(line is not None and int(line[1]) > prelude_lines,
+               f"{prefix} placeholder was stillborn rather than killed: {output[-2000:]}")
 
 
 def cases() -> list[Case]:

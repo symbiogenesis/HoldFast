@@ -4,7 +4,6 @@
 import contextlib
 import re
 import subprocess
-from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import cast
@@ -16,6 +15,8 @@ from toolchain.elaborate import _Elaborator, elaborate
 from toolchain.elaborate_borrows import _BorrowMixin
 from toolchain.elaborate_protocol import _Protocol
 from toolchain.elaborate_types import Node
+
+INDEPENDENT_CASES = True
 
 
 def _replay_view_proof(gallina: str, proof: str, module: str, theorems: list[str], *,
@@ -1834,45 +1835,43 @@ def _loan_certificate_rocq_soundness_replay(*, batch: rocq_cache.BatchChecker | 
 
 
 def cases() -> list[Case]:
-    batch = rocq_cache.BatchChecker()
     return [
         Case("conditional view return and sibling owner writeback",
-             partial(_conditional_view_return, batch=batch), lane="toolchain"),
+             _conditional_view_return, lane="toolchain"),
         Case("branch-specific last use of a shared Span view",
-             partial(_branch_view_last_use, batch=batch), lane="toolchain"),
+             _branch_view_last_use, lane="toolchain"),
         Case("returned view and branch-specific owner writeback at a join",
-             partial(_joined_view_return, batch=batch), lane="toolchain"),
+             _joined_view_return, lane="toolchain"),
         Case("conditional view origin and correlated owner writeback",
-             partial(_correlated_view_return, batch=batch), lane="toolchain"),
+             _correlated_view_return, lane="toolchain"),
         Case("returned view and disjoint symbolic loop writeback",
-             partial(_loop_view_return, batch=batch), lane="toolchain"),
+             _loop_view_return, lane="toolchain"),
         Case("scoped lending and symbolic Span element writeback",
-             partial(_lending_span_iteration, batch=batch), lane="toolchain"),
+             _lending_span_iteration, lane="toolchain"),
         Case("scoped lending and early break exits on Span",
-             partial(_lending_span_break, batch=batch), lane="toolchain"),
+             _lending_span_break, lane="toolchain"),
         Case("lending filtering range loop with early borrowed view return",
-             partial(_lending_filter_return, batch=batch), lane="toolchain"),
+             _lending_filter_return, lane="toolchain"),
         Case("simultaneous exclusive disjoint sub-slice writeback",
-             partial(_subslice_disjoint_writeback, batch=batch), lane="toolchain"),
+             _subslice_disjoint_writeback, lane="toolchain"),
         Case("same-index disjoint record fields, 2D borrows, and path-sensitive clear",
-             partial(_field_and_multidim_borrows, batch=batch), lane="toolchain"),
+             _field_and_multidim_borrows, lane="toolchain"),
         Case("loop-carried cursor reborrowing and conditional returned view",
-             partial(_loop_cursor_reborrow, batch=batch), lane="toolchain"),
+             _loop_cursor_reborrow, lane="toolchain"),
         Case("higher-ranked region-polymorphic view callbacks",
-             partial(_higher_ranked_view_callback, batch=batch), lane="toolchain"),
+             _higher_ranked_view_callback, lane="toolchain"),
         Case("two-phase receiver elaboration, evaluation order, and Rocq replay",
-             partial(_two_phase_receiver_replay, batch=batch), lane="toolchain"),
+             _two_phase_receiver_replay, lane="toolchain"),
         Case("exclusive conditional ref return and prophecy writeback replay",
-             partial(_exclusive_conditional_return_and_prophecy, batch=batch), lane="toolchain"),
+             _exclusive_conditional_return_and_prophecy, lane="toolchain"),
         Case("GAT LendingIterator and FnMut/FnOnce HRTB callback replay",
-             partial(_lending_iterator_gat_and_hrtb, batch=batch), lane="toolchain"),
+             _lending_iterator_gat_and_hrtb, lane="toolchain"),
         Case("shared ref safe mutability, tag-preserving union, and capacity-preserving push",
-             partial(_shared_mut_and_ante_beat_proofs, batch=batch), lane="toolchain"),
+             _shared_mut_and_ante_beat_proofs, lane="toolchain"),
         Case("loop mutable cursor reborrowing and partial field move re-init",
-             partial(_partial_field_move_and_loop_cursor, batch=batch), lane="toolchain"),
+             _partial_field_move_and_loop_cursor, lane="toolchain"),
         Case("multi-region disambiguation, variance, and first-class borrowed fields",
              _multi_region_variance_records_unions, lane="toolchain"),
         Case("check_loan_certificate Rocq kernel replay for HoldFast functions",
-             partial(_loan_certificate_rocq_soundness_replay, batch=batch), lane="toolchain"),
-        Case("kernel check all returned-view proofs with rocqchk", batch.verify_all, lane="toolchain"),
+             _loan_certificate_rocq_soundness_replay, lane="toolchain"),
     ]

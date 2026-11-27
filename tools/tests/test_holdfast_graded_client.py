@@ -16,6 +16,8 @@ from tests.test_holdfast_packages import _write
 from toolchain import packages, proofenv, rocq_cache, solver_ledger
 from toolchain.cli.holdfast_parser import main as parser_main
 
+INDEPENDENT_CASES = True
+
 
 def _type_irrelevance() -> None:
     audited = (
@@ -409,15 +411,16 @@ def _locked_graded_box_import() -> None:
         proof_dir.mkdir()
         [module_name] = re.findall(r"^Module (HoldFastPackage_\S+)\.", client_v, re.MULTILINE)
         [round_trip] = re.findall(r"^Definition (\S+_RoundTrip) :", client_v, re.MULTILINE)
-        (proof_dir / "BoxVerify.v").write_text(
+        box_verify, _ = rocq_cache.use_cached_prelude(
             client_v + f"""
 Import {module_name}.
 Theorem round_trip_doubles : forall n, {round_trip} n = n + n.
 Proof. reflexivity. Qed.
 Print Assumptions round_trip_doubles.
 """,
-            encoding="utf-8",
+            proof_dir,
         )
+        (proof_dir / "BoxVerify.v").write_text(box_verify, encoding="utf-8")
         replay = subprocess.run([*proofenv.rocq_command(), "-q", "BoxVerify.v"], cwd=proof_dir,
                                 capture_output=True, text=True, encoding="utf-8", check=True, timeout=30)
         solver_ledger.audit(replay.stdout, 1, "BoxClient", ())
@@ -451,7 +454,7 @@ def _check_protocol_client_behavior(directory: Path, name: str, gallina: str) ->
     [route_fn] = re.findall(r"^Definition (\S+_RouteTelemetry) :", gallina, re.MULTILINE)
     [header_fn] = re.findall(r"^Definition (\S+_FrameHeader) :", gallina, re.MULTILINE)
     proof = directory / f"{name}.v"
-    proof.write_text(
+    unit_text, _ = rocq_cache.use_cached_prelude(
         gallina + f"""
 Import HoldFast_TelemetryFrameRouter.
 Theorem telemetry_route_returns_payload :
@@ -476,8 +479,9 @@ Print Assumptions telemetry_route_returns_payload.
 Print Assumptions telemetry_route_independent_of_audit_len.
 Print Assumptions frame_header_doubles_tag.
 """,
-        encoding="utf-8",
+        directory,
     )
+    proof.write_text(unit_text, encoding="utf-8")
     started = time.perf_counter()
     checked = subprocess.run([*proofenv.rocq_command(), "-q", proof.name], cwd=directory,
                              capture_output=True, text=True, encoding="utf-8", check=True, timeout=30)
@@ -615,7 +619,7 @@ def _graded_protocol_client_comparison() -> None:
         pkg_rocq.mkdir()
         [pkg_mod] = re.findall(r"^Module (HoldFastPackage_\S+)\.", client_v, re.MULTILINE)
         [client_fn] = re.findall(r"^Definition (\S+_ClientRoute) :", client_v, re.MULTILINE)
-        (pkg_rocq / "ClientVerify.v").write_text(
+        client_verify, _ = rocq_cache.use_cached_prelude(
             client_v + f"""
 Import {pkg_mod}.
 Theorem client_route_independent_of_audit_len :
@@ -629,8 +633,9 @@ Theorem client_route_independent_of_audit_len :
 Proof. split; reflexivity. Qed.
 Print Assumptions client_route_independent_of_audit_len.
 """,
-            encoding="utf-8",
+            pkg_rocq,
         )
+        (pkg_rocq / "ClientVerify.v").write_text(client_verify, encoding="utf-8")
         replay = subprocess.run([*proofenv.rocq_command(), "-q", "ClientVerify.v"], cwd=pkg_rocq,
                                 capture_output=True, text=True, encoding="utf-8", check=True, timeout=30)
         solver_ledger.audit(replay.stdout, 1, "TelemetryClient", ())

@@ -12,8 +12,10 @@ from io import StringIO
 from pathlib import Path
 
 from tests.harness import TOOLS, Case, ensure
-from toolchain import parser, proofenv, solver_ledger
+from toolchain import parser, proofenv, rocq_cache, solver_ledger
 from toolchain.cli import holdfast_parser
+
+INDEPENDENT_CASES = True
 
 
 def _command(*args: str | Path, refusal: str | None = None) -> None:
@@ -51,16 +53,21 @@ def _replay(directory: Path, modules: dict[str, str]) -> None:
         for units, value in ((0, 2), (7, 9))
     )
     libraries = {"Consumer": gallina + checks, "Provider": modules["Weights.Measure"]}
+    checked: list[str] = []
+    compiler = [*proofenv.rocq_command(), "-q"]
     for name, unit in libraries.items():
         path = directory / f"{name}.v"
-        path.write_text(unit, encoding="utf-8", newline="\n")
-        _kernel(directory, ["rocq", "c", "-q", path.name])
-    _kernel(directory, ["rocqchk", "-silent", *libraries])
+        unit_text, used_prelude = rocq_cache.use_cached_prelude(unit, directory, compiler=compiler)
+        if used_prelude and "HoldFastPrelude" not in checked:
+            checked.append("HoldFastPrelude")
+        path.write_text(unit_text, encoding="utf-8", newline="\n")
+        _kernel(directory, [*compiler, path.name])
+        checked.append(name)
+    rocq_cache.check_kernel(directory, checked)
 
 
 def _kernel(directory: Path, arguments: list[str]) -> str:
-    process = subprocess.run(["opam", "exec", "--switch", proofenv.ROCQ_SWITCH, "--", *arguments],
-                             cwd=directory, check=False, capture_output=True, timeout=180)
+    process = subprocess.run(arguments, cwd=directory, check=False, capture_output=True, timeout=180)
     ensure(process.returncode == 0, f"{arguments}: {(process.stdout + process.stderr)[-3000:]!r}")
     return process.stdout.decode()
 
@@ -258,10 +265,12 @@ public lemma KeptBound()
         check = (f"\nImport {subject}.\nExample observed : Nat.leb 1 ({keep} ({keep} ({seed} tt))) = true "
                  f":= {lemma} tt.\nExample read_seven : Nat.leb 1 ({reader} ({seed} tt) 7) = true "
                  f":= {reader_bound} tt.\nPrint Assumptions observed.\nPrint Assumptions read_seven.\n")
-        (directory / "Composed.v").write_text(gallina + check, encoding="utf-8")
-        report = _kernel(directory, ["rocq", "c", "-q", "Composed.v"])
+        compiler = [*proofenv.rocq_command(), "-q"]
+        unit_text, used_prelude = rocq_cache.use_cached_prelude(gallina + check, directory, compiler=compiler)
+        (directory / "Composed.v").write_text(unit_text, encoding="utf-8")
+        report = _kernel(directory, [*compiler, "Composed.v"])
         solver_ledger.audit(report, 2, subject, ())
-        _kernel(directory, ["rocqchk", "-silent", "Composed"])
+        rocq_cache.check_kernel(directory, ["HoldFastPrelude", "Composed"] if used_prelude else ["Composed"])
 
         # The producer's precondition would pass if the checker used the returned function's argument as the seed.
         client.write_text(original + returned_reader_bound.replace("MakeReader(Seed())", "MakeReader(0)"))

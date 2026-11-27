@@ -7,10 +7,12 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from tests.harness import TOOLS, Case, ensure, raises
-from toolchain import ante_borrow_compare, parser, proofenv, solver_ledger
+from toolchain import ante_borrow_compare, parser, proofenv, rocq_cache, solver_ledger
 from toolchain.ast import HoldFastError
 from toolchain.cli import holdfast_borrow_compare
 from toolchain.elaborate import elaborate
+
+INDEPENDENT_CASES = True
 
 
 def _nested_indexed_invalidation() -> None:
@@ -58,10 +60,13 @@ Qed.
     ensure(not entries, "nested-row borrowing depended on solver assumptions")
     exports = [*solver_ledger.math_exports(gallina), "nested_clear_preserves_peer_and_frame"]
     audit = "".join(f"Print Assumptions {name}.\n" for name in exports)
+    compiler = [*proofenv.rocq_command(), "-q"]
     with TemporaryDirectory(prefix="holdfast-nested-rows-") as tmp:
-        unit = Path(tmp) / "NestedRows.v"
-        unit.write_text(gallina + proof + audit, encoding="utf-8")
-        replay = subprocess.run([*proofenv.rocq_command(), "-q", unit.name], cwd=tmp, capture_output=True,
+        directory = Path(tmp)
+        unit = directory / "NestedRows.v"
+        unit_text, _ = rocq_cache.use_cached_prelude(gallina + proof + audit, directory, compiler=compiler)
+        unit.write_text(unit_text, encoding="utf-8")
+        replay = subprocess.run([*compiler, unit.name], cwd=directory, capture_output=True,
                                 encoding="utf-8", timeout=180, check=False)
         ensure(replay.returncode == 0, replay.stderr)
         solver_ledger.audit(replay.stdout, len(exports), "HoldFast_NestedIndexedInvalidation", entries)
@@ -236,10 +241,13 @@ Definition direct_slots_ref : holdfast_Slots byte 4 -> _ -> _ -> byte := {read_s
         "direct_slots_ref",
     ]
     audit = "".join(f"Print Assumptions {name}.\n" for name in exports)
+    compiler = [*proofenv.rocq_command(), "-q"]
     with TemporaryDirectory(prefix="holdfast-direct-borrows-") as tmp:
-        unit = Path(tmp) / "DirectBorrows.v"
-        unit.write_text(gallina + proof + audit, encoding="utf-8")
-        replay = subprocess.run([*proofenv.rocq_command(), "-q", unit.name], cwd=tmp, capture_output=True,
+        directory = Path(tmp)
+        unit = directory / "DirectBorrows.v"
+        unit_text, _ = rocq_cache.use_cached_prelude(gallina + proof + audit, directory, compiler=compiler)
+        unit.write_text(unit_text, encoding="utf-8")
+        replay = subprocess.run([*compiler, unit.name], cwd=directory, capture_output=True,
                                 encoding="utf-8", timeout=180, check=False)
         ensure(replay.returncode == 0, replay.stderr)
         solver_ledger.audit(replay.stdout, len(exports), "HoldFast_DirectIndexedBorrows", entries)

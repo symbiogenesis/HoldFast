@@ -14,6 +14,8 @@ from tests.harness import TOOLS, Case, ensure
 from toolchain import proofenv, rocq_cache, solver_ledger
 from toolchain.cli.holdfast_parser import main as parser_main
 
+INDEPENDENT_CASES = True
+
 _AUDITED = (
     "instantiate_extent_typed",
     "uses_join_demand",
@@ -316,12 +318,13 @@ def _general_modal_source_replay() -> None:
         ensure(status == 0 and all(f"Graded replay {name} NatExact: SHA256" in gallina
                                    for name in ("OpenNested", "DuplicateBoxed", "WrapVec",
                                                 "UnpackVec", "UseWrapVec", "ModalLet")), error)
-        proof.write_text(gallina + """
+        unit_text, _ = rocq_cache.use_cached_prelude(gallina + """
 Import HoldFast_GradedModalGeneral.
 Theorem open_nested_doubles : forall n, holdfast_d3_OpenNested n = n + n.
 Proof. reflexivity. Qed.
 Print Assumptions open_nested_doubles.
-""", encoding="utf-8")
+""", directory)
+        proof.write_text(unit_text, encoding="utf-8")
         kernel = subprocess.run([*proofenv.rocq_command(), "-q", proof.name], cwd=directory,
                                 capture_output=True, text=True, encoding="utf-8", check=False, timeout=30)
         ensure(kernel.returncode == 0, kernel.stderr)
@@ -358,12 +361,13 @@ def _sums_and_presence_modal_replay() -> None:
         status, gallina, error = _elaborate_command(sums)
         ensure(status == 0 and all(f"Graded replay {name} NatExact: SHA256" in gallina
                                    for name in ("ExactIf", "ExactChoice", "MakeLeft", "ExactEither")), error)
-        proof.write_text(gallina + """
+        unit_text, _ = rocq_cache.use_cached_prelude(gallina + """
 Import HoldFast_GradedSums.
 Theorem exact_choice_runs : forall n, holdfast_d7_ExactChoice (holdfast_d1_Choice_First n) = n.
 Proof. reflexivity. Qed.
 Print Assumptions exact_choice_runs.
-""", encoding="utf-8")
+""", directory)
+        proof.write_text(unit_text, encoding="utf-8")
         kernel = subprocess.run([*proofenv.rocq_command(), "-q", proof.name], cwd=directory,
                                 capture_output=True, text=True, encoding="utf-8", check=False, timeout=30)
         ensure(kernel.returncode == 0, kernel.stderr)

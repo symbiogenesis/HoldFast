@@ -9,8 +9,10 @@ from tempfile import TemporaryDirectory
 
 from tests.harness import TOOLS, Case, ensure, raises
 from tests.test_holdfast_packages import _write
-from toolchain import elaborate, packages, parser, proofenv, solver_ledger
+from toolchain import elaborate, packages, parser, proofenv, rocq_cache, solver_ledger
 from toolchain.ast import HoldFastError
+
+INDEPENDENT_CASES = True
 
 ROOT = TOOLS.parent
 DIRECT = """module Transfer.API;
@@ -54,16 +56,16 @@ public bool ObserveSpan(ref Span<byte> input) effects reads(input) => API.ReadSp
 
 def _replay_gallina(gallina: str, consumer: str) -> None:
     ensure(not solver_ledger.ledger(gallina), "the package depended on a solver assumption")
+    compiler = [*proofenv.rocq_command(), "-q"]
     with TemporaryDirectory() as temporary:
         directory = Path(temporary)
-        (directory / "Consumer.v").write_text(gallina + consumer, encoding="utf-8")
-        for command in (["rocq", "c", "-q", "Consumer.v"], ["rocqchk", "-silent", "Consumer"]):
-            result = subprocess.run(["opam", "exec", "--switch", proofenv.ROCQ_SWITCH, "--", *command],
-                                    cwd=directory, capture_output=True, timeout=180, check=False)
-            ensure(result.returncode == 0, f"kernel refused the opaque effect client: {result.stderr[-2000:]!r}")
-            if command[0] == "rocq":
-                ensure(b"Closed under the global context" in result.stdout,
-                       f"the client postcondition has kernel assumptions: {result.stdout[-2000:]!r}")
+        unit_text, used_prelude = rocq_cache.use_cached_prelude(gallina + consumer, directory, compiler=compiler)
+        (directory / "Consumer.v").write_text(unit_text, encoding="utf-8")
+        result = subprocess.run([*compiler, "Consumer.v"], cwd=directory, capture_output=True, timeout=180, check=False)
+        ensure(result.returncode == 0, f"kernel refused the opaque effect client: {result.stderr[-2000:]!r}")
+        ensure(b"Closed under the global context" in result.stdout,
+               f"the client postcondition has kernel assumptions: {result.stdout[-2000:]!r}")
+        rocq_cache.check_kernel(directory, ["HoldFastPrelude", "Consumer"] if used_prelude else ["Consumer"])
 
 
 def _replay_opaque(gallina: str) -> None:

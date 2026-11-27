@@ -6,18 +6,21 @@ import tempfile
 from pathlib import Path
 
 from tests.harness import TOOLS, Case, ensure, raises
-from toolchain import elaborate, first_slice, parser, proofenv, solver_ledger
+from toolchain import elaborate, first_slice, parser, proofenv, rocq_cache, solver_ledger
 from toolchain.ast import HoldFastError
+
+INDEPENDENT_CASES = True
 
 
 def _kernel_check(gallina: str) -> None:
+    compiler = [*proofenv.rocq_command(), "-q"]
     with tempfile.TemporaryDirectory() as temporary:
         directory = Path(temporary)
-        (directory / "Phases.v").write_text(gallina, encoding="utf-8", newline="\n")
-        for command in (["rocq", "c", "-q", "Phases.v"], ["rocqchk", "-silent", "Phases"]):
-            process = subprocess.run(["opam", "exec", "--switch", proofenv.ROCQ_SWITCH, "--", *command],
-                                     cwd=directory, capture_output=True, check=False, timeout=180)
-            ensure(process.returncode == 0, f"{command} refused proof replay: {process.stderr[-1600:]!r}")
+        unit_text, used_prelude = rocq_cache.use_cached_prelude(gallina, directory, compiler=compiler)
+        (directory / "Phases.v").write_text(unit_text, encoding="utf-8", newline="\n")
+        process = subprocess.run([*compiler, "Phases.v"], cwd=directory, capture_output=True, check=False, timeout=180)
+        ensure(process.returncode == 0, f"rocq c refused proof replay: {process.stderr[-1600:]!r}")
+        rocq_cache.check_kernel(directory, ["HoldFastPrelude", "Phases"] if used_prelude else ["Phases"])
 
 
 def _inline_packet_proofs() -> None:
