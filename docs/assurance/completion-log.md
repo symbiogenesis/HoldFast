@@ -2745,8 +2745,10 @@ metatheory (`weakening_*`, `exchange_derives`, `value_substitution_derives`,
 `type_substitution_derives`, explicit `(s, r)` `GrttCore` calculus), the unified
 `GradedCore` / `JoinDomain` calculus (`graded_domains.v`, `graded_core.v`,
 `graded_core_source.v`, and `graded_core_metatheory.v` proving
-`core_weakening`, `core_weakening_erasure`, `core_exchange`, and
-`core_value_substitution` with `LinearDomain`, `AffineDomain`, `SecurityLoHi`,
+`core_weakening`, `core_weakening_erasure`, `core_exchange`,
+`core_value_substitution`, `core_subgrade_admissible`,
+`core_grade_substitution`, and `core_zero_type_use_irrelevance` with
+`LinearDomain`, `AffineDomain`, `SecurityLoHi`,
 and symbolic `GradeExpr`), universal symbolic semiring polymorphism
 (`graded_semiring.v`: `poly_infer_sound`, `poly_derives_all_valuations`,
 `poly_*_verified` and negative controls), CBV erasure soundness and

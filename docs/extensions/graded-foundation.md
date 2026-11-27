@@ -26,8 +26,10 @@ GrTT structural and substitution metatheory (`weakening`, `exchange`,
 simultaneous value and type-variable substitution, and the explicit `(s, r)` core
 calculus), symbolic semiring polymorphism, CBV erasure with non-interference,
 verified zero-type-use substitution skipping, and the unified `GradedCore` /
-`JoinDomain` calculus (`core_weakening`, `core_exchange`, and
-`core_value_substitution`) with frontend `domain`/`inductive`/`<grade q : D>`
+`JoinDomain` calculus (`core_weakening`, `core_exchange`,
+`core_value_substitution`, `core_subgrade_admissible`,
+`core_grade_substitution`, and `core_zero_type_use_irrelevance`) with
+frontend `domain`/`inductive`/`<grade q : D>`
 elaboration, Rocq-replayed constraint inference, derived modality combinators,
 and bounded grade-directed synthesis.
 [GrTT metatheory](../../tools/rocq/graded_metatheory.v) ·
