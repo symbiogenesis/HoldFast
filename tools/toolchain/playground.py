@@ -3,6 +3,7 @@
 
 import hashlib
 import hmac
+import os
 import re
 import secrets
 import shutil
@@ -18,6 +19,7 @@ from pathlib import Path
 from typing import cast, override
 
 from toolchain import proofenv
+from toolchain._isolated_worker import IsolatedBatchWorker
 from toolchain.ast import IDENTIFIER, MAX_SOURCE_BYTES
 from toolchain.authoring import (
     LINT_CODES,
@@ -40,6 +42,8 @@ SESSION_SECONDS = 1800
 READ_SECONDS = 10
 WORKER_SECONDS = 5
 MAX_AUTHORING_FINDINGS = 8192
+_SUBPROCESS_RUN = subprocess.run
+_BATCH_WORKER = IsolatedBatchWorker()
 ASSETS = {"/": ("index.html", "text/html; charset=utf-8"),
           "/index.html": ("index.html", "text/html; charset=utf-8"),
           "/app.mjs": ("app.mjs", "text/javascript; charset=utf-8"),
@@ -196,19 +200,49 @@ def _validate_findings(findings: object, source: str, *, mathematical: bool = Fa
 def _compiler_response(request: dict[str, object], digest: str, *,
                        mathematical_parser: Path, parser_sha256: str) -> dict[str, object]:
     directory = str(Path(__file__).resolve().parents[1])
-    # Leave time for the worker to reap a timed-out Rocq process.
-    deadline = time.monotonic() + WORKER_SECONDS - 0.5
-    script = (f"import sys; sys.path.insert(0, {directory!r}); from pathlib import Path; "
-              "from toolchain.playground_worker import main; "
-              f"raise SystemExit(main(mathematical_parser=Path({str(mathematical_parser)!r}), "
-              f"parser_sha256={parser_sha256!r}, deadline={deadline!r}))")
-    done = subprocess.run([sys.executable, "-I", "-c", script], input=encode_body(request),
-                          capture_output=True, timeout=WORKER_SECONDS, check=False)
-    if done.returncode == TIMEOUT_EXIT:
-        raise subprocess.TimeoutExpired(done.args, WORKER_SECONDS)
-    if done.returncode != 0:
-        raise ValueError("compiler worker unavailable or output exceeds its budget")
-    response = decode_message(done.stdout)
+    payload = encode_body(request)
+    if getattr(subprocess, "run", None) is not _SUBPROCESS_RUN:
+        # Leave time for the worker to reap a timed-out Rocq process.
+        deadline = time.monotonic() + WORKER_SECONDS - 0.5
+        script = (f"import sys; sys.path.insert(0, {directory!r}); from pathlib import Path; "
+                  "from toolchain.playground_worker import main; "
+                  f"raise SystemExit(main(mathematical_parser=Path({str(mathematical_parser)!r}), "
+                  f"parser_sha256={parser_sha256!r}, deadline={deadline!r}))")
+        done = subprocess.run([sys.executable, "-I", "-c", script], input=payload,
+                              capture_output=True, timeout=WORKER_SECONDS, check=False)
+        if done.returncode == TIMEOUT_EXIT:
+            raise subprocess.TimeoutExpired(done.args, WORKER_SECONDS)
+        if done.returncode != 0:
+            raise ValueError("compiler worker unavailable or output exceeds its budget")
+        stdout = done.stdout
+    else:
+        script = (f"import sys; sys.path.insert(0, {directory!r}); from pathlib import Path; "
+                  "from toolchain.playground_worker import serve_batch; "
+                  f"raise SystemExit(serve_batch(mathematical_parser=Path({str(mathematical_parser)!r}), "
+                  f"parser_sha256={parser_sha256!r}))")
+        key = (
+            sys.executable,
+            str(mathematical_parser),
+            parser_sha256,
+            os.environ.get("VOS_BUILD_ROOT"),
+            os.environ.get("VOS_ROCQ"),
+            os.environ.get("VOS_ROCQCHK"),
+            os.environ.get("OPAMROOT"),
+            MAX_BODY_BYTES,
+        )
+        header = f"{len(payload)} {WORKER_SECONDS - 0.5}\n".encode("ascii")
+        code, stdout = _BATCH_WORKER.request(
+            key,
+            [sys.executable, "-I", "-c", script],
+            header,
+            payload,
+            timeout_seconds=WORKER_SECONDS,
+            max_body_bytes=MAX_BODY_BYTES,
+            timeout_exit=TIMEOUT_EXIT,
+        )
+        if code != 0:
+            raise ValueError("compiler worker unavailable or output exceeds its budget")
+    response = decode_message(stdout)
     _validate_result(response, request, digest)
     encode_body(response)
     return response

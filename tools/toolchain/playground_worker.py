@@ -4,6 +4,7 @@
 import hashlib
 import subprocess
 import sys
+import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import cast
@@ -17,6 +18,7 @@ from toolchain import (
 from toolchain import (
     mathematical as holdfast_mathematical,
 )
+from toolchain._isolated_worker import decode_header_pair, read_exact, write_batch_reply
 from toolchain.authoring import OPT_IN_MATHEMATICAL_LINTS, lint_source, preview_bindings
 from toolchain.elaborate_holes import AssertionGoalError, OpenGoalsError
 from toolchain.graded_source import REPLAY_DEADLINE
@@ -95,6 +97,37 @@ def compile_request(request: dict[str, object], *, mathematical_parser: Path) ->
 def require_parser(parser: Path, digest: str) -> None:
     if file_sha256(parser) != digest:
         raise ValueError("prepared mathematical parser is unavailable or changed")
+
+
+def serve_batch(*, mathematical_parser: Path, parser_sha256: str) -> int:
+    """Process length-framed playground requests sequentially in an isolated worker."""
+    stdin = sys.stdin.buffer
+    stdout = sys.stdout.buffer
+    while line := stdin.readline(64):
+        parsed = decode_header_pair(line)
+        if parsed is None:
+            return 1
+        length, budget_text = parsed
+        if length > MAX_BODY_BYTES + 1:
+            return 1
+        payload = read_exact(stdin, length)
+        if payload is None:
+            return 1
+        try:
+            budget = float(budget_text)
+            request = decode_message(payload)
+            if request["action"] != "authoring":
+                require_parser(mathematical_parser, parser_sha256)
+            with REPLAY_DEADLINE.set(time.monotonic() + budget):
+                response = compile_request(request, mathematical_parser=mathematical_parser)
+            raw = encode_body(response)
+        except subprocess.TimeoutExpired:
+            return TIMEOUT_EXIT
+        except (KeyError, TypeError, ValueError, UnicodeError, OSError, RuntimeError):
+            write_batch_reply(stdout, 1, b"")
+            continue
+        write_batch_reply(stdout, 0, raw)
+    return 0
 
 
 def main(*, mathematical_parser: Path, parser_sha256: str, deadline: float) -> int:
