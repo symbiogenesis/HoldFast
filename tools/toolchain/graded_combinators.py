@@ -260,8 +260,167 @@ type CombinatorName = Literal[
     "duplicate_box",
     "extract_box",
     "weaken_box",
+    "cross_mode",
 ]
 type RefusalKind = Literal["authority", "domain", "structure", "grade"]
+
+
+@dataclass(frozen=True)
+class ModeProfile:
+    """OxCaml-inspired structural mode-crossing capabilities of a HoldFast type."""
+
+    duplicable: bool
+    disposable: bool
+    locality_crossing: bool
+    contention_crossing: bool
+    authority_free: bool
+
+    @property
+    def crosses_all_modes(self) -> bool:
+        return (
+            self.duplicable
+            and self.disposable
+            and self.locality_crossing
+            and self.contention_crossing
+            and self.authority_free
+        )
+
+    def meet(self, other: ModeProfile) -> ModeProfile:
+        return ModeProfile(
+            duplicable=self.duplicable and other.duplicable,
+            disposable=self.disposable and other.disposable,
+            locality_crossing=self.locality_crossing and other.locality_crossing,
+            contention_crossing=self.contention_crossing and other.contention_crossing,
+            authority_free=self.authority_free and other.authority_free,
+        )
+
+
+PURE_SCALAR_PROFILE = ModeProfile(True, True, True, True, True)
+AUTHORITY_PROFILE = ModeProfile(False, False, False, False, False)
+_PURE_SCALAR_NAMES: frozenset[str] = frozenset({
+    "Nat", "bool", "Unit", "char", "byte",
+    "u8", "u16", "u32", "u64", "usize",
+    "i8", "i16", "i32", "i64",
+})
+_AUTHORITY_PREFIXES: tuple[str, ...] = (
+    "ref ", "ref<", "out ", "owned ", "in ", "in<", "shared ", "Fn(", "FnMut(", "FnOnce(",
+)
+_AUTHORITY_HEADS: frozenset[str] = frozenset({"Span", "MutableSpan", "Slots", "Cap", "OwnedHandle"})
+
+
+def mode_profile_of(ty: CombinatorType) -> ModeProfile:
+    """Compute the structural mode-crossing profile of a :data:`CombinatorType`."""
+    if isinstance(ty, BaseType):
+        if ty.owned or not (ty.duplicable and ty.disposable):
+            return ModeProfile(
+                duplicable=ty.duplicable and not ty.owned,
+                disposable=ty.disposable and not ty.owned,
+                locality_crossing=False,
+                contention_crossing=False,
+                authority_free=not ty.owned,
+            )
+        return PURE_SCALAR_PROFILE
+    if isinstance(ty, (PairType, SumType)):
+        return mode_profile_of(ty.left).meet(mode_profile_of(ty.right))
+    if isinstance(ty, BoxType):
+        return mode_profile_of(ty.payload)
+    return ModeProfile(
+        duplicable=True,
+        disposable=True,
+        locality_crossing=False,
+        contention_crossing=False,
+        authority_free=False,
+    )
+
+
+def _split_top_level(text: str) -> list[str]:
+    parts: list[str] = []
+    depth_angle = 0
+    depth_paren = 0
+    start = 0
+    for idx, ch in enumerate(text):
+        if ch == "<":
+            depth_angle += 1
+        elif ch == ">" and depth_angle > 0:
+            depth_angle -= 1
+        elif ch == "(":
+            depth_paren += 1
+        elif ch == ")" and depth_paren > 0:
+            depth_paren -= 1
+        elif ch == "," and depth_angle == 0 and depth_paren == 0:
+            part = text[start:idx].strip()
+            if part:
+                parts.append(part)
+            start = idx + 1
+    tail = text[start:].strip()
+    if tail:
+        parts.append(tail)
+    return parts
+
+
+def _type_expr_profile(raw: str, known: Mapping[str, ModeProfile]) -> ModeProfile:
+    expr = raw.strip()
+    while expr.startswith("(") and expr.endswith(")"):
+        inner = expr[1:-1].strip()
+        items = _split_top_level(inner)
+        if len(items) > 1:
+            acc = PURE_SCALAR_PROFILE
+            for item in items:
+                acc = acc.meet(_type_expr_profile(item, known))
+            return acc
+        expr = inner
+    if expr.startswith(_AUTHORITY_PREFIXES):
+        return AUTHORITY_PROFILE
+    head, sep, rest = expr.partition("<")
+    head = head.strip()
+    if head in _AUTHORITY_HEADS:
+        return AUTHORITY_PROFILE
+    if head in _PURE_SCALAR_NAMES:
+        return PURE_SCALAR_PROFILE
+    if head in known:
+        profile = known[head]
+        if sep and rest.endswith(">"):
+            args = _split_top_level(rest[:-1])
+            for arg in args:
+                if arg.isdigit():
+                    continue
+                profile = profile.meet(_type_expr_profile(arg, known))
+        return profile
+    return AUTHORITY_PROFILE
+
+
+def derive_mode_profiles(
+    structure: StructureSpec,
+    *,
+    base_profiles: Mapping[str, ModeProfile] | None = None,
+) -> dict[str, ModeProfile]:
+    """Derive least-fixed-point mode-crossing profiles for inspected HoldFast declarations."""
+    known: dict[str, ModeProfile] = dict(base_profiles or {})
+    for name in (*structure.records, *structure.unions):
+        known.setdefault(name, AUTHORITY_PROFILE)
+
+    max_iters = len(structure.records) + len(structure.unions) + 2
+    for _ in range(max_iters):
+        changed = False
+        for rec in structure.records.values():
+            acc = AUTHORITY_PROFILE if rec.generics else PURE_SCALAR_PROFILE
+            if not rec.generics:
+                for _fname, ftype, _fgrade in rec.fields:
+                    acc = acc.meet(_type_expr_profile(ftype, known))
+            if acc != known[rec.name]:
+                known[rec.name] = acc
+                changed = True
+        for un in structure.unions.values():
+            acc = AUTHORITY_PROFILE if un.generics else PURE_SCALAR_PROFILE
+            if not un.generics:
+                for _cname, vtype, _vname in un.variants:
+                    acc = acc.meet(_type_expr_profile(vtype, known))
+            if acc != known[un.name]:
+                known[un.name] = acc
+                changed = True
+        if not changed:
+            break
+    return {name: known[name] for name in (*structure.records, *structure.unions)}
 
 
 class CombinatorRefusalError(ValueError):
@@ -685,6 +844,38 @@ def _derive_plan(
     if payload_type is None:
         return CombinatorRefusal(combinator, domain, "structure", f"{combinator} requires a payload_type")
 
+    if combinator == "cross_mode":
+        if not mode_profile_of(payload_type).crosses_all_modes:
+            return CombinatorRefusal(
+                combinator,
+                domain,
+                "authority",
+                "type does not satisfy deeply immutable, authority-free mode crossing",
+            )
+        if domain == gi.InferenceDomain.AFFINE and _expr_could_exceed_one(grade):
+            return CombinatorRefusal(
+                combinator,
+                domain,
+                "grade",
+                "Affine Box grade cannot exceed 1",
+            )
+        if domain == gi.InferenceDomain.LINEAR and _lit_value(grade) != 1:
+            return CombinatorRefusal(
+                combinator,
+                domain,
+                "domain",
+                "Linear domain forbids crossing to non-1 grade",
+            )
+        input_ty = payload_type
+        output_ty = BoxType(payload_type, grade)
+        sig = ArrowType(gi.GradeLit(1), input_ty, output_ty)
+        hf = (
+            f"public definition {_format_type_hf(output_ty)} CrossMode("
+            f"{_format_type_hf(input_ty)} value @ {domain.value}(1)) =>\n"
+            f"    Box<{_format_type_hf(payload_type)}, {_format_grade_hf(grade)}>(value);"
+        )
+        return sig, hf, ""
+
     if combinator == "flatten_box":
         if not _is_duplicable(payload_type) and (_expr_could_exceed_one(grade) or _expr_could_exceed_one(inner_grade)):
             return CombinatorRefusal(
@@ -897,12 +1088,87 @@ def emit_kernel_module_gallina(
     return "\n".join(lines) + "\n", module_name, theorem_name
 
 
+def _collect_base_profiles(ty: CombinatorType) -> dict[str, bool]:
+    profiles: dict[str, bool] = {}
+
+    def collect(node: CombinatorType) -> None:
+        if isinstance(node, BaseType):
+            profiles[node.name] = profiles.get(node.name, True) and mode_profile_of(node).crosses_all_modes
+        elif isinstance(node, (PairType, SumType)):
+            collect(node.left)
+            collect(node.right)
+        elif isinstance(node, BoxType):
+            collect(node.payload)
+        else:
+            collect(node.domain)
+            collect(node.codomain)
+
+    collect(ty)
+    return profiles
+
+
+def _emit_mode_crossing_gallina(
+    sig: ArrowType,
+    payload_type: CombinatorType,
+    grade: gi.GradeExpr,
+) -> tuple[str, str, str]:
+    bmap = {name: idx for idx, name in enumerate(sorted(_collect_base_names(sig)))}
+    vmap = {v: idx for idx, v in enumerate(sorted(_collect_type_grade_vars(sig), key=gi._var_sort_key))}
+    profiles = _collect_base_profiles(payload_type)
+    pure_ids = [idx for name, idx in sorted(bmap.items(), key=lambda kv: kv[1]) if profiles.get(name, False)]
+    payload_coq = _emit_type_coq(payload_type, bmap, vmap)
+    grade_coq = gi.emit_grade_coq(grade, vmap)
+    if pure_ids:
+        arms = "\n".join(f"  | {idx} => true" for idx in pure_ids)
+        pure_base_def = (
+            "Definition pure_base (id : nat) : bool :=\n"
+            "  match id with\n"
+            f"{arms}\n"
+            "  | _ => false\n"
+            "  end."
+        )
+    else:
+        pure_base_def = "Definition pure_base (_ : nat) : bool := false."
+    module_name = "Derived_cross_mode"
+    theorem_name = "cross_mode_sound"
+    lines = [
+        "(* SPDX-License-Identifier: Apache-2.0 *)",
+        "From Stdlib Require Import List Arith.PeanoNat Bool.Bool Lia.",
+        "Require Import graded_pure graded_domains graded_semiring.",
+        "Import ListNotations GradedDomains GradedSemiring.",
+        f"Module {module_name}.",
+        "Import CombinatorKernel.",
+        "",
+        pure_base_def,
+        f"Definition candidate_payload : cty := {payload_coq}.",
+        f"Definition candidate_grade : grade_expr := {grade_coq}.",
+        "",
+        "Theorem cross_mode_checked :",
+        "  mode_cross_check pure_base candidate_payload candidate_grade = true.",
+        "Proof.",
+        "  vm_compute. reflexivity.",
+        "Qed.",
+        "",
+        f"Theorem {theorem_name} :",
+        "  ModeCrossAdmits pure_base candidate_payload candidate_grade.",
+        "Proof.",
+        "  apply mode_cross_check_sound.",
+        "  exact cross_mode_checked.",
+        "Qed.",
+        "",
+        f"End {module_name}.",
+    ]
+    return "\n".join(lines) + "\n", module_name, theorem_name
+
+
 def _emit_combinator_gallina(
     combinator: CombinatorName,
     domain: gi.InferenceDomain,
     sig: ArrowType,
     term_coq: str,
 ) -> tuple[str, str, str]:
+    if combinator == "cross_mode" and isinstance(sig.codomain, BoxType):
+        return _emit_mode_crossing_gallina(sig, sig.domain, sig.codomain.grade)
     bmap = {name: idx for idx, name in enumerate(sorted(_collect_base_names(sig)))}
     vmap = {v: idx for idx, v in enumerate(sorted(_collect_type_grade_vars(sig), key=gi._var_sort_key))}
     sig_coq = _emit_type_coq(sig, bmap, vmap)

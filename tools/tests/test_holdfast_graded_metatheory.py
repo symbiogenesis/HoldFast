@@ -49,6 +49,13 @@ _COMBINATOR_KERNEL_PROOFS = (
     "affine_leb_sound",
     "presence_grade_leb_sound",
     "presence_contraction_sound",
+    "mode_crosses_eval_cty",
+    "mode_crosses_cty_eq",
+    "mode_cross_check_sound",
+    "mode_cross_prod_elim",
+    "mode_cross_sum_elim",
+    "mode_cross_arr_false",
+    "mode_cross_authority_refused",
 )
 _ERASURE_PROOFS = (
     "eval_dty_canonical",

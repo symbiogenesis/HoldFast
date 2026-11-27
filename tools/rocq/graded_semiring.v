@@ -1290,4 +1290,76 @@ Proof. intro rho. reflexivity. Qed.
 Lemma bound_zero : grade_le (GLit 0) (GLit 0).
 Proof. intro rho. cbn. lia. Qed.
 
+(* ================================================================= *)
+(* Mode Crossing for Deeply Immutable, Authority-Free Types          *)
+(* ================================================================= *)
+
+Fixpoint mode_crosses (pure_base : nat -> bool) (t : cty) : bool :=
+  match t with
+  | CUnitTy => true
+  | CBase id => pure_base id
+  | CProd A B => mode_crosses pure_base A && mode_crosses pure_base B
+  | CSum A B => mode_crosses pure_base A && mode_crosses pure_base B
+  | CBox _ A => mode_crosses pure_base A
+  | CArr _ _ _ => false
+  end.
+
+Lemma mode_crosses_eval_cty : forall pure_base rho t,
+  mode_crosses pure_base (eval_cty rho t) = mode_crosses pure_base t.
+Proof.
+  intros pure_base rho t.
+  induction t; cbn; try reflexivity; rewrite ?IHt, ?IHt1, ?IHt2; reflexivity.
+Qed.
+
+Lemma mode_crosses_cty_eq : forall pure_base A B,
+  cty_eq A B -> mode_crosses pure_base A = mode_crosses pure_base B.
+Proof.
+  intros pure_base A B Heq.
+  rewrite <- (mode_crosses_eval_cty pure_base (fun _ => 0) A).
+  rewrite <- (mode_crosses_eval_cty pure_base (fun _ => 0) B).
+  rewrite (Heq (fun _ => 0)). reflexivity.
+Qed.
+
+Inductive ModeCrossAdmits (pure_base : nat -> bool) (t : cty) : grade_expr -> Prop :=
+| ModeCrossPure :
+    mode_crosses pure_base t = true ->
+    forall q, ModeCrossAdmits pure_base t q.
+
+Definition mode_cross_check (pure_base : nat -> bool) (t : cty) (_q : grade_expr) : bool :=
+  mode_crosses pure_base t.
+
+Lemma mode_cross_check_sound : forall pure_base t q,
+  mode_cross_check pure_base t q = true -> ModeCrossAdmits pure_base t q.
+Proof.
+  intros pure_base t q H. constructor. exact H.
+Qed.
+
+Lemma mode_cross_prod_elim : forall pure_base A B,
+  mode_crosses pure_base (CProd A B) = true ->
+  mode_crosses pure_base A = true /\ mode_crosses pure_base B = true.
+Proof.
+  intros pure_base A B H. cbn in H. apply andb_true_iff in H. exact H.
+Qed.
+
+Lemma mode_cross_sum_elim : forall pure_base A B,
+  mode_crosses pure_base (CSum A B) = true ->
+  mode_crosses pure_base A = true /\ mode_crosses pure_base B = true.
+Proof.
+  intros pure_base A B H. cbn in H. apply andb_true_iff in H. exact H.
+Qed.
+
+Lemma mode_cross_arr_false : forall pure_base q A B,
+  mode_crosses pure_base (CArr q A B) = false.
+Proof.
+  intros; reflexivity.
+Qed.
+
+Example mode_cross_authority_refused :
+  let pure_base := fun id => Nat.eqb id 0 in
+  mode_crosses pure_base (CProd (CBase 0) (CBase 1)) = false /\
+  mode_crosses pure_base (CProd (CBase 0) CUnitTy) = true.
+Proof.
+  split; reflexivity.
+Qed.
+
 End CombinatorKernel.

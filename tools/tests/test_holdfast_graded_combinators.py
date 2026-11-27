@@ -143,6 +143,70 @@ def _test_domain_and_authority_refusals() -> None:
            f"weaken_box dropped non-disposable owned handle: {bad_drop}")
 
 
+def _test_mode_crossing_derivation_and_refusals() -> None:
+    u32_ty = gc.BaseType("u32")
+    pair_pure = gc.PairType(gc.NAT_TYPE, gc.BOOL_TYPE)
+    sum_pure = gc.SumType(gc.UNIT_TYPE, u32_ty)
+    q = gi.GradeVar("q")
+
+    for domain, grade in (
+        ("NatExact", q),
+        ("NatBound", q),
+        ("Presence", q),
+        ("Affine", gi.GradeLit(1)),
+        ("Linear", gi.GradeLit(1)),
+    ):
+        derived = gc.derive_combinator("cross_mode", domain=domain, payload_type=pair_pure, grade=grade)
+        ensure("CrossMode" in derived.holdfast_source, derived.holdfast_source)
+        ensure("ModeCrossAdmits pure_base" in derived.gallina, derived.gallina)
+
+    nested_box = gc.derive_combinator(
+        "cross_mode",
+        domain="NatExact",
+        payload_type=gc.BoxType(sum_pure, q),
+        grade=gi.GradeLit(2),
+    )
+    ensure("Box<Either<Unit, u32>, q>" in nested_box.holdfast_source, nested_box.holdfast_source)
+
+    owned = gc.BaseType("OwnedHandle", duplicable=False, disposable=False, owned=True)
+    for bad_ty in (
+        owned,
+        gc.PairType(gc.NAT_TYPE, owned),
+        gc.SumType(gc.NAT_TYPE, owned),
+        gc.ArrowType(gi.GradeLit(1), gc.NAT_TYPE, gc.NAT_TYPE),
+    ):
+        res = gc.try_derive_combinator("cross_mode", domain="NatExact", payload_type=bad_ty, grade=q)
+        ensure(
+            isinstance(res, gc.CombinatorRefusal) and res.kind == "authority",
+            f"unsafe mode crossing accepted for {bad_ty}: {res}",
+        )
+
+    bad_affine = gc.try_derive_combinator("cross_mode", domain="Affine", payload_type=u32_ty, grade=gi.GradeLit(2))
+    ensure(isinstance(bad_affine, gc.CombinatorRefusal) and bad_affine.kind == "grade", str(bad_affine))
+    bad_linear = gc.try_derive_combinator("cross_mode", domain="Linear", payload_type=u32_ty, grade=gi.GradeLit(2))
+    ensure(isinstance(bad_linear, gc.CombinatorRefusal) and bad_linear.kind == "domain", str(bad_linear))
+
+
+def _test_mode_profile_structure_inspection() -> None:
+    src = """
+    module ModeProfiles;
+    public record Point(Nat X, Nat Y);
+    public record PacketHeader(u16 Len, u8 Flags);
+    public record Nested(Point Origin, PacketHeader Header);
+    public union Color { Red(Unit u); Indexed(u8 idx); }
+    public record BorrowedView<region 'owner>(in<'owner> Span<byte> Bytes, usize Len);
+    public record OwnedContainer(OwnedHandle Handle, usize Len);
+    public record WithCallback(Fn(Nat value) -> Nat Callback);
+    public record GenericBox<T>(T Inner);
+    """
+    spec = gc.inspect_holdfast_structures(src)
+    profiles = gc.derive_mode_profiles(spec)
+    for name in ("Point", "PacketHeader", "Nested", "Color"):
+        ensure(profiles[name].crosses_all_modes, f"pure type {name} failed to mode-cross: {profiles[name]}")
+    for name in ("BorrowedView", "OwnedContainer", "WithCallback", "GenericBox"):
+        ensure(not profiles[name].crosses_all_modes, f"authority/generic type {name} unsafely mode-crossed")
+
+
 def _test_rocq_combinator_replay_and_tamper() -> None:
     a = gc.BaseType("A")
     b = gc.BaseType("B")
@@ -166,8 +230,12 @@ def _test_rocq_combinator_replay_and_tamper() -> None:
                              grade=gi.GradeLit(1), target_grade=gi.GradeLit(0), verify_rocq=True),
         gc.derive_combinator("weaken_box", domain="Presence", payload_type=a,
                              grade=gi.GradeLit(1), target_grade=gi.GradeLit(0), verify_rocq=True),
+        gc.derive_combinator("cross_mode", domain="NatExact",
+                             payload_type=gc.PairType(gc.NAT_TYPE, gc.BOOL_TYPE), grade=q, verify_rocq=True),
+        gc.derive_combinator("cross_mode", domain="NatBound",
+                             payload_type=gc.SumType(gc.UNIT_TYPE, gc.BaseType("u32")), grade=q, verify_rocq=True),
     ]
-    ensure(len(derivations) == 10, "missing expected combinator derivations")
+    ensure(len(derivations) == 12, "missing expected combinator derivations")
 
     # Tampered Rocq proof (e.g. changing GMul to GAdd in flatten_box) MUST fail Rocq kernel replay!
     flat = derivations[4]
@@ -186,12 +254,31 @@ def _test_rocq_combinator_replay_and_tamper() -> None:
     with raises(ValueError):
         gc.verify_combinator(tampered)
 
+    # Tampering cross_mode payload to reference an uncertified base id (CBase 99) MUST fail Rocq replay!
+    cross = derivations[10]
+    tampered_cross_gallina = cross.gallina.replace("(CBase 0)", "(CBase 99)", 1)
+    ensure(tampered_cross_gallina != cross.gallina, "tamper did not alter cross_mode Gallina")
+    tampered_cross = gc.CombinatorDerivation(
+        combinator=cross.combinator,
+        domain=cross.domain,
+        signature=cross.signature,
+        holdfast_source=cross.holdfast_source,
+        gallina=tampered_cross_gallina,
+        module_name=cross.module_name,
+        theorem_name=cross.theorem_name,
+        source_sha256=cross.source_sha256,
+    )
+    with raises(ValueError):
+        gc.verify_combinator(tampered_cross)
+
 
 def cases() -> list[Case]:
     return [
         Case("all seven derived distributive modality combinators", _test_all_seven_combinators_positive),
         Case("domain and authority refusal controls", _test_domain_and_authority_refusals),
+        Case("mode crossing derivation and refusals", _test_mode_crossing_derivation_and_refusals),
         Case("structure inspection via canonical HoldFast parser", _test_structure_inspection, lane="toolchain"),
+        Case("mode profile derivation over HoldFast declarations", _test_mode_profile_structure_inspection, lane="toolchain"),
         Case("Rocq kernel replay and tampered combinator certificate refusal",
              _test_rocq_combinator_replay_and_tamper, lane="toolchain"),
     ]
