@@ -415,6 +415,69 @@ public usize ScopedIntAndBoolCongr(usize a, usize b, usize c, usize p, usize q, 
         elaborate.elaborate(leaked, parser.parse_source(compiled, leaked, surface=True))
 
 
+def _assert_by_slotted_egraph_replay(*, batch: rocq_cache.BatchChecker | None = None) -> None:
+    source = b"""module AssertBySlottedReplay;
+public definition Nat Combine(Nat x, Nat y) => x + y;
+public definition u32 Bump(u32 x) => x;
+
+public lemma BridgeNat(Nat x, Nat y)
+    requires x == y
+    ensures x == y
+    proof
+    {
+        assert x == y;
+    }
+
+public lemma BridgeU32(u32 a, u32 b)
+    requires a == b
+    ensures a == b
+    proof
+    {
+        assert a == b;
+    }
+
+public lemma ByLambdaCongrAndTrans(Nat a, Nat b, Nat c)
+    requires a == b
+    requires b == c
+    ensures (Fn(Nat x) -> Nat => Combine(x, a)) == (Fn(Nat y) -> Nat => Combine(y, c))
+    proof
+    {
+        assert (Fn(Nat x) -> Nat => Combine(x, a)) == (Fn(Nat y) -> Nat => Combine(y, c))
+            by BridgeNat(b, c);
+    }
+
+public lemma ByU32LiftAndCongr(u32 x, u32 y, u32 z)
+    requires x == y
+    requires y == z
+    ensures Bump(x) == Bump(z)
+    proof
+    {
+        assert Bump(x) == Bump(z) by BridgeU32(y, z);
+    }
+
+public u32 FnAssertByEGraph(u32 x, u32 y, u32 z)
+{
+    if (x == y && y == z) {
+        assert Bump(x) == Bump(z) by BridgeU32(y, z);
+        return x;
+    } else {
+        return z;
+    }
+}
+"""
+    mod = elaborate.gallina_module_name("AssertBySlottedReplay")
+    with parser.cached_build(TOOLS.parent) as compiled:
+        gallina = elaborate.elaborate(source, parser.parse_source(compiled, source, surface=True)).gallina
+    checked_exports = [
+        name
+        for name in solver_ledger.math_exports(gallina)
+        if name.endswith(("_ByLambdaCongrAndTrans", "_ByU32LiftAndCongr")) or "_assert_" in name
+    ]
+    ensure(len(checked_exports) >= 3, f"expected >= 3 assert-by egraph exports, got {checked_exports}")
+    consumers = "\n".join(f"Print Assumptions {mod}.{name}." for name in checked_exports) + "\n"
+    _replay_gallina("AssertBySlottedReplay", source, consumers, len(checked_exports), batch=batch)
+
+
 def cases() -> list[Case]:
     batch = rocq_cache.BatchChecker()
     return [
@@ -424,6 +487,8 @@ def cases() -> list[Case]:
              partial(_egraph_congruence_and_branch_isolation, batch=batch), lane="toolchain"),
         Case("slotted-egraph-and-int-congruence",
              partial(_slotted_egraph_and_int_congruence, batch=batch), lane="toolchain"),
+        Case("assert-by-slotted-egraph-replay",
+             partial(_assert_by_slotted_egraph_replay, batch=batch), lane="toolchain"),
         Case("weighted-nat-difference-logic",
              partial(_weighted_nat_difference_logic, batch=batch), lane="toolchain"),
         Case("fixed-int-order-certificates",

@@ -1724,53 +1724,92 @@ class _ProofsMixin:
             )
             if inst is not None:
                 return inst
-        goal_eq = self._extract_equality(goal)
-        just_eq = self._extract_equality(justification.type)
-        if goal_eq is not None and just_eq is not None:
-            goal_type, lhs, rhs = goal_eq
-            eq_type, u, v = just_eq
-            if u != lhs or v != rhs:
-                congr = self._try_congruence(goal_type, lhs, rhs, eq_type, u, v, justification.term)
-                if congr is not None:
-                    return congr
-                if u != v:
-                    sym_p = _apps(_constant("Symm"), eq_type, u, v, justification.term)
-                    congr_sym = self._try_congruence(goal_type, lhs, rhs, eq_type, v, u, sym_p)
-                    if congr_sym is not None:
-                        return congr_sym
         if self._try_unify(justification.type, goal):
             return justification.term
-        if goal_eq is not None and just_eq is not None:
+        goal_eq = self._extract_equality(goal)
+        just_eq = self._extract_equality(justification.type)
+        if goal_eq is not None:
             goal_type, lhs, rhs = goal_eq
-            eq_type, u, v = just_eq
-            saved = self.snapshot_metas()
-            if (self._try_unify(eq_type, goal_type)
-                    and self._try_unify(v, lhs)
-                    and self._try_unify(u, rhs)):
-                return _apps(_constant("Symm"), goal_type, u, v, justification.term)
-            self.restore_metas(saved)
-            edges = self._equality_edges(goal_type, facts)
-            ct = self._try_congruence_trans(goal_type, lhs, rhs, eq_type, u, v, justification.term, edges)
-            if ct is not None:
-                return ct
-            if u != v:
-                sym_p = _apps(_constant("Symm"), eq_type, u, v, justification.term)
-                ct_sym = self._try_congruence_trans(goal_type, lhs, rhs, eq_type, v, u, sym_p, edges)
-                if ct_sym is not None:
-                    return ct_sym
-            if self._try_unify(eq_type, goal_type):
-                just_orientations = [(u, v, justification.term)]
+            if just_eq is not None:
+                eq_type, u, v = just_eq
+                saved = self.snapshot_metas()
+                if (self._try_unify(eq_type, goal_type)
+                        and self._try_unify(v, lhs)
+                        and self._try_unify(u, rhs)):
+                    return _apps(_constant("Symm"), goal_type, u, v, justification.term)
+                self.restore_metas(saved)
+            by_facts = self._expand_fact_bindings((*facts, justification))
+            if (egraph_proof := self._prove_with_egraph(
+                goal_type, lhs, rhs, by_facts, allow_refl=True
+            )) is not None:
+                return egraph_proof
+            if self.whnf(goal_type) == _BOOL and self.whnf(rhs) == _term("bool", value=1):
+                cmp_head, cmp_args = self.spine(self.resolve(lhs))
+                if not (
+                    cmp_head.kind == "const"
+                    and isinstance(cmp_head.value, str)
+                    and (cmp_head.value.startswith("int_eq_") or cmp_head.value in {"eq_bool", "<==>"})
+                    and len(cmp_args) == 2
+                ):
+                    cmp_head, cmp_args = self.spine(self.whnf(lhs))
+                if (
+                    cmp_head.kind == "const"
+                    and isinstance(cmp_head.value, str)
+                    and cmp_head.value.startswith("int_eq_")
+                    and len(cmp_args) == 2
+                    and (spec := _INT_SPECS.get(cmp_head.value[len("int_eq_") :])) is not None
+                    and (p_eq := self._prove_with_egraph(
+                        spec.const, cmp_args[0], cmp_args[1], by_facts, allow_refl=True
+                    )) is not None
+                ):
+                    return _apps(
+                        _constant("holdfast_int_eq_of_eq"),
+                        _term("nat", value=spec.tag),
+                        cmp_args[0],
+                        cmp_args[1],
+                        p_eq,
+                    )
+                if (
+                    cmp_head in {_constant("eq_bool"), _constant("<==>")}
+                    and len(cmp_args) == 2
+                    and (p_beq := self._prove_with_egraph(
+                        _BOOL, cmp_args[0], cmp_args[1], by_facts, allow_refl=True
+                    )) is not None
+                ):
+                    return _apps(_constant("holdfast_eq_bool_of_eq"), cmp_args[0], cmp_args[1], p_beq)
+            if just_eq is not None:
+                eq_type, u, v = just_eq
+                if u != lhs or v != rhs:
+                    congr = self._try_congruence(goal_type, lhs, rhs, eq_type, u, v, justification.term)
+                    if congr is not None:
+                        return congr
+                    if u != v:
+                        sym_p = _apps(_constant("Symm"), eq_type, u, v, justification.term)
+                        congr_sym = self._try_congruence(goal_type, lhs, rhs, eq_type, v, u, sym_p)
+                        if congr_sym is not None:
+                            return congr_sym
+                edges = self._equality_edges(goal_type, facts)
+                ct = self._try_congruence_trans(goal_type, lhs, rhs, eq_type, u, v, justification.term, edges)
+                if ct is not None:
+                    return ct
                 if u != v:
-                    just_orientations.append((v, u, _apps(_constant("Symm"), goal_type, u, v, justification.term)))
-                for ju, jv, jp in just_orientations:
-                    if ju == lhs or self._try_unify(ju, lhs):
-                        for _, eu, ev, ep in edges:
-                            if (jv == eu or self._try_unify(jv, eu)) and (ev == rhs or self._try_unify(ev, rhs)):
-                                return _apps(_constant("Trans"), goal_type, lhs, jv, rhs, jp, ep)
-                    if jv == rhs or self._try_unify(jv, rhs):
-                        for _, eu, ev, ep in edges:
-                            if (eu == lhs or self._try_unify(eu, lhs)) and (ev == ju or self._try_unify(ev, ju)):
-                                return _apps(_constant("Trans"), goal_type, lhs, ju, rhs, ep, jp)
+                    sym_p = _apps(_constant("Symm"), eq_type, u, v, justification.term)
+                    ct_sym = self._try_congruence_trans(goal_type, lhs, rhs, eq_type, v, u, sym_p, edges)
+                    if ct_sym is not None:
+                        return ct_sym
+                if self._try_unify(eq_type, goal_type):
+                    just_orientations = [(u, v, justification.term)]
+                    if u != v:
+                        just_orientations.append((v, u, _apps(_constant("Symm"), goal_type, u, v, justification.term)))
+                    for ju, jv, jp in just_orientations:
+                        if ju == lhs or self._try_unify(ju, lhs):
+                            for _, eu, ev, ep in edges:
+                                if (jv == eu or self._try_unify(jv, eu)) and (ev == rhs or self._try_unify(ev, rhs)):
+                                    return _apps(_constant("Trans"), goal_type, lhs, jv, rhs, jp, ep)
+                        if jv == rhs or self._try_unify(jv, rhs):
+                            for _, eu, ev, ep in edges:
+                                if (eu == lhs or self._try_unify(eu, lhs)) and (ev == ju or self._try_unify(ev, ju)):
+                                    return _apps(_constant("Trans"), goal_type, lhs, ju, rhs, ep, jp)
         raise self.fail("type", "assert justification does not establish the asserted proposition", assert_node)
 
     def _elaborate_by_block(
