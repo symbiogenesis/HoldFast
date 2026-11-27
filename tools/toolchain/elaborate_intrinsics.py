@@ -1752,18 +1752,17 @@ class _IntrinsicsMixin:
         length = None
         read_only = False
         while span != owner:
-            head, args = self.spine(span)
-            if head == _constant("Span_ReadOnly") and len(args) == 2:
+            step = self._unwrap_span_step(span)
+            if step is None:
+                break
+            span, off_t, seg_len, is_ro = step
+            if is_ro:
                 # ReadOnly preserves a shared operand's backing and footprint.
                 read_only = True
-                span = self.whnf(args[1])
-                continue
-            if head != _constant("Span_Slice") or len(args) != 4:
-                break
-            if length is None:
-                length = args[3]
-            offsets.append(args[2])
-            span = self.whnf(args[1])
+            if off_t is not None:
+                offsets.append(off_t)
+            if length is None and seg_len is not None:
+                length = seg_len
         if length is None and read_only:
             length = _apps(_constant("Span_Length"), _U8, span)
         # The checked slice extents and element bound keep the composed index in range.
@@ -1883,20 +1882,14 @@ class _IntrinsicsMixin:
         offsets: list[_Term] = []
         length: _Term | None = None
         while cur != owner_w and self._root_span(cur) != cur:
-            head, args = self.spine(cur)
-            if head in {_constant("Span_ReadOnly"), _constant("Span_Invalidate")} and len(args) == 2:
-                cur = self.whnf(args[1])
-                continue
-            if head in {_constant("Span_Write"), _constant("Span_Fill"), _constant("Span_CopyPrefix"), _constant("Span_Restore")} and len(args) >= 2:
-                cur = self.whnf(args[1])
-                continue
-            if head == _constant("Span_Slice") and len(args) == 4:
-                if length is None:
-                    length = args[3]
-                offsets.append(args[2])
-                cur = self.whnf(args[1])
-                continue
-            break
+            step = self._unwrap_span_step(cur, include_invalidate=True, include_writes=True)
+            if step is None:
+                break
+            cur, off_t, seg_len, _ = step
+            if off_t is not None:
+                offsets.append(off_t)
+            if length is None and seg_len is not None:
+                length = seg_len
         if length is None:
             return None
         displacement = _int_term(_INT_SPECS["usize"], 0)
@@ -2107,14 +2100,12 @@ class _IntrinsicsMixin:
         skip_ids: frozenset[int] = frozenset(),
     ) -> None:
         while base != current:
-            parent, operands = self.spine(base)
-            if parent == _constant("Span_ReadOnly") and len(operands) == 2:
-                base = self.whnf(operands[1])
-                continue
-            if parent != _constant("Span_Slice") or len(operands) != 4:
+            step = self._unwrap_span_step(base)
+            if step is None:
                 break
-            start = self._add_usize_offset(operands[2], start)
-            base = self.whnf(operands[1])
+            base, off_t, _, _ = step
+            if off_t is not None:
+                start = self._add_usize_offset(off_t, start)
         if not self._span_history_preserves_extent(base, current, start, length, environment, skip_ids=skip_ids):
             goal = "returned slice" if use == "return" else "Span view read"
             raise self.fail("type", f"cannot prove {goal} is disjoint from an update to '{name}'", site)
@@ -3803,12 +3794,22 @@ class _IntrinsicsMixin:
             )
         raise self.fail("unsupported", f"expression '{kind}' requires the full frontend")
 
-    def proposition(self: _Elaborator, node: Node, environment: dict[str, _Binding]) -> _Term:
+    def _elaborate_proposition(
+        self: _Elaborator,
+        node: Node,
+        environment: dict[str, _Binding],
+        *,
+        promote_bool: bool,
+    ) -> _Term:
         self.site = node
         if node["kind"] == "group":
-            return self.proposition(self.node(node["value"]), environment)
+            return self._elaborate_proposition(self.node(node["value"]), environment, promote_bool=promote_bool)
         if node["kind"] == "let_expression":
-            return self.proposition(self.node(node["body"]), self.local(self.node(node["binding"]), environment))
+            return self._elaborate_proposition(
+                self.node(node["body"]),
+                self.local(self.node(node["binding"]), environment),
+                promote_bool=promote_bool,
+            )
         if node["kind"] == "binary":
             operator = self.operator(node["operator"])
             if operator == "==":
@@ -3826,12 +3827,24 @@ class _IntrinsicsMixin:
             if operator == "==>":
                 if (guarded_implication := self._binding_implication(node, environment, _PROP)) is not None:
                     return guarded_implication
-                domain = self.proposition(self.node(node["left"]), environment)
-                return self.pi(domain, self.proposition(self.node(node["right"]), environment))
+                domain = self._elaborate_proposition(self.node(node["left"]), environment, promote_bool=promote_bool)
+                if not promote_bool:
+                    return self.pi(
+                        domain,
+                        self._elaborate_proposition(self.node(node["right"]), environment, promote_bool=False),
+                    )
+                dom_facts = self._fact_bool_terms((_Binding(_term("unit"), domain),), environment)
+                self.active_facts.extend(dom_facts)
+                try:
+                    codomain = self._elaborate_proposition(self.node(node["right"]), environment, promote_bool=True)
+                finally:
+                    for _ in dom_facts:
+                        self.active_facts.pop()
+                return self.pi(domain, codomain)
         if node["kind"] == "quantifier":
             quant = node["quantifier"]
             variables, extended = self.telescope([], self.nodes(node["parameters"]), environment)
-            body = self.proposition(self.node(node["value"]), extended)
+            body = self._elaborate_proposition(self.node(node["value"]), extended, promote_bool=promote_bool)
             if quant == "forall":
                 return self.wrap("pi", variables, body)
             result = body
@@ -3840,5 +3853,14 @@ class _IntrinsicsMixin:
                 result = _term("ex", domain, _term("lam", domain, result, value=variable.value))
             return result
         value = self.expression(node, environment)
+        if promote_bool:
+            value_type = self.whnf(value.type)
+            if value_type == _PROP:
+                return value.term
+            if value_type == _BOOL:
+                return _apps(_constant("Eq"), _BOOL, value.term, _term("bool", value=1))
         self.unify(value.type, _PROP)
         return value.term
+
+    def proposition(self: _Elaborator, node: Node, environment: dict[str, _Binding]) -> _Term:
+        return self._elaborate_proposition(node, environment, promote_bool=False)

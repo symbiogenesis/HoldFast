@@ -1656,48 +1656,7 @@ class _ProofsMixin:
         return _term("bool_match", motive_lam, cond, yes_proof, no_proof)
 
     def asserted_proposition(self: _Elaborator, node: Node, environment: dict[str, _Binding]) -> _Term:
-        self.site = node
-        if node["kind"] == "group":
-            return self.asserted_proposition(self.node(node["value"]), environment)
-        if node["kind"] == "let_expression":
-            return self.asserted_proposition(
-                self.node(node["body"]), self.local(self.node(node["binding"]), environment)
-            )
-        if node["kind"] == "binary":
-            operator = self.operator(node["operator"])
-            if operator == "==":
-                return self.proposition(node, environment)
-            if operator == "==>":
-                if (guarded_implication := self._binding_implication(node, environment, _PROP)) is not None:
-                    return guarded_implication
-                domain = self.asserted_proposition(self.node(node["left"]), environment)
-                dom_facts = self._fact_bool_terms((_Binding(_term("unit"), domain),), environment)
-                self.active_facts.extend(dom_facts)
-                try:
-                    codomain = self.asserted_proposition(self.node(node["right"]), environment)
-                finally:
-                    for _ in dom_facts:
-                        self.active_facts.pop()
-                return self.pi(domain, codomain)
-        if node["kind"] == "quantifier":
-            quantifier = node["quantifier"]
-            variables, extended = self.telescope([], self.nodes(node["parameters"]), environment)
-            body = self.asserted_proposition(self.node(node["value"]), extended)
-            if quantifier == "forall":
-                return self.wrap("pi", variables, body)
-            result = body
-            for variable in reversed(variables):
-                domain = self.types[cast("int", variable.value)]
-                result = _term("ex", domain, _term("lam", domain, result, value=variable.value))
-            return result
-        value = self.expression(node, environment)
-        value_type = self.whnf(value.type)
-        if value_type == _PROP:
-            return value.term
-        if value_type == _BOOL:
-            return _apps(_constant("Eq"), _BOOL, value.term, _term("bool", value=1))
-        self.unify(value.type, _PROP)
-        return value.term
+        return self._elaborate_proposition(node, environment, promote_bool=True)
 
     def _elaborate_by_expression(
         self: _Elaborator,

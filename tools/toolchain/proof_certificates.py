@@ -14,6 +14,7 @@ axiom-free Gallina terms for independent checking by the Rocq 9.3.0 kernel:
 """
 
 from collections import defaultdict, deque
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
@@ -473,6 +474,54 @@ class VersionedEGraph:
         return acc_proof
 
 
+class _OrderGraphSearch:
+    """Shared bounded BFS graph composer for natural-difference and fixed-int order provers."""
+
+    @staticmethod
+    def build_adj[E](edges: list[E], src_of: Callable[[E], _Term]) -> defaultdict[_Term, list[E]]:
+        adj: defaultdict[_Term, list[E]] = defaultdict(list)
+        for edge in edges:
+            adj[src_of(edge)].append(edge)
+        return adj
+
+    @staticmethod
+    def search[E](
+        adj: defaultdict[_Term, list[E]],
+        starts: tuple[_Term, ...] | list[_Term],
+        budget: list[int],
+        *,
+        max_hops: int | None,
+        compose: Callable[[E, E], E | None],
+        dst_of: Callable[[E], _Term],
+        record_better: Callable[[dict[_Term, object], E], bool],
+        check: Callable[[E], _Term | None],
+    ) -> _Term | None:
+        for start in starts:
+            state: dict[_Term, object] = {}
+            queue: deque[tuple[E, int]] = deque()
+            for edge in adj.get(start, ()):
+                if (done := check(edge)) is not None:
+                    return done
+                if record_better(state, edge):
+                    queue.append((edge, 1))
+            while queue:
+                cur, hops = queue.popleft()
+                if max_hops is not None and hops >= max_hops:
+                    continue
+                for nxt in adj.get(dst_of(cur), ()):
+                    budget[0] -= 1
+                    if budget[0] < 0:
+                        return None
+                    composed = compose(cur, nxt)
+                    if composed is None:
+                        continue
+                    if (done := check(composed)) is not None:
+                        return done
+                    if record_better(state, composed):
+                        queue.append((composed, hops + 1))
+        return None
+
+
 @dataclass(frozen=True)
 class _NatDiffEdge:
     src: _Term
@@ -815,6 +864,14 @@ class NatDifferenceProver:
 
         return p
 
+    @staticmethod
+    def _record_better(best: dict[_Term, object], edge: _NatDiffEdge) -> bool:
+        prev = cast("_NatDiffEdge | None", best.get(edge.dst))
+        if prev is None or edge.weight > prev.weight:
+            best[edge.dst] = edge
+            return True
+        return False
+
     def find_contradiction(
         self, goal: _Term, environment: dict[str, _Binding], facts: tuple[_Binding, ...], max_joins: int,
     ) -> _Term | None:
@@ -824,7 +881,13 @@ class NatDifferenceProver:
             return None
         truth = _term("bool", value=1)
         refl = _apps(_constant("Refl"), _BOOL, truth)
-        for edge in edges:
+        adj = _OrderGraphSearch.build_adj(edges, lambda e: e.src)
+        zero = _term("nat", value=0)
+        starts = sorted((n for n in adj if n != zero), key=repr)
+        if zero in adj:
+            starts.append(zero)
+
+        def _check(edge: _NatDiffEdge) -> _Term | None:
             if edge.src == edge.dst and edge.weight >= 1:
                 return _apps(
                     _constant("holdfast_nat_leb_add_contra"),
@@ -834,48 +897,18 @@ class NatDifferenceProver:
                     refl,
                     edge.proof,
                 )
-        adj: defaultdict[_Term, list[_NatDiffEdge]] = defaultdict(list)
-        for edge in edges:
-            adj[edge.src].append(edge)
-        zero = _term("nat", value=0)
-        starts = sorted((n for n in adj if n != zero), key=repr)
-        if zero in adj:
-            starts.append(zero)
-        max_hops = len(adj)
-        joins = 0
-        for start in starts:
-            best: dict[_Term, _NatDiffEdge] = {}
-            queue: deque[tuple[_NatDiffEdge, int]] = deque()
-            for e in adj[start]:
-                prev = best.get(e.dst)
-                if prev is None or e.weight > prev.weight:
-                    best[e.dst] = e
-                    queue.append((e, 1))
-            while queue:
-                cur, hops = queue.popleft()
-                if hops >= max_hops:
-                    continue
-                for nxt in adj.get(cur.dst, ()):
-                    joins += 1
-                    if joins > max_joins:
-                        return None
-                    composed = self._compose_edges(cur, nxt)
-                    if composed is None:
-                        continue
-                    if composed.src == composed.dst and composed.weight >= 1:
-                        return _apps(
-                            _constant("holdfast_nat_leb_add_contra"),
-                            goal,
-                            composed.src,
-                            _term("nat", value=composed.weight),
-                            refl,
-                            composed.proof,
-                        )
-                    prev = best.get(composed.dst)
-                    if prev is None or composed.weight > prev.weight:
-                        best[composed.dst] = composed
-                        queue.append((composed, hops + 1))
-        return None
+            return None
+
+        return _OrderGraphSearch.search(
+            adj,
+            starts,
+            [max_joins],
+            max_hops=len(adj),
+            compose=self._compose_edges,
+            dst_of=lambda e: e.dst,
+            record_better=self._record_better,
+            check=_check,
+        )
 
     def prove(
         self,
@@ -900,47 +933,20 @@ class NatDifferenceProver:
         if not edges:
             return None
         u, _ = self._decompose_nat(raw_lhs)
-        v, _ = self._decompose_nat(raw_rhs)
-        adj: defaultdict[_Term, list[_NatDiffEdge]] = defaultdict(list)
-        for edge in edges:
-            adj[edge.src].append(edge)
-
-        best: dict[_Term, _NatDiffEdge] = {}
-        queue: deque[tuple[_NatDiffEdge, int]] = deque()
         refl_u = _NatDiffEdge(u, u, 0, _app(_constant("holdfast_nat_leb_refl"), u))
         if (direct := self._finish_goal(refl_u, raw_lhs, raw_rhs, strict, is_ltb)) is not None:
             return direct
-        best[u] = refl_u
-        for e in adj.get(u, ()):
-            if (done := self._finish_goal(e, raw_lhs, raw_rhs, strict, is_ltb)) is not None:
-                return done
-            prev = best.get(e.dst)
-            if prev is None or e.weight > prev.weight:
-                best[e.dst] = e
-                queue.append((e, 1))
-
-        max_hops = len(adj)
-        joins = 0
-        while queue:
-            cur, hops = queue.popleft()
-            if hops >= max_hops:
-                continue
-            for nxt in adj.get(cur.dst, ()):
-                joins += 1
-                if joins > max_joins:
-                    return None
-                composed = self._compose_edges(cur, nxt)
-                if composed is None:
-                    continue
-                if composed.dst == v and (done := self._finish_goal(
-                    composed, raw_lhs, raw_rhs, strict, is_ltb,
-                )) is not None:
-                    return done
-                prev = best.get(composed.dst)
-                if prev is None or composed.weight > prev.weight:
-                    best[composed.dst] = composed
-                    queue.append((composed, hops + 1))
-        return None
+        adj = _OrderGraphSearch.build_adj(edges, lambda e: e.src)
+        return _OrderGraphSearch.search(
+            adj,
+            [u],
+            [max_joins],
+            max_hops=len(adj),
+            compose=self._compose_edges,
+            dst_of=lambda e: e.dst,
+            record_better=self._record_better,
+            check=lambda edge: self._finish_goal(edge, raw_lhs, raw_rhs, strict, is_ltb),
+        )
 
 
 @dataclass(frozen=True)
@@ -1037,6 +1043,14 @@ class FixedIntOrderProver:
         proof = _apps(_constant(lemma), tag, e1.src, e1.dst, e2.dst, e1.proof, e2.proof)
         return _IntOrderEdge(e1.src, e2.dst, e1.strict or e2.strict, proof)
 
+    @staticmethod
+    def _record_better(seen: dict[_Term, object], edge: _IntOrderEdge) -> bool:
+        prev = cast("bool | None", seen.get(edge.dst))
+        if prev is None or (edge.strict and not prev):
+            seen[edge.dst] = edge.strict
+            return True
+        return False
+
     def prove(
         self,
         goal: _Term,
@@ -1071,42 +1085,27 @@ class FixedIntOrderProver:
         edges = self._harvest(spec, environment, facts)
         if not edges:
             return None
-        adj: defaultdict[_Term, list[_IntOrderEdge]] = defaultdict(list)
-        for edge in edges:
-            adj[edge.src].append(edge)
+        adj = _OrderGraphSearch.build_adj(edges, lambda e: e.src)
 
-        # Check direct literal/edge or BFS shortest path.
-        seen: dict[_Term, bool] = {}
-        queue: deque[_IntOrderEdge] = deque()
-        for e in adj.get(lhs, ()):
-            if e.dst == rhs and (e.strict or not need_strict):
+        def _check(edge: _IntOrderEdge) -> _Term | None:
+            if edge.dst == rhs and (edge.strict or not need_strict):
                 return (
-                    e.proof
-                    if (need_strict or not e.strict)
-                    else _apps(_constant("holdfast_int_lt_imp_le"), tag, lhs, rhs, e.proof)
+                    edge.proof
+                    if (need_strict or not edge.strict)
+                    else _apps(_constant("holdfast_int_lt_imp_le"), tag, lhs, rhs, edge.proof)
                 )
-            if e.dst not in seen or (e.strict and not seen[e.dst]):
-                seen[e.dst] = e.strict
-                queue.append(e)
+            return None
 
-        steps = 0
-        while queue:
-            cur = queue.popleft()
-            for nxt in adj.get(cur.dst, ()):
-                steps += 1
-                if steps > max_steps:
-                    return None
-                composed = self._compose(tag, cur, nxt)
-                if composed.dst == rhs and (composed.strict or not need_strict):
-                    return (
-                        composed.proof
-                        if (need_strict or not composed.strict)
-                        else _apps(_constant("holdfast_int_lt_imp_le"), tag, lhs, rhs, composed.proof)
-                    )
-                if composed.dst not in seen or (composed.strict and not seen[composed.dst]):
-                    seen[composed.dst] = composed.strict
-                    queue.append(composed)
-        return None
+        return _OrderGraphSearch.search(
+            adj,
+            [lhs],
+            [max_steps],
+            max_hops=None,
+            compose=lambda cur, nxt: self._compose(tag, cur, nxt),
+            dst_of=lambda e: e.dst,
+            record_better=self._record_better,
+            check=_check,
+        )
 
     def find_contradiction(
         self,
@@ -1121,37 +1120,27 @@ class FixedIntOrderProver:
             if not edges:
                 continue
             tag = _term("nat", value=spec.tag)
-            adj: defaultdict[_Term, list[_IntOrderEdge]] = defaultdict(list)
-            for edge in edges:
-                adj[edge.src].append(edge)
-            steps = 0
-            for start in sorted(adj, key=repr):
-                seen: dict[_Term, bool] = {}
-                queue: deque[_IntOrderEdge] = deque()
-                for e in adj[start]:
-                    if e.dst == start and e.strict:
-                        return _apps(
-                            _constant("holdfast_int_lt_le_contra"),
-                            goal, tag, start, start, e.proof,
-                            _apps(_constant("holdfast_int_le_refl"), tag, start),
-                        )
-                    if e.dst not in seen or (e.strict and not seen[e.dst]):
-                        seen[e.dst] = e.strict
-                        queue.append(e)
-                while queue:
-                    cur = queue.popleft()
-                    for nxt in adj.get(cur.dst, ()):
-                        steps += 1
-                        if steps > max_steps:
-                            return None
-                        composed = self._compose(tag, cur, nxt)
-                        if composed.dst == start and composed.strict:
-                            return _apps(
-                                _constant("holdfast_int_lt_le_contra"),
-                                goal, tag, start, start, composed.proof,
-                                _apps(_constant("holdfast_int_le_refl"), tag, start),
-                            )
-                        if composed.dst not in seen or (composed.strict and not seen[composed.dst]):
-                            seen[composed.dst] = composed.strict
-                            queue.append(composed)
+            adj = _OrderGraphSearch.build_adj(edges, lambda e: e.src)
+
+            def _check(edge: _IntOrderEdge, tag: _Term = tag) -> _Term | None:
+                if edge.src == edge.dst and edge.strict:
+                    return _apps(
+                        _constant("holdfast_int_lt_le_contra"),
+                        goal, tag, edge.src, edge.src, edge.proof,
+                        _apps(_constant("holdfast_int_le_refl"), tag, edge.src),
+                    )
+                return None
+
+            res = _OrderGraphSearch.search(
+                adj,
+                sorted(adj, key=repr),
+                [max_steps],
+                max_hops=None,
+                compose=lambda cur, nxt, tag=tag: self._compose(tag, cur, nxt),
+                dst_of=lambda e: e.dst,
+                record_better=self._record_better,
+                check=_check,
+            )
+            if res is not None:
+                return res
         return None

@@ -526,28 +526,15 @@ class _SolverMixin:
         if s.kind == "if":
             return None
         s_head, s_args = self.spine(s)
-        if s_head.kind == "const" and isinstance(s_head.value, str):
-            sname = s_head.value
-            if sname == "Span_AllocZeroed" and len(s_args) == 3:
-                return (s, _int_term(_INT_SPECS["usize"], 0))
-            if (
-                sname
-                in {
-                    "Span_ReadOnly",
-                    "Span_Invalidate",
-                    "Span_Write",
-                    "Span_Fill",
-                    "Span_CopyPrefix",
-                    "Span_Restore",
-                }
-                and len(s_args) >= 2
-            ):
-                return self._span_root_and_offset_term(elem, s_args[1])
-            if sname == "Span_Slice" and len(s_args) == 4:
-                inner_ro = self._span_root_and_offset_term(elem, s_args[1])
-                if inner_ro is None:
-                    return None
-                return (inner_ro[0], self._add_usize_offset(inner_ro[1], s_args[2]))
+        if s_head == _constant("Span_AllocZeroed") and len(s_args) == 3:
+            return (s, _int_term(_INT_SPECS["usize"], 0))
+        step = self._unwrap_span_step(s, include_invalidate=True, include_writes=True)
+        if step is not None:
+            inner, off_t, _, _ = step
+            inner_ro = self._span_root_and_offset_term(elem, inner)
+            if off_t is None or inner_ro is None:
+                return inner_ro
+            return (inner_ro[0], self._add_usize_offset(inner_ro[1], off_t))
         return (s, _int_term(_INT_SPECS["usize"], 0))
 
     def _simplify_span_read_with_facts(self: _Elaborator, term: _Term, facts: list[_Term]) -> _Term:

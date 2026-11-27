@@ -819,43 +819,57 @@ class _WhnfMixin:
                 return self._make_result_ok(spec.const, ae_const, _int_term(spec, shifted))
         return None
 
+    def _unwrap_span_step(
+        self: _Elaborator,
+        span: _Term,
+        *,
+        include_invalidate: bool = False,
+        include_writes: bool = False,
+    ) -> tuple[_Term, _Term | None, _Term | None, bool] | None:
+        head, args = self.spine(span)
+        if head.kind != "const" or not isinstance(head.value, str):
+            return None
+        sname = head.value
+        if sname == "Span_ReadOnly" and len(args) == 2:
+            return self.whnf(args[1]), None, None, True
+        if include_invalidate and sname == "Span_Invalidate" and len(args) == 2:
+            return self.whnf(args[1]), None, None, False
+        if (
+            include_writes
+            and sname in {"Span_Write", "Span_Fill", "Span_CopyPrefix", "Span_Restore"}
+            and len(args) >= 2
+        ):
+            return self.whnf(args[1]), None, None, False
+        if sname == "Span_Slice" and len(args) == 4:
+            return self.whnf(args[1]), args[2], args[3], False
+        return None
+
     def _span_root_and_const_offset(self: _Elaborator, elem: _Term, span_term: _Term) -> tuple[_Term, int] | None:
         self.tick()
         s = self.whnf(span_term)
         if s.kind == "if":
             return None
         s_head, s_args = self.spine(s)
-        if s_head.kind == "const" and isinstance(s_head.value, str):
-            sname = s_head.value
-            if sname == "Span_AllocZeroed" and len(s_args) == 3:
-                base_w = self.whnf(s_args[1])
-                if base_w.kind == "int":
-                    return (_constant("__concrete_addr__"), cast("int", base_w.value))
-                return (s, 0)
-            if (
-                sname
-                in {
-                    "Span_ReadOnly",
-                    "Span_Invalidate",
-                    "Span_Write",
-                    "Span_Fill",
-                    "Span_CopyPrefix",
-                    "Span_Restore",
-                }
-                and len(s_args) >= 2
-            ):
-                return self._span_root_and_const_offset(elem, s_args[1])
-            if sname == "Span_Slice" and len(s_args) == 4:
-                off_w = self.whnf(s_args[2])
+        if s_head == _constant("Span_AllocZeroed") and len(s_args) == 3:
+            base_w = self.whnf(s_args[1])
+            if base_w.kind == "int":
+                return (_constant("__concrete_addr__"), cast("int", base_w.value))
+            return (s, 0)
+        step = self._unwrap_span_step(s, include_invalidate=True, include_writes=True)
+        if step is not None:
+            inner, off_t, _, _ = step
+            if off_t is not None:
+                off_w = self.whnf(off_t)
                 if off_w.kind != "int":
                     return None
-                inner_ro = self._span_root_and_const_offset(elem, s_args[1])
+                inner_ro = self._span_root_and_const_offset(elem, inner)
                 if inner_ro is None:
                     return None
                 return (
                     inner_ro[0],
                     _wrap_int(_INT_SPECS["usize"], inner_ro[1] + cast("int", off_w.value)),
                 )
+            return self._span_root_and_const_offset(elem, inner)
         return (s, 0)
 
     def _lookup_span_at_root_offset(
