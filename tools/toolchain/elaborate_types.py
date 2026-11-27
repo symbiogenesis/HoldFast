@@ -556,6 +556,52 @@ _GALLINA = {
     "holdfast_nat_leb_cancel_left": "holdfast_nat_leb_cancel_left",
     "holdfast_nat_ltb_cancel_right": "holdfast_nat_ltb_cancel_right",
     "holdfast_nat_ltb_cancel_left": "holdfast_nat_ltb_cancel_left",
+    "holdfast_nat_leb_refl": "holdfast_nat_leb_refl",
+    "holdfast_nat_ltb_irrefl": "holdfast_nat_ltb_irrefl",
+    "holdfast_nat_leb_succ_of_ltb": "holdfast_nat_leb_succ_of_ltb",
+    "holdfast_nat_ltb_of_leb_add1": "holdfast_nat_ltb_of_leb_add1",
+    "holdfast_nat_ltb_of_leb_add_succ": "holdfast_nat_ltb_of_leb_add_succ",
+    "holdfast_nat_leb_add1_of_succ": "holdfast_nat_leb_add1_of_succ",
+    "holdfast_nat_leb_add_comm_left": "holdfast_nat_leb_add_comm_left",
+    "holdfast_nat_leb_add_succ_of_ltb": "holdfast_nat_leb_add_succ_of_ltb",
+    "holdfast_nat_leb_shift_trans": "holdfast_nat_leb_shift_trans",
+    "holdfast_nat_leb_shift_cancel_r": "holdfast_nat_leb_shift_cancel_r",
+    "holdfast_nat_leb_shift_cancel_l": "holdfast_nat_leb_shift_cancel_l",
+    "holdfast_nat_leb_cancel_shift_r": "holdfast_nat_leb_cancel_shift_r",
+    "holdfast_nat_leb_cancel_shift_l": "holdfast_nat_leb_cancel_shift_l",
+    "holdfast_nat_leb_neg_trans": "holdfast_nat_leb_neg_trans",
+    "holdfast_nat_leb_weaken_l": "holdfast_nat_leb_weaken_l",
+    "holdfast_nat_leb_weaken_r": "holdfast_nat_leb_weaken_r",
+    "holdfast_nat_leb_weaken_neg": "holdfast_nat_leb_weaken_neg",
+    "holdfast_nat_leb_of_eqb": "holdfast_nat_leb_of_eqb",
+    "holdfast_nat_eq_of_eqb": "holdfast_nat_eq_of_eqb",
+    "holdfast_nat_leb_of_eq": "holdfast_nat_leb_of_eq",
+    "holdfast_nat_leb_add_right_mono": "holdfast_nat_leb_add_right_mono",
+    "holdfast_nat_leb_offset_cancel": "holdfast_nat_leb_offset_cancel",
+    "holdfast_nat_leb_contra": "holdfast_nat_leb_contra",
+    "holdfast_nat_leb_add_contra": "holdfast_nat_leb_add_contra",
+    "holdfast_nat_zero_leb": "holdfast_nat_zero_leb",
+    "holdfast_nat_leb_add0_r": "holdfast_nat_leb_add0_r",
+    "holdfast_nat_leb_drop0_r": "holdfast_nat_leb_drop0_r",
+    "holdfast_nat_leb_r_add0": "holdfast_nat_leb_r_add0",
+    "holdfast_nat_leb_r_drop0": "holdfast_nat_leb_r_drop0",
+    "holdfast_nat_leb_r_add1_of_succ": "holdfast_nat_leb_r_add1_of_succ",
+    "holdfast_nat_leb_r_succ_of_add1": "holdfast_nat_leb_r_succ_of_add1",
+    "holdfast_nat_leb_l_succ_of_add1": "holdfast_nat_leb_l_succ_of_add1",
+    "holdfast_nat_leb_add_comm_right": "holdfast_nat_leb_add_comm_right",
+    "holdfast_nat_leb_add_comm_goal_left": "holdfast_nat_leb_add_comm_goal_left",
+    "holdfast_nat_leb_add_comm_goal_right": "holdfast_nat_leb_add_comm_goal_right",
+    "holdfast_int_le_refl": "holdfast_int_le_refl",
+    "holdfast_int_le_trans": "holdfast_int_le_trans",
+    "holdfast_int_lt_le_trans": "holdfast_int_lt_le_trans",
+    "holdfast_int_le_lt_trans": "holdfast_int_le_lt_trans",
+    "holdfast_int_lt_trans": "holdfast_int_lt_trans",
+    "holdfast_int_lt_imp_le": "holdfast_int_lt_imp_le",
+    "holdfast_int_le_of_lt_false": "holdfast_int_le_of_lt_false",
+    "holdfast_int_lt_of_le_false": "holdfast_int_lt_of_le_false",
+    "holdfast_int_eq_imp_le": "holdfast_int_eq_imp_le",
+    "holdfast_int_eq_imp_le_sym": "holdfast_int_eq_imp_le_sym",
+    "holdfast_int_lt_le_contra": "holdfast_int_lt_le_contra",
     "holdfast_gt_add_pos": "holdfast_gt_add_pos",
     "holdfast_int_add_assoc": "holdfast_int_add_assoc",
     **{
@@ -1441,6 +1487,175 @@ Proof.
   induction xs as [|b xs IH]. reflexivity. destruct b; exact IH.
 Qed.
 
+Fixpoint holdfast_bits_ule_refl (a : holdfast_bits) {struct a}
+    : @Corelib.Init.Logic.eq bool (holdfast_bits_ule a a) true :=
+  match a as a0 return (@Corelib.Init.Logic.eq bool (holdfast_bits_ule a0 a0) true) with
+  | holdfast_bnil => @Corelib.Init.Logic.eq_refl bool true
+  | holdfast_bcons x xs =>
+      match x as x0 return (@Corelib.Init.Logic.eq bool (if holdfast_eq_bool x0 x0 then holdfast_bits_ule xs xs else x0) true) with
+      | true => holdfast_bits_ule_refl xs
+      | false => holdfast_bits_ule_refl xs
+      end
+  end.
+
+Fixpoint holdfast_bits_ule_trans (a b c : holdfast_bits) {struct a}
+    : @Corelib.Init.Logic.eq bool (holdfast_bits_ule a b) true ->
+      @Corelib.Init.Logic.eq bool (holdfast_bits_ule b c) true ->
+      @Corelib.Init.Logic.eq bool (holdfast_bits_ule a c) true :=
+  match a as a0, b as b0, c as c0 return (@Corelib.Init.Logic.eq bool (holdfast_bits_ule a0 b0) true -> @Corelib.Init.Logic.eq bool (holdfast_bits_ule b0 c0) true -> @Corelib.Init.Logic.eq bool (holdfast_bits_ule a0 c0) true) with
+  | holdfast_bnil, _, _ => fun _ _ => @Corelib.Init.Logic.eq_refl bool true
+  | holdfast_bcons _ _, holdfast_bnil, _ => fun h1 _ => holdfast_false_true_elim _ h1
+  | holdfast_bcons _ _, holdfast_bcons _ _, holdfast_bnil => fun _ h2 => holdfast_false_true_elim _ h2
+  | holdfast_bcons x xs, holdfast_bcons y ys, holdfast_bcons z zs =>
+      match x as x0, y as y0, z as z0 return (@Corelib.Init.Logic.eq bool (if holdfast_eq_bool x0 y0 then holdfast_bits_ule xs ys else y0) true -> @Corelib.Init.Logic.eq bool (if holdfast_eq_bool y0 z0 then holdfast_bits_ule ys zs else z0) true -> @Corelib.Init.Logic.eq bool (if holdfast_eq_bool x0 z0 then holdfast_bits_ule xs zs else z0) true) with
+      | true, true, true => fun h1 h2 => holdfast_bits_ule_trans xs ys zs h1 h2
+      | false, false, false => fun h1 h2 => holdfast_bits_ule_trans xs ys zs h1 h2
+      | false, false, true => fun _ _ => @Corelib.Init.Logic.eq_refl bool true
+      | false, true, true => fun _ _ => @Corelib.Init.Logic.eq_refl bool true
+      | true, false, false => fun h1 _ => holdfast_false_true_elim _ h1
+      | true, false, true => fun h1 _ => holdfast_false_true_elim _ h1
+      | false, true, false => fun _ h2 => holdfast_false_true_elim _ h2
+      | true, true, false => fun _ h2 => holdfast_false_true_elim _ h2
+      end
+  end.
+
+Fixpoint holdfast_bits_ule_ult_trans (a b c : holdfast_bits) {struct a}
+    : @Corelib.Init.Logic.eq bool (holdfast_bits_ule a b) true ->
+      @Corelib.Init.Logic.eq bool (holdfast_bits_ult b c) true ->
+      @Corelib.Init.Logic.eq bool (holdfast_bits_ult a c) true :=
+  match a as a0, b as b0, c as c0 return (@Corelib.Init.Logic.eq bool (holdfast_bits_ule a0 b0) true -> @Corelib.Init.Logic.eq bool (holdfast_bits_ult b0 c0) true -> @Corelib.Init.Logic.eq bool (holdfast_bits_ult a0 c0) true) with
+  | _, holdfast_bnil, holdfast_bnil => fun _ h2 => holdfast_false_true_elim _ h2
+  | holdfast_bnil, holdfast_bnil, holdfast_bcons _ _ => fun _ _ => @Corelib.Init.Logic.eq_refl bool true
+  | holdfast_bcons _ _, holdfast_bnil, holdfast_bcons _ _ => fun h1 _ => holdfast_false_true_elim _ h1
+  | holdfast_bnil, holdfast_bcons _ _, holdfast_bnil => fun _ h2 => holdfast_false_true_elim _ h2
+  | holdfast_bnil, holdfast_bcons _ _, holdfast_bcons _ _ => fun _ _ => @Corelib.Init.Logic.eq_refl bool true
+  | holdfast_bcons _ _, holdfast_bcons _ _, holdfast_bnil => fun _ h2 => holdfast_false_true_elim _ h2
+  | holdfast_bcons x xs, holdfast_bcons y ys, holdfast_bcons z zs =>
+      match x as x0, y as y0, z as z0 return (@Corelib.Init.Logic.eq bool (if holdfast_eq_bool x0 y0 then holdfast_bits_ule xs ys else y0) true -> @Corelib.Init.Logic.eq bool (if holdfast_eq_bool y0 z0 then holdfast_bits_ult ys zs else z0) true -> @Corelib.Init.Logic.eq bool (if holdfast_eq_bool x0 z0 then holdfast_bits_ult xs zs else z0) true) with
+      | true, true, true => fun h1 h2 => holdfast_bits_ule_ult_trans xs ys zs h1 h2
+      | false, false, false => fun h1 h2 => holdfast_bits_ule_ult_trans xs ys zs h1 h2
+      | false, false, true => fun _ _ => @Corelib.Init.Logic.eq_refl bool true
+      | false, true, true => fun _ _ => @Corelib.Init.Logic.eq_refl bool true
+      | true, false, false => fun h1 _ => holdfast_false_true_elim _ h1
+      | true, false, true => fun h1 _ => holdfast_false_true_elim _ h1
+      | false, true, false => fun _ h2 => holdfast_false_true_elim _ h2
+      | true, true, false => fun _ h2 => holdfast_false_true_elim _ h2
+      end
+  end.
+
+Fixpoint holdfast_bits_ult_trans (a b c : holdfast_bits) {struct a}
+    : @Corelib.Init.Logic.eq bool (holdfast_bits_ult a b) true ->
+      @Corelib.Init.Logic.eq bool (holdfast_bits_ult b c) true ->
+      @Corelib.Init.Logic.eq bool (holdfast_bits_ult a c) true :=
+  match a as a0, b as b0, c as c0 return (@Corelib.Init.Logic.eq bool (holdfast_bits_ult a0 b0) true -> @Corelib.Init.Logic.eq bool (holdfast_bits_ult b0 c0) true -> @Corelib.Init.Logic.eq bool (holdfast_bits_ult a0 c0) true) with
+  | holdfast_bnil, holdfast_bnil, _ => fun h1 _ => holdfast_false_true_elim _ h1
+  | holdfast_bcons _ _, holdfast_bnil, _ => fun h1 _ => holdfast_false_true_elim _ h1
+  | holdfast_bnil, holdfast_bcons _ _, holdfast_bnil => fun _ h2 => holdfast_false_true_elim _ h2
+  | holdfast_bnil, holdfast_bcons _ _, holdfast_bcons _ _ => fun _ _ => @Corelib.Init.Logic.eq_refl bool true
+  | holdfast_bcons _ _, holdfast_bcons _ _, holdfast_bnil => fun _ h2 => holdfast_false_true_elim _ h2
+  | holdfast_bcons x xs, holdfast_bcons y ys, holdfast_bcons z zs =>
+      match x as x0, y as y0, z as z0 return (@Corelib.Init.Logic.eq bool (if holdfast_eq_bool x0 y0 then holdfast_bits_ult xs ys else y0) true -> @Corelib.Init.Logic.eq bool (if holdfast_eq_bool y0 z0 then holdfast_bits_ult ys zs else z0) true -> @Corelib.Init.Logic.eq bool (if holdfast_eq_bool x0 z0 then holdfast_bits_ult xs zs else z0) true) with
+      | true, true, true => fun h1 h2 => holdfast_bits_ult_trans xs ys zs h1 h2
+      | false, false, false => fun h1 h2 => holdfast_bits_ult_trans xs ys zs h1 h2
+      | false, false, true => fun _ _ => @Corelib.Init.Logic.eq_refl bool true
+      | false, true, true => fun _ _ => @Corelib.Init.Logic.eq_refl bool true
+      | true, false, false => fun h1 _ => holdfast_false_true_elim _ h1
+      | true, false, true => fun h1 _ => holdfast_false_true_elim _ h1
+      | false, true, false => fun _ h2 => holdfast_false_true_elim _ h2
+      | true, true, false => fun _ h2 => holdfast_false_true_elim _ h2
+      end
+  end.
+
+Fixpoint holdfast_bits_ult_imp_ule (a b : holdfast_bits) {struct a}
+    : @Corelib.Init.Logic.eq bool (holdfast_bits_ult a b) true ->
+      @Corelib.Init.Logic.eq bool (holdfast_bits_ule a b) true :=
+  match a as a0, b as b0 return (@Corelib.Init.Logic.eq bool (holdfast_bits_ult a0 b0) true -> @Corelib.Init.Logic.eq bool (holdfast_bits_ule a0 b0) true) with
+  | holdfast_bnil, _ => fun _ => @Corelib.Init.Logic.eq_refl bool true
+  | holdfast_bcons _ _, holdfast_bnil => fun h => holdfast_false_true_elim _ h
+  | holdfast_bcons x xs, holdfast_bcons y ys =>
+      match x as x0, y as y0 return (@Corelib.Init.Logic.eq bool (if holdfast_eq_bool x0 y0 then holdfast_bits_ult xs ys else y0) true -> @Corelib.Init.Logic.eq bool (if holdfast_eq_bool x0 y0 then holdfast_bits_ule xs ys else y0) true) with
+      | true, true => fun h => holdfast_bits_ult_imp_ule xs ys h
+      | false, false => fun h => holdfast_bits_ult_imp_ule xs ys h
+      | false, true => fun _ => @Corelib.Init.Logic.eq_refl bool true
+      | true, false => fun h => holdfast_false_true_elim _ h
+      end
+  end.
+
+Fixpoint holdfast_bits_ult_of_ule_false (a b : holdfast_bits) {struct a}
+    : @Corelib.Init.Logic.eq bool (holdfast_bits_ule b a) false ->
+      @Corelib.Init.Logic.eq bool (holdfast_bits_ult a b) true :=
+  match a as a0, b as b0 return (@Corelib.Init.Logic.eq bool (holdfast_bits_ule b0 a0) false -> @Corelib.Init.Logic.eq bool (holdfast_bits_ult a0 b0) true) with
+  | _, holdfast_bnil => fun h => holdfast_false_elim (@Corelib.Init.Logic.eq bool false true) h
+  | holdfast_bnil, holdfast_bcons _ _ => fun _ => @Corelib.Init.Logic.eq_refl bool true
+  | holdfast_bcons x xs, holdfast_bcons y ys =>
+      match x as x0, y as y0 return (@Corelib.Init.Logic.eq bool (if holdfast_eq_bool y0 x0 then holdfast_bits_ule ys xs else x0) false -> @Corelib.Init.Logic.eq bool (if holdfast_eq_bool x0 y0 then holdfast_bits_ult xs ys else y0) true) with
+      | true, true => fun h => holdfast_bits_ult_of_ule_false xs ys h
+      | false, false => fun h => holdfast_bits_ult_of_ule_false xs ys h
+      | false, true => fun _ => @Corelib.Init.Logic.eq_refl bool true
+      | true, false => fun h => holdfast_false_elim (@Corelib.Init.Logic.eq bool false true) h
+      end
+  end.
+
+Definition holdfast_int_le_refl (tag : nat) (x : holdfast_int tag)
+    : @Corelib.Init.Logic.eq bool (holdfast_int_le tag x x) true :=
+  holdfast_bits_ule_refl (holdfast_int_key tag x).
+
+Definition holdfast_int_le_trans (tag : nat) (x y z : holdfast_int tag)
+    (h1 : @Corelib.Init.Logic.eq bool (holdfast_int_le tag x y) true)
+    (h2 : @Corelib.Init.Logic.eq bool (holdfast_int_le tag y z) true)
+    : @Corelib.Init.Logic.eq bool (holdfast_int_le tag x z) true :=
+  holdfast_bits_ule_trans (holdfast_int_key tag x) (holdfast_int_key tag y) (holdfast_int_key tag z) h1 h2.
+
+Definition holdfast_int_lt_le_trans (tag : nat) (x y z : holdfast_int tag)
+    (h1 : @Corelib.Init.Logic.eq bool (holdfast_int_lt tag x y) true)
+    (h2 : @Corelib.Init.Logic.eq bool (holdfast_int_le tag y z) true)
+    : @Corelib.Init.Logic.eq bool (holdfast_int_lt tag x z) true :=
+  holdfast_bits_ult_ule_trans (holdfast_int_key tag x) (holdfast_int_key tag y) (holdfast_int_key tag z) h1 h2.
+
+Definition holdfast_int_le_lt_trans (tag : nat) (x y z : holdfast_int tag)
+    (h1 : @Corelib.Init.Logic.eq bool (holdfast_int_le tag x y) true)
+    (h2 : @Corelib.Init.Logic.eq bool (holdfast_int_lt tag y z) true)
+    : @Corelib.Init.Logic.eq bool (holdfast_int_lt tag x z) true :=
+  holdfast_bits_ule_ult_trans (holdfast_int_key tag x) (holdfast_int_key tag y) (holdfast_int_key tag z) h1 h2.
+
+Definition holdfast_int_lt_trans (tag : nat) (x y z : holdfast_int tag)
+    (h1 : @Corelib.Init.Logic.eq bool (holdfast_int_lt tag x y) true)
+    (h2 : @Corelib.Init.Logic.eq bool (holdfast_int_lt tag y z) true)
+    : @Corelib.Init.Logic.eq bool (holdfast_int_lt tag x z) true :=
+  holdfast_bits_ult_trans (holdfast_int_key tag x) (holdfast_int_key tag y) (holdfast_int_key tag z) h1 h2.
+
+Definition holdfast_int_lt_imp_le (tag : nat) (x y : holdfast_int tag)
+    (h : @Corelib.Init.Logic.eq bool (holdfast_int_lt tag x y) true)
+    : @Corelib.Init.Logic.eq bool (holdfast_int_le tag x y) true :=
+  holdfast_bits_ult_imp_ule (holdfast_int_key tag x) (holdfast_int_key tag y) h.
+
+Definition holdfast_int_le_of_lt_false (tag : nat) (x y : holdfast_int tag)
+    (h : @Corelib.Init.Logic.eq bool (holdfast_int_lt tag x y) false)
+    : @Corelib.Init.Logic.eq bool (holdfast_int_le tag y x) true :=
+  holdfast_bits_ule_of_ult_false (holdfast_int_key tag y) (holdfast_int_key tag x) h.
+
+Definition holdfast_int_lt_of_le_false (tag : nat) (x y : holdfast_int tag)
+    (h : @Corelib.Init.Logic.eq bool (holdfast_int_le tag x y) false)
+    : @Corelib.Init.Logic.eq bool (holdfast_int_lt tag y x) true :=
+  holdfast_bits_ult_of_ule_false (holdfast_int_key tag y) (holdfast_int_key tag x) h.
+
+Lemma holdfast_int_eq_imp_le (tag : nat) (x y : holdfast_int tag)
+    (h : holdfast_int_eq tag x y = true) : holdfast_int_le tag x y = true.
+Proof.
+  apply holdfast_int_eq_true in h. subst y. apply holdfast_int_le_refl.
+Qed.
+
+Lemma holdfast_int_eq_imp_le_sym (tag : nat) (x y : holdfast_int tag)
+    (h : holdfast_int_eq tag x y = true) : holdfast_int_le tag y x = true.
+Proof.
+  apply holdfast_int_eq_true in h. subst y. apply holdfast_int_le_refl.
+Qed.
+
+Definition holdfast_int_lt_le_contra (P : Type@{holdfast_u0}) (tag : nat) (x y : holdfast_int tag)
+    (h1 : @Corelib.Init.Logic.eq bool (holdfast_int_lt tag x y) true)
+    (h2 : @Corelib.Init.Logic.eq bool (holdfast_int_le tag y x) true) : P :=
+  holdfast_bits_ult_ule_false P (holdfast_int_key tag x) (holdfast_int_key tag y) h1 h2.
+
 Definition holdfast_in_extent (addr base len : holdfast_int (4 : nat)) : bool :=
   holdfast_and
     (holdfast_int_le (4 : nat) base addr)
@@ -2160,6 +2375,147 @@ Proof. rewrite !Nat.ltb_lt. intros H. now apply Nat.add_lt_mono_r in H. Qed.
 Lemma holdfast_nat_ltb_cancel_left (a b offset : nat) :
   Nat.ltb (offset + a) (offset + b) = true -> Nat.ltb a b = true.
 Proof. rewrite !Nat.ltb_lt. intros H. now apply Nat.add_lt_mono_l in H. Qed.
+
+Lemma holdfast_nat_leb_refl (a : nat) : Nat.leb a a = true.
+Proof. apply Nat.leb_refl. Qed.
+
+Lemma holdfast_nat_ltb_irrefl (a : nat) : Nat.ltb a a = false.
+Proof. apply Nat.ltb_irrefl. Qed.
+
+Lemma holdfast_nat_zero_leb (a : nat) : Nat.leb 0 a = true.
+Proof. reflexivity. Qed.
+
+Lemma holdfast_nat_leb_succ_of_ltb (a b : nat) :
+  Nat.ltb a b = true -> Nat.leb (a + 1) b = true.
+Proof. rewrite Nat.ltb_lt, Nat.leb_le. lia. Qed.
+
+Lemma holdfast_nat_ltb_of_leb_add1 (a b : nat) :
+  Nat.leb (a + 1) b = true -> Nat.ltb a b = true.
+Proof. rewrite Nat.ltb_lt, Nat.leb_le. lia. Qed.
+
+Lemma holdfast_nat_ltb_of_leb_add_succ (a k b : nat) :
+  Nat.leb (a + (k + 1)) b = true -> Nat.ltb (a + k) b = true.
+Proof. rewrite Nat.ltb_lt, Nat.leb_le. lia. Qed.
+
+Lemma holdfast_nat_leb_add1_of_succ (a b : nat) :
+  Nat.leb (S a) b = true -> Nat.leb (a + 1) b = true.
+Proof. rewrite !Nat.leb_le. lia. Qed.
+
+Lemma holdfast_nat_leb_add_comm_left (c a b : nat) :
+  Nat.leb (c + a) b = true -> Nat.leb (a + c) b = true.
+Proof. rewrite !Nat.leb_le. lia. Qed.
+
+Lemma holdfast_nat_leb_add_succ_of_ltb (a c b : nat) :
+  Nat.ltb (a + c) b = true -> Nat.leb (a + (c + 1)) b = true.
+Proof. rewrite Nat.ltb_lt, Nat.leb_le. lia. Qed.
+
+Lemma holdfast_nat_leb_shift_trans (a b c k1 k2 : nat) :
+  Nat.leb (a + k1) b = true -> Nat.leb (b + k2) c = true -> Nat.leb (a + (k1 + k2)) c = true.
+Proof. rewrite !Nat.leb_le. lia. Qed.
+
+Lemma holdfast_nat_leb_shift_cancel_r (a b c k m : nat) :
+  Nat.leb (a + k) b = true -> Nat.leb b (c + m) = true -> Nat.leb m k = true -> Nat.leb (a + (k - m)) c = true.
+Proof. rewrite !Nat.leb_le. lia. Qed.
+
+Lemma holdfast_nat_leb_shift_cancel_l (a b c k m : nat) :
+  Nat.leb (a + k) b = true -> Nat.leb b (c + m) = true -> Nat.leb k m = true -> Nat.leb a (c + (m - k)) = true.
+Proof. rewrite !Nat.leb_le. lia. Qed.
+
+Lemma holdfast_nat_leb_cancel_shift_r (a b c m k : nat) :
+  Nat.leb a (b + m) = true -> Nat.leb (b + k) c = true -> Nat.leb m k = true -> Nat.leb (a + (k - m)) c = true.
+Proof. rewrite !Nat.leb_le. lia. Qed.
+
+Lemma holdfast_nat_leb_cancel_shift_l (a b c m k : nat) :
+  Nat.leb a (b + m) = true -> Nat.leb (b + k) c = true -> Nat.leb k m = true -> Nat.leb a (c + (m - k)) = true.
+Proof. rewrite !Nat.leb_le. lia. Qed.
+
+Lemma holdfast_nat_leb_neg_trans (a b c m1 m2 : nat) :
+  Nat.leb a (b + m1) = true -> Nat.leb b (c + m2) = true -> Nat.leb a (c + (m1 + m2)) = true.
+Proof. rewrite !Nat.leb_le. lia. Qed.
+
+Lemma holdfast_nat_leb_weaken_l (a b k req : nat) :
+  Nat.leb req k = true -> Nat.leb (a + k) b = true -> Nat.leb (a + req) b = true.
+Proof. rewrite !Nat.leb_le. lia. Qed.
+
+Lemma holdfast_nat_leb_weaken_r (a b w gr : nat) :
+  Nat.leb (a + w) b = true -> Nat.leb a (b + gr) = true.
+Proof. rewrite !Nat.leb_le. lia. Qed.
+
+Lemma holdfast_nat_leb_weaken_neg (a b m gr : nat) :
+  Nat.leb m gr = true -> Nat.leb a (b + m) = true -> Nat.leb a (b + gr) = true.
+Proof. rewrite !Nat.leb_le. lia. Qed.
+
+Lemma holdfast_nat_leb_of_eqb (a b : nat) :
+  Nat.eqb a b = true -> Nat.leb a b = true.
+Proof. rewrite Nat.eqb_eq, Nat.leb_le. lia. Qed.
+
+Lemma holdfast_nat_eq_of_eqb (a b : nat) :
+  Nat.eqb a b = true -> a = b.
+Proof. apply Nat.eqb_eq. Qed.
+
+Lemma holdfast_nat_leb_of_eq (a b : nat) :
+  a = b -> Nat.leb a b = true.
+Proof. intros ->. apply Nat.leb_refl. Qed.
+
+Lemma holdfast_nat_leb_add_right_mono (a b k1 k2 : nat) :
+  Nat.leb a b = true -> Nat.leb k1 k2 = true -> Nat.leb (a + k1) (b + k2) = true.
+Proof. rewrite !Nat.leb_le. lia. Qed.
+
+Lemma holdfast_nat_leb_offset_cancel (a b k m : nat) :
+  Nat.leb (a + k) (b + m) = true -> Nat.leb m k = true -> Nat.leb (a + (k - m)) b = true.
+Proof. rewrite !Nat.leb_le. lia. Qed.
+
+Definition holdfast_nat_leb_contra (P : Type@{holdfast_u0}) (a : nat)
+    (h : Nat.leb (S a) a = true) : P :=
+  False_rect P (Nat.nle_succ_diag_l a (proj1 (Nat.leb_le (S a) a) h)).
+
+Lemma holdfast_nat_leb_add_contra_aux (a k : nat) :
+  Nat.leb 1 k = true -> Nat.leb (a + k) a = true -> False.
+Proof. rewrite !Nat.leb_le. lia. Qed.
+
+Definition holdfast_nat_leb_add_contra (P : Type@{holdfast_u0}) (a k : nat)
+    (hk : Nat.leb 1 k = true) (h : Nat.leb (a + k) a = true) : P :=
+  False_rect P (holdfast_nat_leb_add_contra_aux a k hk h).
+
+Lemma holdfast_nat_leb_add0_r (a b : nat) :
+  Nat.leb a b = true -> Nat.leb (a + 0) b = true.
+Proof. rewrite Nat.add_0_r. exact (fun h => h). Qed.
+
+Lemma holdfast_nat_leb_drop0_r (a b : nat) :
+  Nat.leb (a + 0) b = true -> Nat.leb a b = true.
+Proof. rewrite Nat.add_0_r. exact (fun h => h). Qed.
+
+Lemma holdfast_nat_leb_r_add0 (a b : nat) :
+  Nat.leb a b = true -> Nat.leb a (b + 0) = true.
+Proof. rewrite Nat.add_0_r. exact (fun h => h). Qed.
+
+Lemma holdfast_nat_leb_r_drop0 (a b : nat) :
+  Nat.leb a (b + 0) = true -> Nat.leb a b = true.
+Proof. rewrite Nat.add_0_r. exact (fun h => h). Qed.
+
+Lemma holdfast_nat_leb_r_add1_of_succ (a b : nat) :
+  Nat.leb a (S b) = true -> Nat.leb a (b + 1) = true.
+Proof. rewrite !Nat.leb_le. lia. Qed.
+
+Lemma holdfast_nat_leb_r_succ_of_add1 (a b : nat) :
+  Nat.leb a (b + 1) = true -> Nat.leb a (S b) = true.
+Proof. rewrite !Nat.leb_le. lia. Qed.
+
+Lemma holdfast_nat_leb_l_succ_of_add1 (a b : nat) :
+  Nat.leb (a + 1) b = true -> Nat.leb (S a) b = true.
+Proof. rewrite !Nat.leb_le. lia. Qed.
+
+Lemma holdfast_nat_leb_add_comm_right (a c b : nat) :
+  Nat.leb a (c + b) = true -> Nat.leb a (b + c) = true.
+Proof. rewrite !Nat.leb_le. lia. Qed.
+
+Lemma holdfast_nat_leb_add_comm_goal_left (c a b : nat) :
+  Nat.leb (a + c) b = true -> Nat.leb (c + a) b = true.
+Proof. rewrite !Nat.leb_le. lia. Qed.
+
+Lemma holdfast_nat_leb_add_comm_goal_right (a c b : nat) :
+  Nat.leb a (b + c) = true -> Nat.leb a (c + b) = true.
+Proof. rewrite !Nat.leb_le. lia. Qed.
 
 Unset Lia Cache.
 

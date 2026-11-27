@@ -28,6 +28,11 @@ from toolchain.elaborate_types import (
     _Term,
     _term,
 )
+from toolchain.proof_certificates import (
+    FixedIntOrderProver,
+    NatDifferenceProver,
+    VersionedEGraph,
+)
 
 if TYPE_CHECKING:
     from toolchain.elaborate import _Elaborator
@@ -1314,6 +1319,10 @@ class _ProofsMixin:
                 if self._try_unify(u, lhs) and self._try_unify(v, rhs):
                     return p
                 self.restore_metas(saved)
+            if (egraph_proof := self._prove_with_egraph(
+                goal_type, lhs, rhs, all_facts, allow_refl=allow_refl,
+            )) is not None:
+                return egraph_proof
             for i1, u1, v1, p1 in edges:
                 saved1 = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
                 if not self._try_unify(u1, lhs):
@@ -2049,10 +2058,88 @@ class _ProofsMixin:
                 return proof
             relative = common_addend(lower, upper)
             if relative is None:
-                return None
+                return NatDifferenceProver(self).prove(goal, environment, facts, _MAX_NAT_BOUND_JOINS)
             lower, upper, addend, side = relative
             lemma = _constant(f"holdfast_nat_{operator}_add_{side}")
             lifts.append(_apps(lemma, lower, upper, addend))
+
+    def _prove_with_egraph(
+        self: _Elaborator,
+        goal_type: _Term,
+        lhs: _Term,
+        rhs: _Term,
+        all_facts: tuple[_Binding, ...],
+        *,
+        allow_refl: bool,
+    ) -> _Term | None:
+        if not allow_refl and self.resolve(lhs) == self.resolve(rhs):
+            return None
+        saved = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+        try:
+            egraph = VersionedEGraph(self)
+            for fact in all_facts:
+                extracted = self._extract_equality(fact.type)
+                if extracted is None:
+                    continue
+                eq_type, u, v = extracted
+                egraph.assert_equality(eq_type, u, v, fact.term)
+                if self.whnf(eq_type) == _BOOL and self.whnf(v) == _term("bool", value=1):
+                    uh, ua = self.spine(self.resolve(u))
+                    if uh == _constant("eq_nat") and len(ua) == 2:
+                        egraph.assert_equality(
+                            _NAT,
+                            ua[0],
+                            ua[1],
+                            _apps(_constant("holdfast_nat_eq_of_eqb"), ua[0], ua[1], fact.term),
+                        )
+            proof = egraph.explain(goal_type, lhs, rhs)
+            if proof is not None:
+                return proof
+        except HoldFastError:
+            pass
+        self.restore_metas(saved)
+        return None
+
+    def _inline_int_bound(
+        self: _Elaborator,
+        goal: _Term,
+        environment: dict[str, _Binding],
+        facts: tuple[_Binding, ...],
+    ) -> _Term | None:
+        saved = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+        try:
+            proof = FixedIntOrderProver(self).prove(goal, environment, facts)
+            if proof is not None:
+                return proof
+        except HoldFastError:
+            pass
+        self.restore_metas(saved)
+        return None
+
+    def _inline_order_contradiction(
+        self: _Elaborator,
+        goal: _Term,
+        environment: dict[str, _Binding],
+        facts: tuple[_Binding, ...],
+    ) -> _Term | None:
+        saved = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+        try:
+            if (nat_contra := NatDifferenceProver(self).find_contradiction(
+                goal, environment, facts, _MAX_NAT_BOUND_JOINS,
+            )) is not None:
+                return nat_contra
+        except HoldFastError:
+            self.restore_metas(saved)
+        self.restore_metas(saved)
+        try:
+            if (int_contra := FixedIntOrderProver(self).find_contradiction(
+                goal, environment, facts,
+            )) is not None:
+                return int_contra
+        except HoldFastError:
+            pass
+        self.restore_metas(saved)
+        return None
 
     def _elaborate_assert(
         self: _Elaborator, node: Node, environment: dict[str, _Binding], facts: tuple[_Binding, ...]
@@ -2098,6 +2185,10 @@ class _ProofsMixin:
                 self.restore_metas(saved_prove_m)
                 if self.in_inline_proof and failure.kind == "type":
                     if witness := self._inline_nat_bound(goal, environment, facts, node):
+                        return _Binding(witness, goal)
+                    if witness := self._inline_int_bound(goal, environment, facts):
+                        return _Binding(witness, goal)
+                    if witness := self._inline_order_contradiction(goal, environment, facts):
                         return _Binding(witness, goal)
                     start, end = cast("list[int]", self.node(node["value"])["span"])
                     proposition = self.protocol.source[start:end].decode("utf-8")

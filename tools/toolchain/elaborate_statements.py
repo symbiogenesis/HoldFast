@@ -86,7 +86,12 @@ class _StatementsMixin:
         if not self.in_executable_function:
             return ()
         head, _ = self.spine(condition)
-        if head not in {_constant("<="), _constant("<"), _constant(">="), _constant(">")}:
+        if head.kind != "const" or not isinstance(head.value, str):
+            return ()
+        cname = head.value
+        if cname not in {"<=", "<", ">=", ">", "eq_nat", "eq_bool", "&&"} and not cname.startswith(
+            ("int_le_", "int_lt_", "int_ge_", "int_gt_", "int_eq_")
+        ):
             return ()
         prop = _apps(_constant("Eq"), _BOOL, condition, _term("bool", value=int(truth)))
         return (_Binding(self.fresh(prop), prop),)

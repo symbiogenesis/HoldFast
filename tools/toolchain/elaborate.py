@@ -91,6 +91,7 @@ FRONTEND_SOURCES = (
     "elaborate_declarations.py", "elaborate_contract_lints.py", "elaborate_descriptor_lints.py",
     "elaborate_flow_lints.py", "elaborate_resource_lints.py", "graded_source.py", "source_file.py",
     "package_navigation.py",
+    "proof_certificates.py",
 )
 
 __all__ = [
