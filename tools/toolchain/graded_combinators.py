@@ -1059,7 +1059,7 @@ def emit_kernel_module_gallina(
     allows_prop, allowsb_fn, sound_lemma, zero_lemma = rocq_domain_config(domain)
     lines = [
         "(* SPDX-License-Identifier: Apache-2.0 *)",
-        "From Stdlib Require Import List Arith.PeanoNat Bool.Bool Lia.",
+        "From Stdlib Require Import List Arith.PeanoNat Bool.Bool.",
         "Require Import graded_pure graded_domains graded_semiring.",
         "Import ListNotations GradedDomains GradedSemiring.",
         f"Module {module_name}.",

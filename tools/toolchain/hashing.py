@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Protocol
 
 RACILY_CLEAN_NS = 2_000_000_000
-_MAX_CACHE_ENTRIES = 8192
+_MAX_CACHE_ENTRIES = 65536
 _CACHE_LOCK = threading.Lock()
 _FILE_DIGEST_CACHE: dict[tuple[str, int, int, int, int, int], str] = {}
 

@@ -4101,6 +4101,9 @@ def _verdict(lowerer: _CoreLowerer, replay: subprocess.CompletedProcess[str]) ->
     return parsed_rows
 
 
+_REAL_RUN_ROCQ = _run_rocq
+
+
 def _compile_support(compiler: list[str], directory: Path, sources: dict[str, bytes]) -> None:
     rocq_cache._compile_all(compiler, directory, sources, _run_rocq)
 
@@ -4119,13 +4122,14 @@ def _support(root: Path, compiler: list[str], directory: Path, files: tuple[str,
     units = [(name, (root / "tools" / "rocq" / name).read_bytes()) for name in files]
     cache_root = _support_cache_root()
     compiler_digest = _compiler_sha256(compiler) if cache_root is not None else None
+    active_compile = None if globals().get("_run_rocq") is _REAL_RUN_ROCQ else _run_rocq
     return rocq_cache.materialize_units(
         directory,
         units,
         compiler=compiler,
         cache_dir=cache_root,
         compiler_digest=compiler_digest,
-        compile_fn=_run_rocq,
+        compile_fn=active_compile,
         use_default_cache=False,
     )
 

@@ -10,6 +10,7 @@ import re
 import shlex
 import shutil
 import subprocess
+from functools import lru_cache
 from pathlib import Path, PurePosixPath
 
 # Default guest build root for all worktree lanes.
@@ -113,13 +114,26 @@ def mount_type(mountinfo: str, path: PurePosixPath | str) -> str:
     return kind
 
 
+@lru_cache(maxsize=1)
+def _proc_mountinfo() -> str:
+    return Path("/proc/self/mountinfo").read_text(encoding="utf-8")
+
+
+@lru_cache(maxsize=256)
+def _cached_proc_filesystem(posix_path: str) -> str:
+    return mount_type(_proc_mountinfo(), posix_path)
+
+
 def filesystem(path: Path | str) -> str:
     """Return the filesystem type for `path` from `/proc/self/mountinfo`, or `""` when unavailable."""
+    posix_path = Path(path).as_posix()
     try:
+        if MOUNTINFO.as_posix() == "/proc/self/mountinfo":
+            return _cached_proc_filesystem(posix_path)
         text = MOUNTINFO.read_text(encoding="utf-8")
     except OSError:
         return ""
-    return mount_type(text, Path(path).as_posix())
+    return mount_type(text, posix_path)
 
 
 def opam_root() -> Path:

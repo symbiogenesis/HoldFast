@@ -1,19 +1,21 @@
 # SPDX-License-Identifier: Apache-2.0
 """Content-addressed Rocq `.vo` support cache and batched kernel checking."""
 
-import hashlib
 import json
+import os
+import re
 import shutil
 import subprocess
 import tempfile
 import weakref
 from collections.abc import Callable, Sequence
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from pathlib import Path
 
 from filelock import FileLock
 
 from toolchain import elaborate_types, proofenv, solver_ledger
-from toolchain.hashing import file_sha256
+from toolchain.hashing import file_sha256, sha256_bytes
 
 type CompileFn = Callable[[list[str], Path, str], subprocess.CompletedProcess[str]]
 
@@ -80,7 +82,7 @@ def _cache_hit(
     entry: Path,
     key: str,
     names: Sequence[str],
-    sources: dict[str, bytes],
+    hashes: dict[str, str],
 ) -> bool:
     receipt_path = entry / "receipt.json"
     if not receipt_path.is_file():
@@ -97,16 +99,19 @@ def _cache_hit(
     expected_vo = {f"{Path(name).stem}.vo" for name in names}
     if set(vo_digests) != expected_vo:
         return False
-    for name in names:
-        source_file = entry / name
-        vo_name = f"{Path(name).stem}.vo"
-        vo_file = entry / vo_name
-        if not source_file.is_file() or not vo_file.is_file():
-            return False
-        if source_file.read_bytes() != sources[name]:
-            return False
-        if hashlib.sha256(vo_file.read_bytes()).hexdigest() != vo_digests[vo_name]:
-            return False
+    try:
+        for name in names:
+            source_file = entry / name
+            vo_name = f"{Path(name).stem}.vo"
+            vo_file = entry / vo_name
+            if not source_file.is_file() or not vo_file.is_file():
+                return False
+            if file_sha256(source_file) != hashes[name]:
+                return False
+            if file_sha256(vo_file) != vo_digests[vo_name]:
+                return False
+    except OSError:
+        return False
     return True
 
 
@@ -117,6 +122,179 @@ def _copy_artifacts(source_dir: Path, target_dir: Path, names: Sequence[str]) ->
             src = source_dir / artifact
             if src.is_file():
                 shutil.copyfile(src, target_dir / artifact)
+
+
+_REQUIRE_RE = re.compile(
+    r"\b(?:From\s+\S+\s+)?Require\s+(?:(?:Import|Export)\s+)?([^.;]+)\."
+)
+
+
+def _strip_coq_comments(text: str) -> str:
+    """Remove Coq nested ``(* ... *)`` comments and string literals before scanning Require lines."""
+    out: list[str] = []
+    i, n, depth = 0, len(text), 0
+    in_string = False
+    while i < n:
+        if in_string:
+            if text[i] == '"' and i + 1 < n and text[i + 1] == '"':
+                i += 2
+                continue
+            if text[i] == '"':
+                in_string = False
+            i += 1
+            continue
+        if text[i:i + 2] == "(*":
+            depth += 1
+            i += 2
+            continue
+        if depth > 0:
+            if text[i:i + 2] == "*)":
+                depth -= 1
+                i += 2
+            else:
+                i += 1
+            continue
+        if text[i] == '"':
+            in_string = True
+            i += 1
+            continue
+        out.append(text[i])
+        i += 1
+    return "".join(out)
+
+
+def _local_dependencies(
+    names: Sequence[str],
+    sources: dict[str, bytes],
+    directory: Path,
+) -> tuple[dict[str, tuple[str, ...]], dict[str, list[tuple[str, str]]]]:
+    """Return ``(local_deps, external_vo_deps)`` per unit."""
+    stem_to_name = {Path(name).stem: name for name in names}
+    local_deps: dict[str, tuple[str, ...]] = {}
+    external_deps: dict[str, list[tuple[str, str]]] = {}
+    for name in names:
+        text = _strip_coq_comments(sources[name].decode("utf-8", errors="replace"))
+        seen_local: list[str] = []
+        seen_ext: list[tuple[str, str]] = []
+        seen_tokens: set[str] = set()
+        for match in _REQUIRE_RE.finditer(text):
+            for tok in match.group(1).split():
+                if tok in seen_tokens:
+                    continue
+                seen_tokens.add(tok)
+                target = stem_to_name.get(tok)
+                if target is not None and target != name:
+                    seen_local.append(target)
+                elif target is None:
+                    ext_vo = directory / f"{tok}.vo"
+                    if ext_vo.is_file():
+                        seen_ext.append((f"{tok}.vo", file_sha256(ext_vo)))
+        local_deps[name] = tuple(seen_local)
+        external_deps[name] = seen_ext
+    return local_deps, external_deps
+
+
+def _materialize_legacy_tuple(
+    directory: Path,
+    names: list[str],
+    sources: dict[str, bytes],
+    hashes: dict[str, str],
+    active_compiler: list[str],
+    active_compile: CompileFn,
+    active_cache: Path,
+    active_digest: str,
+) -> None:
+    identity = json.dumps(
+        {
+            "compiler_sha256": active_digest,
+            "compiler_args": active_compiler[1:],
+            "files": [[name, hashes[name]] for name in names],
+        },
+        separators=(",", ":"),
+    )
+    key = sha256_bytes(identity.encode("utf-8"))
+    entry = active_cache / key
+    try:
+        if _cache_hit(entry, key, names, hashes):
+            _copy_artifacts(entry, directory, names)
+            return
+    except OSError:
+        pass
+    with FileLock(active_cache / f"{key}.lock", timeout=600):
+        if not _cache_hit(entry, key, names, hashes):
+            shutil.rmtree(entry, ignore_errors=True)
+            stage = Path(tempfile.mkdtemp(prefix=f"stage-{key}-", dir=active_cache))
+            try:
+                _compile_all(active_compiler, stage, sources, active_compile)
+                vo_digests = {
+                    f"{Path(name).stem}.vo": file_sha256(stage / f"{Path(name).stem}.vo")
+                    for name in names
+                }
+                (stage / "receipt.json").write_text(
+                    json.dumps({"key": key, "vo_sha256": vo_digests}, sort_keys=True),
+                    encoding="utf-8",
+                    newline="\n",
+                )
+                stage.replace(entry)
+            except BaseException:
+                shutil.rmtree(stage, ignore_errors=True)
+                raise
+        _copy_artifacts(entry, directory, names)
+
+
+def _compile_unit(compiler: list[str], stage: Path, name: str, compile_fn: CompileFn) -> None:
+    compiled = compile_fn(compiler, stage, name)
+    if compiled.returncode:
+        detail = (compiled.stderr or compiled.stdout).strip()
+        raise RuntimeError(f"Rocq compilation of {name} failed: {detail}")
+
+
+def _materialize_unit(
+    name: str,
+    unit_key: str,
+    source: bytes,
+    source_hash: str,
+    transitive_deps: tuple[str, ...],
+    unit_entries: dict[str, Path],
+    ext_vo_deps: list[tuple[str, str]],
+    source_directory: Path,
+    target_directory: Path,
+    active_compiler: list[str],
+    active_compile: CompileFn,
+    active_cache: Path,
+) -> None:
+    entry = unit_entries[name]
+    try:
+        if _cache_hit(entry, unit_key, [name], {name: source_hash}):
+            _copy_artifacts(entry, target_directory, [name])
+            return
+    except OSError:
+        pass
+    with FileLock(active_cache / f"{unit_key}.lock", timeout=600):
+        if not _cache_hit(entry, unit_key, [name], {name: source_hash}):
+            shutil.rmtree(entry, ignore_errors=True)
+            stage = Path(tempfile.mkdtemp(prefix=f"stage-{unit_key}-", dir=active_cache))
+            try:
+                for dep in transitive_deps:
+                    _copy_artifacts(unit_entries[dep], stage, [dep])
+                for ext_vo, _ in ext_vo_deps:
+                    src_vo = source_directory / ext_vo
+                    if src_vo.is_file():
+                        shutil.copyfile(src_vo, stage / ext_vo)
+                (stage / name).write_bytes(source)
+                _compile_unit(active_compiler, stage, name, active_compile)
+                vo_name = f"{Path(name).stem}.vo"
+                vo_digests = {vo_name: file_sha256(stage / vo_name)}
+                (stage / "receipt.json").write_text(
+                    json.dumps({"key": unit_key, "vo_sha256": vo_digests}, sort_keys=True),
+                    encoding="utf-8",
+                    newline="\n",
+                )
+                stage.replace(entry)
+            except BaseException:
+                shutil.rmtree(stage, ignore_errors=True)
+                raise
+        _copy_artifacts(entry, target_directory, [name])
 
 
 def materialize_units(
@@ -134,7 +312,7 @@ def materialize_units(
         return {}
     names = [name for name, _ in units]
     sources = dict(units)
-    hashes = {name: hashlib.sha256(source).hexdigest() for name, source in units}
+    hashes = {name: sha256_bytes(source) for name, source in units}
     active_compiler = list(compiler) if compiler is not None else [*proofenv.rocq_command(), "-q"]
     solver_ledger.check_prover_flags(active_compiler)
     active_compile = compile_fn if compile_fn is not None else _default_compile
@@ -148,36 +326,96 @@ def materialize_units(
         _compile_all(active_compiler, directory, sources, active_compile)
         return hashes
     active_cache.mkdir(parents=True, exist_ok=True)
-    identity = json.dumps(
-        {
-            "compiler_sha256": active_digest,
-            "compiler_args": active_compiler[1:],
-            "files": [[name, hashes[name]] for name in names],
-        },
-        separators=(",", ":"),
-    )
-    key = hashlib.sha256(identity.encode("utf-8")).hexdigest()
-    entry = active_cache / key
-    with FileLock(active_cache / f"{key}.lock", timeout=600):
-        if not _cache_hit(entry, key, names, sources):
-            shutil.rmtree(entry, ignore_errors=True)
-            stage = Path(tempfile.mkdtemp(prefix=f"stage-{key}-", dir=active_cache))
-            try:
-                _compile_all(active_compiler, stage, sources, active_compile)
-                vo_digests = {
-                    f"{Path(name).stem}.vo": hashlib.sha256((stage / f"{Path(name).stem}.vo").read_bytes()).hexdigest()
-                    for name in names
-                }
-                (stage / "receipt.json").write_text(
-                    json.dumps({"key": key, "vo_sha256": vo_digests}, sort_keys=True),
-                    encoding="utf-8",
-                    newline="\n",
+    # Preserve single-entry tuple caching when a caller injects a custom compile_fn (e.g. mocked tests).
+    if compile_fn is not None:
+        _materialize_legacy_tuple(
+            directory, names, sources, hashes, active_compiler, active_compile, active_cache, active_digest,
+        )
+        return hashes
+
+    local_deps, ext_deps = _local_dependencies(names, sources, directory)
+    unit_keys: dict[str, str] = {}
+    unit_entries: dict[str, Path] = {}
+    transitive: dict[str, tuple[str, ...]] = {}
+    in_degree: dict[str, int] = {}
+    dependents: dict[str, list[str]] = {name: [] for name in names}
+
+    def compute_unit(name: str, visiting: set[str]) -> str:
+        if name in unit_keys:
+            return unit_keys[name]
+        if name in visiting:
+            raise RuntimeError(f"cyclic Rocq unit dependency involving {name}")
+        visiting.add(name)
+        dep_keys = [[dep, compute_unit(dep, visiting)] for dep in sorted(local_deps[name])]
+        visiting.remove(name)
+        trans: list[str] = []
+        seen_trans: set[str] = set()
+        for dep in local_deps[name]:
+            for item in transitive[dep]:
+                if item not in seen_trans:
+                    seen_trans.add(item)
+                    trans.append(item)
+            if dep not in seen_trans:
+                seen_trans.add(dep)
+                trans.append(dep)
+        transitive[name] = tuple(trans)
+        identity = json.dumps(
+            {
+                "schema": 2,
+                "compiler_sha256": active_digest,
+                "compiler_args": active_compiler[1:],
+                "unit": name,
+                "source_sha256": hashes[name],
+                "deps": dep_keys,
+                "external_vo": [[ext, digest] for ext, digest in sorted(ext_deps[name])],
+            },
+            separators=(",", ":"),
+        )
+        unit_key = sha256_bytes(identity.encode("utf-8"))
+        unit_keys[name] = unit_key
+        unit_entries[name] = active_cache / unit_key
+        return unit_key
+
+    for name in names:
+        compute_unit(name, set())
+        in_degree[name] = len(local_deps[name])
+        for dep in local_deps[name]:
+            dependents[dep].append(name)
+
+    if len(names) == 1:
+        only = names[0]
+        _materialize_unit(
+            only, unit_keys[only], sources[only], hashes[only], transitive[only],
+            unit_entries, ext_deps[only], directory, directory, active_compiler, active_compile, active_cache,
+        )
+        return hashes
+
+    max_workers = min(os.process_cpu_count() or 1, len(names))
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        pending: dict[Future[None], str] = {}
+        for name in names:
+            if in_degree[name] == 0:
+                fut = pool.submit(
+                    _materialize_unit,
+                    name, unit_keys[name], sources[name], hashes[name], transitive[name],
+                    unit_entries, ext_deps[name], directory, directory, active_compiler, active_compile, active_cache,
                 )
-                stage.replace(entry)
-            except BaseException:
-                shutil.rmtree(stage, ignore_errors=True)
-                raise
-        _copy_artifacts(entry, directory, names)
+                pending[fut] = name
+        while pending:
+            done, _ = wait(pending, return_when=FIRST_COMPLETED)
+            for fut in done:
+                finished = pending.pop(fut)
+                fut.result()
+                for child in dependents[finished]:
+                    in_degree[child] -= 1
+                    if in_degree[child] == 0:
+                        cfut = pool.submit(
+                            _materialize_unit,
+                            child, unit_keys[child], sources[child], hashes[child], transitive[child],
+                            unit_entries, ext_deps[child], directory, directory,
+                            active_compiler, active_compile, active_cache,
+                        )
+                        pending[cfut] = child
     return hashes
 
 

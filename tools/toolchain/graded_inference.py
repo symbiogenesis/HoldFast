@@ -900,7 +900,7 @@ def _emit_certificate(
     )
     lines = [
         "(* SPDX-License-Identifier: Apache-2.0 *)",
-        "From Stdlib Require Import List Arith.PeanoNat Bool.Bool Lia.",
+        "From Stdlib Require Import List Arith.PeanoNat Bool.Bool.",
         "Require Import graded_pure graded_domains graded_semiring.",
         "Import ListNotations GradedDomains GradedSemiring.",
         "",
