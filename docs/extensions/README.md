@@ -15,4 +15,4 @@ That contract defines the selection criteria. The
 | [Hosted application profile](../language/application-profile.md) | Host execution, foreign lifetimes, cancellation, durable recovery and adoption |
 | [Systems profile](../language/systems-profile.md) | Device, porting, exact cost and secret-observation claims beyond the initial substrate |
 | [Extension composition](full-language-review.md) | Combined client, proof obligations and runtime storage |
-| [Numerical workload candidates](numerical-workloads.md) | Deferred e-means client selection and numerical qualification prerequisites |
+| [Numerical workload candidates](numerical-workloads.md) | Deferred e-means, data-parallel/GPU, and numerical qualification prerequisites |

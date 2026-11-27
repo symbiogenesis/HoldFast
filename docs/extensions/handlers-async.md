@@ -63,8 +63,10 @@ Effect-polymorphic handlers cannot intercept operations performed through capabi
 | [Biernacki, Piróg, Polesiuk and Sieczkowski](https://doi.org/10.1145/3371116), POPL 2020 | Coq lexically scoped instances, open/generative semantics, and logical relations. |
 | System C | Coq progress and preservation for second-class capabilities and boxes. |
 | [De Vilhena and Pottier](https://doi.org/10.1007/978-3-031-30044-8_9), ESOP 2023 | Coq type soundness encoded into Iris separation logic (supports lexical handlers without requiring them). |
+| [Handling Higher-Order Effectful Operations](https://doi.org/10.1145/3776678), POPL 2026 | Judgmental monadic laws for scoped and higher-order effectful operations (Yang & Wu). |
+| [HMCFA](https://doi.org/10.1145/3828703), ICFP 2026 | Big-step control-flow analysis for bounding handler dispatch and specialization tables (Whiting & Germane). |
 
-None supplies Affect's one-shot/multi-shot resource separation for capability-directed lookup (open law).
+None supplies Affect's one-shot/multi-shot resource separation for capability-directed lookup (open law), while HoldFast keeps its lexical capability discipline and specialization proofs unchanged.
 
 ```text
 Interpret(handle_deep E[perform op(a)] with H)

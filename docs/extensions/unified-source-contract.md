@@ -156,7 +156,17 @@ application. Use R-05-023a decompilation and final validation or an admitted com
 checked substitute evidence.
 
 The [Plinth/Plutus design comparison](../assurance/verification-strategy.md#compilation-and-executable-models)
-informs this separation of pass implementation, relation and proof. A composed
+informs this separation of pass implementation, relation and proof, while
+**Verified E-Graphs in Pyrosome** (Jamner, Askerbekov, Chlipala, accepted POPL 2027,
+[chlipala.net](https://chlipala.net)), [Slotted E-Graphs](https://doi.org/10.1145/3729326)
+(PLDI 2025), and [Versioned E-Graphs](https://doi.org/10.1145/3808249) (PLDI 2026)
+chart reflective and binder-aware certificate-producing equality-saturation paradigms
+for native IR optimization passes. Similarly, [Two-Level Staged Closure Elimination](https://doi.org/10.1145/3674648)
+(Kovács, ICFP 2024) informs eliminating higher-order abstractions into closure-free
+first-order IR pre-lowering, and [Exo 2](https://doi.org/10.1145/3669940.3707218)
+(ASPLOS 2025) provides a reference for user-schedulable loop/SIMD/layout schedules
+whose every step must still discharge CHERI authority, leakage, and resource
+preservation in Rocq. A composed
 record identifies each actual input/output, pass and checked theorem application;
 its interfaces preserve the facts later passes consume. A missing step or
 preservation property leaves the artifact incomplete. Proving a relation is

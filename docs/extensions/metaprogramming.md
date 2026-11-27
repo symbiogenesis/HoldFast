@@ -91,6 +91,14 @@ the selected target description, never the build host's pointer width or memory
 layout. Static constants used at runtime require checked finite representations.
 Unbounded mathematical values do not acquire a runtime encoding by specialization.
 
+HoldFast's separation between required-static/type-level computation and
+first-order systems execution aligns with **Two-Level Type Theory (2LTT)** and
+closure-free staged compilation (Kovács, [ICFP 2022](https://doi.org/10.1145/3547641)
+and [ICFP 2024](https://doi.org/10.1145/3674648)). Staging-by-evaluation
+eliminates higher-order iterator, stream-fusion, and abstraction closures before
+lowering into first-order systems code while keeping stage boundaries statically
+typed and subject to kernel-checked correspondence and resource rules.
+
 ## Typed introspection and derivation
 
 Provide typed descriptions of the supported type and declaration forms, with
@@ -268,6 +276,7 @@ dependency is incorporated, feature parity claimed or implementation commissione
 | --- | --- |
 | Zig 0.15.2 [compile-time evaluation](https://ziglang.org/documentation/0.15.2/#comptime) and [type reflection](https://ziglang.org/documentation/0.15.2/#typeInfo) | Ordinary functions at compile time and the `@typeInfo`/`@Type` metadata/reification interface inform static computation and explicit descriptors. Their availability establishes no CIC or ownership theorem. |
 | Idris 2 [elaborator reflection](https://idris-lang.org/Idris2/base/docs/Language.Reflection.html) | Checking, quotation, declaration and fresh-name operations inform scoped generation and discoverable library APIs. HoldFast retains its own dependent, graded and resource-aware construction obligations. |
+| Two-Level Type Theory (2LTT) ([ICFP 2022](https://doi.org/10.1145/3547641), [ICFP 2024](https://doi.org/10.1145/3674648)) | Kovács's staging-by-evaluation separates dependent compile-time meta-types from first-order closure-free runtime code, informing zero-closure systems lowering of static abstractions without bypassing kernel correspondence. |
 | Roslyn [compiler API model](https://learn.microsoft.com/en-us/dotnet/csharp/roslyn-sdk/compiler-api-model) | Syntax, symbols, semantic analysis, diagnostics and workspace services inform the shared tool interface. These services complement compile-time generation. |
 
 ## Qualification

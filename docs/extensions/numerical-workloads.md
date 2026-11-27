@@ -61,6 +61,13 @@ inputs where the selected format admits them. Encode the effective rounding,
 contraction and reassociation choices in the artifact evidence. Compiler options
 and host settings cannot silently weaken the public result guarantee.
 
+For future commissioned SIMD or accelerator numerical pilots, [Kuiper](https://doi.org/10.1145/3808280)
+(Martínez et al., PLDI 2026) demonstrates combining dependent types and separation
+logic for verified high-performance GPU kernels in F*/Pulse, and [Exo 2](https://doi.org/10.1145/3669940.3707218)
+(ASPLOS 2025) demonstrates cursor-based user-schedulable numerical kernels. Both
+address distinct kernels and target models; neither modifies the first-release
+floating-point exclusion or supplies HoldFast's Rocq/CHERI-RISC-V target proofs.
+
 ## Bounded pilot acceptance
 
 Start with one assignment-and-update kernel and an independently authored oracle.
