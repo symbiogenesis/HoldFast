@@ -171,7 +171,7 @@ class DescriptorContractLints:
 
     def _diagnostic(self, site: Node, member: _Member, *, guard: bool = False, requires: bool = False) -> None:
         name, field, _ = member
-        mode = "in" if name in self.shared else "ref"
+        mode = "in" if name in self.shared else ("shared ref" if name in self.elab.shared_ref_locals else "ref")
         self.elab.semantic_lints["HOLDFAST109", _offset(site)] = (
             f"guard repeats an equivalent bound on '{name}.{field}' preserved by {mode} descriptor mode" if guard
             else f"postcondition for '{name}.{field}' follows from {mode} descriptor preservation"
