@@ -74,7 +74,7 @@ def _default_compile(compiler: list[str], directory: Path, name: str) -> subproc
         text=True,
         encoding="utf-8",
         check=False,
-        timeout=180,
+        timeout=600,
     )
 
 
@@ -173,7 +173,7 @@ def materialize_units(
     )
     key = hashlib.sha256(identity.encode("utf-8")).hexdigest()
     entry = active_cache / key
-    with FileLock(active_cache / f"{key}.lock", timeout=120):
+    with FileLock(active_cache / f"{key}.lock", timeout=600):
         if not _cache_hit(entry, key, names, sources):
             shutil.rmtree(entry, ignore_errors=True)
             stage = Path(tempfile.mkdtemp(prefix=f"stage-{key}-", dir=active_cache))
@@ -250,7 +250,7 @@ def use_cached_prelude(
     return f"{prefix}{_PRELUDE_IMPORTS}{suffix}", True
 
 
-def check_kernel(directory: Path, units: Sequence[str], *, timeout: int = 180) -> None:
+def check_kernel(directory: Path, units: Sequence[str], *, timeout: int = 600) -> None:
     """Run ``rocqchk -silent`` over one or more compiled logical unit names."""
     if not units:
         raise ValueError("rocqchk requires at least one unit")

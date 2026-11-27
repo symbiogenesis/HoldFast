@@ -55,6 +55,29 @@ _ERASURE_PROOFS = (
     "erasure_unused_nat_example",
     "erasure_polymorphic_identity_example",
 )
+_GRADED_CORE_PROOFS = (
+    "cidx_eqb_sound",
+    "cty_alpha_eqb_sound",
+    "vec_allowsb_spec",
+    "cidx_demand_sound",
+    "ctype_demand_sound",
+    "cuniverse_level_sound",
+    "check_cenv_sound",
+    "subtyb_sound",
+    "fix_recurrence_okb_sound",
+    "check_record_allows_sound",
+    "extend_record_env_sound",
+    "core_infer_sound",
+)
+_GRADED_CORE_METATHEORY_PROOFS = (
+    "core_derives_lengths",
+    "core_weakening",
+    "core_weakening_erasure",
+    "core_exchange",
+    "core_derives_cenv_rel",
+    "core_derives_nat_safe",
+    "core_value_substitution",
+)
 
 
 def _replay_grtt_core(*, batch: rocq_cache.BatchChecker | None = None) -> None:
@@ -140,6 +163,14 @@ def cases() -> list[Case]:
         Case("graded erasure, non-interference, and Q25cb skipping",
              partial(_replay, "graded_erasure", "GradedErasure", _ERASURE_PROOFS,
                      ("graded_pure", "graded_domains", "graded_cbv", "graded_type_irrelevance"), batch=batch),
+             lane="toolchain"),
+        Case("unified GradedCore soundness and checker completeness",
+             partial(_replay, "graded_core", "GradedCore", _GRADED_CORE_PROOFS,
+                     ("graded_pure", "graded_domains"), batch=batch),
+             lane="toolchain"),
+        Case("unified GradedCore structural and substitution metatheory",
+             partial(_replay, "graded_core_metatheory", "GradedCoreMetatheory", _GRADED_CORE_METATHEORY_PROOFS,
+                     ("graded_pure", "graded_domains", "graded_core"), batch=batch),
              lane="toolchain"),
         Case("kernel check metatheory, semiring, and erasure proofs with rocqchk",
              batch.verify_all,
