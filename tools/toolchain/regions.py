@@ -5,7 +5,7 @@ from collections import deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Literal
+from typing import Literal, cast
 
 type OriginKind = Literal["param", "local", "hrtb"]
 
@@ -91,6 +91,10 @@ def variance_outlives(
             )
 
 
+_EMPTY_STR_SET: frozenset[str] = cast("frozenset[str]", frozenset())
+_EMPTY_EDGE_SET: frozenset[tuple[str, str]] = cast("frozenset[tuple[str, str]]", frozenset())
+
+
 class RegionSolution:
     """Query interface over solved per-point origin-loan, subset, and liveness sets."""
 
@@ -115,19 +119,25 @@ class RegionSolution:
 
     def origin_contains_loan_at(self, point: str, origin: str) -> frozenset[str]:
         """Return all loans reachable in ``origin`` at CFG ``point``."""
-        return self._origin_loans.get(point, {}).get(origin, frozenset())
+        by_origin = self._origin_loans.get(point)
+        if by_origin is None:
+            return _EMPTY_STR_SET
+        return by_origin.get(origin, _EMPTY_STR_SET)
 
     def live_loans_at(self, point: str) -> frozenset[str]:
         """Return all loans live on entry/use at CFG ``point``."""
-        return self._live_loans.get(point, frozenset())
+        loans_here = self._live_loans.get(point)
+        return _EMPTY_STR_SET if loans_here is None else loans_here
 
     def live_origins_at(self, point: str) -> frozenset[str]:
         """Return all origins live on entry/use at CFG ``point``."""
-        return self._live_origins.get(point, frozenset())
+        origins_here = self._live_origins.get(point)
+        return _EMPTY_STR_SET if origins_here is None else origins_here
 
     def subset_at(self, point: str) -> frozenset[tuple[str, str]]:
         """Return the closed subset relation ``(from_origin, to_origin)`` at ``point``."""
-        return self._subsets.get(point, frozenset())
+        subsets_here = self._subsets.get(point)
+        return _EMPTY_EDGE_SET if subsets_here is None else subsets_here
 
     def can_outlive(self, sup: str, sub: str, point: str) -> bool:
         """Check whether ``sup`` flows into ``sub`` without an outlives/HRTB error."""
@@ -412,7 +422,7 @@ class RegionSolver:
                 # Propagate along subset edges at `pt`.
                 for src_o, dst_o in subset_at[pt]:
                     src_loans = pt_map.get(src_o)
-                    if not src_loans:
+                    if src_loans is None or not src_loans:
                         continue
                     dst_loans = pt_map.setdefault(dst_o, set())
                     before_len = len(dst_loans)
@@ -487,7 +497,7 @@ class RegionSolver:
                 flow_pt = universal_flow[pt]
                 for src_o, dst_o in sorted(subset_at[pt]):
                     src_map = flow_pt.get(src_o)
-                    if not src_map:
+                    if src_map is None or not src_map:
                         continue
                     dst_map = flow_pt.setdefault(dst_o, {})
                     for u, chain in src_map.items():

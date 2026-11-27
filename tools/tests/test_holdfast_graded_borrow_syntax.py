@@ -9,6 +9,7 @@ from tests.harness import Case, ensure, raises
 from toolchain import HoldFastError, parser, surface
 from toolchain import syntax_campaigns as campaigns
 from toolchain.elaborate_protocol import _Protocol, syntax_nodes
+from toolchain.elaborate_types import Node
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -20,17 +21,32 @@ def _parse_surface(compiled: parser.Build, source: bytes, *, protocol: bool = Tr
     return result
 
 
-def _nodes(tree: parser.Json, kind: str) -> list[dict[str, parser.Json]]:
+def _nodes(tree: object, kind: str) -> list[Node]:
     return [
-        cast("dict[str, parser.Json]", node)
-        for node in syntax_nodes(cast("dict[str, object]", tree))
+        node
+        for node in syntax_nodes(cast("Node", tree))
         if node.get("kind") == kind
     ]
 
 
-def _span_bytes(source: bytes, node: dict[str, parser.Json]) -> bytes:
-    span = cast("list[int]", node["span"])
-    return source[span[0]:span[1]]
+def _span_bytes(source: bytes, node: Node) -> bytes:
+    raw_span = node["span"]
+    if not isinstance(raw_span, list) or len(raw_span) != 2:
+        raise TypeError(f"invalid span: {raw_span!r}")
+    start, end = raw_span
+    if not isinstance(start, int) or not isinstance(end, int):
+        raise TypeError(f"invalid span indices: {raw_span!r}")
+    return source[start:end]
+
+
+def _node_name_text(node: Node) -> str:
+    raw_name = node["name"]
+    if not isinstance(raw_name, dict):
+        raise TypeError(f"expected dict name, got {raw_name!r}")
+    text = raw_name["text"]
+    if not isinstance(text, str):
+        raise TypeError(f"expected str name text, got {text!r}")
+    return text
 
 
 def _graded_patterns_motives_and_loops() -> None:
@@ -114,7 +130,7 @@ public struct GradedStruct<grade s : NatExact, grade r : NatExact, grade q : Nat
         result = _parse_surface(compiled, source)
         struct_result = _parse_surface(compiled, struct_source, protocol=False)
     ast = result["ast"]
-    fields = {cast("dict[str, str]", node["name"])["text"]: node for node in _nodes(struct_result["ast"], "field")}
+    fields = {_node_name_text(node): node for node in _nodes(struct_result["ast"], "field")}
     for fname, expected_bytes in (
         ("f1", b"Nat f1 @ (s, r);"),
         ("f2", b"Nat f2 @ q + r;"),
@@ -126,7 +142,7 @@ public struct GradedStruct<grade s : NatExact, grade r : NatExact, grade q : Nat
                f"wrong graded struct field span for {fname}")
 
     # Pattern binders with and without grades
-    binders = {cast("dict[str, str]", node["name"])["text"]: node for node in _nodes(ast, "binding_pattern")}
+    binders = {_node_name_text(node): node for node in _nodes(ast, "binding_pattern")}
     for name, expected_bytes in (
         ("localBound", b"localBound @ q"),
         ("varLeft", b"varLeft @ s"),
@@ -147,15 +163,15 @@ public struct GradedStruct<grade s : NatExact, grade r : NatExact, grade q : Nat
            "ungraded binding_pattern should omit 'grade' for backward compatibility")
 
     # Match motives with and without grades
-    motives = {cast("dict[str, str]", node["name"])["text"]: node for node in _nodes(ast, "match_motive")}
+    motives = {_node_name_text(node): node for node in _nodes(ast, "match_motive")}
     ensure(_span_bytes(source, motives["whole"]) == b"as whole @ k : Nat", "wrong graded expression motive span")
     ensure(_span_bytes(source, motives["stmtWhole"]) == b"as stmtWhole @ (s, r) : Unit", "wrong graded statement motive span")
     ensure(_span_bytes(source, motives["emptyWhole"]) == b"as emptyWhole @ _ : Nat", "wrong graded empty motive span")
     ensure("grade" not in motives["plainWhole"], "ungraded match_motive should omit 'grade'")
 
     # Foreach and foreach_collection with and without grades
-    colls = {cast("dict[str, str]", node["name"])["text"]: node for node in _nodes(ast, "foreach_collection")}
-    ranges = {cast("dict[str, str]", node["name"])["text"]: node for node in _nodes(ast, "foreach")}
+    colls = {_node_name_text(node): node for node in _nodes(ast, "foreach_collection")}
+    ranges = {_node_name_text(node): node for node in _nodes(ast, "foreach")}
     for name in ("item", "typedItem", "inItem", "refItem"):
         ensure("grade" in colls[name], f"foreach_collection {name} missing grade")
     for name in ("idx", "idxWild"):
@@ -224,9 +240,9 @@ public shared ref<'a> byte UseSharedRef<region 'a>(
     unaries = sorted(
         (
             node for node in _nodes(ast, "unary")
-            if cast("dict[str, object]", node["operator"]).get("text") == "shared_ref"
+            if isinstance(node["operator"], dict) and node["operator"].get("text") == "shared_ref"
         ),
-        key=lambda node: cast("list[int]", node["span"])[0],
+        key=lambda node: cast("list[int]", node["span"])[0] if isinstance(node["span"], list) else 0,
     )
     ensure(len(unaries) == 6, f"expected 6 shared ref unary expressions, got {len(unaries)}")
     ensure(_span_bytes(source, unaries[0]) == b"shared ref vec", "wrong span for shared ref vec")
@@ -236,12 +252,12 @@ public shared ref<'a> byte UseSharedRef<region 'a>(
 
     # Check FnMut / FnOnce with region telescopes
     fn_types = _nodes(ast, "function_type")
-    modes = {cast("str", node["mode"]) for node in fn_types}
+    modes = {node["mode"] for node in fn_types if isinstance(node["mode"], str)}
     ensure({"FnMut", "FnOnce"} <= modes, f"missing FnMut/FnOnce modes: {modes}")
     for mode in ("FnMut", "FnOnce"):
         with_region = [
             node for node in fn_types
-            if node.get("mode") == mode and len(cast("list[object]", node["generics"])) == 1
+            if node.get("mode") == mode and isinstance(node["generics"], list) and len(node["generics"]) == 1
         ]
         ensure(bool(with_region), f"expected {mode}<region ...> function_type")
 
@@ -250,14 +266,20 @@ public shared ref<'a> byte UseSharedRef<region 'a>(
     ensure(len(assoc) == 5, f"expected 5 associated_type declarations, got {len(assoc)}")
     iface = _nodes(ast, "interface")[0]
     impl = _nodes(ast, "impl")[0]
-    iface_item = next(n for n in _nodes(iface, "associated_type")
-                      if cast("dict[str, str]", n["name"])["text"] == "Item")
-    impl_item = next(n for n in _nodes(impl, "associated_type")
-                     if cast("dict[str, str]", n["name"])["text"] == "Item")
-    ensure(iface_item.get("definition") is None and len(cast("list[object]", iface_item["generics"])) == 1,
-           "interface GAT Item mismatch")
-    ensure(impl_item.get("definition") is not None and len(cast("list[object]", impl_item["generics"])) == 1,
-           "impl GAT Item mismatch")
+    iface_item = next(n for n in _nodes(iface, "associated_type") if _node_name_text(n) == "Item")
+    impl_item = next(n for n in _nodes(impl, "associated_type") if _node_name_text(n) == "Item")
+    ensure(
+        iface_item.get("definition") is None
+        and isinstance(iface_item["generics"], list)
+        and len(iface_item["generics"]) == 1,
+        "interface GAT Item mismatch",
+    )
+    ensure(
+        impl_item.get("definition") is not None
+        and isinstance(impl_item["generics"], list)
+        and len(impl_item["generics"]) == 1,
+        "impl GAT Item mismatch",
+    )
 
     # Forged shared_ref from literal 'shared_ref' identifier must fail protocol
     bad_source = b"module Bad; void F() { let x = shared_ref; }"
@@ -265,12 +287,14 @@ public shared ref<'a> byte UseSharedRef<region 'a>(
         bad_res = parser.parse_source(compiled, bad_source, surface=True)
     bad_res_forged = copy.deepcopy(bad_res)
     let_node = _nodes(bad_res_forged["ast"], "let")[0]
-    name_node = cast("dict[str, parser.Json]", let_node["value"])
+    raw_name_expr = let_node["value"]
+    if not isinstance(raw_name_expr, dict):
+        raise TypeError(f"expected dict let value, got {raw_name_expr!r}")
     let_node["value"] = {
         "kind": "unary",
-        "span": name_node["span"],
-        "operator": name_node["name"],
-        "value": name_node,
+        "span": raw_name_expr["span"],
+        "operator": raw_name_expr["name"],
+        "value": raw_name_expr,
     }
     with raises(HoldFastError, msg="forged shared_ref unary escaped _Protocol") as raised:
         _Protocol(bad_source).decode(bad_res_forged)

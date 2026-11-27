@@ -58,7 +58,7 @@ def domain_is_exact(domain: InferenceDomain) -> bool:
 class GradeMeta:
     """Grade metavariable bound to a domain and optional source span."""
 
-    id: int | str  # noqa: A003 - required API field name GradeMeta(id, domain, span)
+    id: int | str
     domain: InferenceDomain | str = InferenceDomain.NAT_EXACT
     span: tuple[int, ...] = _DEFAULT_SPAN
 
@@ -436,11 +436,12 @@ def _constraint_domain_check(
     domain: InferenceDomain,
 ) -> ResidualGoal | None:
     for meta in metas:
-        if meta.domain != domain:
+        meta_domain = coerce_domain(meta.domain)
+        if meta_domain != domain:
             return ResidualGoal(
                 constraint=None,
                 kind="inconsistent",
-                message=f"metavariable {meta.id!r} belongs to domain {meta.domain.value}, expected {domain.value}",
+                message=f"metavariable {meta.id!r} belongs to domain {meta_domain.value}, expected {domain.value}",
                 remaining_variables=(meta.id,),
                 origin_span=meta.span,
             )
@@ -450,13 +451,14 @@ def _constraint_domain_check(
             while stack:
                 node = stack.pop()
                 if isinstance(node, GradeVar) and isinstance(node.meta, GradeMeta):
-                    if node.meta.domain != domain:
+                    node_domain = coerce_domain(node.meta.domain)
+                    if node_domain != domain:
                         return ResidualGoal(
                             constraint=c,
                             kind="inconsistent",
                             message=(
                                 f"metavariable {node.meta.id!r} belongs to domain "
-                                f"{node.meta.domain.value}, expected {domain.value}"
+                                f"{node_domain.value}, expected {domain.value}"
                             ),
                             remaining_variables=(node.meta.id,),
                             origin_span=c.origin_span or node.meta.span,
@@ -599,7 +601,7 @@ def _presence_propagate(
                     for v in mono:
                         new_vals[v] = 1
                     continue
-        elif item.op == "eq":
+        else:
             if cr == 0:
                 forced = False
                 for mono in pl:

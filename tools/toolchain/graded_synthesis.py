@@ -63,7 +63,7 @@ class Component:
 
     name: str
     ty: gc.CombinatorType
-    semantics: Callable[..., object] | None = None
+    semantics: Callable[..., object] | int | bool | None = None
     cost: int = 1
     duplicable: bool = True
     rocq_expr: str | None = None
@@ -200,7 +200,7 @@ class SynthesisResidual:
 type SynthesisOutcome = SynthesisSuccess | SynthesisResidual
 
 
-class _BudgetExhausted(Exception):
+class _BudgetExhaustedError(Exception):
     def __init__(self, reason: str) -> None:
         super().__init__(reason)
         self.reason = reason
@@ -647,9 +647,9 @@ def synthesize(
         nonlocal explored_nodes
         elapsed_ms = (time.monotonic_ns() - start_ns) / 1_000_000.0
         if elapsed_ms > active_budget.timeout_ms:
-            raise _BudgetExhausted(f"timeout after {elapsed_ms:.1f}ms > {active_budget.timeout_ms}ms")
+            raise _BudgetExhaustedError(f"timeout after {elapsed_ms:.1f}ms > {active_budget.timeout_ms}ms")
         if explored_nodes >= active_budget.max_nodes:
-            raise _BudgetExhausted(f"explored {explored_nodes} >= max_nodes={active_budget.max_nodes}")
+            raise _BudgetExhaustedError(f"explored {explored_nodes} >= max_nodes={active_budget.max_nodes}")
         explored_nodes += 1
 
     def _can_consume(var: ContextVar, current_used: int, added: int) -> int | None:
@@ -924,7 +924,7 @@ def synthesize(
             if verify_rocq:
                 verify_synthesis(success)
             return success
-    except _BudgetExhausted as exc:
+    except _BudgetExhaustedError as exc:
         return SynthesisResidual(
             status="exhausted",
             domain=resolved_domain,

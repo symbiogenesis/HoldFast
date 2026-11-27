@@ -7,15 +7,18 @@ from toolchain import graded_synthesis as gs
 
 
 def _inc(x: object) -> int:
-    assert isinstance(x, int)
+    if not isinstance(x, int):
+        raise TypeError(f"expected int, got {x!r}")
     return x + 1
 
 
 def _add(x: object) -> object:
-    assert isinstance(x, int)
+    if not isinstance(x, int):
+        raise TypeError(f"expected int, got {x!r}")
 
     def _inner(y: object) -> int:
-        assert isinstance(y, int)
+        if not isinstance(y, int):
+            raise TypeError(f"expected int, got {y!r}")
         return x + y
 
     return _inner
@@ -53,7 +56,8 @@ def _test_grade_pruning_and_oracle_selection() -> None:
         budget=gs.SynthesisBudget(max_nodes=500, max_depth=4, timeout_ms=2000),
         examples=[((0,), 1), ((3,), 7), ((5,), 11)],
     )
-    ensure(isinstance(res, gs.SynthesisSuccess), f"expected synthesis success, got {res}")
+    if not isinstance(res, gs.SynthesisSuccess):
+        raise TypeError(f"expected synthesis success, got {res}")
     ensure(res.used_grades == {"x": 2}, f"wrong exact grade usage: {res.used_grades}")
     ensure(res.behavioral_rejections >= 1, f"expected oracle to reject add(x, x) first: {res}")
     ensure(res.pruned_branches >= 1, f"expected immediate grade pruning on over-use: {res}")
@@ -99,7 +103,7 @@ def _test_behavioral_rejection_and_budget_exhaustion() -> None:
         examples=[((3,), 7)],
     )
     ensure(isinstance(exhausted, gs.SynthesisResidual) and exhausted.status == "exhausted"
-           and exhausted.explored_nodes <= 2 and exhausted.remaining_goals,
+           and exhausted.explored_nodes <= 2 and bool(exhausted.remaining_goals),
            f"expected exhausted residual: {exhausted}")
 
     # Box promotion + unboxing synthesis in Affine / NatBound
@@ -126,7 +130,8 @@ def _test_rocq_synthesis_replay_and_tamper() -> None:
         examples=[((2,), 5), ((4,), 9)],
         verify_rocq=True,
     )
-    ensure(isinstance(res, gs.SynthesisSuccess), f"Rocq synthesis replay failed: {res}")
+    if not isinstance(res, gs.SynthesisSuccess):
+        raise TypeError(f"Rocq synthesis replay failed: {res}")
 
     # Box unboxing into pair with Rocq kernel replay
     bx = gs.ContextVar("bx", gc.BoxType(gc.NAT_TYPE, gs.gi.GradeLit(2)), allowance=1)
@@ -144,7 +149,7 @@ def _test_rocq_synthesis_replay_and_tamper() -> None:
     tampered_gallina = res.gallina.replace("(GLit 2)", "(GLit 1)", 1)
     ensure(tampered_gallina != res.gallina, "tamper did not alter synthesis Gallina")
     tampered = gs.SynthesisSuccess(
-        status=res.status,
+        status="synthesized",
         domain=res.domain,
         term=res.term,
         goal_type=res.goal_type,

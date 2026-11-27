@@ -299,7 +299,8 @@ def _test_rocq_certificate_replay_and_tamper_refusal() -> None:
 
     # Tampered certificate witness MUST be rejected by Rocq!
     cert = exact_res.certificate
-    assert cert is not None
+    if cert is None:
+        raise AssertionError("expected exact certificate")
     tampered_gallina = cert.gallina.replace("=> 2", "=> 99", 1)
     ensure(tampered_gallina != cert.gallina, "tamper did not alter certificate")
     tampered = gi.GradeCertificate(

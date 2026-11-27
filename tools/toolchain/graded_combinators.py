@@ -190,13 +190,18 @@ def inspect_holdfast_structures(source: str) -> StructureSpec:
                     dom_name = gen.split(":", 1)[1].strip()
                     box_domain = gi.coerce_domain(dom_name)
         fields: list[tuple[str, str, str | None]] = []
-        for raw_field in match.group(3).split(","):
+        raw_body = match.group(3)
+        if not isinstance(raw_body, str):
+            continue
+        for raw_field in raw_body.split(","):
             entry = raw_field.strip()
             if not entry:
                 continue
             grade_part: str | None = None
             if "@" in entry:
-                head, grade_part = [item.strip() for item in entry.split("@", 1)]
+                head_raw, grade_raw = entry.split("@", 1)
+                head = head_raw.strip()
+                grade_part = grade_raw.strip()
             else:
                 head = entry
             parts = head.rsplit(None, 1)
@@ -881,6 +886,9 @@ def _check_domain_allows(
     )
 
 
+_DEFAULT_GRADE = gi.GradeLit(1)
+
+
 def _derive_plan(
     combinator: CombinatorName,
     rules: DomainCombinatorRules,
@@ -888,8 +896,8 @@ def _derive_plan(
     payload_type: CombinatorType | None = None,
     pair_type: PairType | None = None,
     sum_type: SumType | None = None,
-    grade: gi.GradeExpr = gi.GradeLit(1),
-    inner_grade: gi.GradeExpr = gi.GradeLit(1),
+    grade: gi.GradeExpr = _DEFAULT_GRADE,
+    inner_grade: gi.GradeExpr = _DEFAULT_GRADE,
     target_grade: gi.GradeExpr | None = None,
     structure: StructureSpec | None = None,
 ) -> tuple[ArrowType, str, str] | CombinatorRefusal:
@@ -1355,8 +1363,8 @@ def try_derive_combinator(
     payload_type: CombinatorType | None = None,
     pair_type: PairType | None = None,
     sum_type: SumType | None = None,
-    grade: gi.GradeExpr = gi.GradeLit(1),
-    inner_grade: gi.GradeExpr = gi.GradeLit(1),
+    grade: gi.GradeExpr = _DEFAULT_GRADE,
+    inner_grade: gi.GradeExpr = _DEFAULT_GRADE,
     target_grade: gi.GradeExpr | None = None,
     rules: DomainCombinatorRules | None = None,
     structure: StructureSpec | None = None,
@@ -1409,8 +1417,8 @@ def derive_combinator(
     payload_type: CombinatorType | None = None,
     pair_type: PairType | None = None,
     sum_type: SumType | None = None,
-    grade: gi.GradeExpr = gi.GradeLit(1),
-    inner_grade: gi.GradeExpr = gi.GradeLit(1),
+    grade: gi.GradeExpr = _DEFAULT_GRADE,
+    inner_grade: gi.GradeExpr = _DEFAULT_GRADE,
     target_grade: gi.GradeExpr | None = None,
     rules: DomainCombinatorRules | None = None,
     structure: StructureSpec | None = None,
