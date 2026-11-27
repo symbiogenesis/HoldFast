@@ -1,9 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for derived distributive modality combinators (Q25bz)."""
 
-from tests.harness import Case, ensure, raises
+from pathlib import Path
+import subprocess
+import tempfile
+
+from tests.harness import TOOLS, Case, ensure, raises
+from toolchain import elaborate, parser, proofenv, rocq_cache, solver_ledger
 from toolchain import graded_combinators as gc
 from toolchain import graded_inference as gi
+from toolchain.ast import HoldFastError
 
 
 def _test_all_seven_combinators_positive() -> None:
@@ -272,6 +278,185 @@ def _test_rocq_combinator_replay_and_tamper() -> None:
         gc.verify_combinator(tampered_cross)
 
 
+def _test_mode_crossing_slots_relocation_replay() -> None:
+    positive_source = b"""module ModeCrossReloc;
+
+public record Point(u32 X, u32 Y);
+
+public union FlagOrByte
+{
+    Flag(bool On);
+    Byte(u8 Val);
+    Empty();
+}
+
+public Unit RelocatePoint<ghost usize M, ghost usize N>(
+    ref Slots<Point, M> dst, ref Slots<Point, N> src, usize count)
+    requires Slots.Disjoint(dst, src)
+    requires count <= N
+    requires count <= M
+    requires src.CanWrite
+    requires dst.CanRead
+    requires LivePrefix(src, count)
+    requires VacantSuffix(src, count)
+    requires VacantRange(dst, 0usize, M)
+    ensures LivePrefix(dst, count)
+    ensures VacantSuffix(dst, count)
+    ensures VacantRange(src, 0usize, N)
+    ensures PrefixModel(dst, count) == old(PrefixModel(src, count))
+{
+    CopyRepresentation(src, ref dst, count);
+    TransferType<Point>(ref src, ref dst, count);
+    return ();
+}
+
+public Unit RelocatePair<ghost usize M, ghost usize N>(
+    ref Slots<type (u32, bool), M> dst, ref Slots<type (u32, bool), N> src, usize count)
+    requires Slots.Disjoint(dst, src)
+    requires count <= N
+    requires count <= M
+    requires src.CanWrite
+    requires dst.CanRead
+    requires LivePrefix(src, count)
+    requires VacantSuffix(src, count)
+    requires VacantRange(dst, 0usize, M)
+    ensures LivePrefix(dst, count)
+    ensures VacantSuffix(dst, count)
+    ensures VacantRange(src, 0usize, N)
+    ensures PrefixModel(dst, count) == old(PrefixModel(src, count))
+{
+    CopyRepresentation(src, ref dst, count);
+    TransferType<type (u32, bool)>(ref src, ref dst, count);
+    return ();
+}
+
+public Unit RelocateUnion<ghost usize M, ghost usize N>(
+    ref Slots<FlagOrByte, M> dst, ref Slots<FlagOrByte, N> src, usize count)
+    requires Slots.Disjoint(dst, src)
+    requires count <= N
+    requires count <= M
+    requires src.CanWrite
+    requires dst.CanRead
+    requires LivePrefix(src, count)
+    requires VacantSuffix(src, count)
+    requires VacantRange(dst, 0usize, M)
+    ensures LivePrefix(dst, count)
+    ensures VacantSuffix(dst, count)
+    ensures VacantRange(src, 0usize, N)
+    ensures PrefixModel(dst, count) == old(PrefixModel(src, count))
+{
+    CopyRepresentation(src, ref dst, count);
+    TransferType<FlagOrByte>(ref src, ref dst, count);
+    return ();
+}
+"""
+    root = TOOLS.parent
+    with parser.cached_build(root) as compiled:
+        parsed = parser.parse_source(compiled, positive_source, surface=True)
+        checked = elaborate.elaborate(positive_source, parsed)
+        with tempfile.TemporaryDirectory(prefix="holdfast-mode-cross-reloc-") as temporary:
+            directory = Path(temporary)
+            thms = [
+                name
+                for name in solver_ledger.math_exports(checked.gallina)
+                if "_ensures_" in name
+            ]
+            ensure(len(thms) >= 12, f"expected 12 relocation postcondition theorems, got {thms}")
+            unit_text, used_prelude = rocq_cache.use_cached_prelude(
+                checked.gallina
+                + "\nImport HoldFast_ModeCrossReloc.\n"
+                + "".join(f"Print Assumptions {thm}.\n" for thm in thms),
+                directory,
+            )
+            unit = directory / "ModeCrossRelocCheck.v"
+            unit.write_text(unit_text, encoding="utf-8")
+            compiler = [*proofenv.rocq_command(), "-q"]
+            res = subprocess.run([*compiler, unit.name], cwd=directory, capture_output=True, text=True, check=False, timeout=180)
+            ensure(res.returncode == 0, f"Rocq replay failed:\n{res.stdout}\n{res.stderr}")
+            solver_ledger.audit(res.stdout, len(thms), "HoldFast_ModeCrossReloc", ())
+            units = ["HoldFastPrelude", "ModeCrossRelocCheck"] if used_prelude else ["ModeCrossRelocCheck"]
+            rocq_cache.check_kernel(directory, units)
+
+        negatives = (
+            ("span-record", b"""module BadSpanReloc;
+public record SpanWrap(Span<byte> View);
+public Unit Bad<ghost usize M, ghost usize N>(
+    ref Slots<SpanWrap, M> dst, ref Slots<SpanWrap, N> src, usize count)
+    requires Slots.Disjoint(dst, src)
+    requires count <= N
+    requires count <= M
+    requires src.CanWrite
+    requires dst.CanRead
+    requires LivePrefix(src, count)
+    requires VacantSuffix(src, count)
+    requires VacantRange(dst, 0usize, M)
+{
+    CopyRepresentation(src, ref dst, count);
+    return ();
+}
+"""),
+            ("cell-record", b"""module BadCellReloc;
+public record CellWrap(LocalCell<u32> Cell);
+public Unit Bad<ghost usize M, ghost usize N>(
+    ref Slots<CellWrap, M> dst, ref Slots<CellWrap, N> src, usize count)
+    requires Slots.Disjoint(dst, src)
+    requires count <= N
+    requires count <= M
+    requires src.CanWrite
+    requires dst.CanRead
+    requires LivePrefix(src, count)
+    requires VacantSuffix(src, count)
+    requires VacantRange(dst, 0usize, M)
+{
+    CopyRepresentation(src, ref dst, count);
+    return ();
+}
+"""),
+            ("region-record", b"""module BadRegionReloc;
+public record BorrowedView<region 'r>(in<'r> Span<byte> View);
+public Unit Bad<region 'a, ghost usize M, ghost usize N>(
+    ref Slots<BorrowedView<'a>, M> dst, ref Slots<BorrowedView<'a>, N> src, usize count)
+    requires Slots.Disjoint(dst, src)
+    requires count <= N
+    requires count <= M
+    requires src.CanWrite
+    requires dst.CanRead
+    requires LivePrefix(src, count)
+    requires VacantSuffix(src, count)
+    requires VacantRange(dst, 0usize, M)
+{
+    CopyRepresentation(src, ref dst, count);
+    return ();
+}
+"""),
+            ("generic-param", b"""module BadGenericReloc;
+public Unit Bad<T, ghost usize M, ghost usize N>(
+    ref Slots<T, M> dst, ref Slots<T, N> src, usize count)
+    requires Slots.Disjoint(dst, src)
+    requires count <= N
+    requires count <= M
+    requires src.CanWrite
+    requires dst.CanRead
+    requires LivePrefix(src, count)
+    requires VacantSuffix(src, count)
+    requires VacantRange(dst, 0usize, M)
+{
+    CopyRepresentation(src, ref dst, count);
+    return ();
+}
+"""),
+        )
+        for label, bad_src in negatives:
+            bad_parsed = parser.parse_source(compiled, bad_src, surface=True)
+            with raises(HoldFastError, msg=f"mode crossing allowed non-crossing relocation for {label}") as raised:
+                elaborate.elaborate(bad_src, bad_parsed)
+            ensure(
+                raised.exception.kind == "unsupported"
+                and "mode-crossing represented value type" in raised.exception.message,
+                f"wrong refusal for {label}: {raised.exception}",
+            )
+
+
 def cases() -> list[Case]:
     return [
         Case("all seven derived distributive modality combinators", _test_all_seven_combinators_positive),
@@ -279,6 +464,8 @@ def cases() -> list[Case]:
         Case("mode crossing derivation and refusals", _test_mode_crossing_derivation_and_refusals),
         Case("structure inspection via canonical HoldFast parser", _test_structure_inspection, lane="toolchain"),
         Case("mode profile derivation over HoldFast declarations", _test_mode_profile_structure_inspection, lane="toolchain"),
+        Case("mode crossing slots relocation Rocq replay and refusals",
+             _test_mode_crossing_slots_relocation_replay, lane="toolchain"),
         Case("Rocq kernel replay and tampered combinator certificate refusal",
              _test_rocq_combinator_replay_and_tamper, lane="toolchain"),
     ]

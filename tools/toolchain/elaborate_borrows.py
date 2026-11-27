@@ -1662,6 +1662,64 @@ class _BorrowMixin:
                 return False
         return any(self._contains_borrow_or_region_type(arg) for arg in args)
 
+    def _type_crosses_modes(
+        self: _Elaborator,
+        ty: _Term,
+        *,
+        runtime_represented: bool = False,
+        _seen: frozenset[str] = frozenset(),
+    ) -> bool:
+        """True if ``ty`` has a deeply immutable, authority-free mode-crossing structure."""
+        w = self.whnf(ty)
+        if self._int_spec(w) is not None or w in {_BOOL, _CHAR, _UNIT}:
+            return True
+        if w == _NAT:
+            return not runtime_represented
+        if w.kind == "prod" and w.args:
+            return all(
+                self._type_crosses_modes(part, runtime_represented=runtime_represented, _seen=_seen)
+                for part in w.args
+            )
+        head, args = self.spine(w)
+        if head.kind != "const" or not isinstance(head.value, str):
+            return False
+        type_key = head.value
+        if type_key == "holdfast_Result" or type_key in _seen or bool(self.type_region_params.get(type_key)):
+            return False
+        if rinfo := self.records_by_type.get(type_key):
+            if rinfo.is_dependent or len(args) != len(rinfo.generic_vars):
+                return False
+            fbor = self.record_field_borrows.get(type_key, ())
+            for idx, rf in enumerate(rinfo.fields):
+                if cast("int", rf.var.value) in self.owned_parameters:
+                    return False
+                if idx < len(fbor) and (fbor[idx][1] is not None or fbor[idx][2] is not None):
+                    return False
+                fty = self._instantiate_record_type(rinfo, args, rf.type)
+                if not self._type_crosses_modes(
+                    fty, runtime_represented=runtime_represented, _seen=_seen | {type_key}
+                ):
+                    return False
+            return True
+        if uinfo := self.unions_by_type.get(type_key):
+            if len(args) != len(uinfo.generic_vars) or any(ctor.is_dependent for ctor in uinfo.constructors):
+                return False
+            ubor = self.union_ctor_borrows.get(type_key, {})
+            for ctor in uinfo.constructors:
+                cbor = ubor.get(ctor.name, ())
+                for fidx, f in enumerate(ctor.fields):
+                    if cast("int", f.var.value) in self.owned_parameters:
+                        return False
+                    if fidx < len(cbor) and (cbor[fidx][1] is not None or cbor[fidx][2] is not None):
+                        return False
+                    fty = self._instantiate_generic_type(uinfo.generic_vars, args, f.type)
+                    if not self._type_crosses_modes(
+                        fty, runtime_represented=runtime_represented, _seen=_seen | {type_key}
+                    ):
+                        return False
+            return True
+        return False
+
     # ------------------------------------------------------------------
     # Shared mutability (shared ref), fact purging, tag/capacity proofs
     # ------------------------------------------------------------------

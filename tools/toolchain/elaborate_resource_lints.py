@@ -298,7 +298,7 @@ def lint_private_refs(
         site = cast("Node", parameter["name"])
         name = elab.name(site)
         ty = elab.entry_env[name].type
-        if ty not in {_NAT, _BOOL, _CHAR, _UNIT} and elab._int_spec(ty) is None:
+        if not elab._type_crosses_modes(ty, runtime_represented=False):
             continue
         if name not in writes and name not in mutable_uses:
             _report(elab, "HOLDFAST122", site, f"parameter '{name}' can use a shared 'in' loan")

@@ -506,10 +506,12 @@ class _IntrinsicsMixin:
         return b, args[0], args[1]
 
     def _require_relocatable_element(self: _Elaborator, element: _Term, site: Node) -> None:
-        if self._int_spec(element) is None and self.whnf(element) not in {_BOOL, _CHAR, _UNIT}:
+        if not self._type_crosses_modes(element, runtime_represented=True):
             raise self.fail(
-                "unsupported", "bulk relocation requires evidence that the element type can be relocated; "
-                "the prototype supports fixed-width integers, bool, char and Unit", site,
+                "unsupported",
+                "bulk relocation requires a mode-crossing represented value type "
+                "(authority-bearing types, loans, cells, and unconstrained generics cannot relocate without a checked law)",
+                site,
             )
 
     def _check_slots_disjoint(
