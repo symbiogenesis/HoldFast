@@ -12467,4 +12467,1295 @@ Proof.
     end.
 Qed.
 
+(* ================================================================= *)
+(* Part A1: Subtyping & Subgrading Admissibility                     *)
+(* ================================================================= *)
+
+Lemma Subty_any_env : forall (D : JoinDomain) (env1 env2 : cenv D) A B,
+  Subty env1 A B ->
+  Subty env2 A B.
+Proof.
+  intros D env1 env2 A B H.
+  revert env2.
+  induction H; intros env2.
+  - apply SubRefl; exact H.
+  - apply SubBox; [exact H | apply IHSubty].
+  - eapply SubPi; [exact H | exact H0 | apply IHSubty1 | apply IHSubty2].
+  - eapply SubSigma; [exact H | apply IHSubty1 | apply IHSubty2].
+  - apply SubSum; [apply IHSubty1 | apply IHSubty2].
+  - apply SubVec; [exact H | apply IHSubty].
+Qed.
+
+Lemma Subty_refl : forall (D : JoinDomain) (env : cenv D) A,
+  Subty env A A.
+Proof.
+  intros D env A. apply SubRefl, cty_alpha_eq_refl.
+Qed.
+
+Lemma Subty_trans : forall (D : JoinDomain) (env : cenv D) A B C,
+  Subty env A B ->
+  Subty env B C ->
+  Subty env A C.
+Proof.
+  intros D env A B C HAB HBC.
+  revert env A C HAB HBC.
+  induction B using cty_ind_nested; intros env A C HAB HBC;
+    inversion HAB; subst;
+    try (eapply Subty_alpha; [exact HBC | apply cenv_alpha_eq_refl | apply cty_alpha_eq_sym; eassumption | apply cty_alpha_eq_refl]);
+    inversion HBC; subst;
+    try (eapply Subty_alpha; [exact HAB | apply cenv_alpha_eq_refl | apply cty_alpha_eq_refl | eassumption]).
+  - lazymatch goal with
+    | Hc1 : cidx_eqb _ len = true, Hc2 : cidx_eqb len _ = true |- _ =>
+        apply cidx_eqb_sound in Hc1; subst; apply SubVec; [exact Hc2 | eapply IHB; eassumption]
+    end.
+  - eapply SubPi.
+    + eapply allows_trans; eassumption.
+    + eapply allows_trans; eassumption.
+    + eapply IHB1; eassumption.
+    + lazymatch goal with
+      | Hc1 : Subty (_ :: env) _ B2, Hc2 : Subty (_ :: env) B2 _ |- _ =>
+          eapply IHB2; [eapply Subty_any_env; exact Hc1 | exact Hc2]
+      end.
+  - eapply SubSigma.
+    + eapply allows_trans; eassumption.
+    + eapply IHB1; eassumption.
+    + lazymatch goal with
+      | Hc1 : Subty (_ :: env) _ B2, Hc2 : Subty (_ :: env) B2 _ |- _ =>
+          eapply IHB2; [exact Hc1 | eapply Subty_any_env; exact Hc2]
+      end.
+  - apply SubBox; [eapply allows_trans; eassumption | eapply IHB; eassumption].
+  - apply SubSum; [eapply IHB1; eassumption | eapply IHB2; eassumption].
+Qed.
+
+Theorem core_subgrade_admissible : forall (D : JoinDomain),
+  ErasureDomain D ->
+  forall (env env' : cenv D) t j target vt,
+    cenv_demand_rel env' env ->
+    CoreDerives env t j ->
+    Subty env (cresult_type j) target ->
+    CTypeDemand env' target vt ->
+    exists j',
+      CoreDerives env' (CSubgrade target t) j' /\
+      cty_alpha_eq (cresult_type j') target /\
+      branch_rel (ccomp_demand j') (ccomp_demand j) /\
+      branch_rel (ctype_demand_row j') vt.
+Proof.
+  intros D ED env env' t j target vt Hrel Hder Hsub Hvt.
+  destruct (core_derives_cenv_rel D ED env t j Hder env' Hrel) as [j1 [Hder1 [Hres1 [Hu1 Hv1]]]].
+  pose proof (cenv_demand_rel_alpha D env' env Hrel) as Halpha.
+  assert (Hsub1 : Subty env' (cresult_type j1) target) by
+    (eapply Subty_alpha; [exact Hsub | apply cenv_alpha_eq_sym; exact Halpha | apply cty_alpha_eq_sym; exact Hres1 | apply cty_alpha_eq_refl]).
+  destruct j1 as [act1 u1 v1].
+  eexists. split; [| split; [| split]].
+  - eapply CoreSubgrade; [exact Hder1 | exact Hsub1 | exact Hvt].
+  - cbn [cresult_type]. apply cty_alpha_eq_refl.
+  - cbn [ccomp_demand]. exact Hu1.
+  - cbn [ctype_demand_row]. apply branch_rel_refl.
+Qed.
+
+(* ================================================================= *)
+(* Part A2: Grade Substitution (JoinDomainMap Transport)             *)
+(* ================================================================= *)
+
+Fixpoint map_cidx {A B : JoinDomain} (m : JoinDomainMap A B) (i : cidx A) : cidx B :=
+  match i with
+  | CIdxVar x => CIdxVar x
+  | CIdxLit n => CIdxLit n
+  | CIdxAdd l r => CIdxAdd (map_cidx m l) (map_cidx m r)
+  | CIdxProm q i' => CIdxProm (translate m q) (map_cidx m i')
+  | CIdxUnbox b => CIdxUnbox b
+  | CIdxFst p => CIdxFst p
+  | CIdxSnd p => CIdxSnd p
+  | CIdxCase s l r => CIdxCase s (map_cidx m l) (map_cidx m r)
+  end.
+
+Fixpoint map_cty {A B : JoinDomain} (m : JoinDomainMap A B) (T : cty A) : cty B :=
+  match T with
+  | CNat => CNat
+  | CBool => CBool
+  | CVec elem len => CVec (map_cty m elem) (map_cidx m len)
+  | CUniv lvl => CUniv lvl
+  | CTVar x => CTVar x
+  | CTProm q inner => CTProm (translate m q) (map_cty m inner)
+  | CTUnbox b => CTUnbox b
+  | CPi x s r dom cod => CPi x (translate m s) (translate m r) (map_cty m dom) (map_cty m cod)
+  | CSigma x r f s => CSigma x (translate m r) (map_cty m f) (map_cty m s)
+  | CBox q inner => CBox (translate m q) (map_cty m inner)
+  | CSum l r => CSum (map_cty m l) (map_cty m r)
+  | CRecord id fields =>
+      CRecord id (map (fun '(fn, fg, ft) => (fn, translate m fg, map_cty m ft)) fields)
+  | CInd id indices => CInd id (map (map_cidx m) indices)
+  end.
+
+Fixpoint map_cterm {A B : JoinDomain} (m : JoinDomainMap A B) (t : cterm A) : cterm B :=
+  match t with
+  | CVar x => CVar x
+  | CNatVal i => CNatVal (map_cidx m i)
+  | CBoolVal b => CBoolVal b
+  | CTypeVal T => CTypeVal (map_cty m T)
+  | CLam x s r dom body => CLam x (translate m s) (translate m r) (map_cty m dom) (map_cterm m body)
+  | CApp fn arg => CApp (map_cterm m fn) (map_cterm m arg)
+  | CLet x s r ann rhs body => CLet x (translate m s) (translate m r) (map_cty m ann) (map_cterm m rhs) (map_cterm m body)
+  | CPair x r ft st fv sv => CPair x (translate m r) (map_cty m ft) (map_cty m st) (map_cterm m fv) (map_cterm m sv)
+  | CLetPair x y s kappa mot pr body =>
+      CLetPair x y (translate m s) (translate m kappa) (map_cty m mot) (map_cterm m pr) (map_cterm m body)
+  | CPromote q v => CPromote (translate m q) (map_cterm m v)
+  | CLetBox x kappa mot bx body =>
+      CLetBox x (translate m kappa) (map_cty m mot) (map_cterm m bx) (map_cterm m body)
+  | CInl rt v => CInl (map_cty m rt) (map_cterm m v)
+  | CInr lt v => CInr (map_cty m lt) (map_cterm m v)
+  | CMatchSum x y s kappa mot scrut lb rb =>
+      CMatchSum x y (translate m s) (translate m kappa) (map_cty m mot) (map_cterm m scrut) (map_cterm m lb) (map_cterm m rb)
+  | CIf c th el => CIf (map_cterm m c) (map_cterm m th) (map_cterm m el)
+  | CRecordMk id fields =>
+      CRecordMk id (map (fun '(fn, fg, ft, fv) => (fn, translate m fg, map_cty m ft, map_cterm m fv)) fields)
+  | CMatchRecord id s mot scrut bs body =>
+      CMatchRecord id (translate m s) (map_cty m mot) (map_cterm m scrut) bs (map_cterm m body)
+  | CSubgrade target body => CSubgrade (map_cty m target) (map_cterm m body)
+  | CFix xn xr sr mot scrut base step =>
+      CFix xn xr (translate m sr) (map_cty m mot) (map_cterm m scrut) (map_cterm m base) (map_cterm m step)
+  end.
+
+Definition map_cbinding {A B : JoinDomain} (m : JoinDomainMap A B) (e : cbinding A) : cbinding B :=
+  {| cbinder := cbinder e;
+     cannotation := map_cty m (cannotation e);
+     ctype_uses := map (translate m) (ctype_uses e) |}.
+
+Definition map_cenv {A B : JoinDomain} (m : JoinDomainMap A B) (env : cenv A) : cenv B :=
+  map (map_cbinding m) env.
+
+Definition map_cjudgment {A B : JoinDomain} (m : JoinDomainMap A B) (j : cjudgment A) : cjudgment B :=
+  {| cresult_type := map_cty m (cresult_type j);
+     ccomp_demand := map (translate m) (ccomp_demand j);
+     ctype_demand_row := map (translate m) (ctype_demand_row j) |}.
+
+Lemma map_vec_zero : forall (A B : JoinDomain) (m : JoinDomainMap A B) n,
+  map (translate m) (vec_zero n) = vec_zero n.
+Proof.
+  intros A B m n. unfold vec_zero. induction n as [| n IH]; cbn; [reflexivity |].
+  rewrite translate_zero, IH. reflexivity.
+Qed.
+
+Lemma map_vec_single : forall (A B : JoinDomain) (m : JoinDomainMap A B) n x q,
+  map (translate m) (vec_single n x q) = vec_single n x (translate m q).
+Proof.
+  intros A B m n. induction n as [| n IH]; intros [| x'] q; cbn [map vec_single]; try reflexivity.
+  - rewrite map_vec_zero. reflexivity.
+  - rewrite translate_zero, IH. reflexivity.
+Qed.
+
+Lemma map_vec_add : forall (A B : JoinDomain) (m : JoinDomainMap A B) u v,
+  map (translate m) (vec_add u v) = vec_add (map (translate m) u) (map (translate m) v).
+Proof.
+  intros A B m u. induction u as [| a u IH]; intros [| b v]; cbn; try reflexivity.
+  rewrite translate_add, IH. reflexivity.
+Qed.
+
+Lemma map_vec_scale : forall (A B : JoinDomain) (m : JoinDomainMap A B) q u,
+  map (translate m) (vec_scale q u) = vec_scale (translate m q) (map (translate m) u).
+Proof.
+  intros A B m q u. unfold vec_scale. rewrite !map_map. apply map_ext.
+  intro x. apply translate_mul.
+Qed.
+
+Lemma map_vec_allows : forall (A B : JoinDomain) (m : JoinDomainMap A B) u v,
+  vec_allows u v ->
+  vec_allows (map (translate m) u) (map (translate m) v).
+Proof.
+  intros A B m u v H. induction H; cbn; constructor; [apply translate_allows; assumption | assumption].
+Qed.
+
+Lemma map_nth_grade : forall (A B : JoinDomain) (m : JoinDomainMap A B) u k,
+  translate m (nth_grade u k) = nth_grade (map (translate m) u) k.
+Proof.
+  intros A B m u. induction u as [| a u IH]; intros [| k]; cbn; try apply translate_zero; try reflexivity.
+  apply IH.
+Qed.
+
+Lemma map_tl : forall (X Y : Type) (f : X -> Y) (u : list X),
+  map f (tl u) = tl (map f u).
+Proof.
+  intros X Y f [| a u]; reflexivity.
+Qed.
+
+Lemma map_skipn : forall (X Y : Type) (f : X -> Y) n (u : list X),
+  map f (skipn n u) = skipn n (map f u).
+Proof.
+  intros X Y f n. induction n as [| n IH]; intros [| a u]; cbn; try reflexivity. apply IH.
+Qed.
+
+Lemma map_firstn : forall (X Y : Type) (f : X -> Y) n (u : list X),
+  map f (firstn n u) = firstn n (map f u).
+Proof.
+  intros X Y f n. induction n as [| n IH]; intros [| a u]; cbn; try reflexivity.
+  cbn. f_equal. apply IH.
+Qed.
+
+Lemma map_clookup : forall (A B : JoinDomain) (m : JoinDomainMap A B) env x e,
+  clookup env x = Some e ->
+  clookup (map_cenv m env) x = Some (map_cbinding m e).
+Proof.
+  intros A B m env x e H. unfold clookup, map_cenv in *.
+  rewrite nth_error_map, H. reflexivity.
+Qed.
+
+Lemma map_cenv_length : forall (A B : JoinDomain) (m : JoinDomainMap A B) env,
+  length (map_cenv m env) = length env.
+Proof.
+  intros A B m env. unfold map_cenv. apply length_map.
+Qed.
+
+Lemma map_erase_hints : forall (A B : JoinDomain) (m : JoinDomainMap A B) T,
+  erase_hints (map_cty m T) = map_cty m (erase_hints T).
+Proof.
+  intros A B m T. induction T using cty_ind_nested; cbn; try reflexivity;
+    try (f_equal; assumption); try (f_equal; [assumption | assumption]).
+  - f_equal. induction fields as [| [[fn fg] ft] rest IH]; cbn; [reflexivity |].
+    inversion H; subst. f_equal; [f_equal; apply H2 | apply IH; exact H3].
+Qed.
+
+Lemma map_cty_alpha_eq : forall (A B : JoinDomain) (m : JoinDomainMap A B) T1 T2,
+  cty_alpha_eq T1 T2 ->
+  cty_alpha_eq (map_cty m T1) (map_cty m T2).
+Proof.
+  intros A B m T1 T2 H. unfold cty_alpha_eq in *.
+  rewrite !map_erase_hints, H. reflexivity.
+Qed.
+
+Lemma map_cty_alpha_eq_r : forall (A B : JoinDomain) (m : JoinDomainMap A B) T1 T2 T2',
+  cty_alpha_eq T1 T2 ->
+  T2' = map_cty m T2 ->
+  cty_alpha_eq (map_cty m T1) T2'.
+Proof.
+  intros A B m T1 T2 T2' H ->. apply map_cty_alpha_eq; exact H.
+Qed.
+
+Lemma map_ren_cidx : forall (A B : JoinDomain) (m : JoinDomainMap A B) r i,
+  ren_cidx r (map_cidx m i) = map_cidx m (ren_cidx r i).
+Proof.
+  intros A B m r i. revert r. induction i; intro r; cbn;
+    try reflexivity; try (rewrite IHi1, IHi2; reflexivity); try (rewrite IHi; reflexivity).
+Qed.
+
+Lemma map_ren_cty : forall (A B : JoinDomain) (m : JoinDomainMap A B) r T,
+  ren_cty r (map_cty m T) = map_cty m (ren_cty r T).
+Proof.
+  intros A B m r T. revert r. induction T using cty_ind_nested; intro rn; cbn;
+    try reflexivity; try (rewrite IHT; reflexivity); try (rewrite IHT1, IHT2; reflexivity).
+  - rewrite IHT, map_ren_cidx. reflexivity.
+  - f_equal. induction fields as [| [[fn fg] ft] rest IH]; cbn; [reflexivity |].
+    inversion H; subst. f_equal; [f_equal; apply H2 | apply IH; exact H3].
+  - f_equal. induction indices as [| idx rest IH]; cbn; [reflexivity |].
+    f_equal; [apply map_ren_cidx | exact IH].
+Qed.
+
+Lemma map_lift_cidx : forall (A B : JoinDomain) (m : JoinDomainMap A B) c d i,
+  lift_cidx c d (map_cidx m i) = map_cidx m (lift_cidx c d i).
+Proof.
+  intros A B m c d i. apply map_ren_cidx.
+Qed.
+
+Lemma map_lift_cty : forall (A B : JoinDomain) (m : JoinDomainMap A B) c d T,
+  lift_cty c d (map_cty m T) = map_cty m (lift_cty c d T).
+Proof.
+  intros A B m c d T. apply map_ren_cty.
+Qed.
+
+Lemma map_unshift_cidx : forall (A B : JoinDomain) (m : JoinDomainMap A B) k i,
+  unshift_cidx k (map_cidx m i) = map_cidx m (unshift_cidx k i).
+Proof.
+  intros A B m k i. apply map_ren_cidx.
+Qed.
+
+Lemma map_unshift_cty : forall (A B : JoinDomain) (m : JoinDomainMap A B) k T,
+  unshift_cty k (map_cty m T) = map_cty m (unshift_cty k T).
+Proof.
+  intros A B m k T. apply map_ren_cty.
+Qed.
+
+Lemma map_subst_cidx : forall (A B : JoinDomain) (m : JoinDomainMap A B) k val i,
+  subst_cidx k (map_cidx m val) (map_cidx m i) = map_cidx m (subst_cidx k val i).
+Proof.
+  intros A B m k val i. revert k val. induction i; intros k val; cbn;
+    try reflexivity; try (rewrite IHi1, IHi2; reflexivity); try (rewrite IHi; reflexivity).
+  - destruct (x =? k); [reflexivity | destruct (x <? k); reflexivity].
+  - rewrite map_lift_cidx, IHi1, IHi2. reflexivity.
+Qed.
+
+Lemma map_subst_cidx_in_cty : forall (A B : JoinDomain) (m : JoinDomainMap A B) k val T,
+  subst_cidx_in_cty k (map_cidx m val) (map_cty m T) = map_cty m (subst_cidx_in_cty k val T).
+Proof.
+  intros A B m k val T. revert k val.
+  induction T using cty_ind_nested; intros k val; cbn; try reflexivity;
+    try (rewrite IHT; reflexivity);
+    try (rewrite IHT1, IHT2; reflexivity);
+    try (rewrite IHT1, map_lift_cidx, IHT2; reflexivity).
+  - rewrite IHT, map_subst_cidx. reflexivity.
+  - f_equal. induction fields as [| [[fn fg] ft] rest IH]; cbn; [reflexivity |].
+    inversion H; subst. f_equal; [f_equal; apply H2 | apply IH; exact H3].
+  - f_equal. induction indices as [| idx rest IH]; cbn; [reflexivity |].
+    f_equal; [apply map_subst_cidx | exact IH].
+Qed.
+
+Lemma map_subst_tvar_in_cidx : forall (A B : JoinDomain) (m : JoinDomainMap A B) k i,
+  subst_tvar_in_cidx k (map_cidx m i) = map_cidx m (subst_tvar_in_cidx k i).
+Proof.
+  intros A B m k i. revert k. induction i; intro k; cbn;
+    repeat (destruct (_ <? _) || destruct (_ =? _)); cbn;
+    try reflexivity; try (rewrite IHi1, IHi2; reflexivity); try (rewrite IHi; reflexivity).
+Qed.
+
+Lemma map_subst_tvar_in_cty : forall (A B : JoinDomain) (m : JoinDomainMap A B) k U T,
+  subst_tvar_in_cty k (map_cty m U) (map_cty m T) = map_cty m (subst_tvar_in_cty k U T).
+Proof.
+  intros A B m k U T. revert k U.
+  induction T using cty_ind_nested; intros k U; cbn; try reflexivity;
+    try (rewrite IHT; reflexivity);
+    try (rewrite IHT1, IHT2; reflexivity);
+    try (rewrite IHT1, map_lift_cty, IHT2; reflexivity).
+  - rewrite IHT, map_subst_tvar_in_cidx. reflexivity.
+  - repeat (destruct (_ <? _) || destruct (_ =? _)); reflexivity.
+  - f_equal. induction fields as [| [[fn fg] ft] rest IH]; cbn; [reflexivity |].
+    inversion H; subst. f_equal; [f_equal; apply H2 | apply IH; exact H3].
+  - f_equal. induction indices as [| idx rest IH]; cbn; [reflexivity |].
+    f_equal; [apply map_subst_tvar_in_cidx | exact IH].
+Qed.
+
+Lemma map_subst_pair_cidx : forall (A B : JoinDomain) (m : JoinDomainMap A B) k fi si i,
+  subst_pair_cidx k (map_cidx m fi) (map_cidx m si) (map_cidx m i) = map_cidx m (subst_pair_cidx k fi si i).
+Proof.
+  intros A B m k fi si i. revert k fi si. induction i; intros k fi si; cbn;
+    repeat (destruct (_ <? _) || destruct (_ =? _)); cbn;
+    try reflexivity; try (rewrite ?map_lift_cidx, IHi1, IHi2; reflexivity); try (rewrite IHi; reflexivity).
+Qed.
+
+Lemma map_subst_pair_cty : forall (A B : JoinDomain) (m : JoinDomainMap A B) k fi si T,
+  subst_pair_cty k (map_cidx m fi) (map_cidx m si) (map_cty m T) = map_cty m (subst_pair_cty k fi si T).
+Proof.
+  intros A B m k fi si T. revert k fi si.
+  induction T using cty_ind_nested; intros k fi si; cbn; try reflexivity;
+    try (rewrite IHT; reflexivity);
+    try (rewrite IHT1, IHT2; reflexivity);
+    try (rewrite IHT1, !map_lift_cidx, IHT2; reflexivity).
+  - rewrite IHT, map_subst_pair_cidx. reflexivity.
+  - f_equal. induction fields as [| [[fn fg] ft] rest IH]; cbn; [reflexivity |].
+    inversion H; subst. f_equal; [f_equal; apply H2 | apply IH; exact H3].
+  - f_equal. induction indices as [| idx rest IH]; cbn; [reflexivity |].
+    f_equal; [apply map_subst_pair_cidx | exact IH].
+Qed.
+
+Lemma map_subst_box_nat_cidx : forall (A B : JoinDomain) (m : JoinDomainMap A B) k q bi i,
+  subst_box_nat_cidx k (translate m q) (map_cidx m bi) (map_cidx m i) = map_cidx m (subst_box_nat_cidx k q bi i).
+Proof.
+  intros A B m k q bi i. revert k q bi. induction i; intros k q0 bi; cbn;
+    repeat (destruct (_ <? _) || destruct (_ =? _)); cbn;
+    try reflexivity; try (rewrite ?map_lift_cidx, IHi1, IHi2; reflexivity); try (rewrite IHi; reflexivity).
+Qed.
+
+Lemma map_subst_box_nat_cty : forall (A B : JoinDomain) (m : JoinDomainMap A B) k q bi T,
+  subst_box_nat_cty k (translate m q) (map_cidx m bi) (map_cty m T) = map_cty m (subst_box_nat_cty k q bi T).
+Proof.
+  intros A B m k q bi T. revert k q bi.
+  induction T using cty_ind_nested; intros k q0 bi; cbn;
+    repeat (destruct (_ <? _) || destruct (_ =? _)); try reflexivity;
+    try (rewrite IHT; reflexivity);
+    try (rewrite IHT1, IHT2; reflexivity);
+    try (rewrite IHT1, map_lift_cidx, IHT2; reflexivity).
+  - rewrite IHT, map_subst_box_nat_cidx. reflexivity.
+  - f_equal. induction fields as [| [[fn fg] ft] rest IH]; cbn; [reflexivity |].
+    inversion H; subst. f_equal; [f_equal; apply H2 | apply IH; exact H3].
+  - f_equal. induction indices as [| idx rest IH]; cbn; [reflexivity |].
+    f_equal; [apply map_subst_box_nat_cidx | exact IH].
+Qed.
+
+Lemma map_subst_box_ty_cty : forall (A B : JoinDomain) (m : JoinDomainMap A B) k q U T,
+  subst_box_ty_cty k (translate m q) (map_cty m U) (map_cty m T) = map_cty m (subst_box_ty_cty k q U T).
+Proof.
+  intros A B m k q U T. revert k q U.
+  induction T using cty_ind_nested; intros k q0 U; cbn;
+    repeat (destruct (_ <? _) || destruct (_ =? _)); try reflexivity;
+    try (rewrite IHT; reflexivity);
+    try (rewrite IHT1, IHT2; reflexivity);
+    try (rewrite IHT1, map_lift_cty, IHT2; reflexivity).
+  - rewrite IHT, map_subst_tvar_in_cidx. reflexivity.
+  - f_equal. induction fields as [| [[fn fg] ft] rest IH]; cbn; [reflexivity |].
+    inversion H; subst. f_equal; [f_equal; apply H2 | apply IH; exact H3].
+  - f_equal. induction indices as [| idx rest IH]; cbn; [reflexivity |].
+    f_equal; [apply map_subst_tvar_in_cidx | exact IH].
+Qed.
+
+Lemma map_subst_sum_cidx : forall (A B : JoinDomain) (m : JoinDomainMap A B) il k vi i,
+  subst_sum_cidx il k (map_cidx m vi) (map_cidx m i) = map_cidx m (subst_sum_cidx il k vi i).
+Proof.
+  intros A B m il k vi i. revert il k vi. induction i; intros il k vi; cbn;
+    repeat (destruct (_ <? _) || destruct (_ =? _)); cbn;
+    try reflexivity; try (rewrite ?map_lift_cidx, IHi1, IHi2; reflexivity); try (rewrite IHi; reflexivity);
+    try (rewrite map_lift_cidx; destruct il; cbv iota; [rewrite IHi1 | rewrite IHi2]; rewrite map_subst_cidx; reflexivity).
+Qed.
+
+Lemma map_subst_sum_cty : forall (A B : JoinDomain) (m : JoinDomainMap A B) il k vi T,
+  subst_sum_cty il k (map_cidx m vi) (map_cty m T) = map_cty m (subst_sum_cty il k vi T).
+Proof.
+  intros A B m il k vi T. revert il k vi.
+  induction T using cty_ind_nested; intros il k vi; cbn; try reflexivity;
+    try (rewrite IHT; reflexivity);
+    try (rewrite IHT1, IHT2; reflexivity);
+    try (rewrite IHT1, map_lift_cidx, IHT2; reflexivity).
+  - rewrite IHT, map_subst_sum_cidx. reflexivity.
+  - f_equal. induction fields as [| [[fn fg] ft] rest IH]; cbn; [reflexivity |].
+    inversion H; subst. f_equal; [f_equal; apply H2 | apply IH; exact H3].
+  - f_equal. induction indices as [| idx rest IH]; cbn; [reflexivity |].
+    f_equal; [apply map_subst_sum_cidx | exact IH].
+Qed.
+
+Lemma map_spec_pair_body_cidx : forall (A B : JoinDomain) (m : JoinDomainMap A B) k i,
+  spec_pair_body_cidx k (map_cidx m i) = map_cidx m (spec_pair_body_cidx k i).
+Proof.
+  intros A B m k i. revert k. induction i; intro k; cbn;
+    repeat (destruct (_ =? _) || destruct (_ <? _)); cbn;
+    try reflexivity; try (rewrite IHi1, IHi2; reflexivity); try (rewrite IHi; reflexivity).
+Qed.
+
+Lemma map_spec_pair_body_cty : forall (A B : JoinDomain) (m : JoinDomainMap A B) k T,
+  spec_pair_body_cty k (map_cty m T) = map_cty m (spec_pair_body_cty k T).
+Proof.
+  intros A B m k T. revert k. induction T using cty_ind_nested; intro k; cbn;
+    try reflexivity; try (rewrite IHT; reflexivity); try (rewrite IHT1, IHT2; reflexivity).
+  - rewrite IHT, map_spec_pair_body_cidx. reflexivity.
+  - f_equal. induction fields as [| [[fn fg] ft] rest IH]; cbn; [reflexivity |].
+    inversion H; subst. f_equal; [f_equal; apply H2 | apply IH; exact H3].
+  - f_equal. induction indices as [| idx rest IH]; cbn; [reflexivity |].
+    f_equal; [apply map_spec_pair_body_cidx | exact IH].
+Qed.
+
+Lemma map_spec_box_body_cidx : forall (A B : JoinDomain) (m : JoinDomainMap A B) q k i,
+  spec_box_body_cidx (translate m q) k (map_cidx m i) = map_cidx m (spec_box_body_cidx q k i).
+Proof.
+  intros A B m q k i. revert k. induction i; intro k; cbn;
+    repeat (destruct (_ =? _)); cbn;
+    try reflexivity; try (rewrite IHi1, IHi2; reflexivity); try (rewrite IHi; reflexivity).
+Qed.
+
+Lemma map_spec_box_body_cty : forall (A B : JoinDomain) (m : JoinDomainMap A B) q k T,
+  spec_box_body_cty (translate m q) k (map_cty m T) = map_cty m (spec_box_body_cty q k T).
+Proof.
+  intros A B m q k T. revert k. induction T using cty_ind_nested; intro k; cbn;
+    repeat (destruct (_ =? _)); cbn;
+    try reflexivity; try (rewrite IHT; reflexivity); try (rewrite IHT1, IHT2; reflexivity).
+  - rewrite IHT, map_spec_box_body_cidx. reflexivity.
+  - f_equal. induction fields as [| [[fn fg] ft] rest IH]; cbn; [reflexivity |].
+    inversion H; subst. f_equal; [f_equal; apply H2 | apply IH; exact H3].
+  - f_equal. induction indices as [| idx rest IH]; cbn; [reflexivity |].
+    f_equal; [apply map_spec_box_body_cidx | exact IH].
+Qed.
+
+Lemma map_spec_sum_branch_cidx : forall (A B : JoinDomain) (m : JoinDomainMap A B) il k i,
+  spec_sum_branch_cidx il k (map_cidx m i) = map_cidx m (spec_sum_branch_cidx il k i).
+Proof.
+  intros A B m il k i. revert k. induction i; intro k; cbn;
+    repeat (destruct (_ =? _) || destruct (_ <? _)); cbn;
+    try reflexivity; try (rewrite IHi1, IHi2; reflexivity); try (rewrite IHi; reflexivity).
+  - destruct il; change (@CIdxVar B 0) with (map_cidx m (@CIdxVar A 0));
+      rewrite map_subst_sum_cidx, map_ren_cidx; reflexivity.
+Qed.
+
+Lemma map_spec_sum_branch_cty : forall (A B : JoinDomain) (m : JoinDomainMap A B) il k T,
+  spec_sum_branch_cty il k (map_cty m T) = map_cty m (spec_sum_branch_cty il k T).
+Proof.
+  intros A B m il k T. revert k. induction T using cty_ind_nested; intro k; cbn;
+    try reflexivity; try (rewrite IHT; reflexivity); try (rewrite IHT1, IHT2; reflexivity).
+  - rewrite IHT, map_spec_sum_branch_cidx. reflexivity.
+  - f_equal. induction fields as [| [[fn fg] ft] rest IH]; cbn; [reflexivity |].
+    inversion H; subst. f_equal; [f_equal; apply H2 | apply IH; exact H3].
+  - f_equal. induction indices as [| idx rest IH]; cbn; [reflexivity |].
+    f_equal; [apply map_spec_sum_branch_cidx | exact IH].
+Qed.
+
+Lemma map_term_as_cidx : forall (A B : JoinDomain) (m : JoinDomainMap A B) t,
+  term_as_cidx (map_cterm m t) = option_map (map_cidx m) (term_as_cidx t).
+Proof.
+  intros A B m t. destruct t; reflexivity.
+Qed.
+
+Lemma map_cty_uses_var : forall (A B : JoinDomain) (m : JoinDomainMap A B) k T,
+  cty_uses_var k (map_cty m T) = cty_uses_var k T.
+Proof.
+  intros A B m k T.
+  assert (Hi : forall i k0, cidx_uses_var k0 (map_cidx m i) = cidx_uses_var k0 i).
+  { induction i; intro k0; cbn; try reflexivity;
+      try (rewrite IHi1, IHi2; reflexivity); try (rewrite IHi; reflexivity). }
+  revert k. induction T using cty_ind_nested; intro k; cbn; try reflexivity;
+    try (apply IHT); try (rewrite IHT1, IHT2; reflexivity).
+  - rewrite IHT, Hi. reflexivity.
+  - induction fields as [| [[fn fg] ft] rest IH]; cbn; [reflexivity |].
+    inversion H; subst. rewrite H2, (IH H3). reflexivity.
+  - induction indices as [| idx rest IH]; cbn; [reflexivity |].
+    rewrite Hi, IH. reflexivity.
+Qed.
+
+Lemma map_branch_vec : forall (A B : JoinDomain) (m : JoinDomainMap A B),
+  (forall j2, grade_join B = Some j2 -> forall x, j2 x x = x) ->
+  forall u1 u2 u,
+  BranchVec u1 u2 u ->
+  BranchVec (map (translate m) u1) (map (translate m) u2) (map (translate m) u).
+Proof.
+  intros A B m Hidem u1 u2 u Hbr. unfold BranchVec in *.
+  destruct (grade_join A) as [j1 |] eqn:Hj1.
+  - destruct (jmap_join_compat A B m j1 Hj1) as [j2 [Hj2 Hcomm]].
+    rewrite Hj2. subst u. clear Hj1 Hj2.
+    revert u2. induction u1 as [| a u1 IH]; intros [| b u2]; cbn; [reflexivity | reflexivity | reflexivity |].
+    rewrite Hcomm, IH. reflexivity.
+  - destruct Hbr as [-> ->].
+    destruct (grade_join B) as [j2 |] eqn:Hj2; [| split; reflexivity].
+    induction u2 as [| a u2 IH]; cbn; [reflexivity | rewrite (Hidem j2 eq_refl), <- IH; reflexivity].
+Qed.
+
+Lemma map_cidx_demand : forall (A B : JoinDomain) (m : JoinDomainMap A B),
+  (forall j2, grade_join B = Some j2 -> forall x, j2 x x = x) ->
+  forall env i d,
+  CIdxDemand env i d ->
+  CIdxDemand (map_cenv m env) (map_cidx m i) (map (translate m) d).
+Proof.
+  intros A B m Hidem env i d H. induction H; cbn.
+  - rewrite map_vec_single, translate_one, <- (map_cenv_length A B m env).
+    eapply CIdxDemandVar; [apply map_clookup; exact H | cbn [cannotation map_cbinding]; eapply map_cty_alpha_eq_r; [exact H0 | reflexivity]].
+  - rewrite map_vec_zero, <- (map_cenv_length A B m env). apply CIdxDemandLit.
+  - rewrite map_vec_add. apply CIdxDemandAdd; assumption.
+  - rewrite map_vec_scale. apply CIdxDemandProm; assumption.
+  - rewrite map_vec_single, translate_one, <- (map_cenv_length A B m env).
+    eapply CIdxDemandUnbox; [apply map_clookup; exact H | cbn [cannotation map_cbinding]; eapply map_cty_alpha_eq_r; [exact H0 | reflexivity]].
+  - rewrite map_vec_single, translate_one, <- (map_cenv_length A B m env).
+    eapply CIdxDemandFst; [apply map_clookup; exact H | cbn [cannotation map_cbinding]; eapply map_cty_alpha_eq_r; [exact H0 | reflexivity]].
+  - rewrite map_vec_single, translate_one, <- (map_cenv_length A B m env).
+    eapply CIdxDemandSnd; [apply map_clookup; exact H | cbn [cannotation map_cbinding]; eapply map_cty_alpha_eq_r; [exact H0 | reflexivity]].
+  - rewrite map_vec_add, map_vec_single, translate_one, <- (map_cenv_length A B m env).
+    eapply CIdxDemandCase;
+      [ apply map_clookup; exact H
+      | cbn [cannotation map_cbinding]; rewrite map_ren_cty; eapply map_cty_alpha_eq_r; [exact H0 | reflexivity]
+      | unfold map_cenv in IHCIdxDemand1; cbn [map] in IHCIdxDemand1; unfold map_cbinding in IHCIdxDemand1; cbn [cbinder cannotation ctype_uses] in IHCIdxDemand1;
+        rewrite map_vec_zero, <- (map_cenv_length A B m env) in IHCIdxDemand1; exact IHCIdxDemand1
+      | unfold map_cenv in IHCIdxDemand2; cbn [map] in IHCIdxDemand2; unfold map_cbinding in IHCIdxDemand2; cbn [cbinder cannotation ctype_uses] in IHCIdxDemand2;
+        rewrite map_vec_zero, <- (map_cenv_length A B m env) in IHCIdxDemand2; exact IHCIdxDemand2
+      | rewrite <- !map_tl; apply map_branch_vec; [exact Hidem | exact H3] ].
+Qed.
+
+Lemma map_ctype_demand : forall (A B : JoinDomain) (m : JoinDomainMap A B),
+  (forall j2, grade_join B = Some j2 -> forall x, j2 x x = x) ->
+  forall env T d,
+  CTypeDemand env T d ->
+  CTypeDemand (map_cenv m env) (map_cty m T) (map (translate m) d).
+Proof.
+  intros A B m Hidem env T d H.
+  induction H using CTypeDemand_ind_mut with
+    (P := fun env T d _ => CTypeDemand (map_cenv m env) (map_cty m T) (map (translate m) d))
+    (P0 := fun env fs df _ => CRecordFieldDemand (map_cenv m env)
+      (map (fun '(fn, fg, ft) => (fn, translate m fg, map_cty m ft)) fs) (map (translate m) df))
+    (P1 := fun env ls dl _ => CIdxListDemand (map_cenv m env) (map (map_cidx m) ls) (map (translate m) dl));
+    cbn; try (rewrite map_vec_zero, <- (map_cenv_length A B m env); constructor).
+  - rewrite map_vec_add. apply CTypeVec; [exact IHCTypeDemand | apply map_cidx_demand; [exact Hidem | exact c]].
+  - rewrite map_vec_single, translate_one, <- (map_cenv_length A B m env).
+    eapply CTypeTVar; [apply map_clookup; exact e0 | cbn [cannotation map_cbinding]; eapply map_cty_alpha_eq_r; [exact c | reflexivity]].
+  - rewrite map_vec_scale. apply CTypeTProm; exact IHCTypeDemand.
+  - rewrite map_vec_single, translate_one, <- (map_cenv_length A B m env).
+    eapply CTypeTUnbox; [apply map_clookup; exact e0 | cbn [cannotation map_cbinding]; eapply map_cty_alpha_eq_r; [exact c | reflexivity]].
+  - rewrite map_vec_add, map_tl. eapply CTypePi; [exact IHCTypeDemand1 | exact IHCTypeDemand2 |].
+    rewrite <- map_nth_grade. apply translate_allows; exact a0.
+  - rewrite map_vec_add, map_tl. eapply CTypeSigma; [exact IHCTypeDemand1 | exact IHCTypeDemand2 |].
+    rewrite <- map_nth_grade. apply translate_allows; exact a0.
+  - apply CTypeBox; exact IHCTypeDemand.
+  - rewrite map_vec_add. apply CTypeSum; assumption.
+  - apply CTypeRecord; exact IHCTypeDemand.
+  - apply CTypeInd; exact IHCTypeDemand.
+  - rewrite map_vec_add. apply CRecordFieldCons; assumption.
+  - rewrite map_vec_add. apply CIdxListCons; [apply map_cidx_demand; [exact Hidem | exact c] | exact IHCTypeDemand].
+Qed.
+
+Lemma map_cuniverse_level : forall (A B : JoinDomain) (m : JoinDomainMap A B) env T lvl,
+  CUniverseLevel env T lvl ->
+  CUniverseLevel (map_cenv m env) (map_cty m T) lvl.
+Proof.
+  intros A B m env T lvl H.
+  induction H using CUniverseLevel_ind_mut with
+    (P := fun env T lvl _ => CUniverseLevel (map_cenv m env) (map_cty m T) lvl)
+    (P0 := fun env fs lvl _ => CRecordFieldLevel (map_cenv m env)
+      (map (fun '(fn, fg, ft) => (fn, translate m fg, map_cty m ft)) fs) lvl);
+    cbn; try constructor; try assumption.
+  - eapply CLevelTVar; [apply map_clookup; exact e0 | cbn [cannotation map_cbinding]; eapply map_cty_alpha_eq_r; [exact c | reflexivity]].
+  - eapply CLevelTUnbox; [apply map_clookup; exact e0 | cbn [cannotation map_cbinding]; eapply map_cty_alpha_eq_r; [exact c | reflexivity]].
+Qed.
+
+Lemma map_cidx_eqb : forall (A B : JoinDomain) (m : JoinDomainMap A B) i1 i2,
+  cidx_eqb i1 i2 = true ->
+  cidx_eqb (map_cidx m i1) (map_cidx m i2) = true.
+Proof.
+  intros A B m i1 i2 H. apply cidx_eqb_sound in H. subst i2. apply cidx_eqb_refl.
+Qed.
+
+Lemma map_subty : forall (A B : JoinDomain) (m : JoinDomainMap A B) env T1 T2,
+  Subty env T1 T2 ->
+  Subty (map_cenv m env) (map_cty m T1) (map_cty m T2).
+Proof.
+  intros A B m env T1 T2 H. induction H; cbn.
+  - apply SubRefl, map_cty_alpha_eq; exact H.
+  - apply SubBox; [apply translate_allows; exact H | exact IHSubty].
+  - eapply SubPi; [apply translate_allows; exact H | apply translate_allows; exact H0 | exact IHSubty1 |].
+    eapply Subty_any_env; exact IHSubty2.
+  - eapply SubSigma; [apply translate_allows; exact H | exact IHSubty1 |].
+    eapply Subty_any_env; exact IHSubty2.
+  - apply SubSum; assumption.
+  - apply SubVec; [apply map_cidx_eqb; exact H | exact IHSubty].
+Qed.
+
+Lemma map_crecord_extend : forall (A B : JoinDomain) (m : JoinDomainMap A B),
+  (forall j2, grade_join B = Some j2 -> forall x, j2 x x = x) ->
+  forall env bs fs body_env,
+  CRecordExtendEnv env bs fs body_env ->
+  CRecordExtendEnv (map_cenv m env) bs
+    (map (fun '(fn, fg, ft) => (fn, translate m fg, map_cty m ft)) fs)
+    (map_cenv m body_env).
+Proof.
+  intros A B m Hidem env bs fs body_env H. induction H; cbn.
+  - apply CRecordExtNil.
+  - apply CRecordExtCons with (row := map (translate m) row).
+    + apply map_ctype_demand; [exact Hidem | exact H].
+    + cbn [map_cenv map] in IHCRecordExtendEnv.
+      replace (map (fun '(n0, g0, t0) => (n0, g0, lift_cty 0 1 t0))
+                   (map (fun '(fn0, fg0, ft0) => (fn0, translate m fg0, map_cty m ft0)) rest))
+         with (map (fun '(fn0, fg0, ft0) => (fn0, translate m fg0, map_cty m ft0))
+                   (map (fun '(n0, g0, t0) => (n0, g0, lift_cty 0 1 t0)) rest))
+        by (rewrite !map_map; apply map_ext; intros [[n0 g0] t0]; rewrite map_lift_cty; reflexivity).
+      exact IHCRecordExtendEnv.
+Qed.
+
+Lemma map_crecord_field_allows : forall (A B : JoinDomain) (m : JoinDomainMap A B) s fs us,
+  CRecordFieldAllows s fs us ->
+  CRecordFieldAllows (translate m s)
+    (map (fun '(fn, fg, ft) => (fn, translate m fg, map_cty m ft)) fs)
+    (map (translate m) us).
+Proof.
+  intros A B m s fs us H. induction H; cbn;
+    [apply CRecordAllowsNil | apply CRecordAllowsCons; [rewrite <- translate_mul; apply translate_allows; exact H | assumption]].
+Qed.
+
+Theorem core_grade_substitution : forall (A B : JoinDomain) (m : JoinDomainMap A B),
+  (forall g, translate m g = zero -> g = zero) ->
+  (forall j2, grade_join B = Some j2 -> forall x, j2 x x = x) ->
+  forall env t j,
+    CoreDerives env t j ->
+    CoreDerives (map_cenv m env) (map_cterm m t) (map_cjudgment m j).
+Proof.
+  intros A B m Hzero_ref Hidem env t j H.
+  induction H using CoreDerives_ind_mut with
+    (P := fun env t j _ => CoreDerives (map_cenv m env) (map_cterm m t) (map_cjudgment m j))
+    (P0 := fun env fs u v _ => CRecordElemDerives (map_cenv m env)
+      (map (fun '(fn, fg, ft, fv) => (fn, translate m fg, map_cty m ft, map_cterm m fv)) fs)
+      (map (translate m) u) (map (translate m) v));
+    unfold map_cjudgment in *; cbn [map_cterm cresult_type ccomp_demand ctype_demand_row] in *.
+  - rewrite <- map_ren_cty, map_app, map_vec_single, map_vec_zero, translate_one, <- (map_cenv_length A B m env).
+    change (map_cty m (cannotation e)) with (cannotation (map_cbinding m e));
+    change (map (translate m) (ctype_uses e)) with (ctype_uses (map_cbinding m e)).
+    eapply CoreVar; [apply map_clookup; exact e0 | |].
+    + unfold map_cenv in *. rewrite <- map_skipn. apply (map_ctype_demand _ _ _ Hidem); exact c.
+    + apply map_vec_allows; exact v.
+  - rewrite map_vec_zero, <- (map_cenv_length A B m env).
+    apply CoreNatVal; apply map_cidx_demand; [exact Hidem | exact c].
+  - rewrite !map_vec_zero, <- (map_cenv_length A B m env). apply CoreBoolVal.
+  - rewrite map_vec_zero, <- (map_cenv_length A B m env).
+    apply CoreTypeVal; [apply (map_ctype_demand _ _ _ Hidem); exact c | apply map_cuniverse_level; exact c0].
+  - rewrite map_vec_add, !map_tl.
+    eapply CoreLam; [apply (map_ctype_demand _ _ _ Hidem); exact c | exact IHCoreDerives | |];
+      rewrite <- map_nth_grade; apply translate_allows; assumption.
+  - lazymatch goal with
+    | Hkd : cty_alpha_eq _ dom,
+      Hdm : CTypeDemand env dom _,
+      Hcd : CTypeDemand (_ :: env) cod _,
+      Huniv : forall _ _, dom = CUniv _ -> _,
+      Hres : app_result_ty dom cod arg = Some res_ty |- _ =>
+      assert (Hres_eq : app_result_ty (map_cty m dom) (map_cty m cod) (map_cterm m arg) = Some (map_cty m res_ty));
+      [ unfold app_result_ty in Hres |- *; rewrite map_term_as_cidx;
+        destruct dom; cbn in Hres |- *;
+        try (rewrite map_cty_uses_var; destruct (cty_uses_var 0 cod); inversion Hres; rewrite map_unshift_cty; reflexivity);
+        [ destruct (term_as_cidx arg) eqn:Ea; cbn in Hres |- *;
+            [ inversion Hres; rewrite map_subst_cidx_in_cty; reflexivity
+            | rewrite map_cty_uses_var; destruct (cty_uses_var 0 cod); inversion Hres; rewrite map_unshift_cty; reflexivity ]
+        | destruct arg; cbn [map_cterm];
+            try (rewrite map_cty_uses_var; destruct (cty_uses_var 0 cod); inversion Hres; rewrite map_unshift_cty; reflexivity);
+            [ lazymatch goal with
+              | |- Some (subst_tvar_in_cty 0 (CTVar ?v) _) = _ =>
+                inversion Hres; subst;
+                change (@CTVar B v) with (map_cty m (@CTVar A v));
+                rewrite map_subst_tvar_in_cty; reflexivity
+              end
+            | inversion Hres; subst; rewrite map_subst_tvar_in_cty; reflexivity ] ]
+      | assert (Hz_eq : map (translate m) z_type = app_type_arg_demand (map_cty m dom) (map_cterm m arg) (map (translate m) u_arg) (map (translate m) v_arg));
+        [ subst z_type; unfold app_type_arg_demand; destruct dom; cbn; try reflexivity;
+          destruct arg; reflexivity
+        | rewrite !map_vec_add, !map_vec_scale, map_tl, Hz_eq;
+          eapply CoreApp;
+            [ exact IHCoreDerives1
+            | exact IHCoreDerives2
+            | apply map_cty_alpha_eq; exact Hkd
+            | apply (map_ctype_demand _ _ _ Hidem); exact Hdm
+            | apply (map_ctype_demand A B m Hidem) in Hcd;
+              unfold map_cenv in Hcd; cbn [map] in Hcd;
+              unfold map_cbinding in Hcd; cbn [cbinder cannotation ctype_uses] in Hcd;
+              exact Hcd
+            | rewrite <- map_nth_grade; apply translate_allows; assumption
+            | intros lvl0 arg_ty Hdom [Htv | [y0 [Harg Hty]]];
+              [ destruct dom; inversion Hdom; subst lvl0;
+                destruct arg; inversion Htv; subst arg_ty;
+                apply map_cuniverse_level; exact (Huniv _ _ eq_refl (or_introl eq_refl))
+              | destruct dom; inversion Hdom; subst lvl0;
+                destruct arg; inversion Harg; subst;
+                lazymatch goal with
+                | |- CUniverseLevel _ (CTVar ?v) _ =>
+                  change (@CTVar B v) with (map_cty m (@CTVar A v));
+                  apply map_cuniverse_level; exact (Huniv _ _ eq_refl (or_intror (ex_intro _ v (conj eq_refl eq_refl))))
+                end ]
+            | exact Hres_eq
+            | reflexivity ] ] ]
+    end.
+  - lazymatch goal with
+    | Hdm : CTypeDemand env _ _,
+      Hceq : cty_alpha_eq _ _,
+      Huse : cty_uses_var 0 bod_ty = false |- _ =>
+      assert (Hz_eq : map (translate m) (app_type_arg_demand ann rhs u_rhs v_rhs) =
+        app_type_arg_demand (map_cty m ann) (map_cterm m rhs) (map (translate m) u_rhs) (map (translate m) v_rhs))
+        by (unfold app_type_arg_demand; destruct ann; cbn; try reflexivity; destruct rhs; reflexivity);
+      rewrite !map_vec_add, !map_vec_scale, !map_tl, <- map_unshift_cty, Hz_eq;
+      eapply CoreLet;
+        [ apply (map_ctype_demand A B m Hidem); exact Hdm
+        | exact IHCoreDerives1
+        | apply map_cty_alpha_eq; exact Hceq
+        | exact IHCoreDerives2
+        | rewrite <- map_nth_grade; apply translate_allows; assumption
+        | rewrite <- map_nth_grade; apply translate_allows; assumption
+        | rewrite map_cty_uses_var; exact Huse ]
+    end.
+  - lazymatch goal with
+    | Hdm1 : CTypeDemand env fst_ty _,
+      Hdm2 : CTypeDemand (_ :: env) snd_ty _,
+      Hceq1 : cty_alpha_eq _ fst_ty,
+      Hceq2 : cty_alpha_eq _ exp_snd,
+      Hres : app_result_ty fst_ty snd_ty fst_val = Some exp_snd |- _ =>
+      assert (Hres_eq : app_result_ty (map_cty m fst_ty) (map_cty m snd_ty) (map_cterm m fst_val) = Some (map_cty m exp_snd));
+      [ unfold app_result_ty in Hres |- *; rewrite map_term_as_cidx;
+        destruct fst_ty; cbn in Hres |- *;
+        try (rewrite map_cty_uses_var; destruct (cty_uses_var 0 snd_ty); inversion Hres; subst; rewrite map_unshift_cty; reflexivity);
+        [ destruct (term_as_cidx fst_val); cbn in Hres |- *;
+            [ inversion Hres; subst; rewrite map_subst_cidx_in_cty; reflexivity
+            | rewrite map_cty_uses_var; destruct (cty_uses_var 0 snd_ty); inversion Hres; subst; rewrite map_unshift_cty; reflexivity ]
+        | destruct fst_val; cbn [map_cterm];
+            try (rewrite map_cty_uses_var; destruct (cty_uses_var 0 snd_ty); inversion Hres; subst; rewrite map_unshift_cty; reflexivity);
+            [ lazymatch goal with
+              | |- Some (subst_tvar_in_cty 0 (CTVar ?v) _) = _ =>
+                inversion Hres; subst;
+                change (@CTVar B v) with (map_cty m (@CTVar A v));
+                rewrite map_subst_tvar_in_cty; reflexivity
+              end
+            | inversion Hres; subst; rewrite map_subst_tvar_in_cty; reflexivity ] ]
+      | rewrite !map_vec_add, map_tl;
+        eapply CorePair;
+          [ apply (map_ctype_demand A B m Hidem); exact Hdm1
+          | apply (map_ctype_demand A B m Hidem) in Hdm2;
+            unfold map_cenv in Hdm2; cbn [map] in Hdm2;
+            unfold map_cbinding in Hdm2; cbn [cbinder cannotation ctype_uses] in Hdm2;
+            rewrite ?map_vec_zero in Hdm2; try rewrite <- (map_cenv_length A B m env) in Hdm2; exact Hdm2
+          | rewrite <- map_nth_grade; apply translate_allows; assumption
+          | exact IHCoreDerives1
+          | apply map_cty_alpha_eq; exact Hceq1
+          | exact IHCoreDerives2
+          | exact Hres_eq
+          | apply map_cty_alpha_eq; exact Hceq2 ] ]
+    end.
+  - lazymatch goal with
+    | Hdm1 : CTypeDemand env _ _,
+      Hdm2 : CTypeDemand (_ :: env) _ _,
+      Hdm_mot : CTypeDemand (_ :: env) mot _,
+      Hceq : cty_alpha_eq _ _ |- _ =>
+      assert (Hspec_b : map_cty m (spec_pair_body_cty 0 mot) = spec_pair_body_cty 0 (map_cty m mot)) by
+        (symmetry; apply map_spec_pair_body_cty);
+      assert (Hspec_s : map_cty m (spec_pair_subj_cty pr mot) = spec_pair_subj_cty (map_cterm m pr) (map_cty m mot));
+      [ unfold spec_pair_subj_cty; destruct pr; try (rewrite map_unshift_cty; reflexivity);
+        [ cbn; unfold subst_var_in_cty; rewrite map_ren_cty; reflexivity
+        | cbn; rewrite !map_term_as_cidx;
+          destruct (term_as_cidx pr1); [destruct (term_as_cidx pr2); [cbn; rewrite map_subst_pair_cty; reflexivity | rewrite map_unshift_cty; reflexivity] | rewrite map_unshift_cty; reflexivity] ]
+      | rewrite !map_vec_add, !map_vec_scale, !map_tl;
+        eapply CoreLetPair;
+          [ exact IHCoreDerives1
+          | apply (map_ctype_demand _ _ _ Hidem); exact Hdm1
+          | apply (map_ctype_demand A B m Hidem) in Hdm2;
+            unfold map_cenv in Hdm2; cbn [map] in Hdm2;
+            unfold map_cbinding in Hdm2; cbn [cbinder cannotation ctype_uses] in Hdm2;
+            rewrite ?map_vec_zero in Hdm2; try rewrite <- (map_cenv_length A B m env) in Hdm2; exact Hdm2
+          | apply (map_ctype_demand A B m Hidem) in Hdm_mot;
+            unfold map_cenv in Hdm_mot; cbn [map] in Hdm_mot;
+            unfold map_cbinding in Hdm_mot; cbn [cbinder cannotation ctype_uses] in Hdm_mot;
+            rewrite map_vec_add, map_tl in Hdm_mot; exact Hdm_mot
+          | rewrite <- map_nth_grade; apply translate_allows; assumption
+          | exact IHCoreDerives2
+          | reflexivity
+          | subst exp_mot; rewrite <- Hspec_b; apply map_cty_alpha_eq; exact Hceq
+          | rewrite <- map_nth_grade; apply translate_allows; assumption
+          | rewrite <- map_nth_grade; apply translate_allows; assumption
+          | destruct pr; cbn in *; try (rewrite map_cty_uses_var; assumption); try exact I;
+            rewrite !map_term_as_cidx;
+            destruct (term_as_cidx pr1); [destruct (term_as_cidx pr2); [exact I | rewrite map_cty_uses_var; assumption] | rewrite map_cty_uses_var; assumption]
+          | subst res_ty; exact Hspec_s ] ]
+    end.
+  - rewrite map_vec_scale. apply CorePromote; exact IHCoreDerives.
+  - lazymatch goal with
+    | Hdm1 : CTypeDemand env _ _,
+      Hdm_mot : CTypeDemand (_ :: env) mot _,
+      Hceq : cty_alpha_eq _ _ |- _ =>
+      assert (Hspec_b : map_cty m (spec_box_body_cty q 0 mot) = spec_box_body_cty (translate m q) 0 (map_cty m mot)) by
+        (symmetry; apply map_spec_box_body_cty);
+      assert (Hspec_s : map_cty m (spec_box_subj_cty box_term mot) = spec_box_subj_cty (map_cterm m box_term) (map_cty m mot));
+      [ unfold spec_box_subj_cty; destruct box_term; try (rewrite map_unshift_cty; reflexivity);
+        [ cbn; unfold subst_var_in_cty; rewrite map_ren_cty; reflexivity
+        | destruct box_term; try (rewrite map_unshift_cty; reflexivity); cbn;
+          [ unfold subst_var_in_cty; rewrite map_spec_box_body_cty, map_ren_cty; reflexivity
+          | rewrite map_subst_box_nat_cty; reflexivity
+          | rewrite map_subst_box_ty_cty; reflexivity ] ]
+      | assert (Hzty : map (translate m) z_ty =
+          match map_cterm m box_term with CPromote q' (CTypeVal _) => vec_scale q' (map (translate m) vz) | _ => map (translate m) z_b end);
+        [ subst z_ty; destruct box_term; try reflexivity; destruct box_term; try reflexivity;
+          cbn; rewrite map_vec_scale; reflexivity
+        | rewrite !map_vec_add, map_vec_scale, !map_tl, Hzty;
+          eapply CoreLetBox;
+            [ exact IHCoreDerives1
+            | apply (map_ctype_demand _ _ _ Hidem); exact Hdm1
+            | apply (map_ctype_demand A B m Hidem) in Hdm_mot;
+              unfold map_cenv in Hdm_mot; cbn [map] in Hdm_mot;
+              unfold map_cbinding in Hdm_mot; cbn [cbinder cannotation ctype_uses] in Hdm_mot;
+              rewrite ?map_vec_zero in Hdm_mot; try rewrite <- (map_cenv_length A B m env) in Hdm_mot; exact Hdm_mot
+            | rewrite <- map_nth_grade; apply translate_allows; assumption
+            | exact IHCoreDerives2
+            | reflexivity
+            | subst exp_mot; rewrite <- Hspec_b; apply map_cty_alpha_eq; exact Hceq
+            | first
+                [ rewrite <- map_nth_grade; apply translate_allows; assumption
+                | rewrite <- map_nth_grade, <- translate_mul; apply translate_allows; assumption ]
+            | first
+                [ rewrite <- map_nth_grade; apply translate_allows; assumption
+                | rewrite <- map_nth_grade, <- translate_mul; apply translate_allows; assumption ]
+            | destruct box_term; cbn in *; try (rewrite map_cty_uses_var; assumption); try exact I;
+              destruct box_term; cbn in *; try (rewrite map_cty_uses_var; assumption); exact I
+            | subst res_ty; exact Hspec_s
+            | reflexivity ] ] ]
+    end.
+  - rewrite map_vec_add. apply CoreInl; [exact IHCoreDerives | apply (map_ctype_demand _ _ _ Hidem); assumption].
+  - rewrite map_vec_add. apply CoreInr; [apply (map_ctype_demand _ _ _ Hidem); assumption | exact IHCoreDerives].
+  - lazymatch goal with
+    | Hnz : _ <> zero,
+      Hdm_l : CTypeDemand env A0 _,
+      Hdm_r : CTypeDemand env B0 _,
+      Hdm_mot : CTypeDemand (_ :: env) mot _ |- _ =>
+      assert (Hspec_l : map_cty m (spec_sum_branch_cty true 0 mot) = spec_sum_branch_cty true 0 (map_cty m mot)) by
+        (symmetry; apply map_spec_sum_branch_cty);
+      assert (Hspec_r : map_cty m (spec_sum_branch_cty false 0 mot) = spec_sum_branch_cty false 0 (map_cty m mot)) by
+        (symmetry; apply map_spec_sum_branch_cty);
+      assert (Hspec_s : map_cty m (spec_sum_subj_cty scrut mot) = spec_sum_subj_cty (map_cterm m scrut) (map_cty m mot));
+      [ unfold spec_sum_subj_cty; destruct scrut; try (rewrite map_unshift_cty; reflexivity);
+        [ cbn; unfold subst_var_in_cty; rewrite map_ren_cty; reflexivity
+        | cbn; rewrite map_term_as_cidx; destruct (term_as_cidx scrut); [cbn; rewrite map_subst_sum_cty; reflexivity | rewrite map_unshift_cty; reflexivity]
+        | cbn; rewrite map_term_as_cidx; destruct (term_as_cidx scrut); [cbn; rewrite map_subst_sum_cty; reflexivity | rewrite map_unshift_cty; reflexivity] ]
+      | rewrite !map_vec_add, !map_vec_scale, map_tl;
+        eapply CoreMatchSum;
+          [ intro Hsz; apply Hnz, Hzero_ref; exact Hsz
+          | exact IHCoreDerives1
+          | apply (map_ctype_demand A B m Hidem); exact Hdm_l
+          | apply (map_ctype_demand A B m Hidem); exact Hdm_r
+          | apply (map_ctype_demand A B m Hidem) in Hdm_mot;
+            unfold map_cenv in Hdm_mot; cbn [map] in Hdm_mot;
+            unfold map_cbinding in Hdm_mot; cbn [cbinder cannotation ctype_uses] in Hdm_mot;
+            rewrite map_vec_add in Hdm_mot; exact Hdm_mot
+          | rewrite <- map_nth_grade; apply translate_allows; assumption
+          | exact IHCoreDerives2
+          | exact IHCoreDerives3
+          | rewrite <- Hspec_l; apply map_cty_alpha_eq; assumption
+          | rewrite <- Hspec_r; apply map_cty_alpha_eq; assumption
+          | rewrite <- map_nth_grade; apply translate_allows; assumption
+          | rewrite <- map_nth_grade; apply translate_allows; assumption
+          | rewrite <- !map_tl; apply map_branch_vec; [exact Hidem | assumption]
+          | destruct scrut; cbn in *; try (rewrite map_cty_uses_var; assumption); try exact I;
+            rewrite map_term_as_cidx; destruct (term_as_cidx scrut); cbn;
+            [ destruct A0; cbn in *; try exact I; rewrite map_cty_uses_var; assumption
+            | destruct A0; cbn in *; rewrite map_cty_uses_var; assumption
+            | destruct B0; cbn in *; try exact I; rewrite map_cty_uses_var; assumption
+            | destruct B0; cbn in *; rewrite map_cty_uses_var; assumption ]
+          | subst res_ty; exact Hspec_s ] ]
+    end.
+  - rewrite map_vec_add. eapply CoreIf;
+      [ exact IHCoreDerives1
+      | exact IHCoreDerives2
+      | exact IHCoreDerives3
+      | apply map_cty_alpha_eq; assumption
+      | apply map_branch_vec; [exact Hidem | assumption]
+      | apply map_branch_vec; [exact Hidem | assumption] ].
+  - cbn [map_cty].
+    replace (map (fun '(fn, fg, ft) => (fn, translate m fg, map_cty m ft))
+                 (map (fun '(fn, fg, ft, _) => (fn, fg, ft)) fields))
+       with (map (fun '(fn, fg, ft, _) => (fn, fg, ft))
+                 (map (fun '(fn, fg, ft, fv) => (fn, translate m fg, map_cty m ft, map_cterm m fv)) fields))
+      by (rewrite !map_map; apply map_ext; intros [[[fn fg] ft] fv]; reflexivity).
+    apply CoreRecordMk; exact IHCoreDerives.
+  - lazymatch goal with
+    | Hnz : _ <> zero,
+      Hext : CRecordExtendEnv env bs fields _ |- _ =>
+      rewrite !map_vec_add, map_vec_scale, map_skipn, <- (length_map (fun '(fn, fg, ft) => (fn, translate m fg, map_cty m ft)) fields);
+      eapply CoreMatchRecord;
+        [ intro Hsz; apply Hnz, Hzero_ref; exact Hsz
+        | exact IHCoreDerives1
+        | apply (map_ctype_demand A B m Hidem); eassumption
+        | rewrite length_map; assumption
+        | apply (map_crecord_extend _ _ _ Hidem); exact Hext
+        | exact IHCoreDerives2
+        | rewrite length_map, map_lift_cty; apply map_cty_alpha_eq; assumption
+        | rewrite length_map, <- map_firstn; apply map_crecord_field_allows; assumption ]
+    end.
+  - eapply CoreSubgrade; [exact IHCoreDerives | apply map_subty; eassumption | apply (map_ctype_demand A B m Hidem); eassumption].
+  - lazymatch goal with
+    | Hdm_mot : CTypeDemand (_ :: env) mot _,
+      Hfix : fix_recurrence_ok _ _ |- _ =>
+      assert (Hspec_st : map_cty m (spec_fix_step_cty mot) = spec_fix_step_cty (map_cty m mot)) by
+        (unfold spec_fix_step_cty;
+         change (@CIdxAdd B (@CIdxVar B 1) (@CIdxLit B 1)) with (map_cidx m (@CIdxAdd A (@CIdxVar A 1) (@CIdxLit A 1)));
+         rewrite map_ren_cty, map_subst_cidx_in_cty; reflexivity);
+      assert (Hspec_s : map_cty m (spec_fix_subj_cty scrut mot) = spec_fix_subj_cty (map_cterm m scrut) (map_cty m mot));
+      [ unfold spec_fix_subj_cty; rewrite map_term_as_cidx;
+        destruct (term_as_cidx scrut); cbn; [rewrite map_subst_cidx_in_cty; reflexivity | rewrite map_unshift_cty; reflexivity]
+      | rewrite !map_vec_add, !map_vec_scale, !map_tl, map_nth_grade;
+        eapply CoreFix;
+          [ exact IHCoreDerives1
+          | apply (map_ctype_demand A B m Hidem) in Hdm_mot;
+            unfold map_cenv in Hdm_mot; cbn [map] in Hdm_mot;
+            unfold map_cbinding in Hdm_mot; cbn [cbinder cannotation ctype_uses] in Hdm_mot;
+            rewrite ?map_vec_zero in Hdm_mot; try rewrite <- (map_cenv_length A B m env) in Hdm_mot; exact Hdm_mot
+          | exact IHCoreDerives2
+          | change (@CIdxLit B 0) with (map_cidx m (@CIdxLit A 0));
+            rewrite map_subst_cidx_in_cty;
+            apply map_cty_alpha_eq; assumption
+          | unfold map_cenv in IHCoreDerives3; cbn [map] in IHCoreDerives3;
+            unfold map_cbinding in IHCoreDerives3; cbn [cbinder cannotation ctype_uses] in IHCoreDerives3;
+            rewrite ?map_vec_zero in IHCoreDerives3; try rewrite <- (map_cenv_length A B m env) in IHCoreDerives3; exact IHCoreDerives3
+          | rewrite <- Hspec_st; apply map_cty_alpha_eq; assumption
+          | rewrite <- map_nth_grade; apply translate_allows; assumption
+          | rewrite <- map_nth_grade; apply translate_allows; assumption
+          | unfold fix_recurrence_ok in Hfix |- *; rewrite <- !map_tl;
+            destruct (vec_is_zero (map (translate m) (tl (tl u_st)))) eqn:Em; [exact I |];
+            destruct (vec_is_zero (tl (tl u_st))) eqn:Ez;
+            [ apply vec_is_zero_iff in Ez; rewrite Ez, map_vec_zero in Em;
+              exfalso; pose proof (proj2 (vec_is_zero_iff B (@vec_zero B (length (tl (tl u_st))))) ltac:(unfold vec_zero; f_equal; symmetry; apply repeat_length)) as Hzz; congruence
+            | destruct Hfix as [Hf1 [Hf2 Hf3]]; split; [| split];
+              [ rewrite <- (translate_one A B m); apply translate_allows; exact Hf1
+              | rewrite <- (translate_add A B m); apply translate_allows; exact Hf2
+              | rewrite <- (translate_mul A B m); apply translate_allows; exact Hf3 ] ]
+          | rewrite map_term_as_cidx; destruct (term_as_cidx scrut); cbn; [exact I | rewrite map_cty_uses_var; assumption]
+          | subst res_ty; exact Hspec_s ] ]
+    end.
+  - rewrite !map_vec_zero, <- (map_cenv_length A B m env). apply CRecordElemNil.
+  - rewrite !map_vec_add, map_vec_scale.
+    eapply CRecordElemCons;
+      [ exact IHCoreDerives
+      | apply map_cty_alpha_eq; assumption
+      | apply (map_ctype_demand A B m Hidem); eassumption
+      | exact IHCoreDerives0 ].
+Qed.
+
+(* ================================================================= *)
+(* Part A3: Zero-Type-Use Irrelevance                                *)
+(* ================================================================= *)
+
+Fixpoint cidx_nonzero_uses_var {D : JoinDomain} (k : nat) (i : cidx D) : bool :=
+  match i with
+  | CIdxVar x => Nat.eqb x k
+  | CIdxLit _ => false
+  | CIdxAdd l r => cidx_nonzero_uses_var k l || cidx_nonzero_uses_var k r
+  | CIdxProm q i' => if grade_eqb q zero then false else cidx_nonzero_uses_var k i'
+  | CIdxUnbox b => Nat.eqb b k
+  | CIdxFst p => Nat.eqb p k
+  | CIdxSnd p => Nat.eqb p k
+  | CIdxCase s l r =>
+      Nat.eqb s k || cidx_nonzero_uses_var (S k) l || cidx_nonzero_uses_var (S k) r
+  end.
+
+Fixpoint cty_nonzero_uses_var {D : JoinDomain} (k : nat) (T : cty D) : bool :=
+  match T with
+  | CNat | CBool | CUniv _ => false
+  | CVec elem len => cty_nonzero_uses_var k elem || cidx_nonzero_uses_var k len
+  | CTVar x => Nat.eqb x k
+  | CTProm q inner => if grade_eqb q zero then false else cty_nonzero_uses_var k inner
+  | CTUnbox b => Nat.eqb b k
+  | CPi _ _ _ dom cod => cty_nonzero_uses_var k dom || cty_nonzero_uses_var (S k) cod
+  | CSigma _ _ f s => cty_nonzero_uses_var k f || cty_nonzero_uses_var (S k) s
+  | CBox _ inner => cty_nonzero_uses_var k inner
+  | CSum l r => cty_nonzero_uses_var k l || cty_nonzero_uses_var k r
+  | CRecord _ fields => existsb (fun '(_, _, ft) => cty_nonzero_uses_var k ft) fields
+  | CInd _ indices => existsb (cidx_nonzero_uses_var k) indices
+  end.
+
+Fixpoint no_zero_prom_cidx {D : JoinDomain} (i : cidx D) : Prop :=
+  match i with
+  | CIdxVar _ | CIdxLit _ | CIdxUnbox _ | CIdxFst _ | CIdxSnd _ => True
+  | CIdxAdd l r => no_zero_prom_cidx l /\ no_zero_prom_cidx r
+  | CIdxProm q i' => q <> zero /\ no_zero_prom_cidx i'
+  | CIdxCase _ l r => no_zero_prom_cidx l /\ no_zero_prom_cidx r
+  end.
+
+Fixpoint no_zero_prom_cty {D : JoinDomain} (T : cty D) : Prop :=
+  match T with
+  | CNat | CBool | CUniv _ | CTVar _ | CTUnbox _ => True
+  | CVec elem len => no_zero_prom_cty elem /\ no_zero_prom_cidx len
+  | CTProm q inner => q <> zero /\ no_zero_prom_cty inner
+  | CPi _ _ _ dom cod | CSigma _ _ dom cod => no_zero_prom_cty dom /\ no_zero_prom_cty cod
+  | CBox _ inner => no_zero_prom_cty inner
+  | CSum l r => no_zero_prom_cty l /\ no_zero_prom_cty r
+  | CRecord _ fields =>
+      (fix fields_nz (fs : list (nat * grade D * cty D)) : Prop :=
+         match fs with
+         | [] => True
+         | (_, _, ft) :: rest => no_zero_prom_cty ft /\ fields_nz rest
+         end) fields
+  | CInd _ indices => Forall no_zero_prom_cidx indices
+  end.
+
+Lemma cidx_nonzero_uses_var_no_zero : forall (D : JoinDomain) k (i : cidx D),
+  no_zero_prom_cidx i ->
+  cidx_nonzero_uses_var k i = cidx_uses_var k i.
+Proof.
+  intros D k i. revert k. induction i; intros k Hnz; cbn in *; try reflexivity.
+  - destruct Hnz as [H1 H2]. rewrite (IHi1 k H1), (IHi2 k H2). reflexivity.
+  - destruct Hnz as [Hq Hi]. destruct (grade_eqb_spec D q zero); [contradiction | apply IHi; exact Hi].
+  - destruct Hnz as [H1 H2]. rewrite (IHi1 (S k) H1), (IHi2 (S k) H2). reflexivity.
+Qed.
+
+Lemma cty_nonzero_uses_var_no_zero : forall (D : JoinDomain) k (T : cty D),
+  no_zero_prom_cty T ->
+  cty_nonzero_uses_var k T = cty_uses_var k T.
+Proof.
+  intros D k T. revert k. induction T using cty_ind_nested; intros k Hnz; cbn in *; try reflexivity;
+    try (apply IHT; exact Hnz);
+    try (destruct Hnz as [H1 H2]; rewrite (IHT1 k H1), (IHT2 k H2); reflexivity);
+    try (destruct Hnz as [H1 H2]; rewrite (IHT1 k H1), (IHT2 (S k) H2); reflexivity).
+  - destruct Hnz as [H1 H2]. rewrite (IHT k H1), (cidx_nonzero_uses_var_no_zero D k len H2). reflexivity.
+  - destruct Hnz as [Hq Hi]. destruct (grade_eqb_spec D q zero); [contradiction | apply IHT; exact Hi].
+  - induction fields as [| [[fn fg] ft] rest IH]; cbn; [reflexivity |].
+    inversion H; subst. cbn in H2. destruct Hnz as [H4 H5]. rewrite (H2 k H4), (IH H3 H5). reflexivity.
+  - induction indices as [| idx rest IH]; cbn; [reflexivity |].
+    inversion Hnz; subst. rewrite (cidx_nonzero_uses_var_no_zero D k idx H1), (IH H2). reflexivity.
+Qed.
+
+Lemma nth_grade_vec_single_eq : forall (D : JoinDomain) n x (q : grade D),
+  x < n -> nth_grade (vec_single n x q) x = q.
+Proof.
+  intros D n. induction n as [| n IH]; intros [| x] q Hlt; cbn; try lia; [reflexivity |].
+  apply IH; lia.
+Qed.
+
+Lemma nth_grade_vec_add : forall (D : JoinDomain) (u v : list (grade D)) k,
+  length u = length v ->
+  nth_grade (vec_add u v) k = add (nth_grade u k) (nth_grade v k).
+Proof.
+  intros D u. induction u as [| a u IH]; intros [| b v] [| k] Hlen; unfold nth_grade, nth_default in *; cbn in *; try lia;
+    try (rewrite add_zero; reflexivity); try reflexivity.
+  apply IH; lia.
+Qed.
+
+Lemma nth_grade_vec_scale : forall (D : JoinDomain) (q : grade D) (u : list (grade D)) k,
+  nth_grade (vec_scale q u) k = mul q (nth_grade u k).
+Proof.
+  intros D q u. induction u as [| a u IH]; intros [| k]; unfold nth_grade, nth_default in *; cbn in *;
+    try (rewrite mul_zero_r; reflexivity); try reflexivity.
+  apply IH.
+Qed.
+
+Lemma BranchVec_nth_zero : forall (D : JoinDomain),
+  ErasureDomain D ->
+  forall (u1 u2 u : list (grade D)) k,
+    length u1 = length u2 ->
+    BranchVec u1 u2 u ->
+    nth_grade u k = zero ->
+    nth_grade u1 k = zero /\ nth_grade u2 k = zero.
+Proof.
+  intros D ED u1 u2 u k Hlen Hbr Hz. unfold BranchVec in Hbr.
+  destruct (grade_join D) as [j |] eqn:Hj.
+  - subst u.
+    pose proof (vec_allows_join_left D j u1 u2 Hj Hlen) as Hl.
+    pose proof (vec_allows_join_right D j u1 u2 Hj Hlen) as Hr.
+    split; apply (erasure_allows_zero_eq D ED); rewrite <- Hz;
+      [eapply vec_allows_nth; exact Hl | eapply vec_allows_nth; exact Hr].
+  - destruct Hbr as [-> ->]. split; exact Hz.
+Qed.
+
+Lemma core_zero_idx_use : forall (D : JoinDomain),
+  ErasureDomain D ->
+  forall (env : cenv D) (i : cidx D) (d : list (grade D)) k,
+    CIdxDemand env i d ->
+    k < length env ->
+    nth_grade d k = zero ->
+    cidx_nonzero_uses_var k i = false.
+Proof.
+  intros D ED env i d k H. revert k.
+  induction H; intros k Hlt Hz; cbn in *; try reflexivity.
+  - destruct (Nat.eq_dec x k) as [-> | Hne]; [| apply Nat.eqb_neq; exact Hne].
+    exfalso. rewrite nth_grade_vec_single_eq in Hz by exact Hlt.
+    apply (erasure_one_nonzero D ED). rewrite Hz. apply allows_refl.
+  - rewrite nth_grade_vec_add in Hz by (erewrite !cidx_demand_length by eassumption; reflexivity).
+    apply (erasure_add_zero D ED) in Hz as [Hz1 Hz2].
+    rewrite (IHCIdxDemand1 k Hlt Hz1), (IHCIdxDemand2 k Hlt Hz2). reflexivity.
+  - destruct (grade_eqb_spec D q zero) as [-> | Hnz]; [reflexivity |].
+    rewrite nth_grade_vec_scale in Hz.
+    apply (erasure_mul_zero D ED) in Hz as [Hq | Hd]; [contradiction |].
+    apply IHCIdxDemand; [exact Hlt | exact Hd].
+  - destruct (Nat.eq_dec b k) as [-> | Hne]; [| apply Nat.eqb_neq; exact Hne].
+    exfalso. rewrite nth_grade_vec_single_eq in Hz by exact Hlt.
+    apply (erasure_one_nonzero D ED). rewrite Hz. apply allows_refl.
+  - destruct (Nat.eq_dec p k) as [-> | Hne]; [| apply Nat.eqb_neq; exact Hne].
+    exfalso. rewrite nth_grade_vec_single_eq in Hz by exact Hlt.
+    apply (erasure_one_nonzero D ED). rewrite Hz. apply allows_refl.
+  - destruct (Nat.eq_dec p k) as [-> | Hne]; [| apply Nat.eqb_neq; exact Hne].
+    exfalso. rewrite nth_grade_vec_single_eq in Hz by exact Hlt.
+    apply (erasure_one_nonzero D ED). rewrite Hz. apply allows_refl.
+  - pose proof (cidx_demand_length D _ _ _ H1) as Hlen1.
+    pose proof (cidx_demand_length D _ _ _ H2) as Hlen2.
+    cbn [length] in Hlen1, Hlen2.
+    pose proof (BranchVec_length D (tl dl) (tl dr) d_br ltac:(rewrite !length_tl, Hlen1, Hlen2; reflexivity) H3) as Hlen_br.
+    rewrite nth_grade_vec_add in Hz by (rewrite vec_single_length, Hlen_br, length_tl, Hlen1; lia).
+    apply (erasure_add_zero D ED) in Hz as [Hzs Hzb].
+    destruct (BranchVec_nth_zero D ED (tl dl) (tl dr) d_br k ltac:(rewrite !length_tl, Hlen1, Hlen2; reflexivity) H3 Hzb) as [Hzl Hzr].
+    destruct (Nat.eq_dec s k) as [-> | Hne].
+    + exfalso. rewrite nth_grade_vec_single_eq in Hzs by exact Hlt.
+      apply (erasure_one_nonzero D ED). rewrite Hzs. apply allows_refl.
+    + apply Nat.eqb_neq in Hne. rewrite Hne.
+      assert (Htl1 : nth_grade dl (S k) = zero) by (destruct dl; cbn in *; [reflexivity | exact Hzl]).
+      assert (Htl2 : nth_grade dr (S k) = zero) by (destruct dr; cbn in *; [reflexivity | exact Hzr]).
+      rewrite (IHCIdxDemand1 (S k) ltac:(cbn; lia) Htl1), (IHCIdxDemand2 (S k) ltac:(cbn; lia) Htl2).
+      reflexivity.
+Qed.
+
+Lemma crecord_field_demand_length : forall (D : JoinDomain) (env : cenv D) fs df,
+  CRecordFieldDemand env fs df -> length df = length env.
+Proof.
+  intros D env fs df H. induction H; [apply vec_zero_length | rewrite vec_add_length; [eapply ctype_demand_length; eassumption |]].
+  erewrite ctype_demand_length by eassumption. symmetry; exact IHCRecordFieldDemand.
+Qed.
+
+Lemma core_zero_type_use : forall (D : JoinDomain),
+  ErasureDomain D ->
+  forall (env : cenv D) (T : cty D) (d : list (grade D)) k,
+    CTypeDemand env T d ->
+    k < length env ->
+    nth_grade d k = zero ->
+    cty_nonzero_uses_var k T = false.
+Proof.
+  intros D ED env T d k H. revert k.
+  induction H using CTypeDemand_ind_mut with
+    (P := fun env T d _ => forall k, k < length env -> nth_grade d k = zero -> cty_nonzero_uses_var k T = false)
+    (P0 := fun env fs df _ => forall k, k < length env -> nth_grade df k = zero ->
+      existsb (fun '(_, _, ft) => cty_nonzero_uses_var k ft) fs = false)
+    (P1 := fun env ls dl _ => forall k, k < length env -> nth_grade dl k = zero ->
+      existsb (cidx_nonzero_uses_var k) ls = false);
+    intros k Hlt Hz; cbn in *; try reflexivity.
+  - rewrite nth_grade_vec_add in Hz by (erewrite ctype_demand_length, cidx_demand_length by eassumption; reflexivity).
+    apply (erasure_add_zero D ED) in Hz as [Hze Hzd].
+    lazymatch goal with
+    | Hlen : CIdxDemand env len _ |- _ =>
+      rewrite (IHCTypeDemand k Hlt Hze), (core_zero_idx_use D ED _ _ _ k Hlen Hlt Hzd); reflexivity
+    end.
+  - destruct (Nat.eq_dec x k) as [-> | Hne]; [| apply Nat.eqb_neq; exact Hne].
+    exfalso. rewrite nth_grade_vec_single_eq in Hz by exact Hlt.
+    apply (erasure_one_nonzero D ED). rewrite Hz. apply allows_refl.
+  - destruct (grade_eqb_spec D q zero) as [-> | Hnz]; [reflexivity |].
+    rewrite nth_grade_vec_scale in Hz.
+    apply (erasure_mul_zero D ED) in Hz as [Hq | Hd]; [contradiction |].
+    apply IHCTypeDemand; [exact Hlt | exact Hd].
+  - destruct (Nat.eq_dec b k) as [-> | Hne]; [| apply Nat.eqb_neq; exact Hne].
+    exfalso. rewrite nth_grade_vec_single_eq in Hz by exact Hlt.
+    apply (erasure_one_nonzero D ED). rewrite Hz. apply allows_refl.
+  - pose proof (ctype_demand_length D _ _ _ H) as Hlena.
+    pose proof (ctype_demand_length D _ _ _ H0) as Hlenb. cbn [length] in Hlenb.
+    rewrite nth_grade_vec_add in Hz by (rewrite length_tl, Hlena, Hlenb; lia).
+    apply (erasure_add_zero D ED) in Hz as [Hza Hzb].
+    assert (Htl : nth_grade b (S k) = zero) by (destruct b; cbn in *; [reflexivity | exact Hzb]).
+    rewrite (IHCTypeDemand1 k Hlt Hza), (IHCTypeDemand2 (S k) ltac:(cbn; lia) Htl). reflexivity.
+  - pose proof (ctype_demand_length D _ _ _ H) as Hlena.
+    pose proof (ctype_demand_length D _ _ _ H0) as Hlenb. cbn [length] in Hlenb.
+    rewrite nth_grade_vec_add in Hz by (rewrite length_tl, Hlena, Hlenb; lia).
+    apply (erasure_add_zero D ED) in Hz as [Hza Hzb].
+    assert (Htl : nth_grade b (S k) = zero) by (destruct b; cbn in *; [reflexivity | exact Hzb]).
+    rewrite (IHCTypeDemand1 k Hlt Hza), (IHCTypeDemand2 (S k) ltac:(cbn; lia) Htl). reflexivity.
+  - apply IHCTypeDemand; [exact Hlt | exact Hz].
+  - rewrite nth_grade_vec_add in Hz by (erewrite !ctype_demand_length by eassumption; reflexivity).
+    apply (erasure_add_zero D ED) in Hz as [Hzl Hzr].
+    rewrite (IHCTypeDemand1 k Hlt Hzl), (IHCTypeDemand2 k Hlt Hzr). reflexivity.
+  - apply IHCTypeDemand; [exact Hlt | exact Hz].
+  - apply IHCTypeDemand; [exact Hlt | exact Hz].
+  - rewrite nth_grade_vec_add in Hz by (erewrite ctype_demand_length, crecord_field_demand_length by eassumption; reflexivity).
+    apply (erasure_add_zero D ED) in Hz as [Hzt Hzr].
+    lazymatch goal with
+    | Hft : forall _, _ -> _ -> cty_nonzero_uses_var _ _ = false,
+      Hfs : forall _, _ -> _ -> existsb _ _ = false |- _ =>
+      rewrite (Hft k Hlt Hzt), (Hfs k Hlt Hzr); reflexivity
+    end.
+  - rewrite nth_grade_vec_add in Hz by (erewrite cidx_demand_length, cidx_list_demand_length by eassumption; reflexivity).
+    apply (erasure_add_zero D ED) in Hz as [Hzi Hzr].
+    lazymatch goal with
+    | Hci : CIdxDemand env _ _,
+      Hls : forall _, _ -> _ -> existsb _ _ = false |- _ =>
+      rewrite (core_zero_idx_use D ED _ _ _ k Hci Hlt Hzi), (Hls k Hlt Hzr); reflexivity
+    end.
+Qed.
+
+Theorem core_zero_type_use_irrelevance : forall (D : JoinDomain),
+  ErasureDomain D ->
+  forall (env : cenv D) (T : cty D) (d : list (grade D)) k,
+    CTypeDemand env T d ->
+    k < length env ->
+    allows (nth_grade d k) zero ->
+    no_zero_prom_cty T ->
+    cty_uses_var k T = false /\
+    (forall val1 val2, subst_cidx_in_cty k val1 T = subst_cidx_in_cty k val2 T) /\
+    (forall U1 U2, subst_tvar_in_cty k U1 T = subst_tvar_in_cty k U2 T).
+Proof.
+  intros D ED env T d k HT Hlt Hall Hnz.
+  apply (erasure_allows_zero_eq D ED) in Hall.
+  pose proof (core_zero_type_use D ED env T d k HT Hlt Hall) as Hnu.
+  rewrite (cty_nonzero_uses_var_no_zero D k T Hnz) in Hnu.
+  split; [exact Hnu |].
+  assert (Hci_eq : forall (i : cidx D) k0 v1 v2,
+    cidx_uses_var k0 i = false -> subst_cidx k0 v1 i = subst_cidx k0 v2 i).
+  { induction i; intros k0 v1 v2 Hi; cbn in *; try reflexivity;
+      try (apply orb_false_iff in Hi as [H1 H2]; rewrite (IHi1 k0 v1 v2 H1), (IHi2 k0 v1 v2 H2); reflexivity);
+      try (f_equal; apply IHi; exact Hi).
+    - rewrite Hi. reflexivity.
+    - apply orb_false_iff in Hi as [H12 H3]. apply orb_false_iff in H12 as [H1 H2].
+      rewrite (IHi1 (S k0) (lift_cidx 0 1 v1) (lift_cidx 0 1 v2) H2),
+              (IHi2 (S k0) (lift_cidx 0 1 v1) (lift_cidx 0 1 v2) H3). reflexivity. }
+  assert (Hcty_cidx : forall (U : cty D) k0 v1 v2,
+    cty_uses_var k0 U = false -> subst_cidx_in_cty k0 v1 U = subst_cidx_in_cty k0 v2 U).
+  { induction U using cty_ind_nested; intros k0 v1 v2 HU; cbn in *; try reflexivity;
+      try (f_equal; apply IHU; exact HU);
+      try (apply orb_false_iff in HU as [H1 H2]; rewrite (IHU1 k0 v1 v2 H1), (IHU2 k0 v1 v2 H2); reflexivity);
+      try (apply orb_false_iff in HU as [H1 H2]; rewrite (IHU1 k0 v1 v2 H1), (IHU2 (S k0) (lift_cidx 0 1 v1) (lift_cidx 0 1 v2) H2); reflexivity).
+    - apply orb_false_iff in HU as [H1 H2]. rewrite (IHU k0 v1 v2 H1), (Hci_eq len k0 v1 v2 H2). reflexivity.
+    - f_equal. induction fields as [| [[fn fg] ft] rest IH]; cbn in *; [reflexivity |].
+      inversion H; subst. cbn in H2. apply orb_false_iff in HU as [Hu1 Hu2].
+      rewrite (H2 k0 v1 v2 Hu1), (IH H3 Hu2). reflexivity.
+    - f_equal. induction indices as [| idx rest IH]; cbn in *; [reflexivity |].
+      apply orb_false_iff in HU as [Hu1 Hu2]. rewrite (Hci_eq idx k0 v1 v2 Hu1), (IH Hu2). reflexivity. }
+  assert (Hcty_tvar : forall (U : cty D) k0 V1 V2,
+    cty_uses_var k0 U = false -> subst_tvar_in_cty k0 V1 U = subst_tvar_in_cty k0 V2 U).
+  { induction U using cty_ind_nested; intros k0 V1 V2 HU; cbn in *; try reflexivity;
+      try (f_equal; apply IHU; exact HU);
+      try (apply orb_false_iff in HU as [H1 H2]; rewrite (IHU1 k0 V1 V2 H1), (IHU2 k0 V1 V2 H2); reflexivity);
+      try (apply orb_false_iff in HU as [H1 H2]; rewrite (IHU1 k0 V1 V2 H1), (IHU2 (S k0) (lift_cty 0 1 V1) (lift_cty 0 1 V2) H2); reflexivity).
+    - apply orb_false_iff in HU as [H1 H2]. rewrite (IHU k0 V1 V2 H1). reflexivity.
+    - rewrite HU; reflexivity.
+    - f_equal. induction fields as [| [[fn fg] ft] rest IH]; cbn in *; [reflexivity |].
+      inversion H; subst. cbn in H2. apply orb_false_iff in HU as [Hu1 Hu2].
+      rewrite (H2 k0 V1 V2 Hu1), (IH H3 Hu2). reflexivity. }
+  split; [intros v1 v2; apply Hcty_cidx; exact Hnu | intros V1 V2; apply Hcty_tvar; exact Hnu].
+Qed.
+
 End GradedCoreMetatheory.
