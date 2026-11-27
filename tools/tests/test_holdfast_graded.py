@@ -651,7 +651,7 @@ def _domains_and_grade_polymorphism() -> None:
         status, output, error = _source_command(dom_poly, decl, *extra)
         ensure(status == 0, f"{decl}: {error}")
         report = json.loads(output)
-        ensure(report["status"] == "checked", f"wrong status for {decl}: {report}")
+        ensure(report["status"] == "checked" and report["scope"] == "graded-core-source", f"wrong status/scope for {decl}: {report}")
         if decl == "UseTiny":
             ensure(report["domain"] == "TinyNat", f"expected TinyNat domain: {report['domain']}")
         if decl == "InferLocal":
@@ -731,6 +731,7 @@ def _domains_and_grade_polymorphism() -> None:
         for cli_args in (
             ["derive-combinator", "dist_pair", "--domain", "NatExact", "--verify-rocq"],
             ["derive-combinator", "flatten_box", "--domain", "NatBound", "--verify-rocq"],
+            ["derive-combinator", "cross_mode", "--domain", "NatExact", "--payload-type", "Nat", "--verify-rocq"],
             ["synthesize-graded", "--goal", "Nat", "--var", "x:Nat@1", "--example", "0->1", "--example", "2->3", "--verify-rocq"],
         ):
             o, e = io.StringIO(), io.StringIO()

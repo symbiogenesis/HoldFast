@@ -95,7 +95,7 @@ changed type-demand rows through its row equality certificate.
 
 ### Graded box source replay
 
-Run `python tools/run.py holdfast-parser check-grades tools/tests/fixtures/graded-modal.hf PromoteAndOpen --modal`
+Run `python tools/run.py holdfast-parser check-grades tools/tests/fixtures/graded-modal.hf PromoteAndOpen`
 to replay promotion and an explicitly motivated match over a natural-valued
 box. The input declares the ordinary `Box<T, grade q : NatExact>` record with
 one `T Value @ q` field. The replay checks that declaration shape. Construction
@@ -117,7 +117,7 @@ the result type, with one use in each row.
 
 #### Bounded graded box replay
 
-Run `python tools/run.py holdfast-parser check-grades tools/tests/fixtures/graded-modal-bounded.hf OpenBounded --modal --domain NatBound`
+Run `python tools/run.py holdfast-parser check-grades tools/tests/fixtures/graded-modal-bounded.hf OpenBounded --domain NatBound`
 to check the same modal fragment with `record Box<T, grade q : NatBound>` and
 explicit `@ NatBound(n)` computation allowances. Rocq checks bounds at the
 definition parameters, lambda binders and the match payload. The
@@ -134,7 +134,7 @@ an altered type-demand row fails replay.
 
 ### Graded dependent pair replay
 
-Run `python tools/run.py holdfast-parser check-grades tools/tests/fixtures/graded-dependent-pair.hf OpenIndexed --modal`
+Run `python tools/run.py holdfast-parser check-grades tools/tests/fixtures/graded-dependent-pair.hf OpenIndexed`
 to check a match on `record Indexed(Nat Length, Vec<Nat, (Length)> Payload)`.
 The replay accepts named records with a `Nat` field followed by a natural
 vector. The vector extent can use the first field, natural literals and
@@ -150,7 +150,7 @@ of the two natural counts. This grade scales the scrutinee's computation
 row. The motive scales its type-use row independently. `OpenIndexed` checks
 two computation uses and two type uses of `packed`. `BuildAndOpen` keeps
 the length and payload in the result type with zero computation demand.
-Use `OpenBounded --modal --domain NatBound` with the same fixture to replay
+Use `OpenBounded --domain NatBound` with the same fixture to replay
 an asymmetric body under a shared bound. `OpenStereo` constructs and opens a
 record whose vector has extent `Ticks + Ticks + 1`. The extent contributes
 two type uses in the vector parameter's annotation, and the specialized motive

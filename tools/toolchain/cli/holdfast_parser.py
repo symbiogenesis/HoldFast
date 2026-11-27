@@ -437,13 +437,11 @@ def main(argv: list[str] | None = None) -> int:
     grading.add_argument("definition", help="mathematical definition to check")
     grading.add_argument("--domain", type=graded_source.GradeDomain, choices=tuple(graded_source.GradeDomain),
                          default=graded_source.GradeDomain.EXACT, help="select the computation grade domain (default: NatExact)")
-    grading.add_argument("--modal", action="store_true",
-                         help="replay natural-valued box promotion and explicitly motivated box and dependent pair matches")
     grading.add_argument("--infer-grades", action="store_true",
                          help="infer omitted or '@ _' local grades before Rocq Core replay")
-    derive_cmd = commands.add_parser("derive-combinator", help="derive a distributive Box/Pair/Sum combinator with Rocq replay")
+    derive_cmd = commands.add_parser("derive-combinator", help="derive a distributive Box/Pair/Sum/Mode combinator with Rocq replay")
     derive_cmd.add_argument("combinator", choices=(
-        "dist_pair", "pull_pair", "push_sum", "flatten_box", "duplicate_box", "extract_box", "weaken_box",
+        "dist_pair", "pull_pair", "push_sum", "flatten_box", "duplicate_box", "extract_box", "weaken_box", "cross_mode",
     ))
     derive_cmd.add_argument("--domain", default="NatExact",
                             choices=tuple(d.value for d in graded_inference.InferenceDomain))
@@ -641,7 +639,7 @@ def main(argv: list[str] | None = None) -> int:
             output = holdfast_elaboration_check.check_arithmetic(root, args.source)
         elif args.command == "check-grades":
             output = graded_source.check(
-                root, args.source, args.definition, modal=args.modal, domain=args.domain, infer_grades=args.infer_grades,
+                root, args.source, args.definition, domain=args.domain, infer_grades=args.infer_grades,
             )
         elif args.command == "derive-combinator":
             output = _run_derive_combinator(args)

@@ -4574,7 +4574,6 @@ def check(
     path: Path,
     declaration: str,
     *,
-    modal: bool = False,
     domain: GradeDomain = GradeDomain.EXACT,
     infer_grades: bool = False,
 ) -> dict[str, object]:
@@ -4689,7 +4688,7 @@ def check(
         ]
     else:
         result_deps = _core_dependency_row(env_db_params, exp_row)
-    scope = "pure-natural-modal-source-trial" if (modal or selected.records) else "pure-natural-graded-source-trial"
+    scope = "graded-core-source"
     dom_out = effective_domain.name if isinstance(effective_domain, CustomDomainSpec) else effective_domain.value
     output: dict[str, object] = {
         "status": "checked",
@@ -4698,7 +4697,7 @@ def check(
         "source_sha256": source_hash,
         "declaration": declaration,
         "span": _span(selected.source),
-        "dependencies": list(selected.records) if (modal or selected.records) else [d.name for d in definitions[:-1]],
+        "dependencies": list(selected.records) if selected.records else [d.name for d in definitions[:-1]],
         "kernel_sha256": kernel_hashes,
         "gallina": certificate,
         "binders": binders_out,

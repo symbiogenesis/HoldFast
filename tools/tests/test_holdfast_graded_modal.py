@@ -71,7 +71,7 @@ def _replay() -> None:
 def _source_command(path: Path, declaration: str, *options: str) -> tuple[int, str, str]:
     output, error = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
-        status = parser_main(["check-grades", str(path), declaration, "--modal", *options])
+        status = parser_main(["check-grades", str(path), declaration, *options])
     return status, output.getvalue(), error.getvalue()
 
 
