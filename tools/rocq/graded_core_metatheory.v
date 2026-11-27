@@ -4384,7 +4384,7 @@ Lemma weaken_cidx_demand_join : forall (D : JoinDomain) j (b : cbinding D) env_a
              vec_allows d' (vec_insert_zero (length env_a) d).
 Proof.
   intros D j b env_a env_b i d Hj H.
-  (* Generalize over env1 = env_a ++ env_b because CIdxDemandCase extends env. *)
+  (* Wait: CIdxDemandCase replaces env with extended env, so generalize over env1 = env_a ++ env_b *)
   remember (env_a ++ env_b) as env1 eqn:Henv1.
   revert b env_a env_b Henv1.
   induction H; intros b0 env_a env_b0 Henv1; subst env.
@@ -9207,6 +9207,3263 @@ Proof.
         [ eapply CRecordElemCons; [exact Hv1 | eapply cty_alpha_eq_trans; [exact Htv | exact Htv_eq] | exact Hdt1 | exact Hrest]
         | apply branch_rel_add; [apply branch_rel_scale; exact Huv | exact Hur]
         | apply branch_rel_add; [apply branch_rel_refl | exact Hvr] ]
+    end.
+Qed.
+
+Local Arguments Nat.ltb !_ !_ : simpl nomatch.
+Local Arguments Nat.eqb !_ !_ : simpl nomatch.
+
+Lemma cenv_nat_safe_tl : forall (D : JoinDomain) e (env_a : cenv D),
+  cenv_nat_safe (e :: env_a) (S (length env_a)) ->
+  cenv_nat_safe env_a (length env_a).
+Proof.
+  intros D e env_a H x ex Hlt Hl.
+  exact (H (S x) ex ltac:(cbn; lia) Hl).
+Qed.
+
+Lemma cenv_nat_safe_skipn : forall (D : JoinDomain) n (env_a : cenv D),
+  cenv_nat_safe env_a (length env_a) ->
+  cenv_nat_safe (skipn n env_a) (length (skipn n env_a)).
+Proof.
+  intros D n. induction n as [| n IH]; intros [| e rest] Hsafe; cbn; try exact Hsafe.
+  apply IH. apply cenv_nat_safe_tl in Hsafe. exact Hsafe.
+Qed.
+
+Lemma cdemand_nat_safe_erase : forall (D : JoinDomain) (b : cbinding D) env_b,
+  erase_hints (cannotation b) = CNat ->
+  (forall env i d, CIdxDemand env i d ->
+     forall env_a, env = env_a ++ b :: env_b ->
+       cidx_uses_kinds true false false false false (length env_a) i = false) /\
+  (forall env T d, CTypeDemand env T d ->
+     forall env_a, env = env_a ++ b :: env_b ->
+       cty_uses_kinds true false false false false false false (length env_a) T = false).
+Proof.
+  intros D b env_b Hb.
+  assert (Hidx : forall env i d, CIdxDemand env i d ->
+    forall env_a, env = env_a ++ b :: env_b ->
+      cidx_uses_kinds true false false false false (length env_a) i = false).
+  { intros env i d H. induction H; intros env_a Henv; subst env; cbn; try reflexivity;
+      try (rewrite (IHCIdxDemand1 _ eq_refl), (IHCIdxDemand2 _ eq_refl); reflexivity);
+      try (apply (IHCIdxDemand _ eq_refl)).
+    - destruct (Nat.eq_dec b0 (length env_a)) as [-> | Hne]; [| apply Nat.eqb_neq; exact Hne].
+      unfold clookup in H. rewrite nth_error_app2, Nat.sub_diag in H by lia.
+      inversion H; subst e. unfold cty_alpha_eq in H0; rewrite Hb in H0; cbn in H0; discriminate.
+    - destruct (Nat.eq_dec p (length env_a)) as [-> | Hne]; [| apply Nat.eqb_neq; exact Hne].
+      unfold clookup in H. rewrite nth_error_app2, Nat.sub_diag in H by lia.
+      inversion H; subst e. unfold cty_alpha_eq in H0; rewrite Hb in H0; cbn in H0; discriminate.
+    - destruct (Nat.eq_dec p (length env_a)) as [-> | Hne]; [| apply Nat.eqb_neq; exact Hne].
+      unfold clookup in H. rewrite nth_error_app2, Nat.sub_diag in H by lia.
+      inversion H; subst e. unfold cty_alpha_eq in H0; rewrite Hb in H0; cbn in H0; discriminate.
+    - destruct (Nat.eq_dec s (length env_a)) as [-> | Hne].
+      + unfold clookup in H. rewrite nth_error_app2, Nat.sub_diag in H by lia.
+        inversion H; subst e. unfold cty_alpha_eq in H0; rewrite erase_hints_ren, Hb in H0; cbn in H0; discriminate.
+      + apply Nat.eqb_neq in Hne. rewrite Hne.
+        pose proof (IHCIdxDemand1 ({| cbinder := 0; cannotation := A; ctype_uses := vec_zero (length (env_a ++ b :: env_b)) |} :: env_a) eq_refl) as Hl1.
+        pose proof (IHCIdxDemand2 ({| cbinder := 0; cannotation := B; ctype_uses := vec_zero (length (env_a ++ b :: env_b)) |} :: env_a) eq_refl) as Hr1.
+        cbn [length] in Hl1, Hr1. rewrite Hl1, Hr1. reflexivity. }
+  split; [exact Hidx |].
+  intros env T d HT.
+  induction HT using CTypeDemand_ind_mut with
+    (P := fun env T d _ => forall env_a, env = env_a ++ b :: env_b ->
+      cty_uses_kinds true false false false false false false (length env_a) T = false)
+    (P0 := fun env fs df _ => forall env_a, env = env_a ++ b :: env_b ->
+      Forall (fun '(_, _, ft) => cty_uses_kinds true false false false false false false (length env_a) ft = false) fs)
+    (P1 := fun env ls dl _ => forall env_a, env = env_a ++ b :: env_b ->
+      Forall (fun i => cidx_uses_kinds true false false false false (length env_a) i = false) ls);
+    intros env_a Henv; subst env; cbn; try reflexivity;
+    try (apply IHHT; reflexivity);
+    try (rewrite (IHHT1 _ eq_refl), (IHHT2 _ eq_refl); reflexivity);
+    try apply Forall_nil.
+  - rewrite (IHHT _ eq_refl), (Hidx _ _ _ c _ eq_refl). reflexivity.
+  - destruct (Nat.eq_dec x (length env_a)) as [-> | Hne]; [| apply Nat.eqb_neq; exact Hne].
+    lazymatch goal with
+    | Hlk : clookup _ _ = Some _, Ha : cty_alpha_eq _ _ |- _ =>
+        unfold clookup in Hlk; rewrite nth_error_app2, Nat.sub_diag in Hlk by lia;
+        inversion Hlk; subst; unfold cty_alpha_eq in Ha; try rewrite erase_hints_ren in Ha; rewrite Hb in Ha; cbn in Ha; discriminate
+    end.
+  - destruct (Nat.eq_dec b0 (length env_a)) as [-> | Hne]; [| apply Nat.eqb_neq; exact Hne].
+    lazymatch goal with
+    | Hlk : clookup _ _ = Some _, Ha : cty_alpha_eq _ _ |- _ =>
+        unfold clookup in Hlk; rewrite nth_error_app2, Nat.sub_diag in Hlk by lia;
+        inversion Hlk; subst; unfold cty_alpha_eq in Ha; try rewrite erase_hints_ren in Ha; rewrite Hb in Ha; cbn in Ha; discriminate
+    end.
+  - rewrite (IHHT1 _ eq_refl).
+    exact (IHHT2 (_ :: env_a) eq_refl).
+  - rewrite (IHHT1 _ eq_refl).
+    exact (IHHT2 (_ :: env_a) eq_refl).
+  - pose proof (IHHT _ eq_refl) as Hf. clear - Hf. induction fields as [| [[? ?] ?] ? IH]; cbn; inversion Hf; subst; [reflexivity | rewrite H1, (IH H2); reflexivity].
+  - pose proof (IHHT _ eq_refl) as Hl. clear - Hl. induction indices as [| ? ? IH]; cbn; inversion Hl; subst; [reflexivity | rewrite H1, (IH H2); reflexivity].
+  - apply Forall_cons; [exact (IHHT _ eq_refl) | exact (IHHT0 _ eq_refl)].
+  - apply Forall_cons; [exact (Hidx _ _ _ c _ eq_refl) | exact (IHHT _ eq_refl)].
+Qed.
+
+Lemma cdemand_nat_safe : forall (D : JoinDomain) (b : cbinding D) env_b,
+  cannotation b = CNat ->
+  (forall env i d, CIdxDemand env i d ->
+     forall env_a, env = env_a ++ b :: env_b ->
+       cidx_uses_kinds true false false false false (length env_a) i = false) /\
+  (forall env T d, CTypeDemand env T d ->
+     forall env_a, env = env_a ++ b :: env_b ->
+       cty_uses_kinds true false false false false false false (length env_a) T = false).
+Proof.
+  intros D b env_b Hb. apply cdemand_nat_safe_erase. rewrite Hb. reflexivity.
+Qed.
+
+Lemma ren_cty_r_var_no_use : forall (D : JoinDomain) (T : cty D) c y1 y2,
+  cty_uses_var c T = false ->
+  ren_cty (r_var c y1) T = ren_cty (r_var c y2) T.
+Proof.
+  intros D T.
+  Ltac solve_r_var_ne c :=
+    nat_bool_hyps;
+    lazymatch goal with
+    | H : (?v =? c) = false |- _ =>
+        apply Nat.eqb_neq in H; destruct (lt_eq_lt_dec v c) as [[Hlt | ->] | Hgt];
+        [rewrite !r_var_lt by exact Hlt | contradiction | rewrite !r_var_gt by exact Hgt]; reflexivity
+    | H : ?v <> c |- _ =>
+        destruct (lt_eq_lt_dec v c) as [[Hlt | ->] | Hgt];
+        [rewrite !r_var_lt by exact Hlt | contradiction | rewrite !r_var_gt by exact Hgt]; reflexivity
+    end.
+  assert (Hci : forall (i : cidx D) c y1 y2, cidx_uses_var c i = false -> ren_cidx (r_var c y1) i = ren_cidx (r_var c y2) i).
+  { induction i; intros c y1 y2 Hi; cbn in *; try reflexivity;
+      try (apply orb_false_iff in Hi as [H1 H2]; rewrite (IHi1 c y1 y2 H1), (IHi2 c y1 y2 H2); reflexivity);
+      try (f_equal; apply (IHi c y1 y2 Hi));
+      try solve_r_var_ne c.
+    - apply orb_false_iff in Hi as [H12 H3]; apply orb_false_iff in H12 as [H1 H2]; nat_bool_hyps.
+      change (ren_shift (r_var c y1)) with (r_var (S c) y1).
+      change (ren_shift (r_var c y2)) with (r_var (S c) y2).
+      rewrite (IHi1 (S c) y1 y2 H2), (IHi2 (S c) y1 y2 H3).
+      f_equal; solve_r_var_ne c. }
+  induction T using cty_ind_nested; intros c y1 y2 HT; cbn in *; try reflexivity;
+    try (f_equal; apply (IHT c y1 y2 HT));
+    try (apply orb_false_iff in HT as [H1 H2]; rewrite (IHT1 c y1 y2 H1), (IHT2 c y1 y2 H2); reflexivity);
+    try (f_equal; solve_r_var_ne c).
+  - apply orb_false_iff in HT as [H1 H2]. rewrite (IHT c y1 y2 H1), (Hci len c y1 y2 H2). reflexivity.
+  - apply orb_false_iff in HT as [H1 H2]. rewrite (IHT1 c y1 y2 H1).
+    change (ren_shift (r_var c y1)) with (r_var (S c) y1).
+    change (ren_shift (r_var c y2)) with (r_var (S c) y2).
+    rewrite (IHT2 (S c) y1 y2 H2). reflexivity.
+  - apply orb_false_iff in HT as [H1 H2]. rewrite (IHT1 c y1 y2 H1).
+    change (ren_shift (r_var c y1)) with (r_var (S c) y1).
+    change (ren_shift (r_var c y2)) with (r_var (S c) y2).
+    rewrite (IHT2 (S c) y1 y2 H2). reflexivity.
+  - f_equal. induction fields as [| [[fn fg] ft] rest IHf]; cbn in *; [reflexivity |].
+    inversion H; subst; cbn in H2. apply orb_false_iff in HT as [H1 Hr]. rewrite (H2 c y1 y2 H1), (IHf H3 Hr). reflexivity.
+  - f_equal. induction indices as [| idx rest IH]; cbn in *; [reflexivity |].
+    apply orb_false_iff in HT as [H1 Hr]. rewrite (Hci idx c y1 y2 H1), (IH Hr). reflexivity.
+Qed.
+
+Lemma cty_uses_kinds_subst_var_0 : forall (D : JoinDomain) (T : cty D) y k,
+  y <> k ->
+  cty_uses_kinds true false false false false false false (S k) T = false ->
+  cty_uses_kinds true false false false false false false k (subst_var_in_cty 0 y T) = false.
+Proof.
+  intros D T y k Hne H. unfold subst_var_in_cty. eapply cty_uses_kinds_ren_gen; [| exact H].
+  intros [| z] Hz; cbn; lia.
+Qed.
+
+Lemma cty_uses_kinds_unshift_0 : forall (D : JoinDomain) (T : cty D) k,
+  cty_uses_var 0 T = false ->
+  cty_uses_kinds true false false false false false false (S k) T = false ->
+  cty_uses_kinds true false false false false false false k (unshift_cty 0 T) = false.
+Proof.
+  intros D T k H0 H. unfold unshift_cty.
+  change (ren_cty (Nat.iter 0 ren_shift (fun i => match i with 0 => 0 | S i' => i' end)) T) with (ren_cty (r_var 0 0) T).
+  rewrite (ren_cty_r_var_no_use D T 0 0 (S k) H0).
+  exact (cty_uses_kinds_subst_var_0 D T (S k) k ltac:(lia) H).
+Qed.
+
+Ltac solve_elim_var v c k Hceq Hsk :=
+  destruct (v <? c) eqn:Elt; [apply Nat.ltb_lt in Elt; apply Nat.eqb_neq; lia |];
+  destruct (Nat.eq_dec v c) as [Heq_vc | Hne];
+  [ rewrite Heq_vc, Nat.eqb_refl; cbn;
+    destruct (Nat.eq_dec k 0) as [Hk0 | Hknz];
+    [ assert (Hceq' : c = k) by lia;
+      exfalso; pose proof (Hceq Hceq') as Hbad; rewrite Heq_vc, Nat.eqb_refl in Hbad; discriminate
+    | apply Nat.eqb_neq; lia ]
+  | rewrite (proj2 (Nat.eqb_neq _ _) Hne); apply Nat.eqb_neq;
+    apply Nat.eqb_neq in Hsk; apply Nat.ltb_ge in Elt; lia ].
+
+Lemma cty_uses_kinds_subst_cidx_0 : forall (D : JoinDomain) (T : cty D) (val : cidx D) k,
+  cidx_uses_kinds true false false false false k val = false ->
+  (k = 0 -> cty_uses_kinds true false false false false false false 0 T = false) ->
+  cty_uses_kinds true false false false false false false (S k) T = false ->
+  cty_uses_kinds true false false false false false false k (subst_cidx_in_cty 0 val T) = false.
+Proof.
+  intros D T.
+  assert (Hgen : forall (T0 : cty D) (val : cidx D) c k,
+    c <= k ->
+    (c = k -> cty_uses_kinds true false false false false false false c T0 = false) ->
+    cty_uses_kinds true false false false false false false (S k) T0 = false ->
+    cidx_uses_kinds true false false false false k val = false ->
+    cty_uses_kinds true false false false false false false k (subst_cidx_in_cty c val T0) = false).
+  { induction T0 using cty_ind_nested; intros val c k Hck Hceq Hsk Hval; cbn in *; try reflexivity;
+      try (apply (IHT0 _ _ _ Hck Hceq Hsk Hval));
+      try (apply orb_false_iff in Hsk as [Hsk1 Hsk2];
+           rewrite (IHT0_1 _ _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) Hsk1 Hval),
+                   (IHT0_2 _ _ _ Hck (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq Heq))) Hsk2 Hval); reflexivity).
+    - apply orb_false_iff in Hsk as [Hsk1 Hsk2].
+      rewrite (IHT0 _ _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) Hsk1 Hval).
+      rewrite (cidx_uses_kinds_subst_cidx_ge D len val c k Hck (fun Heq => match Heq in (_ = k') return cidx_uses_kinds true false false false false k' len = false with eq_refl => proj2 (proj1 (orb_false_iff _ _) (Hceq Heq)) end) Hsk2 Hval).
+      reflexivity.
+    - solve_elim_var x c k Hceq Hsk.
+    - solve_elim_var b c k Hceq Hsk.
+    - apply orb_false_iff in Hsk as [Hsk1 Hsk2].
+      rewrite (IHT0_1 _ _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) Hsk1 Hval).
+      rewrite (IHT0_2 (lift_cidx 0 1 val) (S c) (S k) ltac:(lia) (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq ltac:(lia)))) Hsk2 (cidx_uses_kinds_lift_shift D val k Hval)).
+      reflexivity.
+    - apply orb_false_iff in Hsk as [Hsk1 Hsk2].
+      rewrite (IHT0_1 _ _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) Hsk1 Hval).
+      rewrite (IHT0_2 (lift_cidx 0 1 val) (S c) (S k) ltac:(lia) (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq ltac:(lia)))) Hsk2 (cidx_uses_kinds_lift_shift D val k Hval)).
+      reflexivity.
+    - induction fields as [| [[fn fg] ft] rest IHf]; cbn in *; [reflexivity |].
+      inversion H; subst; cbn in H2. apply orb_false_iff in Hsk as [Hsk1 Hsk2].
+      rewrite (H2 _ _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) Hsk1 Hval),
+              (IHf H3 (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq Heq))) Hsk2). reflexivity.
+    - induction indices as [| idx rest IH]; cbn in *; [reflexivity |].
+      apply orb_false_iff in Hsk as [Hsk1 Hsk2].
+      rewrite (cidx_uses_kinds_subst_cidx_ge D idx val c k Hck (fun Heq => match Heq in (_ = k') return cidx_uses_kinds true false false false false k' idx = false with eq_refl => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq)) end) Hsk1 Hval),
+              (IH (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq Heq))) Hsk2). reflexivity. }
+  intros val k Hval H0 Hsk. exact (Hgen T val 0 k ltac:(lia) (fun Heq => H0 (eq_sym Heq)) Hsk Hval).
+Qed.
+
+Lemma cidx_uses_kinds_idx_true : forall (D : JoinDomain) (i : cidx D) u f s sc k,
+  cidx_uses_kinds false u f s sc k i = false ->
+  cidx_uses_kinds true u f s sc k i = false.
+Proof.
+  intros D i u f s sc. induction i; intros k H; cbn in *; try reflexivity; try assumption;
+    try (apply orb_false_iff in H as [H1 H2]; rewrite (IHi1 _ H1), (IHi2 _ H2); reflexivity);
+    try (apply (IHi _ H)).
+  apply orb_false_iff in H as [H12 H3]; apply orb_false_iff in H12 as [H1 H2].
+  rewrite H1, (IHi1 _ H2), (IHi2 _ H3). reflexivity.
+Qed.
+
+Lemma cidx_uses_kinds_subst_tvar_ge : forall (D : JoinDomain) (i : cidx D) c k,
+  c <= k ->
+  (c = k -> cidx_uses_kinds true false false false false c i = false) ->
+  cidx_uses_kinds true false false false false (S k) i = false ->
+  cidx_uses_kinds true false false false false k (subst_tvar_in_cidx c i) = false.
+Proof.
+  intros D i. induction i; intros c k Hck Hceq Hsk; cbn in *; try reflexivity;
+    try (apply orb_false_iff in Hsk as [H1 H2];
+         rewrite (IHi1 _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) H1),
+                 (IHi2 _ _ Hck (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq Heq))) H2); reflexivity);
+    try (apply (IHi _ _ Hck Hceq Hsk));
+    try solve_elim_var b c k Hceq Hsk;
+    try solve_elim_var p c k Hceq Hsk.
+  apply orb_false_iff in Hsk as [H12 H3]; apply orb_false_iff in H12 as [H1 H2].
+  assert (Hs : ((if s <? c then s else if s =? c then 0 else s - 1) =? k) = false) by
+    solve_elim_var s c k (fun Heq => proj1 (proj1 (orb_false_iff _ _) (proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))))) H1.
+  rewrite Hs.
+  rewrite (IHi1 (S c) (S k) ltac:(lia) (fun Heq => proj2 (proj1 (orb_false_iff _ _) (proj1 (proj1 (orb_false_iff _ _) (Hceq ltac:(lia)))))) H2),
+          (IHi2 (S c) (S k) ltac:(lia) (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq ltac:(lia)))) H3).
+  reflexivity.
+Qed.
+
+Lemma cty_uses_kinds_subst_tvar_0 : forall (D : JoinDomain) (T U : cty D) k,
+  cty_uses_kinds true false false false false false false k U = false ->
+  (k = 0 -> cty_uses_kinds false true false false false false false 0 T = false) ->
+  cty_uses_kinds true false false false false false false (S k) T = false ->
+  cty_uses_kinds true false false false false false false k (subst_tvar_in_cty 0 U T) = false.
+Proof.
+  intros D T.
+  assert (Hgen : forall (T0 U : cty D) c k,
+    c <= k ->
+    (c = k -> cty_uses_kinds false true false false false false false c T0 = false) ->
+    cty_uses_kinds true false false false false false false (S k) T0 = false ->
+    cty_uses_kinds true false false false false false false k U = false ->
+    cty_uses_kinds true false false false false false false k (subst_tvar_in_cty c U T0) = false).
+  { induction T0 using cty_ind_nested; intros U c k Hck Hceq Hsk HU; cbn in *; try reflexivity;
+      try (apply (IHT0 _ _ _ Hck Hceq Hsk HU));
+      try (apply orb_false_iff in Hsk as [H1 H2];
+           rewrite (IHT0_1 _ _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) H1 HU),
+                   (IHT0_2 _ _ _ Hck (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq Heq))) H2 HU); reflexivity).
+    - apply orb_false_iff in Hsk as [H1 H2].
+      rewrite (IHT0 _ _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) H1 HU),
+              (cidx_uses_kinds_subst_tvar_ge D len c k Hck (fun Heq => cidx_uses_kinds_idx_true _ _ _ _ _ _ _ (proj2 (proj1 (orb_false_iff _ _) (Hceq Heq)))) H2).
+      reflexivity.
+    - destruct (Nat.eq_dec x c) as [-> | Hne]; [rewrite Nat.eqb_refl; exact HU |].
+      rewrite (proj2 (Nat.eqb_neq _ _) Hne).
+      destruct (x <? c) eqn:Elt; [apply Nat.ltb_lt in Elt; apply Nat.eqb_neq; lia |].
+      apply Nat.ltb_ge in Elt; apply Nat.eqb_neq; apply Nat.eqb_neq in Hsk; lia.
+    - solve_elim_var b c k Hceq Hsk.
+    - apply orb_false_iff in Hsk as [H1 H2].
+      rewrite (IHT0_1 _ _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) H1 HU).
+      rewrite (IHT0_2 (lift_cty 0 1 U) (S c) (S k) ltac:(lia) (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq ltac:(lia)))) H2 (cty_uses_kinds_lift_shift D U k HU)).
+      reflexivity.
+    - apply orb_false_iff in Hsk as [H1 H2].
+      rewrite (IHT0_1 _ _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) H1 HU).
+      rewrite (IHT0_2 (lift_cty 0 1 U) (S c) (S k) ltac:(lia) (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq ltac:(lia)))) H2 (cty_uses_kinds_lift_shift D U k HU)).
+      reflexivity.
+    - induction fields as [| [[fn fg] ft] rest IHf]; cbn in *; [reflexivity |].
+      inversion H; subst; cbn in H2. apply orb_false_iff in Hsk as [H1 H2'].
+      rewrite (H2 _ _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) H1 HU),
+              (IHf H3 (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq Heq))) H2'). reflexivity.
+    - induction indices as [| idx rest IH]; cbn in *; [reflexivity |].
+      apply orb_false_iff in Hsk as [H1 H2].
+      rewrite (cidx_uses_kinds_subst_tvar_ge D idx c k Hck (fun Heq => cidx_uses_kinds_idx_true _ _ _ _ _ _ _ (proj1 (proj1 (orb_false_iff _ _) (Hceq Heq)))) H1),
+              (IH (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq Heq))) H2). reflexivity. }
+  intros U k HU H0 Hsk. exact (Hgen T U 0 k ltac:(lia) (fun Heq => H0 (eq_sym Heq)) Hsk HU).
+Qed.
+
+Lemma cty_uses_kinds_subst_pair_0 : forall (D : JoinDomain) (T : cty D) (fi si : cidx D) k,
+  cidx_uses_kinds true false false false false k fi = false ->
+  cidx_uses_kinds true false false false false k si = false ->
+  (k = 0 -> cty_uses_kinds true false false false true true false 0 T = false) ->
+  cty_uses_kinds true false false false false false false (S k) T = false ->
+  cty_uses_kinds true false false false false false false k (subst_pair_cty 0 fi si T) = false.
+Proof.
+  intros D T.
+  assert (Hci : forall (i fi si : cidx D) c k,
+    c <= k ->
+    (c = k -> cidx_uses_kinds true false true true false c i = false) ->
+    cidx_uses_kinds true false false false false (S k) i = false ->
+    cidx_uses_kinds true false false false false k fi = false ->
+    cidx_uses_kinds true false false false false k si = false ->
+    cidx_uses_kinds true false false false false k (subst_pair_cidx c fi si i) = false).
+  { induction i; intros fi si c k Hck Hceq Hsk Hfi Hsi; cbn in *; try reflexivity;
+      try (apply orb_false_iff in Hsk as [H1 H2];
+           rewrite (IHi1 _ _ _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) H1 Hfi Hsi),
+                   (IHi2 _ _ _ _ Hck (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq Heq))) H2 Hfi Hsi); reflexivity);
+      try (apply (IHi _ _ _ _ Hck Hceq Hsk Hfi Hsi));
+      try solve_elim_var b c k Hceq Hsk.
+    - destruct (Nat.eq_dec p c) as [-> | Hne]; [rewrite Nat.eqb_refl; exact Hfi |].
+      rewrite (proj2 (Nat.eqb_neq _ _) Hne). cbn.
+      destruct (p <? c) eqn:Elt; [apply Nat.ltb_lt in Elt; apply Nat.eqb_neq; lia |].
+      apply Nat.ltb_ge in Elt; apply Nat.eqb_neq; apply Nat.eqb_neq in Hsk; lia.
+    - destruct (Nat.eq_dec p c) as [-> | Hne]; [rewrite Nat.eqb_refl; exact Hsi |].
+      rewrite (proj2 (Nat.eqb_neq _ _) Hne). cbn.
+      destruct (p <? c) eqn:Elt; [apply Nat.ltb_lt in Elt; apply Nat.eqb_neq; lia |].
+      apply Nat.ltb_ge in Elt; apply Nat.eqb_neq; apply Nat.eqb_neq in Hsk; lia.
+    - apply orb_false_iff in Hsk as [H12 H3]; apply orb_false_iff in H12 as [H1 H2].
+      assert (Hs : ((if s <? c then s else if s =? c then 0 else s - 1) =? k) = false) by
+        solve_elim_var s c k (fun Heq => proj1 (proj1 (orb_false_iff _ _) (proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))))) H1.
+      rewrite Hs.
+      rewrite (IHi1 (lift_cidx 0 1 fi) (lift_cidx 0 1 si) (S c) (S k) ltac:(lia)
+                 (fun Heq => proj2 (proj1 (orb_false_iff _ _) (proj1 (proj1 (orb_false_iff _ _) (Hceq ltac:(lia)))))) H2
+                 (cidx_uses_kinds_lift_shift D fi k Hfi) (cidx_uses_kinds_lift_shift D si k Hsi)),
+              (IHi2 (lift_cidx 0 1 fi) (lift_cidx 0 1 si) (S c) (S k) ltac:(lia)
+                 (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq ltac:(lia)))) H3
+                 (cidx_uses_kinds_lift_shift D fi k Hfi) (cidx_uses_kinds_lift_shift D si k Hsi)).
+      reflexivity. }
+  assert (Hgen : forall (T0 : cty D) (fi si : cidx D) c k,
+    c <= k ->
+    (c = k -> cty_uses_kinds true false false false true true false c T0 = false) ->
+    cty_uses_kinds true false false false false false false (S k) T0 = false ->
+    cidx_uses_kinds true false false false false k fi = false ->
+    cidx_uses_kinds true false false false false k si = false ->
+    cty_uses_kinds true false false false false false false k (subst_pair_cty c fi si T0) = false).
+  { induction T0 using cty_ind_nested; intros fi si c k Hck Hceq Hsk Hfi Hsi; cbn in *; try reflexivity;
+      try (apply (IHT0 _ _ _ _ Hck Hceq Hsk Hfi Hsi));
+      try (apply orb_false_iff in Hsk as [H1 H2];
+           rewrite (IHT0_1 _ _ _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) H1 Hfi Hsi),
+                   (IHT0_2 _ _ _ _ Hck (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq Heq))) H2 Hfi Hsi); reflexivity);
+      try solve_elim_var x c k Hceq Hsk;
+      try solve_elim_var b c k Hceq Hsk.
+    - apply orb_false_iff in Hsk as [H1 H2].
+      rewrite (IHT0 _ _ _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) H1 Hfi Hsi),
+              (Hci len fi si c k Hck (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq Heq))) H2 Hfi Hsi).
+      reflexivity.
+    - apply orb_false_iff in Hsk as [H1 H2].
+      rewrite (IHT0_1 _ _ _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) H1 Hfi Hsi),
+              (IHT0_2 (lift_cidx 0 1 fi) (lift_cidx 0 1 si) (S c) (S k) ltac:(lia)
+                 (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq ltac:(lia)))) H2
+                 (cidx_uses_kinds_lift_shift D fi k Hfi) (cidx_uses_kinds_lift_shift D si k Hsi)).
+      reflexivity.
+    - apply orb_false_iff in Hsk as [H1 H2].
+      rewrite (IHT0_1 _ _ _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) H1 Hfi Hsi),
+              (IHT0_2 (lift_cidx 0 1 fi) (lift_cidx 0 1 si) (S c) (S k) ltac:(lia)
+                 (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq ltac:(lia)))) H2
+                 (cidx_uses_kinds_lift_shift D fi k Hfi) (cidx_uses_kinds_lift_shift D si k Hsi)).
+      reflexivity.
+    - induction fields as [| [[fn fg] ft] rest IHf]; cbn in *; [reflexivity |].
+      inversion H; subst; cbn in H2. apply orb_false_iff in Hsk as [H1 H2'].
+      rewrite (H2 _ _ _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) H1 Hfi Hsi),
+              (IHf H3 (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq Heq))) H2'). reflexivity.
+    - induction indices as [| idx rest IH]; cbn in *; [reflexivity |].
+      apply orb_false_iff in Hsk as [H1 H2].
+      rewrite (Hci idx fi si c k Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) H1 Hfi Hsi),
+              (IH (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq Heq))) H2). reflexivity. }
+  intros fi si k Hfi Hsi H0 Hsk. exact (Hgen T fi si 0 k ltac:(lia) (fun Heq => H0 (eq_sym Heq)) Hsk Hfi Hsi).
+Qed.
+
+Lemma cty_uses_kinds_subst_box_nat_0 : forall (D : JoinDomain) (T : cty D) q (val : cidx D) k,
+  cidx_uses_kinds true false false false false k val = false ->
+  (k = 0 -> cty_uses_kinds true false false true false false false 0 T = false) ->
+  cty_uses_kinds true false false false false false false (S k) T = false ->
+  cty_uses_kinds true false false false false false false k (subst_box_nat_cty 0 q val T) = false.
+Proof.
+  intros D T q.
+  assert (Hci : forall (i val : cidx D) c k,
+    c <= k ->
+    (c = k -> cidx_uses_kinds true true false false false c i = false) ->
+    cidx_uses_kinds true false false false false (S k) i = false ->
+    cidx_uses_kinds true false false false false k val = false ->
+    cidx_uses_kinds true false false false false k (subst_box_nat_cidx c q val i) = false).
+  { induction i; intros val c k Hck Hceq Hsk Hval; cbn in *; try reflexivity;
+      try (apply orb_false_iff in Hsk as [H1 H2];
+           rewrite (IHi1 _ _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) H1 Hval),
+                   (IHi2 _ _ _ Hck (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq Heq))) H2 Hval); reflexivity);
+      try (apply (IHi _ _ _ Hck Hceq Hsk Hval));
+      try solve_elim_var p c k Hceq Hsk.
+    - destruct (Nat.eq_dec b c) as [-> | Hne]; [rewrite Nat.eqb_refl; cbn; exact Hval |].
+      rewrite (proj2 (Nat.eqb_neq _ _) Hne).
+      destruct (b <? c) eqn:Elt; cbn; [apply Nat.ltb_lt in Elt; apply Nat.eqb_neq; lia |].
+      apply Nat.ltb_ge in Elt; apply Nat.eqb_neq; apply Nat.eqb_neq in Hsk; lia.
+    - apply orb_false_iff in Hsk as [H12 H3]; apply orb_false_iff in H12 as [H1 H2].
+      assert (Hs : ((if s <? c then s else if s =? c then 0 else s - 1) =? k) = false) by
+        solve_elim_var s c k (fun Heq => proj1 (proj1 (orb_false_iff _ _) (proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))))) H1.
+      rewrite Hs.
+      rewrite (IHi1 (lift_cidx 0 1 val) (S c) (S k) ltac:(lia)
+                 (fun Heq => proj2 (proj1 (orb_false_iff _ _) (proj1 (proj1 (orb_false_iff _ _) (Hceq ltac:(lia)))))) H2
+                 (cidx_uses_kinds_lift_shift D val k Hval)),
+              (IHi2 (lift_cidx 0 1 val) (S c) (S k) ltac:(lia)
+                 (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq ltac:(lia)))) H3
+                 (cidx_uses_kinds_lift_shift D val k Hval)).
+      reflexivity. }
+  assert (Hgen : forall (T0 : cty D) (val : cidx D) c k,
+    c <= k ->
+    (c = k -> cty_uses_kinds true false false true false false false c T0 = false) ->
+    cty_uses_kinds true false false false false false false (S k) T0 = false ->
+    cidx_uses_kinds true false false false false k val = false ->
+    cty_uses_kinds true false false false false false false k (subst_box_nat_cty c q val T0) = false).
+  { induction T0 using cty_ind_nested; intros val c k Hck Hceq Hsk Hval; cbn in *; try reflexivity;
+      try (apply (IHT0 _ _ _ Hck Hceq Hsk Hval));
+      try (apply orb_false_iff in Hsk as [H1 H2];
+           rewrite (IHT0_1 _ _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) H1 Hval),
+                   (IHT0_2 _ _ _ Hck (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq Heq))) H2 Hval); reflexivity);
+      try solve_elim_var x c k Hceq Hsk;
+      try solve_elim_var b c k Hceq Hsk.
+    - apply orb_false_iff in Hsk as [H1 H2].
+      rewrite (IHT0 _ _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) H1 Hval),
+              (Hci len val c k Hck (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq Heq))) H2 Hval).
+      reflexivity.
+    - apply orb_false_iff in Hsk as [H1 H2].
+      rewrite (IHT0_1 _ _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) H1 Hval),
+              (IHT0_2 (lift_cidx 0 1 val) (S c) (S k) ltac:(lia)
+                 (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq ltac:(lia)))) H2
+                 (cidx_uses_kinds_lift_shift D val k Hval)).
+      reflexivity.
+    - apply orb_false_iff in Hsk as [H1 H2].
+      rewrite (IHT0_1 _ _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) H1 Hval),
+              (IHT0_2 (lift_cidx 0 1 val) (S c) (S k) ltac:(lia)
+                 (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq ltac:(lia)))) H2
+                 (cidx_uses_kinds_lift_shift D val k Hval)).
+      reflexivity.
+    - induction fields as [| [[fn fg] ft] rest IHf]; cbn in *; [reflexivity |].
+      inversion H; subst; cbn in H2. apply orb_false_iff in Hsk as [H1 H2'].
+      rewrite (H2 _ _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) H1 Hval),
+              (IHf H3 (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq Heq))) H2'). reflexivity.
+    - induction indices as [| idx rest IH]; cbn in *; [reflexivity |].
+      apply orb_false_iff in Hsk as [H1 H2].
+      rewrite (Hci idx val c k Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) H1 Hval),
+              (IH (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq Heq))) H2). reflexivity. }
+  intros val k Hval H0 Hsk. exact (Hgen T val 0 k ltac:(lia) (fun Heq => H0 (eq_sym Heq)) Hsk Hval).
+Qed.
+
+Lemma cty_uses_kinds_subst_box_ty_0 : forall (D : JoinDomain) (T U : cty D) q k,
+  cty_uses_kinds true false false false false false false k U = false ->
+  (k = 0 -> cty_uses_kinds true false true false false false false 0 T = false) ->
+  cty_uses_kinds true false false false false false false (S k) T = false ->
+  cty_uses_kinds true false false false false false false k (subst_box_ty_cty 0 q U T) = false.
+Proof.
+  intros D T U q.
+  assert (Hgen : forall (T0 U0 : cty D) c k,
+    c <= k ->
+    (c = k -> cty_uses_kinds true false true false false false false c T0 = false) ->
+    cty_uses_kinds true false false false false false false (S k) T0 = false ->
+    cty_uses_kinds true false false false false false false k U0 = false ->
+    cty_uses_kinds true false false false false false false k (subst_box_ty_cty c q U0 T0) = false).
+  { induction T0 using cty_ind_nested; intros U0 c k Hck Hceq Hsk HU; cbn in *; try reflexivity;
+      try (apply (IHT0 _ _ _ Hck Hceq Hsk HU));
+      try (apply orb_false_iff in Hsk as [H1 H2];
+           rewrite (IHT0_1 _ _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) H1 HU),
+                   (IHT0_2 _ _ _ Hck (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq Heq))) H2 HU); reflexivity);
+      try solve_elim_var x c k Hceq Hsk.
+    - apply orb_false_iff in Hsk as [H1 H2].
+      rewrite (IHT0 _ _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) H1 HU),
+              (cidx_uses_kinds_subst_tvar_ge D len c k Hck (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq Heq))) H2).
+      reflexivity.
+    - destruct (Nat.eq_dec b c) as [-> | Hne]; [rewrite Nat.eqb_refl; cbn; exact HU |].
+      rewrite (proj2 (Nat.eqb_neq _ _) Hne).
+      destruct (b <? c) eqn:Elt; cbn; [apply Nat.ltb_lt in Elt; apply Nat.eqb_neq; lia |].
+      apply Nat.ltb_ge in Elt; apply Nat.eqb_neq; apply Nat.eqb_neq in Hsk; lia.
+    - apply orb_false_iff in Hsk as [H1 H2].
+      rewrite (IHT0_1 _ _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) H1 HU),
+              (IHT0_2 (lift_cty 0 1 U0) (S c) (S k) ltac:(lia)
+                 (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq ltac:(lia)))) H2
+                 (cty_uses_kinds_lift_shift D U0 k HU)).
+      reflexivity.
+    - apply orb_false_iff in Hsk as [H1 H2].
+      rewrite (IHT0_1 _ _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) H1 HU),
+              (IHT0_2 (lift_cty 0 1 U0) (S c) (S k) ltac:(lia)
+                 (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq ltac:(lia)))) H2
+                 (cty_uses_kinds_lift_shift D U0 k HU)).
+      reflexivity.
+    - induction fields as [| [[fn fg] ft] rest IHf]; cbn in *; [reflexivity |].
+      inversion H; subst; cbn in H2. apply orb_false_iff in Hsk as [H1 H2'].
+      rewrite (H2 _ _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) H1 HU),
+              (IHf H3 (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq Heq))) H2'). reflexivity.
+    - induction indices as [| idx rest IH]; cbn in *; [reflexivity |].
+      apply orb_false_iff in Hsk as [H1 H2].
+      rewrite (cidx_uses_kinds_subst_tvar_ge D idx c k Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) H1),
+              (IH (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq Heq))) H2). reflexivity. }
+  intros k HU H0 Hsk. exact (Hgen T U 0 k ltac:(lia) (fun Heq => H0 (eq_sym Heq)) Hsk HU).
+Qed.
+
+Fixpoint cidx_case_branch_nat {D : JoinDomain} (is_left : bool) (k : nat) (i : cidx D) : bool :=
+  match i with
+  | CIdxVar _ | CIdxLit _ | CIdxUnbox _ | CIdxFst _ | CIdxSnd _ => true
+  | CIdxAdd l r => cidx_case_branch_nat is_left k l && cidx_case_branch_nat is_left k r
+  | CIdxProm _ i' => cidx_case_branch_nat is_left k i'
+  | CIdxCase s l r =>
+      (if s =? k then negb (cidx_uses_kinds true false false false false 0 (if is_left then l else r)) else true)
+      && cidx_case_branch_nat is_left (S k) l && cidx_case_branch_nat is_left (S k) r
+  end.
+
+Fixpoint cty_case_branch_nat {D : JoinDomain} (is_left : bool) (k : nat) (T : cty D) : bool :=
+  match T with
+  | CNat | CBool | CUniv _ | CTVar _ | CTUnbox _ => true
+  | CVec elem len => cty_case_branch_nat is_left k elem && cidx_case_branch_nat is_left k len
+  | CTProm _ inner | CBox _ inner => cty_case_branch_nat is_left k inner
+  | CPi _ _ _ dom cod | CSigma _ _ dom cod =>
+      cty_case_branch_nat is_left k dom && cty_case_branch_nat is_left (S k) cod
+  | CSum l r => cty_case_branch_nat is_left k l && cty_case_branch_nat is_left k r
+  | CRecord _ fields =>
+      (fix go_fs (fs : list (nat * grade D * cty D)) : bool :=
+         match fs with
+         | [] => true
+         | (_, _, ft) :: rest => cty_case_branch_nat is_left k ft && go_fs rest
+         end) fields
+  | CInd _ indices =>
+      (fix go_is (ls : list (cidx D)) : bool :=
+         match ls with
+         | [] => true
+         | hd :: rest => cidx_case_branch_nat is_left k hd && go_is rest
+         end) indices
+  end.
+
+Lemma cty_uses_var_case_branch_nat : forall (D : JoinDomain) (T : cty D) is_left k,
+  cty_uses_var k T = false ->
+  cty_case_branch_nat is_left k T = true.
+Proof.
+  intros D T is_left.
+  assert (Hci : forall (i : cidx D) k, cidx_uses_var k i = false -> cidx_case_branch_nat is_left k i = true).
+  { induction i; intros k Hi; cbn in *; try reflexivity;
+      try (apply orb_false_iff in Hi as [H1 H2]; rewrite (IHi1 _ H1), (IHi2 _ H2); reflexivity);
+      try (apply (IHi _ Hi)).
+    apply orb_false_iff in Hi as [H12 H3]; apply orb_false_iff in H12 as [H1 H2].
+    rewrite H1, (IHi1 _ H2), (IHi2 _ H3). reflexivity. }
+  induction T using cty_ind_nested; intros k HT; cbn in *; try reflexivity;
+    try (apply (IHT _ HT));
+    try (apply orb_false_iff in HT as [H1 H2]; rewrite (IHT1 _ H1), (IHT2 _ H2); reflexivity).
+  - apply orb_false_iff in HT as [H1 H2]. rewrite (IHT _ H1), (Hci len _ H2). reflexivity.
+  - induction fields as [| [[fn fg] ft] rest IHf]; cbn in *; [reflexivity |].
+    inversion H; subst; cbn in H2. apply orb_false_iff in HT as [H1 Hr].
+    rewrite (H2 _ H1), (IHf H3 Hr). reflexivity.
+  - induction indices as [| idx rest IH]; cbn in *; [reflexivity |].
+    apply orb_false_iff in HT as [H1 Hr].
+    rewrite (Hci idx _ H1), (IH Hr). reflexivity.
+Qed.
+
+Lemma cdemand_case_branch_nat : forall (D : JoinDomain) (b : cbinding D) env_b (is_left : bool) A B,
+  cty_alpha_eq (cannotation b) (CSum A B) ->
+  (if is_left then erase_hints A = CNat else erase_hints B = CNat) ->
+  (forall env i d, CIdxDemand env i d ->
+     forall env_a, env = env_a ++ b :: env_b ->
+       cidx_case_branch_nat is_left (length env_a) i = true) /\
+  (forall env T d, CTypeDemand env T d ->
+     forall env_a, env = env_a ++ b :: env_b ->
+       cty_case_branch_nat is_left (length env_a) T = true).
+Proof.
+  intros D b env_b is_left A B Hb Hab.
+  assert (Hidx : forall env i d, CIdxDemand env i d ->
+    forall env_a, env = env_a ++ b :: env_b ->
+      cidx_case_branch_nat is_left (length env_a) i = true).
+  { intros env i d H. induction H; intros env_a Henv; subst env; cbn; try reflexivity;
+      try (rewrite (IHCIdxDemand1 _ eq_refl), (IHCIdxDemand2 _ eq_refl); reflexivity);
+      try (apply (IHCIdxDemand _ eq_refl)).
+    destruct (Nat.eq_dec s (length env_a)) as [-> | Hne].
+    - rewrite Nat.eqb_refl.
+      unfold clookup in H. rewrite nth_error_app2, Nat.sub_diag in H by lia.
+      inversion H; subst e. unfold cty_alpha_eq in H0, Hb.
+      rewrite erase_hints_ren, Hb in H0; cbn in H0. inversion H0 as [[Ha_eq Hb_eq]].
+      destruct is_left.
+      + assert (Hc : cidx_uses_kinds true false false false false 0 l = false).
+        { refine (proj1 (cdemand_nat_safe_erase D {| cbinder := 0; cannotation := A0; ctype_uses := vec_zero (length (env_a ++ b :: env_b)) |} (env_a ++ b :: env_b) _) _ _ _ H1 [] eq_refl).
+          cbn. rewrite <- Ha_eq, Hab. reflexivity. }
+        rewrite Hc; cbn [negb andb].
+        pose proof (IHCIdxDemand1 ({| cbinder := 0; cannotation := A0; ctype_uses := vec_zero (length (env_a ++ b :: env_b)) |} :: env_a) eq_refl) as Hl1.
+        pose proof (IHCIdxDemand2 ({| cbinder := 0; cannotation := B0; ctype_uses := vec_zero (length (env_a ++ b :: env_b)) |} :: env_a) eq_refl) as Hr1.
+        cbn [length] in Hl1, Hr1; rewrite Hl1, Hr1; reflexivity.
+      + assert (Hc : cidx_uses_kinds true false false false false 0 r = false).
+        { refine (proj1 (cdemand_nat_safe_erase D {| cbinder := 0; cannotation := B0; ctype_uses := vec_zero (length (env_a ++ b :: env_b)) |} (env_a ++ b :: env_b) _) _ _ _ H2 [] eq_refl).
+          cbn. rewrite <- Hb_eq, Hab. reflexivity. }
+        rewrite Hc; cbn [negb andb].
+        pose proof (IHCIdxDemand1 ({| cbinder := 0; cannotation := A0; ctype_uses := vec_zero (length (env_a ++ b :: env_b)) |} :: env_a) eq_refl) as Hl1.
+        pose proof (IHCIdxDemand2 ({| cbinder := 0; cannotation := B0; ctype_uses := vec_zero (length (env_a ++ b :: env_b)) |} :: env_a) eq_refl) as Hr1.
+        cbn [length] in Hl1, Hr1; rewrite Hl1, Hr1; reflexivity.
+    - rewrite (proj2 (Nat.eqb_neq _ _) Hne).
+      pose proof (IHCIdxDemand1 ({| cbinder := 0; cannotation := A0; ctype_uses := vec_zero (length (env_a ++ b :: env_b)) |} :: env_a) eq_refl) as Hl1.
+      pose proof (IHCIdxDemand2 ({| cbinder := 0; cannotation := B0; ctype_uses := vec_zero (length (env_a ++ b :: env_b)) |} :: env_a) eq_refl) as Hr1.
+      cbn [length] in Hl1, Hr1; rewrite Hl1, Hr1; reflexivity. }
+  split; [exact Hidx |].
+  intros env T d HT.
+  induction HT using CTypeDemand_ind_mut with
+    (P := fun env T d _ => forall env_a, env = env_a ++ b :: env_b ->
+      cty_case_branch_nat is_left (length env_a) T = true)
+    (P0 := fun env fs df _ => forall env_a, env = env_a ++ b :: env_b ->
+      Forall (fun '(_, _, ft) => cty_case_branch_nat is_left (length env_a) ft = true) fs)
+    (P1 := fun env ls dl _ => forall env_a, env = env_a ++ b :: env_b ->
+      Forall (fun i => cidx_case_branch_nat is_left (length env_a) i = true) ls);
+    intros env_a Henv; subst env; cbn; try reflexivity;
+    try (apply IHHT; reflexivity);
+    try (rewrite (IHHT1 _ eq_refl), (IHHT2 _ eq_refl); reflexivity);
+    try apply Forall_nil.
+  - rewrite (IHHT _ eq_refl), (Hidx _ _ _ c _ eq_refl); reflexivity.
+  - rewrite (IHHT1 _ eq_refl); exact (IHHT2 (_ :: env_a) eq_refl).
+  - rewrite (IHHT1 _ eq_refl); exact (IHHT2 (_ :: env_a) eq_refl).
+  - pose proof (IHHT _ eq_refl) as Hf; clear - Hf; induction fields as [| [[? ?] ?] ? IH]; cbn; inversion Hf; subst; [reflexivity | rewrite H1, (IH H2); reflexivity].
+  - pose proof (IHHT _ eq_refl) as Hl; clear - Hl; induction indices as [| ? ? IH]; cbn; inversion Hl; subst; [reflexivity | rewrite H1, (IH H2); reflexivity].
+  - apply Forall_cons; [exact (IHHT _ eq_refl) | exact (IHHT0 _ eq_refl)].
+  - apply Forall_cons; [exact (Hidx _ _ _ c _ eq_refl) | exact (IHHT _ eq_refl)].
+Qed.
+
+Lemma cty_uses_kinds_subst_sum_0 : forall (D : JoinDomain) (T : cty D) is_left (val : cidx D) k,
+  cidx_uses_kinds true false false false false k val = false ->
+  (k = 0 -> cty_uses_kinds true false false false false false true 0 T = false) ->
+  (k = 0 -> cty_case_branch_nat is_left 0 T = true) ->
+  cty_uses_kinds true false false false false false false (S k) T = false ->
+  cty_uses_kinds true false false false false false false k (subst_sum_cty is_left 0 val T) = false.
+Proof.
+  intros D T is_left.
+  assert (Hci : forall (i val : cidx D) c k,
+    c <= k ->
+    (c = k -> cidx_uses_kinds true false false false true c i = false) ->
+    (c = k -> cidx_case_branch_nat is_left c i = true) ->
+    cidx_uses_kinds true false false false false (S k) i = false ->
+    cidx_uses_kinds true false false false false k val = false ->
+    cidx_uses_kinds true false false false false k (subst_sum_cidx is_left c val i) = false).
+  { intros i val c k Hck Hceq Hbr0 Hsk Hval.
+    destruct (Nat.eq_dec (c + (k - c)) 0) as [Hz | Hnz].
+    - assert (Hc0 : c = 0) by lia; assert (Hk0 : k = 0) by lia; subst c k.
+      specialize (Hceq eq_refl); specialize (Hbr0 eq_refl). revert val Hceq Hbr0 Hsk Hval.
+      induction i; intros val Hceq Hbr0 Hsk Hval; cbn in *; try reflexivity;
+        try (apply orb_false_iff in Hceq as [Ha Hb]; apply andb_true_iff in Hbr0 as [Ba Bb];
+             apply orb_false_iff in Hsk as [Sa Sb];
+             rewrite (IHi1 val Ha Ba Sa Hval), (IHi2 val Hb Bb Sb Hval); reflexivity);
+        try (apply (IHi val Hceq Hbr0 Hsk Hval));
+        try (destruct (Nat.eqb_spec b 0) as [-> | Hne]; [cbn in Hceq; discriminate | rewrite (proj2 (Nat.ltb_ge b 0) ltac:(lia)); cbn; apply Nat.eqb_neq in Hsk; apply Nat.eqb_neq; lia]);
+        try (destruct (Nat.eqb_spec p 0) as [-> | Hne]; [cbn in Hceq; discriminate | rewrite (proj2 (Nat.ltb_ge p 0) ltac:(lia)); cbn; apply Nat.eqb_neq in Hsk; apply Nat.eqb_neq; lia]).
+      + apply orb_false_iff in Hceq as [H2 H3].
+        apply andb_true_iff in Hbr0 as [B12 B3]; apply andb_true_iff in B12 as [B0 B2].
+        apply orb_false_iff in Hsk as [S12 S3]; apply orb_false_iff in S12 as [S1 S2].
+        destruct s; cbn in *.
+        * assert (Hbr : cidx_uses_kinds true false false false false 1
+                          (subst_sum_cidx is_left 1 (lift_cidx 0 1 val) (if is_left then i1 else i2)) = false).
+          { destruct is_left;
+              [apply (cidx_uses_kinds_subst_sum_cidx D true i1 (lift_cidx 0 1 val) 1 0 ltac:(lia) (cidx_uses_kinds_lift_shift D val 0 Hval) S2)
+              |apply (cidx_uses_kinds_subst_sum_cidx D false i2 (lift_cidx 0 1 val) 1 0 ltac:(lia) (cidx_uses_kinds_lift_shift D val 0 Hval) S3)]. }
+          eapply cidx_uses_kinds_subst_cidx_ge; [lia | | exact Hbr | exact Hval].
+          intros _.
+          assert (Hc : forall (u v : cidx D),
+            cidx_uses_kinds true false false false false 0 u = false ->
+            cidx_uses_kinds true false false false true 1 u = false ->
+            cidx_case_branch_nat is_left 1 u = true ->
+            cidx_uses_kinds true false false false false 0 v = false ->
+            cidx_uses_kinds true false false false false 0 (subst_sum_cidx is_left 1 v u) = false).
+          { intros u v Hu0 Hu1 Hbu Hv.
+            assert (Hlift0 : forall (w : cidx D) (rho : nat -> nat) c, (forall y, rho y <> c) ->
+              cidx_uses_kinds true false false false false c (ren_cidx rho w) = false).
+            { induction w; intros rho c Hrho; cbn; try reflexivity;
+                try (rewrite (IHw1 _ _ Hrho), (IHw2 _ _ Hrho); reflexivity);
+                try (apply (IHw _ _ Hrho));
+                try (apply Nat.eqb_neq; apply Hrho).
+              rewrite (proj2 (Nat.eqb_neq _ _) (Hrho s)); cbn.
+              assert (HrhoS : forall y, ren_shift rho y <> S c) by (intros [| y']; cbn; [lia | pose proof (Hrho y'); lia]).
+              rewrite (IHw1 _ _ HrhoS), (IHw2 _ _ HrhoS); reflexivity. }
+            assert (Hu : forall (u0 : cidx D) c0 (v0 : cidx D) k0,
+              k0 < c0 ->
+              cidx_uses_kinds true false false false false k0 u0 = false ->
+              cidx_uses_kinds true false false false true c0 u0 = false ->
+              cidx_case_branch_nat is_left c0 u0 = true ->
+              cidx_uses_kinds true false false false false k0 v0 = false ->
+              cidx_uses_kinds true false false false false k0 (subst_sum_cidx is_left c0 v0 u0) = false).
+            { induction u0; intros c0 v0 k0 Hkc H0u Hcu Hbu0 Hv0; cbn in *; try reflexivity.
+              - apply orb_false_iff in H0u as [A1 A2]; apply orb_false_iff in Hcu as [C1 C2];
+                apply andb_true_iff in Hbu0 as [D1 D2];
+                rewrite (IHu0_1 _ v0 k0 Hkc A1 C1 D1 Hv0), (IHu0_2 _ v0 k0 Hkc A2 C2 D2 Hv0); reflexivity.
+              - apply (IHu0 _ v0 k0 Hkc H0u Hcu Hbu0 Hv0).
+              - destruct (Nat.ltb_spec b c0); cbn; [exact H0u | destruct (Nat.eqb_spec b c0) as [-> | Hne]; [discriminate | cbn; apply Nat.eqb_neq; lia]].
+              - destruct (Nat.ltb_spec p c0); cbn; [exact H0u | destruct (Nat.eqb_spec p c0) as [-> | Hne]; [discriminate | cbn; apply Nat.eqb_neq; lia]].
+              - destruct (Nat.ltb_spec p c0); cbn; [exact H0u | destruct (Nat.eqb_spec p c0) as [-> | Hne]; [discriminate | cbn; apply Nat.eqb_neq; lia]].
+              - apply orb_false_iff in H0u as [A12 A3]; apply orb_false_iff in A12 as [A1 A2].
+                apply orb_false_iff in Hcu as [C2 C3].
+                apply andb_true_iff in Hbu0 as [D12 D3]; apply andb_true_iff in D12 as [D0u D2'].
+                destruct (Nat.eqb_spec s c0) as [-> | Hne]; cbn in *.
+                + cbn in D0u; apply negb_true_iff in D0u.
+                  assert (Hlift_0 : cidx_uses_kinds true false false false false 0 (lift_cidx 0 1 v0) = false) by
+                    (unfold lift_cidx; apply Hlift0; intro y; unfold ren_lift; destruct (Nat.ltb_spec y 0); lia).
+                  eapply cidx_uses_kinds_subst_cidx_ge; [lia | | | exact Hv0].
+                  * intros Hk0_0; subst k0.
+                    destruct is_left;
+                      [apply (IHu0_1 (S c0) (lift_cidx 0 1 v0) 0 ltac:(lia) D0u C2 D2' Hlift_0)
+                      |apply (IHu0_2 (S c0) (lift_cidx 0 1 v0) 0 ltac:(lia) D0u C3 D3 Hlift_0)].
+                  * destruct is_left;
+                      [apply (IHu0_1 (S c0) (lift_cidx 0 1 v0) (S k0) ltac:(lia) A2 C2 D2' (cidx_uses_kinds_lift_shift D v0 k0 Hv0))
+                      |apply (IHu0_2 (S c0) (lift_cidx 0 1 v0) (S k0) ltac:(lia) A3 C3 D3 (cidx_uses_kinds_lift_shift D v0 k0 Hv0))].
+                + destruct (Nat.ltb_spec s c0); cbn;
+                    rewrite (IHu0_1 (S c0) (lift_cidx 0 1 v0) (S k0) ltac:(lia) A2 C2 D2' (cidx_uses_kinds_lift_shift D v0 k0 Hv0)),
+                            (IHu0_2 (S c0) (lift_cidx 0 1 v0) (S k0) ltac:(lia) A3 C3 D3 (cidx_uses_kinds_lift_shift D v0 k0 Hv0));
+                    [rewrite A1 | rewrite (proj2 (Nat.eqb_neq _ k0)) by lia]; reflexivity. }
+            apply Hu; [lia | exact Hu0 | exact Hu1 | exact Hbu | exact Hv]. }
+          apply negb_true_iff in B0.
+          assert (Hlift_val : cidx_uses_kinds true false false false false 0 (lift_cidx 0 1 val) = false).
+          { clear. assert (Hrho : forall (w : cidx D) rho c, (forall y, rho y <> c) -> cidx_uses_kinds true false false false false c (ren_cidx rho w) = false).
+            { induction w; intros rho c Hrho; cbn; try reflexivity; try (rewrite (IHw1 _ _ Hrho), (IHw2 _ _ Hrho); reflexivity); try (apply (IHw _ _ Hrho)); try (apply Nat.eqb_neq; apply Hrho).
+              rewrite (proj2 (Nat.eqb_neq _ _) (Hrho s)); cbn.
+              assert (HrhoS : forall y, ren_shift rho y <> S c) by (intros [| y']; cbn; [lia | pose proof (Hrho y'); lia]).
+              rewrite (IHw1 _ _ HrhoS), (IHw2 _ _ HrhoS); reflexivity. }
+            unfold lift_cidx; apply Hrho; intro y; unfold ren_lift; destruct (Nat.ltb_spec y 0); lia. }
+          destruct is_left; [apply Hc; [exact B0 | exact H2 | exact B2 | exact Hlift_val] | apply Hc; [exact B0 | exact H3 | exact B3 | exact Hlift_val]].
+        * apply Nat.eqb_neq in S1. rewrite (proj2 (Nat.eqb_neq _ 0)) by lia; cbn.
+          pose proof (cidx_uses_kinds_subst_sum_cidx D is_left i1 (lift_cidx 0 1 val) 1 0 ltac:(lia) (cidx_uses_kinds_lift_shift D val 0 Hval) S2) as Hs1.
+          pose proof (cidx_uses_kinds_subst_sum_cidx D is_left i2 (lift_cidx 0 1 val) 1 0 ltac:(lia) (cidx_uses_kinds_lift_shift D val 0 Hval) S3) as Hs2.
+          cbn [Nat.add] in Hs1, Hs2; rewrite Hs1, Hs2; reflexivity.
+    - replace k with (c + (k - c)) in Hval |- * by lia.
+      replace (S k) with (c + S (k - c)) in Hsk by lia.
+      exact (cidx_uses_kinds_subst_sum_cidx D is_left i val c (k - c) ltac:(lia) Hval Hsk). }
+  assert (Hgen : forall (T0 : cty D) (val : cidx D) c k,
+    c <= k ->
+    (c = k -> cty_uses_kinds true false false false false false true c T0 = false) ->
+    (c = k -> cty_case_branch_nat is_left c T0 = true) ->
+    cty_uses_kinds true false false false false false false (S k) T0 = false ->
+    cidx_uses_kinds true false false false false k val = false ->
+    cty_uses_kinds true false false false false false false k (subst_sum_cty is_left c val T0) = false).
+  { induction T0 using cty_ind_nested; intros val c k Hck Hceq Hbr0 Hsk Hval; cbn in *; try reflexivity;
+      try (apply (IHT0 _ _ _ Hck Hceq Hbr0 Hsk Hval));
+      try (apply orb_false_iff in Hsk as [H1 H2];
+           rewrite (IHT0_1 _ _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) (fun Heq => proj1 (proj1 (andb_true_iff _ _) (Hbr0 Heq))) H1 Hval),
+                   (IHT0_2 _ _ _ Hck (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq Heq))) (fun Heq => proj2 (proj1 (andb_true_iff _ _) (Hbr0 Heq))) H2 Hval); reflexivity);
+      try solve_elim_var x c k Hceq Hsk;
+      try solve_elim_var b c k Hceq Hsk.
+    - apply orb_false_iff in Hsk as [H1 H2].
+      rewrite (IHT0 _ _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) (fun Heq => proj1 (proj1 (andb_true_iff _ _) (Hbr0 Heq))) H1 Hval),
+              (Hci len val c k Hck (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq Heq))) (fun Heq => proj2 (proj1 (andb_true_iff _ _) (Hbr0 Heq))) H2 Hval).
+      reflexivity.
+    - apply orb_false_iff in Hsk as [H1 H2].
+      rewrite (IHT0_1 _ _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) (fun Heq => proj1 (proj1 (andb_true_iff _ _) (Hbr0 Heq))) H1 Hval),
+              (IHT0_2 (lift_cidx 0 1 val) (S c) (S k) ltac:(lia)
+                 (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq ltac:(lia))))
+                 (fun Heq => proj2 (proj1 (andb_true_iff _ _) (Hbr0 ltac:(lia)))) H2
+                 (cidx_uses_kinds_lift_shift D val k Hval)).
+      reflexivity.
+    - apply orb_false_iff in Hsk as [H1 H2].
+      rewrite (IHT0_1 _ _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) (fun Heq => proj1 (proj1 (andb_true_iff _ _) (Hbr0 Heq))) H1 Hval),
+              (IHT0_2 (lift_cidx 0 1 val) (S c) (S k) ltac:(lia)
+                 (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq ltac:(lia))))
+                 (fun Heq => proj2 (proj1 (andb_true_iff _ _) (Hbr0 ltac:(lia)))) H2
+                 (cidx_uses_kinds_lift_shift D val k Hval)).
+      reflexivity.
+    - induction fields as [| [[fn fg] ft] rest IHf]; cbn in *; [reflexivity |].
+      inversion H; subst; cbn in H2. apply orb_false_iff in Hsk as [H1 H2'].
+      rewrite (H2 _ _ _ Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) (fun Heq => proj1 (proj1 (andb_true_iff _ _) (Hbr0 Heq))) H1 Hval),
+              (IHf H3 (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq Heq))) (fun Heq => proj2 (proj1 (andb_true_iff _ _) (Hbr0 Heq))) H2'). reflexivity.
+    - induction indices as [| idx rest IH]; cbn in *; [reflexivity |].
+      apply orb_false_iff in Hsk as [H1 H2].
+      rewrite (Hci idx val c k Hck (fun Heq => proj1 (proj1 (orb_false_iff _ _) (Hceq Heq))) (fun Heq => proj1 (proj1 (andb_true_iff _ _) (Hbr0 Heq))) H1 Hval),
+              (IH (fun Heq => proj2 (proj1 (orb_false_iff _ _) (Hceq Heq))) (fun Heq => proj2 (proj1 (andb_true_iff _ _) (Hbr0 Heq))) H2). reflexivity. }
+  intros val k Hval H0 Hbr Hsk. exact (Hgen T val 0 k ltac:(lia) (fun Heq => H0 (eq_sym Heq)) (fun Heq => Hbr (eq_sym Heq)) Hsk Hval).
+Qed.
+
+Lemma spec_box_body_uses_kinds_nat : forall (D : JoinDomain) q c (T : cty D) k,
+  c < k ->
+  cty_uses_kinds true false false false false false false k T = false ->
+  cty_uses_kinds true false false false false false false k (spec_box_body_cty q c T) = false.
+Proof.
+  intros D q c T.
+  assert (Hci : forall (i : cidx D) c0 k0, c0 < k0 ->
+    cidx_uses_kinds true false false false false k0 i = false ->
+    cidx_uses_kinds true false false false false k0 (spec_box_body_cidx q c0 i) = false).
+  { induction i; intros c0 k0 Hck Hi; cbn in *; try reflexivity; try assumption;
+      try (apply orb_false_iff in Hi as [H1 H2]; rewrite (IHi1 _ _ Hck H1), (IHi2 _ _ Hck H2); reflexivity);
+      try (apply (IHi _ _ Hck Hi)).
+    - destruct (Nat.eqb_spec b c0); cbn; [reflexivity | exact Hi].
+    - apply orb_false_iff in Hi as [H12 H3]; apply orb_false_iff in H12 as [H1 H2].
+      rewrite H1, (IHi1 (S c0) (S k0) ltac:(lia) H2), (IHi2 (S c0) (S k0) ltac:(lia) H3). reflexivity. }
+  revert c. induction T using cty_ind_nested; intros c k Hck HT; cbn in *; try reflexivity; try assumption;
+    try (apply (IHT _ _ Hck HT));
+    try (apply orb_false_iff in HT as [H1 H2]; rewrite (IHT1 _ _ Hck H1), (IHT2 _ _ Hck H2); reflexivity).
+  - apply orb_false_iff in HT as [H1 H2]. rewrite (IHT _ _ Hck H1), (Hci len c k Hck H2). reflexivity.
+  - destruct (Nat.eqb_spec b c); subst; cbn; [apply Nat.eqb_neq; lia | exact HT].
+  - apply orb_false_iff in HT as [H1 H2]. rewrite (IHT1 _ _ Hck H1), (IHT2 (S c) (S k) ltac:(lia) H2). reflexivity.
+  - apply orb_false_iff in HT as [H1 H2]. rewrite (IHT1 _ _ Hck H1), (IHT2 (S c) (S k) ltac:(lia) H2). reflexivity.
+  - induction fields as [| [[fn fg] ft] rest IHf]; cbn in *; [reflexivity |].
+    inversion H; subst; cbn in H2. apply orb_false_iff in HT as [H1 Hr]. rewrite (H2 _ _ Hck H1), (IHf H3 Hr). reflexivity.
+  - induction indices as [| idx rest IH]; cbn in *; [reflexivity |].
+    apply orb_false_iff in HT as [H1 Hr]. rewrite (Hci idx c k Hck H1), (IH Hr). reflexivity.
+Qed.
+
+Lemma spec_box_body_uses_kinds_0 : forall (D : JoinDomain) q (T : cty D),
+  cty_uses_kinds true false false true false false false 0 T = false ->
+  cty_uses_kinds true false false false false false false 0 (spec_box_body_cty q 0 T) = false.
+Proof.
+  intros D q T.
+  assert (Hci : forall (i : cidx D) c,
+    cidx_uses_kinds true true false false false c i = false ->
+    cidx_uses_kinds true false false false false c (spec_box_body_cidx q c i) = false).
+  { induction i; intro c; cbn; intro Hi; try reflexivity; try assumption;
+      try (apply orb_false_iff in Hi as [H1 H2]; rewrite (IHi1 _ H1), (IHi2 _ H2); reflexivity);
+      try (apply IHi; exact Hi).
+    - destruct (Nat.eqb_spec b c) as [-> | Hne]; cbn; [reflexivity | apply Nat.eqb_neq; exact Hne].
+    - apply orb_false_iff in Hi as [H12 H3]; apply orb_false_iff in H12 as [H1 H2].
+      rewrite H1, (IHi1 (S c) H2), (IHi2 (S c) H3). reflexivity. }
+  assert (Hgen : forall (T0 : cty D) c,
+    cty_uses_kinds true false false true false false false c T0 = false ->
+    cty_uses_kinds true false false false false false false c (spec_box_body_cty q c T0) = false).
+  { induction T0 using cty_ind_nested; intro c; cbn; intro HT; try reflexivity; try assumption;
+      try (apply IHT0; exact HT);
+      try (apply orb_false_iff in HT as [H1 H2]; rewrite (IHT0_1 _ H1), (IHT0_2 _ H2); reflexivity).
+    - apply orb_false_iff in HT as [H1 H2]. rewrite (IHT0 _ H1), (Hci len c H2). reflexivity.
+    - destruct (Nat.eqb_spec b c) as [-> | Hne]; cbn; [discriminate | apply Nat.eqb_neq; exact Hne].
+    - induction fields as [| [[fn fg] ft] rest IHf]; cbn in *; [reflexivity |].
+      inversion H; subst; cbn in H2. apply orb_false_iff in HT as [H1 Hr]. rewrite (H2 _ H1), (IHf H3 Hr). reflexivity.
+    - induction indices as [| idx rest IH]; cbn in *; [reflexivity |].
+      apply orb_false_iff in HT as [H1 Hr]. rewrite (Hci idx c H1), (IH Hr). reflexivity. }
+  exact (Hgen T 0).
+Qed.
+
+Lemma cty_uses_kinds_subst_var_0_no0 : forall (D : JoinDomain) (T : cty D) y k,
+  cty_uses_kinds true false false false false false false 0 T = false ->
+  cty_uses_kinds true false false false false false false (S k) T = false ->
+  cty_uses_kinds true false false false false false false k (subst_var_in_cty 0 y T) = false.
+Proof.
+  intros D T y k H0 Hsk. unfold subst_var_in_cty. cbn [Nat.iter].
+  assert (Hren : forall (T0 : cty D) (rho : nat -> nat) c k0,
+    (forall z, z <> c -> z <> S k0 -> rho z <> k0) ->
+    cty_uses_kinds true false false false false false false c T0 = false ->
+    cty_uses_kinds true false false false false false false (S k0) T0 = false ->
+    cty_uses_kinds true false false false false false false k0 (ren_cty rho T0) = false).
+  { assert (Hci : forall (i : cidx D) (rho : nat -> nat) c k0,
+      (forall z, z <> c -> z <> S k0 -> rho z <> k0) ->
+      cidx_uses_kinds true false false false false c i = false ->
+      cidx_uses_kinds true false false false false (S k0) i = false ->
+      cidx_uses_kinds true false false false false k0 (ren_cidx rho i) = false).
+    { induction i; intros rho c k0 Hne Hi0 Hisk; cbn in *; try reflexivity;
+        try (apply orb_false_iff in Hi0 as [A1 A2]; apply orb_false_iff in Hisk as [B1 B2];
+             rewrite (IHi1 _ _ _ Hne A1 B1), (IHi2 _ _ _ Hne A2 B2); reflexivity);
+        try (apply (IHi _ _ _ Hne Hi0 Hisk));
+        try (apply Nat.eqb_neq in Hi0; apply Nat.eqb_neq in Hisk; apply Nat.eqb_neq; apply Hne; assumption).
+      apply orb_false_iff in Hi0 as [A12 A3]; apply orb_false_iff in A12 as [A1 A2].
+      apply orb_false_iff in Hisk as [B12 B3]; apply orb_false_iff in B12 as [B1 B2].
+      apply Nat.eqb_neq in A1; apply Nat.eqb_neq in B1.
+      rewrite (proj2 (Nat.eqb_neq _ _) (Hne s A1 B1)); cbn.
+      assert (HneS : forall z, z <> S c -> z <> S (S k0) -> ren_shift rho z <> S k0) by
+        (intros [| z'] Hz1 Hz2; cbn; [lia | pose proof (Hne z' ltac:(lia) ltac:(lia)); lia]).
+      rewrite (IHi1 _ _ _ HneS A2 B2), (IHi2 _ _ _ HneS A3 B3). reflexivity. }
+    induction T0 using cty_ind_nested; intros rho c k0 Hne HT0 HTsk; cbn in *; try reflexivity;
+      try (apply (IHT0 _ _ _ Hne HT0 HTsk));
+      try (apply orb_false_iff in HT0 as [A1 A2]; apply orb_false_iff in HTsk as [B1 B2];
+           rewrite (IHT0_1 _ _ _ Hne A1 B1), (IHT0_2 _ _ _ Hne A2 B2); reflexivity);
+      try (apply Nat.eqb_neq in HT0; apply Nat.eqb_neq in HTsk; apply Nat.eqb_neq; apply Hne; assumption).
+    - apply orb_false_iff in HT0 as [A1 A2]; apply orb_false_iff in HTsk as [B1 B2].
+      rewrite (IHT0 _ _ _ Hne A1 B1), (Hci len _ _ _ Hne A2 B2). reflexivity.
+    - apply orb_false_iff in HT0 as [A1 A2]; apply orb_false_iff in HTsk as [B1 B2].
+      assert (HneS : forall z, z <> S c -> z <> S (S k0) -> ren_shift rho z <> S k0) by
+        (intros [| z'] Hz1 Hz2; cbn; [lia | pose proof (Hne z' ltac:(lia) ltac:(lia)); lia]).
+      rewrite (IHT0_1 _ _ _ Hne A1 B1), (IHT0_2 _ _ _ HneS A2 B2). reflexivity.
+    - apply orb_false_iff in HT0 as [A1 A2]; apply orb_false_iff in HTsk as [B1 B2].
+      assert (HneS : forall z, z <> S c -> z <> S (S k0) -> ren_shift rho z <> S k0) by
+        (intros [| z'] Hz1 Hz2; cbn; [lia | pose proof (Hne z' ltac:(lia) ltac:(lia)); lia]).
+      rewrite (IHT0_1 _ _ _ Hne A1 B1), (IHT0_2 _ _ _ HneS A2 B2). reflexivity.
+    - induction fields as [| [[fn fg] ft] rest IHf]; cbn in *; [reflexivity |].
+      inversion H as [| ? ? Hhd Htl]; subst; cbn in Hhd.
+      apply orb_false_iff in HT0 as [A1 Ar]; apply orb_false_iff in HTsk as [B1 Br].
+      rewrite (Hhd _ _ _ Hne A1 B1), (IHf Htl Ar Br). reflexivity.
+    - induction indices as [| idx rest IH]; cbn in *; [reflexivity |].
+      apply orb_false_iff in HT0 as [A1 Ar]; apply orb_false_iff in HTsk as [B1 Br].
+      rewrite (Hci idx _ _ _ Hne A1 B1), (IH Ar Br). reflexivity. }
+  apply (Hren T _ 0 k); [intros [| z'] Hz0 Hzsk; cbn; [lia | lia] | exact H0 | exact Hsk].
+Qed.
+
+Lemma core_derives_nat_safe : forall (D : JoinDomain) (b : cbinding D) env_b,
+  cannotation b = CNat ->
+  forall env t j, CoreDerives env t j ->
+    forall env_a, env = env_a ++ b :: env_b ->
+    cty_uses_kinds true false false false false false false (length env_a) (cresult_type j) = false.
+Proof.
+  intros D b env_b Hb env t j H.
+  induction H using CoreDerives_ind_mut with
+    (P := fun env t j _ => forall env_a, env = env_a ++ b :: env_b ->
+      cty_uses_kinds true false false false false false false (length env_a) (cresult_type j) = false)
+    (P0 := fun env fs u v _ => True);
+    try (intros env_a Henv; subst env; cbn [cresult_type]); try reflexivity; try exact I.
+  - (* CoreVar *)
+    lazymatch goal with
+    | Hl : clookup _ x = Some e, Htd : CTypeDemand _ (cannotation e) row |- _ =>
+        destruct (lt_eq_lt_dec x (length env_a)) as [[Hlt | ->] | Hgt];
+        [ rewrite skipn_app in Htd;
+          replace (S x - length env_a) with 0 in Htd by lia; cbn [skipn] in Htd;
+          pose proof (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ Htd (skipn (S x) env_a) eq_refl) as He;
+          rewrite length_skipn in He;
+          replace (length env_a) with (S x + (length env_a - S x)) by lia;
+          apply cty_uses_kinds_ren_plus; exact He
+        | unfold clookup in Hl; rewrite nth_error_app2, Nat.sub_diag in Hl by lia;
+          inversion Hl; subst e; rewrite Hb; cbn; reflexivity
+        | apply cty_uses_kinds_ren_gt; lia ]
+    end.
+  - (* CoreLam *)
+    lazymatch goal with
+    | Ha : CTypeDemand _ dom a |- _ =>
+        pose proof (IHCoreDerives ({| cbinder := x; cannotation := dom; ctype_uses := a |} :: env_a) eq_refl) as Hcod;
+        cbn [length cresult_type] in Hcod;
+        cbn; rewrite (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ Ha env_a eq_refl), Hcod; reflexivity
+    end.
+  - (* CoreApp *)
+    lazymatch goal with
+    | Ha_dom : CTypeDemand _ dom a_dom, Hb_cod : CTypeDemand _ cod b0,
+      Hdm_eq : cty_alpha_eq kind dom,
+      Happ : app_result_ty dom cod arg = Some res_ty |- _ =>
+        pose proof (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ Hb_cod ({| cbinder := x; cannotation := dom; ctype_uses := a_dom |} :: env_a) eq_refl) as Hcod_s;
+        cbn [length] in Hcod_s;
+        unfold app_result_ty in Happ;
+        destruct dom;
+        try (destruct (cty_uses_var 0 cod) eqn:Enf; [discriminate |]; inversion Happ; subst res_ty;
+             apply cty_uses_kinds_unshift_0; assumption);
+        [ destruct arg; cbn in Happ;
+          try (destruct (cty_uses_var 0 cod) eqn:Enf; [discriminate |]; inversion Happ; subst res_ty;
+               apply cty_uses_kinds_unshift_0; assumption);
+          [ inversion Happ; subst res_ty;
+            apply cty_uses_kinds_subst_cidx_0;
+            [ cbn; reflexivity
+            | intros Hk0; subst; eapply ctype_demand_uses_kinds; [exact Hb_cod | reflexivity | unfold flags_allow; rewrite erase_hints_ren; cbn; reflexivity]
+            | exact Hcod_s ]
+          | inversion Happ; subst res_ty;
+            inversion H0; subst;
+            apply cty_uses_kinds_subst_cidx_0;
+            [ lazymatch goal with Hc : CIdxDemand _ _ _ |- _ => exact (proj1 (cdemand_nat_safe D b env_b Hb) _ _ _ Hc env_a eq_refl) end
+            | intro Hk0; subst; eapply ctype_demand_uses_kinds; [exact Hb_cod | reflexivity | unfold flags_allow; rewrite erase_hints_ren; cbn; reflexivity]
+            | exact Hcod_s ] ]
+        | destruct arg; cbn in Happ;
+          try (destruct (cty_uses_var 0 cod) eqn:Enf; [discriminate |]; inversion Happ; subst res_ty;
+               apply cty_uses_kinds_unshift_0; assumption);
+          [ inversion Happ; subst res_ty;
+            apply cty_uses_kinds_subst_tvar_0;
+            [ destruct (Nat.eq_dec x0 (length env_a)) as [-> | Hne];
+              [ exfalso; inversion H0; subst;
+                lazymatch goal with Hlk : clookup _ _ = Some ?ee |- _ =>
+                  unfold clookup in Hlk; rewrite nth_error_app2, Nat.sub_diag in Hlk by lia;
+                  inversion Hlk; subst ee; unfold cty_alpha_eq in Hdm_eq; rewrite erase_hints_ren, Hb in Hdm_eq; cbn in Hdm_eq; discriminate
+                end
+              | cbn; apply Nat.eqb_neq; exact Hne ]
+            | intros _; eapply ctype_demand_uses_kinds; [exact Hb_cod | reflexivity | unfold flags_allow; rewrite erase_hints_ren; cbn; reflexivity]
+            | exact Hcod_s ]
+          | inversion Happ; subst res_ty;
+            apply cty_uses_kinds_subst_tvar_0;
+            [ inversion H0; subst;
+              lazymatch goal with
+              | _ : CoreDerives _ (CTypeVal ?T0) _, Htd : CTypeDemand _ ?T0 _ |- _ =>
+                  exact (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ Htd env_a eq_refl)
+              end
+            | intros _; eapply ctype_demand_uses_kinds; [exact Hb_cod | reflexivity | unfold flags_allow; rewrite erase_hints_ren; cbn; reflexivity]
+            | exact Hcod_s ] ] ]
+    end.
+  - (* CLet *)
+    lazymatch goal with
+    | Hnf : cty_uses_var 0 bod_ty = false |- _ =>
+        apply cty_uses_kinds_unshift_0; [exact Hnf | exact (IHCoreDerives2 (_ :: env_a) eq_refl)]
+    end.
+  - (* CPair *)
+    lazymatch goal with
+    | Ha : CTypeDemand _ fst_ty a, Hb_snd : CTypeDemand _ snd_ty b0 |- _ =>
+        pose proof (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ Hb_snd ({| cbinder := x; cannotation := fst_ty; ctype_uses := a |} :: env_a) eq_refl) as Hsnd;
+        cbn [length] in Hsnd;
+        cbn; rewrite (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ Ha env_a eq_refl), Hsnd;
+        reflexivity
+    end.
+  - (* CLetPair *)
+    lazymatch goal with
+    | Hres : ?res_ty = spec_pair_subj_cty ?pr ?mot,
+      Hmot : CTypeDemand (?hd :: _) ?mot ?v_mot |- _ =>
+        pose proof (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ Hmot (hd :: env_a) eq_refl) as Hm_s;
+        cbn [length] in Hm_s;
+        rewrite Hres;
+        pose proof Hmot as Hmot_saved;
+        destruct pr; unfold spec_pair_subj_cty
+    end;
+    try (apply cty_uses_kinds_unshift_0; [assumption | exact Hm_s]);
+    [ destruct (Nat.eq_dec x0 (length env_a)) as [-> | Hne];
+      [ exfalso;
+        lazymatch goal with Hdv : CoreDerives _ (CVar _) {| cresult_type := CSigma _ _ _ _; ccomp_demand := _; ctype_demand_row := _ |} |- _ =>
+          inversion Hdv; subst;
+          lazymatch goal with Hlk : clookup _ _ = Some ?ee, Heq : ren_cty _ (cannotation ?ee) = CSigma _ _ _ _ |- _ =>
+            unfold clookup in Hlk; rewrite nth_error_app2, Nat.sub_diag in Hlk by lia;
+            inversion Hlk; subst ee; rewrite Hb in Heq; cbn in Heq; discriminate
+          end
+        end
+      | apply cty_uses_kinds_subst_var_0; [exact Hne | exact Hm_s] ]
+    | destruct (term_as_cidx pr1) as [c1_idx |] eqn:E1; [destruct (term_as_cidx pr2) as [c2_idx |] eqn:E2 |];
+      try (apply cty_uses_kinds_unshift_0; [assumption | exact Hm_s]);
+      lazymatch goal with Hpr : CoreDerives _ (CPair _ _ _ _ _ _) _ |- _ => inversion Hpr; subst end;
+      assert (Hc1 : cidx_uses_kinds true false false false false (length env_a) c1_idx = false) by
+        (destruct pr1; cbn in E1; try discriminate; inversion E1; subst;
+         [ cbn; reflexivity
+         | lazymatch goal with Hdv : CoreDerives _ (CNatVal ?ii) _ |- _ =>
+             inversion Hdv; subst;
+             lazymatch goal with Hcd : CIdxDemand _ ?ii _ |- _ => exact (proj1 (cdemand_nat_safe D b env_b Hb) _ _ _ Hcd env_a eq_refl) end
+           end ]);
+      assert (Hc2 : cidx_uses_kinds true false false false false (length env_a) c2_idx = false) by
+        (destruct pr2; cbn in E2; try discriminate; inversion E2; subst;
+         [ cbn; reflexivity
+         | lazymatch goal with Hdv : CoreDerives _ (CNatVal ?ii) _ |- _ =>
+             inversion Hdv; subst;
+             lazymatch goal with Hcd : CIdxDemand _ ?ii _ |- _ => exact (proj1 (cdemand_nat_safe D b env_b Hb) _ _ _ Hcd env_a eq_refl) end
+           end ]);
+      apply cty_uses_kinds_subst_pair_0;
+      [ exact Hc1 | exact Hc2
+      | intros _; eapply ctype_demand_uses_kinds; [exact Hmot_saved | reflexivity | eapply flags_allow_CSigma; [apply cty_alpha_eq_refl | reflexivity | reflexivity]]
+      | exact Hm_s ] ].
+  - (* CorePromote *)
+    cbn; exact (IHCoreDerives env_a eq_refl).
+  - (* CoreLetBox *)
+    lazymatch goal with
+    | Hres : ?res_ty = spec_box_subj_cty ?box_term ?mot,
+      Hmot : CTypeDemand (?hd :: _) ?mot ?v_mot |- _ =>
+        pose proof (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ Hmot (hd :: env_a) eq_refl) as Hm_s;
+        cbn [length] in Hm_s;
+        rewrite Hres; pose proof Hmot as Hmot_saved; destruct box_term; unfold spec_box_subj_cty
+    end;
+    try (apply cty_uses_kinds_unshift_0; [assumption | exact Hm_s]);
+    [ destruct (Nat.eq_dec x0 (length env_a)) as [-> | Hne];
+      [ exfalso;
+        lazymatch goal with Hdv : CoreDerives _ (CVar _) {| cresult_type := CBox _ _; ccomp_demand := _; ctype_demand_row := _ |} |- _ =>
+          inversion Hdv; subst;
+          lazymatch goal with Hlk : clookup _ _ = Some ?ee, Heq : ren_cty _ (cannotation ?ee) = CBox _ _ |- _ =>
+            unfold clookup in Hlk; rewrite nth_error_app2, Nat.sub_diag in Hlk by lia;
+            inversion Hlk; subst ee; rewrite Hb in Heq; cbn in Heq; discriminate
+          end
+        end
+      | apply cty_uses_kinds_subst_var_0; [exact Hne | exact Hm_s] ]
+    | destruct box_term;
+      try (apply cty_uses_kinds_unshift_0; [assumption | exact Hm_s]);
+      [ destruct (Nat.eq_dec x0 (length env_a)) as [-> | Hne];
+        [ apply cty_uses_kinds_subst_var_0_no0;
+          [ apply spec_box_body_uses_kinds_0;
+            eapply ctype_demand_uses_kinds; [exact Hmot_saved | reflexivity |];
+            lazymatch goal with Hdp : CoreDerives _ (CPromote _ (CVar _)) {| cresult_type := CBox _ _; ccomp_demand := _; ctype_demand_row := _ |} |- _ =>
+              inversion Hdp; subst;
+              lazymatch goal with Hdv : CoreDerives _ (CVar _) _ |- _ =>
+                inversion Hdv; subst;
+                lazymatch goal with Hlk : clookup _ _ = Some ?ee |- _ =>
+                  unfold clookup in Hlk; rewrite nth_error_app2, Nat.sub_diag in Hlk by lia;
+                  inversion Hlk; subst ee;
+                  rewrite Hb; unfold flags_allow; cbn; reflexivity
+                end
+              end
+            end
+          | apply spec_box_body_uses_kinds_nat; [lia | exact Hm_s] ]
+        | apply cty_uses_kinds_subst_var_0; [exact Hne | apply spec_box_body_uses_kinds_nat; [lia | exact Hm_s]] ]
+      | lazymatch goal with Hdp : CoreDerives _ (CPromote _ (CNatVal _)) _ |- _ =>
+          inversion Hdp; subst;
+          lazymatch goal with Hdv : CoreDerives _ (CNatVal ?ii) _ |- _ =>
+            inversion Hdv; subst;
+            apply cty_uses_kinds_subst_box_nat_0;
+            [ lazymatch goal with Hcd : CIdxDemand _ ?ii _ |- _ => exact (proj1 (cdemand_nat_safe D b env_b Hb) _ _ _ Hcd env_a eq_refl) end
+            | intros _; eapply ctype_demand_uses_kinds; [exact Hmot_saved | reflexivity | unfold flags_allow; cbn; reflexivity]
+            | exact Hm_s ]
+          end
+        end
+      | lazymatch goal with Hdp : CoreDerives _ (CPromote _ (CTypeVal _)) _ |- _ =>
+          inversion Hdp; subst;
+          lazymatch goal with Hdv : CoreDerives _ (CTypeVal ?tt) _ |- _ =>
+            inversion Hdv; subst;
+            apply cty_uses_kinds_subst_box_ty_0;
+            [ lazymatch goal with Htd : CTypeDemand (env_a ++ b :: env_b) ?tt _ |- _ => exact (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ Htd env_a eq_refl) end
+            | intros _; eapply ctype_demand_uses_kinds; [exact Hmot_saved | reflexivity | unfold flags_allow; cbn; reflexivity]
+            | exact Hm_s ]
+          end
+        end ] ].
+  - (* CoreInl *)
+    lazymatch goal with
+    | Hrhs : CTypeDemand _ rhs_ty b0 |- _ =>
+        pose proof (IHCoreDerives env_a eq_refl) as HA; cbn [cresult_type] in HA;
+        cbn; rewrite HA, (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ Hrhs env_a eq_refl); reflexivity
+    end.
+  - (* CoreInr *)
+    lazymatch goal with
+    | Hlhs : CTypeDemand _ ?lhs_ty ?a0 |- _ =>
+        pose proof (IHCoreDerives env_a eq_refl) as HB; cbn [cresult_type] in HB;
+        cbn; rewrite (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ Hlhs env_a eq_refl), HB; reflexivity
+    end.
+  - (* CoreMatchSum *)
+    lazymatch goal with
+    | Hres : ?res_ty = spec_sum_subj_cty ?scrut ?mot,
+      Hsc_t : CoreDerives _ ?scrut {| cresult_type := CSum ?A ?B; ccomp_demand := _; ctype_demand_row := _ |},
+      Hmot : CTypeDemand (?hd :: _) ?mot ?v_mot |- _ =>
+        pose proof (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ Hmot (hd :: env_a) eq_refl) as Hm_s;
+        cbn [length] in Hm_s;
+        rewrite Hres; pose proof Hmot as Hmot_saved; destruct scrut; unfold spec_sum_subj_cty
+    end;
+    try (apply cty_uses_kinds_unshift_0; [assumption | exact Hm_s]);
+    [ destruct (Nat.eq_dec x0 (length env_a)) as [-> | Hne];
+      [ exfalso;
+        lazymatch goal with Hdv : CoreDerives _ (CVar _) {| cresult_type := CSum _ _; ccomp_demand := _; ctype_demand_row := _ |} |- _ =>
+          inversion Hdv; subst;
+          lazymatch goal with Hlk : clookup _ _ = Some ?ee, Heq : ren_cty _ (cannotation ?ee) = CSum _ _ |- _ =>
+            unfold clookup in Hlk; rewrite nth_error_app2, Nat.sub_diag in Hlk by lia;
+            inversion Hlk; subst ee; rewrite Hb in Heq; cbn in Heq; discriminate
+          end
+        end
+      | apply cty_uses_kinds_subst_var_0; [exact Hne | exact Hm_s] ]
+    | destruct (term_as_cidx scrut) as [c_idx |] eqn:Ev;
+      try (apply cty_uses_kinds_unshift_0; [assumption | exact Hm_s]);
+      lazymatch goal with Hsc : CoreDerives _ (CInl _ _) _ |- _ => inversion Hsc; subst end;
+      assert (Hc : cidx_uses_kinds true false false false false (length env_a) c_idx = false) by
+        (destruct scrut; cbn in Ev; try discriminate; inversion Ev; subst;
+         [ cbn; reflexivity
+         | lazymatch goal with Hdv : CoreDerives _ (CNatVal ?ii) _ |- _ =>
+             inversion Hdv; subst;
+             lazymatch goal with Hcd : CIdxDemand _ ?ii _ |- _ => exact (proj1 (cdemand_nat_safe D b env_b Hb) _ _ _ Hcd env_a eq_refl) end
+           end ]);
+      apply cty_uses_kinds_subst_sum_0;
+      [ exact Hc
+      | intros _; eapply ctype_demand_uses_kinds; [exact Hmot_saved | reflexivity | eapply flags_allow_CSum; [apply cty_alpha_eq_refl | reflexivity]]
+      | intros _;
+        lazymatch goal with
+        | _ : CoreDerives _ (CInl _ _) {| cresult_type := CSum ?AA ?BB; ccomp_demand := _; ctype_demand_row := _ |} |- _ =>
+            destruct AA eqn:EA;
+            [ lazymatch type of Hmot_saved with CTypeDemand (?hd' :: _) _ _ =>
+                refine (proj2 (cdemand_case_branch_nat D hd' (env_a ++ b :: env_b) true CNat BB _ _) _ _ _ Hmot_saved [] eq_refl);
+                [unfold cty_alpha_eq; reflexivity | reflexivity]
+              end
+            | apply cty_uses_var_case_branch_nat; assumption .. ]
+        end
+      | exact Hm_s ]
+    | destruct (term_as_cidx scrut) as [c_idx |] eqn:Ev;
+      try (apply cty_uses_kinds_unshift_0; [assumption | exact Hm_s]);
+      lazymatch goal with Hsc : CoreDerives _ (CInr _ _) _ |- _ => inversion Hsc; subst end;
+      assert (Hc : cidx_uses_kinds true false false false false (length env_a) c_idx = false) by
+        (destruct scrut; cbn in Ev; try discriminate; inversion Ev; subst;
+         [ cbn; reflexivity
+         | lazymatch goal with Hdv : CoreDerives _ (CNatVal ?ii) _ |- _ =>
+             inversion Hdv; subst;
+             lazymatch goal with Hcd : CIdxDemand _ ?ii _ |- _ => exact (proj1 (cdemand_nat_safe D b env_b Hb) _ _ _ Hcd env_a eq_refl) end
+           end ]);
+      apply cty_uses_kinds_subst_sum_0;
+      [ exact Hc
+      | intros _; eapply ctype_demand_uses_kinds; [exact Hmot_saved | reflexivity | eapply flags_allow_CSum; [apply cty_alpha_eq_refl | reflexivity]]
+      | intros _;
+        lazymatch goal with
+        | _ : CoreDerives _ (CInr _ _) {| cresult_type := CSum ?AA ?BB; ccomp_demand := _; ctype_demand_row := _ |} |- _ =>
+            destruct BB eqn:EB;
+            [ lazymatch type of Hmot_saved with CTypeDemand (?hd' :: _) _ _ =>
+                refine (proj2 (cdemand_case_branch_nat D hd' (env_a ++ b :: env_b) false AA CNat _ _) _ _ _ Hmot_saved [] eq_refl);
+                [unfold cty_alpha_eq; reflexivity | reflexivity]
+              end
+            | apply cty_uses_var_case_branch_nat; assumption .. ]
+        end
+      | exact Hm_s ] ].
+  - (* CoreIf *)
+    cbn [cresult_type] in IHCoreDerives2; exact (IHCoreDerives2 env_a eq_refl).
+  - (* CoreRecordMk *)
+    cbn. clear IHCoreDerives.
+    lazymatch goal with
+    | Hrec : CRecordElemDerives _ ?fs _ _ |- _ =>
+        assert (Hgo : forall env0 fs0 u0 v0, CRecordElemDerives env0 fs0 u0 v0 ->
+          env0 = env_a ++ b :: env_b ->
+          (fix go_fs (fs1 : list (nat * grade D * cty D)) : bool :=
+             match fs1 with
+             | [] => false
+             | (_, _, ft) :: rest =>
+                 cty_uses_kinds true false false false false false false (length env_a) ft || go_fs rest
+             end) (map (fun '(fn, fg, ft, _) => (fn, fg, ft)) fs0) = false);
+        [ intros env0 fs0 u0 v0 H0; induction H0; intro H0env; subst; cbn;
+          [ reflexivity
+          | lazymatch goal with Htd : CTypeDemand _ _ _ |- _ =>
+              rewrite (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ Htd env_a eq_refl), (IHCRecordElemDerives eq_refl); reflexivity
+            end ]
+        | exact (Hgo _ _ _ _ Hrec eq_refl) ]
+    end.
+  - (* CoreMatchRecord *)
+    lazymatch goal with
+    | Hmot : CTypeDemand _ ?mot _ |- cty_uses_kinds _ _ _ _ _ _ _ _ ?mot = false =>
+        exact (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ Hmot env_a eq_refl)
+    end.
+  - (* CoreSubgrade *)
+    lazymatch goal with
+    | Hvt : CTypeDemand _ ?target _ |- cty_uses_kinds _ _ _ _ _ _ _ _ ?target = false =>
+        exact (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ Hvt env_a eq_refl)
+    end.
+  - (* CoreFix *)
+    lazymatch goal with
+    | Hres : ?res_ty = spec_fix_subj_cty ?scrut ?mot,
+      Hmot : CTypeDemand (?hd :: _) ?mot ?v_mot,
+      Hdep : match term_as_cidx ?scrut with Some _ => True | None => cty_uses_var 0 ?mot = false end |- _ =>
+        pose proof (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ Hmot (hd :: env_a) eq_refl) as Hm_s;
+        cbn [length] in Hm_s;
+        rewrite Hres; unfold spec_fix_subj_cty;
+        destruct (term_as_cidx scrut) as [c_idx |] eqn:Es;
+        [ assert (Hc : cidx_uses_kinds true false false false false (length env_a) c_idx = false) by
+            (destruct scrut; cbn in Es; try discriminate; inversion Es; subst;
+             [ cbn; reflexivity
+             | lazymatch goal with Hdv : CoreDerives _ (CNatVal ?ii) _ |- _ =>
+                 inversion Hdv; subst;
+                 lazymatch goal with Hcd : CIdxDemand _ ?ii _ |- _ => exact (proj1 (cdemand_nat_safe D b env_b Hb) _ _ _ Hcd env_a eq_refl) end
+               end ]);
+          apply cty_uses_kinds_subst_cidx_0;
+          [ exact Hc
+          | intros _; eapply ctype_demand_uses_kinds; [exact Hmot | reflexivity | unfold flags_allow; cbn; reflexivity]
+          | exact Hm_s ]
+        | apply cty_uses_kinds_unshift_0; [exact Hdep | exact Hm_s] ]
+    end.
+Qed.
+Definition spec_box_body_uses_kinds := spec_box_body_uses_kinds_nat.
+
+Lemma cdemand_box_nat_safe : forall (D : JoinDomain) (q : grade D) (env : cenv D) e0 T d,
+  cannotation e0 = CBox q CNat ->
+  CTypeDemand (e0 :: env) T d ->
+  cty_uses_kinds false false false true false false false 0 T = false.
+Proof.
+  intros D q env e0 T d He0 HT_orig.
+  assert (Hidx : forall env1 i d0, CIdxDemand env1 i d0 ->
+    forall env_p, env1 = env_p ++ [e0] ++ env ->
+      cidx_uses_kinds false true false false false (length env_p) i = false).
+  { intros env1 i d0 H. induction H; intros env_p Henv; try rewrite Henv in *; cbn; try reflexivity;
+      try (rewrite (IHCIdxDemand1 _ eq_refl), (IHCIdxDemand2 _ eq_refl); reflexivity);
+      try (apply (IHCIdxDemand _ eq_refl)).
+    - destruct (Nat.eq_dec x (length env_p)) as [-> | Hne]; [| apply Nat.eqb_neq; exact Hne].
+      unfold clookup in H. rewrite nth_error_app2, Nat.sub_diag in H by lia.
+      inversion H; subst e. unfold cty_alpha_eq in H0; rewrite He0 in H0; cbn in H0; discriminate.
+    - destruct (Nat.eq_dec p (length env_p)) as [-> | Hne]; [| apply Nat.eqb_neq; exact Hne].
+      unfold clookup in H. rewrite nth_error_app2, Nat.sub_diag in H by lia.
+      inversion H; subst e. unfold cty_alpha_eq in H0; rewrite He0 in H0; cbn in H0; discriminate.
+    - destruct (Nat.eq_dec p (length env_p)) as [-> | Hne]; [| apply Nat.eqb_neq; exact Hne].
+      unfold clookup in H. rewrite nth_error_app2, Nat.sub_diag in H by lia.
+      inversion H; subst e. unfold cty_alpha_eq in H0; rewrite He0 in H0; cbn in H0; discriminate.
+    - destruct (Nat.eq_dec s (length env_p)) as [-> | Hne].
+      + unfold clookup in H. rewrite nth_error_app2, Nat.sub_diag in H by lia.
+        inversion H; subst e. unfold cty_alpha_eq in H0; rewrite He0, erase_hints_ren in H0; cbn in H0; discriminate.
+      + apply Nat.eqb_neq in Hne. rewrite Hne.
+        pose proof (IHCIdxDemand1 ({| cbinder := 0; cannotation := A; ctype_uses := vec_zero (length (env_p ++ [e0] ++ env)) |} :: env_p) eq_refl) as Hl1.
+        pose proof (IHCIdxDemand2 ({| cbinder := 0; cannotation := B; ctype_uses := vec_zero (length (env_p ++ [e0] ++ env)) |} :: env_p) eq_refl) as Hr1.
+        cbn [length] in Hl1, Hr1. rewrite Hl1, Hr1. reflexivity. }
+  assert (Hgen : forall env1 T1 d1, CTypeDemand env1 T1 d1 ->
+    forall env_p, env1 = env_p ++ [e0] ++ env ->
+      cty_uses_kinds false false false true false false false (length env_p) T1 = false).
+  { intros env1 T1 d1 HT.
+    induction HT using CTypeDemand_ind_mut with
+      (P := fun env1 T1 d1 _ => forall env_p, env1 = env_p ++ [e0] ++ env ->
+        cty_uses_kinds false false false true false false false (length env_p) T1 = false)
+      (P0 := fun env1 fs df _ => forall env_p, env1 = env_p ++ [e0] ++ env ->
+        Forall (fun '(_, _, ft) => cty_uses_kinds false false false true false false false (length env_p) ft = false) fs)
+      (P1 := fun env1 ls dl _ => forall env_p, env1 = env_p ++ [e0] ++ env ->
+        Forall (fun i => cidx_uses_kinds false true false false false (length env_p) i = false) ls);
+      intros env_p Henv; try rewrite Henv in *; cbn; try reflexivity;
+      try (apply IHHT; reflexivity);
+      try (rewrite (IHHT1 _ eq_refl), (IHHT2 _ eq_refl); reflexivity);
+      try apply Forall_nil.
+    - rewrite (IHHT _ eq_refl), (Hidx _ _ _ c _ eq_refl). reflexivity.
+    - destruct (Nat.eq_dec x (length env_p)) as [-> | Hne]; [| apply Nat.eqb_neq; exact Hne].
+      lazymatch goal with
+      | Hlk : clookup _ _ = Some _, Ha : cty_alpha_eq _ _ |- _ =>
+          unfold clookup in Hlk; rewrite nth_error_app2, Nat.sub_diag in Hlk by lia;
+          inversion Hlk; subst; unfold cty_alpha_eq in Ha; rewrite He0 in Ha; try rewrite erase_hints_ren in Ha; cbn in Ha; discriminate
+      end.
+    - destruct (Nat.eq_dec b (length env_p)) as [-> | Hne]; [| apply Nat.eqb_neq; exact Hne].
+      lazymatch goal with
+      | Hlk : clookup _ _ = Some _, Ha : cty_alpha_eq _ _ |- _ =>
+          unfold clookup in Hlk; rewrite nth_error_app2, Nat.sub_diag in Hlk by lia;
+          inversion Hlk; subst; unfold cty_alpha_eq in Ha; rewrite He0 in Ha; try rewrite erase_hints_ren in Ha; cbn in Ha; discriminate
+      end.
+    - rewrite (IHHT1 _ eq_refl).
+      exact (IHHT2 (_ :: env_p) eq_refl).
+    - rewrite (IHHT1 _ eq_refl).
+      exact (IHHT2 (_ :: env_p) eq_refl).
+    - pose proof (IHHT _ eq_refl) as Hf. clear - Hf. induction fields as [| [[? ?] ?] ? IH]; cbn; inversion Hf; subst; [reflexivity | rewrite H1, (IH H2); reflexivity].
+    - pose proof (IHHT _ eq_refl) as Hl. clear - Hl. induction indices as [| ? ? IH]; cbn; inversion Hl; subst; [reflexivity | rewrite H1, (IH H2); reflexivity].
+    - apply Forall_cons; [exact (IHHT _ eq_refl) | exact (IHHT0 _ eq_refl)].
+    - apply Forall_cons; [exact (Hidx _ _ _ c _ eq_refl) | exact (IHHT _ eq_refl)]. }
+  exact (Hgen (e0 :: env) T d HT_orig [] eq_refl).
+Qed.
+
+Lemma cdemand_not_nat_idx0_safe : forall (D : JoinDomain) (env : cenv D) e0 T d,
+  erase_hints (cannotation e0) <> CNat ->
+  CTypeDemand (e0 :: env) T d ->
+  cty_uses_kinds false true true true true true true 0 T = false.
+Proof.
+  intros D env e0 T d Hnn HT_orig.
+  assert (Hidx : forall env1 i d0, CIdxDemand env1 i d0 ->
+    forall env_p, env1 = env_p ++ [e0] ++ env ->
+      cidx_uses_kinds false true true true true (length env_p) i = false).
+  { intros env1 i d0 H. induction H; intros env_p Henv; try rewrite Henv in *; cbn; try reflexivity;
+      try (rewrite (IHCIdxDemand1 _ eq_refl), (IHCIdxDemand2 _ eq_refl); reflexivity);
+      try (apply (IHCIdxDemand _ eq_refl)).
+    - destruct (Nat.eq_dec x (length env_p)) as [-> | Hne]; [| apply Nat.eqb_neq; exact Hne].
+      unfold clookup in H. rewrite nth_error_app2, Nat.sub_diag in H by lia.
+      inversion H; subst e. unfold cty_alpha_eq in H0. cbn in H0. contradiction.
+    - pose proof (IHCIdxDemand1 ({| cbinder := 0; cannotation := A; ctype_uses := vec_zero (length (env_p ++ [e0] ++ env)) |} :: env_p) eq_refl) as Hl1.
+      pose proof (IHCIdxDemand2 ({| cbinder := 0; cannotation := B; ctype_uses := vec_zero (length (env_p ++ [e0] ++ env)) |} :: env_p) eq_refl) as Hr1.
+      cbn [length] in Hl1, Hr1. rewrite Hl1, Hr1. reflexivity. }
+  assert (Hgen : forall env1 T1 d1, CTypeDemand env1 T1 d1 ->
+    forall env_p, env1 = env_p ++ [e0] ++ env ->
+      cty_uses_kinds false true true true true true true (length env_p) T1 = false).
+  { intros env1 T1 d1 HT.
+    induction HT using CTypeDemand_ind_mut with
+      (P := fun env1 T1 d1 _ => forall env_p, env1 = env_p ++ [e0] ++ env ->
+        cty_uses_kinds false true true true true true true (length env_p) T1 = false)
+      (P0 := fun env1 fs df _ => forall env_p, env1 = env_p ++ [e0] ++ env ->
+        Forall (fun '(_, _, ft) => cty_uses_kinds false true true true true true true (length env_p) ft = false) fs)
+      (P1 := fun env1 ls dl _ => forall env_p, env1 = env_p ++ [e0] ++ env ->
+        Forall (fun i => cidx_uses_kinds false true true true true (length env_p) i = false) ls);
+      intros env_p Henv; try rewrite Henv in *; cbn; try reflexivity;
+      try (apply IHHT; reflexivity);
+      try (rewrite (IHHT1 _ eq_refl), (IHHT2 _ eq_refl); reflexivity);
+      try apply Forall_nil.
+    - rewrite (IHHT _ eq_refl), (Hidx _ _ _ c _ eq_refl). reflexivity.
+    - rewrite (IHHT1 _ eq_refl). exact (IHHT2 (_ :: env_p) eq_refl).
+    - rewrite (IHHT1 _ eq_refl). exact (IHHT2 (_ :: env_p) eq_refl).
+    - pose proof (IHHT _ eq_refl) as Hf. clear - Hf. induction fields as [| [[? ?] ?] ? IH]; cbn; inversion Hf; subst; [reflexivity | rewrite H1, (IH H2); reflexivity].
+    - pose proof (IHHT _ eq_refl) as Hl. clear - Hl. induction indices as [| ? ? IH]; cbn; inversion Hl; subst; [reflexivity | rewrite H1, (IH H2); reflexivity].
+    - apply Forall_cons; [exact (IHHT _ eq_refl) | exact (IHHT0 _ eq_refl)].
+    - apply Forall_cons; [exact (Hidx _ _ _ c _ eq_refl) | exact (IHHT _ eq_refl)]. }
+  exact (Hgen (e0 :: env) T d HT_orig [] eq_refl).
+Qed.
+
+Lemma cdemand_sum_nat_safe : forall (D : JoinDomain) (A B : cty D) (env : cenv D) e0 T d,
+  cannotation e0 = CSum A B ->
+  (A = CNat \/ B = CNat) ->
+  CTypeDemand (e0 :: env) T d ->
+  cty_uses_kinds false false false false false false true 0 T = false.
+Proof.
+  intros D A B env e0 T d He0 _ HT_orig.
+  assert (Hidx : forall env1 i d0, CIdxDemand env1 i d0 ->
+    forall env_p, env1 = env_p ++ [e0] ++ env ->
+      cidx_uses_kinds false false false false true (length env_p) i = false).
+  { intros env1 i d0 H. induction H; intros env_p Henv; try rewrite Henv in *; cbn; try reflexivity;
+      try (rewrite (IHCIdxDemand1 _ eq_refl), (IHCIdxDemand2 _ eq_refl); reflexivity);
+      try (apply (IHCIdxDemand _ eq_refl)).
+    - destruct (Nat.eq_dec x (length env_p)) as [-> | Hne]; [| apply Nat.eqb_neq; exact Hne].
+      unfold clookup in H. rewrite nth_error_app2, Nat.sub_diag in H by lia.
+      inversion H; subst e. unfold cty_alpha_eq in H0; rewrite He0 in H0; cbn in H0; discriminate.
+    - destruct (Nat.eq_dec b (length env_p)) as [-> | Hne]; [| apply Nat.eqb_neq; exact Hne].
+      unfold clookup in H. rewrite nth_error_app2, Nat.sub_diag in H by lia.
+      inversion H; subst e. unfold cty_alpha_eq in H0; rewrite He0 in H0; cbn in H0; discriminate.
+    - destruct (Nat.eq_dec p (length env_p)) as [-> | Hne]; [| apply Nat.eqb_neq; exact Hne].
+      unfold clookup in H. rewrite nth_error_app2, Nat.sub_diag in H by lia.
+      inversion H; subst e. unfold cty_alpha_eq in H0; rewrite He0 in H0; cbn in H0; discriminate.
+    - destruct (Nat.eq_dec p (length env_p)) as [-> | Hne]; [| apply Nat.eqb_neq; exact Hne].
+      unfold clookup in H. rewrite nth_error_app2, Nat.sub_diag in H by lia.
+      inversion H; subst e. unfold cty_alpha_eq in H0; rewrite He0 in H0; cbn in H0; discriminate.
+    - pose proof (IHCIdxDemand1 ({| cbinder := 0; cannotation := A0; ctype_uses := vec_zero (length (env_p ++ [e0] ++ env)) |} :: env_p) eq_refl) as Hl1.
+      pose proof (IHCIdxDemand2 ({| cbinder := 0; cannotation := B0; ctype_uses := vec_zero (length (env_p ++ [e0] ++ env)) |} :: env_p) eq_refl) as Hr1.
+      cbn [length] in Hl1, Hr1. rewrite Hl1, Hr1. reflexivity. }
+  assert (Hgen : forall env1 T1 d1, CTypeDemand env1 T1 d1 ->
+    forall env_p, env1 = env_p ++ [e0] ++ env ->
+      cty_uses_kinds false false false false false false true (length env_p) T1 = false).
+  { intros env1 T1 d1 HT.
+    induction HT using CTypeDemand_ind_mut with
+      (P := fun env1 T1 d1 _ => forall env_p, env1 = env_p ++ [e0] ++ env ->
+        cty_uses_kinds false false false false false false true (length env_p) T1 = false)
+      (P0 := fun env1 fs df _ => forall env_p, env1 = env_p ++ [e0] ++ env ->
+        Forall (fun '(_, _, ft) => cty_uses_kinds false false false false false false true (length env_p) ft = false) fs)
+      (P1 := fun env1 ls dl _ => forall env_p, env1 = env_p ++ [e0] ++ env ->
+        Forall (fun i => cidx_uses_kinds false false false false true (length env_p) i = false) ls);
+      intros env_p Henv; try rewrite Henv in *; cbn; try reflexivity;
+      try (apply IHHT; reflexivity);
+      try (rewrite (IHHT1 _ eq_refl), (IHHT2 _ eq_refl); reflexivity);
+      try apply Forall_nil.
+    - rewrite (IHHT _ eq_refl), (Hidx _ _ _ c _ eq_refl). reflexivity.
+    - destruct (Nat.eq_dec x (length env_p)) as [-> | Hne]; [| apply Nat.eqb_neq; exact Hne].
+      lazymatch goal with
+      | Hlk : clookup _ _ = Some _, Ha : cty_alpha_eq _ _ |- _ =>
+          unfold clookup in Hlk; rewrite nth_error_app2, Nat.sub_diag in Hlk by lia;
+          inversion Hlk; subst; unfold cty_alpha_eq in Ha; rewrite He0 in Ha; try rewrite erase_hints_ren in Ha; cbn in Ha; discriminate
+      end.
+    - destruct (Nat.eq_dec b (length env_p)) as [-> | Hne]; [| apply Nat.eqb_neq; exact Hne].
+      lazymatch goal with
+      | Hlk : clookup _ _ = Some _, Ha : cty_alpha_eq _ _ |- _ =>
+          unfold clookup in Hlk; rewrite nth_error_app2, Nat.sub_diag in Hlk by lia;
+          inversion Hlk; subst; unfold cty_alpha_eq in Ha; rewrite He0 in Ha; try rewrite erase_hints_ren in Ha; cbn in Ha; discriminate
+      end.
+    - rewrite (IHHT1 _ eq_refl).
+      exact (IHHT2 (_ :: env_p) eq_refl).
+    - rewrite (IHHT1 _ eq_refl).
+      exact (IHHT2 (_ :: env_p) eq_refl).
+    - pose proof (IHHT _ eq_refl) as Hf. clear - Hf. induction fields as [| [[? ?] ?] ? IH]; cbn; inversion Hf; subst; [reflexivity | rewrite H1, (IH H2); reflexivity].
+    - pose proof (IHHT _ eq_refl) as Hl. clear - Hl. induction indices as [| ? ? IH]; cbn; inversion Hl; subst; [reflexivity | rewrite H1, (IH H2); reflexivity].
+    - apply Forall_cons; [exact (IHHT _ eq_refl) | exact (IHHT0 _ eq_refl)].
+    - apply Forall_cons; [exact (Hidx _ _ _ c _ eq_refl) | exact (IHHT _ eq_refl)]. }
+  exact (Hgen (e0 :: env) T d HT_orig [] eq_refl).
+Qed.
+
+
+Lemma vec_subst_skipn_prefix : forall (D : JoinDomain) p k z (v : list (grade D)),
+  p <= k ->
+  vec_subst (k - p) z (skipn p v) = skipn p (vec_subst k z v).
+Proof.
+  intros D p. induction p as [| p IH]; intros k z [| a v] Hpk; cbn.
+  - rewrite Nat.sub_0_r. destruct k; reflexivity.
+  - rewrite Nat.sub_0_r. reflexivity.
+  - destruct k; cbn; [lia | destruct (k - p); reflexivity].
+  - destruct k as [| k']; [lia |]. cbn. apply IH; lia.
+Qed.
+
+Lemma vec_subst_firstn_prefix : forall (D : JoinDomain) p k z (v : list (grade D)),
+  p <= k ->
+  firstn p (vec_subst k z v) = firstn p v.
+Proof.
+  intros D p. induction p as [| p IH]; intros k z v Hpk; [reflexivity |].
+  destruct k as [| k'], v as [| a v]; cbn; try lia; try reflexivity.
+  f_equal; apply IH; lia.
+Qed.
+
+Lemma branch_rel_vec_allows : forall (D : JoinDomain) (u v : list (grade D)),
+  branch_rel u v -> vec_allows u v.
+Proof.
+  intros D u v H. unfold branch_rel in H. destruct (grade_join D); [exact H | subst; apply vec_allows_refl].
+Qed.
+
+Lemma branch_rel_allows_trans : forall (D : JoinDomain) (u v w : list (grade D)),
+  branch_rel u v -> vec_allows v w -> vec_allows u w.
+Proof.
+  intros D u v w H1 H2. eapply vec_allows_trans; [apply branch_rel_vec_allows; exact H1 | exact H2].
+Qed.
+
+Lemma CTypeDemand_CNat_inv : forall (D : JoinDomain) (env : cenv D) d,
+  CTypeDemand env CNat d -> d = vec_zero (length env).
+Proof.
+  intros D env d H. inversion H; reflexivity.
+Qed.
+
+Lemma vec_allows_zero_branch_rel : forall (D : JoinDomain) n (u : list (grade D)),
+  (grade_join D = None -> forall (g : grade D), allows zero g -> g = zero) ->
+  vec_allows (vec_zero n) u ->
+  branch_rel (vec_zero n) u.
+Proof.
+  intros D n u Hz H. unfold branch_rel. destruct (grade_join D) eqn:Hj; [exact H |].
+  pose proof (Hz eq_refl) as Hz0. clear Hz Hj.
+  induction n as [| n IH] in u, H |- *; destruct u; inversion H; subst; cbn; [reflexivity |].
+  f_equal; [symmetry; apply Hz0; assumption | apply IH; assumption].
+Qed.
+
+Lemma cty_alpha_eq_CPi_inv : forall (D : JoinDomain) (T : cty D) x s r dom cod,
+  cty_alpha_eq T (CPi x s r dom cod) ->
+  exists x0 dom0 cod0, T = CPi x0 s r dom0 cod0 /\ cty_alpha_eq dom0 dom /\ cty_alpha_eq cod0 cod.
+Proof.
+  intros D T x s r dom cod H. unfold cty_alpha_eq in H.
+  destruct T; cbn in H; try discriminate.
+  inversion H; subst. eexists _, _, _; split; [reflexivity | split; assumption].
+Qed.
+
+Lemma cty_alpha_eq_CSigma_inv : forall (D : JoinDomain) (T : cty D) x r A B,
+  cty_alpha_eq T (CSigma x r A B) ->
+  exists x0 A0 B0, T = CSigma x0 r A0 B0 /\ cty_alpha_eq A0 A /\ cty_alpha_eq B0 B.
+Proof.
+  intros D T x r A B H. unfold cty_alpha_eq in H.
+  destruct T; cbn in H; try discriminate.
+  inversion H; subst. eexists _, _, _; split; [reflexivity | split; assumption].
+Qed.
+
+Lemma cty_alpha_eq_CBox_inv : forall (D : JoinDomain) (T : cty D) q A,
+  cty_alpha_eq T (CBox q A) ->
+  exists A0, T = CBox q A0 /\ cty_alpha_eq A0 A.
+Proof.
+  intros D T q A H. unfold cty_alpha_eq in H.
+  destruct T; cbn in H; try discriminate.
+  inversion H; subst. exists T. split; [reflexivity | assumption].
+Qed.
+
+Lemma cty_alpha_eq_CSum_inv : forall (D : JoinDomain) (T : cty D) A B,
+  cty_alpha_eq T (CSum A B) ->
+  exists A0 B0, T = CSum A0 B0 /\ cty_alpha_eq A0 A /\ cty_alpha_eq B0 B.
+Proof.
+  intros D T A B H. unfold cty_alpha_eq in H.
+  destruct T; cbn in H; try discriminate.
+  inversion H; subst. exists T1, T2. split; [reflexivity | split; assumption].
+Qed.
+
+Lemma cty_alpha_eq_CRecord_inv : forall (D : JoinDomain) (T : cty D) id fs,
+  cty_alpha_eq T (CRecord id fs) ->
+  exists fs0, T = CRecord id fs0 /\
+    Forall2 (fun '(n1, g1, t1) '(n2, g2, t2) => n1 = n2 /\ g1 = g2 /\ cty_alpha_eq t1 t2) fs0 fs.
+Proof.
+  intros D T id fs H. unfold cty_alpha_eq in H.
+  destruct T; cbn in H; try discriminate.
+  inversion H; subst. exists fields. split; [reflexivity |].
+  clear H. revert fields H2. induction fs as [| [[fn fg] ft] rest IH]; intros [| [[fn0 fg0] ft0] rest0] H2; cbn in *; try discriminate.
+  - apply Forall2_nil.
+  - inversion H2; subst. apply Forall2_cons; [split; [reflexivity | split; [reflexivity | assumption]] | apply IH; assumption].
+Qed.
+
+Lemma cty_alpha_eq_CNat_inv : forall (D : JoinDomain) (T : cty D),
+  cty_alpha_eq T CNat -> T = CNat.
+Proof.
+  intros D T H. unfold cty_alpha_eq in H. destruct T; cbn in H; try discriminate; reflexivity.
+Qed.
+
+Lemma cty_alpha_eq_CUniv_inv : forall (D : JoinDomain) (T : cty D) lvl,
+  cty_alpha_eq T (CUniv lvl) -> T = CUniv lvl.
+Proof.
+  intros D T lvl H. unfold cty_alpha_eq in H. destruct T; cbn in H; try discriminate; inversion H; reflexivity.
+Qed.
+
+Lemma cty_alpha_eq_CBool_inv : forall (D : JoinDomain) (T : cty D),
+  cty_alpha_eq T CBool -> T = CBool.
+Proof.
+  intros D T H. unfold cty_alpha_eq in H. destruct T; cbn in H; try discriminate; reflexivity.
+Qed.
+
+Lemma subst_cidx_in_cty_unshift_0 : forall (D : JoinDomain) (T : cty D) val k,
+  cty_uses_var 0 T = false ->
+  cty_uses_kinds true false false false false false false (S k) T = false ->
+  subst_cidx_in_cty k val (unshift_cty 0 T) =
+  unshift_cty 0 (subst_cidx_in_cty (S k) (lift_cidx 0 1 val) T).
+Proof.
+  intros D T val k Hnf HT.
+  unfold unshift_cty.
+  change (ren_cty (Nat.iter 0 ren_shift (fun i => match i with 0 => 0 | S i' => i' end)) T) with (ren_cty (r_var 0 0) T).
+  rewrite (ren_cty_r_var_no_use D T 0 0 (S k) Hnf).
+  change (ren_cty (r_var 0 (S k)) T) with (subst_var_in_cty 0 (S k) T).
+  rewrite (subst_cidx_ren_var_comm D T val (S k) k ltac:(lia) HT).
+  destruct (Nat.ltb_spec (S k) k); [lia |].
+  replace (S k - 1) with k by lia.
+  unfold subst_var_in_cty.
+  change (Nat.iter 0 ren_shift (fun i => match i with 0 => k | S i' => i' end)) with (r_var 0 k).
+  change (Nat.iter 0 ren_shift (fun i => match i with 0 => 0 | S i' => i' end)) with (r_var 0 0).
+  apply ren_cty_r_var_no_use.
+  apply cty_uses_var_subst_cidx_0; [lia | exact HT | apply lift_cidx_uses_var_0 | exact Hnf].
+Qed.
+
+Lemma cty_uses_kinds_lift_inv : forall (D : JoinDomain) (T : cty D) k,
+  cty_uses_kinds true false false false false false false (S k) (lift_cty 0 1 T) = false ->
+  cty_uses_kinds true false false false false false false k T = false.
+Proof.
+  intros D T.
+  assert (Hgen : forall (T0 : cty D) c k,
+    cty_uses_kinds true false false false false false false (S (c + k)) (lift_cty c 1 T0) = false ->
+    cty_uses_kinds true false false false false false false (c + k) T0 = false).
+  { assert (Hci : forall (i : cidx D) c0 k0,
+      cidx_uses_kinds true false false false false (S (c0 + k0)) (lift_cidx c0 1 i) = false ->
+      cidx_uses_kinds true false false false false (c0 + k0) i = false).
+    { induction i; intros c0 k0 Hi; cbn in *; try reflexivity;
+        try solve [apply orb_false_iff in Hi as [Ha Hb]; rewrite (IHi1 c0 k0 Ha), (IHi2 c0 k0 Hb); reflexivity];
+        try solve [apply (IHi c0 k0 Hi)];
+        try solve [unfold ren_lift in Hi; destruct (b <? c0) eqn:Eb; [apply Nat.ltb_lt in Eb | apply Nat.ltb_ge in Eb]; apply Nat.eqb_neq in Hi; apply Nat.eqb_neq; lia];
+        try solve [unfold ren_lift in Hi; destruct (p <? c0) eqn:Ep; [apply Nat.ltb_lt in Ep | apply Nat.ltb_ge in Ep]; apply Nat.eqb_neq in Hi; apply Nat.eqb_neq; lia].
+      apply orb_false_iff in Hi as [H12 H3]; apply orb_false_iff in H12 as [Ha Hb].
+      unfold ren_lift in Ha. assert (Hs : (s =? c0 + k0) = false) by (destruct (s <? c0) eqn:Es; [apply Nat.ltb_lt in Es | apply Nat.ltb_ge in Es]; apply Nat.eqb_neq in Ha; apply Nat.eqb_neq; lia).
+      assert (Hs1 : ren_cidx (ren_shift (ren_lift c0 1)) i1 = lift_cidx (S c0) 1 i1)
+        by (unfold lift_cidx; apply ren_cidx_ext; intros [| y]; unfold ren_lift; cbn [ren_shift];
+            [destruct (0 <? S c0) eqn:E; [apply Nat.ltb_lt in E | apply Nat.ltb_ge in E]; lia
+            | destruct (y <? c0) eqn:E1, (S y <? S c0) eqn:E2; [apply Nat.ltb_lt in E1, E2 | apply Nat.ltb_lt in E1; apply Nat.ltb_ge in E2 | apply Nat.ltb_ge in E1; apply Nat.ltb_lt in E2 | apply Nat.ltb_ge in E1, E2]; lia]).
+      assert (Hs2 : ren_cidx (ren_shift (ren_lift c0 1)) i2 = lift_cidx (S c0) 1 i2)
+        by (unfold lift_cidx; apply ren_cidx_ext; intros [| y]; unfold ren_lift; cbn [ren_shift];
+            [destruct (0 <? S c0) eqn:E; [apply Nat.ltb_lt in E | apply Nat.ltb_ge in E]; lia
+            | destruct (y <? c0) eqn:E1, (S y <? S c0) eqn:E2; [apply Nat.ltb_lt in E1, E2 | apply Nat.ltb_lt in E1; apply Nat.ltb_ge in E2 | apply Nat.ltb_ge in E1; apply Nat.ltb_lt in E2 | apply Nat.ltb_ge in E1, E2]; lia]).
+      rewrite Hs1 in Hb; rewrite Hs2 in H3. replace (S (S (c0 + k0))) with (S (S c0 + k0)) in Hb, H3 by lia.
+      replace (S (c0 + k0)) with (S c0 + k0) by lia.
+      rewrite Hs, (IHi1 (S c0) k0 Hb), (IHi2 (S c0) k0 H3); reflexivity. }
+    induction T0 using cty_ind_nested; intros c k Hu; cbn in *; try reflexivity;
+      try solve [apply (IHT0 c k Hu)];
+      try solve [apply orb_false_iff in Hu as [H1 H2]; rewrite (IHT0_1 c k H1), (IHT0_2 c k H2); reflexivity].
+    - apply orb_false_iff in Hu as [H1 H2].
+      change (ren_cidx (ren_lift c 1) len) with (lift_cidx c 1 len) in H2.
+      rewrite (IHT0 c k H1), (Hci _ _ _ H2). reflexivity.
+    - unfold ren_lift in Hu. destruct (x <? c) eqn:Ex; [apply Nat.ltb_lt in Ex | apply Nat.ltb_ge in Ex]; apply Nat.eqb_neq in Hu; apply Nat.eqb_neq; lia.
+    - unfold ren_lift in Hu. destruct (b <? c) eqn:Eb; [apply Nat.ltb_lt in Eb | apply Nat.ltb_ge in Eb]; apply Nat.eqb_neq in Hu; apply Nat.eqb_neq; lia.
+    - apply orb_false_iff in Hu as [H1 H2].
+      assert (Hs : ren_cty (ren_shift (ren_lift c 1)) T0_2 = lift_cty (S c) 1 T0_2)
+        by (unfold lift_cty; apply ren_cty_ext; intros [| y]; unfold ren_lift; cbn [ren_shift];
+            [destruct (0 <? S c) eqn:E; [apply Nat.ltb_lt in E | apply Nat.ltb_ge in E]; lia
+            | destruct (y <? c) eqn:E1, (S y <? S c) eqn:E2; [apply Nat.ltb_lt in E1, E2 | apply Nat.ltb_lt in E1; apply Nat.ltb_ge in E2 | apply Nat.ltb_ge in E1; apply Nat.ltb_lt in E2 | apply Nat.ltb_ge in E1, E2]; lia]).
+      rewrite Hs in H2. replace (S (S (c + k))) with (S (S c + k)) in H2 by lia.
+      replace (S (c + k)) with (S c + k) by lia.
+      rewrite (IHT0_1 c k H1), (IHT0_2 (S c) k H2). reflexivity.
+    - apply orb_false_iff in Hu as [H1 H2].
+      assert (Hs : ren_cty (ren_shift (ren_lift c 1)) T0_2 = lift_cty (S c) 1 T0_2)
+        by (unfold lift_cty; apply ren_cty_ext; intros [| y]; unfold ren_lift; cbn [ren_shift];
+            [destruct (0 <? S c) eqn:E; [apply Nat.ltb_lt in E | apply Nat.ltb_ge in E]; lia
+            | destruct (y <? c) eqn:E1, (S y <? S c) eqn:E2; [apply Nat.ltb_lt in E1, E2 | apply Nat.ltb_lt in E1; apply Nat.ltb_ge in E2 | apply Nat.ltb_ge in E1; apply Nat.ltb_lt in E2 | apply Nat.ltb_ge in E1, E2]; lia]).
+      rewrite Hs in H2. replace (S (S (c + k))) with (S (S c + k)) in H2 by lia.
+      replace (S (c + k)) with (S c + k) by lia.
+      rewrite (IHT0_1 c k H1), (IHT0_2 (S c) k H2). reflexivity.
+    - induction fields as [| [[fn fg] ft] rest IHf]; cbn in *; [reflexivity |].
+      inversion H; subst; cbn in H2. apply orb_false_iff in Hu as [H1 Hr]. rewrite (H2 c k H1), (IHf H3 Hr). reflexivity.
+    - induction indices as [| idx rest IH]; cbn in *; [reflexivity |].
+      apply orb_false_iff in Hu as [H1 Hr].
+      change (ren_cidx (ren_lift c 1) idx) with (lift_cidx c 1 idx) in H1.
+      rewrite (Hci _ _ _ H1), (IH Hr). reflexivity. }
+  intros k H. exact (Hgen T 0 k H).
+Qed.
+
+Lemma subst_cidx_in_cty_lift_n_comm : forall (D : JoinDomain) n k (T : cty D) val,
+  cty_uses_kinds true false false false false false false k T = false ->
+  subst_cidx_in_cty (n + k) (lift_cidx 0 n val) (lift_cty 0 n T) =
+  lift_cty 0 n (subst_cidx_in_cty k val T).
+Proof.
+  intros D n. induction n as [| n IH]; intros k T val Hk; cbn.
+  - rewrite lift_cidx_0_0, !lift_cty_0_0; reflexivity.
+  - rewrite <- lift_cty_add with (a := 1) (b := n).
+    rewrite <- lift_cidx_add with (a := 1) (b := n).
+    assert (Hn : cty_uses_kinds true false false false false false false (n + k) (lift_cty 0 n T) = false).
+    { replace (lift_cty 0 n T) with (ren_cty (plus n) T)
+        by (unfold lift_cty; apply ren_cty_ext; intro y; unfold ren_lift; destruct (y <? 0) eqn:E; nat_bool_hyps; lia).
+      apply cty_uses_kinds_ren_plus; exact Hk. }
+    replace (S n + k) with (S (n + k)) by lia.
+    rewrite (subst_cidx_in_cty_lift_1_comm_gen D (lift_cty 0 n T) (lift_cidx 0 n val) 0 (n + k) ltac:(lia) Hn).
+    rewrite (IH k T val Hk), lift_cty_add. reflexivity.
+Qed.
+
+Lemma cty_uses_kinds_lift_n_false : forall (D : JoinDomain) (T : cty D) n k,
+  cty_uses_kinds true false false false false false false k T = false ->
+  cty_uses_kinds true false false false false false false (n + k) (lift_cty 0 n T) = false.
+Proof.
+  intros D T n k H.
+  replace (lift_cty 0 n T) with (ren_cty (plus n) T)
+    by (unfold lift_cty; apply ren_cty_ext; intro y; unfold ren_lift; destruct (y <? 0) eqn:E; nat_bool_hyps; lia).
+  apply cty_uses_kinds_ren_plus; exact H.
+Qed.
+
+Lemma branch_rel_firstn : forall (D : JoinDomain) n (u v : list (grade D)),
+  branch_rel u v -> branch_rel (firstn n u) (firstn n v).
+Proof.
+  intros D n. induction n as [| n IH]; intros [| a u] [| b v] H; cbn in *; try apply branch_rel_refl;
+    unfold branch_rel in *; destruct (grade_join D) eqn:Hj; try discriminate; try congruence;
+    try solve [inversion H].
+  inversion H as [| ? ? ? ? Ha Hrest]; subst; constructor; [assumption | apply (IH u v); exact Hrest].
+Qed.
+
+Lemma branch_rel_skipn : forall (D : JoinDomain) n (u v : list (grade D)),
+  branch_rel u v -> branch_rel (skipn n u) (skipn n v).
+Proof.
+  intros D n. induction n as [| n IH]; intros [| a u] [| b v] H; cbn in *; try exact H;
+    try apply branch_rel_refl; unfold branch_rel in *; destruct (grade_join D) eqn:Hj;
+    try discriminate; try congruence; try solve [inversion H].
+  inversion H as [| ? ? ? ? Ha Hrest]; subst; apply (IH u v); exact Hrest.
+Qed.
+
+Lemma vec_is_zero_iff : forall (D : JoinDomain) (u : list (grade D)),
+  vec_is_zero u = true <-> u = vec_zero (length u).
+Proof.
+  intros D u. induction u as [| a u [IH1 IH2]]; cbn; [split; reflexivity |].
+  split; intro H.
+  - apply andb_true_iff in H as [Ha Hu]. destruct (grade_eqb_spec D a zero); [| discriminate].
+    subst a; f_equal; apply IH1; exact Hu.
+  - inversion H as [[H1 H2]]. destruct (grade_eqb_spec D zero zero); [| contradiction].
+    apply andb_true_iff; split; [reflexivity | rewrite <- H2; apply IH2; exact H2].
+Qed.
+
+Lemma branch_rel_vec_is_zero : forall (D : JoinDomain),
+  ErasureDomain D ->
+  forall n (u : list (grade D)),
+  branch_rel u (vec_zero n) ->
+  vec_is_zero u = true.
+Proof.
+  intros D ED n u H. unfold branch_rel in H. destruct (grade_join D).
+  - pose proof (vec_allows_length D u (vec_zero n) H) as Hlen.
+    unfold vec_zero in Hlen; rewrite repeat_length in Hlen; subst n.
+    rewrite (vec_allows_zero_eq D ED u H). apply vec_is_zero_iff; unfold vec_zero; rewrite repeat_length; reflexivity.
+  - subst u. apply vec_is_zero_iff; unfold vec_zero; rewrite repeat_length; reflexivity.
+Qed.
+
+Lemma cenv_demand_rel_trans : forall (D : JoinDomain) (env1 env2 env3 : cenv D),
+  cenv_demand_rel env1 env2 ->
+  cenv_demand_rel env2 env3 ->
+  cenv_demand_rel env1 env3.
+Proof.
+  intros D env1 env2 env3 [Hl12 H12] [Hl23 H23].
+  pose proof (cenv_demand_rel_alpha D env1 env2 (conj Hl12 H12)) as Ha12.
+  split; [lia |].
+  intros x e3 Hl3.
+  destruct (H23 x e3 Hl3) as [e2 [Hl2 [Hb2 [Ha2 [Hbr2 Hfn2]]]]].
+  destruct (H12 x e2 Hl2) as [e1 [Hl1 [Hb1 [Ha1 [Hbr1 Hfn1]]]]].
+  exists e1; split; [exact Hl1 |].
+  split; [congruence | split; [eapply cty_alpha_eq_trans; eassumption | split; [eapply branch_rel_trans; eassumption |]]].
+  intros row Hrow1 Hva3.
+  assert (Hrow2 : CTypeDemand (skipn (S x) env2) (cannotation e2) row) by
+    (eapply CTypeDemand_alpha; [exact Ha1 | apply cenv_alpha_eq_skipn; exact Ha12 | exact Hrow1]).
+  apply (Hfn1 row Hrow1 (Hfn2 row Hrow2 Hva3)).
+Qed.
+
+Lemma CRecordExtendEnv_nat_safe : forall (D : JoinDomain) (b : cbinding D) env_b,
+  cannotation b = CNat ->
+  forall env1 bs fields body_env,
+  CRecordExtendEnv env1 bs fields body_env ->
+  forall env_a, env1 = env_a ++ b :: env_b ->
+  Forall (fun '(_, _, ft) => cty_uses_kinds true false false false false false false (length env_a) ft = false) fields.
+Proof.
+  intros D b env_b Hb env1 bs fields body_env Hext.
+  induction Hext; intros env_a Henv; subst env.
+  - constructor.
+  - constructor.
+    + exact (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ H env_a eq_refl).
+    + pose proof (IHHext ({| cbinder := b0; cannotation := ft; ctype_uses := row |} :: env_a) eq_refl) as Hrest.
+      clear - Hrest. induction rest as [| [[n0 g0] t0] rs IH]; inversion Hrest; subst; constructor.
+      * apply cty_uses_kinds_lift_inv; exact H1.
+      * apply IH; exact H2.
+Qed.
+
+Lemma record_extend_subst_cidx : forall (D : JoinDomain) (idx : cidx D) z env_b (b : cbinding D),
+  cannotation b = CNat ->
+  CIdxDemand env_b idx z ->
+  forall env1 bs fields body_env env_a fields',
+  env1 = env_a ++ b :: env_b ->
+  cenv_nat_safe env_a (length env_a) ->
+  CRecordExtendEnv env1 bs fields body_env ->
+  Forall2 (fun '(n1, g1, t1) '(n2, g2, t2) =>
+    n1 = n2 /\ g1 = g2 /\
+    cty_alpha_eq t1 (subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) t2)) fields' fields ->
+  exists ext_a body_env',
+    body_env = ext_a ++ b :: env_b /\
+    length ext_a = length fields + length env_a /\
+    cenv_nat_safe ext_a (length ext_a) /\
+    CRecordExtendEnv (subst_cidx_cenv idx z env_a ++ env_b) bs fields' body_env' /\
+    cenv_demand_rel body_env' (subst_cidx_cenv idx z ext_a ++ env_b).
+Proof.
+  intros D idx z env_b b Hb Hidx env1 bs fields body_env env_a fields' Henv Hsafe Hext Hfs.
+  pose proof (CRecordExtendEnv_nat_safe D b env_b Hb _ _ _ _ Hext env_a Henv) as Hnat_fs.
+  revert env_a fields' Henv Hsafe Hfs Hnat_fs.
+  induction Hext; intros env_a fields' Henv Hsafe Hfs Hnat_fs; subst env.
+  - inversion Hfs; subst.
+    exists env_a, (subst_cidx_cenv idx z env_a ++ env_b).
+    split; [reflexivity | split; [reflexivity | split; [exact Hsafe | split; [constructor | apply cenv_demand_rel_refl]]]].
+  - inversion Hfs as [| [[fn1 fg1] ft1] [[fn2 fg2] ft2] fs1' fs2' [Hn [Hg Hft]] Hrest]; subst.
+    inversion Hnat_fs as [| ? ? Hft_safe Hrest_safe]; subst.
+    destruct (subst_ctype_demand D idx z env_a b env_b ft row Hb Hsafe Hidx H) as [row' [Hrow' Hbr]].
+    assert (Hrow1 : CTypeDemand (subst_cidx_cenv idx z env_a ++ env_b) ft1 row') by
+      (eapply CTypeDemand_alpha_ty; [exact Hrow' | apply cty_alpha_eq_sym; exact Hft]).
+    assert (Hsafe1 : cenv_nat_safe ({| cbinder := b0; cannotation := ft; ctype_uses := row |} :: env_a) (S (length env_a))) by
+      (apply cenv_nat_safe_cons; [exact Hft_safe | exact Hsafe]).
+    assert (Hfs1 : Forall2 (fun '(n1, g1, t1) '(n2, g2, t2) =>
+      n1 = n2 /\ g1 = g2 /\
+      cty_alpha_eq t1 (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 (S (length env_a)) idx) t2))
+      (map (fun '(n0, g0, t0) => (n0, g0, lift_cty 0 1 t0)) fs1')
+      (map (fun '(n0, g0, t0) => (n0, g0, lift_cty 0 1 t0)) rest)).
+    { clear - Hrest Hrest_safe.
+      induction Hrest; inversion Hrest_safe; subst; constructor; [| apply IHHrest; exact H3].
+      destruct x as [[n1 g1] t1], y as [[n2 g2] t2], H as [-> [-> Ht]].
+      split; [reflexivity | split; [reflexivity |]].
+      cbn [length] in *.
+      eapply cty_alpha_eq_trans; [apply (ren_cty_alpha_eq D (ren_lift 0 1)); exact Ht |].
+      replace (lift_cidx 0 (S (length env_a)) idx) with (lift_cidx 0 1 (lift_cidx 0 (length env_a) idx)) by (rewrite lift_cidx_add; reflexivity).
+      change (ren_cty (ren_lift 0 1) (subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) t2))
+        with (lift_cty 0 1 (subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) t2)).
+      rewrite <- (subst_cidx_in_cty_lift_1_comm_gen D t2 (lift_cidx 0 (length env_a) idx) 0 (length env_a) ltac:(lia) H2).
+      apply cty_alpha_eq_refl. }
+    assert (Hnat_rest : Forall (fun '(_, _, ft0) =>
+      cty_uses_kinds true false false false false false false (S (length env_a)) ft0 = false)
+      (map (fun '(n0, g0, t0) => (n0, g0, lift_cty 0 1 t0)) rest)).
+    { clear - Hrest_safe. induction rest as [| [[n0 g0] t0] rs IH]; inversion Hrest_safe; subst; constructor; [| apply IH; exact H2].
+      replace (S (length env_a)) with (1 + length env_a) by lia. apply cty_uses_kinds_lift_n_false; exact H1. }
+    destruct (IHHext ({| cbinder := b0; cannotation := ft; ctype_uses := row |} :: env_a)
+                (map (fun '(n0, g0, t0) => (n0, g0, lift_cty 0 1 t0)) fs1') eq_refl Hsafe1 Hfs1 Hnat_rest)
+      as [ext_a [body_env_0 [Hbody [Hlen_ext [Hsafe_ext [Hext0 Hrel0]]]]]].
+    assert (Hfs_id : Forall2 (fun '(n1, g1, t1) '(n2, g2, t2) => n1 = n2 /\ g1 = g2 /\ cty_alpha_eq t1 t2)
+      (map (fun '(n0, g0, t0) => (n0, g0, lift_cty 0 1 t0)) fs1')
+      (map (fun '(n0, g0, t0) => (n0, g0, lift_cty 0 1 t0)) fs1')).
+    { clear. induction fs1' as [| [[n0 g0] t0] rs IH]; constructor; [split; [reflexivity | split; [reflexivity | apply cty_alpha_eq_refl]] | exact IH]. }
+    assert (Hrel_head : cenv_demand_rel
+      ({| cbinder := b0; cannotation := ft1; ctype_uses := row' |} :: subst_cidx_cenv idx z env_a ++ env_b)
+      (subst_cidx_cenv idx z ({| cbinder := b0; cannotation := ft; ctype_uses := row |} :: env_a) ++ env_b)).
+    { cbn [subst_cidx_cenv app]. apply cenv_demand_rel_cons;
+        [apply cenv_demand_rel_refl | exact Hft | exact Hrow1 | exact Hbr]. }
+    destruct (record_extend_demand_rel D _ bs _ body_env_0 _ _ Hext0 Hrel_head Hfs_id) as [body_env' [Hext_rest Hrel_rest]].
+    exists ext_a, body_env'.
+    split; [exact Hbody | split; [rewrite length_map in Hlen_ext; cbn [length] in *; lia | split; [exact Hsafe_ext | split]]].
+    + eapply CRecordExtCons; [exact Hrow1 | exact Hext_rest].
+    + eapply cenv_demand_rel_trans; [exact Hrel_rest | exact Hrel0].
+Qed.
+
+Lemma app_result_ty_subst_cidx : forall (D : JoinDomain) k (val : cidx D) dom cod arg res_ty dom0 cod0,
+  cty_uses_kinds true false false false false false false k dom = false ->
+  cty_uses_kinds true false false false false false false (S k) cod = false ->
+  (match dom with CUniv _ => cty_uses_kinds false true false false false false false 0 cod = false | _ => True end) ->
+  (match arg with CNatVal i => cidx_uses_kinds true false false false false k i = false | _ => True end) ->
+  (match dom with CUniv _ => match arg with CTypeVal t => cty_uses_kinds true false false false false false false k t = false | _ => True end | _ => True end) ->
+  (match dom with CUniv _ => match arg with CVar y => y <> k | _ => True end | _ => True end) ->
+  cty_alpha_eq dom0 (subst_cidx_in_cty k val dom) ->
+  cty_alpha_eq cod0 (subst_cidx_in_cty (S k) (lift_cidx 0 1 val) cod) ->
+  app_result_ty dom cod arg = Some res_ty ->
+  exists res',
+    app_result_ty dom0 cod0 (subst_cidx_in_cterm k val arg) = Some res' /\
+    cty_alpha_eq res' (subst_cidx_in_cty k val res_ty).
+Proof.
+  intros D k val dom cod arg res_ty dom0 cod0 Hdom_safe Hcod_safe Hcod_tvar Harg_safe Ht_safe Hnvar Hdom0 Hcod0 Happ.
+  assert (Hnone : match dom with CNat => term_as_cidx arg = None | CUniv _ => match arg with CTypeVal _ => False | CVar _ => False | _ => True end | _ => True end ->
+    cty_uses_var 0 cod = false ->
+    unshift_cty 0 cod = res_ty ->
+    cty_uses_var 0 cod0 = false /\
+    cty_alpha_eq (unshift_cty 0 cod0) (subst_cidx_in_cty k val res_ty)).
+  { intros _ Hnf <-.
+    assert (Hnv : cty_uses_var 0 (subst_cidx_in_cty (S k) (lift_cidx 0 1 val) cod) = false).
+    { apply cty_uses_var_subst_cidx_0; [lia | exact Hcod_safe | apply lift_cidx_uses_var_0 | exact Hnf]. }
+    split.
+    - rewrite (cty_uses_var_alpha_eq D 0 cod0 _ Hcod0). exact Hnv.
+    - eapply cty_alpha_eq_trans; [apply cty_alpha_eq_unshift; exact Hcod0 |].
+      rewrite (subst_cidx_in_cty_unshift_0 D cod val k Hnf Hcod_safe). apply cty_alpha_eq_refl. }
+  destruct dom; unfold app_result_ty in Happ |- *; cbn [subst_cidx_in_cty] in Hdom0;
+    [
+    | destruct dom0; unfold cty_alpha_eq in Hdom0; cbn in Hdom0; try discriminate;
+      destruct (cty_uses_var 0 cod) eqn:Enf; [discriminate |]; inversion Happ; subst;
+      destruct (Hnone I eq_refl eq_refl) as [Enf0 Ha0]; rewrite Enf0; eexists; split; [reflexivity | exact Ha0]
+    | destruct dom0; unfold cty_alpha_eq in Hdom0; cbn in Hdom0; try discriminate;
+      destruct (cty_uses_var 0 cod) eqn:Enf; [discriminate |]; inversion Happ; subst;
+      destruct (Hnone I eq_refl eq_refl) as [Enf0 Ha0]; rewrite Enf0; eexists; split; [reflexivity | exact Ha0]
+    |
+    | destruct dom0; unfold cty_alpha_eq in Hdom0; cbn in Hdom0; try discriminate;
+      destruct (cty_uses_var 0 cod) eqn:Enf; [discriminate |]; inversion Happ; subst;
+      destruct (Hnone I eq_refl eq_refl) as [Enf0 Ha0]; rewrite Enf0; eexists; split; [reflexivity | exact Ha0] .. ].
+  - apply cty_alpha_eq_CNat_inv in Hdom0; subst dom0.
+    destruct arg; cbn [term_as_cidx subst_cidx_in_cterm] in *;
+      [ | | destruct (cty_uses_var 0 cod) eqn:Enf; [discriminate |]; inversion Happ; subst;
+              destruct (Hnone eq_refl eq_refl eq_refl) as [Enf0 Ha0]; rewrite Enf0; eexists; split; [reflexivity | exact Ha0] .. ].
+    + destruct (lt_eq_lt_dec x k) as [[Hlt | ->] | Hgt]; repeat (rw_nat_bool; cbv iota); cbn [term_as_cidx];
+        inversion Happ; subst;
+        (eexists; split; [reflexivity |
+          eapply cty_alpha_eq_trans; [apply subst_cidx_alpha_eq; exact Hcod0 |];
+          rewrite (subst_cidx_in_cty_subst_cidx D cod (CIdxVar _) val 0 k ltac:(lia) ltac:(cbn; reflexivity) Hcod_safe);
+          cbn [subst_cidx]; repeat (rw_nat_bool; cbv iota); apply cty_alpha_eq_refl]).
+    + inversion Happ; subst. eexists; split; [reflexivity |].
+      eapply cty_alpha_eq_trans; [apply subst_cidx_alpha_eq; exact Hcod0 |].
+      rewrite (subst_cidx_in_cty_subst_cidx D cod i val 0 k ltac:(lia) Harg_safe Hcod_safe);
+        apply cty_alpha_eq_refl.
+  - apply cty_alpha_eq_CUniv_inv in Hdom0; subst dom0.
+    destruct arg; cbn [term_as_cidx subst_cidx_in_cterm] in *;
+      [ | destruct (cty_uses_var 0 cod) eqn:Enf; [discriminate |]; inversion Happ; subst;
+          destruct (Hnone I eq_refl eq_refl) as [Enf0 Ha0]; rewrite Enf0; eexists; split; [reflexivity | exact Ha0]
+      | destruct (cty_uses_var 0 cod) eqn:Enf; [discriminate |]; inversion Happ; subst;
+        destruct (Hnone I eq_refl eq_refl) as [Enf0 Ha0]; rewrite Enf0; eexists; split; [reflexivity | exact Ha0]
+      |
+      | destruct (cty_uses_var 0 cod) eqn:Enf; [discriminate |]; inversion Happ; subst;
+        destruct (Hnone I eq_refl eq_refl) as [Enf0 Ha0]; rewrite Enf0; eexists; split; [reflexivity | exact Ha0] .. ].
+    + destruct (Nat.eq_dec x k) as [-> | Hne]; [exfalso; exact (Hnvar eq_refl) |].
+      destruct (lt_eq_lt_dec x k) as [[Hlt | ->] | Hgt]; [| exfalso; exact (Hne eq_refl) |]; repeat (rw_nat_bool; cbv iota); cbn [term_as_cidx];
+        inversion Happ; subst;
+        (eexists; split; [reflexivity |
+          eapply cty_alpha_eq_trans; [apply cty_alpha_eq_subst_tvar; [apply cty_alpha_eq_refl | exact Hcod0] |];
+          pose proof (subst_cidx_tvar_in_cty D cod (CTVar x) val k ltac:(cbn; rw_nat_bool; reflexivity) Hcod_safe Hcod_tvar) as Hcm;
+          cbn [Nat.add subst_cidx_in_cty] in Hcm;
+          try (rewrite (proj2 (Nat.ltb_lt x k) ltac:(lia)) in Hcm);
+          try (rewrite (proj2 (Nat.ltb_ge x k) ltac:(lia)) in Hcm);
+          try (rewrite (proj2 (Nat.eqb_neq x k) ltac:(lia)) in Hcm);
+          cbv iota in Hcm; rewrite Hcm; apply cty_alpha_eq_refl]).
+    + inversion Happ; subst. eexists; split; [reflexivity |].
+      eapply cty_alpha_eq_trans; [apply cty_alpha_eq_subst_tvar; [apply cty_alpha_eq_refl | exact Hcod0] |].
+      pose proof (subst_cidx_tvar_in_cty D cod T val k Ht_safe Hcod_safe Hcod_tvar) as Hcm;
+      rewrite Hcm; apply cty_alpha_eq_refl.
+Qed.
+
+Lemma term_as_cidx_subst_none : forall (D : JoinDomain) k (val : cidx D) t,
+  term_as_cidx t = None ->
+  term_as_cidx (subst_cidx_in_cterm k val t) = None.
+Proof.
+  intros D k val t H. destruct t; cbn in *; try discriminate; reflexivity.
+Qed.
+
+Lemma term_as_cidx_subst_some : forall (D : JoinDomain) (b : cbinding D) env_a env_b t j (i val : cidx D),
+  cannotation b = CNat ->
+  CoreDerives (env_a ++ b :: env_b) t j ->
+  term_as_cidx t = Some i ->
+  cidx_uses_kinds true false false false false (length env_a) i = false /\
+  term_as_cidx (subst_cidx_in_cterm (length env_a) val t) =
+    Some (subst_cidx (length env_a) val i).
+Proof.
+  intros D b env_a env_b t j i val Hb Hd Ht.
+  destruct t; cbn in Ht; try discriminate; inversion Ht; subst i.
+  - cbn [cidx_uses_kinds subst_cidx_in_cterm subst_cidx]. split; [reflexivity |]. destruct (lt_eq_lt_dec x (length env_a)) as [[Hlt | ->] | Hgt]; repeat (rw_nat_bool; cbv iota); cbn; reflexivity.
+  - inversion Hd; subst.
+    lazymatch goal with Hc : CIdxDemand _ _ _ |- _ => split; [exact (proj1 (cdemand_nat_safe D b env_b Hb) _ _ _ Hc env_a eq_refl) | cbn; reflexivity] end.
+Qed.
+
+Lemma skipn_vec_zero_app : forall (D : JoinDomain) n (l : list (grade D)),
+  skipn n (vec_zero n ++ l) = l.
+Proof.
+  intros D n l. unfold vec_zero.
+  rewrite skipn_app, repeat_length, Nat.sub_diag, skipn_all2 by (rewrite repeat_length; lia).
+  reflexivity.
+Qed.
+
+Lemma branch_rel_app : forall (D : JoinDomain) (u1 u2 v1 v2 : list (grade D)),
+  branch_rel u1 v1 -> branch_rel u2 v2 -> branch_rel (u1 ++ u2) (v1 ++ v2).
+Proof.
+  intros D u1 u2 v1 v2 H1 H2. unfold branch_rel in *.
+  destruct (grade_join D); [apply Forall2_app; assumption | subst; reflexivity].
+Qed.
+
+Lemma lift_cidx_1_S : forall (D : JoinDomain) k (i : cidx D),
+  lift_cidx 0 (S k) i = lift_cidx 0 1 (lift_cidx 0 k i).
+Proof.
+  intros D k i. symmetry. apply (lift_cidx_add D 1 k i).
+Qed.
+
+Lemma lift_cidx_2_SS : forall (D : JoinDomain) k (i : cidx D),
+  lift_cidx 0 (S (S k)) i = lift_cidx 0 2 (lift_cidx 0 k i).
+Proof.
+  intros D k i. symmetry. apply (lift_cidx_add D 2 k i).
+Qed.
+
+Ltac rw_nat_bool_in H :=
+  repeat match type of H with
+  | context [?a <? ?b] =>
+      first [ rewrite (proj2 (Nat.ltb_lt a b) ltac:(nat_bool_hyps; lia)) in H
+            | rewrite (proj2 (Nat.ltb_ge a b) ltac:(nat_bool_hyps; lia)) in H ]
+  | context [?a =? ?b] =>
+      first [ rewrite (proj2 (Nat.eqb_eq a b) ltac:(nat_bool_hyps; lia)) in H
+            | rewrite (proj2 (Nat.eqb_neq a b) ltac:(nat_bool_hyps; lia)) in H ]
+  end; cbv iota in H.
+
+Lemma app_type_arg_demand_length : forall (D : JoinDomain) (dom : cty D) (arg : cterm D) (u v : list (grade D)) n,
+  length u = n -> length v = n -> length (app_type_arg_demand dom arg u v) = n.
+Proof.
+  intros D dom arg u v n Hu Hv. unfold app_type_arg_demand.
+  destruct dom; try exact Hu. destruct arg; try exact Hu; exact Hv.
+Qed.
+
+Lemma branch_rel_app_type_arg_demand : forall (D : JoinDomain) k (val : cidx D) (z : list (grade D))
+  (dom dom0 : cty D) (arg : cterm D) (u v u' v' : list (grade D)),
+  cty_alpha_eq dom0 (subst_cidx_in_cty k val dom) ->
+  branch_rel u' (vec_subst k z u) ->
+  branch_rel v' (vec_subst k z v) ->
+  branch_rel (app_type_arg_demand dom0 (subst_cidx_in_cterm k val arg) u' v')
+             (vec_subst k z (app_type_arg_demand dom arg u v)).
+Proof.
+  intros D k val z dom dom0 arg u v u' v' Hdom Hu Hv.
+  unfold app_type_arg_demand, cty_alpha_eq in *.
+  destruct dom; cbn in Hdom; destruct dom0; cbn in Hdom; try discriminate; try exact Hu.
+  destruct arg; cbn; try exact Hu;
+    [destruct (lt_eq_lt_dec x k) as [[? | ?] | ?]; repeat (rw_nat_bool; cbv iota); exact Hu | exact Hv].
+Qed.
+
+Theorem core_value_substitution : forall (D : JoinDomain),
+  ErasureDomain D ->
+  (grade_join D = None -> forall g, @allows D zero g -> g = zero) ->
+  forall (idx : cidx D) z env_a (b : cbinding D) env_b t j,
+  cannotation b = CNat ->
+  cenv_nat_safe env_a (length env_a) ->
+  CIdxDemand env_b idx z ->
+  CoreDerives (env_a ++ b :: env_b) t j ->
+  exists j',
+    CoreDerives (subst_cidx_cenv idx z env_a ++ env_b)
+      (subst_cidx_in_cterm (length env_a) (lift_cidx 0 (length env_a) idx) t) j' /\
+    cty_alpha_eq (cresult_type j')
+      (subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) (cresult_type j)) /\
+    branch_rel (ccomp_demand j') (vec_subst (length env_a) z (ccomp_demand j)) /\
+    branch_rel (ctype_demand_row j') (vec_subst (length env_a) z (ctype_demand_row j)).
+Proof.
+  intros D ED Hz_join idx z env_a b env_b t j Hb Hsafe Hidx H.
+  assert (Hz_len : length z = length env_b) by (eapply cidx_demand_length; exact Hidx).
+  remember (env_a ++ b :: env_b) as env1 eqn:Henv1.
+  revert env_a Henv1 Hsafe.
+  induction H using CoreDerives_ind_mut with
+    (P := fun env1 t j _ => forall env_a, env1 = env_a ++ b :: env_b ->
+      cenv_nat_safe env_a (length env_a) ->
+      exists j',
+        CoreDerives (subst_cidx_cenv idx z env_a ++ env_b)
+          (subst_cidx_in_cterm (length env_a) (lift_cidx 0 (length env_a) idx) t) j' /\
+        cty_alpha_eq (cresult_type j')
+          (subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) (cresult_type j)) /\
+        branch_rel (ccomp_demand j') (vec_subst (length env_a) z (ccomp_demand j)) /\
+        branch_rel (ctype_demand_row j') (vec_subst (length env_a) z (ctype_demand_row j)))
+    (P0 := fun env1 fs u v _ => forall env_a, env1 = env_a ++ b :: env_b ->
+      cenv_nat_safe env_a (length env_a) ->
+      exists u' v',
+        CRecordElemDerives (subst_cidx_cenv idx z env_a ++ env_b)
+          (map (fun '(fn, fg, ft, fv) =>
+             (fn, fg, subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) ft,
+                      subst_cidx_in_cterm (length env_a) (lift_cidx 0 (length env_a) idx) fv)) fs)
+          u' v' /\
+        branch_rel u' (vec_subst (length env_a) z u) /\
+        branch_rel v' (vec_subst (length env_a) z v));
+    intros env_a Henv1 Hsafe; subst env; cbn [subst_cidx_in_cterm].
+  - (* CoreVar *)
+    lazymatch goal with
+    | Hl : clookup _ x = Some e, Htd : CTypeDemand _ (cannotation e) row, Hva : vec_allows row (ctype_uses e) |- _ =>
+        destruct (lt_eq_lt_dec x (length env_a)) as [[Hlt | Heq_x] | Hgt]; repeat (rw_nat_bool; cbv iota);
+        [ destruct (subst_cidx_lookup_lt D idx z env_a b env_b x e Hlt Hsafe Hl) as [e' [Hl' [Hren [Hvec [Hsk1 Hsk2]]]]];
+          destruct (subst_cidx_lookup_lt_ann_raw D idx z env_a b env_b x e Hlt Hl) as [e_raw [Hl_raw [Hann_raw [Hvec_raw [Hsk1_raw Hsk2_raw]]]]];
+          assert (He'_eq : e' = e_raw) by (rewrite Hl' in Hl_raw; inversion Hl_raw; reflexivity); subst e_raw;
+          rewrite Hsk2 in Htd;
+          assert (Hsafe_sk : cenv_nat_safe (skipn (S x) env_a) (length (skipn (S x) env_a))) by (apply cenv_nat_safe_skipn; exact Hsafe);
+          destruct (subst_ctype_demand D idx z (skipn (S x) env_a) b env_b (cannotation e) row Hb Hsafe_sk Hidx Htd) as [row' [Hrow' Hbr_row]];
+          rewrite length_skipn in Hrow', Hbr_row;
+          rewrite <- Hann_raw, <- Hsk1 in Hrow';
+          assert (Huses' : ctype_uses e' = vec_subst (length env_a - S x) z (ctype_uses e)) by
+            (pose proof (f_equal (skipn (S x)) Hvec) as Hsk_v;
+             rewrite <- vec_subst_skipn_prefix in Hsk_v by lia;
+             rewrite !skipn_vec_zero_app in Hsk_v;
+             exact Hsk_v);
+          assert (Hva' : vec_allows row' (ctype_uses e')) by
+            (eapply branch_rel_allows_trans; [exact Hbr_row | rewrite Huses'; apply vec_subst_allows; exact Hva]);
+          eexists; split; [| split; [| split]];
+          [ eapply CoreVar; [exact Hl' | exact Hrow' | exact Hva']
+          | cbn [cresult_type]; rewrite Hren; apply cty_alpha_eq_refl
+          | cbn [ccomp_demand]; rewrite !length_app, subst_cidx_cenv_length; cbn [length]; rewrite Nat.add_succ_r, vec_subst_single_lt;
+            [apply branch_rel_refl | exact Hz_len | exact Hlt]
+          | cbn [ctype_demand_row]; rewrite Hvec; apply branch_rel_refl ]
+        | subst x;
+          assert (Heqb : e = b) by (unfold clookup in Hl; rewrite nth_error_app2, Nat.sub_diag in Hl by lia; inversion Hl; reflexivity);
+          subst e;
+          rewrite skipn_app, Nat.sub_succ_l in Htd by lia;
+          rewrite Nat.sub_diag, skipn_all2 in Htd by lia; cbn [app skipn] in Htd;
+          rewrite Hb in Htd; apply CTypeDemand_CNat_inv in Htd; subst row;
+          destruct (weaken_cidx_demand_app_left D env_b idx z Hidx (subst_cidx_cenv idx z env_a)) as [z' [Hz' Hbr_z]];
+          rewrite subst_cidx_cenv_length in Hz', Hbr_z;
+          eexists; split; [| split; [| split]];
+          [ apply CoreNatVal; exact Hz'
+          | cbn [cresult_type]; rewrite Hb; cbn; apply cty_alpha_eq_refl
+          | cbn [ccomp_demand]; rewrite length_app; cbn [length]; rewrite Nat.add_succ_r, vec_subst_single_eq, vec_scale_one by exact Hz_len;
+            exact Hbr_z
+          | cbn [ctype_demand_row];
+            rewrite length_app, subst_cidx_cenv_length;
+            assert (Hlen_ub : length z = length (ctype_uses b)) by
+              (rewrite <- (vec_allows_length D _ _ Hva), vec_zero_length; exact Hz_len);
+            rewrite (vec_subst_zero_prefix D (length env_a) z (ctype_uses b) Hlen_ub);
+            replace (vec_zero (D := D) (length env_a + length env_b))
+              with (vec_zero (D := D) (length env_a) ++ vec_zero (D := D) (length env_b))
+              by (unfold vec_zero; rewrite repeat_app; reflexivity);
+            apply branch_rel_app; [apply branch_rel_refl | apply vec_allows_zero_branch_rel; assumption] ]
+        | destruct (subst_cidx_lookup_gt_ann D idx z env_a b env_b x e Hgt Hl) as [e' [Hl' [Hann' [Hren Hsk]]]];
+          assert (Hx_len : x < length (env_a ++ b :: env_b)) by (eapply clookup_lt_length; exact Hl);
+          rewrite length_app in Hx_len; cbn [length] in Hx_len;
+          assert (Hlen_e : length (vec_zero (S x) ++ ctype_uses e) = S (length env_a + length env_b)) by
+            (rewrite length_app, vec_zero_length;
+             rewrite <- (vec_allows_length D row (ctype_uses e) Hva);
+             rewrite (ctype_demand_length D _ _ _ Htd), length_skipn, length_app; cbn [length]; lia);
+          destruct (subst_cidx_lookup_gt D idx z env_a b env_b x e Hgt Hz_len Hlen_e Hl) as [e_gt [Hl0 [Hren0 [Hvec0 Hsk0]]]];
+          assert (He_gt : e' = e_gt) by (rewrite Hl' in Hl0; inversion Hl0; reflexivity); subst e_gt;
+          rewrite <- Hsk0 in Htd;
+          assert (Huses' : ctype_uses e' = ctype_uses e) by
+            (assert (Hvs : vec_subst (length env_a) z (vec_zero (S x) ++ ctype_uses e) =
+                           vec_zero (S (x - 1)) ++ ctype_uses e) by
+               (replace (vec_zero (D := D) (S x) ++ ctype_uses e)
+                  with (vec_zero (D := D) (S (length env_a)) ++ (vec_zero (D := D) (x - length env_a) ++ ctype_uses e))
+                  by (rewrite app_assoc; unfold vec_zero; rewrite <- repeat_app; f_equal; f_equal; lia);
+                rewrite vec_subst_zero_prefix by (rewrite length_app, vec_zero_length; rewrite length_app, vec_zero_length in Hlen_e; lia);
+                rewrite app_assoc; unfold vec_zero; rewrite <- repeat_app; f_equal; f_equal; lia);
+             rewrite Hvs in Hvec0;
+             pose proof (f_equal (skipn (S (x - 1))) Hvec0) as Hsk_u;
+             rewrite !skipn_vec_zero_app in Hsk_u; exact Hsk_u);
+          rewrite <- Hann' in Htd; rewrite <- Huses' in Hva;
+          eexists; split; [| split; [| split]];
+          [ eapply CoreVar; [exact Hl' | exact Htd | exact Hva]
+          | cbn [cresult_type]; rewrite Hren0; apply cty_alpha_eq_refl
+          | cbn [ccomp_demand]; rewrite !length_app, subst_cidx_cenv_length; cbn [length]; rewrite Nat.add_succ_r, vec_subst_single_gt;
+            [apply branch_rel_refl | exact Hz_len | exact Hgt | lia]
+          | cbn [ctype_demand_row]; rewrite Hvec0; apply branch_rel_refl ] ]
+    end.
+  - (* CoreNatVal *)
+    lazymatch goal with
+    | Hd : CIdxDemand _ i d |- _ =>
+        destruct (subst_cidx_demand D idx z env_a b env_b i d Hb Hsafe Hidx Hd) as [d' [Hd' Hbrd]];
+        eexists; split; [| split; [| split]];
+        [ apply CoreNatVal; exact Hd'
+        | cbn [cresult_type subst_cidx_in_cty]; apply cty_alpha_eq_refl
+        | cbn [ccomp_demand]; exact Hbrd
+        | cbn [ctype_demand_row]; rewrite !length_app, subst_cidx_cenv_length; cbn [length];
+          rewrite Nat.add_succ_r, vec_subst_zero by exact Hz_len; apply branch_rel_refl ]
+    end.
+  - (* CoreBoolVal *)
+    eexists; split; [| split; [| split]];
+    [ apply CoreBoolVal
+    | cbn [cresult_type subst_cidx_in_cty]; apply cty_alpha_eq_refl
+    | cbn [ccomp_demand]; rewrite !length_app, subst_cidx_cenv_length; cbn [length];
+      rewrite Nat.add_succ_r, vec_subst_zero by exact Hz_len; apply branch_rel_refl
+    | cbn [ctype_demand_row]; rewrite !length_app, subst_cidx_cenv_length; cbn [length];
+      rewrite Nat.add_succ_r, vec_subst_zero by exact Hz_len; apply branch_rel_refl ].
+  - (* CoreTypeVal *)
+    lazymatch goal with
+    | Hd : CTypeDemand _ T v, Hlv : CUniverseLevel _ T lvl |- _ =>
+        destruct (subst_ctype_demand D idx z env_a b env_b T v Hb Hsafe Hidx Hd) as [v' [Hv' Hbrv]];
+        pose proof (subst_cuniverse_level D idx z env_a b env_b T lvl Hb Hlv) as Hlv';
+        eexists; split; [| split; [| split]];
+        [ eapply CoreTypeVal; [exact Hv' | exact Hlv']
+        | cbn [cresult_type subst_cidx_in_cty]; apply cty_alpha_eq_refl
+        | cbn [ccomp_demand]; rewrite !length_app, subst_cidx_cenv_length; cbn [length];
+          rewrite Nat.add_succ_r, vec_subst_zero by exact Hz_len; apply branch_rel_refl
+        | cbn [ctype_demand_row]; exact Hbrv ]
+    end.
+  - (* CoreLam *)
+    lazymatch goal with
+    | Ha : CTypeDemand _ dom a, Hs : allows (nth_grade u 0) s, Hr : allows (nth_grade v 0) r |- _ =>
+        pose proof (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ Ha env_a eq_refl) as Hdom_safe;
+        destruct (subst_ctype_demand D idx z env_a b env_b dom a Hb Hsafe Hidx Ha) as [a' [Ha' Hbra]];
+        assert (Hsafe1 : cenv_nat_safe ({| cbinder := x; cannotation := dom; ctype_uses := a |} :: env_a) (S (length env_a))) by
+          (apply cenv_nat_safe_cons; assumption);
+        destruct (IHCoreDerives ({| cbinder := x; cannotation := dom; ctype_uses := a |} :: env_a) eq_refl Hsafe1)
+          as [[cod1 u1 v1] [Hb1 [Hcod [Hu Hv]]]];
+        cbn [cresult_type ccomp_demand ctype_demand_row] in Hcod, Hu, Hv;
+        cbn [subst_cidx_cenv length app] in Hb1, Hcod, Hu, Hv;
+        rewrite (lift_cidx_1_S D (length env_a) idx) in Hb1, Hcod;
+        assert (Hrel1 : cenv_demand_rel
+          ({| cbinder := x; cannotation := subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) dom; ctype_uses := a' |}
+           :: subst_cidx_cenv idx z env_a ++ env_b)
+          ({| cbinder := x; cannotation := subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) dom;
+              ctype_uses := vec_subst (length env_a) z a |}
+           :: subst_cidx_cenv idx z env_a ++ env_b)) by
+          (apply cenv_demand_rel_cons; [apply cenv_demand_rel_refl | apply cty_alpha_eq_refl | exact Ha' | exact Hbra]);
+        destruct (core_derives_cenv_rel D ED _ _ _ Hb1 _ Hrel1) as [[cod2 u2 v2] [Hb2 [Hcod2 [Hu2 Hv2]]]];
+        cbn [cresult_type ccomp_demand ctype_demand_row] in Hcod2, Hu2, Hv2;
+        lazymatch goal with
+        | Hbd : CoreDerives (_ :: env_a ++ b :: env_b) _ _ |- _ =>
+            pose proof (core_derives_lengths D _ _ _ Hbd) as [Hlen_u Hlen_v]
+        end;
+        cbn [ccomp_demand ctype_demand_row length] in Hlen_u, Hlen_v; rewrite length_app in Hlen_u, Hlen_v; cbn [ccomp_demand ctype_demand_row length] in Hlen_u, Hlen_v;
+        assert (Hu_tr : branch_rel u2 (vec_subst (S (length env_a)) z u)) by (eapply branch_rel_trans; eassumption);
+        assert (Hv_tr : branch_rel v2 (vec_subst (S (length env_a)) z v)) by (eapply branch_rel_trans; eassumption);
+        assert (Hs2 : allows (nth_grade u2 0) s) by
+          (eapply allows_trans; [exact (branch_rel_nth D _ _ 0 Hu_tr) | rewrite vec_subst_nth_lt by lia; exact Hs]);
+        assert (Hr2 : allows (nth_grade v2 0) r) by
+          (eapply allows_trans; [exact (branch_rel_nth D _ _ 0 Hv_tr) | rewrite vec_subst_nth_lt by lia; exact Hr]);
+        eexists; split; [| split; [| split]];
+        [ eapply CoreLam; [exact Ha' | exact Hb2 | exact Hs2 | exact Hr2]
+        | cbn [cresult_type subst_cidx_in_cty];
+          assert (Hcod_eq : cty_alpha_eq cod2 (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 1 (lift_cidx 0 (length env_a) idx)) cod)) by
+            (eapply cty_alpha_eq_trans; eassumption);
+          unfold cty_alpha_eq in *; cbn; rewrite Hcod_eq; reflexivity
+        | cbn [ccomp_demand]; rewrite vec_subst_tl by lia; apply branch_rel_tl; exact Hu_tr
+        | cbn [ctype_demand_row];
+          pose proof (ctype_demand_length D _ _ _ Ha) as Hlen_a;
+          rewrite length_app in Hlen_a; cbn [ccomp_demand ctype_demand_row length] in Hlen_a;
+          rewrite (vec_subst_add D (length env_a) z a (tl v) (length env_b)) by (try exact Hz_len; destruct v; cbn in *; lia);
+          apply branch_rel_add; [exact Hbra | rewrite vec_subst_tl by lia; apply branch_rel_tl; exact Hv_tr] ]
+    end.
+  - (* CoreApp *)
+    lazymatch goal with
+    | Hdm_eq : cty_alpha_eq kind dom,
+      Ha_dom : CTypeDemand _ dom a_dom,
+      Hb_cod : CTypeDemand _ cod b0,
+      Hbr_allow : allows (nth_grade b0 0) r,
+      Huniv : forall lvl arg_ty, dom = CUniv lvl -> _,
+      Happ : app_result_ty dom cod arg = Some res_ty,
+      Hz_ty : z_type = app_type_arg_demand dom arg u_arg v_arg |- _ =>
+        destruct (IHCoreDerives1 env_a eq_refl Hsafe) as [[rt_fn w' v_fn'] [Hfn' [Hrt_fn [Hw' Hv_fn']]]];
+        destruct (IHCoreDerives2 env_a eq_refl Hsafe) as [[rt_arg u_arg' v_arg'] [Harg' [Hrt_arg [Hu_arg' Hv_arg']]]];
+        cbn [cresult_type ccomp_demand ctype_demand_row subst_cidx_in_cty] in *;
+        destruct (cty_alpha_eq_CPi_inv D rt_fn x s r
+                    (subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) dom)
+                    (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 1 (lift_cidx 0 (length env_a) idx)) cod) Hrt_fn)
+          as [x0 [dom0 [cod0 [-> [Hdom0 Hcod0]]]]];
+        rewrite lift_cidx_add in Hcod0;
+        pose proof (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ Ha_dom env_a eq_refl) as Hdom_safe;
+        pose proof (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ Hb_cod ({| cbinder := x; cannotation := dom; ctype_uses := a_dom |} :: env_a) eq_refl) as Hcod_safe;
+        cbn [length] in Hcod_safe;
+        destruct (subst_ctype_demand D idx z env_a b env_b dom a_dom Hb Hsafe Hidx Ha_dom) as [a_dom' [Ha_dom' Hbra]];
+        assert (Ha_dom0 : CTypeDemand (subst_cidx_cenv idx z env_a ++ env_b) dom0 a_dom') by
+          (eapply CTypeDemand_alpha_ty; [exact Ha_dom' | apply cty_alpha_eq_sym; exact Hdom0]);
+        assert (Hsafe_x : cenv_nat_safe ({| cbinder := x; cannotation := dom; ctype_uses := a_dom |} :: env_a) (S (length env_a))) by
+          (apply cenv_nat_safe_cons; assumption);
+        destruct (subst_ctype_demand D idx z ({| cbinder := x; cannotation := dom; ctype_uses := a_dom |} :: env_a) b env_b cod b0 Hb Hsafe_x Hidx Hb_cod)
+          as [b_cod' [Hb_cod' Hbrb]];
+        cbn [subst_cidx_cenv length cbinder cannotation ctype_uses app] in Hb_cod', Hbrb;
+        rewrite (lift_cidx_1_S D (length env_a) idx) in Hb_cod';
+        rewrite <- (lift_cidx_add D 1 (length env_a) idx) in Hcod0;
+        assert (Hb_cod0 : CTypeDemand ({| cbinder := x0; cannotation := dom0; ctype_uses := a_dom' |} :: subst_cidx_cenv idx z env_a ++ env_b) cod0 b_cod') by
+          (eapply CTypeDemand_alpha_ty;
+           [ eapply CTypeDemand_alpha_env; [| exact Hb_cod'];
+             constructor; [cbn; apply cty_alpha_eq_sym; exact Hdom0 | apply cenv_alpha_eq_refl]
+           | apply cty_alpha_eq_sym; exact Hcod0 ]);
+        assert (Hdm_eq0 : cty_alpha_eq rt_arg dom0) by
+          (eapply cty_alpha_eq_trans; [exact Hrt_arg | eapply cty_alpha_eq_trans; [apply subst_cidx_alpha_eq; exact Hdm_eq | apply cty_alpha_eq_sym; exact Hdom0]]);
+        pose proof (ctype_demand_length D _ _ _ Hb_cod) as Hlen_b;
+        cbn [ccomp_demand ctype_demand_row length] in Hlen_b; rewrite length_app in Hlen_b; cbn [ccomp_demand ctype_demand_row length] in Hlen_b;
+        assert (Hbr_allow0 : allows (nth_grade b_cod' 0) r) by
+          (eapply allows_trans; [exact (branch_rel_nth D _ _ 0 Hbrb) | rewrite vec_subst_nth_lt by lia; exact Hbr_allow]);
+        assert (Harg_safe : match arg with CNatVal i => cidx_uses_kinds true false false false false (length env_a) i = false | _ => True end) by
+          (destruct arg; try exact I; inversion H0; subst;
+           lazymatch goal with Hc : CIdxDemand _ _ _ |- _ => exact (proj1 (cdemand_nat_safe D b env_b Hb) _ _ _ Hc env_a eq_refl) end);
+        assert (Hnvar : match dom, arg with CUniv _, CVar y => y <> length env_a | _, _ => True end) by
+          (destruct dom, arg; try exact I;
+           lazymatch goal with |- ?y <> length env_a =>
+             destruct (Nat.eq_dec y (length env_a)) as [-> |]; try assumption;
+             inversion H0; subst;
+             lazymatch goal with Hlk : clookup _ (length env_a) = Some ?ee |- _ =>
+               assert (Heqb : ee = b) by (unfold clookup in Hlk; rewrite nth_error_app2, Nat.sub_diag in Hlk by lia; inversion Hlk; reflexivity);
+               subst ee; unfold cty_alpha_eq in Hdm_eq; rewrite erase_hints_ren, Hb in Hdm_eq; cbn in Hdm_eq; discriminate
+             end
+           end);
+        assert (Hcod_tvar : match dom with CUniv _ => cty_uses_kinds false true false false false false false 0 cod = false | _ => True end) by
+          (destruct dom; try exact I; eapply ctype_demand_uses_kinds; [exact Hb_cod | reflexivity | unfold flags_allow; rewrite erase_hints_ren; cbn; reflexivity]);
+        assert (Ht_safe : match dom, arg with CUniv _, CTypeVal t => cty_uses_kinds true false false false false false false (length env_a) t = false | _, _ => True end) by
+          (destruct dom, arg; try exact I; inversion H0; subst;
+           lazymatch goal with |- cty_uses_kinds _ _ _ _ _ _ _ _ ?tt = false =>
+             lazymatch goal with Htd : CTypeDemand (env_a ++ b :: env_b) tt _ |- _ =>
+               exact (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ Htd env_a eq_refl)
+             end
+           end);
+        destruct (app_result_ty_subst_cidx D (length env_a) (lift_cidx 0 (length env_a) idx) dom cod arg res_ty dom0 cod0
+                    Hdom_safe Hcod_safe Hcod_tvar Harg_safe Ht_safe Hnvar
+                    Hdom0 Hcod0 Happ) as [res' [Hres' Hres_eq]];
+        assert (Huniv0 : forall lvl arg_ty, dom0 = CUniv lvl ->
+                  (subst_cidx_in_cterm (length env_a) (lift_cidx 0 (length env_a) idx) arg = CTypeVal arg_ty \/
+                   (exists y, subst_cidx_in_cterm (length env_a) (lift_cidx 0 (length env_a) idx) arg = CVar y /\ arg_ty = CTVar y)) ->
+                  CUniverseLevel (subst_cidx_cenv idx z env_a ++ env_b) arg_ty lvl) by
+          (intros lvl arg_ty Hdom0_u [Hctv | [y [Hcv ->]]];
+           [ assert (Hdom_u : dom = CUniv lvl) by
+               (subst dom0; unfold cty_alpha_eq in Hdom0; destruct dom; cbn in Hdom0; try discriminate; inversion Hdom0; reflexivity);
+             destruct arg; cbn in Hctv; try discriminate;
+             [ lazymatch type of Hctv with (if ?x0 =? _ then _ else _) = _ =>
+                 destruct (Nat.eqb_spec x0 (length env_a)); [discriminate | destruct (Nat.ltb_spec x0 (length env_a)); discriminate]
+               end
+             | inversion Hctv; subst arg_ty;
+               eapply subst_cuniverse_level; [exact Hb | apply Huniv with (lvl := lvl); [exact Hdom_u | left; reflexivity]] ]
+           | assert (Hdom_u : dom = CUniv lvl) by
+               (subst dom0; unfold cty_alpha_eq in Hdom0; destruct dom; cbn in Hdom0; try discriminate; inversion Hdom0; reflexivity);
+             destruct arg; cbn in Hcv; try discriminate;
+             lazymatch type of Hcv with (if ?y0 =? _ then _ else _) = _ =>
+               destruct (lt_eq_lt_dec y0 (length env_a)) as [[Hlt | Heq_y] | Hgt];
+               [ rewrite (proj2 (Nat.eqb_neq y0 (length env_a)) ltac:(lia)), (proj2 (Nat.ltb_lt y0 (length env_a)) Hlt) in Hcv;
+                 inversion Hcv; subst y;
+                 pose proof (subst_cuniverse_level D idx z env_a b env_b (CTVar y0) lvl Hb
+                               (Huniv lvl (CTVar y0) Hdom_u (or_intror (ex_intro _ y0 (conj eq_refl eq_refl))))) as Hlv_s;
+                 cbn [subst_cidx_in_cty] in Hlv_s;
+                 rewrite (proj2 (Nat.ltb_lt y0 (length env_a)) Hlt) in Hlv_s; exact Hlv_s
+               | subst y0; rewrite Nat.eqb_refl in Hcv; discriminate
+               | rewrite (proj2 (Nat.eqb_neq y0 (length env_a)) ltac:(lia)), (proj2 (Nat.ltb_ge y0 (length env_a)) ltac:(lia)) in Hcv;
+                 inversion Hcv; subst y;
+                 pose proof (subst_cuniverse_level D idx z env_a b env_b (CTVar y0) lvl Hb
+                               (Huniv lvl (CTVar y0) Hdom_u (or_intror (ex_intro _ y0 (conj eq_refl eq_refl))))) as Hlv_s;
+                 cbn [subst_cidx_in_cty] in Hlv_s;
+                 rewrite (proj2 (Nat.ltb_ge y0 (length env_a)) ltac:(lia)), (proj2 (Nat.eqb_neq y0 (length env_a)) ltac:(lia)) in Hlv_s;
+                 exact Hlv_s ]
+             end ]);
+        eexists; split; [| split; [| split]];
+        [ eapply CoreApp; [exact Hfn' | exact Harg' | exact Hdm_eq0 | exact Ha_dom0 | exact Hb_cod0 | exact Hbr_allow0
+                          | exact Huniv0 | exact Hres' | reflexivity]
+        | cbn [cresult_type]; exact Hres_eq
+        | cbn [ccomp_demand];
+          pose proof (core_derives_lengths D _ _ _ H) as [Hlen_w _];
+          pose proof (core_derives_lengths D _ _ _ H0) as [Hlen_ua _];
+          rewrite length_app in Hlen_w, Hlen_ua; cbn [ccomp_demand ctype_demand_row length] in Hlen_w, Hlen_ua;
+          rewrite (vec_subst_add D (length env_a) z w (vec_scale s u_arg) (length env_b))
+            by (try exact Hz_len; try rewrite vec_scale_length; lia);
+          rewrite vec_subst_scale; apply branch_rel_add; [exact Hw' | apply branch_rel_scale; exact Hu_arg']
+        | cbn [ctype_demand_row];
+          pose proof (core_derives_lengths D _ _ _ H0) as [Hlen_ua Hlen_va];
+          rewrite length_app in Hlen_ua, Hlen_va; cbn [ccomp_demand ctype_demand_row length] in Hlen_ua, Hlen_va;
+          assert (Hbr_z : branch_rel (app_type_arg_demand dom0 (subst_cidx_in_cterm (length env_a) (lift_cidx 0 (length env_a) idx) arg) u_arg' v_arg')
+                            (vec_subst (length env_a) z (app_type_arg_demand dom arg u_arg v_arg))) by
+            (eapply branch_rel_app_type_arg_demand; [exact Hdom0 | exact Hu_arg' | exact Hv_arg']);
+          rewrite Hz_ty;
+          rewrite (vec_subst_add D (length env_a) z (tl b0) (vec_scale r (app_type_arg_demand dom arg u_arg v_arg)) (length env_b));
+          [ rewrite vec_subst_scale; apply branch_rel_add; [rewrite vec_subst_tl by lia; apply branch_rel_tl; exact Hbrb | apply branch_rel_scale; exact Hbr_z]
+          | exact Hz_len
+          | destruct b0; cbn in *; lia
+          | rewrite vec_scale_length; eapply app_type_arg_demand_length; [lia | lia] ] ]
+    end.
+  - (* CLet *)
+    lazymatch goal with
+    | Hann : CTypeDemand _ ann a_ann, Hrhs_eq : cty_alpha_eq rhs_ty ann,
+      Hs : allows (nth_grade u_bod 0) s, Hr : allows (nth_grade v_bod 0) r,
+      Hnf : cty_uses_var 0 bod_ty = false |- _ =>
+        pose proof (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ Hann env_a eq_refl) as Hann_safe;
+        destruct (subst_ctype_demand D idx z env_a b env_b ann a_ann Hb Hsafe Hidx Hann) as [a_ann' [Ha_ann' Hbra]];
+        destruct (IHCoreDerives1 env_a eq_refl Hsafe) as [[rhs_ty' u_rhs' v_rhs'] [Hrhs' [Hrt_rhs [Hu_rhs' Hv_rhs']]]];
+        assert (Hsafe1 : cenv_nat_safe ({| cbinder := x; cannotation := ann; ctype_uses := a_ann |} :: env_a) (S (length env_a))) by
+          (apply cenv_nat_safe_cons; assumption);
+        destruct (IHCoreDerives2 ({| cbinder := x; cannotation := ann; ctype_uses := a_ann |} :: env_a) eq_refl Hsafe1)
+          as [[bod_ty1 u_bod1 v_bod1] [Hbod1 [Hrt_bod1 [Hu_bod1 Hv_bod1]]]];
+        cbn [cresult_type ccomp_demand ctype_demand_row subst_cidx_cenv length cbinder cannotation ctype_uses app] in Hrt_rhs, Hu_rhs', Hv_rhs', Hrt_bod1, Hu_bod1, Hv_bod1, Hbod1;
+        rewrite (lift_cidx_1_S D (length env_a) idx) in Hbod1, Hrt_bod1;
+        assert (Hrel1 : cenv_demand_rel
+          ({| cbinder := x; cannotation := subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) ann; ctype_uses := a_ann' |}
+           :: subst_cidx_cenv idx z env_a ++ env_b)
+          ({| cbinder := x; cannotation := subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) ann;
+              ctype_uses := vec_subst (length env_a) z a_ann |}
+           :: subst_cidx_cenv idx z env_a ++ env_b)) by
+          (apply cenv_demand_rel_cons; [apply cenv_demand_rel_refl | apply cty_alpha_eq_refl | exact Ha_ann' | exact Hbra]);
+        destruct (core_derives_cenv_rel D ED _ _ _ Hbod1 _ Hrel1) as [[bod_ty2 u_bod2 v_bod2] [Hbod2 [Hrt_bod2 [Hu_bod2 Hv_bod2]]]];
+        cbn [cresult_type ccomp_demand ctype_demand_row] in Hrt_bod2, Hu_bod2, Hv_bod2;
+        assert (Hbod_eq : cty_alpha_eq bod_ty2 (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 1 (lift_cidx 0 (length env_a) idx)) bod_ty)) by
+          (eapply cty_alpha_eq_trans; [exact Hrt_bod2 | exact Hrt_bod1]);
+        assert (Hcod_safe : cty_uses_kinds true false false false false false false (S (length env_a)) bod_ty = false) by
+          (exact (core_derives_nat_safe D b env_b Hb _ _ _ H0 ({| cbinder := x; cannotation := ann; ctype_uses := a_ann |} :: env_a) eq_refl));
+        assert (Hnf2 : cty_uses_var 0 bod_ty2 = false) by
+          (rewrite (cty_uses_var_alpha_eq D 0 bod_ty2 _ Hbod_eq);
+           apply cty_uses_var_subst_cidx_0; [lia | exact Hcod_safe | apply lift_cidx_uses_var_0 | exact Hnf]);
+        assert (Hu_tr : branch_rel u_bod2 (vec_subst (S (length env_a)) z u_bod)) by (eapply branch_rel_trans; [exact Hu_bod2 | exact Hu_bod1]);
+        assert (Hv_tr : branch_rel v_bod2 (vec_subst (S (length env_a)) z v_bod)) by (eapply branch_rel_trans; [exact Hv_bod2 | exact Hv_bod1]);
+        pose proof (core_derives_lengths D _ _ _ H0) as [Hlen_u Hlen_v];
+        pose proof (core_derives_lengths D _ _ _ H) as [Hlen_ur Hlen_vr];
+        cbn [ccomp_demand ctype_demand_row length] in Hlen_u, Hlen_v, Hlen_ur, Hlen_vr;
+        rewrite length_app in Hlen_u, Hlen_v, Hlen_ur, Hlen_vr; cbn [length] in Hlen_u, Hlen_v, Hlen_ur, Hlen_vr;
+        assert (Hs2 : allows (nth_grade u_bod2 0) s) by
+          (eapply allows_trans; [exact (branch_rel_nth D _ _ 0 Hu_tr) | rewrite vec_subst_nth_lt by lia; exact Hs]);
+        assert (Hr2 : allows (nth_grade v_bod2 0) r) by
+          (eapply allows_trans; [exact (branch_rel_nth D _ _ 0 Hv_tr) | rewrite vec_subst_nth_lt by lia; exact Hr]);
+        eexists; split; [| split; [| split]];
+        [ eapply CoreLet;
+          [ exact Ha_ann' | exact Hrhs'
+          | eapply cty_alpha_eq_trans; [exact Hrt_rhs | apply subst_cidx_alpha_eq; exact Hrhs_eq]
+          | exact Hbod2 | exact Hs2 | exact Hr2 | exact Hnf2 ]
+        | cbn [cresult_type];
+          eapply cty_alpha_eq_trans; [apply cty_alpha_eq_unshift; exact Hbod_eq |];
+          rewrite (subst_cidx_in_cty_unshift_0 D bod_ty (lift_cidx 0 (length env_a) idx) (length env_a) Hnf Hcod_safe);
+          apply cty_alpha_eq_refl
+        | cbn [ccomp_demand];
+          rewrite (vec_subst_add D (length env_a) z (tl u_bod) (vec_scale s u_rhs) (length env_b))
+            by (try exact Hz_len; try rewrite vec_scale_length; destruct u_bod; cbn in *; lia);
+          rewrite vec_subst_scale; apply branch_rel_add; [rewrite vec_subst_tl by lia; apply branch_rel_tl; exact Hu_tr | apply branch_rel_scale; exact Hu_rhs']
+        | cbn [ctype_demand_row];
+          assert (Hbr_z : branch_rel (app_type_arg_demand (subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) ann)
+                                        (subst_cidx_in_cterm (length env_a) (lift_cidx 0 (length env_a) idx) rhs) u_rhs' v_rhs')
+                            (vec_subst (length env_a) z (app_type_arg_demand ann rhs u_rhs v_rhs))) by
+            (eapply branch_rel_app_type_arg_demand; [apply cty_alpha_eq_refl | exact Hu_rhs' | exact Hv_rhs']);
+          rewrite (vec_subst_add D (length env_a) z (tl v_bod) (vec_scale r (app_type_arg_demand ann rhs u_rhs v_rhs)) (length env_b));
+          [ rewrite vec_subst_scale; apply branch_rel_add; [rewrite vec_subst_tl by lia; apply branch_rel_tl; exact Hv_tr | apply branch_rel_scale; exact Hbr_z]
+          | exact Hz_len
+          | destruct v_bod; cbn in *; lia
+          | rewrite vec_scale_length; eapply app_type_arg_demand_length; [lia | lia] ] ]
+    end.
+  - (* CPair *)
+    lazymatch goal with
+    | Ha : CTypeDemand _ fst_ty a, Hb_snd : CTypeDemand _ snd_ty b0,
+      Hr : allows (nth_grade b0 0) r,
+      Hf_eq : cty_alpha_eq fst_act fst_ty,
+      Happ : app_result_ty fst_ty snd_ty fst_val = Some exp_snd,
+      Hs_eq : cty_alpha_eq snd_act exp_snd |- _ =>
+        pose proof (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ Ha env_a eq_refl) as Hfst_safe;
+        pose proof (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ Hb_snd ({| cbinder := x; cannotation := fst_ty; ctype_uses := a |} :: env_a) eq_refl) as Hsnd_safe;
+        cbn [length] in Hsnd_safe;
+        destruct (subst_ctype_demand D idx z env_a b env_b fst_ty a Hb Hsafe Hidx Ha) as [a' [Ha' Hbra]];
+        assert (Hsafe1 : cenv_nat_safe ({| cbinder := x; cannotation := fst_ty; ctype_uses := a |} :: env_a) (S (length env_a))) by
+          (apply cenv_nat_safe_cons; assumption);
+        destruct (subst_ctype_demand D idx z ({| cbinder := x; cannotation := fst_ty; ctype_uses := a |} :: env_a) b env_b snd_ty b0 Hb Hsafe1 Hidx Hb_snd)
+          as [b' [Hb' Hbrb]];
+        cbn [subst_cidx_cenv length cbinder cannotation ctype_uses app] in Hb', Hbrb;
+        rewrite (lift_cidx_1_S D (length env_a) idx) in Hb';
+        assert (Hb0' : CTypeDemand ({| cbinder := x; cannotation := subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) fst_ty; ctype_uses := a' |}
+                                     :: subst_cidx_cenv idx z env_a ++ env_b)
+                                   (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 1 (lift_cidx 0 (length env_a) idx)) snd_ty) b') by
+          (eapply CTypeDemand_alpha_env;
+           [| exact Hb']; constructor; [cbn; apply cty_alpha_eq_refl | apply cenv_alpha_eq_refl]);
+        destruct (IHCoreDerives1 env_a eq_refl Hsafe) as [[fst_act' u_l' v_l'] [Hl' [Hft' [Hu_l' Hv_l']]]];
+        destruct (IHCoreDerives2 env_a eq_refl Hsafe) as [[snd_act' u_r' v_r'] [Hr' [Hsd' [Hu_r' Hv_r']]]];
+        cbn [cresult_type ccomp_demand ctype_demand_row] in Hft', Hu_l', Hv_l', Hsd', Hu_r', Hv_r';
+        assert (Hnvar : match fst_ty, fst_val with CUniv _, CVar y => y <> length env_a | _, _ => True end) by
+          (destruct fst_ty, fst_val; try exact I;
+           lazymatch goal with |- ?y <> _ => destruct (Nat.eq_dec y (length env_a)) as [-> |]; try assumption end;
+           inversion H; subst;
+           lazymatch goal with Hlk : clookup _ _ = Some ?ee |- _ =>
+             assert (Heqb : ee = b) by (unfold clookup in Hlk; rewrite nth_error_app2, Nat.sub_diag in Hlk by lia; inversion Hlk; reflexivity);
+             subst ee; unfold cty_alpha_eq in Hf_eq; rewrite erase_hints_ren, Hb in Hf_eq; cbn in Hf_eq; discriminate
+           end);
+        assert (Hsnd_tvar : match fst_ty with CUniv _ => cty_uses_kinds false true false false false false false 0 snd_ty = false | _ => True end) by
+          (destruct fst_ty; try exact I; eapply ctype_demand_uses_kinds; [exact Hb_snd | reflexivity | unfold flags_allow; rewrite erase_hints_ren; cbn; reflexivity]);
+        assert (Hfv_nat : match fst_val with CNatVal i => cidx_uses_kinds true false false false false (length env_a) i = false | _ => True end) by
+          (destruct fst_val; try exact I; inversion H; subst;
+           lazymatch goal with Hcd : CIdxDemand _ _ _ |- _ => exact (proj1 (cdemand_nat_safe D b env_b Hb) _ _ _ Hcd env_a eq_refl) end);
+        assert (Hfv_t : match fst_ty, fst_val with CUniv _, CTypeVal t => cty_uses_kinds true false false false false false false (length env_a) t = false | _, _ => True end) by
+          (destruct fst_ty, fst_val; try exact I; inversion H; subst;
+           lazymatch goal with Htd : CTypeDemand (env_a ++ b :: env_b) _ _ |- _ => exact (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ Htd env_a eq_refl) end);
+        destruct (app_result_ty_subst_cidx D (length env_a) (lift_cidx 0 (length env_a) idx) fst_ty snd_ty fst_val exp_snd
+                    (subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) fst_ty)
+                    (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 1 (lift_cidx 0 (length env_a) idx)) snd_ty)
+                    Hfst_safe Hsnd_safe Hsnd_tvar Hfv_nat Hfv_t Hnvar (cty_alpha_eq_refl _ _) ltac:(rewrite lift_cidx_add; apply cty_alpha_eq_refl) Happ)
+          as [exp_snd' [Happ' Hexp_eq]];
+        pose proof (ctype_demand_length D _ _ _ Ha) as Hlen_a;
+        pose proof (ctype_demand_length D _ _ _ Hb_snd) as Hlen_b;
+        cbn [length] in Hlen_a, Hlen_b; rewrite length_app in Hlen_a, Hlen_b; cbn [length] in Hlen_a, Hlen_b;
+        assert (Hr'0 : allows (nth_grade b' 0) r) by
+          (eapply allows_trans; [exact (branch_rel_nth D _ _ 0 Hbrb) | rewrite vec_subst_nth_lt by lia; exact Hr]);
+        eexists; split; [| split; [| split]];
+        [ eapply CorePair;
+          [ exact Ha' | exact Hb0' | exact Hr'0 | exact Hl'
+          | eapply cty_alpha_eq_trans; [exact Hft' | apply subst_cidx_alpha_eq; exact Hf_eq]
+          | exact Hr' | exact Happ'
+          | eapply cty_alpha_eq_trans; [exact Hsd' | eapply cty_alpha_eq_trans; [apply subst_cidx_alpha_eq; exact Hs_eq | apply cty_alpha_eq_sym; exact Hexp_eq]] ]
+        | cbn [cresult_type subst_cidx_in_cty]; rewrite lift_cidx_add; apply cty_alpha_eq_refl
+        | cbn [ccomp_demand];
+          pose proof (core_derives_lengths D _ _ _ H) as [Hlen_l _];
+          pose proof (core_derives_lengths D _ _ _ H0) as [Hlen_r _];
+          rewrite length_app in Hlen_l, Hlen_r; cbn [ccomp_demand ctype_demand_row length] in Hlen_l, Hlen_r;
+          rewrite (vec_subst_add D (length env_a) z u_l u_r (length env_b)) by lia;
+          apply branch_rel_add; assumption
+        | cbn [ctype_demand_row];
+          rewrite (vec_subst_add D (length env_a) z a (tl b0) (length env_b)) by (destruct b0; cbn in *; lia);
+          apply branch_rel_add; [exact Hbra | rewrite vec_subst_tl by lia; apply branch_rel_tl; exact Hbrb] ]
+    end.
+  - (* CLetPair *)
+    lazymatch goal with
+    | HA : CTypeDemand _ A a, HB : CTypeDemand _ B b0,
+      Hmot : CTypeDemand _ mot v_mot, Hkap : allows (nth_grade v_mot 0) kappa,
+      Hexp : exp_mot = spec_pair_body_cty 0 mot, Hmot_eq : cty_alpha_eq act_mot exp_mot,
+      Hs1 : allows (nth_grade u_b 1) s, Hs0 : allows (nth_grade u_b 0) s,
+      Hdep : match pr with CPair _ _ _ _ _ _ => _ | CVar _ => _ | _ => _ end,
+      Hres : res_ty = spec_pair_subj_cty pr mot |- _ =>
+        destruct (IHCoreDerives1 env_a eq_refl Hsafe) as [[prt' w' v_p'] [Hpr' [Hprt [Hw' Hv_p']]]];
+        cbn [cresult_type ccomp_demand ctype_demand_row subst_cidx_in_cty] in Hprt, Hw', Hv_p';
+        destruct (cty_alpha_eq_CSigma_inv D prt' z0 r
+                    (subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) A)
+                    (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 1 (lift_cidx 0 (length env_a) idx)) B) Hprt)
+          as [z1 [A0 [B0 [-> [HA0 HB0]]]]];
+        rewrite <- (lift_cidx_1_S D (length env_a) idx) in HB0;
+        pose proof (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ HA env_a eq_refl) as HA_safe;
+        pose proof (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ HB ({| cbinder := x; cannotation := A; ctype_uses := a |} :: env_a) eq_refl) as HB_safe;
+        cbn [length] in HB_safe;
+        pose proof (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ Hmot ({| cbinder := 0; cannotation := CSigma z0 r A B; ctype_uses := vec_add a (tl b0) |} :: env_a) eq_refl) as Hmot_safe;
+        cbn [length] in Hmot_safe;
+        destruct (subst_ctype_demand D idx z env_a b env_b A a Hb Hsafe Hidx HA) as [a' [Ha' Hbra]];
+        assert (HA0' : CTypeDemand (subst_cidx_cenv idx z env_a ++ env_b) A0 a') by
+          (eapply CTypeDemand_alpha_ty; [exact Ha' | apply cty_alpha_eq_sym; exact HA0]);
+        assert (Hsafe_A : cenv_nat_safe ({| cbinder := x; cannotation := A; ctype_uses := a |} :: env_a) (S (length env_a))) by
+          (apply cenv_nat_safe_cons; assumption);
+        destruct (subst_ctype_demand D idx z ({| cbinder := x; cannotation := A; ctype_uses := a |} :: env_a) b env_b B b0 Hb Hsafe_A Hidx HB)
+          as [b' [Hb' Hbrb]];
+        cbn [subst_cidx_cenv length cbinder cannotation ctype_uses app] in Hb', Hbrb;
+        assert (HB0' : CTypeDemand ({| cbinder := x; cannotation := A0; ctype_uses := a' |} :: subst_cidx_cenv idx z env_a ++ env_b) B0 b') by
+          (eapply CTypeDemand_alpha; cycle 2;
+           [ exact Hb' | apply cty_alpha_eq_sym; exact HB0
+           | constructor; [cbn; apply cty_alpha_eq_sym; exact HA0 | apply cenv_alpha_eq_refl] ]);
+        assert (Hsafe_sig : cenv_nat_safe ({| cbinder := 0; cannotation := CSigma z0 r A B; ctype_uses := vec_add a (tl b0) |} :: env_a) (S (length env_a))) by
+          (apply cenv_nat_safe_cons; [cbn; rewrite HA_safe, HB_safe; reflexivity | exact Hsafe]);
+        destruct (subst_ctype_demand D idx z ({| cbinder := 0; cannotation := CSigma z0 r A B; ctype_uses := vec_add a (tl b0) |} :: env_a) b env_b mot v_mot Hb Hsafe_sig Hidx Hmot)
+          as [v_mot' [Hv_mot' Hbr_mot]];
+        cbn [subst_cidx_cenv length cbinder cannotation ctype_uses app] in Hv_mot', Hbr_mot;
+        assert (Hv_mot0 : CTypeDemand ({| cbinder := 0; cannotation := CSigma z1 r A0 B0; ctype_uses := vec_add a' (tl b') |} :: subst_cidx_cenv idx z env_a ++ env_b)
+                                      (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 (S (length env_a)) idx) mot) v_mot') by
+          (eapply CTypeDemand_alpha_env;
+           [| exact Hv_mot'];
+           constructor; [cbn; unfold cty_alpha_eq in *; cbn; rewrite <- (lift_cidx_1_S D (length env_a) idx); rewrite HA0, HB0; reflexivity | apply cenv_alpha_eq_refl]);
+        assert (Hsafe_B : cenv_nat_safe ({| cbinder := y; cannotation := B; ctype_uses := b0 |} :: {| cbinder := x; cannotation := A; ctype_uses := a |} :: env_a) (S (S (length env_a)))) by
+          (apply cenv_nat_safe_cons; [exact HB_safe | exact Hsafe_A]);
+        destruct (IHCoreDerives2 ({| cbinder := y; cannotation := B; ctype_uses := b0 |} :: {| cbinder := x; cannotation := A; ctype_uses := a |} :: env_a) eq_refl Hsafe_B)
+          as [[act_mot1 u_b1 v_b1] [Hb1 [Hact1 [Hu_b1 Hv_b1]]]];
+        cbn [cresult_type ccomp_demand ctype_demand_row subst_cidx_cenv length cbinder cannotation ctype_uses app] in Hb1, Hact1, Hu_b1, Hv_b1;
+        rewrite (lift_cidx_2_SS D (length env_a) idx) in Hb1, Hact1;
+        assert (Hrel_B : cenv_demand_rel
+          ({| cbinder := y; cannotation := B0; ctype_uses := b' |} :: {| cbinder := x; cannotation := A0; ctype_uses := a' |} :: subst_cidx_cenv idx z env_a ++ env_b)
+          ({| cbinder := y; cannotation := subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 (S (length env_a)) idx) B;
+              ctype_uses := vec_subst (S (length env_a)) z b0 |}
+           :: {| cbinder := x; cannotation := subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) A;
+                 ctype_uses := vec_subst (length env_a) z a |}
+           :: subst_cidx_cenv idx z env_a ++ env_b)) by
+          (apply cenv_demand_rel_cons;
+           [ apply cenv_demand_rel_cons; [apply cenv_demand_rel_refl | exact HA0 | exact HA0' | exact Hbra]
+           | exact HB0
+           | exact HB0'
+           | exact Hbrb ]);
+        destruct (core_derives_cenv_rel D ED _ _ _ Hb1 _ Hrel_B) as [[act_mot2 u_b2 v_b2] [Hb2 [Hact2 [Hu_b2 Hv_b2]]]];
+        cbn [cresult_type ccomp_demand ctype_demand_row] in Hact2, Hu_b2, Hv_b2;
+        assert (Hu_tr : branch_rel u_b2 (vec_subst (S (S (length env_a))) z u_b)) by (eapply branch_rel_trans; [exact Hu_b2 | exact Hu_b1]);
+        assert (Hact_tr : cty_alpha_eq act_mot2 (subst_cidx_in_cty (S (S (length env_a))) (lift_cidx 0 2 (lift_cidx 0 (length env_a) idx)) act_mot)) by
+          (eapply cty_alpha_eq_trans; [exact Hact2 | exact Hact1]);
+        assert (Hspec_body : subst_cidx_in_cty (S (S (length env_a))) (lift_cidx 0 2 (lift_cidx 0 (length env_a) idx)) (spec_pair_body_cty 0 mot) =
+                             spec_pair_body_cty 0 (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 (S (length env_a)) idx) mot)) by
+          (rewrite <- (lift_cidx_2_SS D (length env_a) idx), (lift_cidx_1_S D (S (length env_a)) idx);
+           apply subst_cidx_spec_pair_body; [lia | rewrite (lift_cidx_1_S D (length env_a) idx); apply cidx_uses_kinds_lift_c | exact Hmot_safe]);
+        assert (Hmot_eq2 : cty_alpha_eq act_mot2 (spec_pair_body_cty 0 (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 (S (length env_a)) idx) mot))) by
+          (eapply cty_alpha_eq_trans; [exact Hact_tr |]; rewrite <- Hspec_body, <- Hexp; apply subst_cidx_alpha_eq; exact Hmot_eq);
+        pose proof (ctype_demand_length D _ _ _ Hmot) as Hlen_vm;
+        pose proof (core_derives_lengths D _ _ _ H) as [Hlen_w _];
+        pose proof (core_derives_lengths D _ _ _ H0) as [Hlen_ub _];
+        cbn [ccomp_demand ctype_demand_row length] in Hlen_vm, Hlen_w, Hlen_ub;
+        rewrite length_app in Hlen_vm, Hlen_w, Hlen_ub; cbn [length] in Hlen_vm, Hlen_w, Hlen_ub;
+        assert (Hkap2 : allows (nth_grade v_mot' 0) kappa) by
+          (eapply allows_trans; [exact (branch_rel_nth D _ _ 0 Hbr_mot) | rewrite vec_subst_nth_lt by lia; exact Hkap]);
+        assert (Hs1_2 : allows (nth_grade u_b2 1) s) by
+          (eapply allows_trans; [exact (branch_rel_nth D _ _ 1 Hu_tr) | rewrite vec_subst_nth_lt by lia; exact Hs1]);
+        assert (Hs0_2 : allows (nth_grade u_b2 0) s) by
+          (eapply allows_trans; [exact (branch_rel_nth D _ _ 0 Hu_tr) | rewrite vec_subst_nth_lt by lia; exact Hs0]);
+        assert (Hmot_nf_fn : cty_uses_var 0 mot = false ->
+                  cty_uses_var 0 (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 (S (length env_a)) idx) mot) = false) by
+          (intro Hnf; apply cty_uses_var_subst_cidx_0; [lia | exact Hmot_safe | rewrite (lift_cidx_1_S D (length env_a) idx); apply lift_cidx_uses_var_0 | exact Hnf]);
+        assert (Hdep2 : match subst_cidx_in_cterm (length env_a) (lift_cidx 0 (length env_a) idx) pr with
+                        | CPair _ _ _ _ fv sv => match term_as_cidx fv, term_as_cidx sv with Some _, Some _ => True | _, _ => cty_uses_var 0 (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 (S (length env_a)) idx) mot) = false end
+                        | CVar _ => True
+                        | _ => cty_uses_var 0 (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 (S (length env_a)) idx) mot) = false
+                        end) by
+          (destruct pr; cbn [subst_cidx_in_cterm]; try (apply Hmot_nf_fn; exact Hdep);
+           [ lazymatch goal with |- match (if ?nv =? _ then _ else _) with _ => _ end =>
+               destruct (Nat.eq_dec nv (length env_a)) as [-> | Hne];
+               [ exfalso; inversion H; subst;
+                 lazymatch goal with Hlk : clookup _ _ = Some ?ee, Heq : ren_cty _ (cannotation ?ee) = CSigma _ _ _ _ |- _ =>
+                   unfold clookup in Hlk; rewrite nth_error_app2, Nat.sub_diag in Hlk by lia;
+                   inversion Hlk; subst ee; rewrite Hb in Heq; cbn in Heq; discriminate
+                 end
+               | rewrite (proj2 (Nat.eqb_neq _ _) Hne); destruct (Nat.ltb_spec nv (length env_a)); exact I ]
+             end
+           | destruct (term_as_cidx pr1) eqn:E1; [destruct (term_as_cidx pr2) eqn:E2;
+               [ destruct pr1, pr2; cbn in E1, E2 |- *; try discriminate;
+                 repeat (destruct (_ =? _) || destruct (_ <? _)); cbn; exact I
+               | rewrite (term_as_cidx_subst_none _ _ _ _ E2); destruct (term_as_cidx (subst_cidx_in_cterm (length env_a) (lift_cidx 0 (length env_a) idx) pr1)); apply Hmot_nf_fn; exact Hdep ]
+               | rewrite (term_as_cidx_subst_none _ _ _ _ E1); destruct (term_as_cidx (subst_cidx_in_cterm (length env_a) (lift_cidx 0 (length env_a) idx) pr2)); apply Hmot_nf_fn; exact Hdep ] ]);
+        assert (Hres_eq : cty_alpha_eq (spec_pair_subj_cty (subst_cidx_in_cterm (length env_a) (lift_cidx 0 (length env_a) idx) pr)
+                                         (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 (S (length env_a)) idx) mot))
+                            (subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) res_ty)) by
+          (rewrite Hres; destruct pr; unfold spec_pair_subj_cty; cbn [subst_cidx_in_cterm];
+            try (rewrite (subst_cidx_in_cty_unshift_0 D mot (lift_cidx 0 (length env_a) idx) (length env_a) Hdep Hmot_safe), <- (lift_cidx_1_S D (length env_a) idx); apply cty_alpha_eq_refl);
+           [ lazymatch goal with |- context [if ?nv =? _ then _ else _] =>
+               destruct (Nat.eq_dec nv (length env_a)) as [-> | Hne];
+               [ exfalso; inversion H; subst;
+                 lazymatch goal with Hlk : clookup _ _ = Some ?ee, Heq : ren_cty _ (cannotation ?ee) = CSigma _ _ _ _ |- _ =>
+                   unfold clookup in Hlk; rewrite nth_error_app2, Nat.sub_diag in Hlk by lia;
+                   inversion Hlk; subst ee; rewrite Hb in Heq; cbn in Heq; discriminate
+                 end
+               | rewrite (proj2 (Nat.eqb_neq _ _) Hne);
+                 destruct (Nat.ltb_spec nv (length env_a)) as [Hlt | Hge];
+                 idtac;
+                 idtac;
+                 pose proof (subst_cidx_ren_var_comm D mot (lift_cidx 0 (length env_a) idx) nv (length env_a) Hne Hmot_safe) as Hrv;
+                 rw_nat_bool_in Hrv; rewrite <- (lift_cidx_1_S D (length env_a) idx) in Hrv; rewrite Hrv; apply cty_alpha_eq_refl ]
+             end
+           | destruct (term_as_cidx pr1) eqn:E1; [destruct (term_as_cidx pr2) eqn:E2 |];
+             [ inversion H; subst;
+               lazymatch goal with
+               | H_e1 : term_as_cidx ?p1 = Some ?cc1, H_e2 : term_as_cidx ?p2 = Some ?cc2,
+                 Hdv1 : CoreDerives _ ?p1 _, Hdv2 : CoreDerives _ ?p2 _ |- _ =>
+                   destruct (term_as_cidx_subst_some D b env_a env_b p1 _ cc1 (lift_cidx 0 (length env_a) idx) Hb Hdv1 H_e1) as [Hc1' ->];
+                   destruct (term_as_cidx_subst_some D b env_a env_b p2 _ cc2 (lift_cidx 0 (length env_a) idx) Hb Hdv2 H_e2) as [Hc2' ->];
+                   pose proof (subst_cidx_subst_pair_comm_gen D mot cc1 cc2 (lift_cidx 0 (length env_a) idx) 0 (length env_a)
+                                 ltac:(right; eapply cdemand_not_nat_idx0_safe; cycle 1; [exact Hmot | cbn; discriminate]) Hc1' Hc2' ltac:(cbn; exact Hmot_safe)) as Hcm;
+                   cbn [Nat.add subst_cidx_in_cty] in Hcm; rewrite ?lift_cidx_0_0, ?lift_cty_0_0, <- (lift_cidx_1_S D (length env_a) idx) in Hcm; rewrite Hcm; apply cty_alpha_eq_refl
+               end
+             | rewrite (term_as_cidx_subst_none _ _ _ _ E2); destruct (term_as_cidx (subst_cidx_in_cterm (length env_a) (lift_cidx 0 (length env_a) idx) pr1));
+               rewrite (subst_cidx_in_cty_unshift_0 D mot (lift_cidx 0 (length env_a) idx) (length env_a) Hdep Hmot_safe), <- (lift_cidx_1_S D (length env_a) idx); apply cty_alpha_eq_refl
+             | rewrite (term_as_cidx_subst_none _ _ _ _ E1); destruct (term_as_cidx (subst_cidx_in_cterm (length env_a) (lift_cidx 0 (length env_a) idx) pr2));
+               rewrite (subst_cidx_in_cty_unshift_0 D mot (lift_cidx 0 (length env_a) idx) (length env_a) Hdep Hmot_safe), <- (lift_cidx_1_S D (length env_a) idx); apply cty_alpha_eq_refl ] ]);
+        eexists; rewrite <- (lift_cidx_1_S D (length env_a) idx); split; [| split; [| split]];
+        [ eapply CoreLetPair;
+          [ exact Hpr' | exact HA0' | exact HB0' | exact Hv_mot0 | exact Hkap2 | exact Hb2
+          | reflexivity | exact Hmot_eq2 | exact Hs1_2 | exact Hs0_2 | exact Hdep2 | reflexivity ]
+        | cbn [cresult_type]; exact Hres_eq
+        | cbn [ccomp_demand];
+          rewrite (vec_subst_add D (length env_a) z (tl (tl u_b)) (vec_scale s w) (length env_b))
+            by (try exact Hz_len; try rewrite vec_scale_length; destruct u_b as [| ? [| ? ?]]; cbn in *; lia);
+          rewrite vec_subst_scale; apply branch_rel_add;
+          [ rewrite !vec_subst_tl by (destruct u_b; cbn in *; lia); apply branch_rel_tl, branch_rel_tl; exact Hu_tr
+          | apply branch_rel_scale; exact Hw' ]
+        | cbn [ctype_demand_row];
+          rewrite (vec_subst_add D (length env_a) z (tl v_mot) (vec_scale kappa w) (length env_b))
+            by (try exact Hz_len; try rewrite vec_scale_length; destruct v_mot; cbn in *; lia);
+          rewrite vec_subst_scale; apply branch_rel_add;
+          [ rewrite vec_subst_tl by lia; apply branch_rel_tl; exact Hbr_mot | apply branch_rel_scale; exact Hw' ] ]
+    end.
+  - (* CorePromote *)
+    destruct (IHCoreDerives env_a eq_refl Hsafe) as [[A' u' v'] [Hpv' [HA' [Hu' Hv']]]].
+    cbn [cresult_type ccomp_demand ctype_demand_row] in HA', Hu', Hv'.
+    eexists; split; [| split; [| split]];
+    [ apply CorePromote; exact Hpv'
+    | cbn [cresult_type subst_cidx_in_cty]; unfold cty_alpha_eq in *; cbn; rewrite HA'; reflexivity
+    | cbn [ccomp_demand]; rewrite vec_subst_scale; apply branch_rel_scale; exact Hu'
+    | cbn [ctype_demand_row]; exact Hv' ].
+  - (* CoreLetBox *)
+    lazymatch goal with
+    | HA : CTypeDemand _ A a, Hmot : CTypeDemand _ mot v_mot, Hkap : allows (nth_grade v_mot 0) kappa,
+      Hexp : exp_mot = spec_box_body_cty q 0 mot, Hmot_eq : cty_alpha_eq act_mot exp_mot,
+      Hwq : allows (nth_grade w 0) q, Hbw : allows (nth_grade bw 0) (mul q kappa),
+      Hdep : context [cty_uses_var 0 mot = false],
+      Hres : res_ty = spec_box_subj_cty box_term mot,
+      Hzty : ?z_ty = _ |- context [vec_scale _ ?z_ty] =>
+        destruct (IHCoreDerives1 env_a eq_refl Hsafe) as [[bt' zb' vz'] [Hbx' [Hbt [Hzb' Hvz']]]];
+        cbn [cresult_type ccomp_demand ctype_demand_row subst_cidx_in_cty] in Hbt, Hzb', Hvz';
+        destruct (cty_alpha_eq_CBox_inv D bt' q (subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) A) Hbt)
+          as [A0 [-> HA0]];
+        pose proof (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ HA env_a eq_refl) as HA_safe;
+        pose proof (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ Hmot ({| cbinder := 0; cannotation := CBox q A; ctype_uses := a |} :: env_a) eq_refl) as Hmot_safe;
+        cbn [length] in Hmot_safe;
+        destruct (subst_ctype_demand D idx z env_a b env_b A a Hb Hsafe Hidx HA) as [a' [Ha' Hbra]];
+        assert (HA0' : CTypeDemand (subst_cidx_cenv idx z env_a ++ env_b) A0 a') by
+          (eapply CTypeDemand_alpha_ty; [exact Ha' | apply cty_alpha_eq_sym; exact HA0]);
+        assert (Hsafe_box : cenv_nat_safe ({| cbinder := 0; cannotation := CBox q A; ctype_uses := a |} :: env_a) (S (length env_a))) by
+          (apply cenv_nat_safe_cons; [cbn; exact HA_safe | exact Hsafe]);
+        destruct (subst_ctype_demand D idx z ({| cbinder := 0; cannotation := CBox q A; ctype_uses := a |} :: env_a) b env_b mot v_mot Hb Hsafe_box Hidx Hmot)
+          as [v_mot' [Hv_mot' Hbr_mot]];
+        cbn [subst_cidx_cenv length cbinder cannotation ctype_uses app] in Hv_mot', Hbr_mot;
+        assert (Hv_mot0 : CTypeDemand ({| cbinder := 0; cannotation := CBox q A0; ctype_uses := a' |} :: subst_cidx_cenv idx z env_a ++ env_b)
+                                      (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 (S (length env_a)) idx) mot) v_mot') by
+          (eapply CTypeDemand_alpha_env;
+           [| exact Hv_mot' ];
+           constructor; [cbn; unfold cty_alpha_eq in *; cbn; rewrite HA0; reflexivity | apply cenv_alpha_eq_refl]);
+        assert (Hsafe_A : cenv_nat_safe ({| cbinder := x; cannotation := A; ctype_uses := a |} :: env_a) (S (length env_a))) by
+          (apply cenv_nat_safe_cons; assumption);
+        destruct (IHCoreDerives2 ({| cbinder := x; cannotation := A; ctype_uses := a |} :: env_a) eq_refl Hsafe_A)
+          as [[act_mot1 w1 bw1] [Hb1 [Hact1 [Hw1 Hbw1]]]];
+        cbn [cresult_type ccomp_demand ctype_demand_row subst_cidx_cenv length cbinder cannotation ctype_uses app] in Hb1, Hact1, Hw1, Hbw1;
+        rewrite (lift_cidx_1_S D (length env_a) idx) in Hb1, Hact1;
+        assert (Hrel_A : cenv_demand_rel
+          ({| cbinder := x; cannotation := A0; ctype_uses := a' |} :: subst_cidx_cenv idx z env_a ++ env_b)
+          ({| cbinder := x; cannotation := subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) A;
+              ctype_uses := vec_subst (length env_a) z a |}
+           :: subst_cidx_cenv idx z env_a ++ env_b)) by
+          (apply cenv_demand_rel_cons; [apply cenv_demand_rel_refl | exact HA0 | exact HA0' | exact Hbra]);
+        destruct (core_derives_cenv_rel D ED _ _ _ Hb1 _ Hrel_A) as [[act_mot2 w2 bw2] [Hb2 [Hact2 [Hw2 Hbw2]]]];
+        cbn [cresult_type ccomp_demand ctype_demand_row] in Hact2, Hw2, Hbw2;
+        assert (Hw_tr : branch_rel w2 (vec_subst (S (length env_a)) z w)) by (eapply branch_rel_trans; [exact Hw2 | exact Hw1]);
+        assert (Hbw_tr : branch_rel bw2 (vec_subst (S (length env_a)) z bw)) by (eapply branch_rel_trans; [exact Hbw2 | exact Hbw1]);
+        assert (Hact_tr : cty_alpha_eq act_mot2 (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 1 (lift_cidx 0 (length env_a) idx)) act_mot)) by
+          (eapply cty_alpha_eq_trans; [exact Hact2 | exact Hact1]);
+        assert (Hspec_body : subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 1 (lift_cidx 0 (length env_a) idx)) (spec_box_body_cty q 0 mot) =
+                             spec_box_body_cty q 0 (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 (S (length env_a)) idx) mot)) by
+          (rewrite (lift_cidx_1_S D (length env_a) idx);
+           apply subst_cidx_spec_box_body; [lia | exact Hmot_safe]);
+        assert (Hmot_eq2 : cty_alpha_eq act_mot2 (spec_box_body_cty q 0 (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 (S (length env_a)) idx) mot))) by
+          (eapply cty_alpha_eq_trans; [exact Hact_tr |]; rewrite <- Hspec_body, <- Hexp; apply subst_cidx_alpha_eq; exact Hmot_eq);
+        pose proof (ctype_demand_length D _ _ _ Hmot) as Hlen_vm;
+        pose proof (core_derives_lengths D _ _ _ H) as [Hlen_zb Hlen_vz];
+        pose proof (core_derives_lengths D _ _ _ H0) as [Hlen_w Hlen_bw];
+        cbn [ccomp_demand ctype_demand_row length] in Hlen_vm, Hlen_zb, Hlen_vz, Hlen_w, Hlen_bw;
+        rewrite length_app in Hlen_vm, Hlen_zb, Hlen_vz, Hlen_w, Hlen_bw; cbn [length] in Hlen_vm, Hlen_zb, Hlen_vz, Hlen_w, Hlen_bw;
+        assert (Hkap2 : allows (nth_grade v_mot' 0) kappa) by
+          (eapply allows_trans; [exact (branch_rel_nth D _ _ 0 Hbr_mot) | rewrite vec_subst_nth_lt by lia; exact Hkap]);
+        assert (Hwq2 : allows (nth_grade w2 0) q) by
+          (eapply allows_trans; [exact (branch_rel_nth D _ _ 0 Hw_tr) | rewrite vec_subst_nth_lt by lia; exact Hwq]);
+        assert (Hbw2_a : allows (nth_grade bw2 0) (mul q kappa)) by
+          (eapply allows_trans; [exact (branch_rel_nth D _ _ 0 Hbw_tr) | rewrite vec_subst_nth_lt by lia; exact Hbw]);
+        assert (Hmot_nf_fn : cty_uses_var 0 mot = false ->
+                  cty_uses_var 0 (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 (S (length env_a)) idx) mot) = false) by
+          (intro Hnf; apply cty_uses_var_subst_cidx_0; [lia | exact Hmot_safe | rewrite (lift_cidx_1_S D (length env_a) idx); apply lift_cidx_uses_var_0 | exact Hnf]);
+        assert (Hbx_not_var : forall yb, box_term = CVar yb -> yb <> length env_a) by
+          (intros yb -> ->; inversion H; subst;
+           lazymatch goal with Hlk : clookup _ _ = Some ?ee, Heq : ren_cty _ (cannotation ?ee) = CBox _ _ |- _ =>
+             assert (Heqb : ee = b) by (unfold clookup in Hlk; rewrite nth_error_app2, Nat.sub_diag in Hlk by lia; inversion Hlk; reflexivity);
+             subst ee; rewrite Hb in Heq; cbn in Heq; discriminate
+           end);
+        assert (Hdep2 : match subst_cidx_in_cterm (length env_a) (lift_cidx 0 (length env_a) idx) box_term with
+                        | CPromote _ (CNatVal _) | CPromote _ (CTypeVal _) | CPromote _ (CVar _) | CVar _ => True
+                        | _ => cty_uses_var 0 (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 (S (length env_a)) idx) mot) = false
+                        end) by
+          (destruct box_term; cbn [subst_cidx_in_cterm]; try (apply Hmot_nf_fn; exact Hdep);
+           [ lazymatch goal with |- match (if ?nv =? _ then _ else _) with _ => _ end =>
+               destruct (Nat.eq_dec nv (length env_a)) as [Heqn | Hne];
+               [ exfalso; exact (Hbx_not_var nv eq_refl Heqn)
+               | rewrite (proj2 (Nat.eqb_neq _ _) Hne); destruct (Nat.ltb_spec nv (length env_a)); exact I ]
+             end
+           | destruct box_term; cbn [subst_cidx_in_cterm]; try (apply Hmot_nf_fn; exact Hdep); try exact I;
+             repeat (destruct (_ =? _) || destruct (_ <? _)); exact I ]);
+        assert (Hres_eq : cty_alpha_eq (spec_box_subj_cty (subst_cidx_in_cterm (length env_a) (lift_cidx 0 (length env_a) idx) box_term)
+                                         (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 (S (length env_a)) idx) mot))
+                            (subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) res_ty)) by
+          (rewrite Hres; destruct box_term; unfold spec_box_subj_cty; cbn [subst_cidx_in_cterm];
+            try (rewrite (subst_cidx_in_cty_unshift_0 D mot (lift_cidx 0 (length env_a) idx) (length env_a) Hdep Hmot_safe), <- (lift_cidx_1_S D (length env_a) idx); apply cty_alpha_eq_refl);
+           [ lazymatch goal with |- context [if ?nv =? _ then _ else _] =>
+               destruct (Nat.eq_dec nv (length env_a)) as [Heqn | Hne]; [exfalso; exact (Hbx_not_var nv eq_refl Heqn) |];
+               rewrite (proj2 (Nat.eqb_neq _ _) Hne); destruct (Nat.ltb_spec nv (length env_a)) as [Hlt | Hge];
+               idtac;
+               idtac;
+               pose proof (subst_cidx_ren_var_comm D mot (lift_cidx 0 (length env_a) idx) nv (length env_a) Hne Hmot_safe) as Hrv;
+               rw_nat_bool_in Hrv; rewrite <- (lift_cidx_1_S D (length env_a) idx) in Hrv; rewrite Hrv; apply cty_alpha_eq_refl
+             end
+           | destruct box_term; cbn [subst_cidx_in_cterm];
+             try (rewrite (subst_cidx_in_cty_unshift_0 D mot (lift_cidx 0 (length env_a) idx) (length env_a) Hdep Hmot_safe), <- (lift_cidx_1_S D (length env_a) idx); apply cty_alpha_eq_refl);
+             [ inversion H; subst;
+               lazymatch goal with Hdv : CoreDerives _ (CVar ?nv) _ |- _ =>
+                 inversion Hdv; subst;
+                 destruct (Nat.eq_dec nv (length env_a)) as [-> | Hne];
+                 [ rewrite Nat.ltb_irrefl, Nat.eqb_refl; cbn [subst_cidx_in_cterm];
+                   assert (Hm0 : cty_uses_kinds false false false true false false false 0 mot = false) by
+                     (lazymatch goal with Hlk : clookup _ _ = Some ?ee |- _ =>
+                        unfold clookup in Hlk; rewrite nth_error_app2, Nat.sub_diag in Hlk by lia; inversion Hlk; subst;
+                        rewrite Hb in Hmot; cbn [cannotation ren_cty] in Hmot;
+                        eapply cdemand_box_nat_safe; cycle 1; [exact Hmot | cbn; reflexivity]
+                      end);
+                   pose proof (subst_cidx_box_var_to_nat_gen D mot q (lift_cidx 0 (length env_a) idx) 0 (length env_a) Hm0 Hmot_safe) as Hbvn;
+                   cbn in Hbvn; rewrite lift_cidx_0_0, <- (lift_cidx_1_S D (length env_a) idx) in Hbvn;
+                   replace (r_var 0 (length env_a)) with (Nat.iter 0 ren_shift (fun i => match i with 0 => length env_a | S i' => i' end)) in Hbvn by reflexivity;
+                   unfold subst_var_in_cty; rewrite Hbvn; apply cty_alpha_eq_refl
+                 | rewrite (proj2 (Nat.eqb_neq _ _) Hne);
+                   destruct (Nat.ltb_spec nv (length env_a)) as [Hlt | Hge];
+                   idtac;
+                   idtac;
+                   pose proof (spec_box_body_uses_kinds D q 0 mot (S (length env_a)) ltac:(lia) Hmot_safe) as Hsb_safe;
+                   pose proof (subst_cidx_ren_var_comm D (spec_box_body_cty q 0 mot) (lift_cidx 0 (length env_a) idx) nv (length env_a) Hne Hsb_safe) as Hrv;
+                   rw_nat_bool_in Hrv; rewrite Hrv, <- (lift_cidx_1_S D (length env_a) idx) in *; rewrite Hspec_body; apply cty_alpha_eq_refl ]
+               end
+             | inversion H; subst;
+               lazymatch goal with Hdv : CoreDerives _ (CNatVal ?ii) _ |- _ =>
+                 inversion Hdv; subst;
+                 lazymatch goal with Hcd : CIdxDemand _ ?ii _ |- _ =>
+                   pose proof (proj1 (cdemand_nat_safe D b env_b Hb) _ _ _ Hcd env_a eq_refl) as Hi_safe;
+                   pose proof (subst_cidx_subst_box_nat_comm_gen D mot q ii (lift_cidx 0 (length env_a) idx) 0 (length env_a) ltac:(right; eapply cdemand_not_nat_idx0_safe; cycle 1; [exact Hmot | cbn; discriminate]) Hi_safe ltac:(cbn; exact Hmot_safe)) as Hcm;
+                   cbn [Nat.add subst_cidx_in_cty] in Hcm; rewrite ?lift_cidx_0_0, ?lift_cty_0_0, <- (lift_cidx_1_S D (length env_a) idx) in Hcm; rewrite Hcm; apply cty_alpha_eq_refl
+                 end
+               end
+             | inversion H; subst;
+               lazymatch goal with Hdv : CoreDerives _ (CTypeVal ?tt) _ |- _ =>
+                 inversion Hdv; subst;
+                 lazymatch goal with Htd : CTypeDemand (env_a ++ b :: env_b) ?tt _ |- _ =>
+                   pose proof (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ Htd env_a eq_refl) as HT_safe;
+                   pose proof (subst_cidx_subst_box_ty_comm_gen D mot tt q (lift_cidx 0 (length env_a) idx) 0 (length env_a) ltac:(right; eapply cdemand_not_nat_idx0_safe; cycle 1; [exact Hmot | cbn; discriminate]) HT_safe ltac:(cbn; exact Hmot_safe)) as Hcm;
+                   cbn [Nat.add subst_cidx_in_cty] in Hcm; rewrite ?lift_cidx_0_0, ?lift_cty_0_0, <- (lift_cidx_1_S D (length env_a) idx) in Hcm; rewrite Hcm; apply cty_alpha_eq_refl
+                 end
+               end ] ]);
+        eexists; rewrite <- (lift_cidx_1_S D (length env_a) idx); split; [| split; [| split]];
+        [ rewrite <- (lift_cidx_1_S D (length env_a) idx) in Hb2; eapply CoreLetBox;
+          [ exact Hbx' | exact HA0' | exact Hv_mot0 | exact Hkap2 | exact Hb2
+          | reflexivity | exact Hmot_eq2 | exact Hwq2 | exact Hbw2_a | exact Hdep2 | reflexivity | reflexivity ]
+        | cbn [cresult_type]; exact Hres_eq
+        | cbn [ccomp_demand];
+          rewrite (vec_subst_add D (length env_a) z (tl w) z_b (length env_b)) by (destruct w; cbn in *; lia);
+          apply branch_rel_add; [rewrite vec_subst_tl by lia; apply branch_rel_tl; exact Hw_tr | exact Hzb']
+        | cbn [ctype_demand_row];
+          assert (Hzty' : branch_rel
+            (match subst_cidx_in_cterm (length env_a) (lift_cidx 0 (length env_a) idx) box_term with
+             | CPromote q' (CTypeVal _) => vec_scale q' vz' | _ => zb' end)
+            (vec_subst (length env_a) z z_ty)) by
+            (rewrite Hzty; destruct box_term; cbn [subst_cidx_in_cterm]; try exact Hzb';
+             [ repeat (destruct (_ =? _) || destruct (_ <? _)); exact Hzb'
+             | destruct box_term; cbn [subst_cidx_in_cterm]; try exact Hzb';
+               [ repeat (destruct (_ =? _) || destruct (_ <? _)); exact Hzb'
+               | rewrite vec_subst_scale; apply branch_rel_scale; exact Hvz' ] ]);
+          assert (Hlen_zty : length z_ty = length env_a + S (length env_b)) by
+            (rewrite Hzty; destruct box_term; try exact Hlen_zb;
+             lazymatch goal with |- length (match ?inn with _ => _ end) = _ =>
+               destruct inn; try exact Hlen_zb; rewrite vec_scale_length; exact Hlen_vz
+             end);
+          rewrite (vec_subst_add D (length env_a) z (tl v_mot) (vec_scale kappa z_ty) (length env_b))
+            by (try exact Hz_len; try rewrite vec_scale_length; destruct v_mot; cbn in *; lia);
+          rewrite vec_subst_scale; apply branch_rel_add;
+          [ rewrite vec_subst_tl by lia; apply branch_rel_tl; exact Hbr_mot | apply branch_rel_scale; exact Hzty' ] ]
+    end.
+  - (* CoreInl *)
+    lazymatch goal with
+    | Hrhs : CTypeDemand _ rhs_ty b0 |- _ =>
+        destruct (IHCoreDerives env_a eq_refl Hsafe) as [[A' u' a'] [Hv' [HA' [Hu' Ha']]]];
+        destruct (subst_ctype_demand D idx z env_a b env_b rhs_ty b0 Hb Hsafe Hidx Hrhs) as [b' [Hb' Hbrb]];
+        cbn [cresult_type ccomp_demand ctype_demand_row] in HA', Hu', Ha';
+        eexists; split; [| split; [| split]];
+        [ eapply CoreInl; [exact Hv' | exact Hb']
+        | cbn [cresult_type subst_cidx_in_cty]; unfold cty_alpha_eq in *; cbn; rewrite HA'; reflexivity
+        | cbn [ccomp_demand]; exact Hu'
+        | cbn [ctype_demand_row];
+          pose proof (core_derives_lengths D _ _ _ H) as [_ Hlen_a];
+          pose proof (ctype_demand_length D _ _ _ Hrhs) as Hlen_b;
+          rewrite length_app in Hlen_a, Hlen_b; cbn [ccomp_demand ctype_demand_row length] in Hlen_a, Hlen_b;
+          rewrite (vec_subst_add D (length env_a) z a b0 (length env_b)) by lia;
+          apply branch_rel_add; assumption ]
+    end.
+  - (* CoreInr *)
+    lazymatch goal with
+    | Hlhs : CTypeDemand _ lhs_ty ?a_r |- context [vec_add ?a_r ?b_r] =>
+        destruct (subst_ctype_demand D idx z env_a b env_b lhs_ty a_r Hb Hsafe Hidx Hlhs) as [a' [Ha' Hbra]];
+        destruct (IHCoreDerives env_a eq_refl Hsafe) as [[B' u' b'] [Hv' [HB' [Hu' Hb']]]];
+        cbn [cresult_type ccomp_demand ctype_demand_row] in HB', Hu', Hb';
+        eexists; split; [| split; [| split]];
+        [ eapply CoreInr; [exact Ha' | exact Hv']
+        | cbn [cresult_type subst_cidx_in_cty]; unfold cty_alpha_eq in *; cbn; rewrite HB'; reflexivity
+        | cbn [ccomp_demand]; exact Hu'
+        | cbn [ctype_demand_row];
+          pose proof (ctype_demand_length D _ _ _ Hlhs) as Hlen_a;
+          pose proof (core_derives_lengths D _ _ _ H) as [_ Hlen_b];
+          cbn [ccomp_demand ctype_demand_row length] in Hlen_a, Hlen_b;
+          rewrite length_app in Hlen_a, Hlen_b; cbn [length] in Hlen_a, Hlen_b;
+          rewrite (vec_subst_add D (length env_a) z a_r b_r (length env_b)) by lia;
+          apply branch_rel_add; assumption ]
+    end.
+  - (* CoreMatchSum *)
+    lazymatch goal with
+    | Hsne : s <> zero, HA : CTypeDemand _ A a, HB : CTypeDemand _ B b0,
+      Hmot : CTypeDemand _ mot v_mot, Hkap : allows (nth_grade v_mot 0) kappa,
+      Ht1 : cty_alpha_eq t1 (spec_sum_branch_cty true 0 mot),
+      Ht2 : cty_alpha_eq t2 (spec_sum_branch_cty false 0 mot),
+      Hs1 : allows (nth_grade u1 0) s, Hs2 : allows (nth_grade u2 0) s,
+      Hbv : BranchVec (tl u1) (tl u2) u_br,
+      Hdep : context [cty_uses_var 0 mot = false],
+      Hres : res_ty = spec_sum_subj_cty scrut mot |- _ =>
+        destruct (IHCoreDerives1 env_a eq_refl Hsafe) as [[srt' w' vs'] [Hscr' [Hsrt [Hw' Hvs']]]];
+        cbn [cresult_type ccomp_demand ctype_demand_row subst_cidx_in_cty] in Hsrt, Hw', Hvs';
+        destruct (cty_alpha_eq_CSum_inv D srt'
+                    (subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) A)
+                    (subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) B) Hsrt)
+          as [A0 [B0 [-> [HA0 HB0]]]];
+        pose proof (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ HA env_a eq_refl) as HA_safe;
+        pose proof (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ HB env_a eq_refl) as HB_safe;
+        pose proof (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ Hmot ({| cbinder := 0; cannotation := CSum A B; ctype_uses := vec_add a b0 |} :: env_a) eq_refl) as Hmot_safe;
+        cbn [length] in Hmot_safe;
+        destruct (subst_ctype_demand D idx z env_a b env_b A a Hb Hsafe Hidx HA) as [a' [Ha' Hbra]];
+        destruct (subst_ctype_demand D idx z env_a b env_b B b0 Hb Hsafe Hidx HB) as [b' [Hb' Hbrb]];
+        assert (HA0' : CTypeDemand (subst_cidx_cenv idx z env_a ++ env_b) A0 a') by
+          (eapply CTypeDemand_alpha_ty; [exact Ha' | apply cty_alpha_eq_sym; exact HA0]);
+        assert (HB0' : CTypeDemand (subst_cidx_cenv idx z env_a ++ env_b) B0 b') by
+          (eapply CTypeDemand_alpha_ty; [exact Hb' | apply cty_alpha_eq_sym; exact HB0]);
+        assert (Hsafe_sum : cenv_nat_safe ({| cbinder := 0; cannotation := CSum A B; ctype_uses := vec_add a b0 |} :: env_a) (S (length env_a))) by
+          (apply cenv_nat_safe_cons; [cbn; rewrite HA_safe, HB_safe; reflexivity | exact Hsafe]);
+        destruct (subst_ctype_demand D idx z ({| cbinder := 0; cannotation := CSum A B; ctype_uses := vec_add a b0 |} :: env_a) b env_b mot v_mot Hb Hsafe_sum Hidx Hmot)
+          as [v_mot' [Hv_mot' Hbr_mot]];
+        cbn [subst_cidx_cenv length cbinder cannotation ctype_uses app] in Hv_mot', Hbr_mot;
+        assert (Hv_mot0 : CTypeDemand ({| cbinder := 0; cannotation := CSum A0 B0; ctype_uses := vec_add a' b' |} :: subst_cidx_cenv idx z env_a ++ env_b)
+                                      (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 (S (length env_a)) idx) mot) v_mot') by
+          (eapply CTypeDemand_alpha_env;
+           [| exact Hv_mot' ];
+           constructor; [cbn; unfold cty_alpha_eq in *; cbn; rewrite HA0, HB0; reflexivity | apply cenv_alpha_eq_refl]);
+        assert (Hsafe_A : cenv_nat_safe ({| cbinder := x; cannotation := A; ctype_uses := a |} :: env_a) (S (length env_a))) by
+          (apply cenv_nat_safe_cons; assumption);
+        assert (Hsafe_B : cenv_nat_safe ({| cbinder := y; cannotation := B; ctype_uses := b0 |} :: env_a) (S (length env_a))) by
+          (apply cenv_nat_safe_cons; assumption);
+        destruct (IHCoreDerives2 ({| cbinder := x; cannotation := A; ctype_uses := a |} :: env_a) eq_refl Hsafe_A)
+          as [[tl1 u1_1 b1_1] [Hlb1 [Htl1 [Hu1_1 Hb1_1]]]];
+        destruct (IHCoreDerives3 ({| cbinder := y; cannotation := B; ctype_uses := b0 |} :: env_a) eq_refl Hsafe_B)
+          as [[tr1 u2_1 b2_1] [Hrb1 [Htr1 [Hu2_1 Hb2_1]]]];
+        cbn [cresult_type ccomp_demand ctype_demand_row subst_cidx_cenv length cbinder cannotation ctype_uses app] in Hlb1, Htl1, Hu1_1, Hb1_1, Hrb1, Htr1, Hu2_1, Hb2_1;
+        rewrite (lift_cidx_1_S D (length env_a) idx) in Hlb1, Htl1, Hrb1, Htr1;
+        assert (Hrel_A : cenv_demand_rel
+          ({| cbinder := x; cannotation := A0; ctype_uses := a' |} :: subst_cidx_cenv idx z env_a ++ env_b)
+          ({| cbinder := x; cannotation := subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) A;
+              ctype_uses := vec_subst (length env_a) z a |}
+           :: subst_cidx_cenv idx z env_a ++ env_b)) by
+          (apply cenv_demand_rel_cons; [apply cenv_demand_rel_refl | exact HA0 | exact HA0' | exact Hbra]);
+        assert (Hrel_B : cenv_demand_rel
+          ({| cbinder := y; cannotation := B0; ctype_uses := b' |} :: subst_cidx_cenv idx z env_a ++ env_b)
+          ({| cbinder := y; cannotation := subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) B;
+              ctype_uses := vec_subst (length env_a) z b0 |}
+           :: subst_cidx_cenv idx z env_a ++ env_b)) by
+          (apply cenv_demand_rel_cons; [apply cenv_demand_rel_refl | exact HB0 | exact HB0' | exact Hbrb]);
+        destruct (core_derives_cenv_rel D ED _ _ _ Hlb1 _ Hrel_A) as [[tl2 u1_2 b1_2] [Hlb2 [Htl2 [Hu1_2 Hb1_2]]]];
+        destruct (core_derives_cenv_rel D ED _ _ _ Hrb1 _ Hrel_B) as [[tr2 u2_2 b2_2] [Hrb2 [Htr2 [Hu2_2 Hb2_2]]]];
+        cbn [cresult_type ccomp_demand ctype_demand_row] in Htl2, Hu1_2, Hb1_2, Htr2, Hu2_2, Hb2_2;
+        assert (Hu1_tr : branch_rel u1_2 (vec_subst (S (length env_a)) z u1)) by (eapply branch_rel_trans; [exact Hu1_2 | exact Hu1_1]);
+        assert (Hu2_tr : branch_rel u2_2 (vec_subst (S (length env_a)) z u2)) by (eapply branch_rel_trans; [exact Hu2_2 | exact Hu2_1]);
+        assert (Htl_tr : cty_alpha_eq tl2 (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 1 (lift_cidx 0 (length env_a) idx)) t1)) by
+          (eapply cty_alpha_eq_trans; [exact Htl2 | exact Htl1]);
+        assert (Htr_tr : cty_alpha_eq tr2 (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 1 (lift_cidx 0 (length env_a) idx)) t2)) by
+          (eapply cty_alpha_eq_trans; [exact Htr2 | exact Htr1]);
+        assert (Hspec_l : subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 1 (lift_cidx 0 (length env_a) idx)) (spec_sum_branch_cty true 0 mot) =
+                          spec_sum_branch_cty true 0 (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 (S (length env_a)) idx) mot)) by
+          (rewrite (lift_cidx_1_S D (length env_a) idx);
+           apply subst_cidx_spec_sum_branch; [lia | exact Hmot_safe]);
+        assert (Hspec_r : subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 1 (lift_cidx 0 (length env_a) idx)) (spec_sum_branch_cty false 0 mot) =
+                          spec_sum_branch_cty false 0 (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 (S (length env_a)) idx) mot)) by
+          (rewrite (lift_cidx_1_S D (length env_a) idx);
+           apply subst_cidx_spec_sum_branch; [lia | exact Hmot_safe]);
+        assert (Ht1_2 : cty_alpha_eq tl2 (spec_sum_branch_cty true 0 (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 (S (length env_a)) idx) mot))) by
+          (eapply cty_alpha_eq_trans; [exact Htl_tr | rewrite <- Hspec_l; apply subst_cidx_alpha_eq; exact Ht1]);
+        assert (Ht2_2 : cty_alpha_eq tr2 (spec_sum_branch_cty false 0 (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 (S (length env_a)) idx) mot))) by
+          (eapply cty_alpha_eq_trans; [exact Htr_tr | rewrite <- Hspec_r; apply subst_cidx_alpha_eq; exact Ht2]);
+        pose proof (ctype_demand_length D _ _ _ Hmot) as Hlen_vm;
+        pose proof (core_derives_lengths D _ _ _ H) as [Hlen_w _];
+        pose proof (core_derives_lengths D _ _ _ H0) as [Hlen_u1 _];
+        pose proof (core_derives_lengths D _ _ _ H1) as [Hlen_u2 _];
+        cbn [ccomp_demand ctype_demand_row length] in Hlen_vm, Hlen_w, Hlen_u1, Hlen_u2;
+        rewrite length_app in Hlen_vm, Hlen_w, Hlen_u1, Hlen_u2; cbn [length] in Hlen_vm, Hlen_w, Hlen_u1, Hlen_u2;
+        assert (Hkap2 : allows (nth_grade v_mot' 0) kappa) by
+          (eapply allows_trans; [exact (branch_rel_nth D _ _ 0 Hbr_mot) | rewrite vec_subst_nth_lt by lia; exact Hkap]);
+        assert (Hs1_2 : allows (nth_grade u1_2 0) s) by
+          (eapply allows_trans; [exact (branch_rel_nth D _ _ 0 Hu1_tr) | rewrite vec_subst_nth_lt by lia; exact Hs1]);
+        assert (Hs2_2 : allows (nth_grade u2_2 0) s) by
+          (eapply allows_trans; [exact (branch_rel_nth D _ _ 0 Hu2_tr) | rewrite vec_subst_nth_lt by lia; exact Hs2]);
+        assert (Hbr_tl1 : branch_rel (tl u1_2) (vec_subst (length env_a) z (tl u1))) by
+          (rewrite vec_subst_tl by lia; apply branch_rel_tl; exact Hu1_tr);
+        assert (Hbr_tl2 : branch_rel (tl u2_2) (vec_subst (length env_a) z (tl u2))) by
+          (rewrite vec_subst_tl by lia; apply branch_rel_tl; exact Hu2_tr);
+        destruct (BranchVec_subst D (length env_a) z (tl u1) (tl u2) u_br (tl u1_2) (tl u2_2) (length env_b)
+                    Hz_len ltac:(destruct u1; cbn in *; lia) ltac:(destruct u2; cbn in *; lia) Hbv Hbr_tl1 Hbr_tl2)
+          as [ubr' [Hubr' Hbr_u]];
+        assert (Hmot_nf_fn : cty_uses_var 0 mot = false ->
+                  cty_uses_var 0 (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 (S (length env_a)) idx) mot) = false) by
+          (intro Hnf; apply cty_uses_var_subst_cidx_0; [lia | exact Hmot_safe | rewrite (lift_cidx_1_S D (length env_a) idx); apply lift_cidx_uses_var_0 | exact Hnf]);
+        assert (Hscr_not_var : forall ys, scrut = CVar ys -> ys <> length env_a) by
+          (intros ys -> ->; inversion H; subst;
+           lazymatch goal with Hlk : clookup _ _ = Some ?ee, Heq : ren_cty _ (cannotation ?ee) = CSum _ _ |- _ =>
+             assert (Heqb : ee = b) by (unfold clookup in Hlk; rewrite nth_error_app2, Nat.sub_diag in Hlk by lia; inversion Hlk; reflexivity);
+             subst ee; rewrite Hb in Heq; cbn in Heq; discriminate
+           end);
+        assert (Hdep2 : match subst_cidx_in_cterm (length env_a) (lift_cidx 0 (length env_a) idx) scrut with
+                        | CInl _ v => match term_as_cidx v, A0 with Some _, CNat => True | _, _ => cty_uses_var 0 (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 (S (length env_a)) idx) mot) = false end
+                        | CInr _ v => match term_as_cidx v, B0 with Some _, CNat => True | _, _ => cty_uses_var 0 (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 (S (length env_a)) idx) mot) = false end
+                        | CVar _ => True
+                        | _ => cty_uses_var 0 (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 (S (length env_a)) idx) mot) = false
+                        end) by
+          (destruct scrut; cbn [subst_cidx_in_cterm]; try (apply Hmot_nf_fn; exact Hdep);
+           [ lazymatch goal with |- match (if ?nv =? _ then _ else _) with _ => _ end =>
+               destruct (Nat.eq_dec nv (length env_a)) as [Heqn | Hne]; [exfalso; exact (Hscr_not_var nv eq_refl Heqn) | rewrite (proj2 (Nat.eqb_neq _ _) Hne); destruct (Nat.ltb_spec nv (length env_a)); exact I]
+             end
+           | destruct (term_as_cidx scrut) eqn:Ev;
+             [ destruct A eqn:EA;
+               [ destruct scrut; cbn in Ev |- *; try discriminate; destruct A0; unfold cty_alpha_eq in HA0; cbn in HA0; try discriminate; try exact I; repeat (destruct (_ =? _) || destruct (_ <? _)); exact I
+               | destruct (term_as_cidx (subst_cidx_in_cterm (length env_a) (lift_cidx 0 (length env_a) idx) scrut)); destruct A0; try exact I; apply Hmot_nf_fn; exact Hdep .. ]
+             | rewrite (term_as_cidx_subst_none _ _ _ _ Ev); destruct A0; apply Hmot_nf_fn; exact Hdep ]
+           | destruct (term_as_cidx scrut) eqn:Ev;
+             [ destruct B eqn:EB;
+               [ destruct scrut; cbn in Ev |- *; try discriminate; destruct B0; unfold cty_alpha_eq in HB0; cbn in HB0; try discriminate; try exact I; repeat (destruct (_ =? _) || destruct (_ <? _)); exact I
+               | destruct (term_as_cidx (subst_cidx_in_cterm (length env_a) (lift_cidx 0 (length env_a) idx) scrut)); destruct B0; try exact I; apply Hmot_nf_fn; exact Hdep .. ]
+             | rewrite (term_as_cidx_subst_none _ _ _ _ Ev); destruct B0; apply Hmot_nf_fn; exact Hdep ] ]);
+        assert (Hres_eq : cty_alpha_eq (spec_sum_subj_cty (subst_cidx_in_cterm (length env_a) (lift_cidx 0 (length env_a) idx) scrut)
+                                         (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 (S (length env_a)) idx) mot))
+                            (subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) res_ty)) by
+          (rewrite Hres; destruct scrut; unfold spec_sum_subj_cty; cbn [subst_cidx_in_cterm];
+            try (rewrite (subst_cidx_in_cty_unshift_0 D mot (lift_cidx 0 (length env_a) idx) (length env_a) Hdep Hmot_safe), <- (lift_cidx_1_S D (length env_a) idx); apply cty_alpha_eq_refl);
+           [ lazymatch goal with |- context [if ?nv =? _ then _ else _] =>
+               destruct (Nat.eq_dec nv (length env_a)) as [Heqn | Hne]; [exfalso; exact (Hscr_not_var nv eq_refl Heqn) |];
+               rewrite (proj2 (Nat.eqb_neq _ _) Hne); destruct (Nat.ltb_spec nv (length env_a)) as [Hlt | Hge];
+               idtac;
+               idtac;
+               pose proof (subst_cidx_ren_var_comm D mot (lift_cidx 0 (length env_a) idx) nv (length env_a) Hne Hmot_safe) as Hrv;
+               rw_nat_bool_in Hrv; rewrite <- (lift_cidx_1_S D (length env_a) idx) in Hrv; rewrite Hrv; apply cty_alpha_eq_refl
+             end
+           | destruct (term_as_cidx scrut) eqn:Ev;
+             [ destruct scrut; cbn [term_as_cidx subst_cidx_in_cterm] in *; try discriminate; injection Ev as <-;
+               [ lazymatch goal with |- context [if ?nv =? _ then _ else _] =>
+                   destruct (Nat.eq_dec nv (length env_a)) as [-> | Hne];
+                   [ rewrite Nat.ltb_irrefl, Nat.eqb_refl; cbn [term_as_cidx];
+                     assert (Hm0 : cty_uses_kinds false false false false false false true 0 mot = false) by
+                       (inversion H; subst;
+                        lazymatch goal with Hdv : CoreDerives _ (CVar _) _ |- _ =>
+                          inversion Hdv; subst;
+                          lazymatch goal with Hlk : clookup _ _ = Some ?ee |- _ =>
+                            unfold clookup in Hlk; rewrite nth_error_app2, Nat.sub_diag in Hlk by lia; inversion Hlk; subst;
+                            rewrite Hb in Hmot; cbn [cannotation ren_cty] in Hmot;
+                            eapply cdemand_sum_nat_safe; cycle 2; [exact Hmot | cbn; reflexivity | left; reflexivity]
+                          end
+                        end);
+                     pose proof (subst_cidx_sum_var_to_nat_gen D mot true (lift_cidx 0 (length env_a) idx) 0 (length env_a) Hm0 Hmot_safe) as Hsvn;
+                     cbn [Nat.add] in Hsvn; rewrite lift_cidx_0_0, <- (lift_cidx_1_S D (length env_a) idx) in Hsvn;
+                     rewrite Hsvn; apply cty_alpha_eq_refl
+                   | rewrite (proj2 (Nat.eqb_neq _ _) Hne); destruct (Nat.ltb_spec nv (length env_a)) as [Hlt | Hge];
+                     cbn [term_as_cidx];
+                     pose proof (subst_cidx_subst_sum_comm_gen D mot true (CIdxVar nv) (lift_cidx 0 (length env_a) idx) 0 (length env_a)
+                                   ltac:(right; eapply cdemand_not_nat_idx0_safe; cycle 1; [exact Hmot | cbn; discriminate]) ltac:(cbn; reflexivity) ltac:(cbn; exact Hmot_safe)) as Hcm;
+                     cbn [Nat.add subst_cidx_in_cty subst_cidx] in Hcm; rw_nat_bool_in Hcm;
+                     rewrite ?lift_cidx_0_0, <- (lift_cidx_1_S D (length env_a) idx) in Hcm; rewrite Hcm; apply cty_alpha_eq_refl ]
+                 end
+               | inversion H; subst;
+                 lazymatch goal with Hdv : CoreDerives _ (CNatVal ?ii) _ |- _ =>
+                   inversion Hdv; subst;
+                   lazymatch goal with Hcd : CIdxDemand _ ?ii _ |- _ =>
+                     pose proof (proj1 (cdemand_nat_safe D b env_b Hb) _ _ _ Hcd env_a eq_refl) as Hi_safe;
+                     pose proof (subst_cidx_subst_sum_comm_gen D mot true ii (lift_cidx 0 (length env_a) idx) 0 (length env_a)
+                                   ltac:(right; eapply cdemand_not_nat_idx0_safe; cycle 1; [exact Hmot | cbn; discriminate]) Hi_safe ltac:(cbn; exact Hmot_safe)) as Hcm;
+                     cbn [Nat.add subst_cidx_in_cty] in Hcm; rewrite ?lift_cidx_0_0, ?lift_cty_0_0, <- (lift_cidx_1_S D (length env_a) idx) in Hcm; rewrite Hcm; apply cty_alpha_eq_refl
+                   end
+                 end ]
+             | rewrite (term_as_cidx_subst_none _ _ _ _ Ev);
+               rewrite (subst_cidx_in_cty_unshift_0 D mot (lift_cidx 0 (length env_a) idx) (length env_a) Hdep Hmot_safe), <- (lift_cidx_1_S D (length env_a) idx); apply cty_alpha_eq_refl ]
+           | destruct (term_as_cidx scrut) eqn:Ev;
+             [ destruct scrut; cbn [term_as_cidx subst_cidx_in_cterm] in *; try discriminate; injection Ev as <-;
+               [ lazymatch goal with |- context [if ?nv =? _ then _ else _] =>
+                   destruct (Nat.eq_dec nv (length env_a)) as [-> | Hne];
+                   [ rewrite Nat.ltb_irrefl, Nat.eqb_refl; cbn [term_as_cidx];
+                     assert (Hm0 : cty_uses_kinds false false false false false false true 0 mot = false) by
+                       (inversion H; subst;
+                        lazymatch goal with Hdv : CoreDerives _ (CVar _) _ |- _ =>
+                          inversion Hdv; subst;
+                          lazymatch goal with Hlk : clookup _ _ = Some ?ee |- _ =>
+                            unfold clookup in Hlk; rewrite nth_error_app2, Nat.sub_diag in Hlk by lia; inversion Hlk; subst;
+                            rewrite Hb in Hmot; cbn [cannotation ren_cty] in Hmot;
+                            eapply cdemand_sum_nat_safe; cycle 2; [exact Hmot | cbn; reflexivity | right; reflexivity]
+                          end
+                        end);
+                     pose proof (subst_cidx_sum_var_to_nat_gen D mot false (lift_cidx 0 (length env_a) idx) 0 (length env_a) Hm0 Hmot_safe) as Hsvn;
+                     cbn [Nat.add] in Hsvn; rewrite lift_cidx_0_0, <- (lift_cidx_1_S D (length env_a) idx) in Hsvn;
+                     rewrite Hsvn; apply cty_alpha_eq_refl
+                   | rewrite (proj2 (Nat.eqb_neq _ _) Hne); destruct (Nat.ltb_spec nv (length env_a)) as [Hlt | Hge];
+                     cbn [term_as_cidx];
+                     pose proof (subst_cidx_subst_sum_comm_gen D mot false (CIdxVar nv) (lift_cidx 0 (length env_a) idx) 0 (length env_a)
+                                   ltac:(right; eapply cdemand_not_nat_idx0_safe; cycle 1; [exact Hmot | cbn; discriminate]) ltac:(cbn; reflexivity) ltac:(cbn; exact Hmot_safe)) as Hcm;
+                     cbn [Nat.add subst_cidx_in_cty subst_cidx] in Hcm; rw_nat_bool_in Hcm;
+                     rewrite ?lift_cidx_0_0, <- (lift_cidx_1_S D (length env_a) idx) in Hcm; rewrite Hcm; apply cty_alpha_eq_refl ]
+                 end
+               | inversion H; subst;
+                 lazymatch goal with Hdv : CoreDerives _ (CNatVal ?ii) _ |- _ =>
+                   inversion Hdv; subst;
+                   lazymatch goal with Hcd : CIdxDemand _ ?ii _ |- _ =>
+                     pose proof (proj1 (cdemand_nat_safe D b env_b Hb) _ _ _ Hcd env_a eq_refl) as Hi_safe;
+                     pose proof (subst_cidx_subst_sum_comm_gen D mot false ii (lift_cidx 0 (length env_a) idx) 0 (length env_a)
+                                   ltac:(right; eapply cdemand_not_nat_idx0_safe; cycle 1; [exact Hmot | cbn; discriminate]) Hi_safe ltac:(cbn; exact Hmot_safe)) as Hcm;
+                     cbn [Nat.add subst_cidx_in_cty] in Hcm; rewrite ?lift_cidx_0_0, ?lift_cty_0_0, <- (lift_cidx_1_S D (length env_a) idx) in Hcm; rewrite Hcm; apply cty_alpha_eq_refl
+                   end
+                 end ]
+             | rewrite (term_as_cidx_subst_none _ _ _ _ Ev);
+               rewrite (subst_cidx_in_cty_unshift_0 D mot (lift_cidx 0 (length env_a) idx) (length env_a) Hdep Hmot_safe), <- (lift_cidx_1_S D (length env_a) idx); apply cty_alpha_eq_refl ] ]);
+        eexists; rewrite <- (lift_cidx_1_S D (length env_a) idx); split; [| split; [| split]];
+        [ rewrite <- (lift_cidx_1_S D (length env_a) idx) in Hlb2, Hrb2; eapply CoreMatchSum;
+          [ exact Hsne | exact Hscr' | exact HA0' | exact HB0' | exact Hv_mot0 | exact Hkap2
+          | exact Hlb2 | exact Hrb2 | exact Ht1_2 | exact Ht2_2 | exact Hs1_2 | exact Hs2_2
+          | exact Hubr' | exact Hdep2 | reflexivity ]
+        | cbn [cresult_type]; exact Hres_eq
+        | cbn [ccomp_demand];
+          pose proof (BranchVec_length D (tl u1) (tl u2) u_br ltac:(destruct u1, u2; cbn in *; lia) Hbv) as Hlen_ubr;
+          cbn [length] in Hlen_ubr;
+          rewrite (vec_subst_add D (length env_a) z (vec_scale s w) u_br (length env_b))
+            by (try exact Hz_len; try rewrite vec_scale_length; destruct u1; cbn in *; lia);
+          rewrite vec_subst_scale; apply branch_rel_add; [apply branch_rel_scale; exact Hw' | exact Hbr_u]
+        | cbn [ctype_demand_row];
+          rewrite (vec_subst_add D (length env_a) z (tl v_mot) (vec_scale kappa w) (length env_b))
+            by (try exact Hz_len; try rewrite vec_scale_length; destruct v_mot; cbn in *; lia);
+          rewrite vec_subst_scale; apply branch_rel_add;
+          [ rewrite vec_subst_tl by lia; apply branch_rel_tl; exact Hbr_mot | apply branch_rel_scale; exact Hw' ] ]
+    end.
+  - (* CoreIf *)
+    lazymatch goal with
+    | Heq : cty_alpha_eq t1 t2, Hbu : BranchVec u1 u2 u_br, Hbv : BranchVec v1 v2 v_br |- _ =>
+        destruct (IHCoreDerives1 env_a eq_refl Hsafe) as [[tc' uc' vc'] [Hc' [Htc [Huc' Hvc']]]];
+        destruct (IHCoreDerives2 env_a eq_refl Hsafe) as [[t1' u1' v1'] [Hth' [Ht1 [Hu1' Hv1']]]];
+        destruct (IHCoreDerives3 env_a eq_refl Hsafe) as [[t2' u2' v2'] [Hel' [Ht2 [Hu2' Hv2']]]];
+        cbn [cresult_type ccomp_demand ctype_demand_row subst_cidx_in_cty] in Htc, Huc', Hvc', Ht1, Hu1', Hv1', Ht2, Hu2', Hv2';
+        apply cty_alpha_eq_CBool_inv in Htc; subst tc';
+        pose proof (core_derives_lengths D _ _ _ H) as [Hlen_uc _];
+        pose proof (core_derives_lengths D _ _ _ H0) as [Hlen_u1 Hlen_v1];
+        pose proof (core_derives_lengths D _ _ _ H1) as [Hlen_u2 Hlen_v2];
+        cbn [ccomp_demand ctype_demand_row length] in Hlen_uc, Hlen_u1, Hlen_v1, Hlen_u2, Hlen_v2;
+        rewrite length_app in Hlen_uc, Hlen_u1, Hlen_v1, Hlen_u2, Hlen_v2; cbn [length] in Hlen_uc, Hlen_u1, Hlen_v1, Hlen_u2, Hlen_v2;
+        destruct (BranchVec_subst D (length env_a) z u1 u2 u_br u1' u2' (length env_b) Hz_len ltac:(lia) ltac:(lia) Hbu Hu1' Hu2') as [ubr' [Hubr' Hbr_u]];
+        destruct (BranchVec_subst D (length env_a) z v1 v2 v_br v1' v2' (length env_b) Hz_len ltac:(lia) ltac:(lia) Hbv Hv1' Hv2') as [vbr' [Hvbr' Hbr_v]];
+        eexists; split; [| split; [| split]];
+        [ eapply CoreIf;
+          [ exact Hc' | exact Hth' | exact Hel'
+          | eapply cty_alpha_eq_trans; [exact Ht1 | eapply cty_alpha_eq_trans; [apply subst_cidx_alpha_eq; exact Heq | apply cty_alpha_eq_sym; exact Ht2]]
+          | exact Hubr' | exact Hvbr' ]
+        | cbn [cresult_type]; exact Ht1
+        | cbn [ccomp_demand];
+          pose proof (BranchVec_length D u1 u2 u_br ltac:(lia) Hbu) as Hlen_ubr;
+          rewrite (vec_subst_add D (length env_a) z u_c u_br (length env_b)) by lia;
+          apply branch_rel_add; [exact Huc' | exact Hbr_u]
+        | cbn [ctype_demand_row]; exact Hbr_v ]
+    end.
+  - (* CoreRecordMk *)
+    destruct (IHCoreDerives env_a eq_refl Hsafe) as [u' [v' [Helems [Hu' Hv']]]].
+    eexists; split; [| split; [| split]];
+    [ apply CoreRecordMk; exact Helems
+    | cbn [cresult_type subst_cidx_in_cty];
+      replace (map (fun '(fn, fg, ft, _) => (fn, fg, ft))
+                (map (fun '(fn, fg, ft, fv) =>
+                   (fn, fg, subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) ft,
+                            subst_cidx_in_cterm (length env_a) (lift_cidx 0 (length env_a) idx) fv)) fields))
+        with (map (fun '(fn, fg, ft) => (fn, fg, subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) ft))
+                (map (fun '(fn, fg, ft, _) => (fn, fg, ft)) fields))
+        by (rewrite !map_map; apply map_ext; intros [[[fn fg] ft] fv]; reflexivity);
+      apply cty_alpha_eq_refl
+    | cbn [ccomp_demand]; exact Hu'
+    | cbn [ctype_demand_row]; exact Hv' ].
+  - (* CoreMatchRecord *)
+    lazymatch goal with
+    | Hsne : s <> zero, Hmot : CTypeDemand _ mot v_mot,
+      Hlen_eq : length bs = length fields,
+      Hext : CRecordExtendEnv _ bs fields body_env,
+      Htb_eq : cty_alpha_eq t_b (lift_cty 0 (length fields) mot),
+      Hfa_rec : CRecordFieldAllows s fields (firstn (length fields) u_b) |- _ =>
+        destruct (IHCoreDerives1 env_a eq_refl Hsafe) as [[tr' w' vs'] [Hscr' [Htr [Hw' Hvs']]]];
+        cbn [cresult_type ccomp_demand ctype_demand_row subst_cidx_in_cty] in Htr, Hw', Hvs';
+        destruct (cty_alpha_eq_CRecord_inv D tr' id
+                    (map (fun '(fn, fg, ft) => (fn, fg, subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) ft)) fields) Htr)
+          as [fields' [-> Hfs_sub]];
+        assert (Hfs_a : Forall2 (fun '(n1, g1, t1) '(n2, g2, t2) => n1 = n2 /\ g1 = g2 /\
+                  cty_alpha_eq t1 (subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) t2)) fields' fields) by
+          (clear - Hfs_sub; revert fields Hfs_sub; induction fields' as [| [[n1 g1] t1] r1 IH]; intros [| [[n2 g2] t2] r2] Hfs;
+           cbn in Hfs; inversion Hfs; subst; [apply Forall2_nil | apply Forall2_cons; [assumption | apply IH; assumption]]);
+        assert (Hlen_fs : length bs = length fields') by (rewrite Hlen_eq; symmetry; apply (Forall2_length Hfs_a));
+        pose proof (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ Hmot env_a eq_refl) as Hmot_safe;
+        destruct (subst_ctype_demand D idx z env_a b env_b mot v_mot Hb Hsafe Hidx Hmot) as [v_mot' [Hv_mot' Hbr_mot]];
+        destruct (record_extend_subst_cidx D idx z env_b b Hb Hidx _ bs fields body_env env_a fields' eq_refl Hsafe Hext Hfs_a)
+          as [ext_a [body_env' [Hbody [Hlen_ext [Hsafe_ext [Hext' Hrel_ext]]]]]];
+        destruct (IHCoreDerives2 ext_a Hbody Hsafe_ext) as [[tb1 ub1 vb1] [Hbod1 [Htb1 [Hub1 Hvb1]]]];
+        cbn [cresult_type ccomp_demand ctype_demand_row] in Htb1, Hub1, Hvb1;
+        destruct (core_derives_cenv_rel D ED _ _ _ Hbod1 _ Hrel_ext) as [[tb2 ub2 vb2] [Hbod2 [Htb2 [Hub2 Hvb2]]]];
+        cbn [cresult_type ccomp_demand ctype_demand_row] in Htb2, Hub2, Hvb2;
+        assert (Hub_tr : branch_rel ub2 (vec_subst (length ext_a) z u_b)) by (eapply branch_rel_trans; [exact Hub2 | exact Hub1]);
+        assert (Htb_tr : cty_alpha_eq tb2 (subst_cidx_in_cty (length ext_a) (lift_cidx 0 (length ext_a) idx) t_b)) by
+          (eapply cty_alpha_eq_trans; [exact Htb2 | exact Htb1]);
+        rewrite Hlen_ext in Htb_tr, Hub_tr;
+        assert (Htb2_eq : cty_alpha_eq tb2 (lift_cty 0 (length fields') (subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) mot))) by
+          (rewrite (Forall2_length Hfs_a);
+           eapply cty_alpha_eq_trans; [exact Htb_tr |];
+           eapply cty_alpha_eq_trans; [apply subst_cidx_alpha_eq; exact Htb_eq |];
+           rewrite <- (lift_cidx_add D (length fields) (length env_a) idx), (subst_cidx_in_cty_lift_n_comm D (length fields) (length env_a) mot (lift_cidx 0 (length env_a) idx) Hmot_safe);
+           apply cty_alpha_eq_refl);
+        assert (Hfa2 : Forall2 (@allows D) (firstn (length fields) ub2) (firstn (length fields) u_b)) by
+          (pose proof (branch_rel_firstn D (length fields) _ _ Hub_tr) as Hfr;
+           rewrite vec_subst_firstn_prefix in Hfr by lia;
+           apply branch_rel_allows; exact Hfr);
+        assert (Hfa_map : CRecordFieldAllows s
+                            (map (fun '(fn, fg, ft) => (fn, fg, subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) ft)) fields)
+                            (firstn (length fields) u_b)) by
+          (clear - Hfa_rec; induction Hfa_rec; cbn; [apply CRecordAllowsNil | apply CRecordAllowsCons; assumption]);
+        assert (Hallows2 : CRecordFieldAllows s fields' (firstn (length fields') ub2)) by
+          (rewrite (Forall2_length Hfs_a); eapply record_allows_mono; [exact Hfa_map | exact Hfa2 | exact Hfs_sub]);
+        eexists; split; [| split; [| split]];
+        [ rewrite Hlen_ext, <- Hlen_eq, <- lift_cidx_add in Hbod2;
+          eapply CoreMatchRecord; [exact Hsne | exact Hscr' | exact Hv_mot' | exact Hlen_fs | exact Hext' | exact Hbod2 | exact Htb2_eq | exact Hallows2]
+        | cbn [cresult_type]; apply cty_alpha_eq_refl
+        | cbn [ccomp_demand]; rewrite (Forall2_length Hfs_a);
+          pose proof (core_derives_lengths D _ _ _ H) as [Hlen_w _];
+          pose proof (core_derives_lengths D _ _ _ H0) as [Hlen_ub _];
+          cbn [ccomp_demand ctype_demand_row length] in Hlen_ub, Hlen_w;
+          rewrite Hbody, length_app, Hlen_ext in Hlen_ub; cbn [length] in Hlen_ub;
+          rewrite length_app in Hlen_w; cbn [length] in Hlen_w;
+          rewrite (vec_subst_add D (length env_a) z (vec_scale s w) (skipn (length fields) u_b) (length env_b))
+            by (try exact Hz_len; try rewrite vec_scale_length; try rewrite length_skipn; lia);
+          rewrite vec_subst_scale; apply branch_rel_add;
+          [ apply branch_rel_scale; exact Hw'
+          | replace (vec_subst (length env_a) z (skipn (length fields) u_b))
+              with (skipn (length fields) (vec_subst (length fields + length env_a) z u_b))
+              by (rewrite <- (vec_subst_skipn_prefix D (length fields) (length fields + length env_a) z u_b ltac:(lia)); f_equal; lia);
+            apply branch_rel_skipn; exact Hub_tr ]
+        | cbn [ctype_demand_row]; exact Hbr_mot ]
+    end.
+  - (* CoreSubgrade *)
+    lazymatch goal with
+    | Hsub : Subty _ actual target, Hvt : CTypeDemand _ target vt |- _ =>
+        destruct (IHCoreDerives env_a eq_refl Hsafe) as [[act' u' v'] [Hb' [Hact' [Hu' Hv']]]];
+        cbn [cresult_type ccomp_demand ctype_demand_row] in Hact', Hu', Hv';
+        pose proof (subst_subty D idx z env_a b env_b actual target Hb Hsub) as Hsub';
+        assert (Hsub0 : Subty (subst_cidx_cenv idx z env_a ++ env_b) act'
+                          (subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) target)) by
+          (eapply Subty_alpha; [exact Hsub' | apply cenv_alpha_eq_refl | apply cty_alpha_eq_sym; exact Hact' | apply cty_alpha_eq_refl]);
+        destruct (subst_ctype_demand D idx z env_a b env_b target vt Hb Hsafe Hidx Hvt) as [vt' [Hvt' Hbr_vt]];
+        eexists; split; [| split; [| split]];
+        [ eapply CoreSubgrade; [exact Hb' | exact Hsub0 | exact Hvt']
+        | cbn [cresult_type]; apply cty_alpha_eq_refl
+        | cbn [ccomp_demand]; exact Hu'
+        | cbn [ctype_demand_row]; exact Hbr_vt ]
+    end.
+  - (* CoreFix *)
+    lazymatch goal with
+    | Hmot : CTypeDemand _ mot v_mot,
+      Hbeq : cty_alpha_eq t_b (subst_cidx_in_cty 0 (CIdxLit 0) mot),
+      Hsteq : cty_alpha_eq t_st (spec_fix_step_cty mot),
+      Hrec0 : allows (nth_grade u_st 0) s_rec, Hrec1 : allows (nth_grade u_st 1) s_rec,
+      Hrecok : fix_recurrence_ok s_rec (tl (tl u_st)),
+      Hdep : match term_as_cidx scrut with Some _ => True | None => cty_uses_var 0 mot = false end,
+      Hres : res_ty = spec_fix_subj_cty scrut mot |- _ =>
+        destruct (IHCoreDerives1 env_a eq_refl Hsafe) as [[st' us' vs'] [Hscr' [Hst [Hus' Hvs']]]];
+        cbn [cresult_type ccomp_demand ctype_demand_row subst_cidx_in_cty] in Hst, Hus', Hvs';
+        apply cty_alpha_eq_CNat_inv in Hst; subst st';
+        pose proof (proj2 (cdemand_nat_safe D b env_b Hb) _ _ _ Hmot ({| cbinder := xn; cannotation := CNat; ctype_uses := vec_zero (length (env_a ++ b :: env_b)) |} :: env_a) eq_refl) as Hmot_safe;
+        cbn [length] in Hmot_safe;
+        assert (Hsafe_xn : cenv_nat_safe ({| cbinder := xn; cannotation := CNat; ctype_uses := vec_zero (length (env_a ++ b :: env_b)) |} :: env_a) (S (length env_a))) by
+          (apply cenv_nat_safe_cons; [reflexivity | exact Hsafe]);
+        destruct (subst_ctype_demand D idx z ({| cbinder := xn; cannotation := CNat; ctype_uses := vec_zero (length (env_a ++ b :: env_b)) |} :: env_a) b env_b mot v_mot Hb Hsafe_xn Hidx Hmot)
+          as [v_mot' [Hv_mot' Hbr_mot]];
+        cbn [subst_cidx_cenv length cbinder cannotation ctype_uses app subst_cidx_in_cty] in Hv_mot', Hbr_mot;
+        assert (Hv_mot0 : CTypeDemand ({| cbinder := xn; cannotation := CNat; ctype_uses := vec_zero (length (subst_cidx_cenv idx z env_a ++ env_b)) |} :: subst_cidx_cenv idx z env_a ++ env_b)
+                                      (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 (S (length env_a)) idx) mot) v_mot') by
+          (eapply CTypeDemand_alpha_env; [| exact Hv_mot']; constructor; [cbn; apply cty_alpha_eq_refl | apply cenv_alpha_eq_refl]);
+        destruct (IHCoreDerives2 env_a eq_refl Hsafe) as [[tb' ub' vb'] [Hbas' [Htb' [Hub' Hvb']]]];
+        cbn [cresult_type ccomp_demand ctype_demand_row] in Htb', Hub', Hvb';
+        assert (Hbeq' : cty_alpha_eq tb' (subst_cidx_in_cty 0 (CIdxLit 0) (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 (S (length env_a)) idx) mot))) by
+          (eapply cty_alpha_eq_trans; [exact Htb' |];
+           eapply cty_alpha_eq_trans; [apply subst_cidx_alpha_eq; exact Hbeq |];
+           pose proof (subst_cidx_in_cty_subst_cidx D mot (CIdxLit 0) (lift_cidx 0 (length env_a) idx) 0 (length env_a)
+                         ltac:(lia) ltac:(cbn; reflexivity) Hmot_safe) as Hcm;
+           cbn [subst_cidx] in Hcm; rewrite <- (lift_cidx_1_S D (length env_a) idx) in Hcm; rewrite Hcm; apply cty_alpha_eq_refl);
+        assert (Hsafe_xr : cenv_nat_safe ({| cbinder := xr; cannotation := mot; ctype_uses := v_mot |} ::
+                                          {| cbinder := xn; cannotation := CNat; ctype_uses := vec_zero (length (env_a ++ b :: env_b)) |} :: env_a)
+                                         (S (S (length env_a)))) by
+          (apply cenv_nat_safe_cons; [exact Hmot_safe | exact Hsafe_xn]);
+        destruct (IHCoreDerives3 ({| cbinder := xr; cannotation := mot; ctype_uses := v_mot |} ::
+                                  {| cbinder := xn; cannotation := CNat; ctype_uses := vec_zero (length (env_a ++ b :: env_b)) |} :: env_a) eq_refl Hsafe_xr)
+          as [[tst1 ust1 vst1] [Hstp1 [Htst1 [Hust1 Hvst1]]]];
+        cbn [cresult_type ccomp_demand ctype_demand_row subst_cidx_cenv length cbinder cannotation ctype_uses app subst_cidx_in_cty] in Hstp1, Htst1, Hust1, Hvst1;
+        rewrite (lift_cidx_2_SS D (length env_a) idx) in Hstp1, Htst1;
+        assert (Hrel_xr : cenv_demand_rel
+          ({| cbinder := xr; cannotation := subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 (S (length env_a)) idx) mot; ctype_uses := v_mot' |}
+           :: {| cbinder := xn; cannotation := CNat; ctype_uses := vec_zero (length (subst_cidx_cenv idx z env_a ++ env_b)) |}
+           :: subst_cidx_cenv idx z env_a ++ env_b)
+          ({| cbinder := xr; cannotation := subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 (S (length env_a)) idx) mot;
+              ctype_uses := vec_subst (S (length env_a)) z v_mot |}
+           :: {| cbinder := xn; cannotation := CNat;
+                 ctype_uses := vec_subst (length env_a) z (vec_zero (length (env_a ++ b :: env_b))) |}
+           :: subst_cidx_cenv idx z env_a ++ env_b)) by
+          (apply cenv_demand_rel_cons;
+           [ apply cenv_demand_rel_cons;
+             [ apply cenv_demand_rel_refl
+             | apply cty_alpha_eq_refl
+             | apply CTypeNat
+             | rewrite !length_app, subst_cidx_cenv_length; cbn [length]; rewrite Nat.add_succ_r, vec_subst_zero by exact Hz_len; apply branch_rel_refl ]
+           | apply cty_alpha_eq_refl
+           | exact Hv_mot0
+           | exact Hbr_mot ]);
+        destruct (core_derives_cenv_rel D ED _ _ _ Hstp1 _ Hrel_xr) as [[tst2 ust2 vst2] [Hstp2 [Htst2 [Hust2 Hvst2]]]];
+        cbn [cresult_type ccomp_demand ctype_demand_row] in Htst2, Hust2, Hvst2;
+        assert (Hust_tr : branch_rel ust2 (vec_subst (S (S (length env_a))) z u_st)) by (eapply branch_rel_trans; [exact Hust2 | exact Hust1]);
+        assert (Htst_tr : cty_alpha_eq tst2 (subst_cidx_in_cty (S (S (length env_a))) (lift_cidx 0 2 (lift_cidx 0 (length env_a) idx)) t_st)) by
+          (eapply cty_alpha_eq_trans; [exact Htst2 | exact Htst1]);
+        assert (Hsteq' : cty_alpha_eq tst2 (spec_fix_step_cty (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 (S (length env_a)) idx) mot))) by
+          (eapply cty_alpha_eq_trans; [exact Htst_tr |];
+           eapply cty_alpha_eq_trans; [apply subst_cidx_alpha_eq; exact Hsteq |];
+           rewrite (subst_cidx_spec_fix_step D mot (lift_cidx 0 (length env_a) idx) (length env_a) Hmot_safe), <- (lift_cidx_1_S D (length env_a) idx); apply cty_alpha_eq_refl);
+        pose proof (ctype_demand_length D _ _ _ Hmot) as Hlen_vm;
+        pose proof (core_derives_lengths D _ _ _ H) as [Hlen_us _];
+        pose proof (core_derives_lengths D _ _ _ H0) as [Hlen_ub _];
+        pose proof (core_derives_lengths D _ _ _ H1) as [Hlen_ust _];
+        cbn [ccomp_demand ctype_demand_row length] in Hlen_vm, Hlen_us, Hlen_ub, Hlen_ust;
+        rewrite length_app in Hlen_vm, Hlen_us, Hlen_ub, Hlen_ust; cbn [length] in Hlen_vm, Hlen_us, Hlen_ub, Hlen_ust;
+        assert (Hrec0' : allows (nth_grade ust2 0) s_rec) by
+          (eapply allows_trans; [exact (branch_rel_nth D _ _ 0 Hust_tr) | rewrite vec_subst_nth_lt by lia; exact Hrec0]);
+        assert (Hrec1' : allows (nth_grade ust2 1) s_rec) by
+          (eapply allows_trans; [exact (branch_rel_nth D _ _ 1 Hust_tr) | rewrite vec_subst_nth_lt by lia; exact Hrec1]);
+        assert (Hust_tl_br : branch_rel (tl (tl ust2)) (vec_subst (length env_a) z (tl (tl u_st)))) by
+          (rewrite !vec_subst_tl by (destruct u_st; cbn in *; lia); apply branch_rel_tl, branch_rel_tl; exact Hust_tr);
+        assert (Hrecok' : fix_recurrence_ok s_rec (tl (tl ust2))) by
+          (unfold fix_recurrence_ok in Hrecok |- *;
+           destruct (vec_is_zero (tl (tl u_st))) eqn:Ez;
+           [ apply vec_is_zero_iff in Ez;
+             replace (length (tl (tl u_st))) with (S (length env_a + length env_b)) in Ez by (destruct u_st as [| ? [| ? ?]]; cbn in *; lia);
+             rewrite Ez, vec_subst_zero in Hust_tl_br by exact Hz_len;
+             rewrite (branch_rel_vec_is_zero D ED _ _ Hust_tl_br); exact I
+           | destruct (vec_is_zero (tl (tl ust2))); [exact I | exact Hrecok] ]);
+        assert (Hdep2 : match term_as_cidx (subst_cidx_in_cterm (length env_a) (lift_cidx 0 (length env_a) idx) scrut) with
+                        | Some _ => True
+                        | None => cty_uses_var 0 (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 (S (length env_a)) idx) mot) = false
+                        end) by
+          (destruct (term_as_cidx scrut) as [ci |] eqn:Es;
+           [ destruct (term_as_cidx_subst_some D b env_a env_b scrut _ ci (lift_cidx 0 (length env_a) idx) Hb H Es) as [_ ->]; exact I
+           | rewrite (term_as_cidx_subst_none _ _ _ _ Es);
+             apply cty_uses_var_subst_cidx_0; [lia | exact Hmot_safe | rewrite (lift_cidx_1_S D (length env_a) idx); apply lift_cidx_uses_var_0 | exact Hdep] ]);
+        assert (Hres_eq : cty_alpha_eq (spec_fix_subj_cty (subst_cidx_in_cterm (length env_a) (lift_cidx 0 (length env_a) idx) scrut)
+                                         (subst_cidx_in_cty (S (length env_a)) (lift_cidx 0 (S (length env_a)) idx) mot))
+                            (subst_cidx_in_cty (length env_a) (lift_cidx 0 (length env_a) idx) res_ty)) by
+          (rewrite Hres; unfold spec_fix_subj_cty;
+           destruct (term_as_cidx scrut) as [ci |] eqn:Es;
+           [ destruct (term_as_cidx_subst_some D b env_a env_b scrut _ ci (lift_cidx 0 (length env_a) idx) Hb H Es) as [Hc_safe ->];
+             pose proof (subst_cidx_in_cty_subst_cidx D mot ci (lift_cidx 0 (length env_a) idx) 0 (length env_a)
+                           ltac:(lia) Hc_safe Hmot_safe) as Hcm;
+             cbn [Nat.add] in Hcm; rewrite ?lift_cidx_0_0, <- (lift_cidx_1_S D (length env_a) idx) in Hcm; rewrite Hcm; apply cty_alpha_eq_refl
+           | rewrite (term_as_cidx_subst_none _ _ _ _ Es);
+             rewrite (subst_cidx_in_cty_unshift_0 D mot (lift_cidx 0 (length env_a) idx) (length env_a) Hdep Hmot_safe), <- (lift_cidx_1_S D (length env_a) idx);
+             apply cty_alpha_eq_refl ]);
+        eexists; rewrite <- (lift_cidx_1_S D (length env_a) idx); split; [| split; [| split]];
+        [ eapply CoreFix;
+          [ exact Hscr' | exact Hv_mot0 | exact Hbas' | exact Hbeq' | exact Hstp2 | exact Hsteq'
+          | exact Hrec0' | exact Hrec1' | exact Hrecok' | exact Hdep2 | reflexivity ]
+        | cbn [cresult_type]; exact Hres_eq
+        | cbn [ccomp_demand];
+          assert (Hlen_tlu : length (tl (tl u_st)) = S (length env_a + length env_b)) by (destruct u_st as [| ? [| ? ?]]; cbn in *; lia);
+          rewrite (vec_subst_add D (length env_a) z u_s (vec_add u_b (vec_scale s_rec (tl (tl u_st)))) (length env_b))
+            by (try exact Hz_len; try (rewrite vec_add_length by (rewrite vec_scale_length; lia)); lia);
+          rewrite (vec_subst_add D (length env_a) z u_b (vec_scale s_rec (tl (tl u_st))) (length env_b))
+            by (try exact Hz_len; try rewrite vec_scale_length; lia);
+          rewrite vec_subst_scale; apply branch_rel_add; [exact Hus' | apply branch_rel_add; [exact Hub' | apply branch_rel_scale; exact Hust_tl_br]]
+        | cbn [ctype_demand_row];
+          rewrite (vec_subst_add D (length env_a) z (tl v_mot) (vec_scale (nth_grade v_mot 0) u_s) (length env_b))
+            by (try exact Hz_len; try rewrite vec_scale_length; destruct v_mot; cbn in *; lia);
+          rewrite vec_subst_scale; apply branch_rel_add;
+          [ rewrite vec_subst_tl by lia; apply branch_rel_tl; exact Hbr_mot
+          | apply branch_rel_scale_grade;
+            [ eapply allows_trans; [exact (branch_rel_nth D _ _ 0 Hbr_mot) | rewrite vec_subst_nth_lt by lia; apply allows_refl]
+            | intro Hnone; pose proof (branch_rel_nth D _ _ 0 Hbr_mot) as Hn0;
+              unfold branch_rel in Hbr_mot; rewrite Hnone in Hbr_mot; rewrite Hbr_mot, vec_subst_nth_lt by lia; reflexivity
+            | exact Hus' ] ] ]
+    end.
+  - (* CRecordElemNil *)
+    eexists _, _; split; [constructor |];
+    rewrite !length_app, subst_cidx_cenv_length; cbn [length]; rewrite Nat.add_succ_r, vec_subst_zero by exact Hz_len;
+    split; apply branch_rel_refl.
+  - (* CRecordElemCons *)
+    lazymatch goal with
+    | Htv : cty_alpha_eq t_v ft, Hdt : CTypeDemand _ ft dt, Hrec : CRecordElemDerives _ _ _ _ |- _ =>
+        destruct (IHCoreDerives env_a eq_refl Hsafe) as [[tv' uv' vv'] [Hv' [Htv' [Huv' Hvv']]]];
+        cbn [cresult_type ccomp_demand ctype_demand_row] in Htv', Huv', Hvv';
+        destruct (subst_ctype_demand D idx z env_a b env_b ft dt Hb Hsafe Hidx Hdt) as [dt' [Hdt' Hbr_dt]];
+        destruct (IHCoreDerives0 env_a eq_refl Hsafe) as [ur' [vr' [Hrest' [Hur' Hvr']]]];
+        eexists _, _; split;
+        [ eapply CRecordElemCons;
+          [ exact Hv'
+          | eapply cty_alpha_eq_trans; [exact Htv' | apply subst_cidx_alpha_eq; exact Htv]
+          | exact Hdt'
+          | exact Hrest' ]
+        | split;
+          [ pose proof (core_derives_lengths D _ _ _ H) as [Hlen_uv _];
+            pose proof (record_elem_derives_lengths D _ _ _ _ Hrec) as [Hlen_ur _];
+            cbn [ccomp_demand ctype_demand_row length] in Hlen_uv, Hlen_ur;
+            rewrite length_app in Hlen_uv, Hlen_ur; cbn [length] in Hlen_uv, Hlen_ur;
+            rewrite (vec_subst_add D (length env_a) z (vec_scale fg u_v) u_rest (length env_b))
+              by (try exact Hz_len; try rewrite vec_scale_length; lia);
+            rewrite vec_subst_scale; apply branch_rel_add; [apply branch_rel_scale; exact Huv' | exact Hur']
+          | pose proof (ctype_demand_length D _ _ _ Hdt) as Hlen_dt;
+            pose proof (record_elem_derives_lengths D _ _ _ _ Hrec) as [_ Hlen_vr];
+            cbn [ccomp_demand ctype_demand_row length] in Hlen_dt, Hlen_vr;
+            rewrite length_app in Hlen_dt, Hlen_vr; cbn [length] in Hlen_dt, Hlen_vr;
+            rewrite (vec_subst_add D (length env_a) z dt v_rest (length env_b)) by lia;
+            apply branch_rel_add; [exact Hbr_dt | exact Hvr'] ] ]
     end.
 Qed.
 
