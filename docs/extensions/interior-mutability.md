@@ -148,11 +148,7 @@ Ztso lacks general store-to-later-load ordering. Reclamation needs terminal ackn
 
 ## Concrete scalar service and composed client
 
-This section retains a later concurrent-library experiment. A selected cell consumer first qualifies only the operations it uses, with an independently reviewed functional contract and concrete entry witnesses. A synchronous local-cell client need not implement atomic publication, tasks or handlers. The cross-feature packet/search/counter fixture below is a deferred stress case, not the first useful language or async milestone.
-
-`CountCell(c,g)` is one aligned atomic `u64`, initially zero in generation `g`, summing committed accepted packet lengths. It holds no payload, pointer, request identity or capability. Participants need privately injected capabilities and declared operation rights; the integer handle in `Gamma` grants neither.
-
-`AddOnce(c,g,k,n)` is a unique `Delta` resource for live request `k` and represented stable length `n`, not a copyable grade/proposition. Finite generation allowances conserve `sum(n) <= U64_MAX`; issuing spends that conserved bound, and cancel/commit retires each allowance once. New traffic needs a fresh accounted allowance or quiescent generation, not wraparound or read-then-check. For sequential reference-counted containers, [Evergreen's `starts_owner` reservation and 3-state conservation invariant](../assurance/verification-strategy.md#rust-and-low-level-verification) (`count = owners + reserved_clones + retiring_owners`) supply an analogous split between pre-increment reservation before a fallible constructor (`reserved_clones`), active owners, and retiring owners during drop; `CountCell`'s concurrent `AddOnce` allowance remains a distinct Ztso `AMOADD` protocol with no shared mutable capabilities or reference-counted heap cells.
+Retained for a later concurrent-library experiment (a synchronous local-cell client needs no atomic publication, tasks, or handlers; the cross-feature packet/search/counter fixture is a deferred stress case). `CountCell(c,g)` is an aligned atomic `u64` (zero at generation `g`) summing committed packet lengths without storing payloads, pointers, request IDs, or capabilities (privately injected capabilities and operation rights are required; integer handles in `Gamma` grant neither). `AddOnce(c,g,k,n)` is a unique `Delta` token for live request `k` and represented length `n` (never a copyable grade), conserving `sum(n) <= U64_MAX` across generation `g` by spending on issue and retiring once on cancel/commit (new traffic needs fresh allowance or quiescent generation, never wraparound or load-then-check). Analogous sequential RC pre-allocation ([Evergreen's `starts_owner` / 3-state conservation](../assurance/verification-strategy.md#rust-and-low-level-verification), `count = owners + reserved_clones + retiring_owners`) is distinct from `CountCell`'s Ztso `AMOADD` protocol.
 
 ```text
 commit_add(private_handle, AddOnce(c,g,k,n), represented n)
@@ -163,108 +159,92 @@ resource transition: AddOnce -> one committed receipt
 target candidate: one aligned AMOADD.d, aq = false, rl = false
 ```
 
-The AMO commits/linearizes counter arithmetic only: no payload publication, stable returned current value or cross-client old-value ordering beyond atomic history. The allowance bound makes word addition equal mathematical addition. The proposed lowering must prove its `aq`/`rl` bits; stronger APIs need separate ordering evidence. Callback grades prove neither AMO occurrence nor allowance consumption.
-
-The [combined client](full-language-review.md#composed-client-and-inhabited-entry)
-uses the scalar counter with an immutable callback snapshot, multi-shot handler
-and cancellable child. `commit_add` is a separate child action. Capture excludes
-packet and frame owners and the `AddOnce` allowance.
-
-An entry candidate fixes `N = 4`, `n = 2`, private backing `[1,2,0,0]` with prefix `[1,2]`, a separate immutable callback environment used twice, free declared frame/completion slots, live private grants, zero counter and allowance two. Alternatively two children have lengths/allowances three and two and disjoint packets/frames: either AMO order yields five after joins, with intermediate value three or two. Qualification requires checked inhabitants of the [resource carriers](full-language-review.md#the-representation-the-composed-duties-are-stated-over) and proofs of the private grants, atomicity, publication and scheduling laws.
+The AMO commits counter arithmetic only (no payload publication, stable current value, or cross-client old-value ordering; `aq`/`rl` bits must be proved; callback grades prove neither AMO execution nor allowance consumption). In [the combined client](full-language-review.md#composed-client-and-inhabited-entry), `commit_add` is a child action excluding packet/frame owners and `AddOnce` from handler capture (witness: `N=4`, `n=2`, backing `[1,2,0,0]`, prefix `[1,2]`, immutable 2-use callback env, free slots, live grants, zero counter, allowance 2; or two children with allowances 3 and 2 yielding 5 with intermediate 3 or 2—requiring checked [resource carrier](full-language-review.md#the-representation-the-composed-duties-are-stated-over) inhabitants and grant/atomicity/publication/schedule proofs).
 
 ### Cancellation, completion and reset
 
-Under [R-12-097](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-12-097), the final checkpoint, AMO and private committed-receipt store form one bounded region without suspension, capture, reentry or source-fallible operations. Cancellation stays sticky. A request arriving between checkpoint and AMO is decided afterward as postcommit, not accepted preemptively.
+Under [R-12-097](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-12-097), final checkpoint, AMO, and private committed-receipt store form one bounded no-suspend/no-capture/no-reentry/no-source-failure region with sticky cancellation (arrivals between checkpoint and AMO decide postcommit).
 
 | Reachable outcome | Cell and resource result |
 | --- | --- |
-| Cancel before registered child starts | No AMO occurs; retire the allowance and place the returned input resources in the reserved `cancelled` completion record. Retain the registered frame until terminal collection and its release gate; the collecting owner examines the result. |
-| Cancel observed at the pre-commit checkpoint | Close prior scopes, retire the allowance without changing the counter, clean private state and join `cancelled`. |
-| Commit succeeds | Consume the allowance at the AMO, retain the receipt until normal terminal completion, and record that the increment cannot be replayed. |
-| Cancel after the checkpoint/commit region begins | Resolve at the next decision point; once committed, answer `too_late` and finish normal completion. Do not subtract the increment or repeat the request. |
-| Stale or nonexistent request | Answer `not_live` under the declared generation/request-state test, without obtaining an allowance or accessing a stale grant. |
-| Frame or completion capacity unavailable | Return the pool's typed capacity result before starting, retaining unstarted input resources and creating no AMO obligation. |
-| Parent stops waiting | The scope still owns the child and its packet/frame until terminal join; a wait timeout releases no authority. |
-| Generation restart or environmental fault | Follow fail-stop, revocation and quiescence. No source-cleanup execution, normal completion, preserved counter total across generations or implicit replay is assumed. |
+| Cancel before registered child starts | No AMO; retire allowance, place returned inputs in reserved `cancelled` completion record, keep frame until terminal collection and release gate. |
+| Cancel at pre-commit checkpoint | Close prior scopes, retire allowance unchanged, clean private state, join `cancelled`. |
+| Commit succeeds | Consume allowance at AMO, keep receipt until normal terminal completion, bar replay. |
+| Cancel after checkpoint/commit region starts | Decide at next point; once committed, answer `too_late` and finish normal completion without decrement or replay. |
+| Stale or nonexistent request | Answer `not_live` under generation/request test without allowance or stale access. |
+| Frame or completion capacity unavailable | Return pool capacity verdict pre-start with unstarted inputs intact and no AMO obligation. |
+| Parent stops waiting | Scope retains child/packet/frame until terminal join (wait timeout releases nothing). |
+| Generation restart or environmental fault | Fail-stop, revocation, and quiescence (no assumed source cleanup, normal completion, cross-generation counter preservation, or replay). |
 
-This operation has DMA quiescence `n/a`, but reuse still needs task/reader quiescence and pool lifecycle evidence. A DMA extension retains its packet loan through the HAL's completion/quiescence predicate; `too_late`, dropping a handle or seeing the increment proves none.
-
-Completion uses a declared private record or immutable SPSC publication under the ordering/ownership rules above. Final observation/reset requires joining all terminals and retiring all old-generation rights; an expected count alone permits neither reset nor parent reuse. Live observations are historical scalar samples; their exact-width/alignment atomic-load law must prove single-copy atomicity, not a multi-field snapshot.
-
-The [task outcome policy](handlers-async.md#task-completion-and-scope-failure) applies to a cell operation used by a child. A completed `Err(BorrowConflict)` or `Err(CapacityExhausted(...))` is still an ordinary returned value with its examination duty, not an implicit task failure. The owner may handle it, explicitly propagate across the scope, or select an interface-declared failure exit. None of those choices erases the resource state or reverses a committed update.
+DMA quiescence is `n/a` here (task/reader quiescence and pool release still apply; DMA extensions keep packet loans until HAL completion/quiescence—`too_late`, dropped handles, or seen increments prove none). Completion uses private records or immutable SPSC publication; reset requires joining all terminals and retiring old-generation rights; live loads require single-copy width/alignment atomicity laws (not multi-field snapshots). [Task outcome policy](handlers-async.md#task-completion-and-scope-failure) leaves `Err(BorrowConflict)` / `Err(CapacityExhausted(...))` as ordinary completed values rather than implicit `Failed` outcomes.
 
 ## Exit closure and bounded progress
 
-Outcome-indexed ordinary exits restore the invariant and end all guards. Release cannot depend on an unproved destructor or its execution.
+Ordinary outcome-indexed exits restore invariants and end guards without unproved destructors:
 
 | Exit or control event | Closure obligation |
 | --- | --- |
-| Fallthrough, ordinary return, `Result` success/error propagation | End descendants, consume close/release debts and establish the tagged outcome's exact cell state and returned resources. Errors need not roll back unless their contract says so. |
-| `break`, `continue`, bounded-loop back edge | Close iteration-local invariants/guards and restore the loop predicate before transferring control. |
-| Effect operation, callback or reentrant call | Close first if it can capture, suspend or reenter. A certified local callback may run inside only under the scoped contract excluding those effects and result captures. |
-| Ready or pending `await`, cancellation checkpoint | Closed invariants, no default guard scopes, stable frame storage and an explicit `Suspend`/cleanup derivation. Directly awaiting a helper uses the same rule; nesting creates no fresh guard or cancellation allowance. Ready status does not remove the checkpoint. |
-| Handler discard or deferred multi-shot resumption | Account for transitive `Dispose` or, when the cloning extension is selected, `Dup`; an open debt, guard or allowance defeats an unsupported discard/duplication premise. |
-| Accepted cancellation | Enter bounded cleanup with the invariant closed, retire or return every retained token, and join terminal completion before reuse. |
-| Cleanup failure | The default local close/release primitives are total under their premises. An API with fallible external cleanup needs an explicit quarantined terminal state and a proved containment path; it cannot return ordinary reusable ownership. |
-| Panic, trap or environmental fail-stop | No language exception/unwinding rule is added. Prove absence of unexpected traps under operation premises; external faults stop the affected domain/session and retain its revocation/quiescence obligations without asserting successful source closing. |
+| Fallthrough, ordinary return, `Result` propagation | End descendants, consume close/release debts, establish outcome-tagged cell state and resources (rollback only if contracted). |
+| `break`, `continue`, bounded-loop back edge | Close loop-local invariants/guards and restore loop predicate before jump. |
+| Effect operation, callback, reentrant call | Close before any potentially capturing/suspending/reentrant call (certified local callbacks run inside only if contracted free of those effects/captures). |
+| Ready/pending `await`, cancellation checkpoint | Closed invariants, no default guards, stable frame storage, explicit `Suspend`/cleanup derivation (direct helpers share the task without fresh guard/cancel budgets; ready does not skip checkpoint). |
+| Handler discard / deferred multi-shot | Account for transitive `Dispose` or `Dup` (open debts/guards/allowances fail unsupported discard/duplication). |
+| Accepted cancellation | Enter bounded cleanup with invariant closed, retire/return tokens, join before reuse. |
+| Cleanup failure | Default close/release are total; fallible external cleanup needs an explicit quarantined terminal state and proved containment (never ordinary reusable ownership). |
+| Panic, trap, environmental fail-stop | Prove trap absence under premises (no unwinding); external faults stop domain/session with revocation/quiescence without assuming source closing. |
 
-Declare local steps, checkpoint distance, cleanup/publication work, joins and external quiescence. Map them to the [reaction graph](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-07-037a) and [schedule](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-11-006). Compose comparable elapsed-time bounds `Lcheckpoint`, `Lcleanup`, `Ljoin`, `Lterminal` for accepted cancellation; prove the composition instead of merely adding them. A directly awaited helper contributes to the same task's state and bound, including cleanup, without an extra child term. Postcommit work has its own remaining bound. The no-checkpoint AMO region must fit locally and cannot defer requests indefinitely.
-
-Progress names admitted activations and service/HAL response bounds, with no hidden fairness, spin or eventual-response premise. Adversarial failure takes the specified fail-stop path. Capacity exhaustion returns an immediate typed result with bounded handling; hardware recovery remains separate from source progress.
+Map local steps, checkpoints, cleanup/publication, joins, and quiescence to [R-07-037a](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-07-037a) and [R-11-006](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-11-006), composing elapsed bounds `Lcheckpoint`, `Lcleanup`, `Ljoin`, `Lterminal` (direct helpers share enclosing state/bounds without an extra child term; postcommit has its own bound; no-checkpoint AMO region must fit locally). Progress names admitted activations and service/HAL bounds without hidden fairness, spinning, or hardware-recovery substitution.
 
 ## Qualification cases and rejection neighbors
 
-A commissioned extension selects its consumer, supported operations and applicable cases before implementation under the [delivery plan](../../PLAN.md#holdfast-first-release-delivery). Local cells, dynamic borrowing and concurrent protocols may qualify separately; async and multi-shot cases apply only when those features are selected. Each negative must parse/elaborate beside its positive, reach a satisfiable entry and fail at the named premise. Missing syntax/parser failure or inconsistent preconditions prove no safety.
+Commissioned extensions freeze consumer, ops, and cases under [the delivery plan](../../PLAN.md#holdfast-first-release-delivery) (local cells, dynamic borrows, and concurrent protocols may qualify separately; async/multi-shot apply when selected; negatives parse/elaborate from satisfiable entry states and fail at the named premise).
 
 | Case | Expected accepted derivation or first rejected premise |
 | --- | --- |
-| Local replacement returns an owner by move | `replace` changes the invariant and returns exactly the displaced resource; returning a second copy fails resource splitting. |
-| Two local readers then an attempted writer | Both read guards preserve one immutable value; writer returns examined `BorrowConflict`; releasing both restores `Idle`. |
-| Writer updates then returns `Err` | The declared error predicate contains the valid updated state; guard release precedes propagation. A rollback claim needs its own transition proof. |
-| Child completes with an examined borrow/capacity error | In-place handling preserves siblings; explicit propagation across a scope follows its early-exit join. A source or lowering rule that silently treats an error payload as `Failed` violates the task outcome policy. |
-| Snapshot length three, replacement length one, access index two | The snapshot remains valid history; current access fails the fresh bound/resource predicate. |
-| Hide an owner in a cell inside an unrestricted callback | Transitive capture includes the stored owner; duplicating the callback fails `Dup`, independently of its grade. |
-| Return a view in a nested wrapper or retained continuation | The result capture set contains the scoped loan; guard/view escape fails the scope closure rule. |
-| Reenter the same cell through an apparently pure getter | Transitive effects expose reopening or conflicting access; the open-invariant callback premise fails. |
-| Cancel or await while a write invariant is open | Checkpoint lacks a closed invariant and release proof; both ready and pending awaits fail. A request arriving during a certified bounded region waits for its checkpoint. |
-| Read an immutable published packet, then reclaim after all holders end | Publication consumes writing, readers consume only immutable access, and quiescence restores writing once. Reclaiming after only one of several readers fails. |
-| Copy a non-atomic payload while its writer remains live | Exclusive-access premise fails before any copy; sequence-number validation or retry cannot repair it. |
-| Two counter additions with conserved allowances three and two | Both linearization orders preserve the invariant and give five after terminal joins; a second call with one allowance fails its linear consumption. |
-| Check counter below a limit, then add without an allowance | The read is only a historical observation; concurrent additions invalidate the claimed no-overflow premise. |
-| Cancel observed at a precommit checkpoint versus after commit | First retires allowance with no add; second produces `too_late` and completes exactly once. Arrival during the bounded checkpoint/commit region is decided afterward. Parent reuse before terminal join fails lifecycle ownership. |
-| Capability-bearing task frame in a shared cell | Representation and `Share` fail the prohibition on shared mutable capabilities, even through a sealed source wrapper. |
-| Generic CAS counter, LR/SC loop or widened sub-word AMO | No admitted exact-operation lowering law exists; an unsupported instruction or conflicting footprint refuses the target instance. |
-| Both components accept but their non-atomic grants overlap | The composed manifest join fails under R-05-096b; local acceptance is insufficient. |
-| Observe completion and reuse an old generation's handle | Generation and rights-retirement premises fail even if scalar indices equal their initial values. |
-| Ignore a child failure or borrow/capacity result | Relevant verdict elimination is missing; cell restoration alone does not discharge failure handling. |
+| Local `replace` returns owner by move | Updates invariant and returns displaced resource once; returning a second copy fails split. |
+| Two readers then writer | Both read guards keep one immutable value; writer returns `BorrowConflict`; releasing both restores `Idle`. |
+| Writer updates then returns `Err` | Error predicate holds valid updated state; guard release precedes propagation (rollback needs own proof). |
+| Child returns borrow/capacity error | Local handling keeps siblings active; scope-crossing propagation runs early-exit join; silent `Failed` promotion violates outcome policy. |
+| Snapshot length 3, replacement length 1, access index 2 | Snapshot stays valid history; current access fails fresh bound/resource predicate. |
+| Hide owner in cell inside unrestricted callback | Transitive capture includes stored owner; duplicating callback fails `Dup` regardless of grade. |
+| Return view in nested wrapper or continuation | Result capture retains scoped loan; escape fails scope closure. |
+| Reenter same cell via pure-looking getter | Transitive effects expose conflict; open-invariant callback premise fails. |
+| Cancel or await with open write invariant | Checkpoint lacks closed invariant/release proof (ready/pending alike); bounded-region arrivals wait for checkpoint. |
+| Read immutable published packet, reclaim after holders end | Publication consumes write, readers share immutable access, quiescence restores write once (early reclaim fails). |
+| Copy non-atomic payload under live writer | Exclusive-access premise fails pre-copy (sequence counters/retries cannot repair). |
+| Two additions with conserved allowances 3 and 2 | Either linearization gives 5 post-join; second call with allowance 1 fails linear consumption. |
+| Check counter below limit, add without allowance | Historical load cannot exclude concurrent adds; overflow premise fails. |
+| Precommit vs postcommit cancel | Precommit retires allowance without add; postcommit gives `too_late` and completes once (in-region arrival decides afterward; pre-join parent reuse fails ownership). |
+| Capability-bearing frame in shared cell | Representation/`Share` reject shared mutable capabilities even through sealed wrappers. |
+| Generic CAS, LR/SC loop, or widened sub-word AMO | No admitted exact-op lowering law; target rejects unsupported instruction/footprint. |
+| Both components accept with overlapping non-atomic grants | Composed manifest join fails R-05-096b. |
+| Observe completion and reuse old generation handle | Generation and rights-retirement premises fail despite matching scalar indices. |
+| Ignore child failure or borrow/capacity result | Missing mandatory verdict elimination (cell restoration does not discharge it). |
 
 ## Separate theorems and missing-law handoff
 
 | Guarantee | Required theorem subject and premises |
 | --- | --- |
-| Functional correctness | The interpreted state machine refines each operation's reviewed behavior contract; `commit_add` linearizes once and the generation's count equals committed allowances. Requires actual representation/read/write/atomic laws, conserved bound and no-replay history. Linearizability does not establish the counter's intended meaning by itself. |
-| Race freedom | The composed source resource derivation excludes conflicting non-atomic access, and source correspondence/lowering/TAL soundness transport it to every Sail execution admitted by the binary/manifest join. Requires exact footprints, atomic classification, permission and frame laws, and all device participants. |
-| Progress and release | Every normal or accepted-cancel trace reaches its declared terminal predicate within its bound; every reusable region is quiescent. Requires bounded reaction activations, local close/release totality, reserved terminal capacity and declared external bounds. Race freedom grants no progress theorem. |
-| Leakage and policy | Two related initial states have the required related public observations over the selected architectural leakage model and final artifact. Requires actual security labels, allowed releases, address/branch/AMO-result observations, schedule/resource accounting and relational compiler preservation. The counter exposes lengths and completion information only under an explicit policy. |
+| Functional correctness | Interpreted state machine refines contracts; `commit_add` linearizes once and generation count matches committed allowances (needs representation/read/write/atomic laws, conserved bound, no-replay history; linearizability alone does not prove intended meaning). |
+| Race freedom | Composed source derivation excludes conflicting non-atomic access and transports via correspondence/lowering/TAL to all binary/manifest-admitted Sail executions (needs exact footprints, atomic classes, permissions/frames, device participants). |
+| Progress and release | Normal/accepted-cancel traces reach declared terminal predicates within bounds and reusable regions quiesce (needs bounded activations, total local close/release, reserved terminal capacity, external bounds; race freedom ≠ progress). |
+| Leakage and policy | Related initial states preserve public observations over architectural leakage model and final artifact (needs security labels, allowed releases, address/branch/AMO observations, schedule/resource accounting, relational compiler preservation). |
 
-The example permits public lengths, scheduling and count while contents stay private; it declassifies no secret length, failure, occupancy, AMO order or completion time. Secret-length instances need a different observation contract and constant-time/policy proof. Atomicity and security grades supply no relational theorem.
+Example exposes public lengths, schedules, and count while keeping contents private (no declassification of secret lengths, failures, occupancy, AMO order, or completion time; security grades alone give no relational theorem). [Sharing/disposal](../assurance/verification-strategy.md#effect-handlers-sharing-and-protocol-logics) and [Rust surveys](../assurance/verification-strategy.md#rust-and-low-level-verification) note mechanized temporary guarding (`MUT-CELL`), resource-leak adequacy (`MUT-EXIT`), VerusBelt, and RustHornBelt Cell/Mutex proofs over foreign languages/models/provers—none builds this concrete CHERI/Sail representation or inhabited cell.
 
-The [sharing/disposal survey](../assurance/verification-strategy.md#effect-handlers-sharing-and-protocol-logics) records mechanized temporary guarding for `MUT-CELL` and a non-leaking resource-accounting adequacy result for `MUT-EXIT`. The [Rust survey](../assurance/verification-strategy.md#rust-and-low-level-verification) records semantic soundness for a proof tool's cell/invariant/storage subset via guarding plus lifetime logic, and checked Cell/Mutex specifications over a Rust-core model. Each uses another language, trusted base and prover edition, retaining erasure/solver/compiler trust. None constructs this concrete representation, pinned-Sail atomic law or inhabited cell instance.
-
-Each theorem applies to the selected elaboration image and exact source
-correspondence. [Extension plan](../../PLAN.md#language-extensions)
+Applies to the selected elaboration image and exact source correspondence ([Extension plan](../../PLAN.md#language-extensions)):
 
 | Debt | Concrete acceptance predicate and ownership boundary |
 | --- | --- |
-| `MUT-CELL` | Interpret sealed cell predicates, invariant masks, unique opening/closing debts and frame preservation over the selected concrete resource logic; prove local replacement/take/put/scoped callback rules. |
-| `MUT-BORROW` | Prove represented borrow-state correspondence, bounded guard capacity, alias exclusion, exact release and all source exits, including nested capture checks. Apply the graded substitution and handler exit rules. |
-| `MUT-SNAPSHOT` | Prove observation-to-snapshot introduction, stability under interference, invalidation of current predicates and dependent shape transport; connect executable copies to actual initialized memory. |
-| `MUT-SHARE` | Prove transitive capture, `Dup`/`Dispose`/`Suspend`/`Transfer`/`Share` composition through sealed representations, task frames and handlers, with a target theorem excluding shared mutable capability storage and bypass paths. |
-| `MUT-ATOMIC` | Build the concrete counter invariant/history and one-use allowance interpretation; prove exact AMO linearization, no overflow, width/alignment/permission/PMA conditions and atomic observation against the pinned Sail subject. |
-| `MUT-PUBLISH` | Instantiate the existing SPSC proof with immutable packet/completion publication, actual Ztso/compiler/fabric ordering, reader/DMA quiescence and generation retirement. |
-| `MUT-EXIT` | Join cancellation arbitration, checkpoint masking, sequential helper cleanup, no-replay receipt storage, child terminal records and reset with the async rules. Prove each outcome preserves cell/frame resources and terminal bounds. Ordinary completed error values remain distinct from declared task failure, and helper composition neither resets commit phase nor duplicates cleanup. |
-| `MUT-OBSERVE` | Prove the chosen counter/packet information-flow contract, including AMO results, occupancy, cancellations and schedules, and preserve it through optimization and final bytes. Coordinate with the existing non-interference/WCET and compiler owners. |
-| `MUT-CLIENT` | Construct inhabited concrete entry witnesses for the selected local or concurrent library consumer, replay every supported positive/negative neighbor, independently review the actual behavior/byte contract, and connect the interpreted trace to its exact final representation. A combined client also meets the [composition requirements](full-language-review.md). |
+| `MUT-CELL` | Interpret sealed cell predicates, invariant masks, unique open/close debts, and framing over concrete resource logic; prove `replace`/`take`/`put`/callback rules. |
+| `MUT-BORROW` | Borrow-state correspondence, bounded guard capacity, alias exclusion, exact release, and all exits (incl. nested captures) with graded substitution/handler exit rules. |
+| `MUT-SNAPSHOT` | Observation-to-snapshot intro, interference stability, current-predicate invalidation, dependent shape transport, and executable copy to initialized memory. |
+| `MUT-SHARE` | Transitive capture and `Dup`/`Dispose`/`Suspend`/`Transfer`/`Share` across sealed reps, frames, and handlers, excluding shared mutable capabilities and bypasses. |
+| `MUT-ATOMIC` | Concrete counter invariant/history, one-use allowance, exact AMO linearization, overflow exclusion, width/alignment/permission/PMA, and atomic observation against pinned Sail. |
+| `MUT-PUBLISH` | Instantiate SPSC proof with immutable packet/completion publication, Ztso/compiler/fabric ordering, reader/DMA quiescence, and generation retirement. |
+| `MUT-EXIT` | Join cancellation, checkpoint masks, helper cleanup, no-replay receipt storage, child completions, and reset with async rules (outcome-indexed resources/bounds; `Completed(Err)` ≠ `Failed`; helper preserves commit phase and cleanup count). |
+| `MUT-OBSERVE` | Information-flow contract for counter/packet (AMO results, occupancy, cancellations, schedules) preserved through optimization and final bytes with noninterference/WCET/compiler owners. |
+| `MUT-CLIENT` | Construct inhabited concrete entry witnesses, replay all positives/negatives, independently review byte/behavior contracts, and connect trace to final representation (plus [composition rules](full-language-review.md) when combined). |
 
 <a id="requirement-disposition-owed-at-q25d"></a>
 
@@ -272,11 +252,11 @@ correspondence. [Extension plan](../../PLAN.md#language-extensions)
 
 | Requirement | Acceptance evidence |
 | --- | --- |
-| R-05-096a and R-05-096b | Retain exclusive non-atomic access and explicitly atomic shared cells. Check the binary and manifest together. |
-| R-15-024 through R-15-027 | Use admitted scalar `Zaamo`/`Zabha` operations. Exclude CAS, LR/SC and shared mutable capability storage. |
+| R-05-096a and R-05-096b | Retain exclusive non-atomic access and explicitly atomic shared cells; check binary and manifest together. |
+| R-15-024 through R-15-027 | Use admitted scalar `Zaamo`/`Zabha` ops; exclude CAS, LR/SC, and shared mutable capability storage. |
 | R-05-039 and R-05-100 | Inject mutable state and use explicit bounded exits. |
 | R-05-020a and R-05-026 | Check interpretation and exact source-to-artifact correspondence. [Frontend admission](full-language-review.md#frontend-admission) |
-| R-05-132 through R-05-134 | Use the admitted TAL attributes and separate kernel-checked source evidence. |
-| R-07-037a and R-11-006 | Use cooperative reactions, bounded masking and nonblocking guard acquisition. |
-| R-08-045 through R-08-047 | Declare storage and exhaustion behavior. Reuse requires the checked lifecycle release. [Runtime storage](full-language-review.md#runtime-storage) |
-| R-12-094 through R-12-099 | Implement publication, capacity, cancellation/commit, terminal and generation rules. |
+| R-05-132 through R-05-134 | Use admitted TAL attributes and separate kernel-checked source evidence. |
+| R-07-037a and R-11-006 | Use cooperative reactions, bounded masking, and nonblocking guard acquisition. |
+| R-08-045 through R-08-047 | Declare storage and exhaustion behavior; reuse requires checked lifecycle release. [Runtime storage](full-language-review.md#runtime-storage) |
+| R-12-094 through R-12-099 | Implement publication, capacity, cancellation/commit, terminal, and generation rules. |

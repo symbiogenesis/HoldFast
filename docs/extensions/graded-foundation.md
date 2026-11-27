@@ -32,68 +32,23 @@ non-interference, and verified zero-type-use substitution skipping.
 
 ## Extension selection and qualification
 
-The [first-release contract](../language/first-release.md#default-graded-checking)
-selects natural computation grades and separate type-use accounting. Use a
-concrete client's independently frozen behavior, resource and representation
-contract, evidence endpoint, toolchain, positives and semantic refusals to
-qualify that selection and measure its value against fixed use modes. Use the
-same comparison to decide whether a client needs a larger grading discipline.
+[First-release default graded checking](../language/first-release.md#default-graded-checking) selects natural computation grades and separate type-use accounting. Qualify that selection and any broader grading extension against fixed use modes using a concrete client's independently frozen behavior/resource/representation contract, evidence endpoint, toolchain, positives, and semantic refusals.
 
 | Candidate | Comparison and admission evidence |
 | --- | --- |
-| Fixed use modes and checked library contracts | Baseline: state-indexed operations and natural-valued exact or bounded trace judgments, using the existing ownership and phase rules. Retain the client's actual proof and maintenance obligations. |
-| `NatExact`/`NatBound` with separate type use | Qualify the selected boxes, dependent data and arithmetic with checked domain laws, usage-aware call-by-value interpretation and exact-source correspondence. Connect value demand to the requested trace property and compare the dependency rows with the simplest sound account meeting the same contract. Identify the dependency or parametricity guarantee, or measured authoring benefit. |
-| General domains | Demonstrate an analysis the qualified natural domains cannot conveniently express and prove its interpretation and composition laws. |
+| Fixed use modes and checked library contracts | Baseline: state-indexed operations and natural exact/bounded trace judgments under existing ownership/phase rules, keeping actual proof/maintenance obligations. |
+| `NatExact`/`NatBound` with separate type use | Qualify boxes, dependent data, and arithmetic with checked domain laws, usage-aware CBV interpretation, and exact-source correspondence; link demand to trace properties, compare dependency rows against the simplest sound account, and show dependency/parametricity/authoring benefit. |
+| General domains | Show an analysis natural domains cannot express cleanly and prove its interpretation and composition laws. |
 
-Before a trial, freeze material-benefit thresholds and budgets for annotations,
-proof/review/repair effort, diagnostic quality, checking time and memory. Separate
-demand reconstruction, constraint search and certificate/kernel replay; record
-fresh and changed-input runs, unresolved goals and budget refusals. Keep the same
-behavior, preconditions and assurance endpoint across candidates, and account for
-setup and maintenance separately from recurring benefit. Run benchmarks and proof
-acceptance through the [validation handoff](../../AGENTS.md#tool-execution-and-validation).
-Missing prerequisite laws and exhausted budgets leave the affected claim open.
-Retain the client's contract and record unsupported inputs separately from
-semantic refusals. A domain extension additionally requires measured benefit.
+Before a trial, freeze benefit thresholds and budgets for annotations, proof/review/repair effort, diagnostics, checking time, and memory. Separate demand reconstruction, constraint search, and certificate/kernel replay; track fresh vs changed-input runs, open goals, and budget refusals under unchanged behavior, preconditions, and endpoint (accounting setup/maintenance separately from recurring benefit) via [the validation handoff](../../AGENTS.md#tool-execution-and-validation). Missing laws or exhausted budgets keep claims open; separate unsupported inputs from semantic refusals; domain extensions also require measured benefit.
 
-To qualify the [GrTT-style distinction](../assurance/verification-strategy.md#reading-the-graded-type-claims),
-the client evidence must show how a binder's two demands vary independently.
-Replay a computationally unused index that contributes to a later declaration
-and to the result type. Check a computation edit that violates its allowance and
-a type edit that changes the dependency row while preserving computation demand.
-Replay those edits through the same callable boundary, including resolved
-package dependencies where the interface crosses a module. The evidence names
-the affected source bindings and the substituted rows of the retained telescope.
+To qualify [GrTT's distinction](../assurance/verification-strategy.md#reading-the-graded-type-claims), replay an index unused computationally that contributes to later declarations and result types, testing both an allowance-violating computation edit and a computation-preserving type-dependency edit across callable and locked module boundaries, naming affected bindings and retained telescope rows.
 
-Gerty's [substitution-skipping experiment](../assurance/verification-strategy.md#reading-the-graded-type-claims)
-is a separate optional optimization. It requires a proved zero-type-use
-irrelevance condition for the selected domain, agreement with ordinary checked
-substitution, and measured total checking benefit including any new solver calls.
-Evaluate it within an already justified graded implementation; this does not
-commission a separate verification tool solely for speed.
-Retaining that optimization is not a prerequisite for adopting useful type-use
-reasoning, and its donor measurements establish no HoldFast speedup.
-
-The pure `NatExact` calculus proves that substitution for a variable with
-checked zero type demand leaves the inferred type and all its demand counts
-unchanged. This uses exact natural addition and the checked dependency row.
-The [CBV erasure and skipping development](../../tools/rocq/graded_erasure.v)
-additionally proves `apply_nat_skip_agrees`, `apply_type_skip_agrees`, and
-`let_nat_skip_agrees` together with a 40-binder deep-telescope verification,
-`erasure_simulation`, `closed_erasure_sound`, `zero_computation_irrelevance`,
-and `zero_var_non_interference` under closed assumptions. Representative
-frontend-wide replay benchmarking remains open.
-[Irrelevance theorem](../../tools/rocq/graded_type_irrelevance.v) ·
-[Metatheory audit](../../tools/tests/test_holdfast_graded_metatheory.py)
+Gerty's [substitution-skipping optimization](../assurance/verification-strategy.md#reading-the-graded-type-claims) is separate and optional (requiring proved zero-type-use irrelevance, agreement with ordinary substitution, and net checking speedup including solver cost inside an already justified graded build—never commissioning a speed-only tool or relying on donor timings). Pure `NatExact` proves zero-type-demand substitution preserves inferred types and counts; [CBV erasure and skipping](../../tools/rocq/graded_erasure.v) proves `apply_nat_skip_agrees`, `apply_type_skip_agrees`, `let_nat_skip_agrees` (with a 40-binder deep-telescope check), `erasure_simulation`, `closed_erasure_sound`, `zero_computation_irrelevance`, and `zero_var_non_interference` under closed assumptions (representative frontend-wide replay benchmarking remains open). [Irrelevance theorem](../../tools/rocq/graded_type_irrelevance.v) · [Metatheory audit](../../tools/tests/test_holdfast_graded_metatheory.py)
 
 ### Audio routing candidate
 
-`StereoRoute` specializes a pure router to a stereo frame with one
-extra tick and an independent channel-label count. The result must be the
-original stereo samples, with length `(period + 1) + (period + 1)`.
-The ordinary baseline removes the grade annotations, elaborates the remaining
-source, and checks a pointwise equation for the result in Rocq. The graded
-replay checks the dependent signature and reports these demands.
+`StereoRoute` specializes a pure router (`(period + 1) + (period + 1)` stereo length, plus channel-label count). The ungraded baseline checks a pointwise Rocq result equation; graded replay checks the dependent signature and demands:
 
 | Binder | Computation | Type | Type dependencies |
 | --- | --- | --- | --- |
@@ -102,46 +57,15 @@ replay checks the dependent signature and reports these demands.
 | `stereo` | 1 | 0 | n/a |
 | `channelLabels` | 0 | 0 | n/a |
 
-Both checkers reject an application specialized to the old period.
-The graded checker also rejects a zero computation allowance on the returned
-samples. This candidate establishes the observable distinction between the two
-counts. The ordinary baseline already checks the dependent shape and behavior,
-so a selection trial needs a client obligation that benefits from exact counts
-and a common evidence endpoint for measuring that benefit.
-[Source fixture](../../tools/tests/fixtures/graded-audio-route.hf) ·
-[Paired replay](../../tools/tests/test_holdfast_graded_client.py)
+Both checkers reject specializing to the old period; graded checking also rejects a zero computation allowance on returned samples. Since the baseline already checks dependent shape and behavior, selection trials need a client obligation that benefits from exact counts at one shared evidence endpoint. [Source fixture](../../tools/tests/fixtures/graded-audio-route.hf) · [Paired replay](../../tools/tests/test_holdfast_graded_client.py)
 
 ### Conditional usability producers
 
-Granule's [derived distributive combinators](https://arxiv.org/abs/2112.14966)
-move a modality through a data type in supported directions, reducing manual
-composition code. Its [grade-directed synthesis](https://doi.org/10.1007/978-3-031-57262-3_4)
-uses resource constraints to narrow program search. These are separate candidate
-producers of ordinary checked terms, not consequences of accepting grade syntax.
-Their published implementations supply no HoldFast compatibility or correctness
-evidence, and no donor source is incorporated here.
-
-A named library client must first demonstrate repetitive conversions or a useful
-bounded synthesis task against ordinary proved combinators or existing proof
-search. Derivation fixes the supported type constructors, conversion direction
-and grade premises; it cannot assume `Box_q (F A)` and `F (Box_q A)` are always
-interchangeable. Synthesis fixes the grammar, component library, intended behavior
-and search budget; grades alone need not determine behavior or evaluation order.
-Failed search supplies no proof that the requested program is impossible.
-Both retain transitive capture, ownership, phase and effect premises and produce
-inspectable terms with replayable evidence under the unchanged assumption audit.
-Qualification includes a valid client, an invalid domain/duplication premise,
-changed source/dependency/domain bindings, a well-typed but behaviorally wrong candidate and
-bounded failure with no accepted partial result. Measure recurring client benefit
-and total evidence-checking cost before retention.
-
-Derived combinators use the [generation contract](metaprogramming.md#qualification).
-Selected synthesis uses the same checked evidence and source correspondence.
-[Extension plan](../../PLAN.md#language-extensions)
+Granule's [derived distributive combinators](https://arxiv.org/abs/2112.14966) and [grade-directed synthesis](https://doi.org/10.1007/978-3-031-57262-3_4) produce ordinary checked terms (no HoldFast compatibility/correctness evidence or donor code is incorporated). Adoption requires a named client with repetitive conversions or bounded synthesis vs proved combinators/existing proof search: fixing constructors/direction/premises for derivation (not assuming `Box_q (F A) <-> F (Box_q A)`), fixing grammar/components/behavior/budget for synthesis (failed search proves no impossibility), preserving captures/ownership/phase/effects and assumption audits, and testing valid clients, invalid `Dup`/domain premises, changed bindings, well-typed wrong candidates, and bounded failure while measuring recurring benefit vs total checking cost. Derived combinators follow [the generation contract](metaprogramming.md#qualification). [Extension plan](../../PLAN.md#language-extensions)
 
 ## Dimensions and lawful domains
 
-Each evidence-construction judgment fixes `S`: qualified definitions, universe constraints, grade identities, primitive contracts, logic, representation and observation model. Its conclusion names the term whose image is checked. `Type i : Type (i+1)` uses CIC universe checking; cumulative conversion uses checked universe inequalities. No `Type : Type`, new conversion, global UIP, proof irrelevance or extensionality axiom is added. Transports require accepted terms and the existing assumption audit.
+Judgments fix `S` (definitions, universes, grade identities, primitive contracts, logic, representation, observation model) and name the elaborated term checked under CIC `Type i : Type (i+1)` cumulativity (no `Type : Type`, conversion extensions, global UIP, proof irrelevance, or extensionality axioms; transports need accepted terms and assumption audits).
 
 | Dimension | Meaning | Evidence it cannot replace |
 | --- | --- | --- |
@@ -153,7 +77,7 @@ Each evidence-construction judgment fixes `S`: qualified definitions, universe c
 | Trace contract `T` | Named source events, their order and exact counts or upper bounds | Surviving machine calls or instruction timing |
 | Target bound `W` | The existing final-CFG cost judgment against pinned Sail timing | A source use or event count without its transport theorem |
 
-In the extensible proposal, a domain is a sealed CIC record, never an executable admission plugin. Its identity binds carrier universe, grade syntax, operations, equality/order proofs, structural permissions, certificate interpreter and interpretation in the existing anchor; clients cannot replace its dictionary behind a qualified signature. The first release does not accept arbitrary domain dictionaries or require their general inference procedure.
+In the extensible proposal, domains are sealed CIC records (never runtime plugins or client-swappable dictionaries behind signatures; first release excludes arbitrary domains and general domain inference):
 
 ```text
 q ::= 0_D | 1_D | named_constant_D | alpha_D | q +_D q | q *_D q
@@ -168,17 +92,11 @@ Domain D:
   InterpretUse, InterpretTypeUse, CheckCertificate and soundness obligations
 ```
 
-`q <=D q'` admits demand `q` under allowance `q'`; exact-use claims may require equality. These rules require commuting multiplication for promotion/motive scaling. Noncommutative domains need reviewed ordered-action rules under `GF-domain`; custom operations need composition laws. Incomparable branch demands require proved bounds or result-indexed contracts, never assumed joins. Products need compatible subject/trace interpretations as well as component arithmetic.
-
-`NatExact` uses natural addition/multiplication and equality as admission order. `NatBound` uses ordinary order: `0 <= 1` permits zero uses under a one-use bound. Boolean presence uses `or`/`and`, so `1+1=1` records presence. The [Rocq domain trial](../../tools/rocq/graded_domains.v) checks these three ordered semiring records, row certificates and substitution under the maps from exact counts to bounds and from bounds to presence. This evidence covers demand arithmetic. The [interpretation and qualification obligations](#proof-and-qualification-obligations) govern their use as source domains.
-
-Zero-use erasure needs a theorem excluding relevant observations; nontriviality, positivity and no zero divisors alone do not prove it. Exact cardinality needs faithful count semantics and an order that cannot relax zero/two to exact one. Unique authority additionally needs spatial exclusivity and representation; security needs relational control/address observations. Idempotent grade `1` supplies none of these.
+`q <=D q'` admits demand `q` under allowance `q'` (exact-use requires equality; promotion/motive scaling assumes commutative `*`, while noncommutative domains need `GF-domain` ordered actions; custom ops need composition laws; incomparable branches need proved bounds or result-indexed contracts; products need compatible subject/trace interpretations). `NatExact` uses `(`+`, `*`, `=`)`; `NatBound` uses `<=`; Boolean presence uses `(`or`, `and`)` (`1+1=1`). [Rocq domain trial](../../tools/rocq/graded_domains.v) verifies these three ordered semiring records, row certificates, and substitution across exact-to-bound and bound-to-presence maps; [proof/qualification obligations](#proof-and-qualification-obligations) govern source use. Zero-use erasure requires excluding relevant observations (nontriviality/positivity/no-zero-divisors alone are insufficient); exact cardinality needs faithful counts without relaxing zero/two to one; uniqueness needs spatial exclusivity; security needs relational observation laws (idempotent `1` gives none).
 
 ## Stable telescope and dependency bookkeeping
 
-`J(M; u; v; Gamma |- t:A)` is the proposed pure evidence-construction interface, with `S` implicit: it must elaborate `t`, `A` and the demand interpretation to checked terms and a theorem about their image. `Gamma` is an ordered telescope of stable values/types, immutable snapshots and logical identities. Runtime handles are stable descriptors; permissions stay in `Delta`. Stability alone grants no permission to copy the referent, and indices never evaluate unsynchronized mutable reads.
-
-`M[i]` records preceding declarations' use in `Gamma[i]`'s type, with a well-formed derivation. Vectors `u` and `v` have one component per declaration, recording use in `t` and `A`; `v` is not a sum of declaration rows. All zero-padded rows/vectors refer to the same ordered telescope.
+`J(M; u; v; Gamma |- t:A)` (implicit `S`) elaborates `t`, `A`, and demand interpretation to checked terms and image theorems. `Gamma` is an ordered telescope of stable values/types, immutable snapshots, and logical identities (runtime handles are descriptors; permissions live in `Delta`; stability grants no copy rights and indices never evaluate unsynchronized mutable reads). `M[i]` records prior declarations' use in `Gamma[i]`'s type; `u` and `v` have one entry per declaration for `t` and `A` (`v` is not a sum of `M` rows; zero-padded to the same telescope):
 
 ```text
 CTX-EXT: J(M; a; 0; Gamma |- A : Type i)
@@ -191,11 +109,11 @@ UNIV:    WF(M; Gamma)
          implies J(M; 0; 0; Gamma |- Type i : Type (i+1)).
 ```
 
-A runtime variable rule also requires a represented binding in `rho`; a specification variable rule has no permission to become a runtime operand. Tracked resources never enter the duplicable pure context by embedding their propositions in a record. Their names may index predicates there; the predicates' ownership interpretation stays spatial.
+Runtime variables require represented bindings in `rho` (spec variables cannot become runtime operands; tracked resources never enter `Gamma` via embedded record propositions—only their identities may index predicates).
 
 ### Functions and application
 
-The following rules describe pure values and type expressions. `Pi x:(s,r) A. B` advertises use `s` of `x` by the function body and use `r` of `x` in `B`. Let the domain type have demand `a`, and the codomain have demand `(b,r)` under `Gamma,x:A`.
+For `Pi x:(s,r) A. B` (body use `s`, codomain use `r`, domain demand `a`, codomain demand `(b,r)` under `Gamma,x:A`):
 
 ```text
 PI:  J(M; a; 0; Gamma |- A : Type i)
@@ -213,58 +131,13 @@ APP: J(M; w; a+b; Gamma |- f : Pi x:(s,r) A.B)
      J(M; w+s*z; b+r*z; Gamma |- f v : B[v/x])
 ```
 
-Application type use is `b+r*z` because the result type is the codomain with
-`v` substituted for `x`. The producer reconstructs the demand equation for
-that elaborated application under the existing conversion rules. The
-[substitution and resource obligations](#proof-and-qualification-obligations)
-also cover the transitive environment and call mode of resource-carrying closures.
+Application type use is `b+r*z` from substituting `v` for `x` in `B` (reconstructed under conversion rules; [substitution/resource obligations](#proof-and-qualification-obligations) cover closure envs and call modes). HoldFast evaluates left-to-right by value: effectful arguments elaborate as `bind x <- c; call f x` (evaluating `c` once for its trace/effects/exit before applying `x`, so zero use never erases effects/failures/verdicts and two uses never re-evaluate `c`; reordering across handlers/mutation/checkpoints requires proof).
 
-HoldFast computations evaluate left to right by value. Elaborate an effectful argument as `bind x <- c; call f x`: evaluate `c` once, record its trace/effects and resource exit, then apply the value rule to `x`. Parameter use zero does not erase `c`'s effects, failures or mandatory result. Parameter use two does not execute `c` twice. Moving this bind across a handler, mutation or cancellation checkpoint needs an explicit preservation proof.
-
-The Rocq call-by-value trial connects exact and bounded grades for natural
-lambdas with arithmetic bodies to an instrumented application model. Argument
-evaluations thread state and events in order. The body reads each returned
-argument value as many times as its exact grade or at most as many times as
-its bounded allowance. The first failure preserves the completed prefix and the
-failing argument's state and events.
-[Execution model and proofs](../../tools/rocq/graded_cbv.v)
-
-The scoped-span trial instantiates the argument transition with the emitted
-`Span<byte>` model. A guarded argument opens a slice, writes one element and
-restores the owner before returning the previous byte or reporting failure.
-Rocq proves descriptor preservation and frames untouched bytes across the
-sequence. It also checks that bounded body reads reuse the returned values.
-Source elaboration and the spatial interpretation on the admitted machine
-carrier remain open. [Scoped argument model](../../tools/rocq/graded_cbv_span.v)
-[`GF-cbv` qualification](#proof-and-qualification-obligations)
-
-The dependent box model connects a checked elimination to an arithmetic result
-and a vector identity specialized by the same payload. The evaluator uses the
-payload returned by a single argument evaluation. Its read count satisfies the
-selected grade order, and the resolved result kind retains the specialized
-index. [Dependent box interpretation](../../tools/rocq/graded_modal_cbv.v)
-
-Torczon et al.'s [Effects and Coeffects in Call-by-Push-Value](https://doi.org/10.1145/3689750)
-(OOPSLA 2024; [extended paper](https://arxiv.org/abs/2311.11795v2)) mechanizes
-effect/coeffect soundness and CBV/CBN translations in Coq for clock effects and
-variable-use accounting. Its resource semantics preserves evaluation of effectful
-computations whose results are unused. This supports the value/computation split
-above; dependent indices, mutable ownership and handlers remain HoldFast's
-`GF-cbv` and `GF-control-mutation` debts. The artifact's proof terms are not read
-or replayed here, and no source is incorporated.
-
-Lorenzen et al.'s [Oxidizing OCaml with Modal Memory Management, §5.1](https://antonlorenzen.de/papers/oxidizing-ocaml-modal-memory-management.pdf)
-(ICFP 2024) gives the complementary promotion counterexample: a repeatedly usable
-file-opening function and argument do not make the returned file repeatedly
-usable. Their value-only promotion blocks that derivation. HoldFast likewise promotes
-pure values in `Box_q` below, after evaluation; duplicating a resource-carrying
-result still needs its own capture and `Dup` evidence. An initializer's use grade
-cannot erase its acquisition, cleanup or effects. These are design references, not a checked
-metatheory for HoldFast.
+The Rocq CBV trial connects exact/bounded natural-lambda grades to an instrumented state/event model (exact vs bounded argument-value reads; prefix preservation on first failure; [execution model](../../tools/rocq/graded_cbv.v)); the scoped-span trial instantiates argument transitions on `Span<byte>` proving descriptor preservation and untouched-byte framing ([scoped argument model](../../tools/rocq/graded_cbv_span.v), [`GF-cbv`](#proof-and-qualification-obligations)); the dependent box model ties checked elimination to arithmetic and specialized vector identities ([dependent box interpretation](../../tools/rocq/graded_modal_cbv.v)). Torczon et al. ([OOPSLA 2024](https://doi.org/10.1145/3689750), [extended](https://arxiv.org/abs/2311.11795v2)) mechanize CBPV clock-effect/coeffect soundness preserving unused-result effects (`GF-cbv` and `GF-control-mutation` remain HoldFast's dependent/mutable/handler debts; artifact unread); Lorenzen et al. ([ICFP 2024, §5.1](https://antonlorenzen.de/papers/oxidizing-ocaml-modal-memory-management.pdf)) forbid promoting a repeatedly callable opener's returned handle without value-only promotion (`Box_q` likewise promotes evaluated pure values only, never dropping acquisition/cleanup/effects or forging `Dup`).
 
 ### Substitution and structural rules
 
-For a pure value substitution `Gamma, x:A, Xi |- t:B` with `Gamma |- v:A`, let `z` be the subject-use vector of `v`. For any demand row `d=(d_G,d_x,d_X)` after `x`, define:
+For `Gamma, x:A, Xi |- t:B` and `Gamma |- v:A` (`v` having subject demand `z`), each demand row `d=(d_G,d_x,d_X)` after `x` updates as:
 
 ```text
 substDemand(d,x,z) = (d_G + d_x*z, d_X)
@@ -274,22 +147,20 @@ v_type          becomes   substDemand(v_type,x,z)
 each later M row becomes   substDemand(that row,x,z)
 ```
 
-Earlier rows stay fixed; `x`'s row disappears. Capture-avoiding substitution also updates types, motives, index-dependent grades, captures and exit predicates. Recheck the whole telescope: updating conclusion vectors alone leaves a later `y:B(x)` stale. `GF-substitution` owes simultaneous typing/well-formedness and interpretation-agreement proofs for the elaborated images before and after substitution; this is no unchecked solver rewrite, and computations cannot replace stable indices.
+Earlier rows stay unchanged and `x`'s row drops; capture-avoiding substitution also updates types, motives, index-dependent grades, captures, and exit predicates across the whole telescope (`GF-substitution` requires simultaneous typing/WF and image-agreement proofs, never unchecked solver rewrites or computed indices).
 
 | Structural operation | Admissibility condition |
 | --- | --- |
-| Extend an unused declaration | Construct its type row, pad subsequent rows and both demand vectors with zero; retain all prior dependencies. |
-| Remove a declaration | Its demand is zero in the term, result type and every retained declaration row, or substitute a checked stable witness throughout. `u[x]=0` alone is insufficient. |
-| Exchange declarations | A dependency-preserving permutation with all rows, identities and captures renamed; no exchange across an actual dependency. |
-| Contract pure descriptors | Add their demands and reindex the dependent telescope using checked equality. Any operation through them still needs the live spatial permission. |
-| Weaken an advertised bound | Supply the domain's order proof; exact-use declarations admit only equality. No implicit coercion to an approximate domain. |
-| Drop, duplicate or scale a resource | Supply `Dispose`, `Dup` or the relevant repeated-use protocol below; no generic telescope rule transforms `Delta`. |
+| Extend an unused declaration | Construct type row, zero-pad subsequent rows and demand vectors; preserve prior dependencies. |
+| Remove a declaration | Zero demand in term, result type, and all retained declaration rows, or substitute a checked stable witness (`u[x]=0` alone is insufficient). |
+| Exchange declarations | Dependency-preserving permutation renaming rows/identities/captures (forbidden across an actual dependency). |
+| Contract pure descriptors | Add demands and reindex telescope with checked equality (operations still need live spatial permission). |
+| Weaken an advertised bound | Supply domain order proof (exact-use allows equality only; no implicit coercion to approximate domains). |
+| Drop, duplicate or scale a resource | Supply `Dispose`, `Dup`, or repeated-use protocol (no generic telescope rule transforms `Delta`). |
 
 ### Dependent data and elimination
 
-`Sigma x:^r A. B` binds `x` only in the second component's type. Its formation uses the same `a,b,r` premises as `PI`. Pair introduction requires component derivations with subject demands `z,w`, and the second component's type demand exactly `b+r*z`; the conclusion has subject demand `z+w` and type demand `a+b`.
-
-A tensor-style dependent eliminator has an explicit motive `C(p)` and cannot independently invent how an opaque pair's demand splits between its fields:
+`Sigma x:^r A. B` uses `PI`'s `a,b,r` premises; pair introduction takes component demands `z,w` with second-component type demand `b+r*z`, yielding `(z+w, a+b)`. Tensor dependent elimination requires an explicit motive `C(p)` (opaque pairs cannot split field demands arbitrarily):
 
 ```text
 p : Sigma x:^r A.B                  subject demand z
@@ -301,24 +172,11 @@ match p as (x,y) in body : C(p)      subject w+s*z
                                     type c+kappa*z
 ```
 
-The premise includes the full well-formed telescope, in particular the dependency `r` of `y`'s type on `x`, and the checked motive substitution. Independent field allowances need explicit graded modalities or a separately proved eliminator. An erased weak pair cannot supply a runtime witness, tag or projection. Constructor inspection at runtime always needs a represented scrutinee; a domain where zero denotes a security level cannot authorize erased matching.
+Requires the full WF telescope (including `y`'s `r`-dependency on `x`) and checked motive substitution; asymmetric field allowances need graded modalities or a proved eliminator; erased weak pairs give no runtime witness/tag/projection (runtime matching requires a represented scrutinee, barred under security-lattice zero). [Dependent pair replay](../tooling/elaboration-prototype.md#graded-dependent-pair-replay) tests length-indexed vectors sharing computation allowance with exact motive rows.
 
-The natural-grade dependent pair trial checks a length paired with a vector
-at that length. The fields share a computation allowance, with exact type-use
-rows for both motive specializations. [Dependent pair replay](../tooling/elaboration-prototype.md#graded-dependent-pair-replay)
-
-`Box_q A` packages a pure value for demand `q`. Introduction scales the value's subject vector by `q` and leaves the type vector fixed. Elimination uses a body with bound-variable subject demand `q`; if the motive depends on the box with demand `kappa`, the body's type demand for its unboxed variable is `q*kappa`. Eliminating a box of demand `z` adds `z` to the body's remaining subject vector and `kappa*z` to its remaining type vector. Promotion cannot hide evaluation effects or manufacture `Dup` for captured owners. Field representations and box erasure remain explicit in `rho`.
-
-The natural-grade box trial admits payload computation demand under the
-selected `NatExact` or `NatBound` order and checks exact type demand through
-both specializations of the motive.
-[Graded box replay](../tooling/elaboration-prototype.md#graded-box-source-replay)
-
-Finite sums use an explicit motive and branch-specific resource predicates. Each branch checks the same advertised demand under the selected order, with constructor-field dependencies substituted. Exact unequal branch counts must remain result-indexed or use a separately advertised bound; adding mutually exclusive branch counts claims the wrong trace. Bounded iteration supplies an inductive invariant, grade recurrence and termination measure. General inductive eliminators require a checked constructor/motive resource rule; CIC's acceptance of an ungraded recursor alone supplies no graded elimination theorem.
+`Box_q A` scales subject vector by `q` at introduction (fixing type vector) and eliminates with body demand `q` (type demand `q*kappa` for motive box-use `kappa`), adding `z` to body subject and `kappa*z` to body type demand without hiding effects or forging `Dup` (representations/erasure explicit in `rho`; [graded box replay](../tooling/elaboration-prototype.md#graded-box-source-replay)). Finite sums check branches under one advertised demand (substituting constructor dependencies; unequal branch counts stay result-indexed or bounded, never summed); bounded iteration uses inductive invariant, grade recurrence, and termination measure; general inductive eliminators need checked constructor/motive resource rules.
 
 ## Resource and computation interface
-
-The common evidence-construction interface is:
 
 ```text
 S; M; Gamma; Delta_in |- c : Exit(A,Q)
@@ -328,102 +186,61 @@ S; M; Gamma; Delta_in |- c : Exit(A,Q)
 Q(tag,value) = Delta_out for that represented exit
 ```
 
-Its generated theorem relates entry state, execution of the elaborated image and every reachable exit under the existing anchor. The chosen logic interprets `Delta` as ownership, loans/restoration, protocols, effect/security permissions; `Own(id,shape,snapshot)` is an interface, not a supplied CHERI predicate. Identity cannot construct authority. `Q` includes captures transferred in results/frames; branch-dependent owners retain their discriminant until a join/restoration proof removes it. The first release consumes the synchronous resource portion through its fixed use discipline; `Suspend`, concurrent `Share` and multi-shot `Dup` compose only in separately selected extensions.
+Generated theorems relate entry, elaborated execution, and every exit in the anchor (`Delta` holds ownership, loans/restoration, protocols, effect/security rights; `Own(id,shape,snapshot)` is an interface predicate rather than a CHERI primitive; identity grants no authority; `Q` carries transferred captures and branch discriminants until joined/restored; first release uses fixed synchronous modes, while `Suspend`, concurrent `Share`, and multi-shot `Dup` enter only in commissioned extensions):
 
 | Interface obligation | Required evidence |
 | --- | --- |
-| `Capture(C,Delta)` | The whole transitive retained environment, including handlers, tasks, stored continuations and cell fields, has identified kinded resources, lifetimes, effects and representation. Resources used only during evaluation are recorded separately. |
-| `Dup(C,Delta)` | A semantic split supporting both uses under interference, lifetime and protocol conditions. Duplicable immutable snapshots qualify only under their actual representation; an exclusive owner, exclusive loan or single-use token has no default instance. |
-| `Dispose(Delta,exit)` | An explicit terminal/resource-returning transition for every obligation. Ordinary affine permission discard does not discharge a protocol, must-erase value or mandatory examined verdict. |
-| `Suspend(C,Delta,rho,O)` | Stable represented storage, live loan ancestry, closed invariants and a bounded restoration/cleanup path at the declared checkpoint; no escaping reference into a moved frame. |
-| `Transfer(domain,Delta)` | Permission and representation transport to the receiving execution domain, preserving exclusivity, lifetime, publication ordering and the manifest join. |
-| `Share(protocol,Delta)` | The declared concurrent operations preserve an invariant under actual interference and the pinned memory model. A shared handle grants only those operations. |
+| `Capture(C,Delta)` | Complete transitive retained env (handlers, tasks, stored continuations, cell fields) with kinded resources, lifetimes, effects, and representation (evaluation-only uses tracked separately). |
+| `Dup(C,Delta)` | Semantic split supporting both uses under interference, lifetime, and protocol laws (immutable snapshots qualify by representation; exclusive owners/loans/single-use tokens have no default instance). |
+| `Dispose(Delta,exit)` | Explicit resource-returning/terminal transition (affine permission drop does not discharge protocols, must-erase data, or mandatory examined verdicts). |
+| `Suspend(C,Delta,rho,O)` | Stable represented storage, live loan ancestry, closed invariants, bounded checkpoint restoration/cleanup, and no escaping refs into moved frames. |
+| `Transfer(domain,Delta)` | Cross-domain permission/representation transport preserving exclusivity, lifetime, publication order, and manifest join. |
+| `Share(protocol,Delta)` | Concurrent ops preserve invariant under interference and pinned memory model (shared handles grant only declared ops). |
 
-`Dispose` is an explicit computation with effects and, where relevant, writes; proof erasure does not zero machine registers or spill slots. Mandatory verdict elimination names the outcome as required by [R-05-097 through R-05-100](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-097). Source ownership connects to the [exclusive-access and composition obligations](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-096a); borrowing cannot derive an overlapping permission merely because it preserves a grade.
-
-Sequencing composes outcome-indexed resource transitions and concatenates traces; effect sets take union. Repeating a callback or resumption needs its repeatable calling contract and fresh separated per-invocation inputs `Delta_i`. For `k` invocations, a per-call source-event law gives the corresponding sum or `k`-fold count. A grade on the callable does not supply that law, termination, invocation order or a claim about optimized machine calls. Multi-shot capture needs `Dup` for the entire retained continuation context even if each explicit argument is pure.
-
-Mutation updates the owner's snapshot; shape changes consume the old owner and return an appropriately indexed one. Copied snapshots remain historical until newly related to current contents. Suspension/reentry with open cell invariants needs a stronger protocol. Grades authorize neither shared mutable capabilities nor unsupported atomics.
+`Dispose` is an explicit effectful/write transition (erasure does not zero registers/spills); mandatory verdict elimination obeys [R-05-097–R-05-100](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-097) and source ownership connects to [R-05-096a](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-096a) (grades never derive overlapping permissions). Sequencing composes transitions, concatenates traces, and unions effects; repeated callbacks/resumptions require repeatability contracts, separated `Delta_i`, and per-call trace laws (grades prove neither trace counts, order, termination, nor machine call counts; multi-shot capture needs `Dup` for the entire context even on pure arguments). Mutation updates owner snapshots (shape changes consume old owners; historical copies stay stale until re-related; open-cell suspension needs stronger protocols; grades authorize no shared mutable capabilities or unsupported atomics).
 
 ## Schematic derivations and invalid neighbors
 
-These are hand derivations for the proposed extensible producer over inhabited pure inputs and explicit domains. They specify equations and interpretation obligations that a selected implementation would reconstruct and check; no independent source metatheory or executed verdict is supplied. Each negative preserves the positive's representations and unrelated resources; parsing failure or absent implementation does not establish its intended refusal. The exact type-demand identity below is an extension qualification case, not a required annotation for ordinary first-release identity functions.
+Hand derivations for the extensible proposal (not executed checker outputs; negatives preserve valid representations/resources and fail at the named premise rather than syntax errors):
 
 ### Pure dependent identity
 
-In `NatExact`, take `Gamma = a:Type i, x:a`. Context rows are `M=((),(1))`. `VAR` yields `u=(0,1)` and `v=(1,0)` for `x:a`. `LAM` over `x` gives `lambda x.x : Pi x:(1,0) a.a`, subject use of `a` zero and type use `1+1=2`. Abstracting `a` yields:
+In `NatExact`, `Gamma = a:Type i, x:a`, `M=((),(1))`: `VAR` gives `u=(0,1), v=(1,0)` for `x:a`; `LAM` over `x` gives `Pi x:(1,0) a.a` (`a` subject 0, type `1+1=2`); abstracting `a` yields:
 
 ```text
 id : Pi a:(0,2) Type i. Pi x:(1,0) a.a
 id = lambda a. lambda x. x
 ```
 
-Choose `a=Byte`, `x=7` for an inhabited runtime specialization: the type argument is erased and the byte remains represented. Changing the type-use annotation of `a` from two to one fails the final abstraction's `2=1` equality. Changing `x`'s computation grade to zero fails `1=0`; changing it to two fails `1=2`. No claim about owning byte storage follows from these scalar examples.
-
-For an inhabited dependent value, take the pure constructors `nil:Vec Byte 0` and `cons:Byte -> Vec Byte k -> Vec Byte (k+1)` with their explicit index/element modalities. Pair introduction checks `(2,cons 7 (cons 9 nil)) : Sigma k:Nat.Vec Byte k`: substitution reduces the second component's expected index to two, matching its constructor derivation. Packing that same vector under three fails the index equality `2=3`. The admitted constructor grades and their preservation theorem are `GF-elimination` duties, so this hand derivation supplies no executed recursor qualification.
+Instantiating `a=Byte, x=7` erases `a` and keeps `7`; changing `a`'s type grade to 1 fails `2=1`, and changing `x`'s subject grade to 0 or 2 fails `1=0` / `1=2` (scalars imply no byte-storage ownership). For `(2,cons 7 (cons 9 nil)) : Sigma k:Nat.Vec Byte k` (with constructors `nil:Vec Byte 0`, `cons:Byte -> Vec Byte k -> Vec Byte (k+1)`), substituting `2` matches `Vec Byte 2`, while packing under `3` fails `2=3` (`GF-elimination` owns recursor/constructor laws).
 
 ### Runtime-dependent packet
 
-Fix capacity `N=4`, represented immutable length `n=2` and a private initialized buffer containing bytes `7,9,0,0`. Entry resources supply exclusive `Own(r,4,[7,9,0,0])`; a checked extent/view contract supplies a represented descriptor `h:Handle(r,n)` permitting the selected two-byte prefix while retaining the appropriate parent/restoration state. No arbitrary exact CHERI narrowing is assumed: the actual capability extent and source footprint belong to that contract.
-
-In `Gamma=r:Identity,n:Nat,h:Handle(r,n)`, the `h` declaration has a type dependency on both `r` and `n`. Pair introduction forms `(n,h):Sigma k:Nat.Handle(r,k)`. Its subject demand has one `n` and one `h`; checking `h` substitutes `n` in the second component's type. The result hides `n` existentially while retaining it physically. An erased proof of `n<=N` attaches through an explicit erased field modality and contributes no runtime operand.
-
-A once-only match binds represented `k` and descriptor `p` and repacks `(k,p)` with the same resource view. Both field demands are one, so the dependent eliminator applies with `s=1`; the result's resource predicate retains `r` and the loan/restoration obligation. A subsequent bounded reader uses the retained length under its own demand recurrence and consumes/returns permission exactly as declared, rather than inheriting a once-use count for its loop. The concrete read/view/restoration lemmas remain `GF-resource` entry debts.
-
-Changing only `n` to erased while keeping the reader's runtime bound fails the phase/representation premise. Packing `h:Handle(r,2)` behind index three fails dependent pair checking without a valid transport. In the `h:Handle(r,n)` variable subderivation, computation use of `n` is zero; deleting `n` from that telescope nevertheless leaves the retained `h` type unformed. Resizing under a different operation and retaining the old current-length refinement fails that transition's output predicate.
+With `N=4`, immutable `n=2`, buffer `[7,9,0,0]`, entry `Own(r,4,[7,9,0,0])`, and checked descriptor `h:Handle(r,n)` (capacity/narrowing determined by contract): in `Gamma=r:Identity,n:Nat,h:Handle(r,n)`, `h` depends on `r,n`; `(n,h):Sigma k:Nat.Handle(r,k)` uses `(n=1,h=1)` in subject, retains `n` physically, and attaches `n<=N` as erased evidence. Matching `(k,p)` once (`s=1`) repacks `(k,p)` retaining `r` and loan/restoration duties; bounded readers use their own recurrence rather than inheriting `s=1` (`GF-resource` owns read/view/restoration lemmas). Negatives: erasing `n` fails reader's phase premise; packing `Handle(r,2)` under `3` fails without transport; deleting `n` despite zero computation use breaks `h`'s WF telescope; resizing while keeping stale length fails the output predicate.
 
 ### Graded callback and shared service join
 
-A pure callback over an immutable copied two-byte snapshot has a shared-call contract and no owned mutable capture. A total bounded client invokes it twice in declared order. The source trace law gives `CallCount(callback)=1+1=2`; a `NatExact` callable allowance of two supports the two value uses, while `Dup` handles its immutable environment. Allowance one fails `2=1`. A branch invoking it once must either return an indexed count or advertise a bound; silently keeping exact two fails its trace contract.
-
-The [combined client](full-language-review.md#composed-client-and-inhabited-entry)
-keeps packet and frame owners and its linear `AddOnce(request,n)` allowance in
-`Delta` outside the handler delimiter. `n` is represented and its overflow
-bound is erased. Two resumptions of the pure callback cannot reuse a child
-update that consumes the allowance. A callback retaining an owner through a
-cell fails transitive `Dup` checking.
-
-The Boolean presence calculation `1+1=1` accepts two pure uses as presence. Attempting the same contraction on `AddOnce` still requires a spatial/protocol split that its unique transition cannot provide. This is the invalid authority neighbor even when grade constraints succeed. Dropping the child verdict or must-erase data similarly fails `Dispose`; use/erasure annotations cannot manufacture terminal completion or wiping.
+A pure callback over an immutable 2-byte snapshot runs twice in order (`CallCount=1+1=2`, `NatExact(2)` on callable, `Dup` on env; allowance `1` fails `2=1`; single-call branches must return an indexed count or bound). In [the combined client](full-language-review.md#composed-client-and-inhabited-entry), packet/frame owners and `AddOnce(request,n)` stay in `Delta` outside the handler (`n` represented, overflow bound erased); multi-shot resumptions cannot reuse `AddOnce`, callbacks capturing owners via cells fail `Dup`, Boolean presence `1+1=1` cannot contract `AddOnce`'s spatial split, and dropping verdicts or must-erase data fails `Dispose`.
 
 ## Inference, specialization and admission
 
-The [staging contract](metaprogramming.md#evaluation-and-phase-boundaries) keeps
-compile-time availability independent of computation use, type use, phase and
-representation. A ghost binder or a zero grade does not make a runtime value
-known during generation. Conversely, a static constant may be materialized in the
-runtime representation when execution needs it. Describing a graded type or
-copying generated syntax supplies no `Dup`, `Dispose` or ownership premise;
-generated resource uses undergo this dossier's ordinary checks.
+[The staging contract](metaprogramming.md#evaluation-and-phase-boundaries) keeps compile-time availability independent of `u,v,p,rho`: zero grades/ghosts do not make runtime values static; materialized constants and generated syntax undergo all `Dup`/`Dispose`/ownership checks. First release uses bidirectional checking with fixed modes and bounded refinements; the extensible proposal adds domain IDs and grade variables/constraints (rules propose demands; checked CIC terms prove equalities/orders without promising principal grades or completeness across symbolic multiplication/recursors). Constraint results bind proposition, dictionary, substitutions, and replayable proof (timeouts/unknowns/failed reconstruction leave open goals without weakening exacts to bounds; grade-polymorphic defs check explicit constraints at every public call; runtime indices stay represented and cannot select layout retroactively).
 
-The first release uses bidirectional checking with its fixed use modes, explicit call modes/captures and a bounded refinement tier. In the separately selected extensible proposal, public domain identities and grade variables/constraints additionally enter those interfaces. Rules propose local demands; checked CIC terms establish grade equalities/orders and their interpretation. Symbolic multiplication, dependent unification, arbitrary operations and recursors may leave explicit goals. No principal-grade inference or complete procedure for all domains is promised.
-
-A constraint result binds its proposition, domain dictionary, substitutions and replayable certificate/term. Timeout, inconsistent model, unknown law or reconstruction failure leaves unresolved/refused evidence. Search cannot weaken exact declarations into bounds. Grade-polymorphic definitions check under explicit constraints, discharged at every public instantiation. Runtime natural indices stay represented even when indexing erased trace bounds; they cannot retrospectively select layout.
-
-Specialization fixes phase, convention, layout and erasure before emission. Represented/erased grade instantiations need separately checked ABIs unless a uniform representation and erasure theorem is supplied. The device gains no runtime grade dictionary or open-term normalization. This source specialization does not authorize cloning at the separate composition-time singleton-call rewrite.
-
-`SourcePackage` binds source/generated inputs, domain implementations/laws, elaborated constraints, reconstructed proofs, implicits/transports, representation and exact core computation. Parsing, resolution, instance selection and desugaring need correspondence; old core proofs cannot accept changed source. Erasure preserves results, control, effects, resource behavior and requested observations under that representation, relating retained behavior across instances differing only in erased proofs. Type-checking an irrelevant term is insufficient.
-
-Project source obligations into the admitted TAL attributes where their rules
-apply. Carry other obligations as kernel-checked CIC terms, including general
-grade domains and dependent normalization. Use the
-[compiler route](../assurance/compiler-route-contract.md) for source correspondence,
-ABI, linkage, optimization and target evidence.
-[TAL attribute requirements](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-132)
+Specialization fixes phase, ABI, layout, and erasure pre-emission (mixed represented/erased instantiations need separate ABIs or uniform-erasure theorems; devices carry no runtime grade dictionaries or open-term normalization; source specialization never authorizes composition-time singleton cloning). `SourcePackage` binds source/generated inputs, domain impls/laws, constraints, proofs, implicits/transports, representation, and exact core term (stale core proofs must fail on changed source; erasure preserves results, control, effects, resources, and observations across proof-differing instances). Project applicable source duties into admitted [R-05-132 TAL attributes](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-132) and carry remaining general-domain/dependent-normalization obligations as CIC terms via [the compiler route](../assurance/compiler-route-contract.md).
 
 <a id="q25d-debts-and-acceptance-boundary"></a>
 
 ## Proof and qualification obligations
 
-Each obligation applies to the selected graded feature over its elaborated
-image. The [extension plan](../../PLAN.md#language-extensions) owns implementation.
+Applies to the selected graded feature over its elaborated image; [the extension plan](../../PLAN.md#language-extensions) owns implementation.
 
 | Obligation | Required artifact and refusal predicate |
 | --- | --- |
-| `GF-domain` | Construct domain records, certificate interpreters and cross-domain interpretation laws. Require reconstructable certificates. Reject Boolean-to-exact/ownership coercion and unsound order relaxation. |
-| `GF-substitution` | Mechanize telescope well-formedness, simultaneous substitution, both vector transformations, grade substitution and dependency-preserving structural rules as checked interpretation theorems relating the elaborated images. Reject a later declaration retaining an unsubstituted index; no independent source reduction supplies a theorem premise. |
-| `GF-elimination` | Prove dependent functions, pairs, boxes, indexed sums and admitted recursors preserve grades and well-formed motives. Construct positive asymmetric-field examples with their modality premises; refuse erased runtime discriminants. |
-| `GF-cbv` | Connect the selected demand interpretation to explicitly sequenced call-by-value images, captures and outcome-indexed exits in the anchor. Prove that zero demand preserves evaluation, effects, failures and mandatory results, and repeated demand uses the once-evaluated value. |
-| `GF-resource` | Instantiate spatial ownership, views, restoration and kinded authority on the selected logic/CHERI representation; construct inhabited packet entry states. |
-| `GF-control-mutation` | Compose Capture/Dup/Dispose/Suspend/Transfer/Share with the handler and cell rules, including repeated continuations, hidden cell captures, snapshots, cancellation and fresh per-resumption resources. Prove the [conservative restriction](full-language-review.md#conservative-connection-to-the-synchronous-slice). Reject reused resources across resumptions. |
-| `GF-erasure-source` | Prove phase separation, representation-specific erasure and source/elaboration correspondence under CIC assumptions declared under R-05-164 and audited under R-05-163. Instances differing only in erased data must have related retained behavior. Qualify domain inference diagnostics and stale-source rejection. |
-| `GF-target` | Connect the selected source representation, event projections and obligations through the existing compiler route to actual TAL/Sail artifacts. No source count substitutes for final cost or arbitrary-context preservation. |
+| `GF-domain` | Domain records, certificate interpreters, cross-domain laws with reconstructable certificates; reject Boolean-to-exact/ownership coercions and unsound order relaxation. |
+| `GF-substitution` | Mechanize telescope WF, simultaneous substitution, vector updates, grade substitution, and structural rules over elaborated images; reject stale unsubstituted indices (no independent source reduction premise). |
+| `GF-elimination` | Dependent functions, pairs, boxes, sums, and recursors preserve grades and WF motives; include positive asymmetric-field examples with modalities; refuse erased runtime discriminants. |
+| `GF-cbv` | Connect demand interpretation to sequenced CBV images, captures, and outcome-indexed exits; prove zero demand preserves effects/failures/verdicts and repeated demand reuses once-evaluated values. |
+| `GF-resource` | Instantiate spatial ownership, views, restoration, and kinded authority on the CHERI logic/representation with inhabited packet entry states. |
+| `GF-control-mutation` | Compose Capture/Dup/Dispose/Suspend/Transfer/Share with handlers and cells (repeated continuations, hidden cell captures, snapshots, cancellation, fresh `Delta_i`); prove [synchronous conservativity](full-language-review.md#conservative-connection-to-the-synchronous-slice); reject cross-resumption resource reuse. |
+| `GF-erasure-source` | Prove phase separation, representation erasure (related behavior across proof-differing instances), and source correspondence under R-05-164/R-05-163; qualify inference diagnostics and stale-source rejection. |
+| `GF-target` | Connect source representation, event projections, and obligations through the compiler route to TAL/Sail artifacts (source counts never substitute for final cost or arbitrary-context preservation). |
