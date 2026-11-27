@@ -4,16 +4,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 from toolchain import loans, regions
 from toolchain.ast import HoldFastError
 from toolchain.elaborate_types import (
     _BOOL,
     _CHAR,
-    _INT_SPECS,
     _NAT,
-    _PROP,
     _SORT,
     _U8,
     _UNIT,
@@ -23,9 +21,6 @@ from toolchain.elaborate_types import (
     _apps,
     _Binding,
     _constant,
-    _int_term,
-    _Meta,
-    _RecordInfo,
     _Term,
     _term,
     _UnionInfo,
@@ -271,7 +266,7 @@ class _BorrowMixin:
         region_names: tuple[str, ...],
         parameters: list[Node],
     ) -> tuple[tuple[str, regions.Variance], ...]:
-        variances: dict[str, regions.Variance] = {r: regions.Variance.COVARIANT for r in region_names}
+        variances: dict[str, regions.Variance] = dict.fromkeys(region_names, regions.Variance.COVARIANT)
         for param_node in parameters:
             pt = self.node(param_node["type"])
             self._accumulate_type_variances(pt, regions.Variance.COVARIANT, variances)
@@ -305,7 +300,7 @@ class _BorrowMixin:
                 type_const = self.records[tname].type_const
             elif tname in self.unions:
                 type_const = self.unions[tname].type_const
-            child_vars = self.type_region_variances.get(type_const, ()) if type_const else ()
+            child_vars = self.type_region_variances.get(type_const, ()) if type_const is not None else ()
             reg_idx = 0
             for arg in self.nodes(node["arguments"]):
                 if arg["kind"] == "lifetime":
@@ -401,14 +396,14 @@ class _BorrowMixin:
                     site_node,
                 )
         if expected_qual.type_regions and actual_qual.type_regions:
-            tconst = None
-            if expected_qual.nominal_type and expected_qual.nominal_type in self.records:
+            tconst: str | None = None
+            if expected_qual.nominal_type is not None and expected_qual.nominal_type in self.records:
                 tconst = self.records[expected_qual.nominal_type].type_const
-            elif expected_qual.nominal_type and expected_qual.nominal_type in self.unions:
+            elif expected_qual.nominal_type is not None and expected_qual.nominal_type in self.unions:
                 tconst = self.unions[expected_qual.nominal_type].type_const
-            variances = self.type_region_variances.get(tconst, ()) if tconst else ()
+            variances = self.type_region_variances.get(tconst, ()) if tconst is not None else ()
             for idx, (er, ar) in enumerate(zip(expected_qual.type_regions, actual_qual.type_regions, strict=False)):
-                if er == "'_" or ar == "'_" or er == ar:
+                if ar in ("'_", er) or er == "'_":
                     continue
                 var = variances[idx][1] if idx < len(variances) else regions.Variance.COVARIANT
                 if var == regions.Variance.INVARIANT:
@@ -542,7 +537,7 @@ class _BorrowMixin:
         owner_name: str | None = None
         field_path: tuple[str, ...] = ()
         elem_idx: _Term | None = None
-        if cur["kind"] == "unary" and isinstance(cur.get("operator"), dict) and cur["operator"].get("text") == "ref":
+        if cur["kind"] == "unary" and isinstance(cur_op := cur.get("operator"), dict) and cur_op.get("text") == "ref":
             inner = self._unwrap_group(self.node(cur["value"]))
             if self._is_indexed_borrow_target(inner):
                 info, projected = self._resolve_indexed_local_borrow("ref", inner, environment, expr_node)
@@ -577,7 +572,7 @@ class _BorrowMixin:
                 elem_idx = info.index_term
                 projected = environment[bname]
             elif bname in self.prophecy_borrows:
-                p_owners, p_lens, p_vty = self.prophecy_borrows[bname]
+                p_owners, p_lens, _p_vty = self.prophecy_borrows[bname]
                 if set(p_owners) <= {n for n, _ in self.current_fn_ref_owners}:
                     projected = environment[bname]
                     self.unify(projected.type, val_type)
@@ -695,6 +690,7 @@ class _BorrowMixin:
         updated: dict[str, _Binding],
         site_node: Node,
     ) -> None:
+        _ = site_node
         owner_names, lens_term, val_type = self.prophecy_borrows[bname]
         self.unify(new_val_binding.type, val_type)
         restored = self.whnf(_app(lens_term, new_val_binding.term))
@@ -906,7 +902,7 @@ class _BorrowMixin:
         self: _Elaborator, owner: str, path: tuple[str, ...], site_node: Node,
     ) -> None:
         moved = self.partially_moved_fields.get(owner)
-        if not moved:
+        if moved is None or not moved:
             return
         for mp in moved:
             if self._places_overlap(mp, path):
@@ -954,7 +950,7 @@ class _BorrowMixin:
 
     def _clear_partial_move_on_write(self: _Elaborator, owner: str, field_path: tuple[str, ...]) -> None:
         moved = self.partially_moved_fields.get(owner)
-        if not moved:
+        if moved is None or not moved:
             return
         if not field_path:
             self.partially_moved_fields.pop(owner, None)
@@ -978,9 +974,7 @@ class _BorrowMixin:
             and cast("Node", unwrapped["operator"]).get("text") in {"in", "ref", "shared_ref"}
         ):
             return True
-        if unwrapped["kind"] == "call" and self._is_tracked_span_view_call(unwrapped):
-            return True
-        return False
+        return unwrapped["kind"] == "call" and self._is_tracked_span_view_call(unwrapped)
 
     def _elaborate_reborrow_assignment(
         self: _Elaborator,
@@ -998,7 +992,7 @@ class _BorrowMixin:
             bmode = cast("str", cast("Node", unwrapped["operator"])["text"])
             target_node = self._unwrap_group(self.node(unwrapped["value"]))
             if self._is_indexed_borrow_target(target_node):
-                typed_b = cast("Literal['in', 'ref']", "ref" if bmode == "ref" else "in")
+                typed_b: Literal["in", "ref"] = "ref" if bmode == "ref" else "in"
                 info, binding = self._resolve_indexed_local_borrow(typed_b, target_node, updated, statement)
                 self.unify(binding.type, updated[tname].type)
                 self.local_borrows.pop(tname, None)
@@ -1228,7 +1222,7 @@ class _BorrowMixin:
                     pat = self._parse_pattern(self.node(arm["pattern"]), set())
                     arm_env = dict(cur_env)
                     self.uninitialized_out_params = set(saved_uninit)
-                    self._typecheck_pattern(pat, scrut_b.type, arm_env, mutable=False)
+                    self._typecheck_pattern(pat, scrut_b.type, arm_env, pattern_bindings=arm_env)
                     arm_stmts = self.nodes(arm["statements"])
                     a_acc, a_env, a_ctrl = self._elaborate_returning_block(
                         arm_stmts,
@@ -1244,7 +1238,7 @@ class _BorrowMixin:
                     arm_ctrls.append(a_ctrl)
                 _ = arm_envs
                 # Check for union sum_match when 2 constructors (e.g. Result / Option)
-                uhead, uargs = self.spine(self.whnf(scrut_b.type))
+                uhead, _uargs = self.spine(self.whnf(scrut_b.type))
                 if uhead.kind == "const" and isinstance(uhead.value, str) and uhead.value in self.unions_by_type:
                     uinfo = self.unions_by_type[uhead.value]
                     scrut_v = self.fresh(scrut_b.type)
@@ -1541,7 +1535,7 @@ class _BorrowMixin:
         spec = _AssocTypeSpec(
             name=aname,
             generic_vars=tuple(gvars),
-            region_params=reg_names,
+            region_params=tuple(sorted(reg_names)),
             kind=kind_term,
             abstract_var=abs_var,
         )
@@ -1612,7 +1606,7 @@ class _BorrowMixin:
             resolved[aname] = _ImplAssocTypeDef(
                 name=aname,
                 generic_vars=tuple(gvars),
-                region_params=reg_names,
+                region_params=tuple(sorted(reg_names)),
                 rhs_type=rhs_type,
                 rhs_node=def_node,
                 qual=qual,
@@ -1679,7 +1673,7 @@ class _BorrowMixin:
         if head in {_constant("Span"), _constant("Slots")}:
             return True
         if head.kind == "const" and isinstance(head.value, str):
-            if head.value in self.type_region_params and self.type_region_params[head.value]:
+            if bool(self.type_region_params.get(head.value)):
                 return True
             if rinfo := self.records_by_type.get(head.value):
                 for idx, rf in enumerate(rinfo.fields):
@@ -1714,12 +1708,11 @@ class _BorrowMixin:
         head, args = self.spine(w)
         if head in {_constant("Vec"), _constant("Span"), _constant("LocalCell"), _constant("BorrowCell")}:
             return True
-        if head.kind == "const" and isinstance(head.value, str):
-            if rinfo := self.records_by_type.get(head.value):
-                return all(
-                    self._is_shape_stable_type(self._instantiate_record_type(rinfo, args, rf.type))
-                    for rf in rinfo.fields
-                )
+        if head.kind == "const" and isinstance(head.value, str) and (rinfo := self.records_by_type.get(head.value)):
+            return all(
+                self._is_shape_stable_type(self._instantiate_record_type(rinfo, args, rf.type))
+                for rf in rinfo.fields
+            )
         return False
 
     def _purge_overlapping_facts_on_shared_write(
@@ -1751,13 +1744,13 @@ class _BorrowMixin:
             if aname in environment:
                 written_var_ids |= self.free(environment[aname].term)
 
-        # Remove entry_env root ids only if written_owner IS that entry_env param's current term
-        kept: list[_Term] = []
-        for fact in self.active_facts:
+        kept = [
+            fact
+            for fact in self.active_facts
             if self._fact_preserves_across_shared_write(
                 fact, written_owner, written_path, written_idx, written_var_ids, environment
-            ):
-                kept.append(fact)
+            )
+        ]
         self.active_facts[:] = kept
 
     def _fact_preserves_across_shared_write(
@@ -1867,9 +1860,14 @@ class _BorrowMixin:
         written_reg = self.local_type_regions.get(written_owner, _TypeRegionQual()).region
         if written_reg is not None and written_owner in updated:
             for alias, rq in self.local_type_regions.items():
-                if alias != written_owner and rq.region == written_reg and rq.modifier == "shared_ref" and alias in updated:
-                    if self.convertible(updated[alias].type, updated[written_owner].type):
-                        updated[alias] = _Binding(updated[written_owner].term, updated[alias].type)
+                if (
+                    alias != written_owner
+                    and rq.region == written_reg
+                    and rq.modifier == "shared_ref"
+                    and alias in updated
+                    and self.convertible(updated[alias].type, updated[written_owner].type)
+                ):
+                    updated[alias] = _Binding(updated[written_owner].term, updated[alias].type)
 
     def _check_union_tag_preserved(
         self: _Elaborator,
@@ -2016,10 +2014,7 @@ class _BorrowMixin:
             if short_name not in structs:
                 structs[short_name] = sinfo
 
-        fn_returns: dict[str, str | None] = {
-            src_name: ret_name
-            for src_name, ret_name in self.callable_return_source_names.items()
-        }
+        fn_returns: dict[str, str | None] = dict(self.callable_return_source_names)
         disjoint_places = list(self.proved_disjoint_places)
         arith_ne = list(self.proved_arithmetic_disequalities)
         for fact in self.active_facts:
@@ -2047,17 +2042,11 @@ class _BorrowMixin:
         w = self.whnf(term)
         head, args = self.spine(w)
         if head.kind == "const" and isinstance(head.value, str):
-            if head.value in {"ne_nat"} or head.value.startswith("int_ne_"):
+            if head.value == "ne_nat" or head.value.startswith(("int_ne_", "<", ">", "int_lt_", "int_gt_")):
                 if len(args) == 2:
                     l_sym = self._term_to_loan_symbol(args[0])
                     r_sym = self._term_to_loan_symbol(args[1])
-                    if l_sym and r_sym:
-                        arith_ne.append((l_sym, r_sym))
-            elif head.value in {"<", ">"} or head.value.startswith(("int_lt_", "int_gt_")):
-                if len(args) == 2:
-                    l_sym = self._term_to_loan_symbol(args[0])
-                    r_sym = self._term_to_loan_symbol(args[1])
-                    if l_sym and r_sym:
+                    if l_sym is not None and r_sym is not None:
                         arith_ne.append((l_sym, r_sym))
             elif head.value == "&&" and len(args) == 2:
                 self._extract_loan_facts_from_term(args[0], disjoint_places, arith_ne)
@@ -2097,17 +2086,17 @@ class _BorrowMixin:
             else:
                 origin_site = lowered.node_sites.get(issue.origin_node or "", site)
                 loan = loans.Loan(base_loan or raw_loan, raw_loan, loans.Place(raw_loan))
-            if issue.origin_node and issue.origin_node in lowered.node_sites:
+            if issue.origin_node is not None and issue.origin_node in lowered.node_sites:
                 origin_site = lowered.node_sites[issue.origin_node]
             start = self.fail("type", "", origin_site)
             footprint = loan.place.owner + "".join(
                 "[*]" if part == "*" else f".{part}" for part in loan.place.fields
             )
             use_suffix = ""
-            if issue.live_use_node and issue.live_use_node in lowered.node_sites:
+            if issue.live_use_node is not None and issue.live_use_node in lowered.node_sites:
                 use_err = self.fail("type", "", lowered.node_sites[issue.live_use_node])
                 use_suffix += f"; next live use at line {use_err.line}, column {use_err.column}"
-            if issue.proposed_end_node and issue.proposed_end_node in lowered.node_sites:
+            if issue.proposed_end_node is not None and issue.proposed_end_node in lowered.node_sites:
                 end_err = self.fail("type", "", lowered.node_sites[issue.proposed_end_node])
                 use_suffix += f"; proposed loan end at line {end_err.line}, column {end_err.column}"
             if issue.kind == "conflicting-receiver-reservation":
@@ -2244,7 +2233,7 @@ class _BorrowMixin:
                     if site_off in self.discharged_overlap_sites or owner in self.shared_ref_locals:
                         continue
                     # Check if any active proved disjointness fact covers this owner
-                    if any(p1.owner == owner or p2.owner == owner for p1, p2 in self.proved_disjoint_places):
+                    if any(owner in (p1.owner, p2.owner) for p1, p2 in self.proved_disjoint_places):
                         continue
                     if self.proved_arithmetic_disequalities or self.proved_tag_preserved_places or self.proved_no_realloc_places:
                         continue
@@ -2293,8 +2282,7 @@ class _BorrowMixin:
                                 ret_region is not None
                                 and ret_region != "'_"
                                 and owner_reg is not None
-                                and owner_reg != "'_"
-                                and owner_reg != ret_region
+                                and owner_reg not in ("'_", ret_region)
                                 and (owner_reg, ret_region) not in closure
                             ):
                                 raise self.fail(
@@ -2317,7 +2305,8 @@ class _BorrowMixin:
         param_vars: list[_Term],
         result_node: Node,
     ) -> None:
-        _, region_params = self._extract_regions(generics)
+        _, raw_region_params = self._extract_regions(generics)
+        region_params = tuple(sorted(raw_region_params))
         param_quals = tuple(self._extract_type_region_qual(self.node(p["type"])) for p in parameters)
         ret_qual = self._extract_type_region_qual(result_node)
         prop_indices = tuple(
@@ -2365,14 +2354,13 @@ class _BorrowMixin:
                 areg = actual_regs[0]
                 if pqual.region in region_map:
                     prev_reg = region_map[pqual.region]
-                    if prev_reg != areg:
-                        # Invariant ref/shared_ref requires equal region; covariant `in` allows common outlives join
-                        if pqual.modifier in {"ref", "shared_ref"}:
-                            raise self.fail(
-                                "type",
-                                f"multi-region conflict: cannot unify invariant region '{pqual.region}' between '{prev_reg}' and '{areg}'",
-                                arg_node,
-                            )
+                    # Invariant ref/shared_ref requires equal region; covariant `in` allows common outlives join
+                    if prev_reg != areg and pqual.modifier in {"ref", "shared_ref"}:
+                        raise self.fail(
+                            "type",
+                            f"multi-region conflict: cannot unify invariant region '{pqual.region}' between '{prev_reg}' and '{areg}'",
+                            arg_node,
+                        )
                 else:
                     region_map[pqual.region] = areg
             for er, ar in zip(pqual.type_regions, actual_regs, strict=False):
@@ -2412,7 +2400,7 @@ class _BorrowMixin:
                     q = self.local_type_regions[cur_name]
                     if q.type_regions:
                         return q.type_regions
-                    if q.region:
+                    if q.region is not None:
                         return (q.region,)
                 if cur_name in environment and environment[cur_name].term.kind == "var":
                     vid = cast("int", environment[cur_name].term.value)
@@ -2444,7 +2432,7 @@ class _BorrowMixin:
         origin_ids: dict[str, int] = {}
         loan_places_str: dict[int, str] = {}
         owner_fields: dict[int, set[int]] = {oid: set() for oid in owner_ids.values()}
-        owner_elems: dict[int, int] = {oid: 0 for oid in owner_ids.values()}
+        owner_elems: dict[int, int] = dict.fromkeys(owner_ids.values(), 0)
 
         def get_loan_id(lname: str) -> int:
             base = loans.base_loan_name(lname)
@@ -2479,7 +2467,7 @@ class _BorrowMixin:
                 return "LSharedMut"
             return "LExclusive"
 
-        node_by_idx = {idx: n for idx, n in enumerate(lowered.graph.nodes)}
+        node_by_idx = dict(enumerate(lowered.graph.nodes))
         succ_map: dict[int, list[int]] = {}
         cfg_nodes: list[str] = []
         step_ops: dict[int, tuple[str, int]] = {}
@@ -2600,10 +2588,10 @@ class _BorrowMixin:
             f"({owner_ids[o.name]}, {{| oe_borrowed := false; oe_val := {render_init_val(owner_ids[o.name])} |}})"
             for o in lowered.owners
         ]
-        issues_list = [f"({pt}, {o}, {l})" for pt, o, l in sorted(issues_set)]
+        issues_list = [f"({pt}, {o}, {lid})" for pt, o, lid in sorted(issues_set)]
         live_list = [f"({pt}, {o})" for pt, o in sorted(live_set)]
-        kills_list = [f"({pt}, {l})" for pt, l in sorted(kills_set)]
-        contains_list = [f"({pt}, {o}, {l})" for pt, o, l in sorted(contains_set)]
+        kills_list = [f"({pt}, {lid})" for pt, lid in sorted(kills_set)]
+        contains_list = [f"({pt}, {o}, {lid})" for pt, o, lid in sorted(contains_set)]
         expected_bool = "true" if (expected_valid and all(not p.issues for p in report.paths)) else "false"
         observed = "; ".join(str(v) for v in sorted(loan_ids.values()))
         _ = exit_id
