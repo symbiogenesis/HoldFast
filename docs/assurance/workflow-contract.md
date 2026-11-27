@@ -9,13 +9,7 @@ and conditional trials for bounded copying and a private linked queue.
 
 ## Comparison prerequisites
 
-A comparison needs a concrete consumer blocked by the retained route, checked
-primitive and representation laws, reproducible implementations, an independent
-baseline, and a priced implementation and trial budget with a stop threshold.
-Record a new suffixed [checklist item](../../PLAN.md#checklist-conventions)
-before commissioning the comparison. The artifact comparison targets the pinned Sail model. The
-[whole-system option](../extensions/unified-source-contract.md) defines the
-requirements for replacing that model.
+A comparison requires a concrete consumer blocked by the retained route, checked primitive/representation laws, reproducible implementations, an independent baseline, and a priced budget with a stop threshold. Record a new suffixed [checklist item](../../PLAN.md#checklist-conventions) before commissioning one. Artifact comparisons target the pinned Sail model; replacing that model follows the [whole-system option](../extensions/unified-source-contract.md).
 
 ## First-release qualification and adoption
 
@@ -23,391 +17,209 @@ Assess the [bounded first release](../language/first-release.md#release-boundary
 
 | Decision | Acceptance and stop rule |
 | --- | --- |
-| Technical feasibility | Construct checked concrete primitive/representation laws and a source-connected useful component at its declared endpoint. Missing laws, vacuous entry states or exhausted investigation budgets stop dependent implementation and produce a named blocking result. A weaker endpoint cannot satisfy the gate. |
-| Recurring developer value | An independent client, a contract change, a representation change and a semantics-preserving refactor measure authoring, annotation, review and repair effort separately. Record diagnostics and checking latency, resource costs and unsupported patterns; hidden manual rewrites or repeated proof reconstruction count against the result. Freeze the compared tasks, baseline and material-benefit criterion before observing results. |
-| Product adoption | Record establishment, shared maintenance, per-client costs and measured target envelopes. Projected amortization states its workload and uncertainty; the first two small clients need not repay all foundational work. The decision must name an independently reviewed useful benefit and acceptable recurring cost, with no reduction of any mandatory guarantee. |
+| Technical feasibility | Checked concrete primitive/representation laws plus a source-connected useful component at its declared endpoint. Missing laws, vacuous entry states, or exhausted investigation budgets halt dependent work with a named blocker. A weaker endpoint cannot pass. |
+| Recurring developer value | Measure authoring, annotation, review, and repair separately across an independent client, contract change, representation change, and semantics-preserving refactor. Record diagnostics/checking latency, resource costs, and unsupported patterns; hidden manual rewrites or repeated proof reconstruction count against the result. Freeze tasks, baseline, and material-benefit criteria before observing results. |
+| Product adoption | Record establishment, shared maintenance, per-client costs, and measured target envelopes. Projected amortization must state workload and uncertainty; two initial small clients need not repay all foundations. Must identify an independently reviewed useful benefit and acceptable recurring cost without weakening mandatory guarantees. |
 
-Every candidate must preserve correctness, authority, confidentiality, declared
-termination/progress and hard admission limits. Performance comparisons use the
-same endpoint and target. A selected optimization may trade code size, cycles or
-reserved space within a separately reviewed envelope; report each affected case
-and dimension, including regressions. Missing target measurements give no
-performance verdict. Never require a universal improvement across every metric
-as a substitute for the product's actual limits, and never average a safety or
-hard-budget failure into a passing score.
+Candidates must preserve correctness, authority, confidentiality, declared termination/progress, and hard admission limits. Performance comparisons share endpoint and target; selected optimizations may trade code size, cycles, or reserved space inside a separately reviewed envelope—report every affected case/dimension, including regressions. Missing target measurements yield no performance verdict. Do not require universal improvement across metrics or average a safety/hard-budget failure into a passing score.
 
-The [two-client thresholds](#accounting-and-decision-thresholds) apply to the
-copying comparison below. For release adoption, freeze the workloads, endpoint,
-resource envelope and decision thresholds for the actual clients before
-measurement.
+[Two-client thresholds](#accounting-and-decision-thresholds) apply to the copying comparison; release adoption freezes workloads, endpoint, resource envelope, and thresholds for the actual clients beforehand.
 
 ### What a caller can prove from the public contract
 
-Before the held-out package is built, its author records the observations a
-caller needs on each exit, with legal inputs and independently expected
-results. Include a boundary where two results differ in a way the caller can
-observe. Record any choice the contract intentionally leaves to the provider.
-Weaken one required public law and exhibit a legal input and two outcomes
-that satisfy the weaker contract. The independent expectation must reject
-the wrong outcome, and the caller's original proof must lose the missing
-guarantee. Restore the law and replay that same proof. The
-[copying trial's wrong-store case](#change-and-weakening-probes) illustrates
-the check for a byte-valued observation.
+Before building the held-out package, its author records required per-exit caller observations with legal inputs, independently expected results, a boundary distinguishing two caller-observable outcomes, and any provider-left choices. To test specification strength: weaken one public law, exhibit a legal input with two weaker-compliant outcomes where independent expectation rejects the wrong one and the original caller proof loses the guarantee, then restore the law and replay that proof ([wrong-store case](#change-and-weakening-probes) illustrates this for bytes).
 
-Freeze the caller's entry domain, including resource permissions, independently
-of the provider's preconditions. For a compatible replacement, prove that
-every old legal call satisfies the new preconditions and that each reachable
-new exit gives the old caller its promised value, resources and effect bound.
-Preserve any promised termination under those same inputs. Exercise the rule
-by tightening one precondition just enough to exclude a previously legal
-witness while leaving other cases inhabited. For the validator, a readable
-three-byte packet and a disjoint writable eight-byte destination are such a
-witness. Requiring a four-byte packet on entry would remove the caller's
-framing-error guarantee. A provider proof obtained under that restriction
-cannot qualify the old interface.
+Freeze the caller's entry domain and resource permissions independently of provider preconditions. Compatible replacements must prove every old legal call satisfies new preconditions and each reachable exit delivers the promised value, resources, effect bound, and termination. Test this by tightening a precondition just enough to exclude a prior witness (for the validator: a readable 3-byte packet and disjoint writable 8-byte destination; requiring 4 bytes removes the framing-error guarantee and disqualifies the interface).
 
-Give the caller the published interface, including its laws and any definitions
-it exposes for computation. Build and check the caller before and after the
-provider changes its private representation. Renew the lock and artifact
-evidence for each build. Record which provider laws needed repair, whether the
-caller's executable source or proof needed edits, and any private facts the
-caller had to learn. Credit proof reuse across this change only when the same
-caller code and proof replay using the frozen interface. The
-[representation comparison](#representation-transfer-comparison) accounts for
-the provider's proof work.
+Supply the caller only the published interface (laws and exposed computational definitions). Build/check the caller before and after private provider representation changes, renewing locks and artifact evidence each time. Record repaired provider laws, caller code/proof edits, and any private facts learned; credit proof reuse only when unchanged caller code/proof replays against the frozen interface ([representation comparison](#representation-transfer-comparison) tracks provider proof work).
 
 ### Reviewing a public contract change
 
-For a release or package upgrade, generate a readable comparison from the
-two locked interfaces and their evidence. For each changed public claim,
-identify the caller and the premise, observable result or resource the caller
-gains or loses. Include authority, effects, permitted leakage, progress and
-resource bounds wherever the interface promises them. Track changes to the
-transitive assumptions separately, including the component responsible for
-establishing each premise. An unchanged signature can acquire a dependency on
-a trusted foreign implementation. Show the dependency path even when the
-caller's source and theorem statement are identical.
+For releases or package upgrades, diff locked interfaces and evidence to identify, per changed claim, the affected caller and gained/lost premise, observable result, or resource (authority, effects, permitted leakage, progress, resource bounds). Track transitive assumption shifts and responsible components separately; an unchanged signature acquiring a trusted foreign dependency must display that path.
 
-Compatibility requires the [caller obligations](#what-a-caller-can-prove-from-the-public-contract)
-under the old assumptions at the claimed endpoint. A new premise can be
-discharged from those assumptions with checked evidence. An unresolved
-implication stays open. An intentional change in trust or behavior follows
-the [public API evolution policy](../language/first-release.md#public-api-evolution).
-Keep the independent review of intended behavior beside the compatibility
-result so a successful proof against a weaker specification stays visible.
+Compatibility requires [caller obligations](#what-a-caller-can-prove-from-the-public-contract) under prior assumptions at the claimed endpoint (new premises may be discharged from them with checked evidence; unresolved ones stay open). Intentional trust/behavior changes follow the [public API evolution policy](../language/first-release.md#public-api-evolution); retain independent behavioral review alongside compatibility so weaker-spec passes remain visible.
 
-The packet and importing library clients exercise both kinds of change.
+Exercise both change kinds across two clients:
 
-- For the [packet validator](../language/first-release.md#first-slice-qualification),
-  keep the legal short packet alongside a successful input. Make the provider
-  require four readable bytes, then try contradictory entry bounds. Identify
-  the lost short-input witness in the first case and the empty entry domain in
-  the second. Neither version qualifies for the old contract.
-- For the importing client, retain a reachable example of each required exit
-  and a distinguishing wrong result for one weakened promise. Replay its proof
-  with the provider opaque. Then replace one discharged provider premise with
-  a declared external assumption in a trial dependency. The review must name
-  that assumption, the importing claim affected and the old policy that fails.
-  Restore the original proof and reproduce the original assumption set.
+- [Packet validator](../language/first-release.md#first-slice-qualification): keep the legal short packet with a valid input, then test requiring 4 readable bytes (lost short-input witness) and contradictory entry bounds (empty entry domain); neither qualifies for the old contract.
+- Importing client: keep reachable exit witnesses and a distinguishing wrong result for one weakened promise; replay with the provider opaque; replace one discharged premise with a declared external assumption and check the review names the assumption, affected claim, and broken policy before restoring the original proof/assumptions.
 
 ### Cost of the verified abstraction
 
-Compare the held-out client with a hand-written baseline that provides the
-same behavior, safety guarantees and resource bounds on the same target, ABI
-and backend configuration. Inventory which facts erase and which operations
-still run, including checks on incoming data, failure branches, copies and
-allocation. Tie each to its lowering and the [admitted image](compiler-route-contract.md#equivalent-artifact-endpoint).
-For an erased proof parameter, inspect its lowered call and the corresponding
-machine code, including the inlined body if the call disappears. An extra
-argument, stored witness or branch introduced solely to carry that proof
-fails its erasure claim.
+Compare the held-out client to a handwritten baseline matching behavior, safety guarantees, and resource bounds on the same target, ABI, and backend config. Inventory erased facts versus surviving operations (incoming checks, failure branches, copies, allocation) tied to lowering and the [admitted image](compiler-route-contract.md#equivalent-artifact-endpoint). Inspect lowered calls (and inlined bodies) for erased proof parameters; any extra argument, stored witness, or branch solely carrying a proof fails erasure.
 
-Report code bytes, stack, peak storage and per-case memory traffic and cycles
-for the agreed success and failure paths, with the instrument or checked bound
-for each. Keep proof-checking time in the developer measurements. If a target
-measurement or equivalent baseline is unavailable, leave that cost comparison
-open. Apply the client's frozen thresholds to the measured costs.
+Report code bytes, stack, peak storage, per-case memory traffic, and cycles on agreed success/failure paths with instruments or checked bounds; keep proof-checking time in developer metrics. Missing target measurements or equivalent baselines leave cost comparisons open; apply frozen client thresholds where measured.
 
 ### Representation-transfer comparison
 
-The independent package trial's representation-change probe starts with ordinary
-Rocq relations, explicit transport lemmas and generalized rewriting over a pure
-value representation the client actually needs. Freeze the public laws, baseline
-and repeated proof steps before comparing automation. Reprove the changed
-instance laws and replay the generic client theorem unchanged; record handwritten
-transport, generated terms, review and repair separately. Concrete CHERI memory,
-ownership and primitive-operation laws retain their foundation owners.
+The package trial's representation-change probe begins with standard Rocq relations, explicit transport lemmas, and generalized rewriting over a client-needed pure value representation. Freeze public laws, baseline, and repeated steps before comparing automation; reprove changed instance laws, replay generic caller theorems unchanged, and track handwritten transport, generated terms, review, and repair separately. CHERI memory, ownership, and primitive laws keep their foundation owners.
 
-The [CoqEAL/Trocq candidates](verification-strategy.md#existing-tooling-and-implementation-owners)
-become an implementation option only when that baseline exposes recurring work
-worth automating and a new checklist item prices the selected package's exact
-prover/plugin closure, port, licence reading and maintenance. Keep the locked
-prover and assumption policy. Stop the candidate at its declared budget, an
-unresolved compatibility/assumption boundary or failure to meet its predeclared
-maintenance-benefit criterion; retain the native transport and useful checked
-lemmas. A generated proof must concern the same relations and client laws, with
-no strengthened precondition or weakened result. Use this comparison within the first-release package trial.
+[CoqEAL/Trocq candidates](verification-strategy.md#existing-tooling-and-implementation-owners) become options only if that baseline exposes recurring automatable work and a new checklist item prices their prover/plugin closure, port, licence reading, and maintenance under the locked prover/assumption policy. Stop on budget exhaustion, unresolved compatibility/assumptions, or missed predeclared maintenance-benefit criteria (retaining native transport and checked lemmas). Generated proofs must establish the exact same relations and client laws without stronger preconditions or weaker results.
 
 ## Clients and baseline evidence
 
-**P, parser destination initialization**, is a copy-once ring-descriptor
-check with bounded fill of a fixed destination. **S, private service
-staging**, is the held-out sequential disjoint copy into private storage.
+**P (parser destination initialization)** is copy-once ring-descriptor check with bounded fill of a fixed destination; **S (private service staging)** is held-out sequential disjoint copy into private storage.
 
-Use the [VerifiedOS foundation map](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/hardware/cheri-foundation-map.md)
-for current producers, representations and missing connections.
-[DescriptorCheck](https://github.com/symbiogenesis/VerifiedOS/blob/main/tools/bedrock2-lowering/DescriptorCheck.v)
-models the read-only header check.
-[CopyRingService](https://github.com/symbiogenesis/VerifiedOS/blob/main/proofs/CopyRingService.v)
-specifies abstract read counts and extent. Entry requires runnable byte-copy
-baselines at the selected endpoint, checked CHERI byte and scoped resource
-laws, and the actual ring declaration and staging limits.
-Freeze immutable revisions and digests for each implementation.
-Record missing inputs as `unavailable`.
+Use the [VerifiedOS foundation map](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/hardware/cheri-foundation-map.md) for producers, representations, and gaps; [DescriptorCheck](https://github.com/symbiogenesis/VerifiedOS/blob/main/tools/bedrock2-lowering/DescriptorCheck.v) models the read-only header check, and [CopyRingService](https://github.com/symbiogenesis/VerifiedOS/blob/main/proofs/CopyRingService.v) specifies abstract read counts/extent. Entry requires runnable byte-copy baselines at the endpoint, checked CHERI byte and scoped resource laws, and actual ring/staging declarations. Freeze immutable revisions and digests; mark missing inputs `unavailable`.
 
 ### Freeze and independence
 
-Before adapting P, freeze the manual baseline's operational definition,
-intended behavior, implementation, theorem subjects and assumptions. The
-baseline author works independently of generated output. Record original
-authoring costs only when contemporaneous records exist.
+For P, freeze operational definition, intended behavior, implementation, theorem subjects, and assumptions before adaptation; baseline author works independently of generated output, and authoring costs require contemporaneous records.
 
-Before adapting S, freeze and hash the interface, generic theorems, concrete
-instance and qualified environment. If S informs the interface, treat it
-as a development client. Name a fresh held-out consumer, owner, baseline and
-budget and obtain independent review before observing any comparison results.
+For S, freeze and hash interface, generic theorems, concrete instance, and qualified environment before adaptation. If S informs the interface, reclassify it as development and name a fresh held-out consumer, owner, baseline, and budget with independent pre-observation review.
 
-Name the experiment author, baseline author and a reviewer independent of the
-implementations and expected-behavior checks. Follow the
-[licensing policy](../../COPYRIGHT.md#terms-this-tree-does-not-carry) for any
-incorporated tools.
+Name experiment author, baseline author, and a reviewer independent of implementations and oracle checks; observe [licensing rules](../../COPYRIGHT.md#terms-this-tree-does-not-carry) for incorporated tools.
 
 ## Operational subset and observations
 
-The pilot uses sequential, total, bounded byte-buffer code: fixed destination capacity, runtime length, erased bounds evidence, explicit failures and a callback-shaped scoped loan. Each candidate has one authoritative executable definition and independently reviewed behavior. Generated implementations, representations and proofs have named provenance and are regenerated rather than hand-repaired.
+The pilot uses sequential, total, bounded byte-buffer code: fixed destination capacity, runtime length, erased bounds evidence, explicit failures, and a callback-shaped scoped loan. Each candidate has one authoritative executable definition and independently reviewed behavior; generated implementations, representations, and proofs carry provenance and are regenerated, never hand-repaired.
 
-Retain runtime branch inputs, including lengths and result discriminants. The representation relation specifies byte order, integer widths/overflow, capability provenance/bounds/permissions, initialization, layout and abstract-owner/concrete-byte correspondence. Its laws connect to the admitted CHERI semantics; a generic byte model or printer-assigned capability meaning cannot supply that connection.
+Keep runtime branch inputs (lengths, discriminants). The representation relation defines byte order, integer widths/overflow, capability provenance/bounds/permissions, initialization, layout, and abstract-owner/concrete-byte correspondence, connected to admitted CHERI semantics (not generic byte or printer-assigned models).
 
-For both clients freeze declaration-owned capacity `C`, a stable readable source extent, an exclusive destination of capacity `C` and their disjointness witness. Check representations of `C`, indices and lengths, receiver-relative bounds and symbolic overflow cases too large to execute. Derive target input sizes from the frozen owner rather than duplicate layout constants.
+Freeze declaration-owned capacity `C`, stable readable source extent, exclusive capacity-`C` destination, and disjointness witness for both clients. Verify representations of `C`, indices/lengths, receiver-relative bounds, and unexecutable symbolic overflows; derive target input sizes from the frozen owner without duplicating layout constants.
 
 ### P: composed positive client
 
-P combines the selected mechanisms in one executable definition and theorem.
-Use the following behavior to compare implementations.
+P combines the selected mechanisms in one executable definition and theorem:
 
-1. Enter a scoped callback with the destination owner, the stable source read authority and a runtime length `n`. Validate `n` against the source extent and `C` before using it for a source access, destination index or pointer calculation.
-2. Fill the entire destination with zero using a total repeatable callback returning the zero byte. The callback captures only stable public values, holds no competing destination loan and has no allocation or external effect. Its invocation count follows the destination bound, while capture and write permissions are proved separately.
-3. If the length is rejected, return the declared invalid result with the initialized destination owner restored. Otherwise copy the selected source prefix into the private destination once, then check the staged header using the existing descriptor-check interpretation. Every validation read after copying is from the private destination.
-4. Return success carrying the runtime `n`, its bound witness and the initialized destination owner, or invalid carrying the same initialized owner and the appropriate failure evidence. The original scoped loan cannot escape in either result. No branch changes destination capacity. The success result does not claim session-table validation that `DescriptorCheck` leaves to the receiver at use.
+1. Enter a scoped callback with destination owner, stable source read authority, and runtime length `n`; validate `n` against source extent and `C` before any source read, destination index, or pointer calculation.
+2. Zero-fill the entire destination using a total repeatable callback returning `0`, capturing only stable public values with no competing destination loan, allocation, or external effect (invocation count matches destination bound; capture and write permissions proved separately).
+3. On invalid `n`, return the declared invalid result with the initialized destination owner restored. Otherwise copy the source prefix once into the private destination and run descriptor validation strictly against the private destination.
+4. Return success carrying runtime `n`, its bound witness, and initialized destination owner, or invalid carrying the initialized owner and failure evidence. Neither exit leaks the scoped loan or alters destination capacity, and success excludes session-table validation left to the receiver.
 
-Every exit preserves the source and unrelated frame, fully initializes the
-destination and restores ownership exactly once. For admitted `n`, the destination
-contains the sampled prefix followed by zeros, including when the header is
-invalid. The status agrees with `Descriptor.descriptor_check` on that prefix.
-A rejected length leaves an all-zero destination and reads no source byte.
-Resolve any differences in failure writes before freezing the comparison.
+Every exit preserves source and unrelated frame, fully initializes the destination, and restores ownership once. Admitted `n` yields sampled prefix followed by zeros (even on invalid headers) matching `Descriptor.descriptor_check`; rejected `n` yields all-zeros and reads no source byte. Resolve failure-write differences pre-freeze.
 
-This exercises R-05-124's destination initialization, R-12-012a's receiver validation and selected descriptor encodings. Complete parser, session-validation, cross-compartment initialization, Byzantine-peer and atomic-snapshot theorems remain outside this immutable-source sequential pilot.
+Exercises R-05-124 destination initialization, R-12-012a receiver validation, and selected descriptor encodings; full parser, session validation, cross-compartment init, Byzantine peers, and atomic-snapshot theorems remain out of scope.
 
 ### S: held-out staging client
 
-S applies the frozen generic disjoint-copy interface to private staging. Before adaptation, its baseline fixes M7.1's selected lifetime, capacity, initial state, result and exact failure status against `svc_op_record`; the statement artifact leaves these choices open. Freeze accepted payload extent `d` separately from storage capacity `C`, prove `d <= C` and test both boundaries: staging slack permits no larger payload. Starting with an initialized destination, copy admitted `n` bytes, preserve its suffix, source and unrelated frame, and return the owner on success and error. Rejected lengths/extents produce the declared refusal with no source read or destination write.
+S applies the frozen generic disjoint-copy interface to private staging. Its baseline locks M7.1's lifetime, capacity, initial state, result, and exact failure status against `svc_op_record` (left open in the statement artifact). Freeze payload extent `d` separately from storage capacity `C`, prove `d <= C`, and test both boundaries (staging slack allows no larger payload). From an initialized destination, copy admitted `n` bytes preserving suffix, source, and unrelated frame, returning the owner on both success and failure; rejected lengths/extents refuse with no source read or destination write.
 
-The successful payload is the first acquired source prefix. Vary a modeled later image while fixing that prefix to check `copy_once`'s abstract behavior. Adversarial atomic snapshots, concurrent SPSC, publication, notification, cancellation, DMA and revocation require separately owned connection evidence.
+Success payload equals the first acquired source prefix (verify `copy_once` by varying a modeled later image with fixed prefix). Adversarial atomic snapshots, concurrent SPSC, publication, notification, cancellation, DMA, and revocation require separate connection evidence.
 
-Compare each client only with its matching baseline, preserving P/S's different initialization behavior. Shared generic operations must support both without client-specific CHERI facts in the generic theorem.
+Compare each client strictly to its matched baseline (preserving P/S init differences); generic operations must support both without client-specific CHERI facts in the generic theorem.
 
 ## Selected composition and rejection cases
 
-Every selected row below must compose in P. Missing mechanisms make the trial unavailable until their implementation is separately owned and priced. These prospective cases and isolated feature examples supply no executable evidence for P.
+Every row below must compose in P; missing mechanisms mark the trial unavailable until separately owned and priced (isolated feature examples supply no evidence).
 
 | Interaction in P | Positive obligation | Well-formed negative neighbor and intended failure |
 | --- | --- | --- |
-| Stable indices and erasure | Use runtime `n`, fixed `C` and an erased `n <= C` witness in the bounded copy; retain the success/error tag | Erase `n` while branching on it, or retain the bound witness after changing the bound: reject at phase or stale-bound obligation |
-| Mutation and dependency | Fill and copy change contents while preserving destination shape; old content facts are consumed | Use a pre-fill content snapshot to justify the final payload: reject at memory representation or functional postcondition |
-| Scoped loans and results | Both callback result branches return the full owner and end the loan | Return the loan in the error payload, or propagate error without the owner: reject at escape or restoration obligation |
-| Reusable callable, effects and count | Invoke the zero-byte callback at the proved loop indices with permitted captures and no external effect | Invoke a consuming callable twice; conceal a captured destination write or allocation; alias its capture with the exclusive output: reject respectively at usage, effect or disjointness obligation |
-| Typestate and branch joins | The fill establishes whole initialization before either exit; the result's variant has its own bound and status facts | Skip one fill iteration yet claim whole initialization, read an uninitialized byte, or claim a successful parsed result on error: reject at initialization or branch postcondition |
-| Name and instance resolution | Rename locals, qualify the buffer operation and import an unrelated module while retaining the same resolved constants | Silently select another representation or effect instance: require preserved meaning or explicit ambiguity, never stale acceptance |
-| Dependent computation and automation | Compute bounded cases and replay equation lemmas and the exact transitive assumption audit | Add global UIP, leave a generated obligation open, or produce an executable term stuck on the selected concrete input: fail the relevant assumption, completeness or computation check |
+| Stable indices and erasure | Runtime `n`, fixed `C`, erased `n <= C` witness in bounded copy; retain success/error tag | Erase `n` while branching on it, or reuse bound witness after changing bound: fail phase/stale-bound check |
+| Mutation and dependency | Fill/copy update contents while preserving shape; consume old content facts | Justify final payload from pre-fill snapshot: fail memory representation or postcondition |
+| Scoped loans and results | Both branches return full owner and end loan | Return loan in error payload, or error without owner: fail escape/restoration |
+| Reusable callable, effects and count | Invoke zero-byte callback across loop indices with permitted captures, no external effect | Call consuming callable twice; hide captured destination write/alloc; alias capture with exclusive output: fail usage/effect/disjointness |
+| Typestate and branch joins | Fill establishes whole init before either exit; result variants carry distinct bound/status facts | Skip fill iteration yet claim whole init, read uninit byte, or claim success on error: fail init or branch postcondition |
+| Name and instance resolution | Local renames, qualified buffer ops, and unrelated imports preserve resolved constants | Silent representation/effect instance switch: require preserved meaning or explicit ambiguity |
+| Dependent computation and automation | Compute bounded cases; replay equation lemmas and exact transitive assumption audit | Global UIP, open generated obligations, or stuck concrete term: fail assumption, completeness, or computation |
 
-Use the locked prover's existing definition and conversion rules. A proved equality principle for the selected decidable index is permitted; a global axiom is not. Saved proof-search reconstructions replay without the search service.
+Use the locked prover's existing definition/conversion rules (proved equality for the selected decidable index is allowed; global axioms are not). Saved search reconstructions must replay without the search service.
 
-Straight-line borrow inference, a loan returned beyond the callback, disjoint-field and nested reborrow inference, resizing, suspension, cancellation, handlers, concurrency, general grades and a new frontend are **unavailable in this pilot**. General isolation, observation-policy and binary-leakage composition are **outside its source claim**. The [core design](../language/core-design.md) covers the wider mechanisms. SPSC, DMA and atomic snapshots are **inapplicable to the sequential slice**, not established absences of the full system.
+Straight-line borrow inference, returning a loan beyond the callback, disjoint-field/nested reborrow inference, resizing, suspension, cancellation, handlers, concurrency, general grades, and a new frontend are **unavailable in this pilot**. General isolation, observation policy, and binary-leakage composition are **outside its source claim** ([core design](../language/core-design.md) covers wider mechanisms); SPSC, DMA, and atomic snapshots are **inapplicable to the sequential slice**, not proved absent.
 
 ### Expected behavior, witnesses and mutations
 
-Before candidate proofs are authored, an independent reviewer freezes expected bytes/status and checks from the client contract and format, without evaluating the candidate as its own oracle. Supply inhabited entry states satisfying the actual theorem hypotheses and these classes for each baseline/candidate pair:
+Before candidate proofs start, an independent reviewer freezes expected bytes/status and checks from contract/format (never treating the candidate as its own oracle). Supply inhabited entry states covering:
 
-- Empty input, a single byte, exactly full input, and one beyond the declared capacity; S additionally tests `d` and `d + 1` independently of `C` and `C + 1`, including nonzero declared staging slack. P additionally covers every operation variant and every truncated field position the descriptor declaration admits.
-- The last valid and first invalid index, malformed tag, direction, content and optional-deadline discriminants, and a flag outside the declared set. Retain distinct bytes at distinguishable positions to expose swapped reads or stores.
-- Receiver-relative offset/length boundaries and arithmetic wraparound, proved at the selected word width. If a case is too large to execute, retain the proof case and report target execution as unavailable rather than allocate a different smaller substitute.
-- Destination residue distinct from source bytes; nonempty frames around both buffers; adjacent disjoint ranges; and an overlap variant that is rejected at disjointness. Verify source and frame bytes on every exit.
+- Empty, 1-byte, full, and `C + 1` inputs (S also tests `d` and `d + 1` with nonzero staging slack; P covers all operation variants and truncated field positions).
+- Last valid and first invalid indices; malformed tag, direction, content, and optional-deadline discriminants; invalid flag; distinct distinguishable byte positions to catch swapped reads/stores.
+- Receiver-relative offset/length boundaries and word-width wraparound (retain proof case and report unexecutable large cases as unavailable rather than shrinking inputs).
+- Destination residue distinct from source bytes, nonempty surrounding frames, adjacent disjoint ranges, and rejected overlap; verify source and frame bytes on all exits.
 
-Freeze wrong-store, off-by-one, omitted-fill, bad failure-result and second-image variants that are syntactically valid and reach the intended obligation. Distinguish malformed/stillborn construction, intended kill, unrelated failure, timeout, unsupported and survivor. Parse/type/compile failures elsewhere supply no ownership/specification evidence; any required survivor prevents success.
-
-Use [oracle, seed and QuickChick](https://github.com/symbiogenesis/VerifiedOS/blob/main/tools/README.md#the-three-generators-and-what-each-answers) where supported; retain independent specification review and keep test guards out of theorem premises. Name each guarantee's theorem. Removing a required frame-preservation theorem while retaining operation laws must make P's frame-requiring client fail for that omission. Profile flags and source ownership alone establish no adversarial-context isolation.
+Freeze syntactically valid wrong-store, off-by-one, omitted-fill, bad-failure-result, and second-image mutations reaching target obligations; classify malformed/stillborn, intended kill, unrelated failure, timeout, unsupported, and survivor (any survivor fails). Use [oracle, seed and QuickChick](https://github.com/symbiogenesis/VerifiedOS/blob/main/tools/README.md#the-three-generators-and-what-each-answers) where supported with independent spec review and test guards kept out of theorem premises. Name per-guarantee theorems (dropping a frame theorem while keeping op laws must fail P); profile flags and source ownership alone give no adversarial isolation.
 
 ### Change and weakening probes
 
-Change P's accepted bound from `C` to `C - 1` at unchanged nonzero capacity. Entry needs a concrete well-formed descriptor accepted at `n = C` under the frozen declaration and representation hypotheses; otherwise revise and independently review the probe before entry. The old success claim and cached feedback must become stale or fail before repair. Independently review the new behavior and expected table, regenerate implementation, renew affected source/representation/artifact evidence and record all source, contract, glue and proof edits. Apply the same change to the baseline before comparing repair cost.
+Shrink P's accepted bound from `C` to `C - 1` (nonzero `C`, needing an inhabited `n = C` witness). Old claims/cached feedback must turn stale/fail pre-repair; re-review expected tables, regenerate, renew source/representation/artifact evidence, record all edits, and apply the same edit to baseline before comparing repair cost.
 
-Remove S's successful copied-prefix equality while retaining bounds, initialization, frame and status. A wrong-store implementation can satisfy that weaker postcondition, but the independent expected-byte check must reject its output on a nonuniform source. Otherwise record a specification gap and refuse success; inhabitance, proof completion and memory safety cannot close it.
+Drop S's copied-prefix equality while keeping bounds, init, frame, and status: wrong-store passes the weaker spec but must fail independent nonuniform expected-byte checks (otherwise record a spec gap and refuse; inhabitance, proof completion, and memory safety cannot close it).
 
-Separately test a semantics-preserving local rename and helper extraction, an unrelated import, and an instance representation change preserving public laws. After reproving changed instance laws, replay the generic theorem unchanged. Separate saved-term replay from tactic/search rediscovery; retain search seed, limit and reconstructed proof. Changed source maps, resolved constants, representations, contracts or dependencies invalidate affected evidence despite identical-looking goals. New holes, admissions or undeclared assumptions fail R-05-018a/R-05-018b acceptance under the exact R-05-163 declaration.
+Test semantics-preserving local rename + helper extraction, unrelated import, and law-preserving instance representation change: reprove changed instance laws and replay generic theorems unchanged. Separate saved-term replay from tactic/search rediscovery (seed, limit, reconstructed proof). Changed source maps, constants, representations, contracts, or dependencies invalidate evidence despite unchanged goal spelling; new holes, admissions, or undeclared assumptions fail R-05-018a/R-05-018b under exact R-05-163.
 
 ## Measurement record and sampling
 
-Generate a readable view from the machine-readable measurement record. Retain each measurement's raw log, units, predicate, instrument revision and uncertainty. Missing values are `unknown`, inapplicable axes `n/a`; neither means zero.
+Generate a readable report from machine logs retaining raw logs, units, predicates, instrument revisions, and uncertainty (`unknown` = missing, `n/a` = inapplicable; never zero).
 
 | Record family | Required identity or observation |
 | --- | --- |
-| Trial | Contract and review revision, P/S identity and development/held-out status, named authors/reviewer, entry decision and case-selection record |
-| Source | Baseline/candidate source closure and commit; operational definition and independent behavior; representation and erasure; source maps, resolved names, elaboration/desugaring and imported contracts |
-| Proof | Exact Rocq, libraries and plugins with configuration; interface and instance digests; theorem constants and transitive assumptions; batch, assumption and `rocqchk` evidence; search seeds and limits |
-| Target | Profile, pinned Sail term and model configuration; compiler, optimizer, assembler, linker and composer revisions/options; ABI, link context and layout; memory classes and slot configuration; final image and evidence digests |
-| Effort | Setup, learning, authoring, review, diagnostic investigation, regeneration, proof repair and shared maintenance event records; source/contract/glue/proof diffs; duplicate operational implementation |
-| Host measurements | Diagnostic latency; cold and warm batch/kernel replay elapsed time, CPU and maximum resident memory; active worker count, machine and cache state |
-| Target measurements | Per-case code bytes, stack and peak storage, allocation/runtime support, memory accesses and target cycles, with their individual derivation or instrument |
-| Decisions | Every positive and negative result, first intended obligation, mutation class, change invalidation, specification-gap status, endpoint-qualified cost comparison and decision |
+| Trial | Contract/review revision, P/S identity and development/held-out status, named authors/reviewer, entry decision, case selection |
+| Source | Baseline/candidate source closure + commit; operational def + independent behavior; representation/erasure; source maps, resolved names, elaboration/desugaring, imported contracts |
+| Proof | Rocq/library/plugin versions + config; interface/instance digests; theorem constants + transitive assumptions; batch, assumption, `rocqchk` evidence; search seeds/limits |
+| Target | Profile, pinned Sail term/config; compiler, optimizer, assembler, linker, composer versions/flags; ABI, link context, layout; memory classes/slots; final image + evidence digests |
+| Effort | Event records (setup, learning, authoring, review, failure diagnosis, regeneration, proof repair, shared maintenance); diffs across source/contract/glue/proof; duplicate executable tracking |
+| Host measurements | Diagnostic latency; cold and warm batch/kernel replay elapsed, CPU, max RSS; worker count, machine, cache state |
+| Target measurements | Per-case code bytes, stack, peak storage, alloc/runtime support, memory accesses, target cycles with derivation/instrument |
+| Decisions | All positive/negative outcomes, first failed obligation, mutation class, change invalidation, spec-gap status, endpoint cost comparison, decision |
 
-Use monotonic elapsed intervals and UTC event ordering. Each effort event has one actor, workstream owner, category, start/end and identifier. Pause active authoring during unattended builds; charge failure diagnosis separately. Preserve overlaps rather than sum them into wall time. Record successful, failed and abandoned agent attempts and all review, including the integrator's.
+Record UTC event ordering with monotonic intervals (`actor`, `owner`, `category`, `start/end`, `id`); pause authoring during unattended builds, charge diagnosis separately, keep overlaps unsummed, and log all agent attempts plus integrator review.
 
-Observe authoring and the held-out adaptation once, retaining original logs; learned repetition is no independent sample. Time each exact batch artifact with one cold run, one unreported warm-up and five retained warm runs. Replay the frozen positive/edit/negative diagnostic sequence five times per workflow, alternating workflow order each round. Report raw durations, nearest-rank p95, median, maximum and source/environment identities. Avoid competing builds; record interruptions and rerun only the affected round, labelling both observations.
+Observe authoring and held-out adaptation once with original logs (learned repetition invalidates independence). Time batch artifacts via 1 cold + 1 unreported warmup + 5 warm runs; replay positive/edit/negative diagnostic sequences 5x alternating workflow order; report raw durations, nearest-rank p95, median, max, and environment IDs (re-run only interrupted rounds, labeling both). Diagnostic latency spans edit completion to source-bound feedback on first unsatisfied obligation (`stale`/`unfinished` resolve no obligation; timeouts keep `timed-out`, not cached success). Batch/latency timings never substitute for acceptance or authoring effort.
 
-Diagnostic latency runs from submission of the completed edit to source-bound feedback on its first unsatisfied obligation. Record prompt stale/unfinished messages separately; they resolve no obligation. Timeouts retain their status, never cached success. Neither latency nor batch timing supplies batch proof acceptance or attended-authoring estimates.
-
-Use C#/Dafny and Rust/Verus comparators only where their qualified subsets express the same bounded algorithm and behavior. Record unsupported features, manual restoration and proof endpoint. Weaker endpoints permit navigation, error-location and latency comparisons, but no authoring-productivity claim against stronger CHERI evidence. This contract commissions no installation, port or language server.
+Compare C#/Dafny and Rust/Verus only on matching bounded algorithms/behaviors, logging unsupported features, manual restoration, and endpoint (weaker endpoints allow navigation/location/latency comparison only, never CHERI authoring claims; commissions no install, port, or LSP).
 
 ### Proof search and replay under change
 
-For each client trial, freeze separate limits for interactive inference,
-batch search and kernel replay before the first edit. Identify the enabled
-[checking tiers](verification-strategy.md#layered-proof-and-staging), their
-solver settings and their work or time limits. An exhausted search returns
-the residual proposition at its source operation, the relevant local facts
-and the limit reached. The author can supply a lemma for that same goal.
-Record time to first useful feedback, remaining goals, handwritten proof
-changes and fresh replay time. A hosted application trial sets its own
-limits on its selected workload and dependency graph. The copying pilot uses
-its [existing thresholds](#accounting-and-decision-thresholds).
+Before the first edit, freeze interactive inference, batch search, and kernel replay limits, enabled [checking tiers](verification-strategy.md#layered-proof-and-staging), and solver settings; exhausted searches emit the residual proposition at its source site, local facts, and hit limit so authors can supply a matching lemma. Record time to first feedback, remaining goals, proof diffs, and fresh replay time (hosted apps set custom limits; copying pilot uses [existing thresholds](#accounting-and-decision-thresholds)).
 
-For the packet and the independent package trial, record how each selected
-goal was discharged, which definitions, instances and assumptions it consumed,
-and where to find its replayable term or certificate. Retain the exact source,
-target and checker bindings used for acceptance. Exercise these changes on
-the frozen clients.
+For the packet and independent package trial, track per-goal discharge methods, consumed defs/instances/assumptions, replayable certificates, and exact source/target/checker bindings, exercising:
 
-1. Replay its saved evidence in a clean checker with search disabled. Record
-   certificate replay separately from the cost of discovering the proof.
-2. Change a semantic dependency while keeping the source spelling of the goal.
-   Show which claim is stale before replay. Substituting an old certificate
-   that proves a different proposition must fail at that obligation. A cached
-   success flag alone supplies no evidence.
-3. Exhaust the automatic search allowance on a selected provable goal. Supply
-   the missing lemma at the reported site and replay under the same limit.
-4. Reprove a private provider representation under the same published laws.
-   Recheck the unchanged caller with the renewed dependency closure. Report
-   rediscovered proofs, replayed proofs and the author's repair effort on
-   each side. Observable behavior and the caller's obligations stay fixed for
-   this comparison. [Invalidation rules](../language/core-design.md#typed-holes-and-invalidation)
+1. Replay saved evidence cleanly with search off; log certificate replay separately from proof discovery.
+2. Change a semantic dependency while preserving goal syntax: show staleness pre-replay; replaying an old certificate for a different proposition must fail at that obligation (cached success flags prove nothing).
+3. Exhaust automatic search on a provable goal; insert the missing lemma at the reported site and replay within the same limit.
+4. Reprove a private provider representation preserving public laws and recheck the unchanged caller; report rediscovered vs replayed proofs and per-side repair effort under [invalidation rules](../language/core-design.md#typed-holes-and-invalidation).
 
 ## Accounting and decision thresholds
 
-Freeze these selection thresholds before running the workflow and artifact comparisons. A protocol change requires a new identity and a fresh run of the affected cases.
+Freeze selection thresholds pre-run; protocol changes require a new identity and fresh runs.
 
 | Parameter | Threshold | Ground and interpretation |
 | --- | --- | --- |
-| Correctness and evidence | Every selected positive meets its exact endpoint; every required negative fails at its intended obligation; zero new admitted assumptions, stale acceptances or undetected selected weakening | The claimed guarantee is conjunctive; averaging safety failures would remove its meaning |
-| Interactive diagnostic latency | p95 at most 2 s for the frozen incremental sequence | The pilot tests feedback usable within a local edit loop. Slow batch proofs remain separately measured, so an expensive kernel replay does not masquerade as an interactive result |
-| Replay limit | Each warm replay completes within 10 min and each cold replay within 30 min | Bounds the experiment's usable edit/rebuild loop. A timeout leaves that attempt undecided and supplies no proof rejection; repeated limit failure rejects workflow adoption |
-| Held-out recurring effort | Candidate upper bound at most 0.90 times the matched baseline lower bound, including learning, adaptation, review and the specified maintenance probes | A predeclared margin makes a nominal difference inside recording uncertainty insufficient for expansion; this is no forecast of a saving |
-| Full accounting boundary | Conservative `NetSaved` strictly positive at the selected evidence endpoint | Both selected clients must repay all attributable setup and shared work within this bounded pilot before expansion is credited |
-| Native footprint and runtime support | No larger declared stack or peak storage, no new allocation or undeclared runtime support, and unchanged hard resource bounds versus the matching manual baseline | The comparison cannot buy speed by consuming a larger admitted resource envelope |
-| Native code and cycles | Final code size and each measured case's target cycles at most 1.05 times its matching manual baseline; no applicable hard bound regresses | A bounded experimental tolerance for competitive output, with failures exposed per dimension rather than hidden in a combined score |
-| Selected optimization | Optimized cycles no greater than the same candidate's unoptimized cycles on any selected case, and total optimized code bytes no greater | This bounded trial retains only an optimization that preserves both dimensions; a deliberate trade needs a separately reviewed comparison |
+| Correctness and evidence | All positives hit endpoint; all negatives fail intended obligation; zero new assumptions, stale accepts, or undetected weakenings | Conjunctive guarantee; safety failures never average out |
+| Interactive diagnostic latency | p95 <= 2 s on frozen incremental sequence | Local edit-loop usability distinct from batch replay cost |
+| Replay limit | Warm <= 10 min; cold <= 30 min | Bounds edit/rebuild loop (timeouts stay undecided; repeated timeouts reject adoption) |
+| Held-out recurring effort | Candidate upper bound <= 0.90x matched baseline lower bound (incl. learning, adaptation, review, probes) | Predeclared margin above recording uncertainty, not a forecast |
+| Full accounting boundary | Conservative `NetSaved` > 0 at endpoint | Both pilot clients must repay attributable setup and shared work pre-expansion |
+| Native footprint and runtime support | Stack/peak storage <= baseline; zero new alloc/runtime support; hard bounds unchanged | Prevents buying speed with a larger resource envelope |
+| Native code and cycles | Executable code size and per-case cycles <= 1.05x baseline; zero hard-bound regressions | Experimental ratio exposing per-dimension failures |
+| Selected optimization | Cycles <= unoptimized on all cases; total optimized code bytes <= unoptimized | Retains only Pareto-dominating optimizations unless separately reviewed |
 
-Account from the first attributable qualification/interface event until P, S and the change probes reach the selected endpoint. Close the source-workflow ledger at its own endpoint and extend it with measured final-artifact work. Further consumers, future targets and imagined edits earn no adoption credit.
-
-Use the strategy's [break-even equation](verification-strategy.md#where-time-might-be-saved) without adding another overlapping savings formula. The ledger assigns its terms as follows:
+Account from the first attributable qualification/interface event through P, S, and change probes at the endpoint; close the source ledger first, then add measured artifact work (no credit for unmeasured consumers/targets/edits). Use the strategy's [break-even equation](verification-strategy.md#where-time-might-be-saved) with unique term owners:
 
 | Term or shared cost | Unique owner and treatment |
 | --- | --- |
-| Library/interface establishment `L` | Count attributable proof-tool qualification, interface design and initial learning once. |
-| Shared maintenance `M` | The owner changing the common interface/tooling; client repair stays in that client's event series |
-| Concrete instance `P_j` | Count concrete-instance and foundation work once at the consuming endpoint. Account for investigation separately from implementation. |
-| Baseline client effort `B_i` | Q2b for P, M7.1 for S; include the matched source, proof, review and maintenance work and baseline-specific prerequisites |
-| Candidate client effort `A_i` | Measured adaptation and maintenance, including learning, integration and review. Count S's shared adaptation once. |
-| Representation, lowering and final evidence | Use the representation, lowering, optimization and artifact producers' actual evidence. Charge the artifact comparison for its own integration effort. |
+| Library/interface establishment `L` | Proof-tool qualification, interface design, initial learning counted once |
+| Shared maintenance `M` | Common interface/tooling owner; client repair stays on client series |
+| Concrete instance `P_j` | Concrete/foundation work counted once at consuming endpoint (investigation separate from implementation) |
+| Baseline client effort `B_i` | Q2b (P) and M7.1 (S): matched source, proof, review, maintenance, baseline prerequisites |
+| Candidate client effort `A_i` | Measured adaptation + maintenance incl. learning, integration, review (S shared adaptation counted once) |
+| Representation, lowering and final evidence | Representation/lowering/optimization/artifact producers' evidence; artifact comparison pays own integration |
 
-Separately record each route's full establishment, remaining work from the frozen revision and recurring maintenance. Count common foundations once with a transparent allocation/cancellation rule. Retain baseline sunk costs when charging candidate setup; another owner's newly needed source-to-byte work is not sunk. Missing historic records leave full-establishment comparison unknown; report observed recurring work separately.
+Separate full establishment, post-freeze remaining work, and recurring maintenance; count common foundations once via transparent allocation; keep sunk baseline costs intact (another owner's needed source-to-byte work is not sunk); missing history makes full-establishment comparison `unknown`.
 
-Keep human attended hours, summed agent-session hours, machine elapsed time, CPU time and calendar duration separate, without conversion. State each break-even/adoption claim's effort series and endpoint; attended-work savings require complete attended records. Conservative saving uses baseline lower bounds and candidate/setup/maintenance upper bounds; absent credible bounds, report unknown. Declare the counting predicate for duplicate executable files and changed operational lines. An accepted candidate has no manually maintained second executable implementation.
+Keep human attended hours, summed agent hours, machine elapsed, CPU, and calendar duration unmixed, stating series/endpoint per claim (conservative `NetSaved` pairs baseline lower bounds with candidate/setup/maintenance upper bounds; missing bounds -> `unknown`). Declare predicates for duplicate executable files/changed operational lines (accepted candidates keep no manual second implementation).
 
-Correctness/evidence failure rejects integration. A complete comparison missing an effort/native threshold rejects expansion at that endpoint while preserving useful component proofs. Missing artifacts/logs, unsupported interactions or insufficient timing leave it **unopened or undecided**, without favoring another route. Later-consumer projections are separate scenarios with unknown costs and cannot reduce checklist estimates.
+Correctness/evidence failure rejects integration; missed effort/native thresholds reject expansion at that endpoint while keeping component proofs; missing logs/unsupported interactions/insufficient timings leave the trial **unopened or undecided** (unmeasured future projections never shrink estimates).
 
 ## Target and production artifact protocol
 
-Freeze an actual CHERI target and producer closure capable of P and S, subject to the provisional profile and existing compiler duties. Record actual revisions, full options, representation, ABI, code/data placement, memory classes, linked environment and schedule; missing fields block comparison.
+Freeze a P/S-capable CHERI target and producer closure under the provisional profile and compiler duties, recording revisions, full options, representation, ABI, code/data placement, memory classes, link env, and schedule (missing fields block comparison).
 
-Use identical target, backend and environment for each manual/generated pair, including malformed/refused inputs. Compare optimized output with the retained unoptimized artifact from the same source closure, changing only eligible optimization switches. Different backends belong to the [compiler-route comparison](compiler-route-contract.md), outside this same-backend measurement.
+Match target, backend, and env identically across manual/generated pairs (incl. refused inputs); compare optimized vs retained unoptimized output from the same source closure varying only eligible optimization switches (cross-backend comparisons belong in [compiler-route comparison](compiler-route-contract.md)).
 
-Separately measure executable code bytes, stack, per-class peak storage, runtime/allocation support and source/destination/capability memory traffic. Record functional model behavior per executable vector. Model cycles require an actual timing-annotated instrument, not retirements, host runtime or an unqualified counter; otherwise cycle comparison is unavailable. Replay deterministic cases from recorded initial states and require identical results and supported cycle counts; investigate disagreements. Worst-case claims need exhaustive finite coverage or a checked bound. Label sampled maxima and symbolic overflow cases accurately; neither is measured worst-case execution.
+Measure code bytes, stack, per-class peak storage, runtime/alloc support, and memory/capability traffic alongside functional model behavior. Cycles require a timing-annotated model (not retirements, host wall time, or unqualified counters). Replay deterministic initial states verifying identical results/cycles; worst-case claims need exhaustive finite coverage or checked bounds (sampled maxima and symbolic overflow proofs are not WCET).
 
-Artifact comparison requires accepted workflow results, a reviewed fault
-model where applicable, and the compiler, optimization, assembly, linkage,
-image-validation and admission evidence for both candidates.
-[Exact artifact endpoint](compiler-route-contract.md#equivalent-artifact-endpoint)
+Requires accepted workflow results, reviewed fault model where applicable, and compiler/optimization/assembly/link/image/admission evidence at the [exact artifact endpoint](compiler-route-contract.md#equivalent-artifact-endpoint). Promote the exact exercised optimized image bound to fresh source, image validation, admission, resource, and security evidence (any byte/relocation/link/config change invalidates and blocks until renewed; digest checks identity only; never recompile/patch/rewrite accepted bytes).
 
-Promote the exact final optimized image exercised, binding fresh source correspondence, assembly/link/image validation, admission, resource and applicable security evidence to its bytes and source closure. Changed-byte, relocation, linked-contract and compiler-configuration variants must invalidate affected evidence and fail until renewal. A digest establishes identity only. Retain accepted bytes without recompilation, patching or rewriting.
-
-Apply [Q1's limits](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/implementation/contracts/product-gate.md#2-the-limits) to composed-system claims, keeping `host_elapsed`, `target_model_cycles`, `fpga_observed` and `silicon_measured` separate. Host proof timings establish no device latency, energy or quality limit; converting model cycles to wall time needs latency and operating-point evidence. Component trials ratify no proposed Q1 envelope or unexercised product workload.
+Apply [Q1's limits](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/implementation/contracts/product-gate.md#2-the-limits) keeping `host_elapsed`, `target_model_cycles`, `fpga_observed`, and `silicon_measured` separate (latency/operating-point evidence needed to convert cycles to wall time; pilot proves no unexercised product workload).
 
 ## Review and evidence endpoints
 
-Review the frozen behavior and cost ledger. Check that each entry has an
-inhabited witness, each well-formed negative reaches its intended obligation,
-and independently expected bytes expose weakened contracts.
-
-Source proofs establish the **source-verified** result. A complete relation
-through lowering and linkage to exact final bytes establishes
-**artifact-connected** evidence. **Production-qualified** also requires
-admission, resource, security and target evidence at the declared endpoint.
-Hardware refinement and silicon measurement have their own subjects.
+Verify inhabited witnesses, intended-obligation failures for negative probes, and wrong-outcome rejection on frozen expectations. Levels: **source-verified** (source proofs), **artifact-connected** (+ lowering/link relation to exact final bytes), **production-qualified** (+ admission, resource, security, target evidence; hardware refinement and silicon sit outside).
 
 ## Private linked queue trial
 
-The [post-release trial](../../PLAN.md#q25ea) selects an independent client
-that enqueues owned values, borrows the front element and dequeues in FIFO
-order. The public interface exposes capacity, the sequence of values and the
-ownership returned on success, empty or full. A full enqueue returns the
-offered value and preserves the queue. The provider uses address-stable pool
-nodes with private capability-valued links. Its head and tail may designate
-the same live node. Prove that the live chain represents the public sequence,
-the tail ends it, and each slot belongs either to the chain or to the free
-pool. A front view retains a loan on its live payload.
+The [post-release trial](../../PLAN.md#q25ea) models an independent FIFO client enqueuing owned values, borrowing the front element, and dequeuing (full enqueue returns offered value preserving queue; public interface exposes capacity, sequence, per-exit ownership). Pool uses address-stable nodes with private capability links (head and tail may alias on a singleton); prove live chain models public sequence, tail terminates it, slots partition into live chain vs free pool, and front views hold a loan on live payload.
 
-Freeze independent outcomes for empty, singleton, multi-node and full queues.
-Drain a singleton, reuse its slot for a different value, then enqueue and
-drain several distinct values. Check FIFO order, the returned ownership and
-the unrelated frame. Keep a front view live across removal and use it
-afterwards. Require a diagnostic identifying the removal and the conflicting
-view. End the view before removal in the accepted case. Inside the provider,
-leave the tail pointing to the freed singleton and check that the invariant
-proof fails. Change the pool's slot order and reprove the provider laws. The
-importing client's code and FIFO proof must replay from the same public API.
+Freeze witnesses across empty, singleton (drain, slot reuse for new value, multi-value enqueue/drain), multi-node, and full queues checking FIFO order, returned ownership, and unrelated frame. Exercise live front-view use across removal (require diagnostic naming removal + conflicting view), ending the view pre-removal, corrupting tail-to-freed-singleton (must fail invariant proof), slot-order change (reprove provider laws, replay client unchanged).
 
-Use the same capacity, failure and progress guarantees, target and admission
-endpoint for the independent baseline. Compare loads, stores, branches and
-runtime calls per operation, along with code bytes and peak storage. Account
-for required capacity checks and extra work introduced by the abstraction.
-Record provider proof and repair costs separately from caller annotations and
-repair. Apply the [measurement protocol](#measurement-record-and-sampling)
-with the thresholds frozen for this client.
-
-A concurrent consumer requires a separate workload and estimate under the
-[sharing and reclamation rules](../extensions/interior-mutability.md#immutable-publication-and-reclamation).
-Include a delayed reader that still holds a published value when a writer
-requests reuse. Prove linearization, target ordering and quiescence before
-reuse. Compare synchronization and storage costs at the same progress
-guarantee. The sequential trial keeps its capability-valued links private.
+Compare at equal capacity, guarantees, target, and admission against an independent baseline across loads, stores, branches, runtime calls, code bytes, peak storage, capacity checks, abstraction overhead, provider vs caller effort under the [measurement protocol](#measurement-record-and-sampling) with frozen thresholds. Concurrent readers require a separate estimate under [sharing and reclamation rules](../extensions/interior-mutability.md#immutable-publication-and-reclamation) (delayed reader holding published value across writer reuse; linearization, ordering, quiescence; sequential trial keeps links private).

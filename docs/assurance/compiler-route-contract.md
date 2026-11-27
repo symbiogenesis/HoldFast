@@ -9,119 +9,69 @@ canonical machine logic and arbitrary-context proof. Entry requires
 
 ## Fixed consumers and common source boundary
 
-Use the [parser and held-out staging clients](workflow-contract.md#clients-and-baseline-evidence)
-from the workflow comparison. Both arms preserve the same initialization,
-results, reads, callbacks, failures and owner restoration. Apply the
-[baseline independence rules](workflow-contract.md#freeze-and-independence)
-and freeze the emission rule family before adapting the held-out client.
+Use the [parser and held-out staging clients](workflow-contract.md#clients-and-baseline-evidence) preserving identical init, results, reads, callbacks, failures, and owner restoration. Follow [baseline independence rules](workflow-contract.md#freeze-and-independence) and freeze emission rules before adapting S.
 
-Both routes consume the same content-addressed [source package](verification-strategy.md#mechanically-produced-evidence), interpreted computation and representation contract: sequenced operation graph, stable runtime indices, erased checked evidence, branch resource predicates, bounded loops, closed read/write/call/no-allocation effects, fixed layout and ABI. Meaning includes inputs/outputs, I/O, prescribed refusals/faults and tier-required leakage/cost observations. The source owner proves parsing, resolution, desugaring, interpretation and erasure to that graph; maps/hashes alone suffice for none. Each route proves transport through its internal CFG/block/SSA representations to machine traces. Abstracting implementation-only helper events requires a checked trace relation preserving source observations, authority, refusal/trap classification and applicable leakage/cost interpretation.
+Both arms consume one content-addressed [source package](verification-strategy.md#mechanically-produced-evidence), interpreted computation, and representation contract: sequenced op graph, stable runtime indices, erased checked evidence, branch resource predicates, bounded loops, closed read/write/call/no-alloc effects, and fixed layout/ABI. Semantics covers inputs/outputs, I/O, prescribed refusals/faults, and tier leakage/cost observations; source owners prove parsing, resolution, desugaring, interpretation, and erasure (maps/hashes alone do not suffice). Each route proves transport through internal CFG/block/SSA IR to machine traces, relating helper abstractions to source observations, authority, refusal/trap classes, and leakage/cost.
 
-Maintain the manual baseline independently as the experimental comparator at the same contract/evidence endpoint. Regenerate unoptimized and optimized candidates from authoritative source. Give both routes identical source changes, inputs, caller grants, primitive contracts, placement, link context, eligible optimizations and evidence duties. Larger grants or weaker failures invalidate the comparison.
+Maintain the independent manual baseline at the same contract/evidence endpoint; regenerate unoptimized and optimized candidates from authoritative source with matching source changes, inputs, caller grants, primitive contracts, placement, link context, eligible transforms, and evidence duties. Larger grants or weaker failures invalidate comparison.
 
 ## Baseline identity and evidence
 
-At entry, bind each producer's selected revision, dependency closure, build
-recipe, theorem subjects and assumptions, and binary digest. Use the
-[VerifiedOS foundation map](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/hardware/cheri-foundation-map.md)
-for concrete laws and [the compiler plan](https://github.com/symbiogenesis/VerifiedOS/blob/main/PLAN.md#m1-toolchain-spine-incl-the-cheri-compcert-prerequisite)
-for available backend evidence. Verify that the selected facts cover the
-client's CHERI representation and final Sail behavior.
-[Workflow baselines](workflow-contract.md#clients-and-baseline-evidence)
+Bind each producer's revision, dependency closure, build recipe, theorem subjects/assumptions, and binary digest at entry. Check concrete CHERI/Sail coverage using the [VerifiedOS foundation map](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/hardware/cheri-foundation-map.md) and [the compiler plan](https://github.com/symbiogenesis/VerifiedOS/blob/main/PLAN.md#m1-toolchain-spine-incl-the-cheri-compcert-prerequisite). [Workflow baselines](workflow-contract.md#clients-and-baseline-evidence)
 
 ## Equivalent artifact endpoint
 
-The endpoint package contains authored source closure, elaboration/interpretation evidence, representation, generated IR, transformation records, exact primitive/ABI contracts, final linked image/digest, TAL certificate, tier-required CIC proofs and validation of every assembly, relaxation, link, layout and image-construction step. Machine theorems resolve R-05-019b's same Sail-generated Rocq definitions as hardware refinement. A separate machine transcription needs an admitted agreement theorem.
+Package contents: authored source closure, elaboration/interpretation evidence, representation, generated IR, transform records, primitive/ABI contracts, final linked image/digest, TAL certificate, tier CIC proofs, and validation of assembly, relaxation, link, layout, and image construction. Machine theorems resolve R-05-019b's Sail-generated Rocq definitions for hardware refinement (separate transcriptions need admitted agreement theorems).
 
-Final-image correspondence covers every behavior permitted by the model/context against the exact committed source and declared assumptions: failures, required divergence/termination treatment, authority, initialization and observations. A terminating postcondition supplies no progress. R-05-024 robust preservation additionally quantifies over adversarial linked contexts; emitted-program induction or hostile-caller samples cannot replace it.
+Final-image correspondence covers all model/context-permitted behaviors against committed source and declared assumptions: failures, divergence/termination treatment, authority, initialization, and observations (terminating postconditions supply no progress). R-05-024 robust preservation quantifies over adversarial linked contexts (emitted-program induction or hostile-caller samples cannot substitute).
 
-R-05-023a requires CIC-checked decompilation into R-13-017's Iris-over-Sail logic, including unary safety, universal capability contract, relational constant-time and syntax-directed cost. TAL soundness and deeper tier obligations meet the final binary under R-05-026. Bounded emission may discharge construction/instruction cases, but cannot replace that logic. Host SMT, oracle and differential results supply falsification, not substitute kernels.
+R-05-023a requires CIC-checked decompilation into R-13-017's Iris-over-Sail logic (unary safety, universal capability contract, relational constant-time, syntax-directed cost); TAL soundness and deeper tier duties meet the binary under R-05-026. Bounded emission cannot replace this logic, and host SMT/oracle/differential checks supply falsification only.
 
-Validate, execute and promote each route's exact final image. Bytes may differ across routes; their source contract, assumptions and observation model may not. Changed bytes, relocations, certificates, source bindings or configuration invalidate dependent evidence; recompilation requires a new package.
+Validate, run, and promote each route's exact final image: bytes may differ, source contract/assumptions/observations may not. Any change to bytes, relocations, certificates, source bindings, or configuration invalidates evidence and requires recompilation.
 
-The [first-slice harness](../language/first-release.md#first-slice-qualification)
-links the program and its harness in one label namespace. A duplicate label,
-including a collision with the harness's trap handler or exit mailbox, refuses
-assembly. Each constant use denotes its most recent preceding assignment or,
-for a forward reference, its first definition. Undefined names and cycles in
-constant definitions refuse assembly. The differential runner also checks
-that `main` identifies a complete aligned word in the executable segment before
-it writes the image.
-For each retained handwritten or compiler-produced Sail run, the receipt
-checker starts at the harness entry and requires consecutive retirement
-numbers. Each recorded PC must address the recorded word in the linked
-executable segment, including startup and trap-handler PCs.
-The harness checks the executable ELF segment of each handwritten control
-against the scalar instruction family. A regression inserts a vector
-instruction in an untaken failure branch and checks that the checker reports
-its word and address even when the execution trace matches. Compiler-produced
-images have their own [admission requirements](../../PLAN.md#q25ba).
+In the [first-slice harness](../language/first-release.md#first-slice-qualification), program and harness share one label namespace: duplicate labels (including trap-handler/exit-mailbox collisions), undefined constant names, and cyclic constant definitions refuse assembly; constants resolve to the latest preceding assignment or, for forward references, the first definition. Differential runs verify `main` addresses an aligned executable word before image emission, require consecutive retirements from harness entry with every PC (including startup/trap-handler) inside the executable segment, and validate handwritten ELF executable segments against the scalar instruction family (tested by inserting an untaken-branch vector instruction and asserting word/address detection); compiler images use [their own admission requirements](../../PLAN.md#q25ba).
 
 ### Evidence for each deployed claim
 
-For each exported guarantee claimed of a shipped component, the release
-record identifies the public law, the exact linked image and entry point,
-the target and ABI, the permitted callers and observations, and the evidence
-at its [claimed endpoint](workflow-contract.md#review-and-evidence-endpoints).
-List the trusted computing base for that claim. Identify which checker accepts
-its evidence and which machine, hardware, runtime or foreign-interface
-premises the argument relies on. Identify checked transformations and untrusted
-search or generation tools by their actual roles. Follow the dependency path
-from a premise to the public claim so reviewers can see the effect of an
-[assumption change](workflow-contract.md#reviewing-a-public-contract-change).
+Each shipped claim identifies its public law, exact linked image and entry point, target/ABI, permitted callers/observations, and [endpoint evidence](workflow-contract.md#review-and-evidence-endpoints). Record the TCB, checking kernel, machine/hardware/runtime/FFI premises, checked transforms versus untrusted generation/search tools, and premise-to-claim paths exposing any [assumption change](workflow-contract.md#reviewing-a-public-contract-change).
 
-For the packet entry point, trace the functional result and the authority
-of the returned view to their respective proofs. Identify the code or caller
-contract establishing descriptor validity before the first metadata read.
-Where an adapter validates foreign input, include its code and its accepted
-and rejected paths in the same evidence and cost accounting. Substitute the
-host execution record for the image proof in the trial and require the report
-to identify the missing target evidence for those claims.
+For the packet entry point, trace functional result, returned-view authority, and pre-metadata descriptor validation to their proofs; include foreign-input adapter paths in the same evidence and cost ledger. Substituting host execution during trials must flag missing target evidence.
 
-For the independent library, select one operation with a claim of proof or
-ownership bookkeeping erasure. Follow its source uses through inlining to
-the admitted machine code. Report checks, copies, allocations, reference
-count updates and indirect calls that survive, with their origin and the
-paths on which they execute. Use `n/a` for mechanisms outside the selected
-representation. Compare against the [matched hand-written baseline](workflow-contract.md#cost-of-the-verified-abstraction)
-with the same safety and failure guarantees. Record measured cost or a proved
-bound with its units and observation method. Missing measurements stay
-unknown. Each target-specific implementation carries evidence for its own
-image, assumptions and costs.
+For the importing library, trace one claimed proof/ownership erasure through inlining to admitted machine code, inventorying surviving checks, copies, allocations, refcounts, and indirect calls (`n/a` when outside representation) vs the [matched hand-written baseline](workflow-contract.md#cost-of-the-verified-abstraction) with measured/proved bounds and units (never guessing missing metrics). Each target image tracks its own evidence, assumptions, and costs.
 
 ## Route boundaries and closed emission family
 
-**Clight arm.** Prove common-graph-to-imperative transport and its capability-aware CHERI-C/Clight representation bridge, including C printing if used. Retain proofs for applicable CHERI-adapted compiler passes, then supply final Sail validation/admission. Simulation relations may retain invariants; annotation erasure must preserve their semantic consequences.
+**Clight arm.** Prove common-graph-to-imperative transport and CHERI-C/Clight representation bridge (plus C printing if used), keep CHERI-CompCert pass proofs, and complete final Sail validation/admission (simulations may retain invariants; annotation erasure preserves semantics).
 
-**Direct arm.** Prove transport to explicit-memory capability IR at the same source/representation, compose the bounded emission rules and reuse or verify/validate applicable optimization/allocation before the same Sail/admission endpoint. Blocks are the default for explicit sequencing/joins. SSA additionally needs proved conversion, phi/parallel moves and capability-preserving allocation, charged here. This commissions no general frontend, LLVM path or optimization framework.
+**Direct arm.** Prove transport to explicit-memory capability IR at the same boundary, compose bounded emission rules, and verify/validate optimization/allocation before the same Sail/admission endpoint. Explicit blocks are default; SSA requires proved conversion, phi/parallel moves, and capability-preserving allocation (charged here; no general frontend, LLVM path, or optimization framework is commissioned).
 
-This proposed closed producer grammar resolves encodings and primitive names exclusively through the selected [profile](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/hardware/isa-profile.md) and Sail clauses under R-05-023b. Each rule binds input constructor, emitted term, entry/exit representations, consumed/restored frame, word-arithmetic premises, effects/observations, termination/cost duties and its Sail-simulation Rocq constant. A missing constant blocks the rule; a desired-theorem comment is insufficient.
+The closed producer grammar binds encodings/primitives solely via the selected [profile](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/hardware/isa-profile.md) and R-05-023b Sail clauses: input constructor, emitted term, entry/exit representations, consumed/restored frame, word-arithmetic premises, effects/observations, termination/cost duties, and Sail-simulation Rocq constant (missing constants block the rule).
 
 | Rule family | Permitted form | Required proof obligations and refusing neighbor |
 | --- | --- | --- |
-| `value` | Fixed-width scalar constants, comparisons, arithmetic and explicit extension/truncation; structured initialized values | Checked ranges or modular meaning, field layout and observable result. Pointer/integer reinterpretation cannot be hidden in a cast. |
-| `read` | A bounded byte or declared scalar read through a live read capability | Tag, provenance, permissions, range, alignment and initialization; frame preserved. Moving a load before its admitting guard is refused. |
-| `write` | A declared field or byte write through exclusive fixed-destination authority | Exact initialized-range transition, no padding read, no overlapping live writer; failure exits retain their actual partial state. |
-| `capability` | Tag-preserving moves and stores/reloads, bounded advance, permission attenuation and exactly representable narrowing | No authority creation, correct tags and representability, declared pointer width/register organization, and the same trap behavior as Sail. Integer spill/reload and outward-rounded bounds are refused. |
-| `sequence` | Explicit left-to-right composition and pure local bindings | Intermediate predicates match, frames compose, runtime uses remain legal after erasure; duplicating affine authority is refused. |
-| `branch` | Boolean branch or closed discriminant case with explicit result/resource joins | Every ordinary and failure exit restores the declared resources; secret observations obey the selected relational contract. Missing failure restoration is refused. |
-| `loop` | A bounded loop with a declared invariant and ranking/bound evidence | Initialization, preservation and exit, finite bound, accumulated effects and cost, consistent loan restoration on every iteration. No data-dependent unbounded loop or implicit allocation is admitted. |
-| `frame` | Static entry/exit and declared spill slots under the composed plan | Fresh initialized live ranges, tag-preserving spills, stack bounds, preserved registers and exact return authority. No runtime allocator, garbage collector or hidden dynamic frame exists. |
-| `call` | A statically linked helper or explicitly contracted sentry/primitive call with the matching return form | Required/provided ABI and authority, effects, observations, relocations and termination behavior; no unchecked external, callback, suspension or reentrancy is added. Primitive semantics is its profile-bound Sail clause. |
+| `value` | Fixed-width scalar constants, comparisons, arithmetic, explicit extension/truncation; structured initialized values | Checked ranges/modular meaning, field layout, observable result; hidden pointer/int cast refused |
+| `read` | Bounded byte or declared scalar read via live read capability | Tag, provenance, permissions, range, alignment, init; frame preserved; hoisting load above guard refused |
+| `write` | Declared field/byte write via exclusive fixed-destination authority | Exact initialized-range transition, zero padding read, no overlapping writer; failure exits keep partial state |
+| `capability` | Tag-preserving moves/spills/reloads, bounded advance, attenuation, exact narrowing | No forged authority, exact tags/representability, declared width/registers, matches Sail traps; integer spill/outward bounds refused |
+| `sequence` | Explicit left-to-right composition and pure local bindings | Matching intermediate predicates, composed frames, legal post-erasure uses; duplicating affine authority refused |
+| `branch` | Boolean branch or closed discriminant case with explicit result/resource joins | All ordinary/failure exits restore resources; secret observations obey relational contract; missing failure restoration refused |
+| `loop` | Bounded loop with declared invariant and ranking/bound evidence | Init/preservation/exit, finite bound, effects/cost, consistent per-iteration loan restoration; data-dependent unbounded loop/implicit alloc refused |
+| `frame` | Static entry/exit and declared spill slots under composed plan | Fresh init live ranges, tag-preserving spills, stack bounds, callee-saved regs, exact return authority; zero runtime alloc/GC/dynamic frame |
+| `call` | Statically linked helper or contracted sentry/primitive call with matching return form | ABI/authority, effects, observations, relocations, termination, Sail-bound primitives; unchecked external/callback/suspension/reentrancy excluded |
 
-The trial uses the clients' scalar operations. Specialize the workflow comparison's repeatable zero-byte callback to a proved loop body or contracted static helper, preserving invocation, capture, effect and restoration duties; unchecked dynamic callbacks are excluded. Success qualifies only this family/clients, leaving R-18-014's vector, scalar-floating-point and production completeness intact. M1.3/M1.3a retain required optimizations, including outlining/tail merging, without a second budget.
+The trial uses clients' scalar ops, specializing the repeatable zero-byte callback to a proved loop body or contracted static helper (preserving invocation, capture, effect, and restoration duties; unchecked dynamic callbacks excluded). Success qualifies only this family/clients, leaving R-18-014 vector/scalar-FP/production completeness intact (M1.3/M1.3a keep outlining/tail-merging without a second budget).
 
-Closure is decided in the following order, with the rules and proof constants frozen before the reserved client is lowered:
+Closure order (rules and proof constants frozen pre-lowering):
 
-1. Generate the constructor census from the initial source graph and from every intermediate after erasure, lowering, optimization, allocation and linkage. Every reachable construct, helper and linker-created stub resolves to one rule and one checked contract. Unknown constructs fail with a source/site identifier.
-2. Prove the generic composition theorem over all programs of the admitted family, including loop invariants, branches and failures. Compose it with the source interpretation and the Sail connection, then inspect its assumptions. Enumerating example programs alone cannot satisfy this step.
-3. Lower the reserved staging client with the unchanged grammar, definitions and proof constants. New instances and checked client invariants are permitted and counted; a new semantic constructor, representation exception, special-case rule or stronger caller assumption fails this closure trial. Report the missing rule instead of expanding the test population after observing it.
-4. Decode the final image and check total site coverage, primitive meanings, typed linkage, relaxation preconditions and artifact identity through the required existing validation path. A producer census that ignores linker-introduced code fails.
-5. Run the mutations below against their intended judging layer and the exact artifacts. Separate compile-failing stillborn mutations from those that reach a semantic or admission judgment. A survivor is an unresolved finding, not part of the passing denominator.
+1. Build constructor census from initial graph and post-erasure/lowering/opt/alloc/link intermediates; every reachable construct, helper, and linker stub resolves to one rule/checked contract (unknowns fail with site ID).
+2. Prove generic composition theorem across all admitted family programs (loops, branches, failures), compose with source interpretation and Sail connection, and audit assumptions (example enumeration fails).
+3. Lower reserved staging client with unchanged grammar, definitions, and proof constants (new client instances/invariants allowed and counted; new semantic constructors, representation exceptions, special rules, or stronger caller assumptions fail—report the gap instead of widening tests).
+4. Decode final image and verify total site coverage, primitive meanings, typed linkage, relaxation preconditions, and artifact identity (ignoring linker stubs fails).
+5. Run intended-layer mutations on exact artifacts, separating compile-failing stillborns from semantic/admission kills (any survivor is an unresolved finding).
 
 ## Reproduction and measurement protocol
 
-Before producer/trial entry, freeze a reviewed manifest with these required fields. Missing fields leave an incomplete package; justified `n/a` cannot replace a required proof, target or comparator. Record actual artifacts, never fabricated values.
+Freeze a reviewed pre-entry manifest (missing fields make the package incomplete; `n/a` cannot replace required proofs/targets/comparators; record real artifacts only):
 
 ```text
 contract_revision; route; client; baseline_kind;
@@ -136,110 +86,93 @@ input_generator_and_seed; mutation_identity; host_machine_and_worker_limit;
 attended_work_log; wall_and_CPU_time; peak_RSS; result_and_missing_premises
 ```
 
-Keep [comparator identities](#baseline-identity-and-evidence) fixed; owners freeze actual producer revisions before measurement. Changing a baseline/threshold after results requires a revised experiment, explicit reason and retained old result. Identity/licence accounting includes compiler binary, runtime/primitive closure and copied third-party preambles alongside authored source.
+Freeze [comparator identities](#baseline-identity-and-evidence) and revisions pre-measurement (post-result baseline/threshold changes require a revised run, rationale, and retained prior output); track licences across compiler binary, runtime/primitives, and copied preambles.
 
-Apply the [target protocol](workflow-contract.md#target-and-production-artifact-protocol) with identical actual profile/Sail closure, memory classes/slots, ABI/call context, generation constants, link policy and eligible transforms. Compare manual, generated unoptimized and generated optimized variants at equal assurance. A secondary unoptimized comparison isolates construction overhead without production-performance credit. Generate shared initial, empty, one-element, boundary, full-capacity, malformed-discriminant, truncated-field, overflow and failure inputs from frozen declarations.
+Apply the [target protocol](workflow-contract.md#target-and-production-artifact-protocol) identically across manual, generated unoptimized, and generated optimized runs (secondary unoptimized isolates construction overhead without performance credit) using declaration-generated initial, empty, 1-element, boundary, full, malformed-discriminant, truncated-field, overflow, and failure inputs.
 
-The corpus trace supplies retire order/capability memory effects, not cycles. Timing needs R-18-024/R-18-025's annotation and core class, or an identified instrument with a justified model. Host elapsed time measures proof/build cost; instruction counts measure code/traces. Neither supplies target cycles or WCET. Report SRAM/interconnect/tag effects only from supported observations, without invented cache-miss or silicon-stall metrics.
+Corpus traces give retirements/capability memory effects, not cycles; timing needs R-18-024/R-18-025 annotations/core class or a justified timing instrument. Host elapsed time measures build/proof cost and instruction counts trace size—neither yields WCET/cycles, and SRAM/interconnect/tag effects cannot be guessed.
 
 | Measurement | Predeclared criterion |
 | --- | --- |
-| Functional behavior, source identity, initialization, authority, failure and leakage guarantees | Exact required correspondence and unchanged assurance assumptions for every variant. Any disagreement is investigated; no tolerance permits a safety difference. |
-| Admitted bounds and declared resources | No worse admitted bound or island peak footprint, no larger declared stack/storage/allocation support than the matched baseline, and no displacement of an admitted component. R-18-014's existing constraints take precedence over experimental ratios. |
-| Executable target cost and encoded image bytes | The [native-code and cycle thresholds](workflow-contract.md#accounting-and-decision-thresholds) govern final executable code size and each measured case against the equivalent manual baseline. Report total encoded image bytes separately, including padding and metadata; that larger quantity is not substituted for executable code size. Missing cycle evidence leaves that verdict blocked, and a sampled maximum is not a proved worst-case bound. |
-| Applicable optimization | Optimized cost is no worse on each declared case and optimized total image bytes are no greater than its unoptimized counterpart, in addition to the resource and assurance criteria. A failed comparison declines this optimization result, not a theorem for an unrelated artifact. |
-| Host machine budget | Proposed common experiment caps are four concurrent workers, peak RSS at most 16 GiB, at most 60 minutes per full compiler clean-build or replay run, and eight hours aggregate measured machine wall time per route. The workflow comparison's shorter local source-edit replay limits still apply at that different endpoint. These are stopping limits requiring pre-entry review, not estimates for constructing missing proofs. A limit hit reports an incomplete run. |
-| Reproduction and stability | A clean independent lane reproduces each route's final image and checks its evidence under permitted toolchain access. Deterministic target results must repeat exactly. Record a cold run and repeat warm runs until the prescribed workflow sample is complete; do not select the fastest sample or erase contention. |
-| Adoption and maintenance | Apply the [accounting thresholds](workflow-contract.md#accounting-and-decision-thresholds) at this full endpoint, with shared establishment and later repair included. A source-level saving cannot pay for an unmeasured machine connection. |
+| Functional behavior, source identity, initialization, authority, failure and leakage guarantees | Exact correspondence and unchanged assurance assumptions across variants (zero tolerance for safety diffs) |
+| Admitted bounds and declared resources | Admitted bounds, island peak footprint, stack/storage/alloc support <= baseline with zero displaced components (R-18-014 constraints override experimental ratios) |
+| Executable target cost and encoded image bytes | [Native-code and cycle thresholds](workflow-contract.md#accounting-and-decision-thresholds) govern executable code size and per-case cycles; report total image bytes (incl. padding/metadata) separately without substitution; missing cycles block that verdict, and sampled maxima != WCET |
+| Applicable optimization | Optimized per-case cost <= unoptimized and total image bytes <= unoptimized while preserving resource/assurance criteria (failure declines only the optimization result) |
+| Host machine budget | Caps: 4 workers, 16 GiB peak RSS, 60 min clean-build/replay, 8 h aggregate wall time per route (workflow's shorter local-edit replay limits keep their own endpoint; caps stop runs rather than estimate missing proofs) |
+| Reproduction and stability | Clean independent lane reproduces final images/evidence; deterministic runs repeat cleanly; record cold + complete warm runs (never cherry-pick fastest or drop contention) |
+| Adoption and maintenance | Apply [accounting thresholds](workflow-contract.md#accounting-and-decision-thresholds) across full endpoint incl. establishment/repair (source savings cannot offset unmeasured machine work) |
 
-Attribute capability costs by source/site: narrowing/derivation, redundant authority operations, tag-preserving spills/reloads, peak live capabilities, ABI/slot padding, representability refusals and allocation/memory-promotion tag effects. A scalar transform in the merged register file earns no capability-saving label by itself. Distinguish qualified reuse from new proof work in provenance-preserving CSE, coalescing and allocation. Read widths/register organization from the selected profile/model.
+Attribute capability costs by site (narrowing/derivation, redundant auth ops, tag-preserving spills/reloads, peak live capabilities, ABI/slot padding, representability refusals, alloc/promotion tags; merged scalar ops get no capability-saving credit); separate qualified reuse from new proofs in CSE/coalescing/allocation using profile-defined widths/registers.
 
 ## Negative and disagreement cases
 
-Generate variants from selected declarations and emitted sites, recording each intended failure layer before mutation. Source neighbors may fail elaboration; backend/artifact variants must reach the downstream judgment under test. A syntax error supplies no semantic refutation.
+Generate variants recording expected failure layers pre-mutation; source neighbors may fail elaboration, whereas backend/artifact variants must reach downstream checks (syntax errors refute nothing).
 
 | Mutation or disagreement | Required outcome |
 | --- | --- |
-| Swap equal-width direction/content fields while leaving total size unchanged | The descriptor-layout/source correspondence judgment rejects the changed interpretation. Existing arithmetic reflexivity checks and unchanged emitted bytes alone do not catch Q2a's recorded field-order gap. |
-| Move a read before its length guard; truncate the destination; claim an untouched field initialized | Construction or representation proof fails at that access/exit, or final evidence refuses the resulting image. No error status excuses an out-of-bounds read. |
-| Convert a capability through an integer, strip a spill tag, broaden a bound or increase permissions | Representation/emission or final Sail/TAL evidence fails even if the low data bits and a host test result agree. |
-| Duplicate a live writable loan or omit restoration on failure, loop exit or return | Source resource checking or the binary/frame proof refuses it. Exempting an exit is a changed contract, not a passing mutation. |
-| Re-read the source after validation in the staging client | The copy-once/source-stability claim is refuted using distinct first and second images. It is not implemented as a concurrently racing read of a live writable non-atomic buffer. |
-| Add a secret-dependent address/branch or an invalid variable-latency operation during optimization | The applicable relational leakage judgment fails even if functional outputs agree. |
-| Introduce an unlisted helper/stub, change a sentry role or preserve the wrong register set | Closed emission coverage or typed linkage fails. No unmodeled external-call assumption is appended to rescue the image. |
-| Change source resolution/desugaring, a dependency or the representation while reusing an old core proof | `SourcePackage` or a dependent evidence binding is invalidated; a valid theorem about the old core cannot certify the new source. |
-| Alter bytes, relocation, composed layout, TAL evidence or primitive mapping after validation | The package fails identity, coverage, typing or refinement at the affected boundary. Independently rebuilding another image does not repair this one. |
-| The two routes return different statuses, effects, tags, failures, resource use or allowed observations | Preserve both images and reduce the disagreement against the common source contract and pinned Sail definitions. No route serves as truth merely because it is incumbent or shorter. |
-| Both routes agree but the reference contract is weakened or common parsing/layout is wrong | The negative contract cases must still reject; shared parsers, source generation, semantics, proof kernel and validation infrastructure are recorded as common-mode dependencies. Agreement is not independent proof. |
+| Swap equal-width direction/content fields keeping total size | Layout/source correspondence rejects changed interpretation (arithmetic reflexivity/unchanged bytes missed Q2a's field-order bug) |
+| Hoist read above length guard; truncate destination; claim untouched field initialized | Construction/representation proof or final evidence rejects access/exit (error status never excuses OOB reads) |
+| Int-cast capability, strip spill tag, widen bounds, or raise permissions | Representation/emission or final Sail/TAL check fails despite matching low bits/host run |
+| Duplicate writable loan or drop restoration on error/loop exit/return | Source resource check or binary/frame proof rejects (exempting exits changes the contract) |
+| Re-read source post-validation in staging client | Copy-once/source-stability fails on distinct images (distinct from concurrent race over non-atomic writable buffer) |
+| Insert secret-dependent addr/branch or variable-latency op in opt | Relational leakage check fails despite matching outputs |
+| Add unlisted stub, alter sentry role, or mis-preserve registers | Closed emission coverage or typed linkage fails (no ad-hoc external-call axioms allowed) |
+| Change resolution/desugaring, dependency, or representation while reusing old proof | `SourcePackage` or evidence binding invalidates; old-core theorems cannot certify new source |
+| Tamper bytes, relocations, layout, TAL evidence, or primitive map post-check | Identity, coverage, typing, or refinement fails at boundary (rebuilding another image does not fix this one) |
+| Routes disagree on status, effects, tags, failures, resources, or observations | Keep both images and debug against common source + Sail (neither route wins by incumbency/brevity) |
+| Routes agree while weakened contract or broken shared parser/layout fails negative tests | Common-mode dependency flagged in manifest; cross-route agreement != independent proof |
 
-Separately change a client bound, equal-width field interpretation, representation/ABI and admitted optimization. Record unchanged generic replay, changed instance/client proofs, invalidated certificates and attended/machine repair costs. New byte semantics for the reserved client is not generic reuse.
+Probe independent changes to a client bound, equal-width field interpretation, representation/ABI, and admitted optimization, logging unchanged generic replay, updated instance/client proofs, invalidated certificates, and repair effort (new client byte semantics != generic reuse).
 
 ## Pricing and entry conditions
 
-Record human attended hours, agent-session hours, machine wall time, CPU and RSS separately. Price each route at its complete endpoint.
-
-For every row record owner-linked `establishment`, `remaining_port`, `shared_maintenance` and `per_client_repair` intervals: estimates before implementation, measurements at adoption. Establishment includes reusable prerequisites needed for this endpoint; remaining port credits demonstrated artifacts, not historical hours indiscriminately. Unknown work is `unpriced`. Common work has one owner, appears once in each full alternative and is charged once to the integrated plan.
+Log human attended hours, agent hours, machine wall, CPU, and RSS separately per complete endpoint with owner-linked `establishment`, `remaining_port`, `shared_maintenance`, and `per_client_repair` (estimates pre-work, measurements at adoption; missing values = `unpriced`; shared items appear once per alternative and once in integrated totals).
 
 | Obligation | Clight route ownership and credit | Direct route ownership and credit |
 | --- | --- | --- |
-| Exact source and interpreted core | Shared source and interpretation owners | Same shared ownership and same missing prerequisites |
-| Primitive, representation and restoration laws | The `machine-logic`, `byte-instance` and `scoped-resources` owners in [the foundation map](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/hardware/cheri-foundation-map.md#foundation-ownership-ledger). Credit checked laws for the selected subjects | Reuse those laws where subjects match. A bounded lemma replacing a construction layer requires an exact replaced obligation and checked substitute; the machine and arbitrary-context portions remain included |
-| Decoder realization and source-to-imperative/Clight transport | Q2b owns P and the `source-transport` decision; M7.1 owns S. Use each existing scope once; an excess needs its owner's reviewed extension before entry | The same P/S behavior and baselines are needed. Direct graph-to-IR and representation transport need the compiler owner's separately estimated package; currently unpriced. Reuse the shared source interpretation |
-| Capability carrier, permissions, ABI, narrowing and functional backend | M1.2's existing children own the incumbent work; their estimate cells remain canonical and their acceptance evidence determines credit | Reuse only qualified subjects under compatible terms. Direct selection, allocation, emission and composition have no accepted full implementation estimate; currently unpriced |
-| Optimization and required target completeness | M1.3/M1.3a and R-18-014's existing owners, with all applicable capability and leakage qualifications | Reuse through those owners if suitable, or obtain a separately estimated port within their required duties. No new speed-only workstream or checker is created |
-| Final validation, TAL, source correspondence, leakage and robust preservation | The `context-preservation` and `artifact-admission` producers supply secure-compilation, R-05-023a and TAL evidence | The same endpoint and logic are owed, including an independently checked connection for this route to the arbitrary-context result. Finite emission does not remove their establishment or maintenance cost |
-| Linkage, production join and reproduction | Existing assembler/composer and proof owners; measure the checked artifact join | Same owners when genuinely shared; a different ABI/link bridge needs an explicit owner and estimate before implementation |
-| Bounded comparison execution and review | Budget the trial against completed prerequisites | Same package and equal experiment caps; route-specific repair is booked separately at the owner of the repaired artifact |
+| Exact source and interpreted core | Shared source/interpretation owners | Same shared owners and missing prerequisites |
+| Primitive, representation and restoration laws | [Foundation map](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/hardware/cheri-foundation-map.md#foundation-ownership-ledger) `machine-logic`, `byte-instance`, `scoped-resources` owners; credit checked subject laws | Reuse matching subjects; bounded replacement lemmas must state exact replaced obligation + checked substitute (machine + arbitrary-context parts remain) |
+| Decoder realization and source-to-imperative/Clight transport | Q2b owns P + `source-transport` decision; M7.1 owns S (excess scope needs owner extension pre-entry) | Same P/S behavior/baselines; direct graph-to-IR + representation transport needs compiler owner's separate estimate (`unpriced`); reuse source interpretation |
+| Capability carrier, permissions, ABI, narrowing and functional backend | Incumbent M1.2 children (canonical cells + acceptance credit) | Reuse only compatibly qualified subjects; direct selection/alloc/emission/composition unpriced |
+| Optimization and required target completeness | M1.3/M1.3a + R-18-014 owners with capability/leakage duties | Reuse same owners or price compatible port (no separate speed-only checker/stream) |
+| Final validation, TAL, source correspondence, leakage and robust preservation | `context-preservation` + `artifact-admission` producers supply secure-compilation, R-05-023a, TAL evidence | Same endpoint/logic owed plus independently checked arbitrary-context connection (bounded emission does not erase this cost) |
+| Linkage, production join and reproduction | Existing assembler/composer + proof owners | Shared if unchanged; modified ABI/link bridges need explicit owner/estimate pre-work |
+| Bounded comparison execution and review | Budgeted against completed prerequisites | Same package/caps; per-route repair charged to repaired artifact's owner |
 
-Price the full machine and contextual connection, source and representation
-bridges, direct backend, and recurring maintenance before scheduling a trial.
-The finite emission family organizes local proofs. Both routes still need
-checked machine, byte-instance, scoped-resource, adversarial-context and
-artifact-admission results.
+Price full machine/context links, source/representation bridges, direct backend, and maintenance pre-trial: bounded emission organizes local proofs only and still owes all foundation, context, and admission results.
 
 ### Re-entry packages
 
-For each package, record an owner, inputs, check, consumer and separate
-establishment, remaining port and maintenance costs.
+Track owner, inputs, check, consumer, and separated `establishment`/`remaining_port`/`maintenance` costs per package:
 
 | Package and accountable owner | Required output and predeclared check | Join and stopping condition |
 | --- | --- | --- |
-| Shared foundation and secure-compilation owners | Bind the actual Sail closure and checked constants. Identify any missing implementation for the arbitrary-context and tier obligations. A closed-client theorem or a separate machine without agreement fails the required statement review | Both routes consume one ownership/cost record. Stop if the required common logic or context result still has no defensible scope and price; no direct-route implementation opens to discover it |
-| Retained compiler producer | Bind the source, build and digests to the compiler's acceptance predicates; identify reuse by theorem subject, source-to-Clight transport and remaining capability carrier, ABI, emission, optimization and certificate work. Review both P and S at the full endpoint | Join the shared foundation and M1's existing realization. Stop if the full price is inferred from the functional bring-up cell or from unchanged admit counts |
-| Direct compiler producer | Supply a file/pass/proof breakdown for graph-to-IR transport, representation, allocation, closed emission and composition; name reused passes, their selected licences, client and generic proofs, and the separate source/machine trace relation. Price its own ABI/link and hardening connections with the common foundation allocated once | Review before commissioning a compiler lane. Stop if a needed semantic rule or context theorem has only a name or an execution cap, or if the bounded family cannot express P's or S's contract |
-| Client and baseline owners | Supply executable byte-memory definitions and independent matched baseline evidence under the [workflow contract](workflow-contract.md#freeze-and-independence), with exact failure and initialization behavior. State any scope excess at its existing owner and price only that extension | Qualify the concrete laws and freeze the interface before adapting S once. Stop if S has supplied design feedback or if a core fixture is substituted for either workload |
-| Trial and adoption owners | Freeze complete manifests, cost allocation, independent reviewer, target/cycle evidence and licence dispositions; apply this contract's image identity, mutations, closure and the [comparison thresholds](workflow-contract.md#accounting-and-decision-thresholds) | Only accepted producer/foundation packages can release the conditional measurement cell. Unknown historic or recurring cost keeps full-endpoint adoption undecided; it is not silently cancelled as common cost |
+| Shared foundation and secure-compilation owners | Bind Sail closure + checked constants; list missing arbitrary-context/tier work (closed-client or unagreed machine theorem fails review) | Shared one-record input across routes; halt if common logic/context lacks scope/price (never open direct lane to discover it) |
+| Retained compiler producer | Bind source/build/digests to acceptance predicates; audit reuse across source-to-Clight transport, carrier/ABI, emission, opt, certificates for P and S | Join shared foundation + M1 realization; halt if total price extrapolates from functional bring-up or admit counts |
+| Direct compiler producer | Break down files/passes/proofs for graph-to-IR transport, representation, alloc, closed emission, composition, reused pass licences, trace relation, ABI/link, hardening | Review pre-lane; halt if needed rules/context theorems are named-only or if closed grammar cannot express P/S |
+| Client and baseline owners | Executable byte-memory defs + independent baselines per [workflow contract](workflow-contract.md#freeze-and-independence) (explicit init/failures); price scope excess at existing owner | Qualify concrete laws and freeze interface pre-S adaptation; halt if S leaks design feedback or uses a core fixture |
+| Trial and adoption owners | Freeze manifests, cost allocation, reviewer, target/cycle setup, licence readings; apply identity, mutation, closure, and [thresholds](workflow-contract.md#accounting-and-decision-thresholds) | Accepted producer/foundation packages unlock measurement; missing historic/recurring cost leaves adoption `undecided` |
 
 <a id="conditional-amendment-and-reviewer-requirements"></a>
 
 ## Alternative route approval
 
-[R-05-043](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-043)
-requires Clight for synthesized decoders. Approval for another intermediate
-requires evidence for descriptor transport, fixed-destination initialization,
-copy-once behavior, failures, bounded representation and exact-source-to-Sail
-refinement. The route must preserve automated construction and the bounded
-runtime contract.
+[R-05-043](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-043) mandates Clight for synthesized decoders; alternative intermediates require checked evidence for descriptor transport, fixed-dest init, copy-once, failures, bounded representation, source-to-Sail refinement, automated construction, and bounded runtime:
 
 | Existing duty | Evidence or decision owed before any substitution |
 | --- | --- |
-| R-05-043 decoder synthesis | Checked synthesis and representation chain for the selected decoder family through the proposed intermediate to the required final endpoint, including its error paths and source anchor |
-| R-05-019b, R-05-020 and R-05-020a | Both towers quantify over the same Sail-generated definitions. A new authoritative semantics, logic or checker demonstrates R-05-020's bridge, non-duplication and retirement conditions. An untrusted source elaborator instead meets R-05-020a's complete interpretation and exact-source correspondence criteria; this classification supplies no concrete resource law, target compiler or artifact acceptance. |
-| R-05-023, R-05-023a and R-13-017 | Final-step refinement in the required CIC-checked Iris-over-Sail logic. Any substitute requires explicit approval and evidence for all of those obligations |
-| R-05-024, R-05-026 and R-05-032 | Robust preservation against an adversarial linked context, binary-tier evidence and correspondence to the authored source closure, with the declared leakage and progress claims |
-| R-05-023b | Total checking of emitted primitive sites against their profile-bound meanings and applicable TAL rules, without a private instruction semantics or a second consumer checker |
-| R-18-014 and its refinements | Retain the named CHERI-CompCert TCB and certifying-Rust deliverables and their full target/optimization/placement duties. A direct generated route counts as neither. Any replacement needs an explicit owner, scope, bootstrap and independence decision at those requirements |
-| Typed interoperation and compiler independence | Proved linkage to retained verified-C and Rust components; shared frontend, model, validator and proof dependencies disclosed. A differently named executable is not an independent assurance path |
+| R-05-043 decoder synthesis | Checked synthesis/representation chain through proposed intermediate to final endpoint incl. error paths and source anchor |
+| R-05-019b, R-05-020 and R-05-020a | Shared Sail-generated defs; new authoritative semantics/logic/checker must satisfy R-05-020 bridge/non-duplication/retirement; untrusted elaborators satisfy R-05-020a (supplying no resource law, compiler, or artifact acceptance) |
+| R-05-023, R-05-023a and R-13-017 | Final CIC-checked Iris-over-Sail refinement (substitutes need explicit approval covering every obligation) |
+| R-05-024, R-05-026 and R-05-032 | Adversarial-context robust preservation, binary-tier evidence, authored-source correspondence with declared leakage/progress |
+| R-05-023b | Total primitive-site checks vs profile-bound meanings and TAL rules (no private instruction semantics or second consumer checker) |
+| R-18-014 and its refinements | Keep CHERI-CompCert TCB and certifying-Rust duties intact (direct generation counts as neither; replacement requires owner/scope/bootstrap/independence decision) |
+| Typed interoperation and compiler independence | Proved verified-C/Rust linkage; disclosed shared frontend/model/validator/proof deps (distinct binaries alone != independent assurance) |
 
-Review responsibilities: compiler owner, emission/backend facts; foundation owner, theorem subjects/assumptions; source owner, interpretation/failures; target/admission owner, final package/timing. Independent Tier-A review must inspect and replay both routes' proof/IR artifacts at stated revisions. An inaccessible contained dependency blocks that review/reproduction endpoint.
+Review duties: compiler owner (emission/backend), foundation owner (subjects/assumptions), source owner (interpretation/failures), target/admission owner (image/timing); Tier-A reviewer inspects/replays both routes at pinned revisions (inaccessible dependencies block review).
 
-Read selected-file and transitive-dependency licences before incorporation, starting from the [CompCert/SECOMP record](https://github.com/symbiogenesis/VerifiedOS/blob/main/THIRD-PARTY.md#compcert-and-secomp) and [tool inventory](../../THIRD-PARTY.md#development-tools-contained-by-use). New files/pins need new readings. Separately qualify inspection/replay, commercial use, compiler redistribution, generated preambles and runtime/helpers. This contract conveys no compiler source or licence grant.
-
-Dependency removal requires its absence from the selected implementation/proof closure; changing IR leaves reused-pass licences intact. Whole-toolchain commercial rebuildability separately disposes of Clight's dual-licensed material, retained TCB/Rust duties, Velus and the oracle environment. A route-local result is insufficient.
+Read file and transitive licences pre-incorporation from the [CompCert/SECOMP record](https://github.com/symbiogenesis/VerifiedOS/blob/main/THIRD-PARTY.md#compcert-and-secomp) and [tool inventory](../../THIRD-PARTY.md#development-tools-contained-by-use), re-reading on pin/file updates across inspection/replay, commercial use, compiler redistribution, preambles, and helpers (this doc grants no licences). Dependency removal requires absence from implementation/proof closure (changing IR leaves reused-pass licences intact); commercial rebuildability still disposes of Clight dual-licensed files, TCB/Rust duties, Velus, and the oracle env.
 
 ## Readiness decision
 
-The comparison remains conditional on the [entry packages](#re-entry-packages).
-Treat correspondence, admission, resource evidence and target measurements as
-distinct acceptance obligations. Compare cost and performance only once both
-arms reach the same declared endpoint. [Backlog](../../PLAN.md#q-assessment-actions)
+Conditional on [entry packages](#re-entry-packages); keep correspondence, admission, resource evidence, and target timings distinct and compare cost/performance only once both arms reach the same endpoint. [Backlog](../../PLAN.md#q-assessment-actions)
