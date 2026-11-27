@@ -514,7 +514,6 @@ Print Assumptions frame_header_doubles_tag.
 """ + "".join(f"Print Assumptions {thm}.\n" for thm in erased_theorems),
         directory,
     )
-    )
     proof.write_text(unit_text, encoding="utf-8")
     started = time.perf_counter()
     checked = subprocess.run([*proofenv.rocq_command(), "-q", proof.name], cwd=directory,
