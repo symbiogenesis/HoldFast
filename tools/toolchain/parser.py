@@ -20,6 +20,7 @@ import threading
 import time
 import uuid
 from collections.abc import Generator, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from importlib import import_module
 from pathlib import Path
@@ -279,6 +280,9 @@ def build(root: Path) -> Build:
         return _compile(root, output, tools)
 
 
+_UNPATCHED_BUILD = build
+
+
 def _current_cache_entry(cache: Path) -> Path | None:
     try:
         with (cache / "current").open(encoding="utf-8") as stream:
@@ -442,27 +446,24 @@ def _response(raw: bytes) -> dict[str, Json]:
         raise ValueError("native parser returned malformed JSON") from error
 
 
-def _validate_tree(value: Json, source: bytes) -> None:
+def _validate_tree(value: Json, source: bytes, *, check_surrogates: bool = True) -> None:
     try:
-        text = source.decode("utf-8")
+        source.decode("utf-8")
     except UnicodeDecodeError as error:
         raise ValueError("native parser accepted invalid UTF-8 source") from error
-    boundaries = {0}
-    offset = 0
-    for character in text:
-        offset += len(character.encode("utf-8"))
-        boundaries.add(offset)
-    pending = [(value, (0, len(source)), 0)]
+    source_len = len(source)
+    pending = [(value, (0, source_len), 0)]
     while pending:
         current, parent, depth = pending.pop()
         if isinstance(current, list):
             pending.extend((child, parent, depth) for child in current)
         elif isinstance(current, dict):
-            for key in current:
-                try:
-                    key.encode("utf-8")
-                except UnicodeEncodeError as error:
-                    raise ValueError("native parser returned a non-Unicode syntax key") from error
+            if check_surrogates:
+                for key in current:
+                    try:
+                        key.encode("utf-8")
+                    except UnicodeEncodeError as error:
+                        raise ValueError("native parser returned a non-Unicode syntax key") from error
             if "kind" in current:
                 depth += 1
                 if depth > MAX_SYNTAX_DEPTH:
@@ -474,15 +475,16 @@ def _validate_tree(value: Json, source: bytes) -> None:
                 start, end = span
                 if type(start) is not int or type(end) is not int:
                     raise ValueError("native parser returned an invalid source span")
-                if not 0 <= start <= end <= len(source):
+                if not 0 <= start <= end <= source_len:
                     raise ValueError("native parser returned a source span outside its input")
                 if not parent[0] <= start <= end <= parent[1]:
                     raise ValueError("native parser returned a source span outside its parent")
-                if start not in boundaries or end not in boundaries:
+                if ((start != source_len and (source[start] & 0xC0) == 0x80)
+                        or (end != source_len and (source[end] & 0xC0) == 0x80)):
                     raise ValueError("native parser returned a span splitting a UTF-8 character")
                 parent = (start, end)
             pending.extend((child, parent, depth) for child in current.values())
-        elif isinstance(current, str):
+        elif check_surrogates and isinstance(current, str):
             try:
                 current.encode("utf-8")
             except UnicodeEncodeError as error:
@@ -538,7 +540,7 @@ def decode_response(source: bytes, returncode: int, stdout: bytes, stderr: bytes
     if (set(response) != fields or type(response.get("schema")) is not int
             or response["schema"] != schema or ast.get("kind") != kind):
         raise ValueError("native parser returned an unsupported syntax-tree schema")
-    _validate_tree(ast, source)
+    _validate_tree(ast, source, check_surrogates=b"\\u" in stdout)
     result: dict[str, Json] = {"schema": schema, "ast": ast, "source_sha256": hashlib.sha256(source).hexdigest()}
     if layout:
         result["layout"] = _layout_ranges(source, response["tokens"])
@@ -1092,8 +1094,16 @@ def _surface_layout_fixture(compiled: Build) -> str:
 def qualify(root: Path) -> dict[str, object]:
     latest = _work_root(root) / "qualification.json"
     latest.unlink(missing_ok=True)
-    first = build(root)
-    second = build(root)
+    if cast("object", build) is not _UNPATCHED_BUILD:
+        first = build(root)
+        second = build(root)
+    else:
+        directory = _work_root(root)
+        with _file_lock(directory / "build.lock", timeout=1):
+            tools = _toolchain(root)
+            outputs = [Path(tempfile.mkdtemp(prefix="build-", dir=directory)) for _ in range(2)]
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                first, second = list(pool.map(lambda out: _compile(root, out, tools), outputs))
     first_outputs = cast("dict[str, str]", first.receipt["generated_sha256"])
     second_outputs = cast("dict[str, str]", second.receipt["generated_sha256"])
     if first.receipt["inputs"] != second.receipt["inputs"] or first.receipt["toolchain"] != second.receipt["toolchain"]:

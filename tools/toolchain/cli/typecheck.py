@@ -184,8 +184,19 @@ def _run_checker(rep: Reporter, name: str, pin: str, passes: list[Pass], cwd: Pa
     exe = _pinned(rep, name, pin)
     if exe is None:
         return
-    for run in passes:
-        _run_pass(rep, name, exe, run, cwd, with_stderr, parse)
+    if len(passes) == 1:
+        _run_pass(rep, name, exe, passes[0], cwd, with_stderr, parse)
+        return
+    pass_reps = [Reporter() for _ in passes]
+    with ThreadPoolExecutor(max_workers=len(passes)) as pool:
+        futures = [
+            pool.submit(_run_pass, pass_rep, name, exe, run, cwd, with_stderr, parse)
+            for pass_rep, run in zip(pass_reps, passes, strict=True)
+        ]
+        for done in futures:
+            done.result()
+    for pass_rep in pass_reps:
+        rep.extend(pass_rep)
 
 
 def _run_pass(rep: Reporter, name: str, exe: str, run: Pass, cwd: Path,

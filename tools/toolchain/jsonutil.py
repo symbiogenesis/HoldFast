@@ -4,7 +4,10 @@
 import hashlib
 import json
 import math
+import re
 from collections.abc import Callable
+
+_NESTING_RE = re.compile(rb'"(?:\\.|[^"\\])*"|["\[\]{}]')
 
 
 def canonical_bytes(value: object) -> bytes:
@@ -41,21 +44,17 @@ def finite_float(value: str) -> float:
 def exceeds_nesting(raw: bytes, limit: int) -> bool:
     """Check container depth before decoding. The JSON decoder validates syntax."""
     depth = 0
-    quoted = escaped = False
-    for byte in raw:
-        if quoted:
-            if escaped:
-                escaped = False
-            elif byte == 92:  # backslash
-                escaped = True
-            elif byte == 34:  # double quote
-                quoted = False
-        elif byte == 34:
-            quoted = True
-        elif byte in b"[{":
+    for match in _NESTING_RE.finditer(raw):
+        token = match.group(0)
+        first = token[0]
+        if first == 34:  # double quote
+            if len(token) == 1:  # unclosed string through EOF
+                break
+            continue
+        if first in (91, 123):  # '[' or '{'
             depth += 1
             if depth > limit:
                 return True
-        elif byte in b"]}":
+        else:
             depth -= 1
     return False

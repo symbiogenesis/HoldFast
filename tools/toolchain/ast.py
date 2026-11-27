@@ -5,6 +5,7 @@ Decoding checks the protocol and its source binding. It does not establish lexer
 correctness or correspondence between source grammar and the returned tree.
 """
 
+import bisect
 import hashlib
 import re
 from collections.abc import Callable
@@ -211,26 +212,18 @@ def source_text(source: bytes) -> str:
         raise HoldFastError("encoding", site.line, site.column, "source is not valid UTF-8") from error
 
 
+_NEWLINE_BYTES_RE = re.compile(rb"\r\n|\r|\n")
+
+
 class _Decoder:
     def __init__(self, source: bytes, text: str) -> None:
+        del text
         self.source = source
         self.remaining = MAX_SOURCE_BYTES
-        self.sites: dict[int, Site] = {}
-        offset, line, column = 0, 1, 1
-        previous = ""
-        for character in text:
-            self.sites[offset] = Site(line, column)
-            if character == "\r":
-                line, column = line + 1, 1
-            elif character == "\n":
-                if previous != "\r":
-                    line += 1
-                column = 1
-            else:
-                column += 1
-            offset += len(character.encode("utf-8"))
-            previous = character
-        self.sites[offset] = Site(line, column)
+        self._line_starts = [0, *(match.end() for match in _NEWLINE_BYTES_RE.finditer(source))]
+
+    def _is_boundary(self, offset: int) -> bool:
+        return offset == len(self.source) or (self.source[offset] & 0xC0) != 0x80
 
     def _node(self, raw: object, kind: str, fields: set[str],
               parent: tuple[int, int], depth: int) -> tuple[dict[str, object], tuple[int, int], Site]:
@@ -250,12 +243,18 @@ class _Decoder:
         start, end = cast("tuple[int, int]", tuple(raw))
         if not parent[0] <= start < end <= parent[1]:
             raise ValueError("native parser returned an empty, escaping or unordered span")
-        if start not in self.sites or end not in self.sites:
+        if not self._is_boundary(start) or not self._is_boundary(end):
             raise ValueError("native span splits a UTF-8 character")
         return start, end
 
     def _site(self, offset: int) -> Site:
-        return self.sites[offset]
+        if offset > 0 and self.source[offset - 1:offset + 1] == b"\r\n":
+            line = bisect.bisect_right(self._line_starts, offset) + 1
+            return Site(line, 1)
+        line = bisect.bisect_right(self._line_starts, offset)
+        line_start = self._line_starts[line - 1]
+        column = len(self.source[line_start:offset].decode("utf-8")) + 1
+        return Site(line, column)
 
     def _keyword(self, cursor: int, keyword: bytes) -> int:
         end = cursor + len(keyword)

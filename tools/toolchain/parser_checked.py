@@ -734,21 +734,34 @@ Extraction "holdfast_checked_parser.ml" HoldFastPureGrammar.file.
 CHECKED_MAIN_ML = """(* SPDX-License-Identifier: Apache-2.0 *)
 (* Execute the extracted Rocq pure parser over the shared UTF-8/lexer boundary. *)
 
-let peano =
-  let table = Array.make (Ast.max_source_bytes + 1) Holdfast_checked_parser.O in
-  for i = 1 to Ast.max_source_bytes do
-    table.(i) <- Holdfast_checked_parser.S table.(i - 1)
-  done;
-  table
+let peano = ref (Array.make 64 Holdfast_checked_parser.O)
+let peano_len = ref 1
+
+let ensure_peano n =
+  let cur_cap = Array.length !peano in
+  if n >= cur_cap then begin
+    let next_cap = ref cur_cap in
+    while n >= !next_cap do
+      next_cap := !next_cap * 2
+    done;
+    let grown = Array.make !next_cap Holdfast_checked_parser.O in
+    Array.blit !peano 0 grown 0 !peano_len;
+    peano := grown
+  end;
+  if n >= !peano_len then begin
+    let tbl = !peano in
+    for i = !peano_len to n do
+      tbl.(i) <- Holdfast_checked_parser.S tbl.(i - 1)
+    done;
+    peano_len := n + 1
+  end
 
 let nat_of_int n =
-  if n >= 0 && n <= Ast.max_source_bytes then peano.(n)
-  else
-    let rec loop acc k =
-      if k <= 0 then acc
-      else loop (Holdfast_checked_parser.S acc) (k - 1)
-    in
-    loop peano.(Ast.max_source_bytes) (n - Ast.max_source_bytes)
+  if n <= 0 then Holdfast_checked_parser.O
+  else begin
+    ensure_peano n;
+    (!peano).(n)
+  end
 
 let int_of_nat n =
   let rec loop acc = function
@@ -1258,7 +1271,17 @@ def _release_sources(archive: bytes) -> dict[str, bytes]:
     return sources
 
 
+def _switch_bin(switch: str) -> Path | None:
+    candidate = proofenv.opam_root() / switch / "bin"
+    required = ("menhir",) if switch == env.SAIL_SWITCH else ("rocq", "rocqchk", "ocamlc", "ocamlopt", "ocamllex")
+    if all((candidate / name).is_file() for name in required):
+        return candidate
+    return None
+
+
 def _opam(arguments: list[str], *, switch: str = proofenv.ROCQ_SWITCH) -> list[str]:
+    if arguments and (bin_dir := _switch_bin(switch)) is not None and (bin_dir / arguments[0]).is_file():
+        return [str(bin_dir / arguments[0]), *arguments[1:]]
     return ["opam", "exec", "--switch", switch, "--", *arguments]
 
 
@@ -1266,8 +1289,14 @@ def _run(arguments: list[str], directory: Path, log: Path,
          steps: list[dict[str, object]], *, refusal: str | None = None,
          source: bytes | None = None) -> str:
     started = time.monotonic()
+    run_env: dict[str, str] | None = None
+    if arguments:
+        parent = Path(arguments[0]).parent
+        if parent in (_switch_bin(proofenv.ROCQ_SWITCH), _switch_bin(env.SAIL_SWITCH)):
+            run_env = os.environ.copy()
+            run_env["PATH"] = f"{parent}{os.pathsep}{run_env.get('PATH', '')}"
     try:
-        done = subprocess.run(arguments, cwd=directory, capture_output=True,
+        done = subprocess.run(arguments, cwd=directory, env=run_env, capture_output=True,
                               input=source, timeout=TIMEOUT, check=False)
     except subprocess.TimeoutExpired as error:
         log.write_bytes((error.stdout or b"") + (error.stderr or b""))
@@ -1318,18 +1347,16 @@ def _toolchain(root: Path, directory: Path, steps: list[dict[str, object]]) -> d
                     directory / "ocaml.stdout", steps).strip()
     if compiler != proofenv.OCAML_VERSION:
         raise ValueError("Menhir support OCaml compiler differs from the project switch")
-    binary = _run(["opam", "var", "bin", "--switch", proofenv.ROCQ_SWITCH], root,
-                  directory / "tool-path.stdout", steps).strip()
-    binary_dir = Path(binary)
+    binary_dir = Path(_run(["opam", "var", "bin", "--switch", proofenv.ROCQ_SWITCH], root,
+                           directory / "tool-path.stdout", steps).strip())
     if not binary_dir.is_absolute():
         raise ValueError("opam returned a relative support tool directory")
     generator = _run(_opam(["menhir", "--version"], switch=env.SAIL_SWITCH), root,
                      directory / "menhir.stdout", steps).strip()
     if generator != f"menhir, version {RELEASE}":
         raise ValueError("Menhir generator executable differs from the locked release")
-    sail_bin = _run(["opam", "var", "bin", "--switch", env.SAIL_SWITCH], root,
-                    directory / "sail-tool-path.stdout", steps).strip()
-    sail_bin_dir = Path(sail_bin)
+    sail_bin_dir = Path(_run(["opam", "var", "bin", "--switch", env.SAIL_SWITCH], root,
+                             directory / "sail-tool-path.stdout", steps).strip())
     if not sail_bin_dir.is_absolute():
         raise ValueError("opam returned a relative generator tool directory")
     return {
@@ -1348,12 +1375,25 @@ def _toolchain(root: Path, directory: Path, steps: list[dict[str, object]]) -> d
 
 def _runtime(directory: Path, steps: list[dict[str, object]]) -> dict[str, object]:
     """Bind installed proof inputs, including every physical LoadPath root."""
-    config = _run(_opam(["rocq", "c", "-config"]), directory,
-                  directory / "runtime-config.stdout", steps)
-    where = _run(_opam(["rocqchk", "-where"]), directory,
-                 directory / "runtime-where.stdout", steps).strip()
-    load_path = _run(_opam(["rocq", "top", "-q", "-quiet"]), directory,
-                     directory / "runtime-loadpath.stdout", steps, source=b"Print LoadPath.\n")
+    probes = (
+        (_opam(["rocq", "c", "-config"]), directory / "runtime-config.stdout", None),
+        (_opam(["rocqchk", "-where"]), directory / "runtime-where.stdout", None),
+        (_opam(["rocq", "top", "-q", "-quiet"]), directory / "runtime-loadpath.stdout", b"Print LoadPath.\n"),
+    )
+
+    def run_probe(item: tuple[list[str], Path, bytes | None]) -> tuple[str, list[dict[str, object]]]:
+        cmd, log_path, src = item
+        local_steps: list[dict[str, object]] = []
+        out = _run(cmd, directory, log_path, local_steps, source=src)
+        return out, local_steps
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        probe_results = list(pool.map(run_probe, probes))
+    for _, local_steps in probe_results:
+        steps.extend(local_steps)
+    config = probe_results[0][0]
+    where = probe_results[1][0].strip()
+    load_path = probe_results[2][0]
     settings = dict(line.split("=", 1) for line in config.splitlines() if "=" in line)
     if any(key not in settings or not Path(settings[key]).is_absolute()
            for key in ("COQLIB", "COQCORELIB")):
@@ -1484,18 +1524,32 @@ def _compile_checked_executable(root: Path, tree: Path, token_stub: str,
         shutil.copyfile(root / "tools/toolchain/parser" / name, tree / name)
     (tree / "parser.ml").write_text(token_stub, encoding="utf-8", newline="")
     (tree / "checked_main.ml").write_text(CHECKED_MAIN_ML, encoding="utf-8", newline="")
-    ocaml_commands = (
+    frontend_cmds = (
         ("ast-compile", ["ocamlopt", "-c", "ast.ml"]),
         ("token-stub-compile", ["ocamlopt", "-c", "parser.ml"]),
         ("lexer-generate", ["ocamllex", "lexer.mll"]),
         ("lexer-compile", ["ocamlopt", "-c", "lexer.ml"]),
+    )
+    extracted_cmds = (
         ("extracted-mli-compile", ["ocamlopt", "-w", "-a", "-c", "holdfast_checked_parser.mli"]),
         ("extracted-ml-compile", ["ocamlopt", "-w", "-a", "-c", "holdfast_checked_parser.ml"]),
+    )
+
+    def run_group(group: tuple[tuple[str, list[str]], ...]) -> list[dict[str, object]]:
+        local_steps: list[dict[str, object]] = []
+        for step_name, cmd in group:
+            _run(_opam(cmd), tree, tree / f"{step_name}.stdout", local_steps)
+        return local_steps
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        fe_steps, ext_steps = list(pool.map(run_group, (frontend_cmds, extracted_cmds)))
+    steps.extend(fe_steps)
+    steps.extend(ext_steps)
+    for step_name, cmd in (
         ("checked-main-compile", ["ocamlopt", "-c", "checked_main.ml"]),
         ("checked-link", ["ocamlopt", "-o", "holdfast-checked-parser", "ast.cmx",
                           "parser.cmx", "lexer.cmx", "holdfast_checked_parser.cmx", "checked_main.cmx"]),
-    )
-    for step_name, cmd in ocaml_commands:
+    ):
         _run(_opam(cmd), tree, tree / f"{step_name}.stdout", steps)
     return tree / "holdfast-checked-parser"
 
@@ -1899,21 +1953,45 @@ def qualify(root: Path, *, archive: Path | None = None) -> dict[str, object]:
             _require(proofs_reading.encode() == (reference / "holdfastpureproofs.stdout").read_bytes(),
                      "concrete checked-parser assumption reading differs between candidate and reference")
             _check_closed_assumptions(proofs_reading, len(THEOREMS))
-            _run(_opam(["rocqchk", "-R", ".", "MenhirLib",
-                        *(f"MenhirLib.{module}" for module in ALL_MODULES)]),
-                 candidate, candidate / "kernel.stdout", steps)
             (candidate / "Assumptions.v").write_text(ASSUMPTIONS_QUERY, encoding="utf-8", newline="")
-            _run(_opam(["rocq", "c", "-R", ".", "MenhirLib", "Assumptions.v"]),
-                 candidate, candidate / "assumptions.stdout", steps)
             guard = f"From MenhirLib Require Version.\nDefinition generator_version : unit := Version.require_{RELEASE}.\n"
             (candidate / "VersionAccepted.v").write_text(guard, encoding="utf-8", newline="")
-            _run(_opam(["rocq", "c", "-R", ".", "MenhirLib", "VersionAccepted.v"]),
-                 candidate, candidate / "guard-accepted.stdout", steps)
             (candidate / "VersionRefused.v").write_text(
                 guard.replace(f"require_{RELEASE}", "require_unreleased"), encoding="utf-8", newline="")
-            _run(_opam(["rocq", "c", "-R", ".", "MenhirLib", "VersionRefused.v"]),
-                 candidate, candidate / "guard-refused.stdout", steps, refusal="require_unreleased")
-            checked_exe = _compile_checked_executable(root, candidate, token_stub, steps)
+
+            def _run_kernel() -> list[dict[str, object]]:
+                local_steps: list[dict[str, object]] = []
+                _run(_opam(["rocqchk", "-R", ".", "MenhirLib",
+                            *(f"MenhirLib.{module}" for module in ALL_MODULES)]),
+                     candidate, candidate / "kernel.stdout", local_steps)
+                return local_steps
+
+            def _run_probes() -> list[dict[str, object]]:
+                local_steps: list[dict[str, object]] = []
+                _run(_opam(["rocq", "c", "-R", ".", "MenhirLib", "Assumptions.v"]),
+                     candidate, candidate / "assumptions.stdout", local_steps)
+                _run(_opam(["rocq", "c", "-R", ".", "MenhirLib", "VersionAccepted.v"]),
+                     candidate, candidate / "guard-accepted.stdout", local_steps)
+                _run(_opam(["rocq", "c", "-R", ".", "MenhirLib", "VersionRefused.v"]),
+                     candidate, candidate / "guard-refused.stdout", local_steps, refusal="require_unreleased")
+                return local_steps
+
+            def _run_checked_exe() -> tuple[Path, list[dict[str, object]]]:
+                local_steps: list[dict[str, object]] = []
+                exe = _compile_checked_executable(root, candidate, token_stub, local_steps)
+                return exe, local_steps
+
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                fut_kernel = pool.submit(_run_kernel)
+                fut_probes = pool.submit(_run_probes)
+                fut_checked = pool.submit(_run_checked_exe)
+                fut_dev = pool.submit(holdfast_parser.build, root)
+                steps.extend(fut_kernel.result())
+                steps.extend(fut_probes.result())
+                checked_exe, checked_steps = fut_checked.result()
+                steps.extend(checked_steps)
+                dev_build = fut_dev.result()
+
             checked_build = holdfast_parser.Build(
                 directory=candidate,
                 executable=checked_exe,
@@ -1923,7 +2001,6 @@ def qualify(root: Path, *, archive: Path | None = None) -> dict[str, object]:
             if (root / "tools/toolchain/parser/parser.mly").is_file():
                 _install_runtime_build(root, candidate, contents)
                 reset_checked_worker()
-            dev_build = holdfast_parser.build(root)
             examples_verified: dict[str, str] = {}
             for rel_example in ("examples/pure.hf", "examples/constants.hf", "examples/expressions.hf"):
                 example_bytes = holdfast_parser.read_source(root / rel_example)

@@ -92,7 +92,7 @@ def _producer(root: Path, compiled: parser.Build) -> Object:
 
 def _recheck_parser(root: Path, compiled: parser.Build) -> None:
     outputs = _object(compiled.receipt["generated_sha256"], "parser outputs")
-    if (parser._inputs(root) != compiled.receipt["inputs"] or parser._toolchain(root) != compiled.receipt["toolchain"]
+    if (parser._inputs(root) != compiled.receipt["inputs"] or parser._cached_toolchain(root) != compiled.receipt["toolchain"]
             or file_sha256(compiled.executable) != outputs["holdfast-parser"]):
         raise ValueError("stale package inputs: parser sources, tools or generated executable changed")
 
