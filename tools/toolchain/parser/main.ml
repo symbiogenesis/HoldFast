@@ -88,30 +88,17 @@ let classify_pure_failure state lexbuf default_offset history =
   | _ ->
       ("syntax", default_offset, "unexpected token or incomplete input")
 
-let () =
-  set_binary_mode_in stdin true;
-  set_binary_mode_out stdout true;
-  let source = ref "" in
+let parse_one ~surface ~layout source =
   let current = ref 0 in
   let history = ref [] in
-  let surface_ref = ref false in
   let state_ref = ref None in
   let lexbuf_ref = ref None in
-  let publish_failure kind offset message =
-    print_endline (Ast.encode (diagnostic !source kind offset message));
-    exit 1
+  let fail kind offset message =
+    (1, Ast.encode (diagnostic source kind offset message))
   in
   try
-    let surface, layout = match Array.to_list Sys.argv with
-      | [_] -> false, false
-      | [_; "--surface"] -> true, false
-      | [_; "--surface-layout"] -> true, true
-      | _ -> raise (Ast.Refusal ("syntax", 0, "expected no arguments, --surface or --surface-layout"))
-    in
-    surface_ref := surface;
-    source := read_source ();
-    validate_utf8 !source;
-    let lexbuf = Lexing.from_string !source in
+    validate_utf8 source;
+    let lexbuf = Lexing.from_string source in
     let state = Lexer.create ~surface () in
     state_ref := Some state;
     lexbuf_ref := Some lexbuf;
@@ -128,15 +115,84 @@ let () =
     let syntax = (if surface then Parser.surface_file else Parser.file) next lexbuf in
     let fields = [("schema", Ast.Number (if surface then 2 else 1)); ("ast", syntax.syntax)] in
     let fields = if layout then ("tokens", Ast.Array (List.rev !tokens)) :: fields else fields in
-    print_endline (Ast.encode (Ast.Object fields))
+    (0, Ast.encode (Ast.Object fields))
   with
-  | Ast.Refusal (kind, offset, message) -> publish_failure kind offset message
+  | Ast.Refusal (kind, offset, message) -> fail kind offset message
   | Parser.Error ->
-      (match !surface_ref, !state_ref, !lexbuf_ref with
+      (match surface, !state_ref, !lexbuf_ref with
        | false, Some state, Some lexbuf ->
            let kind, offset, message = classify_pure_failure state lexbuf !current !history in
-           publish_failure kind offset message
+           fail kind offset message
        | _ ->
-           publish_failure "syntax" !current "unexpected token or incomplete input")
-  | Stack_overflow -> publish_failure "limit" !current "native parser stack limit exceeded"
-  | Sys_error message -> publish_failure "io" !current message
+           fail "syntax" !current "unexpected token or incomplete input")
+  | Stack_overflow -> fail "limit" !current "native parser stack limit exceeded"
+  | Sys_error message -> fail "io" !current message
+
+let run_single ~surface ~layout =
+  let source = ref "" in
+  try
+    source := read_source ();
+    let code, payload = parse_one ~surface ~layout !source in
+    print_endline payload;
+    if code <> 0 then exit code
+  with
+  | Ast.Refusal (kind, offset, message) ->
+      print_endline (Ast.encode (diagnostic !source kind offset message));
+      exit 1
+  | Sys_error message ->
+      print_endline (Ast.encode (diagnostic !source "io" 0 message));
+      exit 1
+
+let run_batch () =
+  try
+    while true do
+      let header = String.trim (input_line stdin) in
+      let mode, count_str =
+        match String.index_opt header ' ' with
+        | Some idx ->
+            (String.sub header 0 idx,
+             String.trim (String.sub header (idx + 1) (String.length header - idx - 1)))
+        | None -> ("", "")
+      in
+      let mode_flags =
+        match mode with
+        | "pure" -> Some (false, false)
+        | "surface" -> Some (true, false)
+        | "surface-layout" -> Some (true, true)
+        | _ -> None
+      in
+      let count =
+        match int_of_string_opt count_str with
+        | Some n -> n
+        | None -> -1
+      in
+      match mode_flags with
+      | Some (surface, layout) when count >= 0 && count <= Ast.max_source_bytes ->
+          let source = really_input_string stdin count in
+          let code, payload = parse_one ~surface ~layout source in
+          output_string stdout (string_of_int code ^ " " ^ payload ^ "\n");
+          flush stdout
+      | Some _ ->
+          let payload = Ast.encode (diagnostic "" "limit" 0 "source exceeds 65536 bytes") in
+          output_string stdout ("1 " ^ payload ^ "\n");
+          flush stdout;
+          raise End_of_file
+      | None ->
+          let payload = Ast.encode (diagnostic "" "syntax" 0 "invalid batch request header") in
+          output_string stdout ("1 " ^ payload ^ "\n");
+          flush stdout;
+          raise End_of_file
+    done
+  with End_of_file -> ()
+
+let () =
+  set_binary_mode_in stdin true;
+  set_binary_mode_out stdout true;
+  match Array.to_list Sys.argv with
+  | [_] -> run_single ~surface:false ~layout:false
+  | [_; "--surface"] -> run_single ~surface:true ~layout:false
+  | [_; "--surface-layout"] -> run_single ~surface:true ~layout:true
+  | [_; "--batch"] -> run_batch ()
+  | _ ->
+      print_endline (Ast.encode (diagnostic "" "syntax" 0 "expected no arguments, --surface or --surface-layout"));
+      exit 1

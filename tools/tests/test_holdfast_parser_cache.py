@@ -74,6 +74,15 @@ def _hit_and_fresh_builds() -> None:
         ensure(fixture.builds == 3 and fresh.directory != another.directory
                and fresh.directory.parent == fixture.native and first.directory.parent == fixture.cache,
                "explicit fresh builds must stay outside the ordinary cache")
+        worktree_copy = fixture.root / "worktree-mirror"
+        worktree_copy.mkdir()
+        for name in parser.INPUT_PATHS:
+            dst = worktree_copy / name
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_bytes((fixture.root / name).read_bytes())
+        with parser.cached_build(worktree_copy) as mirrored:
+            ensure(mirrored.directory == first.directory and fixture.builds == 3,
+                   "identical parser inputs in a separate worktree path missed the shared cache")
 
 
 def _changed_identity() -> None:

@@ -5,14 +5,19 @@ The parser is a native-lane build product. Its JSON syntax tree is no type,
 elaboration, checked-parser or source-correspondence verdict.
 """
 
+import atexit
 import contextlib
 import hashlib
 import json
 import os
 import re
+import selectors
 import shutil
 import subprocess
+import sys
 import tempfile
+import threading
+import time
 import uuid
 from collections.abc import Generator, Sequence
 from dataclasses import dataclass
@@ -22,6 +27,7 @@ from typing import cast
 
 from toolchain import (
     env,
+    proofenv,
 )
 from toolchain import (
     surface as holdfast_surface,
@@ -88,9 +94,20 @@ def _locked_versions(root: Path) -> dict[str, str]:
     return result
 
 
+def _sail_bin() -> Path | None:
+    candidate = proofenv.opam_root() / env.SAIL_SWITCH / "bin"
+    if all((candidate / name).is_file() for name in ("menhir", "ocamlc", "ocamllex", "ocamlrun")):
+        return candidate
+    return None
+
+
 def _run(arguments: list[str], directory: Path, *, timeout: int = BUILD_TIMEOUT) -> str:
+    run_env: dict[str, str] | None = None
+    if arguments and (bin_dir := _sail_bin()) is not None and Path(arguments[0]).parent == bin_dir:
+        run_env = os.environ.copy()
+        run_env["PATH"] = f"{bin_dir}{os.pathsep}{run_env.get('PATH', '')}"
     try:
-        done = subprocess.run(arguments, cwd=directory, capture_output=True,
+        done = subprocess.run(arguments, cwd=directory, env=run_env, capture_output=True,
                               text=True, encoding="utf-8", timeout=timeout, check=False)
     except subprocess.TimeoutExpired as error:
         raise RuntimeError(f"{arguments[0]} exceeded {timeout} seconds") from error
@@ -101,6 +118,8 @@ def _run(arguments: list[str], directory: Path, *, timeout: int = BUILD_TIMEOUT)
 
 
 def _opam(arguments: list[str]) -> list[str]:
+    if arguments and (bin_dir := _sail_bin()) is not None and (bin_dir / arguments[0]).is_file():
+        return [str(bin_dir / arguments[0]), *arguments[1:]]
     return ["opam", "exec", "--switch", env.SAIL_SWITCH, "--", *arguments]
 
 
@@ -115,13 +134,61 @@ def _toolchain(root: Path) -> dict[str, object]:
         raise ValueError(f"OCaml identity differs from Sail snapshot: {ocaml}")
     if lexer != f"The OCaml lexer generator, version {ocaml}":
         raise ValueError(f"ocamllex identity differs from Sail snapshot: {lexer}")
-    binary_dir = Path(_run(["opam", "var", "bin", "--switch", env.SAIL_SWITCH], root))
+    bin_dir = _sail_bin() if _unpatched("_run", _REAL_RUN) else None
+    binary_dir = (bin_dir if bin_dir is not None
+                  else Path(_run(["opam", "var", "bin", "--switch", env.SAIL_SWITCH], root)))
     if not binary_dir.is_absolute():
         raise ValueError("opam returned a relative tool directory")
     return {"switch": env.SAIL_SWITCH, "menhir": menhir, "ocamlc": ocaml,
             "ocamllex": lexer,
             "binary_sha256": {name: _digest(binary_dir / name)
                               for name in ("menhir", "ocamlc", "ocamllex", "ocamlrun")}}
+
+
+def _unpatched(name: str, original: object) -> bool:
+    return globals().get(name) is original
+
+
+def _subprocess_unpatched() -> bool:
+    return getattr(subprocess, "run", None) is _REAL_SUBPROCESS_RUN
+
+
+_REAL_RUN = _run
+_REAL_TOOLCHAIN = _toolchain
+_REAL_DIGEST = _digest
+_REAL_SUBPROCESS_RUN = subprocess.run
+
+_TOOLCHAIN_CACHE_LOCK = threading.Lock()
+_TOOLCHAIN_CACHE: tuple[tuple[object, ...], dict[str, object]] | None = None
+
+
+def _stat_sig(path: Path) -> tuple[int, int, int, int] | None:
+    try:
+        st = path.stat()
+    except OSError:
+        return None
+    return (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns)
+
+
+def _cached_toolchain(root: Path) -> dict[str, object]:
+    global _TOOLCHAIN_CACHE  # noqa: PLW0603
+    if not (_unpatched("_toolchain", _REAL_TOOLCHAIN) and _unpatched("_run", _REAL_RUN) and _unpatched("_digest", _REAL_DIGEST)):
+        return _toolchain(root)
+    bin_dir = _sail_bin()
+    lock_sig = _stat_sig(root / "tools/opam/sail.lock")
+    if bin_dir is None or lock_sig is None:
+        return _toolchain(root)
+    sigs = tuple(_stat_sig(bin_dir / name) for name in ("menhir", "ocamlc", "ocamllex", "ocamlrun"))
+    if any(sig is None for sig in sigs):
+        return _toolchain(root)
+    cache_key: tuple[object, ...] = (env.SAIL_SWITCH, str(bin_dir), lock_sig, sigs)
+    with _TOOLCHAIN_CACHE_LOCK:
+        if _TOOLCHAIN_CACHE is not None and _TOOLCHAIN_CACHE[0] == cache_key:
+            return _TOOLCHAIN_CACHE[1].copy()
+    fresh = _toolchain(root)
+    with _TOOLCHAIN_CACHE_LOCK:
+        _TOOLCHAIN_CACHE = (cache_key, fresh.copy())
+    return fresh
 
 
 def _inputs(root: Path) -> dict[str, str]:
@@ -168,6 +235,27 @@ def _work_root(root: Path) -> Path:
         raise ValueError(f"parser build directory needs a persistent native filesystem: {directory} ({kind})")
     directory.mkdir(parents=True, exist_ok=True)
     return directory
+
+
+_REAL_WORK_ROOT = _work_root
+
+
+def _cache_root(root: Path) -> Path:
+    if not _unpatched("_work_root", _REAL_WORK_ROOT):
+        native = _work_root(root)
+        cache = native / "ordinary-cache"
+        cache.mkdir(exist_ok=True)
+        if cache.is_symlink() or cache.resolve().parent != native.resolve():
+            raise ValueError(f"parser cache directory escapes its native build root: {cache}")
+        return cache
+    cache = env.build_root() / "holdfast-parser-cache"
+    kind = env.filesystem(cache)
+    if kind in env.CROSS_OS_FILESYSTEMS | env.VOLATILE_FILESYSTEMS or not kind:
+        raise ValueError(f"parser cache directory needs a persistent native filesystem: {cache} ({kind})")
+    cache.mkdir(parents=True, exist_ok=True)
+    if cache.is_symlink():
+        raise ValueError(f"parser cache directory cannot be a symlink: {cache}")
+    return cache
 
 
 def _file_lock(path: Path, timeout: int) -> contextlib.AbstractContextManager[object]:
@@ -270,20 +358,26 @@ def cached_build(root: Path) -> Generator[Build]:
     OS-backed lease for each user allows concurrent readers and recovers after a
     crashed user. The cache lock serializes construction, publication and pruning.
     """
-    native = _work_root(root)
-    cache = native / "ordinary-cache"
-    cache.mkdir(exist_ok=True)
-    if cache.is_symlink() or cache.resolve().parent != native.resolve():
-        raise ValueError(f"parser cache directory escapes its native build root: {cache}")
+    cache = _cache_root(root)
     with contextlib.ExitStack() as lease:
         with _file_lock(cache / "cache.lock", timeout=BUILD_TIMEOUT):
-            inputs, tools = _inputs(root), _toolchain(root)
-            identity = json.dumps({"root": str(root.resolve()), "inputs": inputs,
+            inputs, tools = _inputs(root), _cached_toolchain(root)
+            identity = json.dumps({"inputs": inputs,
                                    "toolchain": tools, "commands": _commands()}, sort_keys=True)
             key = hashlib.sha256(identity.encode("utf-8")).hexdigest()
             entry = _current_cache_entry(cache)
+            pointer_damaged = (cache / "current").exists() and entry is None
             compiled = (_cache_hit(entry, inputs, tools)
                         if entry is not None and entry.name.startswith(f"entry-{key}-") else None)
+            if compiled is None and not pointer_damaged and entry is not None:
+                for existing in sorted(cache.glob(f"entry-{key}-*")):
+                    if _CACHE_ENTRY.fullmatch(existing.name):
+                        hit = _cache_hit(existing, inputs, tools)
+                        if hit is not None:
+                            compiled = hit
+                            with atomic_path(cache / "current") as pending:
+                                pending.write_text(existing.name + "\n", encoding="utf-8", newline="")
+                            break
             if compiled is None:
                 entry = cache / f"entry-{key}-{uuid.uuid4().hex}"
                 entry.mkdir()
@@ -307,6 +401,8 @@ def cached_build(root: Path) -> Generator[Build]:
                   _file_lock(cache / "cache.lock", timeout=0)):
                 marker.unlink(missing_ok=True)
                 _prune_cache(cache, _current_cache_entry(cache))
+                if not compiled.executable.is_file():
+                    _reset_worker_if_executable(compiled.executable)
 
 
 def read_source(path: Path) -> bytes:
@@ -442,13 +538,193 @@ def decode_response(source: bytes, returncode: int, stdout: bytes, stderr: bytes
     return result
 
 
+_DEV_WORKER_LOCK = threading.Lock()
+_DEV_WORKER: dict[str, object] = {"proc": None, "executable": None, "buf": bytearray()}
+_VERIFIED_EXE_LOCK = threading.Lock()
+_VERIFIED_EXECUTABLES: dict[str, tuple[str, tuple[int, int, int, int, int]]] = {}
+
+
+def _close_worker_proc(proc: subprocess.Popen[bytes] | None) -> None:
+    if proc is not None:
+        if proc.stdin is not None:
+            with contextlib.suppress(OSError):
+                proc.stdin.close()
+        with contextlib.suppress(OSError, subprocess.SubprocessError):
+            proc.wait(timeout=2)
+        for stream in (proc.stdout, proc.stderr):
+            if stream is not None:
+                with contextlib.suppress(OSError):
+                    stream.close()
+        if proc.poll() is None:
+            with contextlib.suppress(OSError, subprocess.SubprocessError):
+                proc.terminate()
+                proc.wait(timeout=2)
+
+
+def reset_worker() -> None:
+    """Terminate any persistent development-parser `--batch` worker."""
+    with _DEV_WORKER_LOCK:
+        proc = cast("subprocess.Popen[bytes] | None", _DEV_WORKER.get("proc"))
+        _DEV_WORKER["proc"] = None
+        _DEV_WORKER["executable"] = None
+        _DEV_WORKER["buf"] = bytearray()
+        _close_worker_proc(proc)
+
+
+def _reset_worker_if_executable(executable: Path) -> None:
+    target = str(executable)
+    with _DEV_WORKER_LOCK:
+        if _DEV_WORKER.get("executable") == target:
+            proc = cast("subprocess.Popen[bytes] | None", _DEV_WORKER.get("proc"))
+            _DEV_WORKER["proc"] = None
+            _DEV_WORKER["executable"] = None
+            _DEV_WORKER["buf"] = bytearray()
+            _close_worker_proc(proc)
+
+
+atexit.register(reset_worker)
+
+
+def _verify_executable(compiled: Build) -> None:
+    outputs = cast("dict[str, str]", compiled.receipt["generated_sha256"])
+    expected = outputs["holdfast-parser"]
+    if not _unpatched("_digest", _REAL_DIGEST) or not _subprocess_unpatched():
+        if _digest(compiled.executable) != expected:
+            raise ValueError("native parser executable changed after its build")
+        return
+    try:
+        st = compiled.executable.stat()
+    except OSError as error:
+        raise ValueError("native parser executable is missing") from error
+    stat_sig = (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+    exe_key = str(compiled.executable)
+    with _VERIFIED_EXE_LOCK:
+        cached = _VERIFIED_EXECUTABLES.get(exe_key)
+    if cached == (expected, stat_sig):
+        return
+    if _digest(compiled.executable) != expected:
+        with _VERIFIED_EXE_LOCK:
+            _VERIFIED_EXECUTABLES.pop(exe_key, None)
+        _reset_worker_if_executable(compiled.executable)
+        raise ValueError("native parser executable changed after its build")
+    with _VERIFIED_EXE_LOCK:
+        _VERIFIED_EXECUTABLES[exe_key] = (expected, stat_sig)
+
+
+def _read_batch_line(proc: subprocess.Popen[bytes], buf: bytearray) -> tuple[bytes, bytes]:
+    assert proc.stdout is not None and proc.stderr is not None  # noqa: S101
+    out_fd = proc.stdout.fileno()
+    err_fd = proc.stderr.fileno()
+    deadline = time.monotonic() + PARSE_TIMEOUT
+    stderr_chunks: list[bytes] = []
+    with selectors.DefaultSelector() as selector:
+        selector.register(out_fd, selectors.EVENT_READ)
+        selector.register(err_fd, selectors.EVENT_READ)
+        while True:
+            newline = buf.find(b"\n")
+            if newline != -1:
+                line = bytes(buf[: newline + 1])
+                del buf[: newline + 1]
+                return line, b"".join(stderr_chunks)
+            if len(buf) > MAX_RESPONSE_BYTES + 32:
+                raise ValueError("native parser returned excessive output or unexpected standard error")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise HoldFastError("limit", 1, 1, f"parser exceeded {PARSE_TIMEOUT} seconds")
+            ready = selector.select(timeout=remaining)
+            if not ready:
+                raise HoldFastError("limit", 1, 1, f"parser exceeded {PARSE_TIMEOUT} seconds")
+            for key, _events in ready:
+                if key.fd == err_fd:
+                    err_chunk = os.read(err_fd, 4096)
+                    if err_chunk:
+                        stderr_chunks.append(err_chunk)
+                        raise ValueError("native parser returned excessive output or unexpected standard error")
+                    selector.unregister(err_fd)
+                elif key.fd == out_fd:
+                    chunk = os.read(out_fd, 65_536)
+                    if not chunk:
+                        return b"", b"".join(stderr_chunks)
+                    buf.extend(chunk)
+
+
+def _parse_batch(compiled: Build, source: bytes, *, surface: bool, layout: bool) -> tuple[int, bytes, bytes]:
+    mode = "surface-layout" if layout else ("surface" if surface else "pure")
+    frame = f"{mode} {len(source)}\n".encode("ascii") + source
+    exe_str = str(compiled.executable)
+    with _DEV_WORKER_LOCK:
+        for attempt in range(2):
+            proc = cast("subprocess.Popen[bytes] | None", _DEV_WORKER.get("proc"))
+            buf = cast("bytearray", _DEV_WORKER["buf"])
+            if proc is None or _DEV_WORKER.get("executable") != exe_str or proc.poll() is not None:
+                _close_worker_proc(proc)
+                buf = bytearray()
+                proc = subprocess.Popen(
+                    [exe_str, "--batch"],
+                    cwd=compiled.directory,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                _DEV_WORKER["proc"] = proc
+                _DEV_WORKER["executable"] = exe_str
+                _DEV_WORKER["buf"] = buf
+            assert proc.stdin is not None  # noqa: S101
+            line = b""
+            stderr_bytes = b""
+            try:
+                proc.stdin.write(frame)
+                proc.stdin.flush()
+                line, stderr_bytes = _read_batch_line(proc, buf)
+            except HoldFastError:
+                _DEV_WORKER["proc"] = None
+                _DEV_WORKER["executable"] = None
+                _DEV_WORKER["buf"] = bytearray()
+                with contextlib.suppress(OSError):
+                    proc.kill()
+                _close_worker_proc(proc)
+                raise
+            except ValueError:
+                _DEV_WORKER["proc"] = None
+                _DEV_WORKER["executable"] = None
+                _DEV_WORKER["buf"] = bytearray()
+                _close_worker_proc(proc)
+                raise
+            except OSError:
+                line = b""
+            if line:
+                trimmed = line.rstrip(b"\r\n")
+                code_bytes, sep, payload = trimmed.partition(b" ")
+                if sep != b" " or code_bytes not in (b"0", b"1"):
+                    _DEV_WORKER["proc"] = None
+                    _DEV_WORKER["executable"] = None
+                    _DEV_WORKER["buf"] = bytearray()
+                    _close_worker_proc(proc)
+                    raise ValueError("native parser returned malformed JSON")
+                return int(code_bytes), payload, stderr_bytes
+            _DEV_WORKER["proc"] = None
+            _DEV_WORKER["executable"] = None
+            _DEV_WORKER["buf"] = bytearray()
+            _close_worker_proc(proc)
+            if attempt == 1:
+                if stderr_bytes:
+                    return 1, b"{}", stderr_bytes
+                raise RuntimeError("native parser batch worker terminated without a response")
+        raise RuntimeError("native parser batch worker failed")
+
+
 def parse_source(compiled: Build, source: bytes, *, surface: bool = False, layout: bool = False) -> dict[str, Json]:
     """Decode one complete native response, refusing any unsuccessful process."""
     if len(source) > MAX_SOURCE_BYTES:
         raise HoldFastError("limit", 1, 1, f"source exceeds {MAX_SOURCE_BYTES} bytes")
-    outputs = cast("dict[str, str]", compiled.receipt["generated_sha256"])
-    if _digest(compiled.executable) != outputs["holdfast-parser"]:
-        raise ValueError("native parser executable changed after its build")
+    _verify_executable(compiled)
+    if (
+        sys.platform != "win32"
+        and _subprocess_unpatched()
+        and compiled.receipt.get("scope") == "holdfast-syntax-only-development-parser"
+    ):
+        returncode, stdout, stderr = _parse_batch(compiled, source, surface=surface, layout=layout)
+        return decode_response(source, returncode, stdout, stderr, surface=surface or layout, layout=layout)
     try:
         arguments = [str(compiled.executable)]
         if layout:

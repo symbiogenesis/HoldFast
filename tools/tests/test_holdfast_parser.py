@@ -317,6 +317,41 @@ def _extended_expression_oracle_required() -> None:
         oracle.assert_called_once_with(compiled)
 
 
+def _batch_worker_parity() -> None:
+    root = TOOLS.parent
+    samples = (
+        (b"module M; public Nat F() => 1 + 2;", False, False),
+        (b"module M; public definition Nat F(Nat x) => x + 1;", True, False),
+        (b"module M; public definition Nat F(Nat x) => x + 1;", True, True),
+    )
+    with parser.cached_build(root) as compiled:
+        for source, surface, layout in samples:
+            batched = parser.parse_source(compiled, source, surface=surface, layout=layout)
+            args = [str(compiled.executable)]
+            if layout:
+                args.append("--surface-layout")
+            elif surface:
+                args.append("--surface")
+            done = subprocess.run(args, input=source, capture_output=True, timeout=parser.PARSE_TIMEOUT, check=False)
+            oneshot = parser.decode_response(
+                source, done.returncode, done.stdout, done.stderr, surface=surface or layout, layout=layout,
+            )
+            ensure(batched == oneshot, f"batch worker diverged from single-shot parser for mode ({surface}, {layout})")
+        for bad, kind in (
+            (b"module M; public Nat F() => ;", "syntax"),
+            (b"// bad \xff\nmodule M;", "encoding"),
+        ):
+            with raises(HoldFastError, msg=f"batch worker missed refusal {kind}") as raised:
+                parser.parse_source(compiled, bad)
+            ensure(raised.exception.kind == kind, f"batch worker returned wrong refusal kind: {raised.exception}")
+        parser.reset_worker()
+        after_reset = parser.parse_source(compiled, samples[0][0])
+        ast_obj = after_reset["ast"]
+        ensure(isinstance(ast_obj, dict) and ast_obj.get("kind") == "file",
+               "batch worker did not recover cleanly after reset")
+        parser.reset_worker()
+
+
 def cases() -> list[Case]:
     return [Case("constant-callable-oracle-is-required", _constant_callable_oracle_required),
             Case("extended-expression-oracle-is-required", _extended_expression_oracle_required),
@@ -327,4 +362,5 @@ def cases() -> list[Case]:
             Case("snapshot-version-controls", _versions),
             Case("generator-failure-without-receipt", _failed_build),
             Case("qualification-rechecks-tested-inputs", _qualification_freshness),
-            Case("cli-failure-without-output", _cli)]
+            Case("cli-failure-without-output", _cli),
+            Case("batch-worker-matches-single-shot-modes", _batch_worker_parity, lane="toolchain")]
