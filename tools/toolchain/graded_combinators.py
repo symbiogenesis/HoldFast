@@ -9,17 +9,12 @@ HoldFast source alongside replayable Rocq proofs audited for zero axioms.
 
 import hashlib
 import re
-import subprocess
-import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Literal
 
 from toolchain import graded_inference as gi
-from toolchain import graded_source, proofenv, solver_ledger
-
-_ROCQ_SUPPORT = ("graded_pure.v", "graded_domains.v", "graded_semiring.v")
+from toolchain import graded_source
 
 
 @dataclass(frozen=True)
@@ -421,427 +416,7 @@ def _emit_type_coq(
     )
 
 
-COMBINATOR_KERNEL_GALLINA = """
-Module CombinatorKernel.
-Import GradedDomains GradedSemiring.
-
-Inductive cty : Type :=
-| CUnitTy
-| CBase (id : nat)
-| CBox (q : grade_expr) (payload : cty)
-| CArr (q : grade_expr) (domain codomain : cty)
-| CProd (left right : cty)
-| CSum (left right : cty).
-
-Fixpoint cty_eqb (A B : cty) : bool :=
-  match A, B with
-  | CUnitTy, CUnitTy => true
-  | CBase a, CBase b => Nat.eqb a b
-  | CBox q1 A1, CBox q2 A2 => grade_eqb q1 q2 && cty_eqb A1 A2
-  | CArr q1 A1 B1, CArr q2 A2 B2 => grade_eqb q1 q2 && cty_eqb A1 A2 && cty_eqb B1 B2
-  | CProd A1 B1, CProd A2 B2 => cty_eqb A1 A2 && cty_eqb B1 B2
-  | CSum A1 B1, CSum A2 B2 => cty_eqb A1 A2 && cty_eqb B1 B2
-  | _, _ => false
-  end.
-
-Fixpoint eval_cty (rho : nat -> nat) (t : cty) : cty :=
-  match t with
-  | CUnitTy => CUnitTy
-  | CBase n => CBase n
-  | CBox q X => CBox (GLit (eval_grade rho q)) (eval_cty rho X)
-  | CArr q X Y => CArr (GLit (eval_grade rho q)) (eval_cty rho X) (eval_cty rho Y)
-  | CProd X Y => CProd (eval_cty rho X) (eval_cty rho Y)
-  | CSum X Y => CSum (eval_cty rho X) (eval_cty rho Y)
-  end.
-
-Definition cty_eq (A B : cty) : Prop :=
-  forall rho, eval_cty rho A = eval_cty rho B.
-
-Lemma cty_eqb_sound : forall A B, cty_eqb A B = true -> cty_eq A B.
-Proof.
-  induction A; destruct B; cbn; intro H; try discriminate.
-  - intro rho; reflexivity.
-  - apply Nat.eqb_eq in H. subst. intro rho; reflexivity.
-  - apply andb_true_iff in H as [Hq HA].
-    pose proof (grade_eqb_sound _ _ Hq) as Hq'. apply IHA in HA.
-    intro rho. cbn. rewrite (Hq' rho), (HA rho). reflexivity.
-  - apply andb_true_iff in H as [H1 HB].
-    apply andb_true_iff in H1 as [Hq HA].
-    pose proof (grade_eqb_sound _ _ Hq) as Hq'. apply IHA1 in HA. apply IHA2 in HB.
-    intro rho. cbn. rewrite (Hq' rho), (HA rho), (HB rho). reflexivity.
-  - apply andb_true_iff in H as [HA HB].
-    apply IHA1 in HA. apply IHA2 in HB.
-    intro rho. cbn. rewrite (HA rho), (HB rho). reflexivity.
-  - apply andb_true_iff in H as [HA HB].
-    apply IHA1 in HA. apply IHA2 in HB.
-    intro rho. cbn. rewrite (HA rho), (HB rho). reflexivity.
-Qed.
-
-Inductive cterm : Type :=
-| CVar (x : nat)
-| CUnit
-| CLam (x : nat) (q : grade_expr) (domain : cty) (body : cterm)
-| CApp (callee arg : cterm)
-| CPair (lhs rhs : cterm)
-| CLetPair (x y : nat) (s : grade_expr) (pr body : cterm)
-| CPromote (q : grade_expr) (body : cterm)
-| CLetBox (x : nat) (scale_q : grade_expr) (box_term body : cterm)
-| CInl (right_ty : cty) (body : cterm)
-| CInr (left_ty : cty) (body : cterm)
-| CMatchSum (lx rx : nat) (s : grade_expr) (scrut lbody rbody : cterm).
-
-Record cbinding := {
-  cbinder : nat;
-  cannotation : cty;
-}.
-
-Definition ccontext := list cbinding.
-
-Definition clookup (env : ccontext) (x : nat) : option cty :=
-  match find (fun entry => Nat.eqb x (cbinder entry)) env with
-  | Some entry => Some (cannotation entry)
-  | None => None
-  end.
-
-Definition cfresh (env : ccontext) (x : nat) : bool :=
-  match clookup env x with None => true | Some _ => false end.
-
-Record cjudgment := {
-  cresult_type : cty;
-  cdemand_row : pdemand;
-}.
-
-Definition cbranch_ok (allows : grade_expr -> grade_expr -> Prop)
-    (d1 d2 d : pdemand) : Prop :=
-  forall x, allows (puses d1 x) (puses d x) /\\ allows (puses d2 x) (puses d x).
-
-Definition cbranch_join (allowsb : grade_expr -> grade_expr -> bool)
-    (d1 d2 : pdemand) : option pdemand :=
-  let keys := map fst (d1 ++ d2) in
-  if forallb (fun x => allowsb (puses d1 x) (puses d2 x) && allowsb (puses d2 x) (puses d2 x)) keys
-  then Some d2
-  else if forallb (fun x => allowsb (puses d1 x) (puses d1 x) && allowsb (puses d2 x) (puses d1 x)) keys
-  then Some d1
-  else None.
-
-Lemma cbranch_join_sound : forall (allows : grade_expr -> grade_expr -> Prop) allowsb,
-  (forall a b, allowsb a b = true -> allows a b) ->
-  allows (GLit 0) (GLit 0) ->
-  forall d1 d2 d, cbranch_join allowsb d1 d2 = Some d -> cbranch_ok allows d1 d2 d.
-Proof.
-  intros allows allowsb Hsound Hzero d1 d2 d Hj. unfold cbranch_join in Hj.
-  destruct (forallb (fun x => allowsb (puses d1 x) (puses d2 x) && allowsb (puses d2 x) (puses d2 x))
-              (map fst (d1 ++ d2))) eqn:H2.
-  - inversion Hj as [Heq]; subst d. intro x.
-    destruct (in_dec Nat.eq_dec x (map fst (d1 ++ d2))) as [Hin | Hout].
-    + rewrite forallb_forall in H2. specialize (H2 x Hin).
-      apply andb_true_iff in H2 as [H12 H22]. split; auto.
-    + assert (Habs : forall row, ~ In x (map fst row) -> puses row x = GLit 0).
-      { induction row as [| [y g] rest IH]; intro Hnot; [reflexivity |].
-        cbn in *. destruct (Nat.eqb x y) eqn:Exy.
-        - apply Nat.eqb_eq in Exy. subst y. exfalso. apply Hnot. now left.
-        - apply IH. intro Hp. apply Hnot. now right. }
-      rewrite !Habs; [split; exact Hzero | |];
-        intro Hp; apply Hout; rewrite map_app; apply in_or_app; [right | left]; exact Hp.
-  - destruct (forallb (fun x => allowsb (puses d1 x) (puses d1 x) && allowsb (puses d2 x) (puses d1 x))
-              (map fst (d1 ++ d2))) eqn:H1; [| discriminate].
-    inversion Hj as [Heq]; subst d.
-    intro x. destruct (in_dec Nat.eq_dec x (map fst (d1 ++ d2))) as [Hin | Hout].
-    + rewrite forallb_forall in H1. specialize (H1 x Hin).
-      apply andb_true_iff in H1 as [H11 H21]. split; auto.
-    + assert (Habs : forall row, ~ In x (map fst row) -> puses row x = GLit 0).
-      { induction row as [| [y g] rest IH]; intro Hnot; [reflexivity |].
-        cbn in *. destruct (Nat.eqb x y) eqn:Exy.
-        - apply Nat.eqb_eq in Exy. subst y. exfalso. apply Hnot. now left.
-        - apply IH. intro Hp. apply Hnot. now right. }
-      rewrite !Habs; [split; exact Hzero | |];
-        intro Hp; apply Hout; rewrite map_app; apply in_or_app; [right | left]; exact Hp.
-Qed.
-
-Inductive CDerives (allows : grade_expr -> grade_expr -> Prop) (env : ccontext)
-  : cterm -> cjudgment -> Prop :=
-| CGradeVar : forall x A,
-    clookup env x = Some A ->
-    CDerives allows env (CVar x) {| cresult_type := A; cdemand_row := [(x, GLit 1)] |}
-| CGradeUnit :
-    CDerives allows env CUnit {| cresult_type := CUnitTy; cdemand_row := [] |}
-| CGradeLam : forall x q dom body cod u,
-    cfresh env x = true ->
-    CDerives allows ({| cbinder := x; cannotation := dom |} :: env) body
-      {| cresult_type := cod; cdemand_row := u |} ->
-    allows (puses u x) q ->
-    CDerives allows env (CLam x q dom body)
-      {| cresult_type := CArr q dom cod; cdemand_row := pwithout x u |}
-| CGradeApp : forall callee arg q dom cod kind w z,
-    CDerives allows env callee {| cresult_type := CArr q dom cod; cdemand_row := w |} ->
-    CDerives allows env arg {| cresult_type := kind; cdemand_row := z |} ->
-    cty_eq kind dom ->
-    CDerives allows env (CApp callee arg)
-      {| cresult_type := cod; cdemand_row := w ++ pscale q z |}
-| CGradePair : forall lhs rhs A B ul ur,
-    CDerives allows env lhs {| cresult_type := A; cdemand_row := ul |} ->
-    CDerives allows env rhs {| cresult_type := B; cdemand_row := ur |} ->
-    CDerives allows env (CPair lhs rhs)
-      {| cresult_type := CProd A B; cdemand_row := ul ++ ur |}
-| CGradeLetPair : forall x y s pr body A B mot w u,
-    cfresh env x = true ->
-    cfresh ({| cbinder := x; cannotation := A |} :: env) y = true ->
-    CDerives allows env pr {| cresult_type := CProd A B; cdemand_row := w |} ->
-    CDerives allows ({| cbinder := y; cannotation := B |} :: {| cbinder := x; cannotation := A |} :: env)
-      body {| cresult_type := mot; cdemand_row := u |} ->
-    allows (puses u x) s ->
-    allows (puses u y) s ->
-    CDerives allows env (CLetPair x y s pr body)
-      {| cresult_type := mot; cdemand_row := pwithout x (pwithout y u) ++ pscale s w |}
-| CGradePromote : forall q body A u,
-    CDerives allows env body {| cresult_type := A; cdemand_row := u |} ->
-    CDerives allows env (CPromote q body)
-      {| cresult_type := CBox q A; cdemand_row := pscale q u |}
-| CGradeLetBox : forall x s box_term body q A mot z w,
-    cfresh env x = true ->
-    CDerives allows env box_term {| cresult_type := CBox q A; cdemand_row := z |} ->
-    CDerives allows ({| cbinder := x; cannotation := A |} :: env)
-      body {| cresult_type := mot; cdemand_row := w |} ->
-    allows (puses w x) (GMul s q) ->
-    CDerives allows env (CLetBox x s box_term body)
-      {| cresult_type := mot; cdemand_row := pwithout x w ++ pscale s z |}
-| CGradeInl : forall right_ty body left_ty u,
-    CDerives allows env body {| cresult_type := left_ty; cdemand_row := u |} ->
-    CDerives allows env (CInl right_ty body)
-      {| cresult_type := CSum left_ty right_ty; cdemand_row := u |}
-| CGradeInr : forall left_ty body right_ty u,
-    CDerives allows env body {| cresult_type := right_ty; cdemand_row := u |} ->
-    CDerives allows env (CInr left_ty body)
-      {| cresult_type := CSum left_ty right_ty; cdemand_row := u |}
-| CGradeMatchSum : forall lx rx s scrut lbody rbody left_ty right_ty mot1 mot2 z u1 u2 ub,
-    cfresh env lx = true ->
-    cfresh env rx = true ->
-    CDerives allows env scrut {| cresult_type := CSum left_ty right_ty; cdemand_row := z |} ->
-    CDerives allows ({| cbinder := lx; cannotation := left_ty |} :: env)
-      lbody {| cresult_type := mot1; cdemand_row := u1 |} ->
-    CDerives allows ({| cbinder := rx; cannotation := right_ty |} :: env)
-      rbody {| cresult_type := mot2; cdemand_row := u2 |} ->
-    cty_eq mot1 mot2 ->
-    grade_le (GLit 1) s ->
-    allows (puses u1 lx) s ->
-    allows (puses u2 rx) s ->
-    cbranch_ok allows (pwithout lx u1) (pwithout rx u2) ub ->
-    CDerives allows env (CMatchSum lx rx s scrut lbody rbody)
-      {| cresult_type := mot1; cdemand_row := pscale s z ++ ub |}.
-
-Fixpoint cinfer (allowsb : grade_expr -> grade_expr -> bool) (env : ccontext) (t : cterm)
-  : option cjudgment :=
-  match t with
-  | CVar x =>
-      match clookup env x with
-      | Some A => Some {| cresult_type := A; cdemand_row := [(x, GLit 1)] |}
-      | None => None
-      end
-  | CUnit => Some {| cresult_type := CUnitTy; cdemand_row := [] |}
-  | CLam x q dom body =>
-      if cfresh env x then
-        match cinfer allowsb ({| cbinder := x; cannotation := dom |} :: env) body with
-        | Some {| cresult_type := cod; cdemand_row := u |} =>
-            if allowsb (puses u x) q then
-              Some {| cresult_type := CArr q dom cod; cdemand_row := pwithout x u |}
-            else None
-        | None => None
-        end
-      else None
-  | CApp callee arg =>
-      match cinfer allowsb env callee, cinfer allowsb env arg with
-      | Some {| cresult_type := CArr q dom cod; cdemand_row := w |},
-        Some {| cresult_type := kind; cdemand_row := z |} =>
-          if cty_eqb kind dom then
-            Some {| cresult_type := cod; cdemand_row := w ++ pscale q z |}
-          else None
-      | _, _ => None
-      end
-  | CPair lhs rhs =>
-      match cinfer allowsb env lhs, cinfer allowsb env rhs with
-      | Some {| cresult_type := A; cdemand_row := ul |},
-        Some {| cresult_type := B; cdemand_row := ur |} =>
-          Some {| cresult_type := CProd A B; cdemand_row := ul ++ ur |}
-      | _, _ => None
-      end
-  | CLetPair x y s pr body =>
-      if cfresh env x then
-        match cinfer allowsb env pr with
-        | Some {| cresult_type := CProd A B; cdemand_row := w |} =>
-            let env1 := {| cbinder := x; cannotation := A |} :: env in
-            if cfresh env1 y then
-              match cinfer allowsb ({| cbinder := y; cannotation := B |} :: env1) body with
-              | Some {| cresult_type := mot; cdemand_row := u |} =>
-                  if allowsb (puses u x) s && allowsb (puses u y) s then
-                    Some {| cresult_type := mot; cdemand_row := pwithout x (pwithout y u) ++ pscale s w |}
-                  else None
-              | None => None
-              end
-            else None
-        | _ => None
-        end
-      else None
-  | CPromote q body =>
-      match cinfer allowsb env body with
-      | Some {| cresult_type := A; cdemand_row := u |} =>
-          Some {| cresult_type := CBox q A; cdemand_row := pscale q u |}
-      | None => None
-      end
-  | CLetBox x s box_term body =>
-      if cfresh env x then
-        match cinfer allowsb env box_term with
-        | Some {| cresult_type := CBox q A; cdemand_row := z |} =>
-            match cinfer allowsb ({| cbinder := x; cannotation := A |} :: env) body with
-            | Some {| cresult_type := mot; cdemand_row := w |} =>
-                if allowsb (puses w x) (GMul s q) then
-                  Some {| cresult_type := mot; cdemand_row := pwithout x w ++ pscale s z |}
-                else None
-            | None => None
-            end
-        | _ => None
-        end
-      else None
-  | CInl right_ty body =>
-      match cinfer allowsb env body with
-      | Some {| cresult_type := left_ty; cdemand_row := u |} =>
-          Some {| cresult_type := CSum left_ty right_ty; cdemand_row := u |}
-      | None => None
-      end
-  | CInr left_ty body =>
-      match cinfer allowsb env body with
-      | Some {| cresult_type := right_ty; cdemand_row := u |} =>
-          Some {| cresult_type := CSum left_ty right_ty; cdemand_row := u |}
-      | None => None
-      end
-  | CMatchSum lx rx s scrut lbody rbody =>
-      if cfresh env lx && cfresh env rx then
-        match cinfer allowsb env scrut with
-        | Some {| cresult_type := CSum left_ty right_ty; cdemand_row := z |} =>
-            match cinfer allowsb ({| cbinder := lx; cannotation := left_ty |} :: env) lbody,
-                  cinfer allowsb ({| cbinder := rx; cannotation := right_ty |} :: env) rbody with
-            | Some {| cresult_type := mot1; cdemand_row := u1 |},
-              Some {| cresult_type := mot2; cdemand_row := u2 |} =>
-                if cty_eqb mot1 mot2 && grade_leb (GLit 1) s
-                   && allowsb (puses u1 lx) s && allowsb (puses u2 rx) s then
-                  match cbranch_join allowsb (pwithout lx u1) (pwithout rx u2) with
-                  | Some ub => Some {| cresult_type := mot1; cdemand_row := pscale s z ++ ub |}
-                  | None => None
-                  end
-                else None
-            | _, _ => None
-            end
-        | _ => None
-        end
-      else None
-  end.
-
-Theorem cinfer_sound : forall allows allowsb,
-  (forall a b, allowsb a b = true -> allows a b) ->
-  allows (GLit 0) (GLit 0) ->
-  forall t env res,
-    cinfer allowsb env t = Some res ->
-    CDerives allows env t res.
-Proof.
-  intros allows allowsb Hsound Hzero t.
-  induction t; intros env res Hchk; cbn in Hchk.
-  - destruct (clookup env x) as [A |] eqn:Hlkp; inversion Hchk; subst.
-    constructor; exact Hlkp.
-  - inversion Hchk; subst; constructor.
-  - destruct (cfresh env x) eqn:Hfr; try discriminate.
-    destruct (cinfer allowsb ({| cbinder := x; cannotation := domain |} :: env) t)
-      as [[cod u] |] eqn:Hb; try discriminate.
-    destruct (allowsb (puses u x) q) eqn:Hq; inversion Hchk; subst.
-    eapply CGradeLam; eauto.
-  - destruct (cinfer allowsb env t1) as [[rt1 w] |] eqn:Hc; try discriminate.
-    destruct rt1 as [| | | q dom cod | |]; try discriminate.
-    destruct (cinfer allowsb env t2) as [[kind z] |] eqn:Ha; try discriminate.
-    destruct (cty_eqb kind dom) eqn:Heq; inversion Hchk; subst.
-    eapply CGradeApp; eauto using cty_eqb_sound.
-  - destruct (cinfer allowsb env t1) as [[A ul] |] eqn:Hl; try discriminate.
-    destruct (cinfer allowsb env t2) as [[B ur] |] eqn:Hr; inversion Hchk; subst.
-    constructor; auto.
-  - destruct (cfresh env x) eqn:Hfrx; try discriminate.
-    destruct (cinfer allowsb env t1) as [[prt w] |] eqn:Hp; try discriminate.
-    destruct prt as [| | | | A B |]; try discriminate.
-    destruct (cfresh ({| cbinder := x; cannotation := A |} :: env) y) eqn:Hfry; try discriminate.
-    destruct (cinfer allowsb
-                ({| cbinder := y; cannotation := B |} :: {| cbinder := x; cannotation := A |} :: env) t2)
-      as [[mot u] |] eqn:Hb; try discriminate.
-    destruct (allowsb (puses u x) s && allowsb (puses u y) s) eqn:Hs; inversion Hchk; subst.
-    apply andb_true_iff in Hs as [Hsx Hsy].
-    eapply CGradeLetPair; eauto.
-  - destruct (cinfer allowsb env t) as [[A u] |] eqn:Hb; inversion Hchk; subst.
-    constructor; auto.
-  - destruct (cfresh env x) eqn:Hfr; try discriminate.
-    destruct (cinfer allowsb env t1) as [[brt z] |] eqn:Hbx; try discriminate.
-    destruct brt as [| | q A | | |]; try discriminate.
-    destruct (cinfer allowsb ({| cbinder := x; cannotation := A |} :: env) t2)
-      as [[mot w] |] eqn:Hb; try discriminate.
-    destruct (allowsb (puses w x) (GMul scale_q q)) eqn:Hq; inversion Hchk; subst.
-    eapply CGradeLetBox; eauto.
-  - destruct (cinfer allowsb env t) as [[lt u] |] eqn:Hb; inversion Hchk; subst.
-    constructor; auto.
-  - destruct (cinfer allowsb env t) as [[rt u] |] eqn:Hb; inversion Hchk; subst.
-    constructor; auto.
-  - destruct (cfresh env lx && cfresh env rx) eqn:Hfr; try discriminate.
-    apply andb_true_iff in Hfr as [Hfl Hfr].
-    destruct (cinfer allowsb env t1) as [[srt z] |] eqn:Hs; try discriminate.
-    destruct srt as [| | | | | lt rt]; try discriminate.
-    destruct (cinfer allowsb ({| cbinder := lx; cannotation := lt |} :: env) t2)
-      as [[m1 u1] |] eqn:Hl; try discriminate.
-    destruct (cinfer allowsb ({| cbinder := rx; cannotation := rt |} :: env) t3)
-      as [[m2 u2] |] eqn:Hr; try discriminate.
-    destruct (cty_eqb m1 m2 && grade_leb (GLit 1) s && allowsb (puses u1 lx) s && allowsb (puses u2 rx) s)
-      eqn:Hcond; try discriminate.
-    destruct (cbranch_join allowsb (pwithout lx u1) (pwithout rx u2)) as [ub |] eqn:Hjb;
-      inversion Hchk; subst.
-    apply andb_true_iff in Hcond as [Hcond Hur].
-    apply andb_true_iff in Hcond as [Hcond Hul].
-    apply andb_true_iff in Hcond as [Hm H1s].
-    eapply CGradeMatchSum; eauto using cty_eqb_sound, cbranch_join_sound.
-    exact (grade_leb_sound _ _ H1s).
-Qed.
-
-Definition affine_le (a b : grade_expr) : Prop :=
-  forall rho, eval_grade rho a <= eval_grade rho b /\\ eval_grade rho b <= 1.
-
-Definition affine_leb (a b : grade_expr) : bool :=
-  grade_leb a b && grade_leb b (GLit 1).
-
-Lemma affine_leb_sound : forall a b, affine_leb a b = true -> affine_le a b.
-Proof.
-  intros a b H rho. unfold affine_leb in H.
-  apply andb_true_iff in H as [Hab Hb1].
-  split; [apply grade_leb_sound; exact Hab | apply (grade_leb_sound _ _ Hb1 rho)].
-Qed.
-
-Lemma affine_zero : affine_le (GLit 0) (GLit 0).
-Proof. intro rho. cbn. lia. Qed.
-
-Definition presence_grade_le (a b : grade_expr) : Prop :=
-  forall rho, eval_grade rho a > 0 -> eval_grade rho b > 0.
-
-Definition presence_grade_leb (a b : grade_expr) : bool :=
-  grade_leb a b.
-
-Lemma presence_grade_leb_sound : forall a b,
-  presence_grade_leb a b = true -> presence_grade_le a b.
-Proof.
-  intros a b H rho Hpos. unfold presence_grade_leb in H.
-  pose proof (grade_leb_sound a b H rho) as Hle. lia.
-Qed.
-
-Lemma presence_zero : presence_grade_le (GLit 0) (GLit 0).
-Proof. intros rho H. cbn in H. lia. Qed.
-
-Lemma exact_zero : grade_eq (GLit 0) (GLit 0).
-Proof. intro rho. reflexivity. Qed.
-
-Lemma bound_zero : grade_le (GLit 0) (GLit 0).
-Proof. intro rho. cbn. lia. Qed.
-
-End CombinatorKernel.
-"""
+# CombinatorKernel is mechanized in tools/rocq/graded_semiring.v and imported directly.
 
 
 def rocq_domain_config(domain: gi.InferenceDomain) -> tuple[str, str, str, str]:
@@ -1271,32 +846,28 @@ def _derive_plan(
     return sig, hf, term_coq
 
 
-def _emit_combinator_gallina(
-    combinator: CombinatorName,
+def emit_kernel_module_gallina(
+    module_name: str,
+    checked_name: str,
+    theorem_name: str,
     domain: gi.InferenceDomain,
-    sig: ArrowType,
     term_coq: str,
+    type_coq: str,
 ) -> tuple[str, str, str]:
-    module_name = f"Derived_{combinator}"
-    theorem_name = f"{combinator}_sound"
+    """Build a replayable Rocq verification unit backed by ``CombinatorKernel``."""
     allows_prop, allowsb_fn, sound_lemma, zero_lemma = rocq_domain_config(domain)
-    bmap = {name: idx for idx, name in enumerate(sorted(_collect_base_names(sig)))}
-    vmap = {v: idx for idx, v in enumerate(sorted(_collect_type_grade_vars(sig), key=gi._var_sort_key))}
-    sig_coq = _emit_type_coq(sig, bmap, vmap)
-
     lines = [
         "(* SPDX-License-Identifier: Apache-2.0 *)",
         "From Stdlib Require Import List Arith.PeanoNat Bool.Bool Lia.",
         "Require Import graded_pure graded_domains graded_semiring.",
         "Import ListNotations GradedDomains GradedSemiring.",
-        COMBINATOR_KERNEL_GALLINA,
         f"Module {module_name}.",
         "Import CombinatorKernel.",
         "",
         f"Definition candidate_term : cterm := {term_coq}.",
-        f"Definition candidate_type : cty := {sig_coq}.",
+        f"Definition candidate_type : cty := {type_coq}.",
         "",
-        f"Theorem {combinator}_checked :",
+        f"Theorem {checked_name} :",
         f"  cinfer {allowsb_fn} [] candidate_term =",
         "  Some {| cresult_type := candidate_type; cdemand_row := [] |}.",
         "Proof.",
@@ -1308,7 +879,7 @@ def _emit_combinator_gallina(
         "    {| cresult_type := candidate_type; cdemand_row := [] |}.",
         "Proof.",
         f"  apply (cinfer_sound {allows_prop} {allowsb_fn} {sound_lemma} {zero_lemma}).",
-        f"  exact {combinator}_checked.",
+        f"  exact {checked_name}.",
         "Qed.",
         "",
         f"End {module_name}.",
@@ -1316,32 +887,36 @@ def _emit_combinator_gallina(
     return "\n".join(lines) + "\n", module_name, theorem_name
 
 
+def _emit_combinator_gallina(
+    combinator: CombinatorName,
+    domain: gi.InferenceDomain,
+    sig: ArrowType,
+    term_coq: str,
+) -> tuple[str, str, str]:
+    bmap = {name: idx for idx, name in enumerate(sorted(_collect_base_names(sig)))}
+    vmap = {v: idx for idx, v in enumerate(sorted(_collect_type_grade_vars(sig), key=gi._var_sort_key))}
+    sig_coq = _emit_type_coq(sig, bmap, vmap)
+    return emit_kernel_module_gallina(
+        f"Derived_{combinator}",
+        f"{combinator}_checked",
+        f"{combinator}_sound",
+        domain,
+        term_coq,
+        sig_coq,
+    )
+
+
 def verify_combinator(derivation: CombinatorDerivation) -> list[str]:
     """Replay a :class:`CombinatorDerivation` through Rocq and audit for zero axioms."""
-    root = Path(__file__).resolve().parents[2]
-    compiler = [*proofenv.rocq_command(), "-q"]
-    with tempfile.TemporaryDirectory(prefix="holdfast-combinator-") as tmp:
-        directory = Path(tmp)
-        graded_source._support(root, compiler, directory, _ROCQ_SUPPORT)
-        unit = directory / "CombinatorProof.v"
-        unit.write_text(
-            derivation.gallina
-            + f"Print Assumptions {derivation.module_name}.{derivation.theorem_name}.\n",
-            encoding="utf-8",
-            newline="\n",
-        )
-        compiled = subprocess.run(
-            [*compiler, unit.name],
-            cwd=directory,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            check=False,
-            timeout=60,
-        )
-        if compiled.returncode != 0:
-            raise ValueError(f"Rocq rejected derived combinator {derivation.combinator}: {compiled.stderr.strip()}")
-        return solver_ledger.audit(compiled.stdout, 1, derivation.module_name, ())
+    return gi.replay_semiring_proof(
+        derivation.gallina,
+        "CombinatorProof.v",
+        1,
+        derivation.module_name,
+        f"Rocq rejected derived combinator {derivation.combinator}",
+        theorem_names=(derivation.theorem_name,),
+        prefix="holdfast-combinator-",
+    )
 
 
 def try_derive_combinator(

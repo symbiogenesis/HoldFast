@@ -10,19 +10,14 @@ or budget exhaustion.
 """
 
 import hashlib
-import subprocess
-import tempfile
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Literal
 
 from toolchain import graded_combinators as gc
 from toolchain import graded_inference as gi
-from toolchain import graded_source, proofenv, solver_ledger
-
-_ROCQ_SUPPORT = ("graded_pure.v", "graded_domains.v", "graded_semiring.v")
+from toolchain import graded_source
 
 
 @dataclass(frozen=True)
@@ -489,10 +484,6 @@ def _emit_synthesis_gallina(
     goal_type: gc.CombinatorType,
     components: Mapping[str, Component],
 ) -> tuple[str, str, str]:
-    module_name = "SynthesizedProgram"
-    theorem_name = "synthesized_sound"
-    allows_prop, allowsb_fn, sound_lemma, zero_lemma = gc.rocq_domain_config(domain)
-
     used_comps = _collect_used_components(term)
     all_base_names = gc._collect_base_names(goal_type) | _collect_sterm_types(term)
     for var in context:
@@ -527,64 +518,27 @@ def _emit_synthesis_gallina(
         wrapped_term = f"(CLam {cid} (GLit {c_uses}) {cty} {wrapped_term})"
         wrapped_ty = f"(CArr (GLit {c_uses}) {cty} {wrapped_ty})"
 
-    lines = [
-        "(* SPDX-License-Identifier: Apache-2.0 *)",
-        "From Stdlib Require Import List Arith.PeanoNat Bool.Bool Lia.",
-        "Require Import graded_pure graded_domains graded_semiring.",
-        "Import ListNotations GradedDomains GradedSemiring.",
-        gc.COMBINATOR_KERNEL_GALLINA,
-        f"Module {module_name}.",
-        "Import CombinatorKernel.",
-        "",
-        f"Definition candidate_term : cterm := {wrapped_term}.",
-        f"Definition candidate_type : cty := {wrapped_ty}.",
-        "",
-        "Theorem synthesized_checked :",
-        f"  cinfer {allowsb_fn} [] candidate_term =",
-        "  Some {| cresult_type := candidate_type; cdemand_row := [] |}.",
-        "Proof.",
-        "  vm_compute. reflexivity.",
-        "Qed.",
-        "",
-        f"Theorem {theorem_name} :",
-        f"  CDerives {allows_prop} [] candidate_term",
-        "    {| cresult_type := candidate_type; cdemand_row := [] |}.",
-        "Proof.",
-        f"  apply (cinfer_sound {allows_prop} {allowsb_fn} {sound_lemma} {zero_lemma}).",
-        "  exact synthesized_checked.",
-        "Qed.",
-        "",
-        f"End {module_name}.",
-    ]
-    return "\n".join(lines) + "\n", module_name, theorem_name
+    return gc.emit_kernel_module_gallina(
+        "SynthesizedProgram",
+        "synthesized_checked",
+        "synthesized_sound",
+        domain,
+        wrapped_term,
+        wrapped_ty,
+    )
 
 
 def verify_synthesis(outcome: SynthesisSuccess) -> list[str]:
     """Replay an accepted synthesis candidate through Rocq and audit for zero axioms."""
-    root = Path(__file__).resolve().parents[2]
-    compiler = [*proofenv.rocq_command(), "-q"]
-    with tempfile.TemporaryDirectory(prefix="holdfast-synth-") as tmp:
-        directory = Path(tmp)
-        graded_source._support(root, compiler, directory, _ROCQ_SUPPORT)
-        unit = directory / "SynthProof.v"
-        unit.write_text(
-            outcome.gallina
-            + f"Print Assumptions {outcome.module_name}.{outcome.theorem_name}.\n",
-            encoding="utf-8",
-            newline="\n",
-        )
-        compiled = subprocess.run(
-            [*compiler, unit.name],
-            cwd=directory,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            check=False,
-            timeout=60,
-        )
-        if compiled.returncode != 0:
-            raise ValueError(f"Rocq rejected synthesized program: {compiled.stderr.strip()}")
-        return solver_ledger.audit(compiled.stdout, 1, outcome.module_name, ())
+    return gi.replay_semiring_proof(
+        outcome.gallina,
+        "SynthProof.v",
+        1,
+        outcome.module_name,
+        "Rocq rejected synthesized program",
+        theorem_names=(outcome.theorem_name,),
+        prefix="holdfast-synth-",
+    )
 
 
 def synthesize(

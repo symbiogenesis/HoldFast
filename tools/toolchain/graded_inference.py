@@ -1038,42 +1038,57 @@ def _emit_certificate(
     )
 
 
-def verify_certificate(certificate: GradeCertificate) -> list[str]:
-    """Replay a :class:`GradeCertificate` through Rocq and audit for zero axioms."""
-    if not certificate.theorem_names:
-        return []
+def replay_semiring_proof(
+    gallina: str,
+    unit_name: str,
+    theorem_count: int,
+    module_name: str,
+    error_context: str,
+    *,
+    theorem_names: Sequence[str] = (),
+    prefix: str = "holdfast-semiring-",
+    timeout: int = 60,
+) -> list[str]:
+    """Replay a semiring-based Rocq module and audit ``Print Assumptions`` for zero axioms."""
     root = Path(__file__).resolve().parents[2]
     compiler = [*proofenv.rocq_command(), "-q"]
-    with tempfile.TemporaryDirectory(prefix="holdfast-grade-infer-") as tmp:
+    with tempfile.TemporaryDirectory(prefix=prefix) as tmp:
         directory = Path(tmp)
         graded_source._support(root, compiler, directory, _ROCQ_SUPPORT)
-        cert_file = directory / "InferenceCertificate.v"
-        audit_lines = [
-            f"Print Assumptions {certificate.module_name}.{name}."
-            for name in certificate.theorem_names
-        ]
-        cert_file.write_text(
-            certificate.gallina + "\n".join(audit_lines) + "\n",
+        unit = directory / unit_name
+        audit_lines = [f"Print Assumptions {module_name}.{name}." for name in theorem_names]
+        unit.write_text(
+            gallina + ("\n".join(audit_lines) + "\n" if audit_lines else ""),
             encoding="utf-8",
             newline="\n",
         )
         compiled = subprocess.run(
-            [*compiler, cert_file.name],
+            [*compiler, unit.name],
             cwd=directory,
             capture_output=True,
             text=True,
             encoding="utf-8",
             check=False,
-            timeout=60,
+            timeout=timeout,
         )
         if compiled.returncode != 0:
-            raise ValueError(f"Rocq rejected grade inference certificate: {compiled.stderr.strip()}")
-        return solver_ledger.audit(
-            compiled.stdout,
-            len(certificate.theorem_names),
-            certificate.module_name,
-            (),
-        )
+            raise ValueError(f"{error_context}: {compiled.stderr.strip()}")
+        return solver_ledger.audit(compiled.stdout, theorem_count, module_name, ())
+
+
+def verify_certificate(certificate: GradeCertificate) -> list[str]:
+    """Replay a :class:`GradeCertificate` through Rocq and audit for zero axioms."""
+    if not certificate.theorem_names:
+        return []
+    return replay_semiring_proof(
+        certificate.gallina,
+        "InferenceCertificate.v",
+        len(certificate.theorem_names),
+        certificate.module_name,
+        "Rocq rejected grade inference certificate",
+        theorem_names=certificate.theorem_names,
+        prefix="holdfast-grade-infer-",
+    )
 
 
 def solve_constraints(

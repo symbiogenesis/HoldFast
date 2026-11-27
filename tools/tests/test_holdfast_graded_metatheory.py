@@ -42,6 +42,14 @@ _SEMIRING_PROOFS = (
     "poly_discard_verified",
     "poly_negative_controls",
 )
+_COMBINATOR_KERNEL_PROOFS = (
+    "cty_eqb_sound",
+    "cbranch_join_sound",
+    "cinfer_sound",
+    "affine_leb_sound",
+    "presence_grade_leb_sound",
+    "presence_contraction_sound",
+)
 _ERASURE_PROOFS = (
     "eval_dty_canonical",
     "eval_dty_subst_type_var",
@@ -158,6 +166,10 @@ def cases() -> list[Case]:
         Case("full GrTT explicit (s, r) core calculus", partial(_replay_grtt_core, batch=batch), lane="toolchain"),
         Case("graded symbolic semiring polymorphism",
              partial(_replay, "graded_semiring", "GradedSemiring", _SEMIRING_PROOFS,
+                     ("graded_pure", "graded_domains"), batch=batch),
+             lane="toolchain"),
+        Case("graded combinator kernel soundness",
+             partial(_replay, "graded_semiring", "CombinatorKernel", _COMBINATOR_KERNEL_PROOFS,
                      ("graded_pure", "graded_domains"), batch=batch),
              lane="toolchain"),
         Case("graded erasure, non-interference, and Q25cb skipping",
