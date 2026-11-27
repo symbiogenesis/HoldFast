@@ -534,20 +534,28 @@ def _validate(
             label = event.outcome if isinstance(event, Return) else event.kind
             _name(label)
 
-    # Check forward reachability from entry.
+    # Check forward reachability from entry and record reverse postorder for dominators.
     reached: set[str] = set()
-    stack = [graph.entry]
-    while stack:
-        budget.spend()
-        current = stack.pop()
+    postorder: list[str] = []
+    dfs_stack: list[tuple[str, bool]] = [(graph.entry, False)]
+    while dfs_stack:
+        current, expanded = dfs_stack.pop()
+        if expanded:
+            postorder.append(current)
+            continue
         if current in reached:
             continue
+        budget.spend()
         reached.add(current)
-        stack.extend(
-            successor for successor in reversed(nodes[current].successors) if successor not in reached
+        dfs_stack.append((current, True))
+        dfs_stack.extend(
+            (successor, False)
+            for successor in reversed(nodes[current].successors)
+            if successor not in reached
         )
     if reached != set(nodes):
         raise AnalysisRefusalError("unreachable graph nodes")
+    rpo_order = [name for name in reversed(postorder) if name != graph.entry]
 
     # Reject self-edges and require a graph path from every node to a terminal.
     predecessors: dict[str, list[str]] = {name: [] for name in nodes}
@@ -578,20 +586,18 @@ def _validate(
     changed = True
     while changed:
         changed = False
-        for node in graph.nodes:
-            if node.name == graph.entry:
-                continue
+        for node_name in rpo_order:
             budget.spend()
-            preds = predecessors[node.name]
+            preds = predecessors[node_name]
             if not preds:
                 continue
             intersected = set(dominators[preds[0]])
             for pred in preds[1:]:
                 intersected &= dominators[pred]
-            intersected.add(node.name)
+            intersected.add(node_name)
             updated = frozenset(intersected)
-            if updated != dominators[node.name]:
-                dominators[node.name] = updated
+            if updated != dominators[node_name]:
+                dominators[node_name] = updated
                 changed = True
 
     for node in graph.nodes:
