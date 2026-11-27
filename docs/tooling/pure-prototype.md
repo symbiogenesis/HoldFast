@@ -272,42 +272,11 @@ acceptance requires the separate replay.
 
 ## Bounded compiler traces
 
-The compiler records bounded development traces under the
-[performance trace contract](tooling-protocols.md#compiler-decisions-and-performance-traces).
+Records bounded development traces under [the performance trace contract](tooling-protocols.md#compiler-decisions-and-performance-traces).
 
-For the packet validator, `python tools/run.py holdfast-parser first-slice --trace`
-runs the [native qualification](../language/first-release.md#first-slice-qualification)
-and records the path of a Chrome Trace Event file in the receipt's
-`compiler_trace` field. The host track covers surface parsing, joint resolution
-and elaboration, Gallina generation, proof compilation, assumption auditing,
-kernel checking and lowering to C. Three child tracks measure the time the
-parent spends waiting on the launched proof commands. Their event arguments
-record the actual process IDs. The packet interval ends at C lowering. The
-remaining qualification controls and simulator runs execute afterwards.
-Both parent and child proof spans must fit the independent command-step
-duration, allowing for rounding to recording-relative microseconds.
+For the packet validator, `python tools/run.py holdfast-parser first-slice --trace` runs [native qualification](../language/first-release.md#first-slice-qualification) and records a Chrome Trace Event path in `compiler_trace`: host track covers surface parse, resolution+elaboration, Gallina emission, proof compile, assumption audit, kernel check, and C lowering (three child tracks record parent wait times + PIDs on launched proof commands; interval ends at C lowering before controls/Sail; parent/child spans fit command durations within microsecond rounding). The 12-event inventory is fixed-size (clock faults, cancellations, truncations, or missing phases fail validation). Receipt rechecks verify source, outputs, parser/proof env, trace digest/order/nesting/child IDs, and transitive regular-file ELF bindings (Linux Python, bytecode parser + interpreter, opam, Rocq dispatch/workers, plugins, loader deps, Rocq load roots/proof inputs—refusing missing/unreadable files and loader injection).
 
-The twelve-event inventory has a fixed size. A clock fault, cancellation,
-truncation or missing phase prevents complete-trace validation. Rechecking the
-first-slice receipt verifies the source, compiler outputs, parser and proof
-environment, then checks the trace digest, order, nesting and child identities.
-The packet runtime binding covers the Linux Python compiler, bytecode parser
-and its actual interpreter, opam, the selected Rocq dispatch and proof workers,
-native plugins and their transitive ELF libraries. The selected system loader
-resolves dependencies in the host and proof-switch environments. The recording
-and recheck require regular, readable inputs and refuse unresolved libraries and
-loader injection. Configured Rocq load roots and proof inputs have separate
-file-by-file bindings in the same receipt.
-These measurements describe compiler execution.
-
-Run `python tools/run.py holdfast trace-qualify-packet-viewer --trace-processor PATH --output out/packet-viewer.json`
-with a provisioned, pinned Perfetto v58.2 reader. It imports a deterministic
-packet trace and checks eleven independently specified spans in nanoseconds,
-their depths, logical threads and processes, the source byte counter and the
-three proof-command process IDs. Each child has its own process track and
-falls inside the wall-time interval of its host proof phase.
-`python tools/run.py holdfast trace-packet-viewer-validate out/packet-viewer.json --trace-processor PATH`
-rechecks the exact fixture, reader, harness, SQL and retained CSV observations.
+`python tools/run.py holdfast trace-qualify-packet-viewer --trace-processor PATH --output out/packet-viewer.json` runs a pinned Perfetto v58.2 reader importing a deterministic packet trace and checking 11 nanosecond spans, depths, logical threads/processes, source byte counter, and 3 proof PIDs (rechecked via `holdfast trace-packet-viewer-validate out/packet-viewer.json --trace-processor PATH` against fixture, reader, harness, SQL, and CSVs).
 
 Create the destination directory, then run:
 
@@ -321,196 +290,18 @@ python tools/run.py holdfast trace-qualify-viewer --trace-processor /path/to/tra
 python tools/run.py holdfast trace-viewer-validate out/trace-viewer.json --trace-processor /path/to/trace_processor_shell
 ```
 
-The read-only trace command records `compile`, nested `parse` and
-`elaborate-and-emit` phases from the existing pure producer. Resolution and Gallina
-emission share one elaborator and remain one measured phase. The synchronous host
-worker includes time waiting for the checked parser process; it does not report
-that process's internal phases. Inside `parse`, the `checked-parse` span measures
-the checked parser invocation and its existing build/runtime checks; the
-`syntax-decode` span measures Python validation and construction of the returned
-pure AST. Their ordered, nonoverlapping nesting within `parse` is mandatory.
-Source and Gallina byte counters use Chrome
-Trace Event `C` records, and completed phases use `X` records with recording-relative
-integer microseconds derived from `perf_counter_ns`. The fixed worker identities
-are `pid: 1`, `tid: 1`; they describe this recording, not operating-system IDs.
-[Perfetto documents these event formats](https://perfetto.dev/docs/getting-started/other-formats)
-as an input to its viewer. The optional qualification command checks a pinned
-independent importer as described below.
+`trace` records `compile`, nested `parse` (containing nonoverlapping `checked-parse` and `syntax-decode`), and `elaborate-and-emit` (containing source-ordered `declaration` spans with name, kind, and 1-based code-point line/col; constant specialization stays inside its calling declaration; dropped records counted; provides no coverage or timing-correspondence theorem). Uses Chrome Trace Event `C` byte counters and `X` microsecond records (`perf_counter_ns`), fixed `pid: 1` / `tid: 1` ([Perfetto formats](https://perfetto.dev/docs/getting-started/other-formats)). Schema-3 manifest binds source bytes, local Python/compiler/parser files, locks, interpreter/paths/flags/kernel, and loaded Python/system ELF inventories (<= 20,000 labels, <= 512 MiB; persistent worker batch-pipe PID checked live through OCaml/loader/ELF mappings—refusing deleted/changed/anonymous executable pages, plus WSL transport/guest Python on Windows). Identity hashing stays outside timed intervals; max 4,096 events (`--max-events`), atomic publication (refusing aliases; refused source writes diagnostic trace and fails; validation checks schema 3 and freshness). Bookkeeping nanoseconds exclude hashing/serialization/publication (no hard overhead claim).
 
-Each top-level constant or function also has a nested `declaration` span within
-`elaborate-and-emit`, in source order. Its standard event `args` retain the declared
-name, declaration kind and one-based normalized Unicode code-point line/column.
-This attributes the existing combined elaboration/emission work to declarations;
-constant specialization remains inside its calling declaration. The manifest
-counts attempted declaration spans, including dropped records. Validation checks
-retained name sites against exact source bytes, ordered nonoverlapping declaration
-work within its parent phase, and the retained/dropped inventory. These source
-sites identify name spellings; declaration kinds are recorded producer metadata.
-The inventory counts recorder calls and supplies no independent source-coverage
-or source-to-timing correspondence theorem.
+`trace-benchmark` alternates plain and traced runs in one host process (default 1 warmup + 7 samples; `--warmups 0..5`, `--samples 1..31`), verifying identical Gallina and valid complete traces (measuring translation only; schema-1 report records order, elapsed ns, bookkeeping, totals/min/max/median rounded down, `elapsed_delta_ns`, `overhead_ppm` rounded down or `null`, retaining negatives; `--max-overhead-ppm N` fails on exact total overrun >= 1 ppm; qualification workloads [pure functions](../../examples/pure.hf) and [expressions](../../examples/expressions.hf) run 1 warmup + 7 samples at 250,000 ppm / 25%). [Timeline fixtures](../../tools/tests/test_holdfast_compiler_trace.py) · [Benchmark fixtures](../../tools/tests/test_holdfast_trace_benchmark.py)
 
-The `holdfast` schema-3 manifest binds events and completeness metadata, exact source
-bytes, local Python/compiler/parser input files and Python/platform versions.
-The producer identity binds the Python and opam locks, command bootstrap,
-Python executables, active import search paths, interpreter flags and kernel
-versions. Its Python file inventories cover the standard library, installation
-archives and extensions, versioned Python shared libraries, active installed
-package trees including their data and startup hooks, loaded module files and
-their bytecode caches, and mapped user-space images including system libraries.
-Cache creation changes the identity. Each inventory is limited to 20,000 file
-labels and 512 MiB of file content.
-
-An ordinary checked parse starts the persistent worker before timing. A control
-request on that worker's own batch pipe returns its Linux PID. The observer
-checks its live command line against the build receipt's parser file, hashes
-the bytecode executable and follows its actual file-backed mappings through the
-OCaml interpreter, system loader and transitive libraries. Deleted images,
-changed device/inode identities and anonymous executable mappings refuse
-observation, apart from kernel-supplied clock/system-call pages. On Windows
-the binding also includes the libraries of the live WSL transport process and
-the guest Python environment that validates the parser build. Hashes describe
-compiler processes in the observed operating systems. The kernels, WSL service,
-firmware and hardware provide the measurement environment.
-
-Identity observation lies outside the timed intervals. The validation
-command refuses changed source or producer identities, malformed events, crossing
-spans, invalid clocks, missing phases or counters, and incomplete recordings.
-The validator requires schema 3, including the parser-stage record.
-A successful complete recording measures a successful pure check only.
-
-Recording retains at most 4,096 events; `--max-events` selects a smaller positive
-limit. Phase names, counters, nesting and exported/decoded bytes have fixed bounds.
-Dropped events, open spans, clock faults and refused or cancelled work prevent a
-complete measurement claim. A refused source writes a diagnostic trace and returns
-failure. Publication is atomic, refuses source aliases and rechecks source and
-producer freshness; failed preparation preserves an existing output. Validation
-also rechecks producer freshness after reading the recording. The manifest
-reports measured recorder bookkeeping in nanoseconds, excluding identity hashing,
-serialization and file publication. No hard elapsed-time overhead bound is claimed.
-
-The comparative benchmark runs both plain and traced translation in alternating
-pairs in the same host process, including checked-parser wait time. It defaults to
-one warmup pair followed by seven measured pairs; `--warmups` accepts 0–5 and
-`--samples` accepts 1–31. Every translation must emit the same module and Gallina,
-and every traced run must pass complete-recording validation. Only translation
-lies inside the measured intervals: recorder construction, trace export and
-validation, identity hashing and report publication are excluded. Warmup intervals
-are discarded, while compiler caches and operating-system scheduling remain part
-of the observed conditions. The command bounds compilation count and report size;
-it establishes no hard elapsed-time bound or stable overhead threshold.
-
-The separate schema-1 comparison report retains each pair's execution order,
-elapsed nanoseconds and traced bookkeeping, output identity, source and producer
-bindings, and exact summaries. Totals, minima, maxima and medians summarize each
-path; an even-sample median rounds down to whole nanoseconds. `elapsed_delta_ns`
-is traced total minus plain total. `overhead_ppm` is that difference divided by
-plain total in parts per million, rounded down; a zero plain total reports `null`.
-Negative observations are retained without claiming that instrumentation improves
-performance. Validation recomputes summaries and refuses stale identities,
-changed samples, invalid durations, incorrect pair order and malformed reports.
-Refused, cancelled or stale measurements preserve an existing report. A hash-bound
-report detects changed data and supplies no authentication of the measurement or
-its environment.
-
-Both benchmark commands accept `--max-overhead-ppm N`. Supply the workload and
-budget before measuring. Qualification requires at least one warmup and seven
-measured pairs with a positive total plain time. It compares the exact totals,
-so an overrun smaller than one part per million still fails. A failed comparison
-preserves the previous output. Pass the same budget to the independent validation
-invocation. The qualification workloads are [pure functions](../../examples/pure.hf)
-and [expressions](../../examples/expressions.hf), each with one warmup,
-seven measured pairs and a 250,000 ppm (25%) aggregate elapsed overhead budget.
-The verdict applies to those recorded runs.
-
-[Independent timeline fixtures](../../tools/tests/test_holdfast_compiler_trace.py)
-recover expected order, durations, nesting and counters with a separate JSON reader
-and exercise corruption, overflow, clock and refusal controls.
-[Paired-measurement fixtures](../../tools/tests/test_holdfast_trace_benchmark.py) check
-independently chosen timing totals, warmup exclusion, output equivalence, binding
-and publication refusals.
-
-`trace-qualify-viewer` accepts an already provisioned Perfetto `v58.2`
-`trace_processor_shell`; it performs no downloads and changes no dependencies.
-The selected executable must match one of the reviewed Windows AMD64, Linux
-AMD64 or Linux ARM64 SHA-256 pins in the
-[qualification harness](../../tools/toolchain/trace_viewer.py), then report
-revision `add693d8b338ba9599dbcbc3e300b1ab8c000897`. The
-[license and use record](../../THIRD-PARTY.md#independent-trace-importer) owns
-provisioning links and terms. Other binaries refuse before execution.
-
-The harness validates a deterministic Chrome trace and verifies seven negative
-controls before handoff: stale source/producer, missing phases, crossing spans,
-negative timestamps, dropped events and cancellation. Perfetto imports the valid
-fixture and executes two fixed SQL queries. Independently chosen expected rows
-require six spans with exact nanosecond timestamps/durations, parent/child
-depth through both parser stages and a nested function declaration, worker
-identities, plus both byte counters. The report retains the
-fixture, queries, imported CSV and parsed rows, version/diagnostic transcripts,
-negative-control results, executable/revision and harness identities, and a
-binding over the complete report. Each reader invocation has a 30-second timeout
-and bounded accepted output. Hashes detect changes and authenticate no measurement.
-Reader/harness changes withdraw qualification; atomic publication preserves
-existing evidence after failures or cancellation and refuses output aliases.
-[Reader qualification tests](../../tools/tests/test_holdfast_trace_viewer.py) cover
-wrong independent observations, disabled negative checks, unknown binaries,
-timeouts, output bounds, aliases and late identity changes.
-
-`trace-viewer-validate` rechecks a retained qualification receipt without executing
-the external reader. It bounds receipt bytes and nesting, rejects duplicate
-fields, and checks the exact fixture, source, producer, negative-control inventory,
-queries, CSV observations and retained result rows against independently chosen
-expectations. Non-successful reader outcomes, a changed release, malformed or
-oversized transcripts, changed reader bytes and stale harness identities refuse.
-Current identities are checked again after receipt inspection. Rehashing an
-altered duration, counter, declaration kind or omitted control cannot restore
-acceptance. This checks retained data consistency and freshness; it supplies no
-transcript authentication or fresh reader observation.
-
-The selected Perfetto importer and the offline browser viewer below consume
-the same pure recording contract. Compiler timings describe tooling performance. Emitted-program WCET and constant-time evidence have their own
-qualification requirements.
+`trace-qualify-viewer` verifies provisioned Perfetto `v58.2` `trace_processor_shell` against [trace_viewer.py](../../tools/toolchain/trace_viewer.py) SHA-256 pins (Windows AMD64, Linux AMD64/ARM64) and revision `add693d8b338ba9599dbcbc3e300b1ab8c000897` ([terms](../../THIRD-PARTY.md#independent-trace-importer)), validates 7 negative controls (stale source/producer, missing phases, crossing spans, negative timestamps, dropped events, cancellation), executes 2 SQL queries expecting 6 nanosecond spans, depths, worker IDs, and byte counters (30 s timeout, atomic report; [tests](../../tools/tests/test_holdfast_trace_viewer.py)). `trace-viewer-validate` rechecks retained receipt consistency/freshness without running the reader.
 
 ### Offline browser timelines
 
-`trace-render` validates an exact-source, current-producer, complete schema-3
-recording before publishing a self-contained HTML timeline. Open the resulting
-file in a browser. Nested phase and declaration spans have keyboard-focusable
-source/time tooltips, with a searchable table retaining exact microsecond values
-and both byte counters. The graphic uses a fixed 1,000-pixel time axis inside a
-horizontal scroll container; depth determines the row. Zero and subpixel
-durations retain a minimum half-pixel hit target, while the table preserves the
-actual zero or short duration. The view identifies the source, producer,
-recording and viewer bytes. It includes no source text or external assets; a
-content-security policy allows only its exact inline style/script hashes and
-refuses network access. Default commands preserve source bytes.
-
-HTML export accepts at most the recording's 2 MiB input bound and emits at most
-4 MiB. Stale, refused, cancelled, dropped or malformed recordings refuse before
-rendering. Source and recording bytes and identities, plus producer inputs, are
-rechecked before atomic publication. Source/recording aliases refuse and failed
-or cancelled preparation preserves an existing timeline.
-
-Qualify actual browser rendering using an already provisioned Chromium browser
-and an explicitly selected executable SHA-256:
+`trace-render` validates schema-3 recordings (<= 2 MiB input -> <= 4 MiB atomic HTML; refusing stale/refused/cancelled/dropped/malformed inputs and aliases) into a self-contained timeline with focusable tooltips on a 1,000 px scrolled axis (0.5 px min hit target), searchable exact-microsecond table, SHA-256 bindings, zero external assets, and strict inline-hash CSP. Qualify with a provisioned Chromium executable:
 
 ```console
 python tools/run.py holdfast trace-qualify-browser --browser /path/to/browser --browser-sha256 <sha256> --output out/trace-browser.json
 ```
 
-The command installs nothing and opens only a temporary local file in a fresh
-headless profile. Its 30-second invocation and accepted DOM/diagnostic output are
-bounded. The browser renders the deterministic fixture with a qualification-only
-probe that reads actual layout rectangles, computed colors, keyboard focusability,
-tooltips, counters and a dispatched filter edit. Independently fixed expectations
-require six spans at their exact time-derived positions, three nesting depths,
-source details and a single matching declaration row after filtering. The receipt
-binds observed geometry and behavior, exact browser bytes, viewer/harness inputs
-and fixture HTML; late changes withdraw publication. The
-[viewer controls](../../tools/tests/test_holdfast_trace_html.py) exercise incorrect
-layout, styles, filtering and source observations, binary changes, timeouts,
-oversized output, stale/incomplete recordings and atomic publication failures.
-
-This qualifies the HoldFast offline viewer in the exact selected Chromium executable.
-It supplies no Perfetto browser-UI qualification, browser installation/runtime
-closure, measurement authentication or emitted-program timing verdict. The pinned
-Perfetto importer retains its independent receipt and separate acceptance scope.
+Runs headless on a temporary file (30 s timeout), checking layout rects, computed colors, keyboard focus, tooltips, counters, and filtering (6 spans, 3 depths, source details, 1 filtered row) while binding browser/viewer/harness/HTML bytes ([viewer controls](../../tools/tests/test_holdfast_trace_html.py); no Perfetto UI, browser closure, or target timing claim).

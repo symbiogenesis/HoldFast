@@ -194,183 +194,31 @@ checked-generation requests retain their separate metaprogramming obligations.
 
 ### Pure development snapshot increment
 
-`python tools/run.py holdfast inspect SOURCE` exports version 7 of the bounded
-pure inspection view. Its [JSON Schema](../../tools/toolchain/inspection.schema.json)
-covers bulk snapshots and query replies; the
-[implementation](../../tools/toolchain/inspection.py) consumes the existing
-[pure resolution producer](lsp-prototype.md#pure-navigation-increment) through its
-isolated five-second worker. Wider frontend, generated, proof and lowering
-views require their corresponding producers.
+`python tools/run.py holdfast inspect SOURCE` exports version 7 of the bounded pure inspection view ([JSON Schema](../../tools/toolchain/inspection.schema.json), [implementation](../../tools/toolchain/inspection.py)) via [the pure resolution producer](lsp-prototype.md#pure-navigation-increment) in its 5 s worker.
 
-Each snapshot preserves the exact UTF-8 source text, including comments, line
-endings and supplementary characters. The `concrete` view partitions that text
-into source-ordered, nonempty pieces with `kind`, exact `text` and half-open byte
-`span`. Kinds are `keyword`, `identifier`, `decimal`, `punctuation`, `whitespace`,
-`line-comment` and `documentation-comment`. Token kinds come from the existing
-pure authoring token producer; trivia fills the gaps without normalizing line
-endings or discarding comments. Concatenating piece text reproduces the exact
-source. The worker boundary verifies contiguous coverage, byte spelling, token
-kinds and comment/trivia shapes. Only a successful complete pure check publishes
-pieces. The separate `syntax` view supplies the successful pure source tree;
-error-recovery nodes remain unavailable.
-Declaration and occurrence spans are
-half-open UTF-8 byte offsets. The view supplies source-ordered declaration kinds,
-compiler type/signature labels, structured scalar and callable types, authored
-identifier origins, documentation and resolved reference links. The compiler
-records each type alongside its resolution decision; adapters do not infer types
-or parse display labels. A scalar type is `{"kind":"scalar","name":"Nat"}` or
-the corresponding `bool` object. Callable types carry `kind: "function"`, a
-`Nat`/`bool` result, ordered parameters with `type` and Boolean `required_static`
-fields, and a Boolean `const` field identifying constant-callable functions.
-The worker boundary checks type shapes, declaration kinds, parameter order and
-display-label agreement before publishing facts. It does not supply inferred
-argument terms or generated definitions. Same-spelled declarations
-retain distinct identities; a symbol handle contains its complete snapshot digest.
+Each snapshot preserves exact UTF-8 source text. `concrete` partitions it into source-ordered nonempty pieces (`kind` in `{keyword, identifier, decimal, punctuation, whitespace, line-comment, documentation-comment}`, exact `text`, half-open byte `span`) whose concatenation reproduces the source (verified for contiguous coverage, spelling, kinds, and trivia without normalizing endings/comments; published only on complete pure check; `syntax` provides the AST without error recovery). Declaration/occurrence spans are half-open UTF-8 byte offsets; records cover declaration kinds, signature labels, structured types (`{"kind":"scalar","name":"Nat"|"bool"}`, `{"kind":"function", "result": ..., "const": bool, "parameters": [{"type": ..., "required_static": bool}, ...]}`), origins, docs, and links (worker boundary validates shapes/order/labels without inferring types or emitting defs; same-spelled declarations keep distinct identities containing snapshot digest).
 
-The `syntax` array is a bounded preorder tree projected from that same check's
-checked-parser response, with an independently owned presentation schema. The
-worker boundary decodes the complete located parser response again, checking its
-source digest, supported fields, delimiters, ordering and source coverage before
-publishing nodes. Each node has a snapshot-scoped `id`, a declared `kind`, a
-half-open UTF-8 byte `span`, its `parent`, a parent-field `role`, a nullable
-list `index` and ordered `children` handles. Scalar `value` records exact identifier,
-operator, type and decimal spellings or a Boolean literal; `const` records the
-Boolean callable/parameter qualifier. Other node values and qualifiers are `null`.
-Kinds cover modules, functions, constants, parameters, types, blocks, bindings,
-local constants, returns, conditionals, expression bodies, literals, names,
-calls, arguments, binary/unary operators, groups and identifier/operator leaves.
-Source parentheses, named-argument labels and expression bodies remain explicit.
-The `Nat.SaturatingSub` call projects its type qualifier and builtin callee as
-separate source leaves. Builtin callees have no authored declaration handle.
-The tree supplies source structure, with no additional name resolution or semantic
-acceptance route. Syntax handles designate nodes
-only in their exact snapshot; they have the same lifetime as symbol handles.
+`syntax` is a bounded preorder AST decoded/validated at the worker boundary (digest, fields, delimiters, order, coverage): snapshot-scoped `id`, `kind`, half-open UTF-8 byte `span`, `parent`, `role`, nullable list `index`, ordered `children`, scalar `value` (identifier/operator/type/decimal or bool), nullable `const` (`Nat.SaturatingSub` keeps separate qualifier and builtin leaf with no declaration handle; snapshots/handles stay bound to exact snapshot).
 
-The `expressions` array overlays every literal, name, call, binary/unary operator
-and group node with the scalar type recorded at that expression's successful pure
-compiler check. Each record contains its syntax `node` handle, exact byte `span`
-and structured scalar `type`; the syntax tree retains the expression's ordered
-operands, parentheses, argument labels and containing statements. Records follow
-syntax preorder. The adapter joins checker sites to the complete source expression
-inventory and refuses missing, duplicate, invented or malformed decisions. It checks
-agreement with resolved identifier/call-result types, literal/operator result kinds
-and group operand types; it does not run another inference engine. Constant-call
-specialization records the authored expression once and does not add its internal
-expansion to this authored view. A call expression's scalar result remains distinct
-from its callee identifier's callable type. These are development compiler decisions,
-with the same source-correspondence and proof-acceptance limits as identifier types.
+`expressions` overlays every literal, name, call, unary/binary op, and group in syntax preorder (`node`, byte `span`, scalar `type`), validated for completeness against resolved identifier/call/literal/op/group types without running another inference engine (`const` specialization records authored call once; call result type stays distinct from callee callable type).
 
-The `scopes` array exports the resolver's lexical module, function and block
-environments in preorder. Each scope has a snapshot-scoped `id`, its source syntax
-`node` and byte `span`, a nullable `parent`, ordered `children` and source-ordered
-declared `symbols`. Expression bodies have block environments linked to their
-`expression-body` syntax nodes. Symbols and occurrences carry their compiler-recorded
-`scope`: declarations name their owning environment, while references name their
-use environment. A named argument label therefore retains the caller's environment
-and its resolved link to the callee's parameter. The adapter checks the full scope
-inventory, sites, nesting and membership against the checked source syntax; it
-does not resolve names again. Sibling blocks and parameters shadowing module
-constants retain separate identities.
+`scopes` exports lexical module, function (`expression-body` has block scope), and block envs in preorder (`id`, `node`, `span`, `parent`, `children`, `symbols`); symbols/occurrences link to owning vs use `scope` (named arg labels carry caller scope + callee parameter link; sibling blocks and shadowed constants keep distinct IDs). `available_from` marks declaration-order visibility (params at body open; others at declaration/binding end; locals unavailable in own initializer; functions unavailable in own body; callable and value namespaces remain separate).
 
-Each symbol's `available_from` byte offset states its declaration-order boundary:
-parameters start at their function body's opening, and other declarations start
-at the end of their complete declaration or binding. A local is unavailable in
-its initializer; functions remain unavailable in their own bodies. These offsets
-describe availability within the symbol's owning environment and descendants;
-they do not assert visibility in sibling environments. Callable lookup and scalar
-value lookup remain distinct, as in the pure compiler.
+Snapshot identity binds source URI/digest, `pure-default-v1`, `gallina-pure-v1`, and producer version hash (name, stage, Python impl/version, interpreter/libshlib digests, compiler/parser manifest, dependency locks; replacing executables invalidates caches). Has no imported HoldFast deps; uses checked-parser runtime integrity checks.
 
-Snapshot identity binds the source URI and digest, the fixed `pure-default-v1`
-configuration and `gallina-pure-v1` target. The producer's compact version
-hash covers its name, stage, Python implementation and version, interpreter
-image digest, compiler Python and parser source manifest, and dependency locks.
-The interpreter digest covers the Python executable and configured shared
-Python library on shared builds. Replacing either file invalidates offline
-snapshots, retained lint previews and the editor's worker replies.
-The pure producer has no imported HoldFast dependencies. These
-identities describe development inspection inputs; they supply no checked source
-correspondence, kernel or runtime-artifact acceptance. The isolated producer uses
-the existing checked-parser runtime qualification and integrity checks.
+`holdfast inspect SOURCE --query REQUEST.json` takes `schema: 7`, `snapshot` digest, `operation`, and optional `limit` (`1..256`):
 
-`holdfast inspect SOURCE --query REQUEST.json` accepts an object with `schema: 7`,
-the exported `snapshot` digest and one `operation`. `symbols` lists declarations.
-`symbol-at` and `type-at` require a byte `offset`. `references` requires a
-snapshot-scoped `symbol` handle.
-`tokens` returns the full concrete partition subject to the query limit;
-`token-at` with a byte `offset` selects its containing token or trivia piece.
-Piece spans are half-open; source EOF selects no piece.
-`syntax` returns the preorder node list; `syntax-children` with a `node` handle
-returns its immediate children in source-field order. `syntax-at` with a byte
-`offset` returns the deepest smallest containing node. Trivia between child
-nodes can select their containing parent; leading/trailing trivia outside the
-module span and source EOF select no node. Missing or foreign node handles refuse.
-`type-at` returns the resolved identifier's structured type, symbol handle and
-occurrence span, including at function calls and declarations. Same-spelled
-function and parameter references retain their separately resolved types. This
-query covers identifier sites. `expressions` returns the typed expression overlay;
-`expression-type` with a syntax `node` handle returns its type record, or no result
-for a current nonexpression node. Foreign or unknown node handles refuse.
-`expression-at` with a byte `offset` returns the smallest containing typed expression.
-Operators, commas and parentheses can select their containing expression; literal
-and value-name sites select their leaf expression. Trivia outside expressions,
-statement terminators and EOF select no expression. Optional
-`limit` is an integer from 1 through 256. Reference results include declaration
-occurrences. An identifier's end, punctuation and comments select no symbol.
-Offsets inside UTF-8 characters or CRLF are refused. The Python `Snapshot.query`
-interface also requires the current source and rechecks URI, configuration, target
-and producer closure; a changed binding or cross-snapshot handle is refused.
-`scopes` returns the lexical environment tree; `scope-at` with a byte `offset`
-selects the innermost containing environment, including its source delimiters.
-Leading/trailing trivia outside the module span and EOF select no environment.
-`scope-symbols` with a `scope` handle returns that environment's declarations,
-without inherited declarations or an availability filter. Unknown or foreign scope
-handles refuse. These operations share the same query limits and stale-input checks.
-The schema requires the complete lexical scope inventory and membership
-alongside typed expressions, source syntax, concrete pieces and identifier types.
-Clients select version 7 for the interpreter-bound producer. Older queries
-and worker replies missing the required views are refused.
+- `symbols`, `symbol-at` (`offset`), `type-at` (`offset`), `references` (`symbol`; includes declarations);
+- `tokens`, `token-at` (`offset`; EOF selects none);
+- `syntax`, `syntax-children` (`node`), `syntax-at` (`offset`; deepest smallest node, incl. interior trivia -> parent, excluding outer trivia/EOF);
+- `expressions`, `expression-type` (`node`), `expression-at` (`offset`; smallest typed expression, incl. ops/commas/parens, excluding trivia/`;`/EOF);
+- `scopes`, `scope-at` (`offset`; innermost env incl. delimiters, excluding outer trivia/EOF), `scope-symbols` (`scope`; direct declarations only).
 
-Bulk inspection retains the existing 65,536-byte source, 1,024-declaration and
-4,096-occurrence bounds, with additional 16,384-piece concrete, 8,192-node syntax
-and 8,192-expression bounds, a 2,048-scope bound and a
-1,048,576-byte compact export bound. If a view exceeds its bound or the encoded
-export is too large, bulk inspection returns an incomplete snapshot with empty
-fact arrays. Queries report the total result count and mark limited results
-`partial` with `complete: false` and reason `result-limit`. A complete successful
-pure check or query reports `checked` and `complete: true`. Refused source that
-fits the input envelope yields `unavailable` with the source text and empty fact
-arrays. A worker timeout yields `timed-out`. Unsupported operations or targets
-yield `unsupported`. Invalid query fields, stale identities and changed producers
-yield `refused`. The CLI rejects malformed UTF-8 or JSON before publishing a
-snapshot or query result. It returns success only for `checked` and preserves
-the source file.
+Identifier ends, punctuation, comments, UTF-8-interior/CRLF offsets, foreign handles, and stale bindings refuse (`Snapshot.query` rechecks source, URI, config, target, producer; schema-7 requires all views).
 
-The independent [offline reader](../../tools/toolchain/inspection_reader.py) consumes
-serialized bulk exports through
-`python tools/run.py holdfast inspect SOURCE --snapshot EXPORT.json`, optionally with
-the same `--query REQUEST.json`. This path invokes no parser or resolution worker.
-Before handoff, the CLI recomputes the current source URI, source digest,
-configuration, target and producer closure; it refuses an export whose exact
-binding or snapshot digest differs. It checks the producer binding again before
-publication and preserves the source bytes. Exports are UTF-8 JSON; duplicate
-members, incompatible schemas, malformed JSON and over-budget publications refuse.
+Bulk limits: 65,536 B source, 1,024 declarations, 4,096 occurrences, 16,384 concrete pieces, 8,192 syntax nodes, 8,192 expressions, 2,048 scopes, 1,048,576 B export (overflow yields empty facts; truncated queries mark `partial`, `complete: false`, `result-limit`). Statuses: `checked` (`complete: true`), `unavailable` (refused source), `timed-out`, `unsupported`, `refused` (bad query/stale/changed producer); CLI checks UTF-8/JSON, exits 0 only on `checked`, and preserves source.
 
-The reader shares only the published JSON Schema and generic JSON/schema utilities
-with the exporter. It independently checks exact concrete reconstruction, ordered
-snapshot-scoped handles, tree parent/child reciprocity and preorder, contained
-source spans and leaf spellings, complete scope/expression inventories,
-declaration membership, authored origins and occurrence links before exposing
-stored facts. It implements all fifteen existing bounded query operations over
-those stored facts, including reference, type, syntax and scope queries. Current
-binding checks, cross-snapshot handle refusal, byte/CRLF coordinates, explicit
-truncation and incomplete producer statuses remain mandatory during offline queries.
-The [consumer qualification](../../tools/tests/test_holdfast_inspection_reader.py)
-uses independently expected shadowing, sibling-block, required-static signature,
-named-argument and call-result facts, malformed graph and binding controls, and a
-source-preserving CLI round trip with the compiler worker disabled. This is a
-structural consumer of existing compiler decisions, with the same development
-and source-correspondence limits as the producer; it provides no independent
-type inference, import resolution or proof acceptance.
+[Offline reader](../../tools/toolchain/inspection_reader.py) (`holdfast inspect SOURCE --snapshot EXPORT.json [--query REQUEST.json]`) runs without worker invocation, rechecking URI/digest/config/target/producer, exact concrete reconstruction, handles, tree reciprocity/preorder, spans/spellings, complete inventories, links, and all 15 queries ([tests](../../tools/tests/test_holdfast_inspection_reader.py); structural consumer only).
 
 ## Syntax grammars and highlighting
 
