@@ -64,18 +64,12 @@ class _GradedMixin:
         self.site = domain_node
         if domain_node["kind"] == "type" and not domain_node["arguments"]:
             dname = self.name(domain_node["name"])
-            if dname in {
-                graded_source.GradeDomain.EXACT.value,
-                graded_source.GradeDomain.BOUND.value,
-                graded_source.GradeDomain.LINEAR.value,
-                graded_source.GradeDomain.AFFINE.value,
-            }:
-                return _NAT
-            if dname in {
-                graded_source.GradeDomain.PRESENCE.value,
-                graded_source.GradeDomain.SECURITY.value,
-            }:
-                return _BOOL
+            if dname in graded_source.GradeDomain:
+                carrier_key = graded_source.domain_carrier_key(graded_source.GradeDomain(dname))
+                if carrier_key == "bool":
+                    return _BOOL
+                if carrier_key == "nat":
+                    return _NAT
             if dname in self.domains:
                 return self.domains[dname].carrier_type
         return self.type(domain_node, {})
@@ -199,51 +193,22 @@ class _GradedMixin:
             add_g = self.render(add_term)
             mul_g = self.render(mul_term)
             adm_g = self.render(admits_term)
-            eqb_g = "Nat.eqb" if carrier_key == "nat" else "Bool.eqb"
-            rocq_id = f"holdfast_custom_{name}"
-            base_id = f"{rocq_id}_base"
-            prelude = "\n".join([
-                f"Definition {rocq_id}_zero : {carrier_key} := {z_g}.",
-                f"Definition {rocq_id}_one : {carrier_key} := {o_g}.",
-                f"Definition {rocq_id}_add (a b : {carrier_key}) : {carrier_key} := ({add_g}) a b.",
-                f"Definition {rocq_id}_mul (a b : {carrier_key}) : {carrier_key} := ({mul_g}) a b.",
-                f"Definition {rocq_id}_allowsb (a b : {carrier_key}) : bool := ({adm_g}) a b.",
-                f"Definition {rocq_id}_allows (a b : {carrier_key}) : Prop := {rocq_id}_allowsb a b = true.",
-                f"Lemma {rocq_id}_allows_refl : forall x, {rocq_id}_allows x x.",
-                "Proof. intro x. unfold " + f"{rocq_id}_allows, {rocq_id}_allowsb. Admitted."
-                if False else
-                f"(* Domain {name} registered with decidable admits *)",
-            ])
-            _ = (base_id, prelude, eqb_g)
-            # Note: zero-axiom JoinDomain projection uses NatBoundJoin/PresenceJoin or admits theorem when laws pass.
-            if carrier_key == "nat":
-                self.custom_grade_domains[name] = graded_source.CustomDomainSpec(
-                    name=name,
-                    rocq_name="NatBoundJoin",
-                    carrier_key="nat",
-                    zero_expr=z_g,
-                    one_expr=o_g,
-                    add_expr=add_g,
-                    mul_expr=mul_g,
-                    allows_expr=adm_g,
-                    allowsb_expr=adm_g,
-                    eqb_expr="Nat.eqb",
-                    subgraded=True,
-                )
-            else:
-                self.custom_grade_domains[name] = graded_source.CustomDomainSpec(
-                    name=name,
-                    rocq_name="PresenceJoin",
-                    carrier_key="bool",
-                    zero_expr=z_g,
-                    one_expr=o_g,
-                    add_expr=add_g,
-                    mul_expr=mul_g,
-                    allows_expr=adm_g,
-                    allowsb_expr=adm_g,
-                    eqb_expr="Bool.eqb",
-                    subgraded=True,
-                )
+            rocq_name, eqb_expr = (
+                ("NatBoundJoin", "Nat.eqb") if carrier_key == "nat" else ("PresenceJoin", "Bool.eqb")
+            )
+            self.custom_grade_domains[name] = graded_source.CustomDomainSpec(
+                name=name,
+                rocq_name=rocq_name,
+                carrier_key=carrier_key,
+                zero_expr=z_g,
+                one_expr=o_g,
+                add_expr=add_g,
+                mul_expr=mul_g,
+                allows_expr=adm_g,
+                allowsb_expr=adm_g,
+                eqb_expr=eqb_expr,
+                subgraded=True,
+            )
 
     def _inductive_declaration(self: _Elaborator, node: Node, first_meta: int) -> None:
         """Elaborate first-class `inductive` indexed family with graded constructors and eliminator."""
@@ -563,9 +528,10 @@ class _GradedMixin:
         expected_scrutinee_type: _Term | None = None,
         visited_arms: set[int] | None = None,
         synthetic: bool = False,
+        scrutinee: _Binding | None = None,
     ) -> _Binding:
         value_node = self.node(node["value"])
-        if expected_scrutinee_type is None:
+        if scrutinee is None and expected_scrutinee_type is None:
             scrutinee = self.expression(value_node, environment)
             head, args = self.spine(self.whnf(scrutinee.type))
             if head.kind == "const" and isinstance(head.value, str) and head.value in self.inductives_by_type:
@@ -635,6 +601,7 @@ class _GradedMixin:
             expected_scrutinee_type=expected_scrutinee_type,
             visited_arms=visited_arms,
             synthetic=synthetic,
+            scrutinee=scrutinee,
         )
 
     def complete(self: _Elaborator, term: _Term, memo: dict[int, tuple[_Term, _Term]] | None = None) -> _Term:

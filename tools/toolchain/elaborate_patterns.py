@@ -982,13 +982,15 @@ class _PatternsMixin:
     def match(self: _Elaborator, node: Node, environment: dict[str, _Binding], expected: _Term | None = None,
               *, expression_arms: bool = True, facts: tuple[_Binding, ...] = (),
               refine_scrutinee: bool = False, expected_scrutinee_type: _Term | None = None,
-              visited_arms: set[int] | None = None, synthetic: bool = False) -> _Binding:
+              visited_arms: set[int] | None = None, synthetic: bool = False,
+              scrutinee: _Binding | None = None) -> _Binding:
         self.site = node
         value_node = self.node(node["value"])
-        if expected_scrutinee_type is not None:
-            scrutinee = _Binding(self.check(value_node, expected_scrutinee_type, environment), expected_scrutinee_type)
-        else:
-            scrutinee = self.expression(value_node, environment)
+        if scrutinee is None:
+            if expected_scrutinee_type is not None:
+                scrutinee = _Binding(self.check(value_node, expected_scrutinee_type, environment), expected_scrutinee_type)
+            else:
+                scrutinee = self.expression(value_node, environment)
         if synthetic and self.last_call_updates:
             environment = dict(environment)
             self._consume_call_updates(environment, value_node)
