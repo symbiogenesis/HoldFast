@@ -89,10 +89,62 @@ def _audit_refuses_malformed_reports() -> None:
         solver_ledger.audit(wrapped + "Axioms:\n", 2, _MODULE, entries)
 
 
+def _ledger_refuses_kernel_and_proof_bypasses() -> None:
+    base = "Definition holdfast_d0_X : nat := 0.\n"
+    for snippet in (
+        "Parameter hidden : False.\n",
+        "Parameters a b : Prop.\n",
+        "Variable v : nat.\n",
+        "Variables x y : nat.\n",
+        "Hypothesis h : False.\n",
+        "Hypotheses h1 h2 : False.\n",
+        "Conjecture c : False.\n",
+        "Axioms a1 a2 : False.\n",
+        "Lemma bad : False. Proof. Admitted.\n",
+        "Lemma bad : False. Proof. admit. Qed.\n",
+        "Unset Guard Checking.\n",
+        "Unset Positivity Checking.\n",
+        "Unset Universe Checking.\n",
+        "Set Type in Type.\n",
+        "Set Universe Checking Off.\n",
+        "#[bypass_check(guard)] Fixpoint f (n : nat) : nat := f n.\n",
+        "Bypass_check fixpoint.\n",
+        'Declare ML Module "rocq-runtime.plugins.ltac".\n',
+        "Unsafe Definition u : nat := 0.\n",
+    ):
+        with raises(ValueError, msg=f"ledger accepted prohibited snippet: {snippet!r}"):
+            solver_ledger.ledger(base + snippet)
+    commented = (
+        "(* outer comment (* Unset Guard Checking. Admitted. Parameter p : False. *) *)\n"
+        + base
+    )
+    ensure(solver_ledger.ledger(commented) == (), "nested Rocq comment caused a false refusal")
+
+
+def _prover_version_guard() -> None:
+    ensure(
+        solver_ledger.check_prover_version("The Rocq Prover, version 9.3.0") == (9, 3, 0),
+        "patched 9.3.0 prover rejected",
+    )
+    ensure(
+        solver_ledger.check_prover_version("The Rocq Prover, version 9.4.1") == (9, 4, 1),
+        "newer 9.4.1 prover rejected",
+    )
+    for bad in (
+        "The Rocq Prover, version 9.2.0",
+        "The Coq Proof Assistant, version 8.20.1",
+        "unknown output",
+    ):
+        with raises(ValueError, msg=f"unsafe or unparsed prover version accepted: {bad!r}"):
+            solver_ledger.check_prover_version(bad)
+
+
 def cases() -> list[Case]:
     return [
         Case("ledger-reads-markers", _ledger_reads_markers),
         Case("ledger-refuses-unmarked-axioms", _ledger_refuses_unmarked_axioms),
         Case("audit-matches-kernel-report", _audit_matches_kernel_report),
         Case("audit-refuses-malformed-reports", _audit_refuses_malformed_reports),
+        Case("ledger-refuses-kernel-and-proof-bypasses", _ledger_refuses_kernel_and_proof_bypasses),
+        Case("prover-version-guard", _prover_version_guard),
     ]

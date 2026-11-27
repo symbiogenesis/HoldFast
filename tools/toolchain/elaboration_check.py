@@ -1834,6 +1834,7 @@ def _toolchain(root: Path, directory: Path, steps: list[dict[str, object]]) -> d
     found = re.search(r"\bversion\s+([^\s]+)", version)
     if found is None or found[1] not in {proofenv.ROCQ_VERSION, proofenv.ROCQ_VERSION.removesuffix(".0")}:
         raise ValueError("HoldFast replay compiler differs from the locked prover")
+    solver_ledger.check_prover_version(version)
     compiler = _run(_opam(["ocamlc", "-version"]), directory,
                     directory / "ocaml.log", steps).strip()
     if compiler != proofenv.OCAML_VERSION:
