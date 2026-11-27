@@ -54,7 +54,7 @@ Report code bytes, stack, peak storage, per-case memory traffic, and cycles on a
 
 The package trial's representation-change probe begins with standard Rocq relations, explicit transport lemmas, and generalized rewriting over a client-needed pure value representation. Freeze public laws, baseline, and repeated steps before comparing automation; reprove changed instance laws, replay generic caller theorems unchanged, and track handwritten transport, generated terms, review, and repair separately. CHERI memory, ownership, and primitive laws keep their foundation owners.
 
-[CoqEAL/Trocq candidates](verification-strategy.md#existing-tooling-and-implementation-owners) become options only if that baseline exposes recurring automatable work and a new checklist item prices their prover/plugin closure, port, licence reading, and maintenance under the locked prover/assumption policy. Stop on budget exhaustion, unresolved compatibility/assumptions, or missed predeclared maintenance-benefit criteria (retaining native transport and checked lemmas). Generated proofs must establish the exact same relations and client laws without stronger preconditions or weaker results.
+[CoqEAL/Trocq candidates](verification-strategy.md#existing-tooling-and-implementation-owners) (including Trocq's [TOPLAS 2025](https://doi.org/10.1145/3737283) modular parametricity transfer without univalence or extra axioms) become options only if that baseline exposes recurring automatable work and a new checklist item prices their prover/plugin closure, port, licence reading, and maintenance under the locked prover/assumption policy. Stop on budget exhaustion, unresolved compatibility/assumptions, or missed predeclared maintenance-benefit criteria (retaining native transport and checked lemmas). Generated proofs must establish the exact same relations and client laws without stronger preconditions or weaker results.
 
 ## Clients and baseline evidence
 
@@ -159,7 +159,7 @@ Compare C#/Dafny and Rust/Verus only on matching bounded algorithms/behaviors, l
 
 ### Proof search and replay under change
 
-Before the first edit, freeze interactive inference, batch search, and kernel replay limits, enabled [checking tiers](verification-strategy.md#layered-proof-and-staging), and solver settings; exhausted searches emit the residual proposition at its source site, local facts, and hit limit so authors can supply a matching lemma. Record time to first feedback, remaining goals, proof diffs, and fresh replay time (hosted apps set custom limits; copying pilot uses [existing thresholds](#accounting-and-decision-thresholds)).
+Before the first edit, freeze interactive inference, batch search, and kernel replay limits, enabled [checking tiers](verification-strategy.md#layered-proof-and-staging), and solver settings; candidate proof-producing or reflective tiers (such as Versioned/Verified E-Graphs and SMTCoq/Trakt/Sniper) remain subject to the same frozen limits, search-off certificate replay checks, and closed-assumption audits. Exhausted searches emit the residual proposition at its source site, local facts, and hit limit so authors can supply a matching lemma. Record time to first feedback, remaining goals, proof diffs, and fresh replay time (hosted apps set custom limits; copying pilot uses [existing thresholds](#accounting-and-decision-thresholds)).
 
 For the packet and independent package trial, track per-goal discharge methods, consumed defs/instances/assumptions, replayable certificates, and exact source/target/checker bindings, exercising:
 
