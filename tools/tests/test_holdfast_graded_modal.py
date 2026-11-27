@@ -51,14 +51,14 @@ _AUDITED = (
     "let_nat_value_substitutes_index",
     "presence_domain_checks_and_rejects",
 )
-_SUPPORT = ("graded_pure.v", "graded_domains.v", "graded_modal.v", "graded_modal_source.v")
+_SUPPORT = ("graded_pure.v", "graded_domains.v", "graded_modal.v")
 
 
 def _replay() -> None:
     compile_unit = [*proofenv.rocq_command(), "-q"]
     with tempfile.TemporaryDirectory(prefix="holdfast-graded-modal-") as temporary:
         directory = Path(temporary)
-        rocq_cache.materialize_repo_units(TOOLS.parent, directory, _SUPPORT[:-1], compiler=compile_unit)
+        rocq_cache.materialize_repo_units(TOOLS.parent, directory, _SUPPORT, compiler=compile_unit)
         audit = directory / "ModalAudit.v"
         audit.write_text("Require Import graded_modal.\n" + "".join(
             f"Print Assumptions GradedModal.{name}.\n" for name in _AUDITED), encoding="utf-8")

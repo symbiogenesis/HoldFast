@@ -73,7 +73,7 @@ reported rows. In `Specialize`, the argument `n + n` contributes zero
 computation uses and four type uses of `n`, with two in the returned parameter
 type and two in the returned result type.
 [Source fixture](../../tools/tests/fixtures/graded-dependent.hf) ·
-[Source replay predicate](../../tools/rocq/graded_source.v)
+[Core source replay predicate](../../tools/rocq/graded_core_source.v)
 
 ### Bounded natural grades
 
@@ -91,7 +91,7 @@ returned function advertises two uses of `values` and its implementation uses
 the argument once. The replay rejects a third use against that bound and catches
 changed type-demand rows through its row equality certificate.
 [Bounded source fixture](../../tools/tests/fixtures/graded-bounded.hf) ·
-[Source replay predicate](../../tools/rocq/graded_source.v)
+[Core source replay predicate](../../tools/rocq/graded_core_source.v)
 
 ### Graded box source replay
 
@@ -113,7 +113,7 @@ dependency, the declaration and binder spans, and the telescope demand rows.
 the result type. `KeepShape` uses its box only in the next parameter's type and
 the result type, with one use in each row.
 [Modal source fixture](../../tools/tests/fixtures/graded-modal.hf) ·
-[Modal source replay predicate](../../tools/rocq/graded_modal_source.v)
+[Core source replay predicate](../../tools/rocq/graded_core_source.v)
 
 #### Bounded graded box replay
 

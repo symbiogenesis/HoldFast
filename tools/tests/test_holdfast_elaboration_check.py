@@ -49,7 +49,7 @@ def _qualification_input_closure() -> None:
                     pending.append(local)
     ensure({"tools/pyproject.toml", "tools/uv.lock"} <= bound.keys(),
            "replay omitted its Python dependency/version owners")
-    ensure({"tools/rocq/graded_source.v", "tools/rocq/graded_modal_source.v"} <= bound.keys(),
+    ensure({"tools/rocq/graded_core.v", "tools/rocq/graded_core_source.v"} <= bound.keys(),
            "replay omitted its natural-grade checking rules")
     ensure("solver_ledger" in visited and "jsonutil" in visited,
            "input audit failed to reach the assumption and syntax-protocol checkers")
