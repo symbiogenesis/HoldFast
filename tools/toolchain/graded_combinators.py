@@ -384,22 +384,14 @@ def _format_type_hf(ty: CombinatorType) -> str:
     return f"Fn({_format_type_hf(ty.domain)} arg @ {_format_grade_hf(ty.allowance)}) -> {_format_type_hf(ty.codomain)}"
 
 
-def _collect_grade_vars(expr: gi.GradeExpr) -> set[int | str]:
-    if isinstance(expr, gi.GradeLit):
-        return set()
-    if isinstance(expr, gi.GradeVar):
-        return {expr.var_id}
-    return _collect_grade_vars(expr.lhs) | _collect_grade_vars(expr.rhs)
-
-
 def _collect_type_grade_vars(ty: CombinatorType) -> set[int | str]:
     if isinstance(ty, BaseType):
         return set()
     if isinstance(ty, (PairType, SumType)):
         return _collect_type_grade_vars(ty.left) | _collect_type_grade_vars(ty.right)
     if isinstance(ty, BoxType):
-        return _collect_grade_vars(ty.grade) | _collect_type_grade_vars(ty.payload)
-    return _collect_grade_vars(ty.allowance) | _collect_type_grade_vars(ty.domain) | _collect_type_grade_vars(ty.codomain)
+        return gi.expr_vars(ty.grade) | _collect_type_grade_vars(ty.payload)
+    return gi.expr_vars(ty.allowance) | _collect_type_grade_vars(ty.domain) | _collect_type_grade_vars(ty.codomain)
 
 
 def _collect_base_names(ty: CombinatorType) -> set[str]:
@@ -410,18 +402,6 @@ def _collect_base_names(ty: CombinatorType) -> set[str]:
     if isinstance(ty, BoxType):
         return _collect_base_names(ty.payload)
     return _collect_base_names(ty.domain) | _collect_base_names(ty.codomain)
-
-
-def _emit_grade_coq(expr: gi.GradeExpr, var_map: Mapping[int | str, int]) -> str:
-    if isinstance(expr, gi.GradeLit):
-        return f"(GLit {expr.value})"
-    if isinstance(expr, gi.GradeVar):
-        return f"(GVar {var_map[expr.var_id]})"
-    if isinstance(expr, gi.GradeAdd):
-        return f"(GAdd {_emit_grade_coq(expr.lhs, var_map)} {_emit_grade_coq(expr.rhs, var_map)})"
-    if isinstance(expr, gi.GradeMul):
-        return f"(GMul {_emit_grade_coq(expr.lhs, var_map)} {_emit_grade_coq(expr.rhs, var_map)})"
-    raise ValueError("GradeJoin is not directly supported in combinator Gallina expressions")
 
 
 def _emit_type_coq(
@@ -438,9 +418,9 @@ def _emit_type_coq(
     if isinstance(ty, SumType):
         return f"(CSum {_emit_type_coq(ty.left, base_map, var_map)} {_emit_type_coq(ty.right, base_map, var_map)})"
     if isinstance(ty, BoxType):
-        return f"(CBox {_emit_grade_coq(ty.grade, var_map)} {_emit_type_coq(ty.payload, base_map, var_map)})"
+        return f"(CBox {gi.emit_grade_coq(ty.grade, var_map)} {_emit_type_coq(ty.payload, base_map, var_map)})"
     return (
-        f"(CArr {_emit_grade_coq(ty.allowance, var_map)} "
+        f"(CArr {gi.emit_grade_coq(ty.allowance, var_map)} "
         f"{_emit_type_coq(ty.domain, base_map, var_map)} "
         f"{_emit_type_coq(ty.codomain, base_map, var_map)})"
     )
@@ -551,7 +531,7 @@ def _derive_plan(
         sig = ArrowType(gi.GradeLit(1), input_ty, output_ty)
 
         def coq_term(bmap: Mapping[str, int], vmap: Mapping[int | str, int]) -> str:
-            qg = _emit_grade_coq(grade, vmap)
+            qg = gi.emit_grade_coq(grade, vmap)
             in_c = _emit_type_coq(input_ty, bmap, vmap)
             return (
                 f"(CLam 1 (GLit 1) {in_c} "
@@ -613,7 +593,7 @@ def _derive_plan(
         sig = ArrowType(gi.GradeLit(1), input_ty, output_ty)
         bmap = {name: idx for idx, name in enumerate(sorted(_collect_base_names(sig)))}
         vmap = {v: idx for idx, v in enumerate(sorted(_collect_type_grade_vars(sig), key=gi._var_sort_key))}
-        qg = _emit_grade_coq(grade, vmap)
+        qg = gi.emit_grade_coq(grade, vmap)
         in_c = _emit_type_coq(input_ty, bmap, vmap)
         term_coq = (
             f"(CLam 1 (GLit 1) {in_c} "
@@ -678,7 +658,7 @@ def _derive_plan(
         sig = ArrowType(gi.GradeLit(1), input_ty, output_ty)
         bmap = {name: idx for idx, name in enumerate(sorted(_collect_base_names(sig)))}
         vmap = {v: idx for idx, v in enumerate(sorted(_collect_type_grade_vars(sig), key=gi._var_sort_key))}
-        qg = _emit_grade_coq(grade, vmap)
+        qg = gi.emit_grade_coq(grade, vmap)
         in_c = _emit_type_coq(input_ty, bmap, vmap)
         bl_c = _emit_type_coq(BoxType(sum_type.left, grade), bmap, vmap)
         br_c = _emit_type_coq(BoxType(sum_type.right, grade), bmap, vmap)
@@ -733,8 +713,8 @@ def _derive_plan(
         sig = ArrowType(gi.GradeLit(1), input_ty, output_ty)
         bmap = {name: idx for idx, name in enumerate(sorted(_collect_base_names(sig)))}
         vmap = {v: idx for idx, v in enumerate(sorted(_collect_type_grade_vars(sig), key=gi._var_sort_key))}
-        qg = _emit_grade_coq(grade, vmap)
-        rg = _emit_grade_coq(inner_grade, vmap)
+        qg = gi.emit_grade_coq(grade, vmap)
+        rg = gi.emit_grade_coq(inner_grade, vmap)
         in_c = _emit_type_coq(input_ty, bmap, vmap)
         term_coq = (
             f"(CLam 1 (GLit 1) {in_c} "
@@ -774,8 +754,8 @@ def _derive_plan(
         sig = ArrowType(gi.GradeLit(1), input_ty, output_ty)
         bmap = {name: idx for idx, name in enumerate(sorted(_collect_base_names(sig)))}
         vmap = {v: idx for idx, v in enumerate(sorted(_collect_type_grade_vars(sig), key=gi._var_sort_key))}
-        qg = _emit_grade_coq(grade, vmap)
-        rg = _emit_grade_coq(inner_grade, vmap)
+        qg = gi.emit_grade_coq(grade, vmap)
+        rg = gi.emit_grade_coq(inner_grade, vmap)
         in_c = _emit_type_coq(input_ty, bmap, vmap)
         term_coq = (
             f"(CLam 1 (GLit 1) {in_c} "
@@ -860,7 +840,7 @@ def _derive_plan(
     sig = ArrowType(gi.GradeLit(1), input_ty, output_ty)
     bmap = {name: idx for idx, name in enumerate(sorted(_collect_base_names(sig)))}
     vmap = {v: idx for idx, v in enumerate(sorted(_collect_type_grade_vars(sig), key=gi._var_sort_key))}
-    qg_out = _emit_grade_coq(target_grade, vmap)
+    qg_out = gi.emit_grade_coq(target_grade, vmap)
     in_c = _emit_type_coq(input_ty, bmap, vmap)
     term_coq = (
         f"(CLam 1 (GLit 1) {in_c} "

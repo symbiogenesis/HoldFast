@@ -197,6 +197,11 @@ def _domain_spec(domain: GradeDomain) -> _DomainSpec:
     return _DOMAIN_SPECS[domain]
 
 
+def domain_carrier_key(domain: GradeDomain) -> str:
+    """Return the Coq carrier key (``nat``, ``bool``, ...) for built-in ``domain``."""
+    return _DOMAIN_SPECS[domain].grade_type
+
+
 def _rocq_grade_sort_value(domain: GradeDomain | CustomDomainSpec, raw_lit: int | bool | str) -> str:
     if isinstance(domain, CustomDomainSpec):
         if isinstance(raw_lit, bool):
@@ -3518,40 +3523,40 @@ class _CoreLowerer:
             gvar_env = dict.fromkeys(gvars.values(), default_sample)
             an = _IRAnalyzer(self.domain)
             _, u_closed, v_closed = an.infer(filled_term)
+            def _visit_binder(
+                uid: int,
+                ty: IRTy,
+                name: str,
+                s: GExpr,
+                r: GExpr | None,
+                body: IRTerm,
+            ) -> tuple[dict[int, GExpr], dict[int, GExpr]]:
+                old = an.env_types.get(uid)
+                an.env_types[uid] = ty
+                u_b, v_b = _collect_sym(body)
+                if old is None:
+                    an.env_types.pop(uid, None)
+                else:
+                    an.env_types[uid] = old
+                u_act = u_b.pop(uid, _gzero(self.domain))
+                v_act = v_b.pop(uid, _gzero(self.domain))
+                if s.has_var() or u_act.has_var():
+                    symbolic_obs.append((u_act, s, name, uid, "computation"))
+                if r is not None and (r.has_var() or v_act.has_var()):
+                    symbolic_obs.append((v_act, r, name, uid, "type"))
+                return u_b, v_b
+
             # Check symbolic computation & type demands on all binders in filled_term
             def _collect_sym(t: IRTerm) -> tuple[dict[int, GExpr], dict[int, GExpr]]:
                 if isinstance(t, IRLam):
-                    old = an.env_types.get(t.uid)
-                    an.env_types[t.uid] = t.dom
-                    u_b, v_b = _collect_sym(t.body)
-                    if old is None:
-                        an.env_types.pop(t.uid, None)
-                    else:
-                        an.env_types[t.uid] = old
-                    u_act = u_b.pop(t.uid, _gzero(self.domain))
-                    v_act = v_b.pop(t.uid, _gzero(self.domain))
-                    if t.s.has_var() or u_act.has_var():
-                        symbolic_obs.append((u_act, t.s, t.name, t.uid, "computation"))
-                    if t.r is not None and (t.r.has_var() or v_act.has_var()):
-                        symbolic_obs.append((v_act, t.r, t.name, t.uid, "type"))
+                    u_b, v_b = _visit_binder(t.uid, t.dom, t.name, t.s, t.r, t.body)
                     return u_b, an.add_maps(an.ty_demand(t.dom), v_b)
                 if isinstance(t, IRLet):
                     u_r, v_r = _collect_sym(t.rhs)
-                    old = an.env_types.get(t.uid)
-                    an.env_types[t.uid] = t.ann
-                    u_b, v_b = _collect_sym(t.body)
-                    if old is None:
-                        an.env_types.pop(t.uid, None)
-                    else:
-                        an.env_types[t.uid] = old
-                    u_act = u_b.pop(t.uid, _gzero(self.domain))
-                    v_act = v_b.pop(t.uid, _gzero(self.domain))
-                    if t.s.has_var() or u_act.has_var():
-                        symbolic_obs.append((u_act, t.s, t.name, t.uid, "computation"))
-                    if t.r is not None and (t.r.has_var() or v_act.has_var()):
-                        symbolic_obs.append((v_act, t.r, t.name, t.uid, "type"))
+                    u_b, v_b = _visit_binder(t.uid, t.ann, t.name, t.s, t.r, t.body)
+                    v_act = v_b.get(t.uid, _gzero(self.domain)) if t.r is None else t.r
                     z_t = v_r if isinstance(t.ann, IRUniv) and isinstance(t.rhs, IRTypeVal) else u_r
-                    return an.add_maps(u_b, an.scale_map(t.s, u_r)), an.add_maps(v_b, an.scale_map(t.r or v_act, z_t))
+                    return an.add_maps(u_b, an.scale_map(t.s, u_r)), an.add_maps(v_b, an.scale_map(v_act, z_t))
                 return an.infer(t)[1:]
             _ = (u_closed, v_closed)
             _collect_sym(filled_term)

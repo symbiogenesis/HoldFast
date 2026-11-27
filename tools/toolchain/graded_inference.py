@@ -283,12 +283,16 @@ def _poly_to_expr(poly: Poly) -> GradeExpr:
     return acc
 
 
-def _expr_vars(expr: GradeExpr) -> set[int | str]:
+def expr_vars(expr: GradeExpr) -> set[int | str]:
+    """Collect all variable or meta IDs occurring in ``expr``."""
     if isinstance(expr, GradeLit):
         return set()
     if isinstance(expr, GradeVar):
         return {expr.var_id}
-    return _expr_vars(expr.lhs) | _expr_vars(expr.rhs)
+    return expr_vars(expr.lhs) | expr_vars(expr.rhs)
+
+
+_expr_vars = expr_vars
 
 
 def _subst_expr(expr: GradeExpr, assignments: Mapping[int | str, GradeExpr]) -> GradeExpr:
@@ -832,15 +836,16 @@ def _var_index_map(
     return {v: idx for idx, v in enumerate(ordered)}
 
 
-def _emit_grade_expr(expr: GradeExpr, var_idx: Mapping[int | str, int]) -> str:
+def emit_grade_coq(expr: GradeExpr, var_idx: Mapping[int | str, int]) -> str:
+    """Serialize a join-free :data:`GradeExpr` as a Rocq ``GradedSemiring.grade_expr``."""
     if isinstance(expr, GradeLit):
         return f"(GLit {expr.value})"
     if isinstance(expr, GradeVar):
         return f"(GVar {var_idx[expr.var_id]})"
     if isinstance(expr, GradeAdd):
-        return f"(GAdd {_emit_grade_expr(expr.lhs, var_idx)} {_emit_grade_expr(expr.rhs, var_idx)})"
+        return f"(GAdd {emit_grade_coq(expr.lhs, var_idx)} {emit_grade_coq(expr.rhs, var_idx)})"
     if isinstance(expr, GradeMul):
-        return f"(GMul {_emit_grade_expr(expr.lhs, var_idx)} {_emit_grade_expr(expr.rhs, var_idx)})"
+        return f"(GMul {emit_grade_coq(expr.lhs, var_idx)} {emit_grade_coq(expr.rhs, var_idx)})"
     raise ValueError("GradeJoin cannot be emitted directly as GradedSemiring.grade_expr")
 
 
@@ -928,8 +933,8 @@ def _emit_certificate(
             and _poly_le(pl, pr)
         )
         if universal_eq:
-            gl = _emit_grade_expr(c.lhs, var_idx)
-            gr = _emit_grade_expr(c.rhs, var_idx)
+            gl = emit_grade_coq(c.lhs, var_idx)
+            gr = emit_grade_coq(c.rhs, var_idx)
             lines.extend([
                 f"Theorem {thm_name} : forall rho,",
                 f"  eval_grade rho {gl} = eval_grade rho {gr}.",
@@ -939,8 +944,8 @@ def _emit_certificate(
                 "",
             ])
         elif universal_le:
-            gl = _emit_grade_expr(c.lhs, var_idx)
-            gr = _emit_grade_expr(c.rhs, var_idx)
+            gl = emit_grade_coq(c.lhs, var_idx)
+            gr = emit_grade_coq(c.rhs, var_idx)
             lines.extend([
                 f"Theorem {thm_name} : forall rho,",
                 f"  eval_grade rho {gl} <= eval_grade rho {gr}.",
