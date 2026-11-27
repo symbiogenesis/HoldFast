@@ -1,8 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Behavioral tests for the HoldFast solver-trust ledger and its assumption audit."""
 
+import tempfile
+from pathlib import Path
+
 from tests.harness import Case, ensure, raises
-from toolchain import solver_ledger
+from toolchain import rocq_cache, solver_ledger
 
 INDEPENDENT_CASES = True
 
@@ -105,8 +108,15 @@ def _ledger_refuses_kernel_and_proof_bypasses() -> None:
         "Unset Guard Checking.\n",
         "Unset Positivity Checking.\n",
         "Unset Universe Checking.\n",
+        "Unset Strict Universe Declaration.\n",
         "Set Type in Type.\n",
         "Set Universe Checking Off.\n",
+        "Set Allow Rewrite Rules.\n",
+        "Rewrite Rule bad := | plus 0 ?x => ?x.\n",
+        "#[enable_rewrite_rules] Symbol f : nat -> nat.\n",
+        "Symbol f : nat -> nat.\n",
+        "Symbols a b : nat.\n",
+        "Admit Obligations.\n",
         "#[bypass_check(guard)] Fixpoint f (n : nat) : nat := f n.\n",
         "Bypass_check fixpoint.\n",
         'Declare ML Module "rocq-runtime.plugins.ltac".\n',
@@ -115,10 +125,12 @@ def _ledger_refuses_kernel_and_proof_bypasses() -> None:
         with raises(ValueError, msg=f"ledger accepted prohibited snippet: {snippet!r}"):
             solver_ledger.ledger(base + snippet)
     commented = (
-        "(* outer comment (* Unset Guard Checking. Admitted. Parameter p : False. *) *)\n"
+        "(* outer comment (* Unset Guard Checking. Admitted. Parameter p : False. "
+        "Rewrite Rule r := ... Symbol f : nat. *) *)\n"
         + base
+        + "Definition holdfast_d1_Use (symbol : nat) : nat := symbol.\n"
     )
-    ensure(solver_ledger.ledger(commented) == (), "nested Rocq comment caused a false refusal")
+    ensure(solver_ledger.ledger(commented) == (), "nested Rocq comment or benign identifier caused a false refusal")
 
 
 def _prover_version_guard() -> None:
@@ -139,6 +151,32 @@ def _prover_version_guard() -> None:
             solver_ledger.check_prover_version(bad)
 
 
+def _prover_flag_guard() -> None:
+    solver_ledger.check_prover_flags(["rocq", "c", "-q", "Unit.v"])
+    solver_ledger.check_prover_flags(["rocqchk", "-silent", "Unit"])
+    for bad_flag in (
+        "-allow-rewrite-rules",
+        "--allow-rewrite-rules",
+        "-type-in-type",
+        "--type-in-type",
+        "-impredicative-set",
+        "--impredicative-set",
+        "-bypass-qed",
+        "--bypass-qed",
+    ):
+        with raises(ValueError, msg=f"prohibited prover flag accepted: {bad_flag!r}"):
+            solver_ledger.check_prover_flags(["rocq", "c", bad_flag, "Unit.v"])
+    with tempfile.TemporaryDirectory(prefix="holdfast-flag-guard-") as tmp, raises(
+        ValueError, msg="rocq_cache accepted -allow-rewrite-rules"
+    ):
+        rocq_cache.materialize_units(
+            Path(tmp),
+            [("Unit.v", b"Definition x := 0.\n")],
+            compiler=["rocq", "c", "-allow-rewrite-rules"],
+            use_default_cache=False,
+        )
+
+
 def cases() -> list[Case]:
     return [
         Case("ledger-reads-markers", _ledger_reads_markers),
@@ -147,4 +185,5 @@ def cases() -> list[Case]:
         Case("audit-refuses-malformed-reports", _audit_refuses_malformed_reports),
         Case("ledger-refuses-kernel-and-proof-bypasses", _ledger_refuses_kernel_and_proof_bypasses),
         Case("prover-version-guard", _prover_version_guard),
+        Case("prover-flag-guard", _prover_flag_guard),
     ]

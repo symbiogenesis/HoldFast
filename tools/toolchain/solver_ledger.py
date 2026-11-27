@@ -9,6 +9,7 @@ else. A non-empty ledger is never acceptance evidence.
 """
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 _MARKER = re.compile(
@@ -21,11 +22,17 @@ _UNLEDGERED_ASSUMPTION = re.compile(
     r"^\s*(?:Parameter|Parameters|Variable|Variables|Hypothesis|Hypotheses|Conjecture|Axioms)\b",
     flags=re.MULTILINE,
 )
+_REWRITE_SYMBOL = re.compile(r"^\s*Symbol(?:s)?\b", flags=re.MULTILINE)
 _PROOF_BYPASS = re.compile(r"\b(?:Admitted|admit)\s*\.")
 _KERNEL_BYPASS = re.compile(
     r"\b(?:Unset\s+(?:Guard|Positivity|Universe)\s+Checking"
+    r"|Unset\s+Strict\s+Universe\s+Declaration"
     r"|Set\s+Type\s+in\s+Type"
     r"|Set\s+Universe\s+Checking\s+Off"
+    r"|Set\s+Allow\s+Rewrite\s+Rules"
+    r"|Rewrite\s+Rule"
+    r"|enable_rewrite_rules"
+    r"|Admit\s+Obligations"
     r"|Bypass_check"
     r"|bypass_check"
     r"|Declare\s+ML\s+Module"
@@ -33,6 +40,24 @@ _KERNEL_BYPASS = re.compile(
 )
 _ASSUMPTION_NAME = re.compile(r"^(?P<name>[A-Za-z_][A-Za-z0-9_'.]*) :")
 _VERSION_RE = re.compile(r"\bversion\s+(?P<major>\d+)\.(?P<minor>\d+)(?:\.(?P<patch>\d+))?\b")
+_PROHIBITED_PROVER_FLAGS: frozenset[str] = frozenset({
+    "-allow-rewrite-rules",
+    "--allow-rewrite-rules",
+    "-type-in-type",
+    "--type-in-type",
+    "-impredicative-set",
+    "--impredicative-set",
+    "-bypass-qed",
+    "--bypass-qed",
+})
+
+
+def check_prover_flags(argv: Sequence[str]) -> None:
+    """Refuse soundness-weakening CLI flags passed to ``rocq`` or ``rocqchk``."""
+    for arg in argv:
+        normalized = arg.split("=", 1)[0]
+        if normalized in _PROHIBITED_PROVER_FLAGS:
+            raise ValueError(f"prohibited Rocq kernel-weakening flag: {arg}")
 
 
 def _strip_rocq_comments(text: str) -> str:
@@ -133,6 +158,8 @@ def ledger(gallina: str) -> tuple[TrustedObligation, ...]:
         raise ValueError(f"emitted Gallina contains prohibited proof bypass: {bypass.group(0).strip()}")
     if (directive := _KERNEL_BYPASS.search(stripped)) is not None:
         raise ValueError(f"emitted Gallina contains prohibited kernel-bypass directive: {directive.group(0).strip()}")
+    if (sym := _REWRITE_SYMBOL.search(stripped)) is not None:
+        raise ValueError(f"emitted Gallina contains prohibited rewrite-rule symbol declaration: {sym.group(0).strip()}")
     entries = tuple(
         TrustedObligation(match["export"], match["axiom"], int(match["line"]),
                           int(match["column"]), match["reason"])

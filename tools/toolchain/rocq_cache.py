@@ -12,7 +12,7 @@ from pathlib import Path
 
 from filelock import FileLock
 
-from toolchain import elaborate_types, proofenv
+from toolchain import elaborate_types, proofenv, solver_ledger
 from toolchain.hashing import file_sha256
 
 type CompileFn = Callable[[list[str], Path, str], subprocess.CompletedProcess[str]]
@@ -136,6 +136,7 @@ def materialize_units(
     sources = dict(units)
     hashes = {name: hashlib.sha256(source).hexdigest() for name, source in units}
     active_compiler = list(compiler) if compiler is not None else [*proofenv.rocq_command(), "-q"]
+    solver_ledger.check_prover_flags(active_compiler)
     active_compile = compile_fn if compile_fn is not None else _default_compile
     active_cache = cache_dir if cache_dir is not None else (support_cache_root() if use_default_cache else None)
     active_digest = (
@@ -238,8 +239,10 @@ def check_kernel(directory: Path, units: Sequence[str], *, timeout: int = 600) -
     """Run ``rocqchk -silent`` over one or more compiled logical unit names."""
     if not units:
         raise ValueError("rocqchk requires at least one unit")
+    cmd = [*proofenv.rocqchk_command(), "-silent", *units]
+    solver_ledger.check_prover_flags(cmd)
     result = subprocess.run(
-        [*proofenv.rocqchk_command(), "-silent", *units],
+        cmd,
         cwd=directory,
         capture_output=True,
         text=True,
