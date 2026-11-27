@@ -5,7 +5,7 @@ import time
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 
-from toolchain.compiler_trace import MAX_TIME
+from toolchain.compiler_trace import MAX_TIME, _BaseChromeRecorder
 from toolchain.jsonutil import json_digest as digest
 
 type Object = dict[str, object]
@@ -29,45 +29,22 @@ def subjects(receipt: Object) -> str:
         "toolchain", "source_sha256", "gallina_sha256", "lowered_c_sha256")})
 
 
-class Recorder:
+class Recorder(_BaseChromeRecorder):
     def __init__(self, clock: Callable[[], int] = time.perf_counter_ns, *, limit: int = len(PHASES)) -> None:
-        if not 1 <= limit <= len(PHASES):
+        if type(limit) is not int or not 1 <= limit <= len(PHASES):
             raise ValueError("invalid packet trace limit")
-        self.clock = clock
+        super().__init__(max_events=limit, clock=clock)
         self.limit = limit
-        self.origin: int | None = None
-        self.last_ns = 0
-        self.events: list[Object] = []
-        self.dropped = 0
         self.open = 0
-        self.clock_fault = False
-
-    def _now(self) -> int:
-        now = self.clock()
-        if self.origin is None:
-            self.origin = now
-        if now < self.last_ns or (now - self.origin) // 1000 > MAX_TIME:
-            self.clock_fault = True
-            now = self.last_ns
-        self.last_ns = now
-        return (now - self.origin) // 1000
-
-    def _record(self, event: Object) -> None:
-        if len(self.events) == self.limit:
-            self.dropped += 1
-        else:
-            self.events.append(event)
 
     @contextmanager
     def span(self, name: str, os_pid: int | None = None) -> Generator[None]:
         if name not in PHASES or name == "source_bytes" or (name in CHILDREN) != (os_pid is not None):
             raise ValueError("invalid packet trace phase or worker")
         start = self._now()
-        event: Object = {"ph": "X", "cat": "holdfast.compiler", "name": name, "pid": CHILDREN.get(name, 1),
-                         "tid": 1, "ts": start, "dur": 0}
-        if os_pid is not None:
-            event["args"] = {"os_pid": os_pid}
-        self._record(event)
+        args: Object | None = {"os_pid": os_pid} if os_pid is not None else None
+        event = self._span_event(name, start, pid=CHILDREN.get(name, 1), args=args)
+        self._retain(event)
         self.open += 1
         try:
             yield
@@ -76,8 +53,7 @@ class Recorder:
             self.open -= 1
 
     def source_size(self, size: int) -> None:
-        self._record({"ph": "C", "cat": "holdfast.compiler", "name": "source_bytes",
-                      "pid": 1, "tid": 1, "ts": self._now(), "args": {"bytes": size}})
+        self._retain(self._counter_event("source_bytes", self._now(), {"bytes": size}))
 
     def export(self, binding: str, outcome: str) -> Object:
         if outcome not in {"passed", "refused", "cancelled"}:

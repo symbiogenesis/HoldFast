@@ -123,24 +123,18 @@ def producer_identity() -> str:
     return json_digest({"files": inputs, "host": _python_identity(), "native": native})
 
 
-class Recorder:
-    """One synchronous worker; bounded complete events retain nested start order."""
+class _BaseChromeRecorder:
+    """Shared bounded monotonic microsecond Chrome Trace Event buffer."""
 
-    def __init__(self, *, max_events: int = MAX_EVENTS,
-                 clock: Callable[[], int] = time.perf_counter_ns) -> None:
-        if type(max_events) is not int or not 1 <= max_events <= MAX_EVENTS:
-            raise ValueError(f"max_events must be between 1 and {MAX_EVENTS}")
+    def __init__(self, *, max_events: int, clock: Callable[[], int] = time.perf_counter_ns) -> None:
         self.max_events = max_events
         self.clock = clock
         self.origin: int | None = None
         self.last = 0
         self.last_reading = 0
         self.events: list[Object] = []
-        self.depth = 0
         self.dropped = 0
         self.clock_fault = False
-        self.overhead = 0
-        self.declarations = 0
 
     def _now(self) -> int:
         reading = self.clock()
@@ -163,6 +157,32 @@ class Recorder:
             return False
         self.events.append(event)
         return True
+
+    @staticmethod
+    def _span_event(name: str, start: int, *, pid: int = 1, args: Object | None = None) -> Object:
+        event: Object = {"name": name, "cat": "holdfast.compiler", "ph": "X", "pid": pid,
+                         "tid": 1, "ts": start, "dur": 0}
+        if args is not None:
+            event["args"] = args
+        return event
+
+    @staticmethod
+    def _counter_event(name: str, ts: int, args: Object, *, pid: int = 1) -> Object:
+        return {"name": name, "cat": "holdfast.compiler", "ph": "C", "pid": pid,
+                "tid": 1, "ts": ts, "args": args}
+
+
+class Recorder(_BaseChromeRecorder):
+    """One synchronous worker; bounded complete events retain nested start order."""
+
+    def __init__(self, *, max_events: int = MAX_EVENTS,
+                 clock: Callable[[], int] = time.perf_counter_ns) -> None:
+        if type(max_events) is not int or not 1 <= max_events <= MAX_EVENTS:
+            raise ValueError(f"max_events must be between 1 and {MAX_EVENTS}")
+        super().__init__(max_events=max_events, clock=clock)
+        self.depth = 0
+        self.overhead = 0
+        self.declarations = 0
 
     @contextmanager
     def span(self, name: str) -> Generator[None]:
@@ -187,10 +207,7 @@ class Recorder:
             raise ValueError("trace nesting exceeds limit")
         overhead = time.perf_counter_ns()
         start = self._now()
-        event: Object = {"name": name, "cat": "holdfast.compiler", "ph": "X", "pid": 1,
-                         "tid": 1, "ts": start, "dur": 0}
-        if details is not None:
-            event["args"] = details
+        event = self._span_event(name, start, args=details)
         retained = self._retain(event)
         self.depth += 1
         self.overhead += time.perf_counter_ns() - overhead
@@ -208,8 +225,7 @@ class Recorder:
         if name not in {"source_bytes", "gallina_bytes"} or type(value) is not int or not 0 <= value <= MAX_TIME:
             raise ValueError("unsupported counter or value")
         overhead = time.perf_counter_ns()
-        self._retain({"name": name, "cat": "holdfast.compiler", "ph": "C", "pid": 1,
-                      "tid": 1, "ts": self._now(), "args": {"bytes": value}})
+        self._retain(self._counter_event(name, self._now(), {"bytes": value}))
         self.overhead += time.perf_counter_ns() - overhead
 
     def export(self, source: bytes, producer: str, *, outcome: str) -> Object:

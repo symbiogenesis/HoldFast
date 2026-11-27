@@ -4,6 +4,7 @@
 import argparse
 import json
 import sys
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import cast
 
@@ -55,6 +56,20 @@ def _preview_unchanged(preview: dict[str, object]) -> None:
         raise ValueError("compiler producer changed before lint preview publication")
 
 
+def _publish_checked(output: Path, writer: Callable[[Path], object], *,
+                     destinations: Iterable[Path] = (),
+                     verify: Callable[[], object] | None = None) -> None:
+    checked = tuple(destinations)
+    for source in checked:
+        check_destination(source, output)
+    with atomic_path(output) as pending:
+        writer(pending)
+        for source in checked:
+            check_destination(source, output)
+        if verify is not None:
+            verify()
+
+
 def _lint(path: Path, source: bytes, allowed: set[str], denied: set[str], *,
           require_complete: bool = True) -> bool:
     try:
@@ -98,14 +113,14 @@ def _trace(args: argparse.Namespace) -> int:
             document = recorder.export(source.data, producer, outcome=outcome)
             manifest = compiler_trace.validate(document, source.data, producer, require_complete=False)
             ensure_unchanged(source)
-            if compiler_trace.producer_identity() != producer:
-                raise OSError("compiler inputs changed during recording")
-            check_destination(source_path, args.output)
-            with atomic_path(args.output) as pending:
-                write_report(pending, document)
-                ensure_unchanged(source)
-                if compiler_trace.producer_identity() != producer:
-                    raise OSError("compiler inputs changed before trace publication")
+            _producer_unchanged(producer, "during recording")
+            _publish_checked(
+                args.output,
+                lambda pending: write_report(pending, document),
+                destinations=(source_path,),
+                verify=lambda: (ensure_unchanged(source),
+                                _producer_unchanged(producer, "before trace publication")),
+            )
     except (OSError, ValueError) as error:
         print(f"{source_path}:1:1: trace: {error}", file=sys.stderr)
         return 1
@@ -129,12 +144,13 @@ def _remarks(args: argparse.Namespace) -> int:
             _producer_unchanged(producer, "during remarks validation")
             print("ok holdfast: current specialization remarks")
             return 0
-        check_destination(source.path, args.output)
-        with atomic_path(args.output) as pending:
-            pending.write_bytes(report.yaml)
-            ensure_unchanged(source)
-            _producer_unchanged(producer, "during remarks export")
-            check_destination(source.path, args.output)
+        _publish_checked(
+            args.output,
+            lambda pending: pending.write_bytes(report.yaml),
+            destinations=(source.path,),
+            verify=lambda: (ensure_unchanged(source),
+                            _producer_unchanged(producer, "during remarks export")),
+        )
     except (OSError, ValueError) as error:
         print(f"{args.source}:1:1: remarks: {error}", file=sys.stderr)
         return 1
@@ -173,11 +189,13 @@ def _trace_benchmark(args: argparse.Namespace) -> int:
             trace_benchmark.validate(report, source.data, producer, max_overhead_ppm=args.max_overhead_ppm)
         ensure_unchanged(source)
         _producer_unchanged(producer, "during benchmark")
-        check_destination(source_path, args.output)
-        with atomic_path(args.output) as pending:
-            write_report(pending, report)
-            ensure_unchanged(source)
-            _producer_unchanged(producer, "before benchmark publication")
+        _publish_checked(
+            args.output,
+            lambda pending: write_report(pending, report),
+            destinations=(source_path,),
+            verify=lambda: (ensure_unchanged(source),
+                            _producer_unchanged(producer, "before benchmark publication")),
+        )
     except HoldFastError as error:
         print(f"{source_path}:{error.line}:{error.column}: {error.kind}: {error.message}", file=sys.stderr)
         return 1
@@ -200,10 +218,12 @@ def _trace_viewer(args: argparse.Namespace) -> int:
             return 0
         check_destination(args.trace_processor, args.output)
         report = service.qualify(args.trace_processor)
-        check_destination(args.trace_processor, args.output)
-        with atomic_path(args.output) as pending:
-            write_report(pending, report)
-            service.check_current(args.trace_processor, report)
+        _publish_checked(
+            args.output,
+            lambda pending: write_report(pending, report),
+            destinations=(args.trace_processor,),
+            verify=lambda: service.check_current(args.trace_processor, report),
+        )
     except (OSError, ValueError) as error:
         print(f"{args.command}:1:1: qualification: {error}", file=sys.stderr)
         return 1
@@ -223,13 +243,13 @@ def _trace_render(args: argparse.Namespace) -> int:
         ensure_unchanged(source)
         ensure_unchanged(recording)
         _producer_unchanged(producer, "during trace rendering")
-        check_destination(source.path, args.output)
-        check_destination(recording.path, args.output)
-        with atomic_path(args.output) as pending:
-            pending.write_text(artifact, encoding="utf-8", newline="")
-            ensure_unchanged(source)
-            ensure_unchanged(recording)
-            _producer_unchanged(producer, "before trace HTML publication")
+        _publish_checked(
+            args.output,
+            lambda pending: pending.write_text(artifact, encoding="utf-8", newline=""),
+            destinations=(source.path, recording.path),
+            verify=lambda: (ensure_unchanged(source), ensure_unchanged(recording),
+                            _producer_unchanged(producer, "before trace HTML publication")),
+        )
     except (OSError, ValueError) as error:
         print(f"trace-render:1:1: rendering: {error}", file=sys.stderr)
         return 1
@@ -241,10 +261,12 @@ def _trace_browser(args: argparse.Namespace) -> int:
     try:
         check_destination(args.browser, args.output)
         report = trace_browser.qualify(args.browser, args.browser_sha256)
-        check_destination(args.browser, args.output)
-        with atomic_path(args.output) as pending:
-            write_report(pending, report)
-            trace_browser.check_current(args.browser, args.browser_sha256, report)
+        _publish_checked(
+            args.output,
+            lambda pending: write_report(pending, report),
+            destinations=(args.browser,),
+            verify=lambda: trace_browser.check_current(args.browser, args.browser_sha256, report),
+        )
     except (OSError, ValueError) as error:
         print(f"trace-qualify-browser:1:1: qualification: {error}", file=sys.stderr)
         return 1
@@ -276,15 +298,18 @@ def _sarif(args: argparse.Namespace) -> int:
         _producer_unchanged(producer, "during SARIF analysis")
         sarif.check_schema_current(args.schema)
         if args.command == "sarif":
-            check_destination(args.schema, args.output)
-            for source in sources:
-                check_destination(source.path, args.output)
-            with atomic_path(args.output) as pending:
-                pending.write_bytes(sarif.encode(document))
-                for source in sources:
-                    ensure_unchanged(source)
+            def _verify_sarif() -> None:
+                for item in sources:
+                    ensure_unchanged(item)
                 _producer_unchanged(producer, "before SARIF publication")
                 sarif.check_schema_current(args.schema)
+
+            _publish_checked(
+                args.output,
+                lambda pending: pending.write_bytes(sarif.encode(document)),
+                destinations=(args.schema, *(item.path for item in sources)),
+                verify=_verify_sarif,
+            )
         print(f"holdfast: SARIF analysis complete: {manifest['complete']}; pure development scope; unqualified")
         bindings = cast("list[sarif.Object]", manifest["inputs"])
         return 0 if manifest["complete"] and all(item["status"] == "checked" for item in bindings) else 1
@@ -295,15 +320,19 @@ def _sarif(args: argparse.Namespace) -> int:
 
 def _sarif_reader(args: argparse.Namespace) -> int:
     try:
-        check_destination(args.schema, args.output)
-        for name in sarif_reader.WHEEL_PINS:
-            check_destination(args.reader_directory / name, args.output)
         report = sarif_reader.qualify(args.reader_directory, args.schema)
-        with atomic_path(args.output) as pending:
-            write_report(pending, report)
+
+        def _verify_reader() -> None:
             sarif_reader.check_current(args.reader_directory, report)
             sarif.check_schema_current(args.schema)
             _producer_unchanged(cast("str", report["producer_sha256"]), "before SARIF qualification publication")
+
+        _publish_checked(
+            args.output,
+            lambda pending: write_report(pending, report),
+            destinations=(args.schema, *(args.reader_directory / name for name in sarif_reader.WHEEL_PINS)),
+            verify=_verify_reader,
+        )
     except (OSError, ValueError) as error:
         print(f"sarif-qualify-reader:1:1: qualification: {error}", file=sys.stderr)
         return 1
@@ -510,13 +539,14 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
         destination = args.output if args.command == "emit" else None
         if destination is not None:
-            check_destination(path, destination)
-            # Stage output before changing source, so a preparation failure writes neither.
-            with atomic_path(destination) as pending:
+            def _emit(pending: Path) -> None:
                 pending.write_text(translation.gallina, encoding="utf-8", newline="")
                 check_destination(path, destination)
                 current = rewrite_source(source, candidate)
                 ensure_unchanged(current)
+
+            # Stage output before changing source, so a preparation failure writes neither.
+            _publish_checked(destination, _emit, destinations=(path,))
         else:
             current = rewrite_source(source, candidate)
             ensure_unchanged(current)
