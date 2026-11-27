@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Audit mechanized HoldFast loan soundness proofs and certificate checking."""
 
-import shutil
+import contextlib
 import subprocess
 import tempfile
 from functools import partial
@@ -9,7 +9,7 @@ from pathlib import Path
 
 from tests.harness import TOOLS, Case, ensure
 from tests.test_holdfast_graded import _replay
-from toolchain import proofenv
+from toolchain import proofenv, rocq_cache
 
 _LOAN_SEMANTICS_PROOFS = (
     "places_disjoint_elem_ne",
@@ -282,15 +282,20 @@ Proof. vm_compute. reflexivity. Qed.
 """
 
 
-def _replay_certificate_harness() -> None:
+def _replay_certificate_harness(*, batch: rocq_cache.BatchChecker | None = None) -> None:
     """Compile and kernel-check positive and negative loan certificates."""
-    launch = ["opam", "exec", "--switch", proofenv.ROCQ_SWITCH, "--"]
-    compile_unit = [*launch, "rocq", "c", "-q"]
-    with tempfile.TemporaryDirectory(prefix="holdfast-loan-certs-") as temporary:
-        directory = Path(temporary)
-        for name in ("loan_semantics.v", "loan_soundness.v"):
-            shutil.copyfile(TOOLS / "rocq" / name, directory / name)
-            subprocess.run([*compile_unit, name], cwd=directory, check=True, timeout=180)
+    compile_unit = [*proofenv.rocq_command(), "-q"]
+    with contextlib.ExitStack() as stack:
+        if batch is None:
+            directory = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="holdfast-loan-certs-")))
+        else:
+            directory = batch.work_dir
+        rocq_cache.materialize_repo_units(
+            TOOLS.parent,
+            directory,
+            ("loan_semantics.v", "loan_soundness.v"),
+            compiler=compile_unit,
+        )
         harness = directory / "LoanCertHarness.v"
         harness.write_text(_CERTIFICATE_HARNESS.lstrip(), encoding="utf-8")
         result = subprocess.run(
@@ -306,29 +311,34 @@ def _replay_certificate_harness() -> None:
             result.returncode == 0,
             f"Loan certificate harness failed: {result.stderr or result.stdout}",
         )
-        subprocess.run(
-            [*launch, "rocqchk", "-silent", "loan_semantics", "loan_soundness", "LoanCertHarness"],
-            cwd=directory,
-            check=True,
-            timeout=180,
-        )
+        if batch is not None:
+            batch.register("LoanCertHarness")
+        else:
+            rocq_cache.check_kernel(directory, ["loan_semantics", "loan_soundness", "LoanCertHarness"])
 
 
 def cases() -> list[Case]:
+    batch = rocq_cache.BatchChecker()
     return [
         Case(
             "loan semantics zero-axiom Rocq audit",
-            partial(_replay, "loan_semantics", "LoanSemantics", _LOAN_SEMANTICS_PROOFS),
+            partial(_replay, "loan_semantics", "LoanSemantics", _LOAN_SEMANTICS_PROOFS, batch=batch),
             lane="toolchain",
         ),
         Case(
             "loan soundness zero-axiom Rocq audit",
-            partial(_replay, "loan_soundness", "LoanSoundness", _LOAN_SOUNDNESS_PROOFS, ("loan_semantics",)),
+            partial(_replay, "loan_soundness", "LoanSoundness", _LOAN_SOUNDNESS_PROOFS, ("loan_semantics",),
+                    batch=batch),
             lane="toolchain",
         ),
         Case(
             "loan certificate positive and negative kernel checks",
-            _replay_certificate_harness,
+            partial(_replay_certificate_harness, batch=batch),
+            lane="toolchain",
+        ),
+        Case(
+            "kernel check loan soundness and certificate proofs with rocqchk",
+            batch.verify_all,
             lane="toolchain",
         ),
     ]

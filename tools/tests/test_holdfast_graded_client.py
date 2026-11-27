@@ -6,7 +6,6 @@ import io
 import json
 import math
 import re
-import shutil
 import subprocess
 import tempfile
 import time
@@ -14,7 +13,7 @@ from pathlib import Path
 
 from tests.harness import TOOLS, Case, ensure
 from tests.test_holdfast_packages import _write
-from toolchain import packages, proofenv, solver_ledger
+from toolchain import packages, proofenv, rocq_cache, solver_ledger
 from toolchain.cli.holdfast_parser import main as parser_main
 
 
@@ -29,17 +28,19 @@ def _type_irrelevance() -> None:
     compiler = [*proofenv.rocq_command(), "-q"]
     with tempfile.TemporaryDirectory(prefix="holdfast-type-use-") as temporary:
         directory = Path(temporary)
-        for name in ("graded_pure.v", "graded_type_irrelevance.v"):
-            shutil.copyfile(TOOLS / "rocq" / name, directory / name)
-            subprocess.run([*compiler, name], cwd=directory, check=True, timeout=30)
+        rocq_cache.materialize_repo_units(
+            TOOLS.parent,
+            directory,
+            ("graded_pure.v", "graded_type_irrelevance.v"),
+            compiler=compiler,
+        )
         audit = directory / "TypeUseAudit.v"
         audit.write_text("Require Import graded_type_irrelevance.\n" + "".join(
             f"Print Assumptions GradedTypeIrrelevance.{name}.\n" for name in audited), encoding="utf-8")
         result = subprocess.run([*compiler, audit.name], cwd=directory, capture_output=True,
                                 text=True, encoding="utf-8", check=True, timeout=30)
         solver_ledger.audit(result.stdout, len(audited), "GradedTypeIrrelevance", ())
-        subprocess.run(["opam", "exec", "--switch", proofenv.ROCQ_SWITCH, "--", "rocqchk",
-                        "-silent", "graded_type_irrelevance"], cwd=directory, check=True, timeout=180)
+        rocq_cache.check_kernel(directory, ["graded_type_irrelevance"])
 
 
 def _parser_command(arguments: list[str]) -> tuple[int, str, str]:

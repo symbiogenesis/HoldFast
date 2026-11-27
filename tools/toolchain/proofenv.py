@@ -142,6 +142,21 @@ def rocq_command() -> list[str]:
                      f"{install_line(ROCQ_INSTALL)}")
 
 
+def rocqchk_command() -> list[str]:
+    """Resolve the Rocq kernel checker command (`[rocqchk]`) from `VOS_ROCQCHK`, `ROCQ_SWITCH`, or `PATH`."""
+    override = os.environ.get("VOS_ROCQCHK")
+    if bool(override):
+        return [override]
+    pinned = opam_root() / ROCQ_SWITCH / "bin" / "rocqchk"
+    if pinned.is_file():
+        return [str(pinned)]
+    found = shutil.which("rocqchk")
+    if bool(found):
+        return [found]
+    raise SystemExit(f"no kernel checker: neither $VOS_ROCQCHK, nor {pinned}, nor rocqchk on PATH. "
+                     f"{install_line(ROCQ_INSTALL)}")
+
+
 def git_dir(root: Path) -> Path | None:
     """Translate a Windows-created linked worktree's `.git` pointer via `wslpath` when running in WSL.
 

@@ -567,7 +567,12 @@ def verify_synthesis(outcome: SynthesisSuccess) -> list[str]:
         directory = Path(tmp)
         graded_source._support(root, compiler, directory, _ROCQ_SUPPORT)
         unit = directory / "SynthProof.v"
-        unit.write_text(outcome.gallina, encoding="utf-8", newline="\n")
+        unit.write_text(
+            outcome.gallina
+            + f"Print Assumptions {outcome.module_name}.{outcome.theorem_name}.\n",
+            encoding="utf-8",
+            newline="\n",
+        )
         compiled = subprocess.run(
             [*compiler, unit.name],
             cwd=directory,
@@ -579,24 +584,7 @@ def verify_synthesis(outcome: SynthesisSuccess) -> list[str]:
         )
         if compiled.returncode != 0:
             raise ValueError(f"Rocq rejected synthesized program: {compiled.stderr.strip()}")
-        audit = directory / "SynthAudit.v"
-        audit.write_text(
-            f"Require Import SynthProof.\nPrint Assumptions {outcome.module_name}.{outcome.theorem_name}.\n",
-            encoding="utf-8",
-            newline="\n",
-        )
-        audited = subprocess.run(
-            [*compiler, audit.name],
-            cwd=directory,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            check=False,
-            timeout=60,
-        )
-        if audited.returncode != 0:
-            raise ValueError(f"Rocq audit failed on synthesized program: {audited.stderr.strip()}")
-        return solver_ledger.audit(audited.stdout, 1, outcome.module_name, ())
+        return solver_ledger.audit(compiled.stdout, 1, outcome.module_name, ())
 
 
 def synthesize(

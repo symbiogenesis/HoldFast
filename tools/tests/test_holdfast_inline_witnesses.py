@@ -1,17 +1,19 @@
 # SPDX-License-Identifier: Apache-2.0
 """Kernel replay of executable assertions whose witnesses erase from the result."""
 
+import contextlib
 import subprocess
 import tempfile
+from functools import partial
 from pathlib import Path
 from unittest.mock import patch
 
 from tests.harness import TOOLS, Case, ensure, raises
-from toolchain import elaborate, elaborate_proofs, parser, proofenv, solver_ledger
+from toolchain import elaborate, elaborate_proofs, parser, proofenv, rocq_cache, solver_ledger
 from toolchain.ast import HoldFastError
 
 
-def _unused_witness() -> None:
+def _unused_witness(*, batch: rocq_cache.BatchChecker | None = None) -> None:
     source = b"""module InlineWitness;
 public Nat Observe(Nat n) requires n <= 4 {
     proof { assert (n <= 5) == true; assert n < 7; }
@@ -35,22 +37,31 @@ public Nat Observe(Nat n) requires n <= 4 {
     module = elaborate.gallina_module_name("InlineWitness")
     consumer = (f"\nExample bound : forall n, Nat.leb n 4 = true -> Nat.leb n 5 = true := {module}.{name}.\n"
                 "Print Assumptions bound.\n")
-    with tempfile.TemporaryDirectory() as temporary:
-        directory = Path(temporary)
-        target = directory / "Witness.v"
+    with contextlib.ExitStack() as stack:
+        if batch is None:
+            directory = Path(stack.enter_context(tempfile.TemporaryDirectory()))
+            stem = "Witness"
+        else:
+            directory = batch.work_dir
+            stem = batch.unique_stem("Witness")
+        target = directory / f"{stem}.v"
         target.write_text(gallina + consumer, encoding="utf-8")
-        launch = ["opam", "exec", "--switch", proofenv.ROCQ_SWITCH, "--"]
-        compile_unit = [*launch, "rocq", "c", "-q", target.name]
+        compile_unit = [*proofenv.rocq_command(), "-q", target.name]
         replay = subprocess.run(compile_unit, cwd=directory, capture_output=True, check=True, timeout=180)
         solver_ledger.audit(replay.stdout.decode(), 1, module, ())
-        subprocess.run([*launch, "rocqchk", "-silent", "Witness"], cwd=directory, check=True, timeout=180)
-        target.write_text(gallina + consumer.replace("n 5 = true", "n 3 = true"), encoding="utf-8")
-        rejected = subprocess.run(compile_unit, cwd=directory, capture_output=True, check=False, timeout=180)
+        if batch is not None:
+            batch.register(stem)
+        else:
+            rocq_cache.check_kernel(directory, [stem])
+        tampered = directory / "TamperedWitness.v"
+        tampered.write_text(gallina + consumer.replace("n 5 = true", "n 3 = true"), encoding="utf-8")
+        rejected = subprocess.run([*proofenv.rocq_command(), "-q", tampered.name], cwd=directory,
+                                  capture_output=True, check=False, timeout=180)
         ensure(rejected.returncode != 0 and b"expected to have type" in rejected.stderr,
                "the checked witness satisfied a stronger independent conclusion")
 
 
-def _branch_witnesses() -> None:
+def _branch_witnesses(*, batch: rocq_cache.BatchChecker | None = None) -> None:
     source = b"""module InlineBranches;
 public lemma AddZeroRight(Nat n) ensures n + 0 == n
 proof {
@@ -108,11 +119,12 @@ public Nat Clamp(Nat n) {
         ("explicit", b"assert n + 0 == n by AddZeroRight(n);", "forall n, Nat.add n 0 = n"),
         ("before_join", b"assert n < 6;", "forall n, Nat.leb n 4 = true -> Nat.ltb n 6 = true"),
         ("non_strict_false", b"assert 5 <= n;", "forall n, Nat.leb n 4 = false -> Nat.leb 5 n = true"),
-    ))
+    ), batch=batch)
 
 
 def _replay_witnesses(
-    module_name: str, source: bytes, gallina: str, witnesses: tuple[tuple[str, bytes, str], ...],
+    module_name: str, source: bytes, gallina: str, witnesses: tuple[tuple[str, bytes, str], ...], *,
+    batch: rocq_cache.BatchChecker | None = None,
 ) -> None:
     module = elaborate.gallina_module_name(module_name)
     consumers = []
@@ -122,19 +134,26 @@ def _replay_witnesses(
         [name] = [item for item in solver_ledger.math_exports(gallina)
                   if item.startswith(f"holdfast_assert_{start}_{end}_")]
         consumers.append(f"Example {label} : {statement} := {module}.{name}.\nPrint Assumptions {label}.\n")
-    with tempfile.TemporaryDirectory() as temporary:
-        directory = Path(temporary)
-        target = directory / "BranchWitnesses.v"
+    with contextlib.ExitStack() as stack:
+        if batch is None:
+            directory = Path(stack.enter_context(tempfile.TemporaryDirectory()))
+            stem = "BranchWitnesses"
+        else:
+            directory = batch.work_dir
+            stem = batch.unique_stem(module_name)
+        target = directory / f"{stem}.v"
         target.write_text(gallina + "\n" + "".join(consumers), encoding="utf-8")
-        launch = ["opam", "exec", "--switch", proofenv.ROCQ_SWITCH, "--"]
-        replay = subprocess.run([*launch, "rocq", "c", "-q", target.name], cwd=directory,
+        replay = subprocess.run([*proofenv.rocq_command(), "-q", target.name], cwd=directory,
                                 capture_output=True, check=False, text=True, timeout=180)
         ensure(replay.returncode == 0, replay.stderr)
         solver_ledger.audit(replay.stdout, len(consumers), module, ())
-        subprocess.run([*launch, "rocqchk", "-silent", target.stem], cwd=directory, check=True, timeout=180)
+        if batch is not None:
+            batch.register(stem)
+        else:
+            rocq_cache.check_kernel(directory, [stem])
 
 
-def _joined_branch_witnesses() -> None:
+def _joined_branch_witnesses(*, batch: rocq_cache.BatchChecker | None = None) -> None:
     source = b"""module JoinedBranches;
 public Nat Observe(Nat n, Nat m, Nat k, Fn(Nat value) -> type[Eq<bool>(n < k, true)] supplied) {
     if (n < m) {
@@ -172,13 +191,13 @@ public Nat Observe(Nat n, Nat m, Nat k, Fn(Nat value) -> type[Eq<bool>(n < k, tr
 
     _replay_witnesses("JoinedBranches", source, gallina, (
         ("joined", assertion, "forall n m k, Nat.ltb n m = true -> Nat.ltb k m = false -> Nat.ltb n k = true"),
-    ))
+    ), batch=batch)
     _replay_witnesses("JoinedBranches", repaired, repaired_gallina, (
         ("repaired", explicit, "forall n k, (nat -> Nat.ltb n k = true) -> Nat.ltb n k = true"),
-    ))
+    ), batch=batch)
 
 
-def _translated_branch_bounds() -> None:
+def _translated_branch_bounds(*, batch: rocq_cache.BatchChecker | None = None) -> None:
     source = b"""module TranslatedBounds;
 public Nat Strict(Nat n, Nat m, Nat k, Nat offset, Nat base) {
     if (n < m) {
@@ -232,10 +251,10 @@ public Nat Right(Nat n, Nat m, Nat offset) {
          "forall n m offset, Nat.leb n m = true -> Nat.leb (Nat.add offset n) (Nat.add offset m) = true"),
         ("on_right", b"assert n + offset <= m + offset;",
          "forall n m offset, Nat.leb m n = false -> Nat.leb (Nat.add n offset) (Nat.add m offset) = true"),
-    ))
+    ), batch=batch)
 
 
-def _cancelled_branch_bounds() -> None:
+def _cancelled_branch_bounds(*, batch: rocq_cache.BatchChecker | None = None) -> None:
     source = b"""module RelativeBounds;
 public Nat Observe(Nat used, Nat limit, Nat capacity, Nat base, Nat offset) {
     if (base + (used + offset) < base + (limit + offset)) {
@@ -297,13 +316,19 @@ public Nat Within(Nat used, Nat limit, Nat base) {
          "forall first last base, Nat.ltb (base + last) (base + first) = false -> Nat.leb first last = true"),
         ("non_strict", b"assert used <= limit;",
          "forall used limit base, Nat.leb (used + base) (limit + base) = true -> Nat.leb used limit = true"),
-    ))
+    ), batch=batch)
 
 
 def cases() -> list[Case]:
-    return [Case("erased assertion exports its exact conditional proof", _unused_witness, lane="toolchain"),
-            Case("strict branch bounds replay with their own guard", _branch_witnesses, lane="toolchain"),
-            Case("strict bounds join only scoped premises within the search limit", _joined_branch_witnesses,
-                 lane="toolchain"),
-            Case("Nat bounds preserve order under common addends", _translated_branch_bounds, lane="toolchain"),
-            Case("Nat bounds cancel common addends from scoped guards", _cancelled_branch_bounds, lane="toolchain")]
+    batch = rocq_cache.BatchChecker()
+    return [Case("erased assertion exports its exact conditional proof",
+                 partial(_unused_witness, batch=batch), lane="toolchain"),
+            Case("strict branch bounds replay with their own guard",
+                 partial(_branch_witnesses, batch=batch), lane="toolchain"),
+            Case("strict bounds join only scoped premises within the search limit",
+                 partial(_joined_branch_witnesses, batch=batch), lane="toolchain"),
+            Case("Nat bounds preserve order under common addends",
+                 partial(_translated_branch_bounds, batch=batch), lane="toolchain"),
+            Case("Nat bounds cancel common addends from scoped guards",
+                 partial(_cancelled_branch_bounds, batch=batch), lane="toolchain"),
+            Case("kernel check inline witness proofs with rocqchk", batch.verify_all, lane="toolchain")]

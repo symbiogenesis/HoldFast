@@ -1,12 +1,14 @@
 # SPDX-License-Identifier: Apache-2.0
 """Host and Rocq kernel replay tests for versioned e-graphs and order certificates."""
 
+import contextlib
 import subprocess
 import tempfile
+from functools import partial
 from pathlib import Path
 
 from tests.harness import TOOLS, Case, ensure, raises
-from toolchain import elaborate, parser, proofenv, solver_ledger
+from toolchain import elaborate, parser, proofenv, rocq_cache, solver_ledger
 from toolchain.ast import HoldFastError
 from toolchain.elaborate import _Elaborator
 from toolchain.elaborate_protocol import _Protocol
@@ -77,25 +79,33 @@ def _versioned_egraph_unit_cases() -> None:
            "merge budget exhaustion was not refused")
 
 
-def _replay_gallina(module_name: str, source: bytes, consumers: str, expected_reports: int) -> None:
+def _replay_gallina(module_name: str, source: bytes, consumers: str, expected_reports: int, *,
+                    batch: rocq_cache.BatchChecker | None = None) -> None:
     with parser.cached_build(TOOLS.parent) as compiled:
         result = elaborate.elaborate(source, parser.parse_source(compiled, source, surface=True))
     ensure(not solver_ledger.ledger(result.gallina),
            f"proof certificates introduced solver-trust axioms:\n{result.gallina}")
     module = elaborate.gallina_module_name(module_name)
-    with tempfile.TemporaryDirectory(prefix="holdfast-cert-") as temporary:
-        directory = Path(temporary)
-        target = directory / f"{module_name}.v"
+    with contextlib.ExitStack() as stack:
+        if batch is None:
+            directory = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="holdfast-cert-")))
+            stem = module_name
+        else:
+            directory = batch.work_dir
+            stem = batch.unique_stem(module_name)
+        target = directory / f"{stem}.v"
         target.write_text(result.gallina + "\n" + consumers, encoding="utf-8")
-        launch = ["opam", "exec", "--switch", proofenv.ROCQ_SWITCH, "--"]
-        replay = subprocess.run([*launch, "rocq", "c", "-q", target.name], cwd=directory,
+        replay = subprocess.run([*proofenv.rocq_command(), "-q", target.name], cwd=directory,
                                 capture_output=True, check=False, text=True, timeout=180)
         ensure(replay.returncode == 0, f"rocq c failed:\n{replay.stderr}")
         solver_ledger.audit(replay.stdout, expected_reports, module, ())
-        subprocess.run([*launch, "rocqchk", "-silent", target.stem], cwd=directory, check=True, timeout=180)
+        if batch is not None:
+            batch.register(stem)
+        else:
+            rocq_cache.check_kernel(directory, [stem])
 
 
-def _egraph_congruence_and_branch_isolation() -> None:
+def _egraph_congruence_and_branch_isolation(*, batch: rocq_cache.BatchChecker | None = None) -> None:
     source = b"""module EGraphReplay;
 public definition Nat StepF(Nat x) => x + 1;
 public definition Nat Combine(Nat x, Nat y) => x + y;
@@ -143,7 +153,7 @@ public Nat ScopedBranch(Nat a, Nat b, Nat x, Nat y)
     ]
     ensure(len(checked_exports) == 3, f"expected 3 EGraph exports, got {checked_exports}")
     consumers = "\n".join(f"Print Assumptions {mod}.{name}." for name in checked_exports) + "\n"
-    _replay_gallina("EGraphReplay", source, consumers, 3)
+    _replay_gallina("EGraphReplay", source, consumers, 3, batch=batch)
 
     # Negative control: equality in `if` branch must not leak into `else` branch.
     leaked = source.replace(b"return 0;", b"assert Combine(a, x) == Combine(b, y);\n        return 0;")
@@ -153,7 +163,7 @@ public Nat ScopedBranch(Nat a, Nat b, Nat x, Nat y)
         ensure(raised.exception.kind == "type", f"unexpected error kind: {raised.exception}")
 
 
-def _weighted_nat_difference_logic() -> None:
+def _weighted_nat_difference_logic(*, batch: rocq_cache.BatchChecker | None = None) -> None:
     source = b"""module NatDiffReplay;
 public Nat ChainedOffsets(Nat a, Nat b, Nat c)
 {
@@ -191,7 +201,7 @@ public Nat ContradictoryNatBranch(Nat a, Nat b, Nat x)
     assert_exports = [name for name in solver_ledger.math_exports(gallina) if "_assert_" in name]
     ensure(len(assert_exports) == 5, f"expected 5 Nat difference witnesses, got {assert_exports}")
     consumers = "\n".join(f"Print Assumptions {mod}.{name}." for name in assert_exports) + "\n"
-    _replay_gallina("NatDiffReplay", source, consumers, 5)
+    _replay_gallina("NatDiffReplay", source, consumers, 5, batch=batch)
 
     for bad_old, bad_new in (
         (b"assert a + 3 <= c;", b"assert a + 4 <= c;"),
@@ -206,7 +216,7 @@ public Nat ContradictoryNatBranch(Nat a, Nat b, Nat x)
             elaborate.elaborate(bad, parser.parse_source(compiled, bad, surface=True))
 
 
-def _fixed_int_order_certificates() -> None:
+def _fixed_int_order_certificates(*, batch: rocq_cache.BatchChecker | None = None) -> None:
     source = b"""module IntOrderReplay;
 public usize UsizeGuards(usize a, usize b, usize c)
 {
@@ -248,7 +258,7 @@ public usize ContradictoryUsizeBranch(usize a, usize b, usize z)
     assert_exports = [name for name in solver_ledger.math_exports(gallina) if "_assert_" in name]
     ensure(len(assert_exports) == 5, f"expected 5 integer order witnesses, got {assert_exports}")
     consumers = "\n".join(f"Print Assumptions {mod}.{name}." for name in assert_exports) + "\n"
-    _replay_gallina("IntOrderReplay", source, consumers, 5)
+    _replay_gallina("IntOrderReplay", source, consumers, 5, batch=batch)
 
     for bad_old, bad_new in (
         (b"assert a <= b;", b"assert a < b;"),
@@ -264,9 +274,14 @@ public usize ContradictoryUsizeBranch(usize a, usize b, usize z)
 
 
 def cases() -> list[Case]:
+    batch = rocq_cache.BatchChecker()
     return [
         Case("versioned-egraph-unit", _versioned_egraph_unit_cases),
-        Case("egraph-congruence-and-branch-isolation", _egraph_congruence_and_branch_isolation, lane="toolchain"),
-        Case("weighted-nat-difference-logic", _weighted_nat_difference_logic, lane="toolchain"),
-        Case("fixed-int-order-certificates", _fixed_int_order_certificates, lane="toolchain"),
+        Case("egraph-congruence-and-branch-isolation",
+             partial(_egraph_congruence_and_branch_isolation, batch=batch), lane="toolchain"),
+        Case("weighted-nat-difference-logic",
+             partial(_weighted_nat_difference_logic, batch=batch), lane="toolchain"),
+        Case("fixed-int-order-certificates",
+             partial(_fixed_int_order_certificates, batch=batch), lane="toolchain"),
+        Case("kernel check proof certificates with rocqchk", batch.verify_all, lane="toolchain"),
     ]

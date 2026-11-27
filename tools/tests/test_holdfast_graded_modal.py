@@ -5,14 +5,13 @@ import contextlib
 import hashlib
 import io
 import json
-import shutil
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
 
 from tests.harness import TOOLS, Case, ensure
-from toolchain import proofenv, solver_ledger
+from toolchain import proofenv, rocq_cache, solver_ledger
 from toolchain.cli.holdfast_parser import main as parser_main
 
 _AUDITED = (
@@ -54,21 +53,17 @@ _SUPPORT = ("graded_pure.v", "graded_domains.v", "graded_modal.v", "graded_modal
 
 
 def _replay() -> None:
-    launch = ["opam", "exec", "--switch", proofenv.ROCQ_SWITCH, "--"]
-    compile_unit = [*launch, "rocq", "c", "-q"]
+    compile_unit = [*proofenv.rocq_command(), "-q"]
     with tempfile.TemporaryDirectory(prefix="holdfast-graded-modal-") as temporary:
         directory = Path(temporary)
-        for name in _SUPPORT[:-1]:
-            shutil.copyfile(TOOLS / "rocq" / name, directory / name)
-            subprocess.run([*compile_unit, name], cwd=directory, check=True, timeout=180)
+        rocq_cache.materialize_repo_units(TOOLS.parent, directory, _SUPPORT[:-1], compiler=compile_unit)
         audit = directory / "ModalAudit.v"
         audit.write_text("Require Import graded_modal.\n" + "".join(
             f"Print Assumptions GradedModal.{name}.\n" for name in _AUDITED), encoding="utf-8")
         report = subprocess.run([*compile_unit, audit.name], cwd=directory, capture_output=True,
                                 text=True, encoding="utf-8", check=True, timeout=180)
         solver_ledger.audit(report.stdout, len(_AUDITED), "GradedModal", ())
-        subprocess.run([*launch, "rocqchk", "-silent", "graded_modal"], cwd=directory,
-                       check=True, timeout=180)
+        rocq_cache.check_kernel(directory, ["graded_modal"])
 
 
 def _source_command(path: Path, declaration: str, *options: str) -> tuple[int, str, str]:
@@ -86,8 +81,7 @@ def _audit_certificate(directory: Path, kernel_hashes: dict[str, str], certifica
         unit = TOOLS / "rocq" / name
         ensure(hashlib.sha256(unit.read_bytes()).hexdigest() == kernel_hashes[name],
                f"unbound Rocq support {name}")
-        shutil.copyfile(unit, directory / name)
-        subprocess.run([*compiler, name], cwd=directory, check=True, timeout=30)
+    rocq_cache.materialize_repo_units(TOOLS.parent, directory, _SUPPORT, compiler=compiler)
     unit = directory / "ModalSourceProof.v"
     unit.write_text(certificate, encoding="utf-8")
     subprocess.run([*compiler, unit.name], cwd=directory, capture_output=True, check=True, timeout=30)

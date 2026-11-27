@@ -1653,12 +1653,13 @@ Proof. repeat split; reflexivity. Qed.
     audit = "".join(f"Print Assumptions {name}.\n" for name in exports)
     with TemporaryDirectory() as tmp:
         (Path(tmp) / "IndexedLoans.v").write_text(gallina + proof + audit, encoding="utf-8")
-        for command in (["rocq", "c", "-q", "IndexedLoans.v"], ["rocqchk", "-silent", "IndexedLoans"]):
-            result = subprocess.run(["opam", "exec", "--switch", proofenv.ROCQ_SWITCH, "--", *command],
-                                    cwd=tmp, capture_output=True, timeout=180, check=False)
-            ensure(result.returncode == 0, f"{command} refused the indexed writeback proof: {result.stderr[-2400:]!r}")
-            if command[0] == "rocq":
-                solver_ledger.audit(result.stdout.decode("utf-8"), len(exports), "HoldFast_IndexedLoans", entries)
+        replay = subprocess.run([*proofenv.rocq_command(), "-q", "IndexedLoans.v"],
+                                cwd=tmp, capture_output=True, timeout=180, check=False)
+        ensure(replay.returncode == 0, f"rocq c refused the indexed writeback proof: {replay.stderr[-2400:]!r}")
+        solver_ledger.audit(replay.stdout.decode("utf-8"), len(exports), "HoldFast_IndexedLoans", entries)
+        kernel = subprocess.run([*proofenv.rocqchk_command(), "-silent", "IndexedLoans"],
+                                cwd=tmp, capture_output=True, timeout=180, check=False)
+        ensure(kernel.returncode == 0, f"rocqchk refused the indexed writeback proof: {kernel.stderr[-2400:]!r}")
 
 
 def _mixed_indexed_loans() -> None:
@@ -1759,12 +1760,13 @@ Proof. repeat split; reflexivity. Qed.
     audit = "".join(f"Print Assumptions {name}.\n" for name in exports)
     with TemporaryDirectory() as tmp:
         (Path(tmp) / "MixedIndexedLoans.v").write_text(gallina + proof + audit, encoding="utf-8")
-        for command in (["rocq", "c", "-q", "MixedIndexedLoans.v"], ["rocqchk", "-silent", "MixedIndexedLoans"]):
-            result = subprocess.run(["opam", "exec", "--switch", proofenv.ROCQ_SWITCH, "--", *command],
-                                    cwd=tmp, capture_output=True, timeout=180, check=False)
-            ensure(result.returncode == 0, f"{command} refused the mixed writeback proof: {result.stderr[:3600]!r}")
-            if command[0] == "rocq":
-                solver_ledger.audit(result.stdout.decode("utf-8"), len(exports), "HoldFast_MixedIndexedLoans", entries)
+        replay = subprocess.run([*proofenv.rocq_command(), "-q", "MixedIndexedLoans.v"],
+                                cwd=tmp, capture_output=True, timeout=180, check=False)
+        ensure(replay.returncode == 0, f"rocq c refused the mixed writeback proof: {replay.stderr[:3600]!r}")
+        solver_ledger.audit(replay.stdout.decode("utf-8"), len(exports), "HoldFast_MixedIndexedLoans", entries)
+        kernel = subprocess.run([*proofenv.rocqchk_command(), "-silent", "MixedIndexedLoans"],
+                                cwd=tmp, capture_output=True, timeout=180, check=False)
+        ensure(kernel.returncode == 0, f"rocqchk refused the mixed writeback proof: {kernel.stderr[:3600]!r}")
 
 
 def _owner_coordinate_indexed_loans() -> None:
@@ -2047,13 +2049,13 @@ End UpdatedTrial.
     audit = "".join(f"Print Assumptions {name}.\n" for name in exports)
     with TemporaryDirectory() as tmp:
         (Path(tmp) / "OwnerCoordinateLoans.v").write_text(gallina + proof + audit, encoding="utf-8")
-        for command in (["rocq", "c", "-q", "OwnerCoordinateLoans.v"],
-                        ["rocqchk", "-silent", "OwnerCoordinateLoans"]):
-            result = subprocess.run(["opam", "exec", "--switch", proofenv.ROCQ_SWITCH, "--", *command],
-                                    cwd=tmp, capture_output=True, timeout=180, check=False)
-            ensure(result.returncode == 0, f"{command} refused owner-coordinate writeback: {result.stderr[:3600]!r}")
-            if command[0] == "rocq":
-                solver_ledger.audit(result.stdout.decode("utf-8"), len(exports), "HoldFast_OwnerCoordinateLoans", entries)
+        replay = subprocess.run([*proofenv.rocq_command(), "-q", "OwnerCoordinateLoans.v"],
+                                cwd=tmp, capture_output=True, timeout=180, check=False)
+        ensure(replay.returncode == 0, f"rocq c refused owner-coordinate writeback: {replay.stderr[:3600]!r}")
+        solver_ledger.audit(replay.stdout.decode("utf-8"), len(exports), "HoldFast_OwnerCoordinateLoans", entries)
+        kernel = subprocess.run([*proofenv.rocqchk_command(), "-silent", "OwnerCoordinateLoans"],
+                                cwd=tmp, capture_output=True, timeout=180, check=False)
+        ensure(kernel.returncode == 0, f"rocqchk refused owner-coordinate writeback: {kernel.stderr[:3600]!r}")
 
 
 def _correlated_indexed_loans() -> None:

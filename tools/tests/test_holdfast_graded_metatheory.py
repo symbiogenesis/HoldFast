@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Audit mechanized GrTT metatheory, symbolic semiring polymorphism, and erasure proofs."""
 
-import shutil
 import subprocess
 import tempfile
 import time
@@ -10,7 +9,7 @@ from pathlib import Path
 
 from tests.harness import TOOLS, Case, ensure
 from tests.test_holdfast_graded import _replay
-from toolchain import proofenv
+from toolchain import proofenv, rocq_cache
 
 _METATHEORY_PROOFS = (
     "derives_allows_mono",
@@ -58,12 +57,13 @@ _ERASURE_PROOFS = (
 )
 
 
-def _replay_grtt_core() -> None:
+def _replay_grtt_core(*, batch: rocq_cache.BatchChecker | None = None) -> None:
     _replay(
         "graded_metatheory",
         "GradedMetatheory.GrttCore",
         _GRTT_CORE_PROOFS,
         ("graded_pure", "graded_domains"),
+        batch=batch,
     )
 
 
@@ -108,10 +108,13 @@ Qed.
     compiler = [*proofenv.rocq_command(), "-q"]
     with tempfile.TemporaryDirectory(prefix="holdfast-q25cb-") as tmp:
         directory = Path(tmp)
-        for name in ("graded_pure.v", "graded_domains.v", "graded_cbv.v",
-                     "graded_type_irrelevance.v", "graded_erasure.v"):
-            shutil.copyfile(TOOLS / "rocq" / name, directory / name)
-            subprocess.run([*compiler, name], cwd=directory, check=True, timeout=60)
+        rocq_cache.materialize_repo_units(
+            TOOLS.parent,
+            directory,
+            ("graded_pure.v", "graded_domains.v", "graded_cbv.v",
+             "graded_type_irrelevance.v", "graded_erasure.v"),
+            compiler=compiler,
+        )
         bench_file = directory / "Q25cbBench.v"
         bench_file.write_text(bench, encoding="utf-8")
         t0 = time.perf_counter_ns()
@@ -123,19 +126,23 @@ Qed.
 
 
 def cases() -> list[Case]:
+    batch = rocq_cache.BatchChecker()
     return [
         Case("graded structural and substitution metatheory",
              partial(_replay, "graded_metatheory", "GradedMetatheory", _METATHEORY_PROOFS,
-                     ("graded_pure", "graded_domains")),
+                     ("graded_pure", "graded_domains"), batch=batch),
              lane="toolchain"),
-        Case("full GrTT explicit (s, r) core calculus", _replay_grtt_core, lane="toolchain"),
+        Case("full GrTT explicit (s, r) core calculus", partial(_replay_grtt_core, batch=batch), lane="toolchain"),
         Case("graded symbolic semiring polymorphism",
              partial(_replay, "graded_semiring", "GradedSemiring", _SEMIRING_PROOFS,
-                     ("graded_pure", "graded_domains")),
+                     ("graded_pure", "graded_domains"), batch=batch),
              lane="toolchain"),
         Case("graded erasure, non-interference, and Q25cb skipping",
              partial(_replay, "graded_erasure", "GradedErasure", _ERASURE_PROOFS,
-                     ("graded_pure", "graded_domains", "graded_cbv", "graded_type_irrelevance")),
+                     ("graded_pure", "graded_domains", "graded_cbv", "graded_type_irrelevance"), batch=batch),
+             lane="toolchain"),
+        Case("kernel check metatheory, semiring, and erasure proofs with rocqchk",
+             batch.verify_all,
              lane="toolchain"),
         Case("Q25cb zero-type-use substitution skipping on deep telescope",
              _q25cb_substitution_skipping_benchmark,

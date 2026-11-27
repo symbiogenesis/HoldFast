@@ -1048,7 +1048,15 @@ def verify_certificate(certificate: GradeCertificate) -> list[str]:
         directory = Path(tmp)
         graded_source._support(root, compiler, directory, _ROCQ_SUPPORT)
         cert_file = directory / "InferenceCertificate.v"
-        cert_file.write_text(certificate.gallina, encoding="utf-8", newline="\n")
+        audit_lines = [
+            f"Print Assumptions {certificate.module_name}.{name}."
+            for name in certificate.theorem_names
+        ]
+        cert_file.write_text(
+            certificate.gallina + "\n".join(audit_lines) + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
         compiled = subprocess.run(
             [*compiler, cert_file.name],
             cwd=directory,
@@ -1060,25 +1068,8 @@ def verify_certificate(certificate: GradeCertificate) -> list[str]:
         )
         if compiled.returncode != 0:
             raise ValueError(f"Rocq rejected grade inference certificate: {compiled.stderr.strip()}")
-        audit_lines = [
-            "Require Import InferenceCertificate.",
-            *(f"Print Assumptions {certificate.module_name}.{name}." for name in certificate.theorem_names),
-        ]
-        audit_file = directory / "InferenceAudit.v"
-        audit_file.write_text("\n".join(audit_lines) + "\n", encoding="utf-8", newline="\n")
-        audited = subprocess.run(
-            [*compiler, audit_file.name],
-            cwd=directory,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            check=False,
-            timeout=60,
-        )
-        if audited.returncode != 0:
-            raise ValueError(f"Rocq audit failed on grade inference certificate: {audited.stderr.strip()}")
         return solver_ledger.audit(
-            audited.stdout,
+            compiled.stdout,
             len(certificate.theorem_names),
             certificate.module_name,
             (),

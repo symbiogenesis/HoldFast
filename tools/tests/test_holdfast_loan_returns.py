@@ -1,41 +1,45 @@
 # SPDX-License-Identifier: Apache-2.0
 """Replay shared views and their owner states on source control-flow paths."""
 
+import contextlib
 import re
 import subprocess
+from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from tests.harness import TOOLS, Case, ensure, raises
-from toolchain import parser, proofenv, solver_ledger
+from toolchain import parser, proofenv, rocq_cache, solver_ledger
 from toolchain.ast import HoldFastError
 from toolchain.elaborate import elaborate
 
 
-def _replay_view_proof(gallina: str, proof: str, module: str, theorems: list[str]) -> None:
+def _replay_view_proof(gallina: str, proof: str, module: str, theorems: list[str], *,
+                       batch: rocq_cache.BatchChecker | None = None) -> None:
     entries = solver_ledger.ledger(gallina)
     ensure(not entries, "view return depended on a solver assumption")
     exports = [*solver_ledger.math_exports(gallina), *theorems]
     audit = "".join(f"Print Assumptions {name}.\n" for name in exports)
-    with TemporaryDirectory(prefix="holdfast-view-return-") as tmp:
-        unit = Path(tmp) / f"{module}.v"
+    with contextlib.ExitStack() as stack:
+        if batch is None:
+            directory = Path(stack.enter_context(TemporaryDirectory(prefix="holdfast-view-return-")))
+            stem = module
+        else:
+            directory = batch.work_dir
+            stem = batch.unique_stem(module)
+        unit = directory / f"{stem}.v"
         unit.write_text(gallina + proof + audit, encoding="utf-8")
-        replay = subprocess.run([*proofenv.rocq_command(), "-q", unit.name], cwd=tmp, capture_output=True,
+        replay = subprocess.run([*proofenv.rocq_command(), "-q", unit.name], cwd=directory, capture_output=True,
                                 encoding="utf-8", timeout=180, check=False)
         ensure(replay.returncode == 0, replay.stderr)
         solver_ledger.audit(replay.stdout, len(exports), f"HoldFast_{module}", entries)
-        chk = subprocess.run(
-            ["opam", "exec", "--switch", proofenv.ROCQ_SWITCH, "--", "rocqchk", "-silent", module],
-            cwd=tmp,
-            capture_output=True,
-            encoding="utf-8",
-            timeout=180,
-            check=False,
-        )
-        ensure(chk.returncode == 0, chk.stderr)
+        if batch is not None:
+            batch.register(stem)
+        else:
+            rocq_cache.check_kernel(directory, [stem])
 
 
-def _conditional_view_return() -> None:
+def _conditional_view_return(*, batch: rocq_cache.BatchChecker | None = None) -> None:
     source = (TOOLS / "tests" / "fixtures" / "conditional-view-return.hf").read_bytes()
     with parser.cached_build(TOOLS.parent) as compiled:
         gallina = elaborate(source, parser.parse_source(compiled, source, surface=True)).gallina
@@ -114,10 +118,10 @@ Proof. repeat split; reflexivity. Qed.
 """
     _replay_view_proof(gallina, proof, "ConditionalViewReturn", [
         "conditional_view_and_writeback", "conditional_view_entry_is_inhabited",
-    ])
+    ], batch=batch)
 
 
-def _branch_view_last_use() -> None:
+def _branch_view_last_use(*, batch: rocq_cache.BatchChecker | None = None) -> None:
     source = (TOOLS / "tests" / "fixtures" / "branch-view-last-use.hf").read_bytes()
     with parser.cached_build(TOOLS.parent) as compiled:
         gallina = elaborate(source, parser.parse_source(compiled, source, surface=True)).gallina
@@ -248,10 +252,10 @@ Proof. repeat split; reflexivity. Qed.
 """
     _replay_view_proof(gallina, proof, "BranchViewLastUse", [
         "branch_view_observation_and_restoration", "branch_view_frame", "branch_view_entry_is_inhabited",
-    ])
+    ], batch=batch)
 
 
-def _joined_view_return() -> None:
+def _joined_view_return(*, batch: rocq_cache.BatchChecker | None = None) -> None:
     source = (TOOLS / "tests" / "fixtures" / "joined-view-return.hf").read_bytes()
     with parser.cached_build(TOOLS.parent) as compiled:
         gallina = elaborate(source, parser.parse_source(compiled, source, surface=True)).gallina
@@ -326,10 +330,12 @@ Example joined_view_entry_is_inhabited :
   observed_byte trial_span (trial_index 4) = None.
 Proof. repeat split; reflexivity. Qed.
 """
-    _replay_view_proof(gallina, proof, "JoinedViewReturn", ["joined_view_and_writeback", "joined_view_entry_is_inhabited"])
+    _replay_view_proof(gallina, proof, "JoinedViewReturn", [
+        "joined_view_and_writeback", "joined_view_entry_is_inhabited",
+    ], batch=batch)
 
 
-def _correlated_view_return() -> None:
+def _correlated_view_return(*, batch: rocq_cache.BatchChecker | None = None) -> None:
     source = b"""module CorrelatedViewReturn;
 
 public record ByteView<region 'owner>(in<'owner> Span<byte> Bytes);
@@ -415,10 +421,10 @@ Proof. repeat split; reflexivity. Qed.
 """
     _replay_view_proof(gallina, proof, "CorrelatedViewReturn", [
         "correlated_view_and_writeback", "correlated_view_observations",
-    ])
+    ], batch=batch)
 
 
-def _loop_view_return() -> None:
+def _loop_view_return(*, batch: rocq_cache.BatchChecker | None = None) -> None:
     source = (TOOLS / "tests" / "fixtures" / "loop-view-return.hf").read_bytes()
     loop_start = source.index(b"        foreach")
     loop_end = source.index(b"        return Ok", loop_start)
@@ -498,10 +504,12 @@ Example loop_view_entry_is_inhabited :
   observed_byte trial_span (trial_index 4) = None.
 Proof. repeat split; reflexivity. Qed.
 """
-    _replay_view_proof(gallina, proof, "LoopViewReturn", ["loop_view_and_writeback", "loop_view_entry_is_inhabited"])
+    _replay_view_proof(gallina, proof, "LoopViewReturn", [
+        "loop_view_and_writeback", "loop_view_entry_is_inhabited",
+    ], batch=batch)
 
 
-def _lending_span_iteration() -> None:
+def _lending_span_iteration(*, batch: rocq_cache.BatchChecker | None = None) -> None:
     source = (TOOLS / "tests" / "fixtures" / "lending-span-iteration.hf").read_bytes()
     with parser.cached_build(TOOLS.parent) as compiled:
         gallina = elaborate(source, parser.parse_source(compiled, source, surface=True)).gallina
@@ -616,10 +624,10 @@ Proof. vm_compute. split; reflexivity. Qed.
 """
     _replay_view_proof(gallina, proof, "LendingSpanIteration", [
         "lending_iteration_count_and_writeback", "lending_iteration_frame", "lending_prefix_observations",
-    ])
+    ], batch=batch)
 
 
-def _lending_span_break() -> None:
+def _lending_span_break(*, batch: rocq_cache.BatchChecker | None = None) -> None:
     source = (TOOLS / "tests" / "fixtures" / "lending-span-break.hf").read_bytes()
     with parser.cached_build(TOOLS.parent) as compiled:
         gallina = elaborate(source, parser.parse_source(compiled, source, surface=True)).gallina
@@ -745,10 +753,10 @@ Proof. vm_compute. repeat split; reflexivity. Qed.
 """
     _replay_view_proof(gallina, proof, "LendingSpanBreak", [
         "lending_break_count_and_writeback", "lending_break_frame_and_freeze", "lending_break_observations",
-    ])
+    ], batch=batch)
 
 
-def _lending_filter_return() -> None:
+def _lending_filter_return(*, batch: rocq_cache.BatchChecker | None = None) -> None:
     source = (TOOLS / "tests" / "fixtures" / "lending-filter-return.hf").read_bytes()
     with parser.cached_build(TOOLS.parent) as compiled:
         gallina = elaborate(source, parser.parse_source(compiled, source, surface=True)).gallina
@@ -910,10 +918,10 @@ Proof. vm_compute. repeat split; reflexivity. Qed.
 """
     _replay_view_proof(gallina, proof, "LendingFilterReturn", [
         "lending_filter_matches_recursive", "lending_filter_frame_and_freeze", "lending_filter_observations",
-    ])
+    ], batch=batch)
 
 
-def _subslice_disjoint_writeback() -> None:
+def _subslice_disjoint_writeback(*, batch: rocq_cache.BatchChecker | None = None) -> None:
     source = (TOOLS / "tests" / "fixtures" / "subslice-disjoint-writeback.hf").read_bytes()
     with parser.cached_build(TOOLS.parent) as compiled:
         gallina = elaborate(source, parser.parse_source(compiled, source, surface=True)).gallina
@@ -998,10 +1006,10 @@ Proof. intros buf a m b n k1 k2. repeat split; reflexivity. Qed.
         "dual_var_writeback_and_frame",
         "dual_ref_let_and_zero_len_writeback",
         "dual_writeback_preserves_metadata",
-    ])
+    ], batch=batch)
 
 
-def _field_and_multidim_borrows() -> None:
+def _field_and_multidim_borrows(*, batch: rocq_cache.BatchChecker | None = None) -> None:
     source = (TOOLS / "tests" / "fixtures" / "field-and-multidim-borrows.hf").read_bytes()
     with parser.cached_build(TOOLS.parent) as compiled:
         gallina = elaborate(source, parser.parse_source(compiled, source, surface=True)).gallina
@@ -1103,10 +1111,10 @@ Proof. vm_compute. repeat split; reflexivity. Qed.
     _replay_view_proof(gallina, proof, "FieldAndMultidimBorrows", [
         "field_split_and_dual_writeback",
         "grid_2d_and_row_clear_replay",
-    ])
+    ], batch=batch)
 
 
-def _loop_cursor_reborrow() -> None:
+def _loop_cursor_reborrow(*, batch: rocq_cache.BatchChecker | None = None) -> None:
     source = (TOOLS / "tests" / "fixtures" / "loop-cursor-reborrow.hf").read_bytes()
     with parser.cached_build(TOOLS.parent) as compiled:
         gallina = elaborate(source, parser.parse_source(compiled, source, surface=True)).gallina
@@ -1191,10 +1199,10 @@ Proof. intros buf target. repeat split; reflexivity. Qed.
     _replay_view_proof(gallina, proof, "LoopCursorReborrow", [
         "loop_cursor_reborrow_observations",
         "loop_cursor_preserves_metadata",
-    ])
+    ], batch=batch)
 
 
-def _higher_ranked_view_callback() -> None:
+def _higher_ranked_view_callback(*, batch: rocq_cache.BatchChecker | None = None) -> None:
     source = (TOOLS / "tests" / "fixtures" / "higher-ranked-view-callback.hf").read_bytes()
     with parser.cached_build(TOOLS.parent) as compiled:
         gallina = elaborate(source, parser.parse_source(compiled, source, surface=True)).gallina
@@ -1298,10 +1306,10 @@ Proof. vm_compute. repeat split; reflexivity. Qed.
     _replay_view_proof(gallina, proof, "HigherRankedViewCallback", [
         "higher_ranked_identity_functional",
         "higher_ranked_callback_observations",
-    ])
+    ], batch=batch)
 
 
-def _two_phase_receiver_replay() -> None:
+def _two_phase_receiver_replay(*, batch: rocq_cache.BatchChecker | None = None) -> None:
     source = b"""// SPDX-License-Identifier: Apache-2.0
 module TwoPhaseReceiver;
 
@@ -1445,22 +1453,37 @@ Proof. vm_compute. repeat split; reflexivity. Qed.
     _replay_view_proof(gallina, proof, "TwoPhaseReceiver", [
         "two_phase_eval_order_and_post_state",
         "two_phase_concrete_observations",
-    ])
+    ], batch=batch)
 
 
 def cases() -> list[Case]:
+    batch = rocq_cache.BatchChecker()
     return [
-        Case("conditional view return and sibling owner writeback", _conditional_view_return, lane="toolchain"),
-        Case("branch-specific last use of a shared Span view", _branch_view_last_use, lane="toolchain"),
-        Case("returned view and branch-specific owner writeback at a join", _joined_view_return, lane="toolchain"),
-        Case("conditional view origin and correlated owner writeback", _correlated_view_return, lane="toolchain"),
-        Case("returned view and disjoint symbolic loop writeback", _loop_view_return, lane="toolchain"),
-        Case("scoped lending and symbolic Span element writeback", _lending_span_iteration, lane="toolchain"),
-        Case("scoped lending and early break exits on Span", _lending_span_break, lane="toolchain"),
-        Case("lending filtering range loop with early borrowed view return", _lending_filter_return, lane="toolchain"),
-        Case("simultaneous exclusive disjoint sub-slice writeback", _subslice_disjoint_writeback, lane="toolchain"),
-        Case("same-index disjoint record fields, 2D borrows, and path-sensitive clear", _field_and_multidim_borrows, lane="toolchain"),
-        Case("loop-carried cursor reborrowing and conditional returned view", _loop_cursor_reborrow, lane="toolchain"),
-        Case("higher-ranked region-polymorphic view callbacks", _higher_ranked_view_callback, lane="toolchain"),
-        Case("two-phase receiver elaboration, evaluation order, and Rocq replay", _two_phase_receiver_replay, lane="toolchain"),
+        Case("conditional view return and sibling owner writeback",
+             partial(_conditional_view_return, batch=batch), lane="toolchain"),
+        Case("branch-specific last use of a shared Span view",
+             partial(_branch_view_last_use, batch=batch), lane="toolchain"),
+        Case("returned view and branch-specific owner writeback at a join",
+             partial(_joined_view_return, batch=batch), lane="toolchain"),
+        Case("conditional view origin and correlated owner writeback",
+             partial(_correlated_view_return, batch=batch), lane="toolchain"),
+        Case("returned view and disjoint symbolic loop writeback",
+             partial(_loop_view_return, batch=batch), lane="toolchain"),
+        Case("scoped lending and symbolic Span element writeback",
+             partial(_lending_span_iteration, batch=batch), lane="toolchain"),
+        Case("scoped lending and early break exits on Span",
+             partial(_lending_span_break, batch=batch), lane="toolchain"),
+        Case("lending filtering range loop with early borrowed view return",
+             partial(_lending_filter_return, batch=batch), lane="toolchain"),
+        Case("simultaneous exclusive disjoint sub-slice writeback",
+             partial(_subslice_disjoint_writeback, batch=batch), lane="toolchain"),
+        Case("same-index disjoint record fields, 2D borrows, and path-sensitive clear",
+             partial(_field_and_multidim_borrows, batch=batch), lane="toolchain"),
+        Case("loop-carried cursor reborrowing and conditional returned view",
+             partial(_loop_cursor_reborrow, batch=batch), lane="toolchain"),
+        Case("higher-ranked region-polymorphic view callbacks",
+             partial(_higher_ranked_view_callback, batch=batch), lane="toolchain"),
+        Case("two-phase receiver elaboration, evaluation order, and Rocq replay",
+             partial(_two_phase_receiver_replay, batch=batch), lane="toolchain"),
+        Case("kernel check all returned-view proofs with rocqchk", batch.verify_all, lane="toolchain"),
     ]

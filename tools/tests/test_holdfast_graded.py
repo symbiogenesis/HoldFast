@@ -5,7 +5,6 @@ import contextlib
 import hashlib
 import io
 import json
-import shutil
 import subprocess
 import tempfile
 from functools import partial
@@ -13,7 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from tests.harness import TOOLS, Case, ensure
-from toolchain import graded_source, proofenv, solver_ledger
+from toolchain import graded_source, proofenv, rocq_cache, solver_ledger
 from toolchain.cli.holdfast_parser import main as parser_main
 
 _PURE_PROOFS = (
@@ -56,27 +55,30 @@ _DOMAIN_PROOFS = (
 
 
 def _replay(unit: str, module: str, proofs: tuple[str, ...], dependencies: tuple[str, ...] = (),
-            generated: tuple[tuple[str, str], ...] = ()) -> None:
-    launch = ["opam", "exec", "--switch", proofenv.ROCQ_SWITCH, "--"]
-    compile_unit = [*launch, "rocq", "c", "-q"]
-    with tempfile.TemporaryDirectory(prefix="holdfast-graded-") as temporary:
-        directory = Path(temporary)
-        for name, gallina in generated:
-            source = directory / f"{name}.v"
-            source.write_text(gallina, encoding="utf-8")
-            subprocess.run([*compile_unit, source.name], cwd=directory, check=True, timeout=180)
-        for name in (*dependencies, unit):
-            source = TOOLS / "rocq" / f"{name}.v"
-            shutil.copyfile(source, directory / source.name)
-            subprocess.run([*compile_unit, source.name], cwd=directory, check=True, timeout=180)
-        audit = directory / "GradeAudit.v"
+            generated: tuple[tuple[str, str], ...] = (), *,
+            batch: rocq_cache.BatchChecker | None = None) -> None:
+    compile_unit = [*proofenv.rocq_command(), "-q"]
+    with contextlib.ExitStack() as stack:
+        if batch is None:
+            directory = Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="holdfast-graded-")))
+        else:
+            directory = batch.work_dir
+        units = [
+            *((f"{name}.v", gallina.encode("utf-8")) for name, gallina in generated),
+            *((f"{name}.v", (TOOLS / "rocq" / f"{name}.v").read_bytes()) for name in (*dependencies, unit)),
+        ]
+        rocq_cache.materialize_units(directory, units, compiler=compile_unit)
+        audit_stem = batch.unique_stem(f"GradeAudit_{unit}") if batch is not None else "GradeAudit"
+        audit = directory / f"{audit_stem}.v"
         audit.write_text(f"Require Import {unit}.\n" + "".join(
             f"Print Assumptions {module}.{name}.\n" for name in proofs), encoding="utf-8")
         report = subprocess.run([*compile_unit, audit.name], cwd=directory, capture_output=True,
                                 text=True, encoding="utf-8", check=True, timeout=180)
         solver_ledger.audit(report.stdout, len(proofs), module, ())
-        subprocess.run([*launch, "rocqchk", "-silent", unit], cwd=directory,
-                       check=True, timeout=180)
+        if batch is not None:
+            batch.register(unit)
+        else:
+            rocq_cache.check_kernel(directory, [unit])
 
 
 def _source_command(path: Path, declaration: str, *options: str) -> tuple[int, str, str]:
@@ -279,8 +281,7 @@ def _verify_source_certificate(directory: Path, kernel_hashes: dict[str, str], c
     for name in support:
         unit = TOOLS / "rocq" / name
         ensure(hashlib.sha256(unit.read_bytes()).hexdigest() == kernel_hashes[name], f"unbound Rocq support {name}")
-        shutil.copyfile(unit, directory / name)
-        subprocess.run([*compiler, name], cwd=directory, check=True, timeout=30)
+    rocq_cache.materialize_repo_units(TOOLS.parent, directory, support, compiler=compiler)
     unit = directory / "SourceProof.v"
     unit.write_text(certificate, encoding="utf-8")
     subprocess.run([*compiler, unit.name], cwd=directory, capture_output=True, check=True, timeout=30)
@@ -594,13 +595,48 @@ Print Assumptions keep_double_id.
         ensure(status == 1 and not output and ": unsupported: " in error, error)
 
 
+def _batch_checker_controls() -> None:
+    with tempfile.TemporaryDirectory(prefix="holdfast-rocq-batch-ctrl-") as temporary:
+        base = Path(temporary)
+        batch = rocq_cache.BatchChecker(prefix="holdfast-batch-unit-")
+        ensure(batch.unique_stem("Sample") == "Sample"
+               and batch.unique_stem("Sample") == "Sample_2",
+               "BatchChecker did not disambiguate duplicate stems")
+        batch.register("unit_a")
+        batch.register("unit_b")
+        batch.register("unit_a")
+        ensure(batch.units == ("unit_a", "unit_b"), "BatchChecker did not deduplicate registered units")
+        work_dir = batch.work_dir
+        ensure(work_dir.is_dir(), "BatchChecker did not create work_dir on access")
+        fake_chk = base / "fake-rocqchk"
+        fake_chk.write_text("#!/bin/sh\n", encoding="utf-8")
+        seen_cmds: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            seen_cmds.append(cmd)
+            ensure(kwargs["cwd"] == work_dir, "rocqchk ran outside batch work_dir")
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+
+        with (patch.dict("os.environ", {"VOS_ROCQCHK": str(fake_chk)}),
+              patch.object(rocq_cache.subprocess, "run", side_effect=fake_run)):
+            ensure(proofenv.rocqchk_command() == [str(fake_chk)], "VOS_ROCQCHK override was ignored")
+            batch.verify_all()
+        ensure(seen_cmds == [[str(fake_chk), "-silent", "unit_a", "unit_b"]],
+               f"BatchChecker ran unexpected rocqchk command: {seen_cmds!r}")
+        ensure(not work_dir.exists(), "BatchChecker did not clean up its temporary directory")
+
+
 def cases() -> list[Case]:
+    batch = rocq_cache.BatchChecker()
     return [Case("support cache reuses verified .vo artifacts and repairs corruption", _support_cache_controls),
+            Case("rocqchk batch checker deduplicates units and cleans up", _batch_checker_controls),
             Case("pure dependent usage and telescope substitution replay",
-                 partial(_replay, "graded_pure", "GradedPure", _PURE_PROOFS), lane="toolchain"),
+                 partial(_replay, "graded_pure", "GradedPure", _PURE_PROOFS, batch=batch), lane="toolchain"),
             Case("ordered grade domains and dependent row certificates",
-                 partial(_replay, "graded_domains", "GradedDomains", _DOMAIN_PROOFS, ("graded_pure",)),
+                 partial(_replay, "graded_domains", "GradedDomains", _DOMAIN_PROOFS, ("graded_pure",),
+                         batch=batch),
                  lane="toolchain"),
+            Case("kernel check pure and domain graded proofs with rocqchk", batch.verify_all, lane="toolchain"),
             Case("source-bound exact grades and dependent partial application replay", _source_replay, lane="toolchain"),
             Case("source-bound natural bounds and exact type dependencies", _bounded_source_replay, lane="toolchain"),
             Case("graded type-valued identity and universe specialization replay", _type_identity_source_replay,

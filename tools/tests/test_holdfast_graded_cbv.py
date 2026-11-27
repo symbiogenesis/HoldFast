@@ -5,6 +5,7 @@ from functools import partial
 
 from tests.harness import Case
 from tests.test_holdfast_graded import _replay
+from toolchain import rocq_cache
 from toolchain.elaborate_types import _PRELUDE
 
 _AUDITED = (
@@ -73,22 +74,28 @@ _ERASURE_AUDITED = (
 
 
 def cases() -> list[Case]:
+    batch = rocq_cache.BatchChecker()
     return [
         Case("graded natural call-by-value replay",
-             partial(_replay, "graded_cbv", "GradedCbv", _AUDITED, ("graded_pure", "graded_domains")),
+             partial(_replay, "graded_cbv", "GradedCbv", _AUDITED, ("graded_pure", "graded_domains"),
+                     batch=batch),
              lane="toolchain"),
         Case("graded call-by-value scoped Span exits",
              partial(_replay, "graded_cbv_span", "GradedCbvSpan", _SPAN_AUDITED,
-                     ("graded_pure", "graded_domains", "graded_cbv"), (("graded_cbv_span_carrier", _PRELUDE),)),
+                     ("graded_pure", "graded_domains", "graded_cbv"), (("graded_cbv_span_carrier", _PRELUDE),),
+                     batch=batch),
              lane="toolchain"),
         Case("graded dependent box call-by-value replay",
              partial(_replay, "graded_modal_cbv", "GradedModalCbv", _MODAL_AUDITED,
                      ("graded_pure", "graded_domains", "graded_modal", "graded_cbv", "graded_cbv_span"),
-                     (("graded_cbv_span_carrier", _PRELUDE),)),
+                     (("graded_cbv_span_carrier", _PRELUDE),),
+                     batch=batch),
              lane="toolchain"),
         Case("graded call-by-value zero-grade erasure replay",
              partial(_replay, "graded_cbv_erasure", "GradedCbvErasure", _ERASURE_AUDITED,
                      ("graded_pure", "graded_domains", "graded_cbv", "graded_cbv_span"),
-                     (("graded_cbv_span_carrier", _PRELUDE),)),
+                     (("graded_cbv_span_carrier", _PRELUDE),),
+                     batch=batch),
              lane="toolchain"),
+        Case("kernel check call-by-value graded proofs with rocqchk", batch.verify_all, lane="toolchain"),
     ]
