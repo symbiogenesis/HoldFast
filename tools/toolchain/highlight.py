@@ -114,7 +114,7 @@ def tree_grammar(root: Path) -> str:
     terminals.update({"IDENT": "$.identifier", "ANNOTATION_NAME": 'choice($.identifier, "Nat", "bool")',
                       "DECIMAL": "$.number", "NUMBER": "$.number", "STRING": "$.string",
                       "INTERPOLATED_STRING": "$.interpolated_string", "CHARACTER": "$.character",
-                      "LIFETIME": "$.lifetime", "HOLE": "$.hole", "EOF": ""})
+                      "LIFETIME": "$.lifetime", "HOLE": "$.hole", "SHARED": '"shared"', "EOF": ""})
     # The secondary lexer uses a single identifier token for both annotation modes.
     # Their Menhir rule heads therefore share the same lexical representation.
     terminals["s_type_identifier"] = terminals["s_plain_value_identifier"] = terminals["ANNOTATION_NAME"]
