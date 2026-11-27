@@ -137,19 +137,19 @@ Proof.
   - now rewrite <- parameters.
 Qed.
 
-Local Definition at_index (n : nat) := holdfast_nat_to_usize n.
-Local Definition byte (n : nat) := holdfast_mk_int 0 (holdfast_nat_to_bits 8 n).
-Local Definition empty_owner : byte_span := holdfast_Span_AllocZeroed _ (at_index 11) (at_index 4).
-Local Definition initial_owner := span_write (span_write empty_owner (at_index 2) (byte 6)) (at_index 3) (byte 21).
-Local Definition store_at base index to name grade failure :=
+Definition at_index (n : nat) := holdfast_nat_to_usize n.
+Definition byte (n : nat) := holdfast_mk_int 0 (holdfast_nat_to_bits 8 n).
+Definition empty_owner : byte_span := holdfast_Span_AllocZeroed _ (at_index 11) (at_index 4).
+Definition initial_owner := span_write (span_write empty_owner (at_index 2) (byte 6)) (at_index 3) (byte 21).
+Definition store_at base index to name grade failure :=
   {| binder_grade := (name, grade); start := at_index base; length := at_index 2;
      element := at_index index; replacement := byte to; failure_after_write := failure |}.
-Local Definition store_prefix := store_at 1 0 9 1 0 None.
-Local Definition store_next := store_at 1 1 15 2 3 None.
-Local Definition store_failing := store_at 1 1 15 2 3 (Some 9).
-Local Definition store_suffix := store_at 0 0 17 3 0 None.
+Definition store_prefix := store_at 1 0 9 1 0 None.
+Definition store_next := store_at 1 1 15 2 3 None.
+Definition store_failing := store_at 1 1 15 2 3 (Some 9).
+Definition store_suffix := store_at 0 0 17 3 0 None.
 
-Local Definition slice_events argument := map ArgumentEvent
+Definition slice_events argument := map ArgumentEvent
   [SliceBorrowed (start argument) (length argument);
    ElementWritten (owner_index argument) (replacement argument); OwnerRestored].
 

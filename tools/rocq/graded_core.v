@@ -880,24 +880,6 @@ Fixpoint subst_tvar_in_cty {D : JoinDomain} (k : nat) (U T : cty D) : cty D :=
 
 (* Specialization helpers for dependent elimination motives *)
 
-Fixpoint map_cidx_in_cty {D : JoinDomain} (f : nat -> cidx D -> cidx D) (k : nat) (T : cty D) : cty D :=
-  match T with
-  | CNat => CNat
-  | CBool => CBool
-  | CVec elem len => CVec (map_cidx_in_cty f k elem) (f k len)
-  | CUniv lvl => CUniv lvl
-  | CTVar x => CTVar (if x <? k then x else if x =? k then 0 else x - 1)
-  | CTProm q inner => CTProm q (map_cidx_in_cty f k inner)
-  | CTUnbox b => CTUnbox (if b <? k then b else if b =? k then 0 else b - 1)
-  | CPi x s r dom cod => CPi x s r (map_cidx_in_cty f k dom) (map_cidx_in_cty f (S k) cod)
-  | CSigma x r fst_ty snd_ty => CSigma x r (map_cidx_in_cty f k fst_ty) (map_cidx_in_cty f (S k) snd_ty)
-  | CBox q inner => CBox q (map_cidx_in_cty f k inner)
-  | CSum lhs rhs => CSum (map_cidx_in_cty f k lhs) (map_cidx_in_cty f k rhs)
-  | CRecord id fields =>
-      CRecord id (map (fun '(fn, fg, ft) => (fn, fg, map_cidx_in_cty f k ft)) fields)
-  | CInd id indices => CInd id (map (f k) indices)
-  end.
-
 (* For CLetBox body in (x : A) :: env: replace unboxed 0 with Promoted 0, keep outer >= 1 *)
 Fixpoint spec_box_body_cidx {D : JoinDomain} (q : grade D) (k : nat) (i : cidx D) : cidx D :=
   match i with

@@ -148,18 +148,7 @@ Theorem exact_substitution_agrees_with_pure :
     GradedPure.uses (GradedPure.substitute_demand binder argument row) i.
 Proof.
   intros binder argument row i fresh. unfold substitute_row, apply_row, GradedPure.substitute_demand.
-  rewrite GradedPure.uses_append, GradedPure.uses_without.
-  assert (scaled : forall weight entries,
-      GradedPure.uses (GradedPure.scale weight entries) i =
-      weight * GradedPure.uses entries i).
-  { intros weight entries. induction entries as [|[name count] rest IH].
-    - cbn. now rewrite Nat.mul_0_r.
-    - change ((if Nat.eqb i name then weight * count else 0) +
-        GradedPure.uses (GradedPure.scale weight rest) i =
-        weight * ((if Nat.eqb i name then count else 0) + GradedPure.uses rest i)).
-      rewrite IH, Nat.mul_add_distr_l.
-      destruct (Nat.eqb i name); simpl; try rewrite Nat.mul_0_r; reflexivity. }
-  rewrite scaled, (Nat.eqb_sym i binder).
+  rewrite GradedPure.uses_append, GradedPure.uses_without, GradedPure.uses_scale, (Nat.eqb_sym i binder).
   destruct (Nat.eqb binder i) eqn:removed; cbn.
   - apply Nat.eqb_eq in removed. subst i. now rewrite fresh, Nat.mul_0_r.
   - reflexivity.
@@ -381,27 +370,14 @@ Lemma linear_no_weakening :
   ~ @allows LinearDomain zero one.
 Proof. discriminate. Qed.
 
-(* Affine domain {AZero, AOne, AMany} with 0 <= 1 <= many and join = max. *)
-Inductive aff_grade : Type :=
-| AZero
-| AOne
-| AMany.
-
-Definition aff_grade_eq_dec : forall a b : aff_grade, {a = b} + {a <> b}.
-Proof. decide equality. Defined.
-
-Definition aff_add (a b : aff_grade) : aff_grade :=
-  match a, b with
-  | AZero, x | x, AZero => x
-  | _, _ => AMany
-  end.
-
-Definition aff_mul (a b : aff_grade) : aff_grade :=
-  match a, b with
-  | AZero, _ | _, AZero => AZero
-  | AOne, x | x, AOne => x
-  | AMany, AMany => AMany
-  end.
+(* Affine domain {AZero, AOne, AMany} sharing {LZero, LOne, LMany} carrier with 0 <= 1 <= many and join = max. *)
+Definition aff_grade : Type := lin_grade.
+Abbreviation AZero := LZero.
+Abbreviation AOne := LOne.
+Abbreviation AMany := LMany.
+Definition aff_grade_eq_dec : forall a b : aff_grade, {a = b} + {a <> b} := lin_grade_eq_dec.
+Definition aff_add : aff_grade -> aff_grade -> aff_grade := lin_add.
+Definition aff_mul : aff_grade -> aff_grade -> aff_grade := lin_mul.
 
 Definition aff_le (a b : aff_grade) : Prop :=
   match a, b with
@@ -535,17 +511,13 @@ Proof.
   intros [| a] [| b]; reflexivity.
 Defined.
 
-Definition linear_to_affine_fn (q : lin_grade) : aff_grade :=
-  match q with LZero => AZero | LOne => AOne | LMany => AMany end.
+Definition linear_to_affine_fn (q : lin_grade) : aff_grade := q.
 
 Definition linear_to_affine_base : DomainMap LinearBase AffineBase.
 Proof.
-  refine (@Build_DomainMap LinearBase AffineBase linear_to_affine_fn _ _ _ _ _).
-  - reflexivity.
-  - reflexivity.
-  - intros [] []; reflexivity.
-  - intros [] []; reflexivity.
-  - intros [] [] H; inversion H; subst; cbn; exact I.
+  refine (@Build_DomainMap LinearBase AffineBase linear_to_affine_fn _ _ _ _ _);
+    cbn; try reflexivity.
+  intros a [] H; subst; cbn; exact I.
 Defined.
 
 Definition linear_to_affine_join : JoinDomainMap LinearDomain AffineDomain.
