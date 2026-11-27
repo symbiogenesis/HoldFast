@@ -8,13 +8,13 @@ HoldFast source alongside replayable Rocq proofs audited for zero axioms.
 """
 
 import hashlib
-import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Literal
+from pathlib import Path
+from typing import Literal, cast
 
 from toolchain import graded_inference as gi
-from toolchain import graded_source
+from toolchain import graded_source, parser
 
 
 @dataclass(frozen=True)
@@ -160,64 +160,94 @@ def default_domain_rules(
     )
 
 
-_RECORD_RE = re.compile(
-    r"(?:public\s+)?record\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:<([^>]*)>)?\s*\(([^)]*)\)\s*;",
-    re.MULTILINE,
-)
-_UNION_RE = re.compile(
-    r"(?:public\s+)?union\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:<([^>]*)>)?\s*\{([^}]*)\}\s*;",
-    re.MULTILINE | re.DOTALL,
-)
-_CTOR_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*([^)]+)\s*\)")
+def _node_text(node: object) -> str:
+    if not isinstance(node, Mapping):
+        raise TypeError(f"expected AST name mapping, got {node!r}")
+    inner = node.get("name")
+    if isinstance(inner, Mapping):
+        return _node_text(inner)
+    text = node.get("text")
+    if not isinstance(text, str):
+        raise TypeError(f"expected AST text field, got {node!r}")
+    return text
 
 
-def inspect_holdfast_structures(source: str) -> StructureSpec:
-    """Inspect HoldFast ``record`` and ``union`` declarations from source text."""
+def _span_text(source_bytes: bytes, node: object) -> str:
+    if not isinstance(node, Mapping):
+        raise TypeError(f"expected AST node mapping, got {node!r}")
+    span = node.get("span")
+    if not isinstance(span, list) or len(span) != 2 or not all(isinstance(x, int) for x in span):
+        raise ValueError(f"missing byte span on AST node: {node!r}")
+    return source_bytes[cast("int", span[0]):cast("int", span[1])].decode("utf-8").strip()
+
+
+def inspect_holdfast_structures(
+    source: str,
+    *,
+    parsed: Mapping[str, object] | None = None,
+) -> StructureSpec:
+    """Inspect HoldFast ``record`` and ``union`` declarations via the canonical HoldFast parser."""
+    source_bytes = source.encode("utf-8")
+    if parsed is None:
+        root = Path(__file__).resolve().parents[2]
+        with parser.cached_build(root) as compiled:
+            ast_payload = cast("Mapping[str, object]", parser.parse_source(compiled, source_bytes, surface=True))
+    else:
+        ast_payload = parsed
+
+    ast_root = ast_payload.get("ast")
+    if not isinstance(ast_root, Mapping):
+        raise TypeError("canonical parser output omitted 'ast' surface file")
+    declarations = ast_root.get("declarations")
+    if not isinstance(declarations, list):
+        raise TypeError("canonical parser output omitted 'declarations'")
+
     records: dict[str, RecordDecl] = {}
-    box_domain: gi.InferenceDomain | None = None
-    for match in _RECORD_RE.finditer(source):
-        name = match.group(1)
-        raw_generics = match.group(2) or ""
-        generics = tuple(part.strip() for part in raw_generics.split(",") if part.strip())
-        if name == "Box":
-            for gen in generics:
-                if "grade" in gen and ":" in gen:
-                    dom_name = gen.split(":", 1)[1].strip()
-                    box_domain = gi.coerce_domain(dom_name)
-        fields: list[tuple[str, str, str | None]] = []
-        raw_body = match.group(3)
-        if not isinstance(raw_body, str):
-            continue
-        for raw_field in raw_body.split(","):
-            entry = raw_field.strip()
-            if not entry:
-                continue
-            grade_part: str | None = None
-            if "@" in entry:
-                head_raw, grade_raw = entry.split("@", 1)
-                head = head_raw.strip()
-                grade_part = grade_raw.strip()
-            else:
-                head = entry
-            parts = head.rsplit(None, 1)
-            if len(parts) != 2:
-                raise ValueError(f"unsupported record field syntax in {name!r}: {entry!r}")
-            fields.append((parts[1], parts[0], grade_part))
-        records[name] = RecordDecl(name, generics, tuple(fields))
-
     unions: dict[str, UnionDecl] = {}
-    for match in _UNION_RE.finditer(source):
-        name = match.group(1)
-        raw_generics = match.group(2) or ""
-        generics = tuple(part.strip() for part in raw_generics.split(",") if part.strip())
-        variants: list[tuple[str, str, str]] = []
-        for ctor_match in _CTOR_RE.finditer(match.group(3)):
-            ctor_name = ctor_match.group(1)
-            arg_parts = ctor_match.group(2).strip().rsplit(None, 1)
-            if len(arg_parts) != 2:
-                raise ValueError(f"unsupported union constructor syntax in {name!r}: {ctor_match.group(0)!r}")
-            variants.append((ctor_name, arg_parts[0], arg_parts[1]))
-        unions[name] = UnionDecl(name, generics, tuple(variants))
+    box_domain: gi.InferenceDomain | None = None
+
+    for raw_decl in declarations:
+        if not isinstance(raw_decl, Mapping):
+            continue
+        kind = raw_decl.get("kind")
+        if kind == "record":
+            name = _node_text(raw_decl.get("name"))
+            raw_generics = cast("list[object]", raw_decl.get("generics") or [])
+            generics = tuple(_span_text(source_bytes, gen) for gen in raw_generics)
+            if name == "Box":
+                for gen in raw_generics:
+                    if isinstance(gen, Mapping) and gen.get("mode") == "grade" and gen.get("type") is not None:
+                        box_domain = gi.coerce_domain(_span_text(source_bytes, gen.get("type")))
+            fields: list[tuple[str, str, str | None]] = []
+            for param in cast("list[object]", raw_decl.get("parameters") or []):
+                if not isinstance(param, Mapping):
+                    continue
+                pname = _node_text(param.get("name"))
+                ptype_node = param.get("type")
+                if ptype_node is None:
+                    raise ValueError(f"unsupported record field syntax in {name!r}: missing type on {pname!r}")
+                grade_node = param.get("grade")
+                grade_part = _span_text(source_bytes, grade_node) if grade_node is not None else None
+                fields.append((pname, _span_text(source_bytes, ptype_node), grade_part))
+            records[name] = RecordDecl(name, generics, tuple(fields))
+        elif kind == "union":
+            name = _node_text(raw_decl.get("name"))
+            raw_generics = cast("list[object]", raw_decl.get("generics") or [])
+            generics = tuple(_span_text(source_bytes, gen) for gen in raw_generics)
+            variants: list[tuple[str, str, str]] = []
+            for ctor in cast("list[object]", raw_decl.get("constructors") or []):
+                if not isinstance(ctor, Mapping):
+                    continue
+                ctor_name = _node_text(ctor.get("name"))
+                cparams = cast("list[object]", ctor.get("parameters") or [])
+                if len(cparams) != 1 or not isinstance(cparams[0], Mapping) or cparams[0].get("type") is None:
+                    raise ValueError(f"unsupported union constructor syntax in {name!r}: {ctor_name!r}")
+                variants.append((
+                    ctor_name,
+                    _span_text(source_bytes, cparams[0].get("type")),
+                    _node_text(cparams[0].get("name")),
+                ))
+            unions[name] = UnionDecl(name, generics, tuple(variants))
 
     return StructureSpec(records=records, unions=unions, box_domain=box_domain)
 
