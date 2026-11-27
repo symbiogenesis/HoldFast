@@ -1,0 +1,37 @@
+// SPDX-License-Identifier: Apache-2.0
+module ExclusiveConditionalReturn;
+
+public record EntryPair(byte First, byte Second);
+
+public ref<'a> byte PickFirstOrMutate<region 'a>(ref<'a> EntryPair pair, bool useFirst)
+{
+    let firstRef = ref pair.First;
+    if (useFirst) {
+        return firstRef;
+    }
+    pair = EntryPair(pair.First, 9u8);
+    return ref pair.Second;
+}
+
+public EntryPair WriteThroughReturnedRef(owned EntryPair pair, bool useFirst, byte newVal)
+{
+    var cur = pair;
+    let picked = PickFirstOrMutate(ref cur, useFirst);
+    picked = newVal;
+    return cur;
+}
+
+public ref<'a> byte LoopConditionalReturn<region 'a>(ref<'a> EntryPair pair, usize limit)
+{
+    var i = 0usize;
+    while (i < limit)
+        decreases limit - i
+    {
+        if (pair.First == 0u8) {
+            return ref pair.First;
+        }
+        i = i.WrappingAdd(1usize);
+    }
+    pair = EntryPair(pair.First, 7u8);
+    return ref pair.Second;
+}

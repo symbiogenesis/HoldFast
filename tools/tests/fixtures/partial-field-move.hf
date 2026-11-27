@@ -1,0 +1,15 @@
+// SPDX-License-Identifier: Apache-2.0
+module PartialFieldMove;
+
+public record SliceBox(byte Tag, byte Len);
+public record PairBuffer(SliceBox Left, SliceBox Right);
+
+public SliceBox RotateLeftField(owned PairBuffer pair, byte newLeftTag, byte newRightLen)
+{
+    var cur = pair;
+    let movedLeft = move cur.Left;
+    cur.Right = SliceBox(cur.Right.Tag, newRightLen);
+    cur.Left = SliceBox(newLeftTag, 2u8);
+    let _check = cur.Left.Tag.WrappingAdd(cur.Right.Len);
+    return movedLeft;
+}

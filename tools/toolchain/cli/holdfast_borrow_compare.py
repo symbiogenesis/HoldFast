@@ -73,11 +73,11 @@ MATRIX_CASES: tuple[MatrixCase, ...] = (
     MatrixCase("lending_iterator_filter_return", "better_than_nll", "lending_iterator.rs", "filter_return", "unsupported", "accepted"),
     MatrixCase("lifetime_callback", "parity_control", "lifetime_callback.rs", None, "accepted", "accepted"),
     MatrixCase("exclusive_conditional_return", "better_than_nll", "exclusive_conditional_return.rs", None, "unsupported", "accepted"),
-    MatrixCase("shared_mut_stable_element", "ante_strength", "shared_mut_stable_element.rs", "direct", "accepted", "rejected"),
+    MatrixCase("shared_mut_stable_element", "ante_strength", "shared_mut_stable_element.rs", "direct", "accepted", "accepted"),
     MatrixCase("tag_preserving_union_mut", "better_than_polonius_and_ante", "tag_preserving_union_mut.rs", "direct", "rejected", "accepted"),
     MatrixCase("capacity_preserving_push", "better_than_polonius_and_ante", "capacity_preserving_push.rs", "direct", "rejected", "accepted"),
     MatrixCase("multi_region_disambiguation", "parity_control", "multi_region_disambiguation.rs", None, "accepted", "accepted"),
-    MatrixCase("partial_field_move", "rust_control", "partial_field_move.rs", None, "unsupported", "unsupported"),
+    MatrixCase("partial_field_move", "rust_control", "partial_field_move.rs", None, "unsupported", "accepted"),
 )
 
 

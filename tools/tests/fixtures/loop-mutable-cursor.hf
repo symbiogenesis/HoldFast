@@ -1,0 +1,20 @@
+// SPDX-License-Identifier: Apache-2.0
+module LoopMutableCursor;
+
+public record InnerBox(byte Leaf, byte Tag);
+public record OuterBox(InnerBox Inner, byte Flag);
+
+public byte WalkMutableCursor(owned OuterBox box, usize steps)
+{
+    var cur = box;
+    var cursor = ref cur.Inner.Leaf;
+    var i = 0usize;
+    while (i < steps)
+        decreases steps - i
+    {
+        cursor = cursor.WrappingAdd(1u8);
+        cursor = ref cur.Inner.Tag;
+        i = i + 1usize;
+    }
+    return cur.Inner.Leaf.WrappingAdd(cur.Inner.Tag);
+}

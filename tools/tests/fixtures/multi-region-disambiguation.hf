@@ -1,0 +1,17 @@
+// SPDX-License-Identifier: Apache-2.0
+module MultiRegionDisambiguation;
+
+public in<'a> byte SelectFirst<region 'a, region 'b>(
+    in<'a> byte first,
+    in<'b> byte second)
+    requires (Outlives<'a, 'b>)
+{
+    let _unused = second;
+    return first;
+}
+
+public in<'b> byte CovariantOutlives<region 'a, region 'b>(in<'a> byte first)
+    requires (Outlives<'a, 'b>)
+{
+    return first;
+}
