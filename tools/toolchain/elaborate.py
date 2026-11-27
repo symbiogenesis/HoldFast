@@ -22,6 +22,7 @@ from toolchain.ast import MAX_SOURCE_BYTES, HoldFastError, ValueType
 from toolchain.elaborate_borrows import _BorrowMixin
 from toolchain.elaborate_contract_lints import _ContractLintsMixin
 from toolchain.elaborate_declarations import _DeclarationsMixin
+from toolchain.elaborate_graded import _GradedMixin
 from toolchain.elaborate_holes import HoleInspection
 from toolchain.elaborate_intrinsics import _IntrinsicsMixin
 from toolchain.elaborate_patterns import _PatternsMixin
@@ -89,9 +90,10 @@ FRONTEND_SOURCES = (
     "hashing.py", "jsonutil.py", "loans.py", "regions.py", "source.py", "trace_runtime.py", "elaborate.py",
     "elaborate_types.py", "elaborate_protocol.py", "elaborate_whnf.py", "elaborate_patterns.py", "elaborate_proofs.py",
     "elaborate_holes.py", "elaborate_statements.py", "elaborate_strings.py", "elaborate_solver.py",
-    "elaborate_intrinsics.py", "elaborate_borrows.py", "elaborate_declarations.py", "elaborate_contract_lints.py",
-    "elaborate_descriptor_lints.py", "elaborate_flow_lints.py", "elaborate_resource_lints.py", "graded_source.py",
-    "rocq_cache.py", "source_file.py", "package_navigation.py", "proof_certificates.py",
+    "elaborate_intrinsics.py", "elaborate_borrows.py", "elaborate_declarations.py", "elaborate_graded.py",
+    "elaborate_contract_lints.py", "elaborate_descriptor_lints.py", "elaborate_flow_lints.py",
+    "elaborate_resource_lints.py", "graded_source.py", "graded_inference.py", "graded_combinators.py",
+    "graded_synthesis.py", "rocq_cache.py", "source_file.py", "package_navigation.py", "proof_certificates.py",
 )
 
 __all__ = [
@@ -116,6 +118,7 @@ __all__ = [
 
 
 class _Elaborator(
+    _GradedMixin,
     _WhnfMixin,
     _BorrowMixin,
     _PatternsMixin,
@@ -129,6 +132,7 @@ class _Elaborator(
 ):
     def __init__(self, protocol: _Protocol) -> None:
         self.protocol = protocol
+        self._init_graded_state()
         self.hole_inspection: HoleInspection | None = None
         self.navigation: Navigation | None = None
         self.checked_grade_annotations: set[int] = set()
@@ -858,11 +862,24 @@ class _Elaborator(
     ) -> _Term:
         if memo is None:
             memo = {}
+        self.substitute_calls += 1
         tid = id(term)
         if tid in memo:
             return memo[tid][1]
+        if self.enable_zero_type_use_skip and variable in self.zero_type_use_vars:
+            target_vars = self.checked_zero_type_codomains.get(tid)
+            if target_vars is not None and variable in target_vars:
+                self.substitute_skips += 1
+                memo[tid] = (term, term)
+                return term
         self.tick()
         resolved = self.resolve(term)
+        if self.enable_zero_type_use_skip and variable in self.zero_type_use_vars:
+            res_vars = self.checked_zero_type_codomains.get(id(resolved))
+            if res_vars is not None and variable in res_vars:
+                self.substitute_skips += 1
+                memo[tid] = (term, resolved)
+                return resolved
         if resolved.kind == "var" and resolved.value == variable:
             memo[tid] = (term, replacement)
             return replacement
@@ -909,6 +926,13 @@ class _Elaborator(
             memo[tid] = (term, resolved)
             return resolved
         res = _Term(resolved.kind, resolved.value, new_args)
+        inherited = self.checked_zero_type_codomains.get(tid) or self.checked_zero_type_codomains.get(id(resolved))
+        if inherited is not None and inherited:
+            remaining = frozenset(v for v in inherited if v != variable)
+            if remaining:
+                self.checked_zero_type_codomains[id(res)] = (
+                    self.checked_zero_type_codomains.get(id(res), frozenset()) | remaining
+                )
         memo[tid] = (term, res)
         return res
 
@@ -2216,7 +2240,8 @@ class _Elaborator(
                 raise self.fail("unsupported", f"generic mode '{mode}' requires the full frontend")
             if mode == "ghost" and node["type"] is None:
                 raise self.fail("protocol", "ghost binder lacks its type")
-            domain = (_NAT if checked_grade else _SORT if node["type"] is None
+            domain = (self._resolve_grade_domain(self.node(node["type"])) if checked_grade
+                      else _SORT if node["type"] is None
                       else self.type(self.node(node["type"]), extended))
             if mode == "type" and self.whnf(domain).kind != "sort":
                 raise self.fail("type", "a type generic requires a universe kind")
@@ -2822,6 +2847,8 @@ def _checked_elaboration(
     package_scope: PackageScope | None = None,
     navigation: Navigation | None = None,
     require_word_proofs: bool = False,
+    infer_grades: bool = False,
+    enable_zero_type_use_skip: bool = True,
     phase: Callable[[str], AbstractContextManager[object]] = nullcontext,
     origins: list[GallinaOrigin] | None = None,
 ) -> tuple[CheckedElaboration, _Elaborator]:
@@ -2831,6 +2858,7 @@ def _checked_elaboration(
         root = protocol.decode(snapshot)
         elaborator = _Elaborator(protocol)
         elaborator.require_word_proofs = require_word_proofs
+        elaborator.enable_zero_type_use_skip = enable_zero_type_use_skip
         module = elaborator.name(root["name"])
         elaborator.module_name = module
         elaborator.navigation = navigation
@@ -2863,6 +2891,7 @@ def _checked_elaboration(
                                   for name, export in mod.grade_exports.items()}
         for mod in elaborator.available_modules.values():
             elaborator.checked_caller_required.update(mod.checked_caller_required)
+            elaborator.custom_grade_domains.update(mod.custom_grade_domains)
         imported_boxes = {
             mod.graded_box_type: graded_source.GradeDomain(mod.graded_box_domain)
             for mod in elaborator.available_modules.values()
@@ -2885,10 +2914,17 @@ def _checked_elaboration(
 
         with phase("resolve-and-elaborate"), ExitStack() as grade_stack:
             grade_replay = graded_source.ModuleReplay(
-                Path(__file__).resolve().parents[2], protocol, root, grade_stack, resolve_box=resolve_box_import
+                Path(__file__).resolve().parents[2],
+                protocol,
+                root,
+                grade_stack,
+                resolve_box=resolve_box_import,
+                infer_grades=infer_grades,
+                custom_domains=elaborator.custom_grade_domains,
             )
             for declaration in elaborator.nodes(root["declarations"]):
                 first = len(elaborator.output)
+                grade_replay.custom_domains.update(elaborator.custom_grade_domains)
                 elaborator.checked_grade_annotations, caller_requirement = grade_replay.check(
                     declaration, resolve_grade_import
                 )
@@ -2896,6 +2932,21 @@ def _checked_elaboration(
                 if caller_requirement is not None:
                     name = elaborator.name(declaration["name"])
                     elaborator.checked_caller_required[str(elaborator.globals[name].term.value)] = caller_requirement
+                if declaration["kind"] in {"definition", "function"}:
+                    name = elaborator.name(declaration["name"])
+                    last_defn = grade_replay.last_definition
+                    if last_defn is not None and last_defn.name == name:
+                        zero_names = frozenset(bname for _, bname, _ in last_defn.zero_type_use_binders)
+                        binding = elaborator.globals.get(name)
+                        if binding is not None and binding.term.kind == "const":
+                            elaborator._register_checked_zero_binders(name, zero_names, binding.type)
+                            elaborator._emit_cbv_erasure_correspondence(
+                                name,
+                                last_defn,
+                                str(binding.term.value),
+                                binding.type,
+                                grade_replay.definition_certificates.get(name, ""),
+                            )
                 if declaration is grade_replay.box and grade_replay.box_domain is not None:
                     box_record = elaborator.records.get("Box")
                     if box_record is not None and declaration["modifiers"] == ["public"]:
@@ -2930,6 +2981,8 @@ def _checked_elaboration(
                             raise protocol.error("protocol", "word proof origin outside its declaration")
                         chunk_origins[len(elaborator.output) + offset] = ((start, end), declarations[owner], "word-equation")
                 elaborator.output.extend(elaborator.word_proofs.values())
+            if elaborator.cbv_erasure_chunks:
+                elaborator.output.extend(elaborator.cbv_erasure_chunks)
         elaborator.checked_grade_annotations.clear()
         elaborator.grade_exports = {str(elaborator.globals[name].term.value): export
                                     for name, export in grade_replay.exports.items()}
@@ -2972,10 +3025,18 @@ def elaborate(
     *,
     imports: Sequence[tuple[bytes, object]] | None = None,
     require_word_proofs: bool = False,
+    infer_grades: bool = False,
+    enable_zero_type_use_skip: bool = True,
 ) -> CheckedElaboration:
     """Check an exact-source schema-2 AST and propose a complete bounded CIC file."""
     if imports is None or not imports:
-        return _checked_elaboration(source, parsed, require_word_proofs=require_word_proofs)[0]
+        return _checked_elaboration(
+            source,
+            parsed,
+            require_word_proofs=require_word_proofs,
+            infer_grades=infer_grades,
+            enable_zero_type_use_skip=enable_zero_type_use_skip,
+        )[0]
     protocol = _Protocol(source)
     module = _Elaborator(protocol).name(protocol.decode(parsed)["name"])
     return elaborate_package([*imports, (source, parsed)], require_word_proofs=require_word_proofs)[module]

@@ -44,6 +44,9 @@ _FIELDS: dict[str, set[str]] = {
     "associated_type": {"name", "generics", "kind_annotation", "contracts", "definition", "modifiers"},
     "record": {"name", "generics", "parameters", "contracts", "declarations", "modifiers"},
     "union": {"name", "generics", "contracts", "constructors", "modifiers"},
+    "inductive": {"name", "generics", "contracts", "constructors", "modifiers"},
+    "domain": {"name", "generics", "contracts", "entries", "modifiers"},
+    "domain_entry": {"role", "value"},
     "constructor": {"name", "parameters", "result", "contracts"},
     "property": {"name", "type", "contracts", "value", "modifiers"},
     "theorem": {"name", "generics", "parameters", "contracts", "body", "modifiers"},
@@ -294,7 +297,7 @@ class _Protocol:
                     cursor = self._token(node, cursor, part)
                 else:
                     cursor = self._child(node, span, cursor, node[part])
-        elif kind in {"definition", "function", "alias", "theorem", "lemma", "record", "union", "property"}:
+        elif kind in {"definition", "function", "alias", "theorem", "lemma", "record", "union", "inductive", "domain", "property"}:
             contracts = node.get("contracts")
             if node.get("cancel"):
                 return  # These roles are refused by the mathematical consumer.
@@ -352,7 +355,7 @@ class _Protocol:
             cursor = self._child(node, span, cursor, node["name"])
             if kind != "property":
                 cursor = self._generics(node, span, cursor)
-            if kind not in {"alias", "property", "union"}:
+            if kind not in {"alias", "property", "union", "inductive", "domain"}:
                 cursor = self._list(node, span, cursor, node["parameters"])
             if contracts and isinstance(contracts, list):
                 for contract_item in contracts:
@@ -371,13 +374,21 @@ class _Protocol:
                 if node["declarations"]:
                     raise self.error("protocol", "semicolon record tail cannot carry member declarations", node)
                 cursor = self._token(node, cursor, b";")
-            elif kind == "union":
+            elif kind in {"union", "inductive"}:
                 constructors = node["constructors"]
                 if (not isinstance(constructors, list)
                         or any(not isinstance(item, dict) or item.get("kind") != "constructor" for item in constructors)):
-                    raise self.error("protocol", "union requires constructor children", node)
+                    raise self.error("protocol", f"{kind} requires constructor children", node)
                 cursor = self._token(node, cursor, b"{")
                 self._sequence_envelope(node, span, "constructors", cursor, b"}")
+                return
+            elif kind == "domain":
+                entries = node["entries"]
+                if (not isinstance(entries, list)
+                        or any(not isinstance(item, dict) or item.get("kind") != "domain_entry" for item in entries)):
+                    raise self.error("protocol", "domain requires domain_entry children", node)
+                cursor = self._token(node, cursor, b"{")
+                self._sequence_envelope(node, span, "entries", cursor, b"}")
                 return
             elif kind in {"alias", "definition", "property"}:
                 cursor = self._token(node, cursor, b"=" if kind == "alias" else b"=>")
@@ -387,6 +398,13 @@ class _Protocol:
                 cursor = self._token(node, cursor, b";")
             else:
                 cursor = self._child(node, span, cursor, node["body"])
+        elif kind == "domain_entry":
+            role = node["role"]
+            if role not in {"carrier", "zero", "one", "add", "mul", "admits", "interpret", "laws"}:
+                raise self.error("protocol", f"unsupported domain_entry role '{role}'", node)
+            cursor = self._token(node, cursor, cast("str", role).encode())
+            cursor = self._child(node, span, cursor, node["value"])
+            cursor = self._token(node, cursor, b";")
         elif kind in {"interface", "impl"}:
             modifiers = node["modifiers"]
             if not isinstance(modifiers, list) or any(not isinstance(item, str) for item in modifiers):

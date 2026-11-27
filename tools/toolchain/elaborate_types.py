@@ -341,6 +341,69 @@ class _UnionInfo:
 
 
 @dataclass(frozen=True)
+class _DomainInfo:
+    """Elaborated user-defined or built-in grade domain metadata."""
+
+    name: str
+    const_name: str
+    carrier_type: _Term
+    carrier_key: str
+    roles: dict[str, _Term]
+    concrete_grades: tuple[str, ...] = ()
+    is_builtin: bool = False
+
+
+@dataclass(frozen=True)
+class _InductiveCtor:
+    """Elaborated constructor of a first-class inductive type family."""
+
+    name: str
+    ctor_const: str
+    ctor_binding: _Binding
+    fields: tuple[_RecordField, ...]
+    param_grades: tuple[str | None, ...]
+    result_type: _Term
+    index_args: tuple[_Term, ...]
+    index: int
+
+
+@dataclass(frozen=True)
+class _InductiveInfo:
+    """Elaborated first-class inductive family with dependent indices and eliminator."""
+
+    name: str
+    type_const: str
+    elim_const: str
+    generic_vars: tuple[_Term, ...]
+    generic_modes: tuple[str, ...]
+    generic_domains: tuple[str | None, ...]
+    index_arity: int
+    constructors: tuple[_InductiveCtor, ...]
+
+
+@dataclass(frozen=True)
+class _GradedBinderInfo:
+    """Binder metadata tracking checked computation and type-use grades."""
+
+    uid: int
+    name: str
+    domain: str
+    computation: str
+    type_use: str
+    span: tuple[int, int] | None = None
+
+
+@dataclass
+class _ZeroTypeUseSummary:
+    """Q25cb telemetry tracking zero-type-use substitution skips for a declaration."""
+
+    decl_name: str
+    zero_binders: tuple[int, ...] = ()
+    substitute_calls: int = 0
+    substitute_skips: int = 0
+
+
+@dataclass(frozen=True)
 class _InterfaceMethodSpec:
     returns_receiver_loan: bool
     name: str
