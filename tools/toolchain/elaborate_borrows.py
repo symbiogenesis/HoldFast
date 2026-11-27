@@ -1354,6 +1354,47 @@ class _BorrowMixin:
         saved_mutable = set(self.mutable_locals)
         self.in_loop_depth += 1
         try:
+            def _run_natfold(
+                bound_count: _Term,
+                ordinal: _Term,
+                loop_env_ext: dict[str, _Binding],
+                cond_node: Node | None = None,
+            ) -> _Term:
+                acc_var = self.fresh(acc_type)
+                scrut_v = self.fresh(acc_type)
+                motive = _term("lam", acc_type, acc_type, value=scrut_v.value)
+                r_v = self.fresh(ret_pack_t)
+                on_ret = _term("lam", ret_pack_t, _term("inl", ret_pack_t, cont_state_t, r_v), value=r_v.value)
+                s_v = self.fresh(cont_state_t)
+                did_break, unpacked = self._unpack_names_with_head(
+                    state_names, extended, _Binding(s_v, cont_state_t), _BOOL
+                )
+                sym_env = {**extended, **unpacked, **loop_env_ext}
+                sym_cond = self.check(cond_node, _BOOL, sym_env) if cond_node is not None else None
+                saved_fl = len(self.active_facts)
+                if sym_cond is not None:
+                    self.active_facts.append(sym_cond)
+                self.active_facts.extend(self._assume_loop_invariants(contracts, sym_env))
+                try:
+                    body_acc, _, _ = self._elaborate_returning_block(
+                        body_stmts,
+                        sym_env,
+                        ret_type,
+                        facts,
+                        allow_break=True,
+                        snap_names=ref_snap_names,
+                        state_names=state_names,
+                    )
+                finally:
+                    del self.active_facts[saved_fl:]
+                keep_state = _term("inr", ret_pack_t, cont_state_t, s_v)
+                active_step = _term("if", acc_type, sym_cond, body_acc, keep_state) if sym_cond is not None else body_acc
+                on_cont_body = _term("if", acc_type, did_break, keep_state, active_step)
+                on_cont = _term("lam", cont_state_t, on_cont_body, value=s_v.value)
+                step_expr = _term("sum_match", motive, acc_var, on_ret, on_cont)
+                step_fn = self.wrap("lam", [ordinal, acc_var], step_expr)
+                return _apps(_constant("NatFold"), acc_type, step_fn, init_acc, bound_count)
+
             if kind == "while":
                 cond_node = self.node(statement["condition"])
                 measures = self._eval_loop_decreases(contracts, extended)
@@ -1364,51 +1405,16 @@ class _BorrowMixin:
                 self._check_loop_invariants(contracts, extended, statement, "entry")
                 # Concrete unroll check first (if concrete up to 64 steps)
                 # Build symbolic NatFold step over Acc
-                ordinal = self.fresh(_NAT)
-                acc_var = self.fresh(acc_type)
-                scrut_v = self.fresh(acc_type)
-                motive = _term("lam", acc_type, acc_type, value=scrut_v.value)
-                r_v = self.fresh(ret_pack_t)
-                on_ret = _term("lam", ret_pack_t, _term("inl", ret_pack_t, cont_state_t, r_v), value=r_v.value)
-                s_v = self.fresh(cont_state_t)
-                did_break, unpacked = self._unpack_names_with_head(state_names, extended, _Binding(s_v, cont_state_t), _BOOL)
-                sym_env = dict(extended)
-                sym_env.update(unpacked)
-                sym_cond = self.check(cond_node, _BOOL, sym_env)
-                saved_fl = len(self.active_facts)
-                self.active_facts.append(sym_cond)
-                assumed = self._assume_loop_invariants(contracts, sym_env)
-                self.active_facts.extend(assumed)
-                try:
-                    body_acc, _, _ = self._elaborate_returning_block(
-                        body_stmts,
-                        sym_env,
-                        ret_type,
-                        facts,
-                        allow_break=True,
-                        snap_names=ref_snap_names,
-                        state_names=state_names,
-                    )
-                finally:
-                    del self.active_facts[saved_fl:]
-                keep_state = _term("inr", ret_pack_t, cont_state_t, s_v)
-                active_step = _term("if", acc_type, sym_cond, body_acc, keep_state)
-                on_cont_body = _term("if", acc_type, did_break, keep_state, active_step)
-                on_cont = _term("lam", cont_state_t, on_cont_body, value=s_v.value)
-                step_expr = _term("sum_match", motive, acc_var, on_ret, on_cont)
-                step_fn = self.wrap("lam", [ordinal, acc_var], step_expr)
-                final_acc = _apps(_constant("NatFold"), acc_type, step_fn, init_acc, bound_count)
+                final_acc = _run_natfold(bound_count, self.fresh(_NAT), {}, cond_node=cond_node)
             else:
                 # foreach range loop with general returns
                 start_term, end_term, elem_type, elem_spec, var_name, _, _ = self._parse_foreach_range(
                     statement, extended
                 )
                 self.mutable_locals.discard(var_name)
-                entry_env = dict(extended)
-                entry_env[var_name] = _Binding(start_term, elem_type)
+                entry_env = {**extended, var_name: _Binding(start_term, elem_type)}
                 self._check_loop_invariants(contracts, entry_env, statement, "entry")
                 ordinal = self.fresh(_NAT)
-                acc_var = self.fresh(acc_type)
                 start_nat = self._loop_nat(start_term, elem_spec)
                 bound_count = _apps(_constant("-"), self._loop_nat(end_term, elem_spec), start_nat)
                 index = _apps(_constant("+"), start_nat, ordinal)
@@ -1416,35 +1422,7 @@ class _BorrowMixin:
                     index = _app(_constant("nat_to_usize"), index)
                     if elem_type != _USIZE:
                         index = _app(_constant(f"int_from_usize_{elem_spec.name}"), index)
-                scrut_v = self.fresh(acc_type)
-                motive = _term("lam", acc_type, acc_type, value=scrut_v.value)
-                r_v = self.fresh(ret_pack_t)
-                on_ret = _term("lam", ret_pack_t, _term("inl", ret_pack_t, cont_state_t, r_v), value=r_v.value)
-                s_v = self.fresh(cont_state_t)
-                did_break, unpacked = self._unpack_names_with_head(state_names, extended, _Binding(s_v, cont_state_t), _BOOL)
-                sym_env = dict(extended)
-                sym_env.update(unpacked)
-                sym_env[var_name] = _Binding(index, elem_type)
-                saved_fl = len(self.active_facts)
-                assumed = self._assume_loop_invariants(contracts, sym_env)
-                self.active_facts.extend(assumed)
-                try:
-                    body_acc, _, _ = self._elaborate_returning_block(
-                        body_stmts,
-                        sym_env,
-                        ret_type,
-                        facts,
-                        allow_break=True,
-                        snap_names=ref_snap_names,
-                        state_names=state_names,
-                    )
-                finally:
-                    del self.active_facts[saved_fl:]
-                keep_state = _term("inr", ret_pack_t, cont_state_t, s_v)
-                on_cont = _term("lam", cont_state_t, _term("if", acc_type, did_break, keep_state, body_acc), value=s_v.value)
-                step_expr = _term("sum_match", motive, acc_var, on_ret, on_cont)
-                step_fn = self.wrap("lam", [ordinal, acc_var], step_expr)
-                final_acc = _apps(_constant("NatFold"), acc_type, step_fn, init_acc, bound_count)
+                final_acc = _run_natfold(bound_count, ordinal, {var_name: _Binding(index, elem_type)})
 
             # Match final_acc: inl -> returned value + ref snapshot, inr -> post_env + rest_statements
             final_scrut = self.fresh(acc_type)

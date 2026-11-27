@@ -7,7 +7,7 @@ the graph inputs, abstract interpretation, and limits of the result.
 
 import re
 from collections import Counter, deque
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Literal, cast
 
@@ -954,6 +954,26 @@ def _compute_cfg_demand_sites(
     return must_before, future_nodes, first_demand, last_demand
 
 
+def _propagate_backward_unions(
+    graph: Graph,
+    local_maps: tuple[dict[str, set[str]], ...],
+    budget: _Budget,
+) -> tuple[dict[str, frozenset[str]], ...]:
+    ordered = tuple(reversed(graph.nodes))
+    states = tuple({name: frozenset(vals) for name, vals in lmap.items()} for lmap in local_maps)
+    changed = True
+    while changed:
+        changed = False
+        for node in ordered:
+            budget.spend()
+            for lmap, smap in zip(local_maps, states, strict=True):
+                merged = frozenset(lmap[node.name]).union(*(smap[succ] for succ in node.successors))
+                if merged != smap[node.name]:
+                    smap[node.name] = merged
+                    changed = True
+    return states
+
+
 def _compute_cfg_relevance(
     graph: Graph, nodes: dict[str, Node], budget: _Budget
 ) -> tuple[
@@ -992,33 +1012,11 @@ def _compute_cfg_relevance(
             for part in place.fields:
                 if _is_symbolic(part):
                     local_symbols[name].add(part)
-    reachable_owners = {name: frozenset(vals) for name, vals in local_owners.items()}
-    reachable_symbols = {name: frozenset(vals) for name, vals in local_symbols.items()}
-    reachable_refinements = {name: frozenset(vals) for name, vals in local_refinements.items()}
-    ordered = tuple(reversed(graph.nodes))
-    changed = True
-    while changed:
-        changed = False
-        for node in ordered:
-            budget.spend()
-            owners_u = frozenset(local_owners[node.name]).union(
-                *(reachable_owners[succ] for succ in node.successors)
-            )
-            symbols_u = frozenset(local_symbols[node.name]).union(
-                *(reachable_symbols[succ] for succ in node.successors)
-            )
-            refs_u = frozenset(local_refinements[node.name]).union(
-                *(reachable_refinements[succ] for succ in node.successors)
-            )
-            if (
-                owners_u != reachable_owners[node.name]
-                or symbols_u != reachable_symbols[node.name]
-                or refs_u != reachable_refinements[node.name]
-            ):
-                reachable_owners[node.name] = owners_u
-                reachable_symbols[node.name] = symbols_u
-                reachable_refinements[node.name] = refs_u
-                changed = True
+    reachable_owners, reachable_symbols, reachable_refinements = _propagate_backward_unions(
+        graph,
+        (local_owners, local_symbols, local_refinements),
+        budget,
+    )
     return reachable_owners, reachable_symbols, reachable_refinements
 
 
@@ -1474,6 +1472,13 @@ class _State:
         else:
             self.invalid.add(name)
 
+    def _invalidate_refinements(self, node: Node, predicate: Callable[[str, Place], bool]) -> None:
+        for rname, rplace in list(self.refinements.items()):
+            if predicate(rname, rplace):
+                del self.refinements[rname]
+                self.stale_refinements.add(rname)
+                self.refinement_invalidated_node[rname] = node.name
+
     def access(self, node: Node, event: Access, route: str | None) -> None:
         self.obligation(node, "access-interpretation", event.place.owner, event.kind)
         self.obligation(node, "effect-interpretation", event.place.owner, event.kind)
@@ -1482,7 +1487,8 @@ class _State:
         if event.kind != "read":
             self.obligation(node, "content-refinement-invalidation", event.place.owner)
             self.check_reserved(node, event.place)
-            for rname, rplace in list(self.refinements.items()):
+
+            def _access_overlaps_ref(rname: str, rplace: Place) -> bool:
                 overlap = _overlap(
                     event.place,
                     rplace,
@@ -1492,10 +1498,9 @@ class _State:
                 )
                 if overlap == "unknown":
                     self.obligation(node, "overlap", event.place.owner, *event.place.fields, rname)
-                if overlap != "no":
-                    del self.refinements[rname]
-                    self.stale_refinements.add(rname)
-                    self.refinement_invalidated_node[rname] = node.name
+                return overlap != "no"
+
+            self._invalidate_refinements(node, _access_overlaps_ref)
         if event.kind == "write" and event.via is None:
             if not event.place.fields:
                 self.moved.discard(event.place.owner)
@@ -1612,29 +1617,24 @@ class _State:
                     self.issue(node, "partial-owner-move-unsupported", event.place.owner)
                 else:
                     self.moved_places.add(event.place)
-                    for rname, rplace in list(self.refinements.items()):
-                        if (
-                            _overlap(
-                                event.place,
-                                rplace,
-                                self.fields,
-                                self.disjoint_places,
-                                self.disjoint_symbols,
-                            )
-                            != "no"
-                        ):
-                            del self.refinements[rname]
-                            self.stale_refinements.add(rname)
-                            self.refinement_invalidated_node[rname] = node.name
+                    self._invalidate_refinements(
+                        node,
+                        lambda _rname, rplace: _overlap(
+                            event.place,
+                            rplace,
+                            self.fields,
+                            self.disjoint_places,
+                            self.disjoint_symbols,
+                        )
+                        != "no",
+                    )
             elif any(mp.owner == event.place.owner for mp in self.moved_places):
                 self.issue(node, "use-after-owner-move", event.place.owner)
             else:
                 self.moved.add(event.place.owner)
-                for rname, rplace in list(self.refinements.items()):
-                    if rplace.owner == event.place.owner:
-                        del self.refinements[rname]
-                        self.stale_refinements.add(rname)
-                        self.refinement_invalidated_node[rname] = node.name
+                self._invalidate_refinements(
+                    node, lambda _rname, rplace: rplace.owner == event.place.owner
+                )
 
     def end_dead(self, fallback_node: str, live: frozenset[str]) -> None:
         # Every child is deeper than its ancestor. Lexical names only break ties.
@@ -1913,11 +1913,7 @@ class _State:
                     eplace = self._effective_place(lname)
                     if sym in eplace.fields:
                         self.frozen_places[lname] = _replace_symbol_in_place(eplace, sym)
-                for rname, rplace in list(self.refinements.items()):
-                    if sym in rplace.fields:
-                        del self.refinements[rname]
-                        self.stale_refinements.add(rname)
-                        self.refinement_invalidated_node[rname] = node.name
+                self._invalidate_refinements(node, lambda _rname, rplace: sym in rplace.fields)
             case AssumeRefinement(name, place):
                 self.refinements[name] = place
                 self.refinement_origin_node[name] = node.name
@@ -3131,6 +3127,55 @@ class _FunctionLowerer:
         self.loan_counter += 1
         return f"_{prefix}_{self.loan_counter}"
 
+    @staticmethod
+    def _normalize_borrow_mode(mode: str) -> Mode:
+        if mode == "in":
+            return "shared"
+        if mode in {"shared_mut", "shared_ref"}:
+            return "shared_mut"
+        return "exclusive"
+
+    def _bind_loan_handle(
+        self,
+        loan_name: str,
+        place: Place,
+        mode: Mode,
+        *,
+        alias: str | None = None,
+        origin: str | None = None,
+    ) -> None:
+        if alias is not None:
+            self.handles[alias] = loan_name
+            self.handle_places[alias] = place
+            self.handle_modes[alias] = mode
+            if origin is not None:
+                self.handle_origins[alias] = origin
+        self.handle_places[loan_name] = place
+        self.handle_modes[loan_name] = mode
+        if origin is not None:
+            self.handle_origins[loan_name] = origin
+
+    def _emit_borrow_handle(
+        self,
+        current: str | None,
+        loan_name: str,
+        parent: str,
+        place: Place,
+        mode: Mode,
+        prefix: str,
+        *,
+        alias: str | None = None,
+        scoped: bool = False,
+        origin: str | None = None,
+    ) -> str:
+        current = self._emit(
+            current,
+            Borrow(Loan(loan_name, parent, place, mode=mode, scoped=scoped, origin=origin)),
+            prefix,
+        )
+        self._bind_loan_handle(loan_name, place, mode, alias=alias, origin=origin)
+        return current
+
     def _fresh_binder(self, bname: str) -> str:
         if bname not in self.owners and bname not in self.used_binders:
             self.used_binders.add(bname)
@@ -3612,14 +3657,9 @@ class _FunctionLowerer:
                     place = self.handle_places[parent_handle]
                     mode = self.handle_modes.get(parent_handle, "shared")
                     loan_name = self._fresh_binder(bname)
-                    current = self._emit(
-                        current,
-                        Borrow(Loan(loan_name, parent_handle, place, mode=mode)),
-                        f"pat_{bname}",
+                    current = self._emit_borrow_handle(
+                        current, loan_name, parent_handle, place, mode, f"pat_{bname}", alias=bname
                     )
-                    self.handles[bname] = loan_name
-                    self.handle_places[bname] = place
-                    self.handle_modes[bname] = mode
                 else:
                     bind_name = self._fresh_binder(bname)
                     current = self._emit(current, Bind(bind_name, captures), f"pat_{bname}")
@@ -3630,14 +3670,9 @@ class _FunctionLowerer:
                     if place.fields:
                         self._add_owner_field(place.owner, place.fields)
                     loan_name = self._fresh_binder(bname)
-                    current = self._emit(
-                        current,
-                        Borrow(Loan(loan_name, place.owner, place, mode="shared")),
-                        f"pat_{bname}",
+                    current = self._emit_borrow_handle(
+                        current, loan_name, place.owner, place, "shared", f"pat_{bname}", alias=bname
                     )
-                    self.handles[bname] = loan_name
-                    self.handle_places[bname] = place
-                    self.handle_modes[bname] = "shared"
             else:
                 self.handles.pop(bname, None)
                 self._register_owner(bname, borrowed=False)
@@ -3941,25 +3976,15 @@ class _FunctionLowerer:
                     current, _, place = self._resolve_borrow_target(current, inner)
                     current = self._emit(current, Access(place, "move"), "move_owner")
                     return current, ()
-                loan_mode: Mode = (
-                    "shared"
-                    if mode == "in"
-                    else ("shared_mut" if mode == "shared_mut" else "exclusive")
-                )
+                loan_mode = self._normalize_borrow_mode(mode)
                 current, parent, place = self._resolve_borrow_target(current, inner)
                 loan_name = self._fresh_loan("borrow")
                 parent_origin = self.handle_origins.get(parent) or (
                     self.owners[parent].origin if parent in self.owners else None
                 )
-                current = self._emit(
-                    current,
-                    Borrow(Loan(loan_name, parent, place, mode=loan_mode, origin=parent_origin)),
-                    "borrow",
+                current = self._emit_borrow_handle(
+                    current, loan_name, parent, place, loan_mode, "borrow", origin=parent_origin
                 )
-                self.handle_places[loan_name] = place
-                self.handle_modes[loan_name] = loan_mode
-                if parent_origin is not None:
-                    self.handle_origins[loan_name] = parent_origin
                 return current, (loan_name,)
 
             if kind == "interpolated_string":
@@ -4226,8 +4251,7 @@ class _FunctionLowerer:
                 current = self._emit(current, event, "call_recv")
                 self.current_site = expr
                 if signature.retained:
-                    self.handle_places[receiver_loan.name] = footprint
-                    self.handle_modes[receiver_loan.name] = signature.mode
+                    self._bind_loan_handle(receiver_loan.name, footprint, signature.mode)
                     captured_handles.append(receiver_loan.name)
 
         # Evaluate arguments in source order. Reuse matching handles or create
@@ -4250,11 +4274,7 @@ class _FunctionLowerer:
                 if amode == "shared_ref":
                     amode = "shared_mut"
                 if amode in {"in", "ref", "out", "shared_mut"}:
-                    loan_mode: Mode = (
-                        "shared"
-                        if amode == "in"
-                        else ("shared_mut" if amode == "shared_mut" else "exclusive")
-                    )
+                    loan_mode = self._normalize_borrow_mode(amode)
                     if _is_ident(aval):
                         aname = _id_text(aval["name"])
                         if aname in self.handles and self.handle_modes.get(aname) == loan_mode:
@@ -4265,13 +4285,9 @@ class _FunctionLowerer:
                             continue
                     current, parent, place = self._resolve_borrow_target(current, aval)
                     tmp_loan = self._fresh_loan("arg")
-                    current = self._emit(
-                        current,
-                        Borrow(Loan(tmp_loan, parent, place, mode=loan_mode, scoped=True)),
-                        "arg_borrow",
+                    current = self._emit_borrow_handle(
+                        current, tmp_loan, parent, place, loan_mode, "arg_borrow", scoped=True
                     )
-                    self.handle_places[tmp_loan] = place
-                    self.handle_modes[tmp_loan] = loan_mode
                     arg_loans.append((tmp_loan, loan_mode, place, True))
                 elif amode == "move":
                     if _is_ident(aval):
@@ -4394,30 +4410,23 @@ class _FunctionLowerer:
                 self._register_owner(binder_name, borrowed=False, type_name=_type_base_name(local_type))
                 return current
 
-            loan_mode: Mode = (
-                "shared"
-                if mode == "in"
-                else ("shared_mut" if mode == "shared_mut" else "exclusive")
-            )
+            loan_mode = self._normalize_borrow_mode(mode)
             current, parent, place = self._resolve_borrow_target(current, inner)
             loan_name = self._fresh_binder(binder_name)
             loan_origin = explicit_origin or self.handle_origins.get(parent) or (
                 self.owners[parent].origin if parent in self.owners else None
             )
-            current = self._emit(
+            return self._emit_borrow_handle(
                 current,
-                Borrow(Loan(loan_name, parent, place, mode=loan_mode, scoped=scoped, origin=loan_origin)),
+                loan_name,
+                parent,
+                place,
+                loan_mode,
                 f"borrow_{binder_name}",
+                alias=binder_name,
+                scoped=scoped,
+                origin=loan_origin,
             )
-            self.handles[binder_name] = loan_name
-            self.handle_places[binder_name] = place
-            self.handle_places[loan_name] = place
-            self.handle_modes[binder_name] = loan_mode
-            self.handle_modes[loan_name] = loan_mode
-            if loan_origin is not None:
-                self.handle_origins[binder_name] = loan_origin
-                self.handle_origins[loan_name] = loan_origin
-            return current
 
         current, caps = self._lower_expr(current, value_expr, handles_result=id(self.current_site) in self.result_bindings)
         if caps:
@@ -4426,28 +4435,17 @@ class _FunctionLowerer:
                 place = self.handle_places[parent_handle]
                 loan_name = self._fresh_binder(binder_name)
                 loan_origin = explicit_origin or self.handle_origins.get(parent_handle)
-                current = self._emit(
+                current = self._emit_borrow_handle(
                     current,
-                    Borrow(
-                        Loan(
-                            loan_name,
-                            parent_handle,
-                            place,
-                            mode=explicit_loan_mode,
-                            scoped=scoped,
-                            origin=loan_origin,
-                        )
-                    ),
+                    loan_name,
+                    parent_handle,
+                    place,
+                    explicit_loan_mode,
                     f"reborrow_{binder_name}",
+                    alias=binder_name,
+                    scoped=scoped,
+                    origin=loan_origin,
                 )
-                self.handles[binder_name] = loan_name
-                self.handle_places[binder_name] = place
-                self.handle_places[loan_name] = place
-                self.handle_modes[binder_name] = explicit_loan_mode
-                self.handle_modes[loan_name] = explicit_loan_mode
-                if loan_origin is not None:
-                    self.handle_origins[binder_name] = loan_origin
-                    self.handle_origins[loan_name] = loan_origin
             elif explicit_loan_mode is None and (
                 _is_scalar_value_type(local_type)
                 or (_is_ident(value_expr) and len(caps) == 1 and caps[0] in self.handle_places)
@@ -4779,18 +4777,18 @@ class _FunctionLowerer:
                     if coll.get("kind") != "range" and imode in {"in", "ref"}:
                         body_curr, parent, cplace = self._resolve_borrow_target(body_curr, coll)
                         elem_place = Place(cplace.owner, (*cplace.fields, "*"))
-                        loan_mode = "shared" if imode == "in" else "exclusive"
+                        loan_mode: Mode = "shared" if imode == "in" else "exclusive"
                         iter_loan = self._fresh_binder(iname)
-                        body_curr = self._emit(
+                        body_curr = self._emit_borrow_handle(
                             body_curr,
-                            Borrow(Loan(iter_loan, parent, elem_place, mode=loan_mode, scoped=True)),
+                            iter_loan,
+                            parent,
+                            elem_place,
+                            loan_mode,
                             f"iter_{iname}",
+                            alias=iname,
+                            scoped=True,
                         )
-                        self.handles[iname] = iter_loan
-                        self.handle_places[iname] = elem_place
-                        self.handle_places[iter_loan] = elem_place
-                        self.handle_modes[iname] = loan_mode
-                        self.handle_modes[iter_loan] = loan_mode
                     else:
                         self.handles.pop(iname, None)
                         self._register_owner(iname, borrowed=False)
