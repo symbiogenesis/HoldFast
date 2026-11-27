@@ -1,10 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Run the locked Python linters over every indexed tool source.
-
-Both ty platform passes and Ruff receive explicit filenames. Authored JSON
-Schemas hold the reviewed configuration policy; the wrapper retains bounded
-execution, diagnostic summaries, suppression and platform-import checks.
-"""
+"""Run locked `ty` (per platform) and Ruff with explicit paths against JSON-schema-validated configs, plus bounded execution, suppression, and platform-import checks."""
 
 import argparse
 import ast
@@ -285,13 +280,7 @@ def _tracked(root: Path) -> frozenset[str]:
 
 
 def _run_ty(rep: Reporter, root: Path, tracked: frozenset[str] | None) -> None:
-    """Run `ty` across `tracked` for each platform in `TY_PLATFORMS`.
-
-    Validates `tools/ty.toml` against its schema and rejects user-level `ty.toml`
-    files or `PYTHONPATH` overrides that would alter module resolution before
-    running `ty`. `TY_UNSET` logging variables are stripped from the subprocess
-    environment.
-    """
+    """Run `ty` on `tracked` across `TY_PLATFORMS` after validating `tools/ty.toml` and blocking user config/`PYTHONPATH` overrides (stripping `TY_UNSET` env vars)."""
     tools = root / "tools"
     held = ", all rules at error"
     if refused := _settings(tools / "ty.toml"):
@@ -321,12 +310,7 @@ def _run_ty(rep: Reporter, root: Path, tracked: frozenset[str] | None) -> None:
 
 
 def _file_suppressions(tools: Path, tracked: frozenset[str]) -> list[str]:
-    """Find file-level or range suppression comments in `tracked` modules under `tools`.
-
-    Rejects any comment matching `FILE_RANGE` or any `FILE_NOQA` directive that does
-    not restrict itself to `FILE_SCOPED`. Uses `tokenize` so string literals are
-    ignored, and fails closed if a module cannot be read or tokenized.
-    """
+    """Tokenize `tracked` `tools` modules (ignoring strings, fail-closed on read/tokenize error) to reject `FILE_RANGE` or unrestricted `FILE_NOQA` suppressions outside `FILE_SCOPED`."""
     findings: list[str] = []
     for module in sorted(tracked):
         try:
@@ -529,13 +513,7 @@ def _unfound(names: list[str]) -> list[str]:
 
 
 def _run_imports(rep: Reporter, root: Path, tracked: frozenset[str]) -> None:
-    """Verify that imports of modules banned at module level in `ruff.toml` are function-scoped or platform-guarded.
-
-    Ruff's TID253 checks only top-level imports, and PLC0415 does not flag banned
-    imports inside class bodies or `if` blocks. This scan rejects any non-function
-    import of a banned module reachable on all `TY_PLATFORMS`, as well as any import
-    reachable on the running platform whose top-level module is not installed.
-    """
+    """Require top-level Ruff-banned imports to be function-scoped or platform-guarded (covering class/`if` bodies missed by TID253/PLC0415 across `TY_PLATFORMS` and missing host modules)."""
     tools = root / "tools"
     banned, unread = _banned(tools / "ruff.toml")
     if unread:

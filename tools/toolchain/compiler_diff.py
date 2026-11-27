@@ -91,12 +91,7 @@ def _head(raw: str) -> tuple[str, str] | None:
 
 
 def _directive_refusal(head: str, rest: str, number: int) -> Refusal | None:
-    """Whether the assembler takes this directive line on its own, and how it refuses it.
-
-    The parser is asked rather than a list of its directives restated here: the line is
-    parsed alone, which is enough to decide a directive's name and a section's, and an
-    operand the parser refuses is reported as the parser words it.
-    """
+    """Ask the parser whether it accepts this directive line alone, returning any refusal wording."""
     try:
         asm.Assembler(f"{head} {rest}".strip(), "stream")
     except AsmError as exc:
@@ -110,11 +105,9 @@ def _directive_refusal(head: str, rest: str, number: int) -> Refusal | None:
 
 
 def refusals(stream: str) -> list[Refusal]:
-    """Every line of `stream` the assembler refuses by name, before anything is laid out.
+    """Return lines of `stream` refused by name pre-layout (mnemonics vs dialect/pseudos; directives parsed alone).
 
-    A mnemonic is decided against the dialect table and the pseudo-instructions, a
-    directive by parsing its line alone. Operand-level refusals of an instruction are not
-    found here, because deciding one needs the layout; `assemble` reports those.
+    Operand refusals requiring layout are left to `assemble`.
     """
     found: list[Refusal] = []
     for number, raw in enumerate(normalize(stream).splitlines(), 1):
@@ -211,12 +204,10 @@ def compose(stream: str, prologue: str = PROLOGUE) -> str:
 
 def assemble(stream: str, name: str, elf: Path, prologue: str = PROLOGUE, *,
              labels: dict[str, tuple[str, int]] | None = None) -> tuple[list[Refusal], int]:
-    """Assemble `stream` under the harness into `elf`.
+    """Assemble `stream` under `prologue` into `elf`, returning `(refusals, byte_count)`.
 
-    Returns the refusals found and the image's byte count; the image is written only where
-    the list is empty. The scan runs first so that a stream the dialect refuses is reported
-    whole rather than at its first refused line, and the layout runs second so that an
-    operand the parser could not decide alone is still named by its line.
+    Scans dialect/directives first so all name refusals are reported together, then runs
+    layout/encoding to report operand refusals; writes `elf` only when refusals is empty.
     """
     found = refusals(stream)
     if found:
@@ -270,11 +261,9 @@ def _layout_refusal(exc: AsmError, stream: str, offset: int) -> Refusal:
 
 @dataclass(frozen=True)
 class Preprocessed:
-    """The exact self-contained translation unit handed to both compiler readings.
+    """Self-contained translation unit (`ccomp -E` for `.c` in source dir; verbatim copy for `.i`).
 
-    `.c` runs through this compiler's `-E` in its source directory, preserving relative
-    includes. `.i` is already preprocessed and is copied byte for byte. The digest binds
-    the effective transitive include closure, not a separately guessed include list.
+    Digest covers the transitive include closure.
     """
 
     argv: tuple[str, ...]
@@ -339,14 +328,10 @@ class Compiled:
 def compile_c(ccomp: list[str], source: Path, fresh: Path,
               timeout: int = COMPILE_TIMEOUT, *,
               observations: list[dict[str, object]] | None = None) -> Compiled:
-    """Run `ccomp -S` over one source in `fresh`, a directory holding nothing else.
+    """Preprocess once and run `ccomp -S` in isolated dir `fresh` (not an OS sandbox).
 
-    The source is preprocessed once and the resulting `.i` compiled there. This directory is
-    not an OS sandbox. Remove any previous assembly first, so a reused --keep directory
-    cannot supply a successful invocation that wrote nothing with stale output, and any
-    partial assembly an interrupted run left, because the typed route creates that file
-    exclusively and would refuse a rerun over it. The argv records the compiler's path
-    and two names relative to this directory. Preprocessing has its own recorded cwd.
+    Deletes stale/partial `.s` first since exclusive file creation refuses existing output;
+    argv uses paths relative to `fresh` while preprocessing runs in the source directory.
     """
     fresh = fresh.resolve()
     fresh.mkdir(parents=True, exist_ok=True)
@@ -447,13 +432,9 @@ def cap_roundtrip(records: list[str]) -> bool:
 def run_image(simulator: list[str], profile: Path, elf: Path, workdir: Path,
               timeout: int = RUN_TIMEOUT, inst_limit: int = INST_LIMIT, *,
               observations: list[dict[str, object]] | None = None) -> Ran:
-    """Run one image the way `run.py model corpus` runs a member, plus the terminal log.
+    """Execute `elf` on `simulator` as `run.py model corpus` does, keeping HTIF console logs separate from commit traces.
 
-    The commit trace is read off the merged streams by shape, as the corpus runner reads
-    it; the terminal log is the HTIF console, which is where a component's emitted bytes
-    land, and it is a file rather than the console so that the emulator's own lines and
-    the trace never mix with them. An observation collector additionally retains the
-    exact command and separate stdout/stderr identities with a combined process log.
+    Optional `observations` retains the command, separate stdout/stderr streams, and combined process log.
     """
     term = workdir / f"{elf.stem}.term"
     term.unlink(missing_ok=True)
@@ -485,13 +466,10 @@ def run_image(simulator: list[str], profile: Path, elf: Path, workdir: Path,
 
 @dataclass(frozen=True)
 class Program:
-    """One input: its name, the pattern it exercises, its text, how many checks it
-    carries, and what `main` is expected to return.
+    """Input program (`name`, `pattern`, `text`, `checks`, expected `main` return).
 
-    Each check returns its own number from `main` on the corpus's convention that a
-    failure names the check. `expect` is 0 for an ordinary program and, for a perturbed
-    one, the number of the check whose expected constant was moved off by one, so the
-    campaign's negative control names the check it must fail at."""
+    Failing checks return their 1-based index; `expect` is 0 for normal programs or the
+    perturbed check index for off-by-one negative controls."""
 
     name: str
     pattern: str
@@ -502,8 +480,7 @@ class Program:
 
 @dataclass(frozen=True)
 class Interpreted:
-    """One `ccomp -interp` run: CompCert's reference interpreter for the source, which is
-    the program-level loop's source-side reading of what `main` returns."""
+    """CompCert `ccomp -interp` reference run reading the source `main` return value."""
 
     argv: tuple[str, ...]
     exit_code: int
@@ -518,12 +495,7 @@ _TERMINATED_RE = re.compile(
 def interpret_c(ccomp: list[str], source: Path, fresh: Path,
                 timeout: int = COMPILE_TIMEOUT, *, expected_sha256: str = "",
                 observations: list[dict[str, object]] | None = None) -> Interpreted:
-    """Run the same compiler's `-interp` over one source in `fresh`.
-
-    The reading is the exit code the interpreter reports for `main`, and only where it
-    reports exactly one termination; a stuck state, an undefined behaviour the
-    interpreter detects, a timeout or a second termination line leave it `None`.
-    """
+    """Run `ccomp -interp` in `fresh`; returns exit code only on a single termination (else `None`)."""
     fresh = fresh.resolve()
     prepared = preprocess_c(ccomp, source, fresh, timeout, observations=observations)
     argv = [*ccomp, "-interp", prepared.path.name]
@@ -592,12 +564,9 @@ def run_program(program: Program, ccomp: list[str], workdir: Path,
                 compile_timeout: int = COMPILE_TIMEOUT, run_timeout: int = RUN_TIMEOUT,
                 inst_limit: int = INST_LIMIT, interp: bool = False,
                 observations: list[dict[str, object]] | None = None) -> Report:
-    """Compile, scan, assemble, and run one program, stopping at the first thing that
-    does not go through and saying which it was.
+    """Compile, scan, assemble, and simulate `program`, returning the first failing stage.
 
-    With `interp`, the same compiler's reference interpreter also runs the source, and
-    an image whose `main` returned something other than what the interpreter reports is
-    `source-disagrees` rather than a pass or a failure.
+    With `interp`, also checks `ccomp -interp` and classifies differing `main` results as `source-disagrees`.
     """
     source = workdir / f"{program.name}.c"
     source.write_text(program.source, encoding="utf-8", newline="\n")

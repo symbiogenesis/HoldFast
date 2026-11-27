@@ -1,10 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Repository document and Git index loader for static checks.
-
-Parses tracked Markdown files once, recording raw text, line-start offsets for
-binary-search line resolution, fenced/indented code masks, headings, and HTML
-`<a id="...">` anchors outside code blocks.
-"""
+"""Load tracked Markdown docs and Git index state once (raw text, line offsets, code masks, headings, and non-code `<a id="...">` anchors)."""
 
 import bisect
 import os
@@ -138,16 +133,11 @@ class Corpus:
         self.root = root
         self.docs = docs
         self.by_name = {d.name: d for d in docs}
-        # Submodule path -> indexed commit. Link checks use path membership;
-        # pin checks use the commit without another Git invocation.
+        # Submodule path -> pinned commit (for link/pin checks without extra Git calls).
         self.gitlinks = gitlinks
-        # Tracked files present in the working tree, including non-Markdown and
-        # model files. Each whole-tree check defines its own exclusions.
+        # Tracked working-tree files (non-Markdown/model included; checks filter their own exclusions).
         self.tracked = tracked
-        # Stage-zero files, including working-tree deletions. Rules asking whether
-        # the index carries a file need its membership, not a subprocess reading
-        # its entire blob. Conflicted entries have no stage zero; gitlinks point at
-        # commits rather than blobs. Neither can supply an indexed file.
+        # Stage-zero indexed blobs incl. working-tree deletions (excludes conflicted entries & gitlink commits).
         self.indexed = frozenset(tracked if indexed is None else indexed)
 
         # Semantic citations use each file's own heading and bookmark targets.
@@ -184,12 +174,7 @@ class Corpus:
 
 
 def git_environment(root: Path) -> dict[str, str] | None:
-    """Return an environment dict with [proofenv.py](proofenv.py)'s Git worktree overlay, or `None` if unneeded.
-
-    A linked worktree created by Windows Git stores a Windows path in its `.git`
-    pointer file; inside WSL, `proofenv.git_env(root)` translates that pointer into
-    `GIT_DIR` and `GIT_WORK_TREE` so `git` commands succeed.
-    """
+    """Return env dict adding [proofenv.py](proofenv.py)'s WSL worktree overlay (`GIT_DIR`/`GIT_WORK_TREE` for Windows `.git` pointers), or `None`."""
     overlay = proofenv.git_env(root)
     return {**os.environ, **overlay} if overlay else None
 
@@ -222,11 +207,7 @@ def find_root(start: Path | None = None) -> Path:
 
 @dataclass(frozen=True)
 class Index:
-    """The index's file membership and pins, without reading the working tree.
-
-    `files` includes deleted and unmerged paths, once each in Git's order.
-    `indexed` is narrower: only stage-zero files can supply an indexed blob.
-    """
+    """Index membership and gitlink pins (`files` keeps all entries incl. deleted/unmerged in Git order; `indexed` holds stage-zero blobs only)."""
 
     files: tuple[str, ...]
     gitlinks: dict[str, str]
@@ -234,11 +215,7 @@ class Index:
 
 
 def read_index(root: Path) -> Index:
-    """Read file membership, stage-zero membership and gitlinks in one Git call.
-
-    Callers that only need the index need not parse every document or stat every
-    tracked path. Working-tree existence is deliberately left to each reader.
-    """
+    """Read `files`, stage-zero `indexed` membership, and `gitlinks` in one Git call without parsing docs or stat'ing the worktree."""
     files: list[str] = []
     gitlinks: dict[str, str] = {}
     indexed: set[str] = set()
@@ -261,13 +238,7 @@ def read_index(root: Path) -> Index:
 
 
 def load(root: Path) -> Corpus:
-    """Load all tracked Markdown documents and gitlinks from the repository at `root`.
-
-    Uses `git ls-files` so ignored files and submodule contents are excluded
-    automatically, and skips tracked paths deleted from the working tree so
-    downstream checks can report missing files cleanly instead of aborting on I/O
-    errors.
-    """
+    """Load tracked Markdown docs and `gitlinks` via `git ls-files`, skipping deleted worktree paths so checks report them cleanly."""
     # Read file membership, gitlink paths and pinned commits in one listing.
     # Gitlinks resolve for link and pin checks even when submodules are uninitialized.
     index = read_index(root)

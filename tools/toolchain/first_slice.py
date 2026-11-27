@@ -1,11 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Replay packet-validator proofs, C lowering, and native controls.
+"""Replay packet-validator Rocq source proofs, C lowering (optional VerifiedOS CompCert replay), and handwritten Sail controls.
 
-The harness checks source-level byte and loan laws in Rocq, lowers the supported
-validator to C, and runs separate handwritten assembly controls in Sail.
-Optional VerifiedOS CompCert replay exercises the lowered C. See
-[first-slice qualification](../../docs/language/first-release.md#first-slice-qualification)
-for the evidence and its limits.
+See [first-slice qualification](../../docs/language/first-release.md#first-slice-qualification) for evidence scope and limits.
 """
 
 import copy
@@ -1623,14 +1619,8 @@ def lower_to_c(
     source: bytes, parsed: object, *, perturb_check: int = 0, checked: CheckedElaboration | None = None,
     observations: list[dict[str, object]] | None = None,
 ) -> tuple[str, int]:
-    """Lower the executable subset of `first_slice.hf` from its checked AST to C.
-
-    Verifies that the parsed AST carries the expected executable type and callable
-    declarations (`ValidationError`, `ValidatedPacket`, `WritePacket8`,
-    `CopyPacketToDst`, `ComputePacketChecksum`, `PrepareAndValidatePacket`), the
-    carrier laws, and the seven scenario theorems before lowering the
-    executable union, record, and function AST nodes into a self-contained C
-    translation unit in the `verifiedos-scalar-source-v1` subset.
+    """Check required callables (`ValidationError`, `ValidatedPacket`, `WritePacket8`, `CopyPacketToDst`,
+    `ComputePacketChecksum`, `PrepareAndValidatePacket`), carrier laws, and 7 scenario theorems, then lower to `verifiedos-scalar-source-v1` C.
     """
     if checked is None:
         checked = holdfast_elaborate.elaborate(source, parsed)

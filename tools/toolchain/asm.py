@@ -156,14 +156,10 @@ class Assembler:
     # -- layout -------------------------------------------------------------
 
     def assemble(self) -> tuple[list[image.Section], dict[str, tuple[str, int]], int]:
-        """Lay the program out, then encode it.
+        """Lay out the program to a fixed point, then encode it.
 
-        Layout is iterated to a fixed point rather than done in two passes,
-        because `li` is as long as its value needs and a value can be a symbol:
-        one pass would have to guess the length of an instruction whose operand
-        it has not placed yet. Every other item's size is a property of the
-        source alone, so the iteration moves only where a `li` crosses a
-        materialization boundary and it settles in two rounds.
+        Iterates because symbol-valued `li` lengths can cross materialization
+        boundaries; all other items have fixed sizes, so layout settles in two rounds.
         """
         definitions: dict[str, Item] = {}
         for item in self.items:

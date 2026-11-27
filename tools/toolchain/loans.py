@@ -2275,17 +2275,14 @@ def export_loan_certificate(report: Report) -> dict[str, object]:
 
 
 def analyze(owners: tuple[Owner, ...], graph: Graph, limits: Limits | None = None) -> Report:
-    """Return a complete, deterministic diagnostic or raise AnalysisRefusalError.
+    """Return a deterministic diagnostic over supplied abstract inputs without I/O, or raise `AnalysisRefusalError`.
 
-    Facts are supplied abstract inputs, not source interpretation or proved laws.
-    Even a report with no issues contains unresolved interpretation obligations.
-    Exhaustion at any stage discards all path results rather than returning a
-    deceptively complete prefix. The API performs no file or external I/O.
+    Leaves source-interpretation and restoration obligations unresolved even on empty issue sets,
+    and discards all path results on budget exhaustion instead of returning a partial prefix.
 
-    For example, ``analyze((Owner("input", borrowed=True),), Graph("lend", (
+    Example: ``analyze((Owner("input", borrowed=True),), Graph("lend", (
     Node("lend", Borrow(Loan("view", "input", Place("input"))), ("read",)),
     Node("read", Use("view")),)))`` proposes ending ``view`` after ``read``.
-    The resulting restoration and interpretation obligations remain unresolved.
     """
     if limits is None:
         limits = Limits()
