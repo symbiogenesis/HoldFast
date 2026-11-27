@@ -21,7 +21,10 @@ from toolchain import (
     contract_diff,
     env,
     gallina_source_map,
+    graded_combinators,
+    graded_inference,
     graded_source,
+    graded_synthesis,
     mathematical_authoring,
     mathematical_preview,
     packages,
@@ -35,6 +38,7 @@ from toolchain import (
     web_output,
     web_output_check,
 )
+from toolchain import elaborate as hf_elaborate
 from toolchain import (
     elaboration_check as holdfast_elaboration_check,
 )
@@ -266,6 +270,131 @@ def _authoring(root: Path, args: argparse.Namespace, allowed: set[str], denied: 
     return 0
 
 
+def _parse_cli_grade(raw: str) -> graded_inference.GradeExpr:
+    text = raw.strip()
+    if text.isdigit():
+        return graded_inference.GradeLit(int(text))
+    return graded_inference.GradeVar(text)
+
+
+def _parse_cli_type(raw: str) -> graded_combinators.CombinatorType:
+    text = raw.strip()
+    if text == "Nat":
+        return graded_combinators.NAT_TYPE
+    if text == "bool":
+        return graded_combinators.BOOL_TYPE
+    if text in {"()", "Unit"}:
+        return graded_combinators.UNIT_TYPE
+    if text.startswith("Box<") and text.endswith(">"):
+        inner, grade_str = [part.strip() for part in text[4:-1].split(",", 1)]
+        return graded_combinators.BoxType(_parse_cli_type(inner), _parse_cli_grade(grade_str))
+    if text.startswith("Pair<") and text.endswith(">"):
+        left, right = [part.strip() for part in text[5:-1].split(",", 1)]
+        return graded_combinators.PairType(_parse_cli_type(left), _parse_cli_type(right))
+    if text.startswith("Either<") and text.endswith(">"):
+        left, right = [part.strip() for part in text[7:-1].split(",", 1)]
+        return graded_combinators.SumType(_parse_cli_type(left), _parse_cli_type(right))
+    return graded_combinators.BaseType(text)
+
+
+def _run_derive_combinator(args: argparse.Namespace) -> dict[str, object]:
+    payload_t = _parse_cli_type(args.payload_type)
+    left_t = _parse_cli_type(args.left_type)
+    right_t = _parse_cli_type(args.right_type)
+    derivation = graded_combinators.derive_combinator(
+        args.combinator,
+        domain=args.domain,
+        payload_type=payload_t,
+        pair_type=graded_combinators.PairType(left_t, right_t),
+        sum_type=graded_combinators.SumType(left_t, right_t),
+        grade=_parse_cli_grade(args.grade),
+        inner_grade=_parse_cli_grade(args.inner_grade),
+        target_grade=_parse_cli_grade(args.target_grade),
+        verify_rocq=args.verify_rocq,
+    )
+    return {
+        "status": "derived",
+        "combinator": derivation.combinator,
+        "domain": derivation.domain.value,
+        "type_signature": graded_combinators._format_type_hf(derivation.signature),
+        "theorem_name": derivation.theorem_name,
+        "holdfast_source": derivation.holdfast_source,
+        "gallina": derivation.gallina,
+        "source_sha256": derivation.source_sha256,
+    }
+
+
+def _parse_cli_atom(raw: str) -> object:
+    text = raw.strip()
+    if text == "true":
+        return True
+    if text == "false":
+        return False
+    if text.lstrip("-").isdigit():
+        return int(text)
+    return text
+
+
+def _run_synthesize_graded(args: argparse.Namespace) -> dict[str, object]:
+    goal = _parse_cli_type(args.goal)
+    context: list[graded_synthesis.ContextVar] = []
+    for item in args.var:
+        name_part, rest = item.split(":", 1)
+        type_part, grade_part = rest.rsplit("@", 1)
+        allowance = int(grade_part.strip()) if grade_part.strip().isdigit() else 1
+        context.append(graded_synthesis.ContextVar(name_part.strip(), _parse_cli_type(type_part), allowance=allowance))
+
+    examples: list[tuple[tuple[object, ...], object]] = []
+    for ex in args.example:
+        lhs, rhs = ex.split("->", 1)
+        inputs = tuple(_parse_cli_atom(part) for part in lhs.split(",") if part.strip())
+        examples.append((inputs, _parse_cli_atom(rhs)))
+
+    nat = graded_combinators.NAT_TYPE
+    components = (
+        graded_synthesis.Component("zero", nat, semantics=0),
+        graded_synthesis.Component("inc", graded_combinators.ArrowType(graded_inference.GradeLit(1), nat, nat),
+                                   semantics=lambda x: int(x) + 1),  # type: ignore[arg-type]
+        graded_synthesis.Component(
+            "add",
+            graded_combinators.ArrowType(
+                graded_inference.GradeLit(1),
+                nat,
+                graded_combinators.ArrowType(graded_inference.GradeLit(1), nat, nat),
+            ),
+            semantics=lambda x: (lambda y: int(x) + int(y)),  # type: ignore[arg-type]
+        ),
+    )
+    budget = graded_synthesis.SynthesisBudget(max_nodes=args.max_nodes, max_depth=args.max_depth)
+    outcome = graded_synthesis.synthesize(
+        goal,
+        domain=args.domain,
+        context=tuple(context),
+        components=components,
+        budget=budget,
+        examples=tuple(examples),
+        verify_rocq=args.verify_rocq,
+    )
+    if isinstance(outcome, graded_synthesis.SynthesisSuccess):
+        return {
+            "status": "synthesized",
+            "domain": outcome.domain.value,
+            "holdfast_source": outcome.holdfast_source,
+            "used_grades": outcome.used_grades,
+            "pruned_branches": outcome.pruned_branches,
+            "behavioral_rejections": outcome.behavioral_rejections,
+            "gallina": outcome.gallina,
+            "source_sha256": outcome.source_sha256,
+        }
+    return {
+        "status": "residual",
+        "domain": outcome.domain.value,
+        "reason": outcome.reason,
+        "pruned_branches": outcome.pruned_branches,
+        "behavioral_rejections": outcome.behavioral_rejections,
+    }
+
+
 def _debug_simulator(args: argparse.Namespace) -> dict[str, object]:
     loaded = env.load()
     simulator = args.simulator or loaded.simulator
@@ -303,13 +432,39 @@ def main(argv: list[str] | None = None) -> int:
     commands.add_parser("qualify", help="check independent AST/refusal fixtures and regeneration")
     arithmetic = commands.add_parser("check-arithmetic", help="kernel-check partial word operations against their checked variants")
     arithmetic.add_argument("source", type=Path)
-    grading = commands.add_parser("check-grades", help="replay a pure graded definition and report its binder demand")
+    grading = commands.add_parser("check-grades", help="replay a graded definition and report its binder demand")
     grading.add_argument("source", type=Path)
     grading.add_argument("definition", help="mathematical definition to check")
     grading.add_argument("--domain", type=graded_source.GradeDomain, choices=tuple(graded_source.GradeDomain),
                          default=graded_source.GradeDomain.EXACT, help="select the computation grade domain (default: NatExact)")
     grading.add_argument("--modal", action="store_true",
                          help="replay natural-valued box promotion and explicitly motivated box and dependent pair matches")
+    grading.add_argument("--infer-grades", action="store_true",
+                         help="infer omitted or '@ _' local grades before Rocq Core replay")
+    derive_cmd = commands.add_parser("derive-combinator", help="derive a distributive Box/Pair/Sum combinator with Rocq replay")
+    derive_cmd.add_argument("combinator", choices=(
+        "dist_pair", "pull_pair", "push_sum", "flatten_box", "duplicate_box", "extract_box", "weaken_box",
+    ))
+    derive_cmd.add_argument("--domain", default="NatExact",
+                            choices=tuple(d.value for d in graded_inference.InferenceDomain))
+    derive_cmd.add_argument("--payload-type", default="A")
+    derive_cmd.add_argument("--left-type", default="A")
+    derive_cmd.add_argument("--right-type", default="B")
+    derive_cmd.add_argument("--grade", default="q")
+    derive_cmd.add_argument("--inner-grade", default="r")
+    derive_cmd.add_argument("--target-grade", default="1")
+    derive_cmd.add_argument("--verify-rocq", action="store_true")
+    synth_cmd = commands.add_parser("synthesize-graded", help="run bounded grade-directed program synthesis")
+    synth_cmd.add_argument("--goal", default="Nat")
+    synth_cmd.add_argument("--domain", default="NatExact",
+                           choices=tuple(d.value for d in graded_inference.InferenceDomain))
+    synth_cmd.add_argument("--var", action="append", default=[],
+                           help="context variable spec NAME:TYPE@GRADE (e.g. x:Nat@2)")
+    synth_cmd.add_argument("--example", action="append", default=[],
+                           help="input->output example spec (e.g. 0->1 or 1,2->3)")
+    synth_cmd.add_argument("--max-nodes", type=int, default=500)
+    synth_cmd.add_argument("--max-depth", type=int, default=4)
+    synth_cmd.add_argument("--verify-rocq", action="store_true")
     mapping = commands.add_parser("source-map", help="publish mathematical Gallina, an ECMA-426 map and its bindings")
     mapping.add_argument("source", type=Path)
     mapping.add_argument("--output", type=Path, required=True, metavar="NEW_DIRECTORY")
@@ -412,6 +567,8 @@ def main(argv: list[str] | None = None) -> int:
                            help="make an advisory mathematical lint an error (repeatable)")
     elaborate.add_argument("--warn", action="append", choices=sorted(OPT_IN_MATHEMATICAL_LINTS), default=[],
                            help="enable an opt-in mathematical lint (repeatable)")
+    elaborate.add_argument("--infer-grades", action="store_true",
+                           help="infer omitted or '@ _' local grades in graded definitions")
     fmt = commands.add_parser("fmt", help="check and format a mathematically elaborated source")
     fmt.add_argument("source", type=Path, help="source file, or - for an editor buffer with --syntax-only")
     fmt.add_argument("--check", action="store_true", help="report a style difference without writing")
@@ -456,14 +613,19 @@ def main(argv: list[str] | None = None) -> int:
             source = holdfast_parser.read_source(args.source)
             with holdfast_parser.cached_build(root) as compiled:
                 parsed = holdfast_parser.parse_source(compiled, source, surface=True)
-                translation = holdfast_mathematical.inspect_source(source, parsed)
-                findings = _with_annotations(translation.findings, compiled, source, annotations)
-            if not report_findings(args.source, findings, allowed, denied):
+                if args.infer_grades:
+                    gallina = hf_elaborate.elaborate(source, parsed, infer_grades=True).gallina
+                    findings: tuple[object, ...] = ()
+                else:
+                    translation = holdfast_mathematical.inspect_source(source, parsed)
+                    findings = _with_annotations(translation.findings, compiled, source, annotations)
+                    gallina = translation.gallina
+            if findings and not report_findings(args.source, findings, allowed, denied):
                 return 1
             if args.output is None:
-                print(translation.gallina, end="")
+                print(gallina, end="")
             else:
-                _publish(args.source, args.output, translation.gallina)
+                _publish(args.source, args.output, gallina)
             return 0
         if args.command == "emit-web":
             output = web_output.publish(args.source, args.function, args.output)
@@ -478,7 +640,13 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "check-arithmetic":
             output = holdfast_elaboration_check.check_arithmetic(root, args.source)
         elif args.command == "check-grades":
-            output = graded_source.check(root, args.source, args.definition, modal=args.modal, domain=args.domain)
+            output = graded_source.check(
+                root, args.source, args.definition, modal=args.modal, domain=args.domain, infer_grades=args.infer_grades,
+            )
+        elif args.command == "derive-combinator":
+            output = _run_derive_combinator(args)
+        elif args.command == "synthesize-graded":
+            output = _run_synthesize_graded(args)
         elif args.command == "source-map":
             output = gallina_source_map.export(root, args.source, args.output)
         elif args.command == "qualify-remarks":
