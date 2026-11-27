@@ -7414,22 +7414,30 @@ Proof.
   rw_nat_bool. rewrite (IHw1 _ H2), (IHw2 _ H3). reflexivity.
 Qed.
 
+Ltac no_if t :=
+  match t with
+  | context [if _ then _ else _] => fail 1
+  | _ => idtac
+  end.
+
+Ltac split_nat_cmp :=
+  repeat (
+    cbv iota in *;
+    match goal with
+    | |- context [?a <? ?b] => no_if a; no_if b; destruct (Nat.ltb_spec a b); [try lia | try lia]
+    | |- context [?a =? ?b] => no_if a; no_if b; destruct (Nat.eqb_spec a b); [try lia | try lia]
+    end
+  ).
+
 Ltac solve_pair_var v c k :=
   destruct (lt_eq_lt_dec v c) as [[Hlt | Heq] | Hgt];
-  [ destruct (Nat.ltb_spec v c), (Nat.eqb_spec v c),
-             (Nat.ltb_spec v (c + k)), (Nat.eqb_spec v (c + k)),
-             (Nat.ltb_spec v (c + S k)), (Nat.eqb_spec v (c + S k));
-    repeat (rw_nat_bool; cbv iota); cbn; repeat (rw_nat_bool; cbv iota); try lia; try reflexivity; f_equal; lia
+  [ repeat (rw_nat_bool; cbv iota); split_nat_cmp; cbn; split_nat_cmp;
+    repeat (rw_nat_bool; cbv iota); try lia; try reflexivity; f_equal; lia
   | try (subst v || rewrite Heq in * );
-    destruct (Nat.ltb_spec c c), (Nat.eqb_spec c c),
-             (Nat.ltb_spec 0 (c + k)), (Nat.eqb_spec 0 (c + k)),
-             (Nat.ltb_spec c (c + k)), (Nat.eqb_spec c (c + k)),
-             (Nat.ltb_spec c (c + S k)), (Nat.eqb_spec c (c + S k));
-    repeat (rw_nat_bool; cbv iota); cbn; repeat (rw_nat_bool; cbv iota); try lia; try reflexivity; f_equal; lia
-  | destruct (Nat.ltb_spec v c), (Nat.eqb_spec v c),
-             (Nat.ltb_spec (v - 1) (c + k)), (Nat.eqb_spec (v - 1) (c + k)),
-             (Nat.ltb_spec v (c + S k)), (Nat.eqb_spec v (c + S k));
-    repeat (rw_nat_bool; cbv iota); cbn; repeat (rw_nat_bool; cbv iota); try lia; try reflexivity; f_equal; lia ].
+    repeat (rw_nat_bool; cbv iota); split_nat_cmp; cbn; split_nat_cmp;
+    repeat (rw_nat_bool; cbv iota); try lia; try reflexivity; f_equal; lia
+  | repeat (rw_nat_bool; cbv iota); split_nat_cmp; cbn; split_nat_cmp;
+    repeat (rw_nat_bool; cbv iota); try lia; try reflexivity; f_equal; lia ].
 
 Lemma subst_cidx_subst_pair_comm_gen : forall (D : JoinDomain) (T : cty D) (fi si val : cidx D) c k,
   (c + k > 0 \/ cty_uses_kinds false true true true true true true c T = false) ->
@@ -7461,10 +7469,8 @@ Proof.
         [repeat (rw_nat_bool; cbv iota); symmetry; apply subst_pair_cidx_lift_cancel |].
       destruct (Nat.eq_dec x c0) as [-> | Hnec].
       + destruct Hnz as [Hnz | H0]; [| rewrite Nat.eqb_refl in H0; discriminate].
-        destruct (Nat.ltb_spec 0 (c0 + k0)), (Nat.eqb_spec 0 (c0 + k0)),
-                 (Nat.ltb_spec c0 c0), (Nat.eqb_spec c0 c0),
-                 (Nat.ltb_spec c0 (c0 + S k0)), (Nat.eqb_spec c0 (c0 + S k0));
-          repeat (rw_nat_bool; cbv iota); cbn; repeat (rw_nat_bool; cbv iota); try lia; reflexivity.
+        repeat (rw_nat_bool; cbv iota); split_nat_cmp; cbn; split_nat_cmp;
+          repeat (rw_nat_bool; cbv iota); try lia; reflexivity.
       + solve_pair_var x c0 k0.
     - nat_bool_hyps; solve_pair_var b c0 k0.
     - nat_bool_hyps. destruct (Nat.eq_dec p c0) as [-> | Hne].
@@ -7608,10 +7614,8 @@ Proof.
         [repeat (rw_nat_bool; cbv iota); symmetry; apply subst_box_nat_cidx_lift_cancel |].
       destruct (Nat.eq_dec x c0) as [-> | Hnec].
       + destruct Hnz as [Hnz | H0]; [| rewrite Nat.eqb_refl in H0; discriminate].
-        destruct (Nat.ltb_spec 0 (c0 + k0)), (Nat.eqb_spec 0 (c0 + k0)),
-                 (Nat.ltb_spec c0 c0), (Nat.eqb_spec c0 c0),
-                 (Nat.ltb_spec c0 (c0 + S k0)), (Nat.eqb_spec c0 (c0 + S k0));
-          repeat (rw_nat_bool; cbv iota); cbn; repeat (rw_nat_bool; cbv iota); try lia; reflexivity.
+        repeat (rw_nat_bool; cbv iota); split_nat_cmp; cbn; split_nat_cmp;
+          repeat (rw_nat_bool; cbv iota); try lia; reflexivity.
       + solve_pair_var x c0 k0.
     - nat_bool_hyps. destruct (Nat.eq_dec b c0) as [-> | Hne]; repeat (rw_nat_bool; cbv iota);
         [cbn; f_equal; apply subst_cidx_lift_cidx_comm; exact Hb |].
@@ -7701,10 +7705,8 @@ Proof.
         [repeat (rw_nat_bool; cbv iota); symmetry; apply subst_tvar_in_cidx_lift_cancel |].
       destruct (Nat.eq_dec x c0) as [-> | Hnec].
       + destruct Hnz as [Hnz | H0]; [| rewrite Nat.eqb_refl in H0; discriminate].
-        destruct (Nat.ltb_spec 0 (c0 + k0)), (Nat.eqb_spec 0 (c0 + k0)),
-                 (Nat.ltb_spec c0 c0), (Nat.eqb_spec c0 c0),
-                 (Nat.ltb_spec c0 (c0 + S k0)), (Nat.eqb_spec c0 (c0 + S k0));
-          repeat (rw_nat_bool; cbv iota); cbn; repeat (rw_nat_bool; cbv iota); try lia; reflexivity.
+        repeat (rw_nat_bool; cbv iota); split_nat_cmp; cbn; split_nat_cmp;
+          repeat (rw_nat_bool; cbv iota); try lia; reflexivity.
       + solve_pair_var x c0 k0.
     - nat_bool_hyps; solve_pair_var b c0 k0.
     - nat_bool_hyps; solve_pair_var p c0 k0.
@@ -7773,15 +7775,11 @@ Ltac solve_rvar_box v c k :=
   repeat (rw_nat_bool; cbv iota); cbn [ren_cidx ren_cty];
   destruct (lt_eq_lt_dec v c) as [[Hlt_v | Heq_v] | Hgt_v]; try lia;
   [ rewrite r_var_lt by exact Hlt_v;
-    destruct (Nat.ltb_spec v (c + S k)), (Nat.eqb_spec v (c + S k)),
-             (Nat.ltb_spec v (c + k)), (Nat.eqb_spec v (c + k)),
-             (Nat.ltb_spec v c), (Nat.eqb_spec v c);
-    repeat (rw_nat_bool; cbv iota); cbn; repeat (rw_nat_bool; cbv iota); try lia; reflexivity
+    repeat (rw_nat_bool; cbv iota); split_nat_cmp; cbn; split_nat_cmp;
+    repeat (rw_nat_bool; cbv iota); try lia; reflexivity
   | rewrite r_var_gt by exact Hgt_v;
-    destruct (Nat.ltb_spec v (c + S k)), (Nat.eqb_spec v (c + S k)),
-             (Nat.ltb_spec (v - 1) (c + k)), (Nat.eqb_spec (v - 1) (c + k)),
-             (Nat.ltb_spec v c), (Nat.eqb_spec v c);
-    repeat (rw_nat_bool; cbv iota); cbn; repeat (rw_nat_bool; cbv iota); try lia; try reflexivity; f_equal; lia ].
+    repeat (rw_nat_bool; cbv iota); split_nat_cmp; cbn; split_nat_cmp;
+    repeat (rw_nat_bool; cbv iota); try lia; try reflexivity; f_equal; lia ].
 
 Lemma subst_cidx_box_var_to_nat_gen : forall (D : JoinDomain) (T : cty D) q (val : cidx D) c k,
   cty_uses_kinds false false false true false false false c T = false ->
@@ -8009,10 +8007,8 @@ Proof.
       symmetry; exact Hw1.
     + destruct (Nat.eq_dec x c) as [-> | Hnec].
       * destruct Hnz as [Hnz | H0]; [| rewrite Nat.eqb_refl in H0; discriminate].
-        destruct (Nat.ltb_spec 0 (c + k)), (Nat.eqb_spec 0 (c + k)),
-                 (Nat.ltb_spec c c), (Nat.eqb_spec c c),
-                 (Nat.ltb_spec c (c + S k)), (Nat.eqb_spec c (c + S k));
-          repeat (rw_nat_bool; cbv iota); cbn; repeat (rw_nat_bool; cbv iota); try lia; reflexivity.
+        repeat (rw_nat_bool; cbv iota); split_nat_cmp; cbn; split_nat_cmp;
+          repeat (rw_nat_bool; cbv iota); try lia; reflexivity.
       * solve_pair_var x c k.
   - nat_bool_hyps; solve_pair_var b c k.
   - nat_bool_hyps; solve_pair_var p c k.
@@ -8264,13 +8260,8 @@ Lemma subst_cidx_sum_var_to_nat_gen : forall (D : JoinDomain) (T : cty D) is_lef
 Proof.
   intros D T is_left val c k Hc Hk.
   Ltac solve_h0k_var v d m j :=
-    destruct (Nat.eqb_spec v d), (Nat.ltb_spec v d),
-             (Nat.eqb_spec v (m + S j)), (Nat.ltb_spec v (m + S j)),
-             (Nat.eqb_spec (v - 1) (m + j)), (Nat.ltb_spec (v - 1) (m + j)),
-             (Nat.eqb_spec (v - 1) d), (Nat.ltb_spec (v - 1) d),
-             (Nat.eqb_spec 0 (m + j)), (Nat.ltb_spec 0 (m + j)),
-             (Nat.eqb_spec 0 d), (Nat.ltb_spec 0 d);
-      repeat (rw_nat_bool; cbv iota); cbn; repeat (rw_nat_bool; cbv iota);
+    repeat (rw_nat_bool; cbv iota); split_nat_cmp; cbn; split_nat_cmp;
+      repeat (rw_nat_bool; cbv iota);
       try lia; try reflexivity; f_equal; lia.
   assert (H0k : forall (u : cidx D) v0 d m j,
     d <= m ->
@@ -8288,10 +8279,9 @@ Proof.
         * repeat (rw_nat_bool; cbv iota). cbn. rw_nat_bool. reflexivity.
         * destruct (Nat.ltb_spec x d).
           { repeat (rw_nat_bool; cbv iota); cbn; repeat (rw_nat_bool; cbv iota); try lia; reflexivity. }
-          { destruct (Nat.ltb_spec x (m + S j)); repeat (rw_nat_bool; cbv iota); cbn;
-              destruct (Nat.eqb_spec (x - 1) (m + j)), (Nat.ltb_spec (x - 1) (m + j)),
-                       (Nat.eqb_spec (x - 1) d), (Nat.ltb_spec (x - 1) d);
-                repeat (rw_nat_bool; cbv iota); try lia; f_equal; lia. }
+          { destruct (Nat.ltb_spec x (m + S j)); repeat (rw_nat_bool; cbv iota); split_nat_cmp; cbn;
+              split_nat_cmp;
+              repeat (rw_nat_bool; cbv iota); try lia; f_equal; lia. }
     - solve_h0k_var b d m j.
     - solve_h0k_var p d m j.
     - solve_h0k_var p d m j.
