@@ -32,6 +32,7 @@ from toolchain.generated_tests import (
     DEFAULT_TIMEOUT_SECONDS,
     qualify_isolated_campaign,
 )
+from toolchain.hashing import read_bounded
 from toolchain.inspection import MAX_EXPORT_BYTES, current_binding, inspect
 from toolchain.inspection import producer_identity as inspection_producer_identity
 from toolchain.protocol_json import decode_message
@@ -75,7 +76,7 @@ def _trace(args: argparse.Namespace) -> int:
         producer = compiler_trace.producer_identity()
         if args.command == "trace-validate":
             with args.trace.open("rb") as stream:
-                data = stream.read(compiler_trace.MAX_TRACE_BYTES + 1)
+                data = read_bounded(stream, compiler_trace.MAX_TRACE_BYTES)
             compiler_trace.validate(compiler_trace.decode(data), source.data, producer)
             ensure_unchanged(source)
             _producer_unchanged(producer, "during trace validation")
@@ -157,7 +158,7 @@ def _trace_benchmark(args: argparse.Namespace) -> int:
         producer = compiler_trace.producer_identity()
         if args.command == "trace-benchmark-validate":
             with args.report.open("rb") as stream:
-                data = stream.read(trace_benchmark.MAX_REPORT_BYTES + 1)
+                data = read_bounded(stream, trace_benchmark.MAX_REPORT_BYTES)
             trace_benchmark.validate(trace_benchmark.decode(data), source.data, producer,
                                      max_overhead_ppm=args.max_overhead_ppm)
             ensure_unchanged(source)
@@ -193,7 +194,7 @@ def _trace_viewer(args: argparse.Namespace) -> int:
     try:
         if args.command.endswith("-validate"):
             with args.report.open("rb") as stream:
-                data = stream.read(trace_viewer.MAX_REPORT_BYTES + 1)
+                data = read_bounded(stream, trace_viewer.MAX_REPORT_BYTES)
             service.validate(trace_viewer.decode(data), args.trace_processor)
             print(f"holdfast: {args.report}: current pinned Perfetto importer evidence")
             return 0
@@ -462,12 +463,12 @@ def main(argv: list[str] | None = None) -> int:
                 result = snapshot.export()
             else:
                 with args.snapshot.open("rb") as stream:
-                    publication = stream.read(MAX_EXPORT_BYTES + 1)
+                    publication = read_bounded(stream, MAX_EXPORT_BYTES)
                 retained = inspection_reader.read(publication, source.data, binding=binding)
                 result = retained.export()
             if args.query is not None:
                 with args.query.open("rb") as stream:
-                    request = stream.read(MAX_EXPORT_BYTES + 1)
+                    request = read_bounded(stream, MAX_EXPORT_BYTES)
                 if retained is not None:
                     result = retained.query(source.data, decode_message(request), binding=binding)
                 elif snapshot is not None:

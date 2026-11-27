@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import cast
 
 from toolchain import compiler_trace, sarif
-from toolchain.hashing import file_sha256, sha256_bytes
+from toolchain.hashing import file_sha256, read_bounded, sha256_bytes
 
 WHEEL_PINS = {
     "sarif_tools-3.0.5-py3-none-any.whl": "682d22559095ca4a210a401e21f0585fdb8015e826c0d160ab3cbadee326952f",
@@ -37,7 +37,7 @@ def reader_identity(directory: Path) -> sarif.Object:
     hashes: dict[str, str] = {}
     for name, expected in WHEEL_PINS.items():
         with (directory / name).open("rb") as stream:
-            raw = stream.read(MAX_WHEEL_BYTES + 1)
+            raw = read_bounded(stream, MAX_WHEEL_BYTES)
         if len(raw) > MAX_WHEEL_BYTES or sha256_bytes(raw) != expected:
             raise ValueError(f"SARIF reader wheel does not match its reviewed pin: {name}")
         hashes[name] = expected

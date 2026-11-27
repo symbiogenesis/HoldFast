@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import cast
 
 from toolchain import compiler_trace as trace
-from toolchain.hashing import file_sha256
+from toolchain.hashing import file_sha256, read_bounded
 from toolchain.jsonutil import json_digest
 
 RELEASE = "v58.2"
@@ -60,7 +60,7 @@ type Object = dict[str, object]
 def reader_identity(executable: Path) -> Object:
     """Refuse unreviewed bytes before executing the externally provisioned reader."""
     with executable.open("rb") as stream:
-        raw = stream.read(MAX_READER_BYTES + 1)
+        raw = read_bounded(stream, MAX_READER_BYTES)
     if len(raw) > MAX_READER_BYTES:
         raise ValueError("trace reader exceeds executable byte limit")
     digest = hashlib.sha256(raw).hexdigest()

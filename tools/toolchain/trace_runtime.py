@@ -9,6 +9,8 @@ import sys
 import sysconfig
 from pathlib import Path
 
+from toolchain.hashing import cached_file_digest, store_file_digest
+
 MAX_FILES = 20_000
 MAX_BYTES = 512 * 1024 * 1024
 _SUFFIXES = frozenset({".py", ".pyc", ".pyd", ".dll", ".so", ".zip"})
@@ -89,6 +91,13 @@ def file_identity(files: dict[str, Path]) -> str:
         if path in digests:
             inventory[label] = digests[path]
             continue
+        if (hit := cached_file_digest(path)) is not None:
+            cached_digest, cached_size = hit
+            size += cached_size
+            if size > MAX_BYTES:
+                raise ValueError("Python runtime inventory exceeds byte limit")
+            digests[path] = inventory[label] = cached_digest
+            continue
         digest = hashlib.sha256()
         if not stat.S_ISREG(path.stat().st_mode):
             raise ValueError("runtime inventory contains a nonregular file")
@@ -105,7 +114,9 @@ def file_identity(files: dict[str, Path]) -> str:
             if not os.path.samestat(before, after) or (before.st_size, before.st_mtime_ns) != (
                     after.st_size, after.st_mtime_ns):
                 raise ValueError("runtime file changed during observation")
-        digests[path] = inventory[label] = digest.hexdigest()
+        hex_digest = digest.hexdigest()
+        store_file_digest(path, after, hex_digest)
+        digests[path] = inventory[label] = hex_digest
     return hashlib.sha256(json.dumps(inventory, sort_keys=True, separators=(",", ":"),
                                      ensure_ascii=True).encode("ascii")).hexdigest()
 

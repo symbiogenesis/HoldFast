@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import cast
 
 from toolchain import MAX_SOURCE_BYTES
-from toolchain.hashing import sha256_bytes
+from toolchain.hashing import read_bounded, sha256_bytes
 from toolchain.jsonutil import canonical_bytes, json_digest
 from toolchain.lsp import diagnose
 from toolchain.lsp_format import format_document, formatting_edits
@@ -148,7 +148,7 @@ def export(inputs: tuple[Input, ...], producer: str, *, format_fixes: bool = Fal
 
 def _schema_bytes(schema_path: Path) -> bytes:
     with schema_path.open("rb") as stream:
-        raw = stream.read(MAX_SCHEMA_BYTES + 1)
+        raw = read_bounded(stream, MAX_SCHEMA_BYTES)
     if sha256_bytes(raw) != SCHEMA_SHA256:
         raise ValueError("SARIF schema does not match the pinned OASIS 2.1.0 bytes")
     return raw

@@ -23,7 +23,7 @@ from filelock import FileLock
 from toolchain import inspect_source, translate
 from toolchain.atomic import atomic_path
 from toolchain.authoring import format_source
-from toolchain.hashing import file_sha256, sha256_bytes
+from toolchain.hashing import file_sha256, read_bounded, sha256_bytes
 from toolchain.lsp import diagnose
 from toolchain.lsp_format import format_document, formatting_edits
 from toolchain.lsp_services import SEMANTIC_TOKEN_MODIFIERS, SEMANTIC_TOKEN_TYPES, project
@@ -922,7 +922,7 @@ def _download_bytes(url: str, expected_sha256: str, cache_dir: Path, filename: s
             return existing
         cached.unlink(missing_ok=True)
     with urllib.request.urlopen(url, timeout=TIMEOUT_SECONDS) as response:  # noqa: S310
-        data = cast("bytes", response.read(MAX_DOWNLOAD_BYTES + 1))
+        data = read_bounded(response, MAX_DOWNLOAD_BYTES)
     _require(len(data) <= MAX_DOWNLOAD_BYTES, f"downloaded artifact exceeds byte limit: {filename}")
     actual = sha256_bytes(data)
     _require(
@@ -1002,7 +1002,7 @@ def extract_verified_archive(
                 if stream is None:
                     raise ValueError(f"unreadable tar member {rel!r}")
                 with stream:
-                    payload = stream.read(MAX_DOWNLOAD_BYTES + 1)
+                    payload = read_bounded(stream, MAX_DOWNLOAD_BYTES)
                 _write_member(rel, payload)
     else:
         raise ValueError(f"unsupported archive format: {pin.filename}")

@@ -2,6 +2,7 @@
 """Independent runtime inventory, cache freshness and bounded refusal controls."""
 
 import hashlib
+import io
 import json
 import os
 import sys
@@ -12,6 +13,7 @@ from types import ModuleType
 from unittest.mock import patch
 
 from tests.harness import Case, ensure
+from toolchain import hashing
 from toolchain import trace_runtime as runtime
 
 INDEPENDENT_CASES = True
@@ -183,10 +185,39 @@ def _unavailable_inputs() -> None:
             _refuses(runtime.installation_files)
 
 
+def _bounded_read_and_stat_memo_freshness() -> None:
+    payload = b"0123456789" * 10
+    ensure(hashing.read_bounded(io.BytesIO(payload), 100, chunk_size=7) == payload,
+           "read_bounded truncated an in-bound stream")
+    oversized = hashing.read_bounded(io.BytesIO(payload + b"extra"), 100, chunk_size=7)
+    ensure(len(oversized) == 101 and oversized == payload + b"e",
+           "read_bounded did not stop cleanly at limit + 1")
+
+    with tempfile.TemporaryDirectory(prefix="holdfast-hashing-freshness-") as temporary:
+        target = Path(temporary) / "sample.bin"
+        target.write_bytes(b"aaaa")
+        first = hashing.file_sha256(target)
+        # Immediate same-size write within the racily-clean guard must not hit cache.
+        target.write_bytes(b"bbbb")
+        second = hashing.file_sha256(target)
+        ensure(first != second and second == hashlib.sha256(b"bbbb").hexdigest(),
+               "same-size immediate write returned a stale cached digest")
+        past_ns = max(target.stat().st_mtime_ns, target.stat().st_ctime_ns) + hashing.RACILY_CLEAN_NS + 5_000_000_000
+        with patch.object(hashing.time, "time_ns", return_value=past_ns):
+            third = hashing.file_sha256(target)
+            ensure(third == second, "aged file changed digest on cache population")
+            ensure(hashing.cached_file_digest(target) == (third, 4),
+                   "aged unchanged file missed the racily-clean cache")
+        target.write_bytes(b"cccc")
+        ensure(hashing.file_sha256(target) == hashlib.sha256(b"cccc").hexdigest(),
+               "rewritten file retained stale cached digest")
+
+
 def cases() -> list[Case]:
     return [Case("stdlib-cache-extension-and-shared-library-freshness", _installation_inventory),
             Case("bind-installed-linux-library-without-development-symlink", _linux_soname),
             Case("complete-running-package-code-cache-and-library-bytes", _execution_closure),
             Case("live-image-selection-and-stale-or-anonymous-mappings", _process_images),
             Case("windows-runtime-selection", _windows_inventory),
-            Case("missing-runtime-inputs-refuse", _unavailable_inputs)]
+            Case("missing-runtime-inputs-refuse", _unavailable_inputs),
+            Case("bounded-read-and-racily-clean-digest-cache", _bounded_read_and_stat_memo_freshness)]

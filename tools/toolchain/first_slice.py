@@ -9,6 +9,7 @@ for the evidence and its limits.
 """
 
 import copy
+import hashlib
 import json
 import re
 import struct
@@ -54,7 +55,7 @@ from toolchain.elaborate_types import (
     _int_term,
     _parse_numeric_magnitude,
 )
-from toolchain.hashing import file_sha256
+from toolchain.hashing import file_sha256, read_bounded
 from toolchain.hashing import sha256_bytes as _sha256
 from toolchain.jsonutil import unique_object
 
@@ -444,12 +445,14 @@ def _artifacts(directory: Path) -> dict[str, str]:
         if path.is_symlink():
             raise ValueError("first-slice output contains an alias")
         if path.is_file() and path != directory / "attempt.json":
+            digest = hashlib.sha256()
             with path.open("rb") as stream:
-                raw = stream.read(ARTIFACT_BYTES - size + 1)
-            size += len(raw)
-            if size > ARTIFACT_BYTES:
-                raise ValueError("first-slice output inventory exceeds its byte bound")
-            files[str(path)] = _sha256(raw)
+                while chunk := stream.read(min(65_536, ARTIFACT_BYTES - size + 1)):
+                    size += len(chunk)
+                    if size > ARTIFACT_BYTES:
+                        raise ValueError("first-slice output inventory exceeds its byte bound")
+                    digest.update(chunk)
+            files[str(path)] = digest.hexdigest()
     if not files:
         raise ValueError("first-slice output inventory is empty")
     return dict(sorted(files.items()))
@@ -2661,7 +2664,7 @@ def _check_trace(root: Path, receipt: dict[str, object], timeline: dict[str, obj
 def verify_bindings(root: Path, receipt_path: Path) -> dict[str, object]:
     """Check retained identities; this supplies no proof replay or admission verdict."""
     with receipt_path.open("rb") as stream:
-        raw = stream.read(RECEIPT_BYTES + 1)
+        raw = read_bounded(stream, RECEIPT_BYTES)
     if len(raw) > RECEIPT_BYTES:
         raise ValueError("first-slice receipt exceeds its size bound")
     try:
@@ -2744,7 +2747,7 @@ def verify_bindings(root: Path, receipt_path: Path) -> dict[str, object]:
             or _artifacts(_receipt_directory(directory_name, _work_root(root), "slice-")) != artifacts):
         raise ValueError("first-slice receipt inputs or outputs changed during binding check")
     with receipt_path.open("rb") as stream:
-        if stream.read(RECEIPT_BYTES + 1) != raw:
+        if read_bounded(stream, RECEIPT_BYTES) != raw:
             raise ValueError("first-slice receipt changed during binding check")
     return {"schema": 1, "scope": "holdfast-first-slice-binding-check", "status": "matched",
             "receipt": str(receipt_path), "receipt_sha256": _sha256(raw),

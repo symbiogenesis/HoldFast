@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import NotRequired, TypedDict, cast
 
 from toolchain import packages, scip
-from toolchain.hashing import file_sha256
+from toolchain.hashing import file_sha256, read_bounded
 
 READER_SHA256 = "2e808bcfc73711f1ab598412ac6ec6f7c68c2c3c07e02f63b05221a2250a357e"
 READER_SIZE = 25_384_521
@@ -41,7 +41,7 @@ class _Document(TypedDict):
 
 def _stage_reader(reader: Path, directory: Path) -> Path:
     with reader.open("rb") as stream:
-        content = stream.read(READER_SIZE + 1)
+        content = read_bounded(stream, READER_SIZE)
     if len(content) != READER_SIZE or hashlib.sha256(content).hexdigest() != READER_SHA256:
         raise ValueError("SCIP reader differs from the pinned v0.10.0 Linux ARM64 executable")
     executable = directory / "scip"

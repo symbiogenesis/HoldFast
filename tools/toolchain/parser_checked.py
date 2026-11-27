@@ -34,7 +34,7 @@ from toolchain import (
 )
 from toolchain.ast import source_text
 from toolchain.atomic import atomic_path, publish_report
-from toolchain.hashing import file_sha256
+from toolchain.hashing import file_sha256, read_bounded
 from toolchain.hashing import sha256_bytes as _sha256
 
 RELEASE = "20260209"
@@ -1244,7 +1244,7 @@ def _release_sources(archive: bytes) -> dict[str, bytes]:
             if stream is None:
                 raise ValueError("unreadable Menhir archive source")
             with stream:
-                sources[relative] = stream.read(MAX_ARCHIVE_BYTES + 1)
+                sources[relative] = read_bounded(stream, MAX_ARCHIVE_BYTES)
     if set(sources) != selected:
         raise ValueError("Menhir archive omits selected support sources")
     for name, wanted in (*LICENSES.items(), ("coq-menhirlib/src/Version.v", VERSION_SHA256)):
@@ -1832,9 +1832,9 @@ def trace_worker_pids() -> tuple[int, int]:
 def _archive(path: Path | None, directory: Path) -> bytes:
     if path is not None:
         with path.open("rb") as stream:
-            return stream.read(MAX_ARCHIVE_BYTES + 1)
+            return read_bounded(stream, MAX_ARCHIVE_BYTES)
     with urllib.request.urlopen(ARCHIVE_URL, timeout=TIMEOUT) as response:
-        source = cast("bytes", response.read(MAX_ARCHIVE_BYTES + 1))
+        source = read_bounded(response, MAX_ARCHIVE_BYTES)
     (directory / "menhir.tar.gz").write_bytes(source)
     return source
 
