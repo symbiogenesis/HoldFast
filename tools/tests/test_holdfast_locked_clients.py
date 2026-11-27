@@ -156,7 +156,7 @@ def _closure_coherence() -> None:
         for name, target, result in (("First", "bool", 5), ("Second", "Nat", 11)):
             (provider / f"{name}.hf").write_text(f"""module Weights.{name};
 import Weights.Measure;
-public impl IMeasured<{target}> {{ public definition Nat Measure({target} value) => {result}; }}
+public impl Measure.IMeasured<{target}> {{ public definition Nat Measure({target} value) => {result}; }}
 """)
         client = workspace / "scale" / "v1" / "Calibration.hf"
         original = client.read_text()
@@ -172,6 +172,7 @@ public lemma ImportedReadings()
     ensures Nat.Measure(7) == 11
     proof { assert bool.Measure(true) == 5; assert Nat.Measure(7) == 11; }
 """)
+                _command("fmt", client, "--syntax-only")
                 _command("build-package", workspace, _lock(workspace), "--output", bundle)
                 _replay(workspace.parent, json.loads(bundle.read_bytes())["modules"], batch=batch)
             batch.verify_all()
@@ -185,12 +186,14 @@ public lemma ImportedReadings()
         sibling.write_text("module Weights.Second;")
         client.write_text(original + """
 public record LocalWeight(Nat Units);
-public impl IMeasured<LocalWeight> { public definition Nat Measure(LocalWeight x) => x.Units; }
+public impl Measure.IMeasured<LocalWeight> { public definition Nat Measure(LocalWeight x) => x.Units; }
 """)
+        _command("fmt", client, "--syntax-only")
         _command("build-package", workspace, _lock(workspace), "--output", bundle)
         client.write_text(original + """
-public impl IMeasured<Nat> { public definition Nat Measure(Nat value) => value; }
+public impl Measure.IMeasured<Nat> { public definition Nat Measure(Nat value) => value; }
 """)
+        _command("fmt", client, "--syntax-only")
         _command("build-package", workspace, _lock(workspace), refusal="must own")
 
 
@@ -199,13 +202,12 @@ def _namespace_edition() -> None:
         directory = Path(temporary)
         workspace = _workspace(directory)
         app = workspace / "scale" / "v1"
-        lock = _lock(workspace)
-        manifest = app / "holdfast-package.toml"
-        manifest.write_text(manifest.read_text().replace('"math-1"', '"math-2"'))
-        _command("build-package", workspace, lock, refusal="stale package lock")
-        _command("build-package", workspace, _lock(workspace), refusal="Weight")
         client = app / "Calibration.hf"
-        client.write_text(client.read_text().replace("Weight.Measure(Make(", "Measure.Weight.Measure(Measure.Make("))
+        bare = client.read_text().replace("Measure.Weight.Measure(Measure.Make(", "Weight.Measure(Make(")
+        client.write_text(bare)
+        _command("fmt", client, "--syntax-only")
+        _command("build-package", workspace, _lock(workspace), refusal="Weight")
+        client.write_text(bare.replace("Weight.Measure(Make(", "Measure.Weight.Measure(Measure.Make("))
         provider = workspace / "weights" / "v1" / "Measure.hf"
         provider.write_text(provider.read_text() + "\npublic definition Nat ReadScale(Nat x) => 9;\n")
         _command("fmt", client, "--syntax-only")
@@ -227,9 +229,10 @@ public Nat Capacity() ensures result >= 1 => Chosen();
         client = workspace / "scale" / "v1" / "Calibration.hf"
         client.write_text(client.read_text() + """
 public lemma PublishedLowerBound()
-    ensures (Capacity() >= 1) == true
-    proof { assert (Capacity() >= 1) == true; }
+    ensures (Measure.Capacity() >= 1) == true
+    proof { assert (Measure.Capacity() >= 1) == true; }
 """)
+        _command("fmt", client, "--syntax-only")
         bundle = directory / "bundle.json"
         batch = rocq_cache.BatchChecker(prefix="holdfast-locked-opaque-")
         try:
@@ -269,15 +272,16 @@ public Fn(Nat) -> Nat MakeReader(Nat seed)
         original = client.read_text()
         returned_reader_bound = """
 public lemma ReturnedReaderBound()
-    ensures (MakeReader(Seed())(7) >= 1) == true
-    proof { assert (MakeReader(Seed())(7) >= 1) == true; }
+    ensures (Measure.MakeReader(Measure.Seed())(7) >= 1) == true
+    proof { assert (Measure.MakeReader(Measure.Seed())(7) >= 1) == true; }
 """
         composed = original + """
 public lemma KeptBound()
-    ensures (Keep(Keep(Seed())) >= 1) == true
-    proof { assert (Keep(Keep(Seed())) >= 1) == true; }
+    ensures (Measure.Keep(Measure.Keep(Measure.Seed())) >= 1) == true
+    proof { assert (Measure.Keep(Measure.Keep(Measure.Seed())) >= 1) == true; }
 """ + returned_reader_bound
         client.write_text(composed)
+        _command("fmt", client, "--syntax-only")
         bundle = directory / "bundle.json"
         _command("build-package", workspace, _lock(workspace), "--output", bundle)
         accepted = bundle.read_bytes()
@@ -297,12 +301,14 @@ public lemma KeptBound()
         rocq_cache.check_kernel(directory, ["HoldFastPrelude", "Composed"] if used_prelude else ["Composed"])
 
         # The producer's precondition would pass if the checker used the returned function's argument as the seed.
-        client.write_text(original + returned_reader_bound.replace("MakeReader(Seed())", "MakeReader(0)"))
+        client.write_text(original + returned_reader_bound.replace("Measure.MakeReader(Measure.Seed())", "Measure.MakeReader(0)"))
+        _command("fmt", client, "--syntax-only")
         _command("build-package", workspace, _lock(workspace), "--output", bundle,
                  refusal="module 'Scale.Calibration': call precondition")
         ensure(bundle.read_bytes() == accepted, "the unproved producer precondition replaced the checked bundle")
 
         client.write_text(composed)
+        _command("fmt", client, "--syntax-only")
         _upgrade(workspace, "v1", "v2", source.replace("Seed() ensures result >= 1", "Seed()"))
         _command("build-package", workspace, _lock(workspace), "--output", bundle, refusal="precondition")
         ensure(bundle.read_bytes() == accepted, "an unproved inner precondition replaced the checked bundle")
@@ -311,7 +317,7 @@ public lemma KeptBound()
 def cases() -> list[Case]:
     return [
         Case("independent locked client, kernel readings and label evolution", _client_upgrade, lane="toolchain"),
-        Case("qualified imports compose with legacy packages across an added export", _namespace_edition, lane="toolchain"),
+        Case("qualified imports compose with dependencies across an added export", _namespace_edition, lane="toolchain"),
         Case("sibling instance coherence, declaration ownership and import order", _closure_coherence, lane="toolchain"),
         Case("locked client proof across opaque implementation and public law changes",
              _opaque_provider_upgrade, lane="toolchain"),

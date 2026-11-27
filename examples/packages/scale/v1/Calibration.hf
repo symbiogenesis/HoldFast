@@ -3,13 +3,13 @@ module Scale.Calibration;
 
 import Weights.Measure;
 
-public definition Nat ReadScale(Nat units) => Weight.Measure(Make(units: units));
+public definition Nat ReadScale(Nat units) => Measure.Weight.Measure(Measure.Make(units: units));
 
 public lemma ScaleReadings()
     ensures ReadScale(0) == 2
     ensures ReadScale(7) == 9
-    proof
-    {
-        assert ReadScale(0) == 2;
-        assert ReadScale(7) == 9;
-    }
+proof
+{
+    assert ReadScale(0) == 2;
+    assert ReadScale(7) == 9;
+}

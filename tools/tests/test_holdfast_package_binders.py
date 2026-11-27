@@ -14,12 +14,13 @@ from tests.test_holdfast_elaborate import (
     _call,
     _Fixture,
     _import_decl,
+    _member,
     _natural,
     _type,
     _variable,
 )
 from tests.test_holdfast_packages import _write
-from toolchain import packages, parser, proofenv, rocq_cache
+from toolchain import mathematical_authoring, packages, parser, proofenv, rocq_cache
 from toolchain.elaborate import elaborate_package
 from toolchain.elaborate_types import PackageScope
 
@@ -34,8 +35,8 @@ def _exercise(compiled: parser.Build | None = None) -> str:
     _import_decl(client, "Left")
     _import_decl(client, "Right")
     client.definition("Check", _type("bool"), (),
-                      _binary("&&", _binary("==", _call("EchoNat", _natural(7)), _natural(7)),
-                              _call("EchoBool", _boolean(True))))
+                      _binary("&&", _binary("==", _call(_member(_variable("Left"), "EchoNat"), _natural(7)), _natural(7)),
+                              _call(_member(_variable("Right"), "EchoBool"), _boolean(True))))
     scopes = {"Left": PackageScope("1" * 64, frozenset({"Left"})),
               "Right": PackageScope("2" * 64, frozenset({"Right"})),
               "Other": PackageScope("3" * 64, frozenset({"Other"})),
@@ -109,8 +110,13 @@ def _locked_static_text() -> None:
         client = _write(workspace, "consumer", "v1", {"tables": "v1"}, "Consumer")
         provider = table / "module.hf"
         provider.write_text('module Tables; public const Vec<Nat,2> Tag = "é";\n', encoding="utf-8")
-        (client / "module.hf").write_text(
-            "module Consumer; import Tables; public definition Nat ReadByte() => Tag[1];\n", encoding="utf-8")
+        consumer_hf = client / "module.hf"
+        consumer_hf.write_text(
+            "module Consumer;\n\nimport Tables;\n\npublic definition Nat ReadByte() => Tables.Tag[1];\n",
+            encoding="utf-8",
+        )
+        with parser.cached_build(TOOLS.parent) as compiled:
+            consumer_hf.write_bytes(mathematical_authoring.format_syntax(compiled, consumer_hf.read_bytes()))
         lock, output = workspace / "lock.json", workspace / "bundle.json"
 
         def build() -> bytes:
@@ -154,12 +160,24 @@ def _locked_inferred_contract() -> None:
         (provider / "module.hf").write_text("""module Readings;
 public Result<Nat, bool> Read(Nat n) ensures result == Ok(n) => Ok(n);
 """, encoding="utf-8")
-        (client / "module.hf").write_text("""module Consumer;
+        consumer_hf = client / "module.hf"
+        consumer_hf.write_text("""module Consumer;
+
 import Readings;
+
 public definition Result<bool, Nat> Marker() => Ok(true);
-public lemma Observed() ensures Read(7) == Ok(7) proof { assert Read(7) == Ok(7); }
+
+public lemma Observed()
+    ensures Readings.Read(7) == Ok(7)
+    proof
+    {
+        assert Readings.Read(7) == Ok(7);
+    }
+
 public definition bool UsedMarker() => Marker() is Ok(_);
 """, encoding="utf-8")
+        with parser.cached_build(TOOLS.parent) as compiled:
+            consumer_hf.write_bytes(mathematical_authoring.format_syntax(compiled, consumer_hf.read_bytes()))
         lock, output = workspace / "lock.json", workspace / "bundle.json"
         packages.lock_package(TOOLS.parent, workspace, "consumer", "v1", lock)
         packages.build_package(TOOLS.parent, workspace, lock, output)

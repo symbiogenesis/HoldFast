@@ -55,7 +55,7 @@ distinct binding name to retain the whole value. Parentheses preserve this rule.
 | Construct | Syntax | Status |
 | --- | --- | --- |
 | Module | `module Name;` or, in the surface entry, `module Name.Path;`. The declaration opens every file. | P (single name), M (qualified path) |
-| Import | `import Module.Path;` binds namespace `Path` in a locked `math-2` package and opens exports in `math-1` or stand-alone source. `import Module.Path as M;` binds a namespace and `import Module.Path { T, F as G };` selects names. [Package editions](first-release.md#modules-and-packages) | M |
+| Import | `import Module.Path;` binds namespace `Path` (`Path.Operation(...)`). `import Module.Path as M;` binds namespace `M` and `import Module.Path { T, F as G };` selects explicit bare names. [Modules and packages](first-release.md#modules-and-packages) | M |
 | Visibility | `public` or `private` on declarations. `internal` grants eligible [runtime helpers](first-release.md#package-effect-contracts) visibility to sibling modules in the same locked package instance. | M |
 | Constant | `const T Name = expression;` at module or local scope, evaluated during compilation ([required-static constants](surface-grammar.md#required-static-constants)) | P |
 | Function | Type-first `T Name(T1 a, T2 b) { ... }` or `=> expression;` | P |

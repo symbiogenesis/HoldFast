@@ -17,7 +17,7 @@ def _project() -> None:
     provider, client = _Fixture("Provider"), _Fixture("Client")
     provider.definition("Echo", _type("Nat"), (("x", _type("Nat")),), _variable("x"))
     provider.definition("Unused", _type("Nat"), (), _natural(3))
-    _import_decl(client, "Provider")
+    _import_decl(client, "Provider", items=(("Echo", None),))
     client.definition("Call", _type("Nat"), (("x", _type("Nat")),), _call("Echo", _variable("x")))
     inputs = [fixture.response() for fixture in (provider, client)]
     scopes = {"Provider": PackageScope("1" * 64, frozenset({"Provider"})),

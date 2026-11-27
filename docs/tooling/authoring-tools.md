@@ -79,7 +79,7 @@ failure as a replayable regression in the owning tool's tests.
 
 ## Compiler commands and publication
 
-The default build of a [locked `math-2` root package](#locked-package-authoring)
+The default build of a [locked root package](#locked-package-authoring)
 checks canonical layout and reports advisory lints. Editors can send buffers to
 the same formatter on demand.
 
@@ -254,14 +254,13 @@ guarantee can carry compatibility obligations for dependent clients.
 ### Locked package authoring
 
 `holdfast-parser build-package WORKSPACE LOCK` checks the declared modules of
-a `math-2` root package for canonical layout by default. It elaborates the locked
-graph in its own import context and reports advisory lints using those checked
-facts. The checks preserve package inputs and lock bytes. A layout difference
-fails the build before bundle publication and prints the command to format the
-affected source file from the Linux or WSL checkout. Regenerate the lock after
-applying a source edit. The authoring defaults follow the selected root package's
-edition. Imported dependencies are checked for elaboration under their own
-editions. [Locked builds](elaboration-prototype.md#locked-mathematical-packages)
+every locked root package (`edition = "math-2"`) for canonical layout by
+default. It elaborates the locked graph in its own import context and reports
+advisory lints using those checked facts. The checks preserve package inputs
+and lock bytes. A layout difference fails the build before bundle publication
+and prints the command to format the affected source file from the Linux or
+WSL checkout. Regenerate the lock after applying a source edit.
+[Locked builds](elaboration-prototype.md#locked-mathematical-packages)
 
 The locked authoring trial imports this package module from the same marked
 source the repository gate checks.

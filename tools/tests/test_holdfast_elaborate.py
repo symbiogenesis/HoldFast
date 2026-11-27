@@ -3425,7 +3425,7 @@ def _unary_op(operator: str, inner: Form) -> Form:
 
 def _represented_integers_and_conversions() -> None:
     fixture = _Fixture("Numerics")
-    _import_decl(fixture, "HoldFast.Numerics")
+    _import_decl(fixture, "HoldFast.Numerics", items=(("int", None),))
 
     # Constants and literal forms (decimal, hex, binary, _ separators, contextual, negative min)
     fixture.constant("ByteMax", _type("byte"), _member(_variable("byte"), "Max"))
@@ -4741,7 +4741,7 @@ def _vacant_slots_and_two_step_relocation() -> None:
                          _return_stmt(_unit())),
             block=True, generics=(("type", "T", None),),
         )
-        _refuses(opaque, "unsupported", "element type can be relocated")
+        _refuses(opaque, "unsupported", "mode-crossing represented value type")
 
     read_vacant = _Fixture("SlotsReadVacant")
     read_vacant.function(
@@ -6275,7 +6275,7 @@ def _module_private_identity() -> None:
         module.definition("Get" + module_name, _NAT, (), _call("Helper"))
         _import_decl(consumer, module_name)
     for module, expected in ((left, 1), (right, 2)):
-        getter = _call("Get" + str(module.module["text"]))
+        getter = _call(_member(_variable(str(module.module["text"])), "Get" + str(module.module["text"])))
         law = _binary("==", getter, _natural(expected))
         consumer.theorem("Check" + str(module.module["text"]), (), law, _assert(law))
     composed = elaborate_package([consumer.response(), right.response(), left.response()])["Client"].gallina
@@ -6285,7 +6285,7 @@ def _module_private_identity() -> None:
     library, reader = _Fixture("Library"), _Fixture("Reader")
     library.record("Point", (("X", _NAT),), (("Twice", _NAT, _variable("X")),), private_properties=("Twice",))
     _import_decl(reader, "Library")
-    reader.definition("Read", _NAT, (("p", _type("Point")),), _member(_variable("p"), "Twice"))
+    reader.definition("Read", _NAT, (("p", _type("Library.Point")),), _member(_variable("p"), "Twice"))
     with raises(HoldFastError, msg="an imported receiver exposed a private record property") as raised:
         elaborate_package([reader.response(), library.response()])
     error = raised.exception
@@ -6299,13 +6299,13 @@ def _imported_execution_is_opaque() -> None:
         lib.function("Capacity", _NAT, (), _call("Chosen"),
                      contracts=(_contract("ensures", _binary(">=", _variable("result"), _natural(1))),))
         _import_decl(consumer, "CapacityLibrary")
-        consumer.definition("Read", _NAT, (), _call("Capacity"))
-        contract = _binary("==", _binary(">=", _call("Capacity"), _natural(1)), _boolean(True))
+        consumer.definition("Read", _NAT, (), _call(_member(_variable("CapacityLibrary"), "Capacity")))
+        contract = _binary("==", _binary(">=", _call(_member(_variable("CapacityLibrary"), "Capacity")), _natural(1)), _boolean(True))
         consumer.theorem("PublishedLowerBound", (), contract, _assert(contract))
         modules = elaborate_package([consumer.response(), lib.response()])
         ensure(any(line.startswith("Opaque ") and line.endswith("_Capacity.")
                    for line in modules["Reader"].gallina.splitlines()), "imported executable body remained transparent")
-        accidental = _binary("==", _call("Capacity"), _natural(hidden_value))
+        accidental = _binary("==", _call(_member(_variable("CapacityLibrary"), "Capacity")), _natural(hidden_value))
         consumer.theorem("Guess", (), accidental, _assert(accidental))
         with raises(HoldFastError,
                     msg="client proof depended on the private implementation of an executable") as raised:
@@ -6508,7 +6508,7 @@ def _multi_module_imports_and_visibility() -> None:
         "Quad",
         _NAT,
         (("x", _NAT),),
-        _call(_member(_variable("MathMod"), "Double"), _call("Double", _variable("x"))),
+        _call(_member(_variable("MathMod"), "Double"), _call(_member(_variable("MathMod"), "Double"), _variable("x"))),
     )
     consumer.theorem(
         "QuadCheck",
@@ -6548,11 +6548,11 @@ def _multi_module_imports_and_visibility() -> None:
 
     priv_access = _Fixture("PrivConsumer")
     _import_decl(priv_access, "MathMod")
-    priv_access.definition("Bad", _NAT, (), _call("Secret", _natural(1)))
+    priv_access.definition("Bad", _NAT, (), _call(_member(_variable("MathMod"), "Secret"), _natural(1)))
     with raises(HoldFastError, msg="accepted cross-module private call") as raised:
         elaborate_package([math_mod.response(), priv_access.response()])
     error = raised.exception
-    ensure(error.kind == "name" and "private declaration 'Secret'" in error.message, f"unexpected error: {error}")
+    ensure(error.kind == "name" and "private declaration 'MathMod.Secret'" in error.message, f"unexpected error: {error}")
 
     cyc_a = _Fixture("CycA")
     _import_decl(cyc_a, "CycB")
@@ -7411,7 +7411,7 @@ def _package_scope_and_identity() -> None:
     lib, client = _Fixture("Lib"), _Fixture("Main")
     lib.record("Item", (("Value", _NAT),))
     _import_decl(client, "Lib")
-    client.definition("Read", _NAT, (("item", _type("Item")),), _member(_variable("item"), "Value"))
+    client.definition("Read", _NAT, (("item", _type("Lib.Item")),), _member(_variable("item"), "Value"))
     modules = [client.response(), lib.response()]
     scopes = {"Lib": terms.PackageScope("a" * 64, frozenset({"Lib"})),
               "Main": terms.PackageScope("b" * 64, frozenset({"Lib", "Main"}))}

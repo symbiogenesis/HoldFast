@@ -52,6 +52,11 @@ def _parser_command(arguments: list[str]) -> tuple[int, str, str]:
     return status, output.getvalue(), error.getvalue()
 
 
+def _fmt(path: Path) -> None:
+    status, _, error = _parser_command(["fmt", str(path), "--syntax-only"])
+    ensure(status == 0, error)
+
+
 def _check_audio_route_behavior(directory: Path, name: str, gallina: str) -> float:
     erased_theorems = [
         line.split()[1] for line in gallina.splitlines()
@@ -150,6 +155,7 @@ def _locked_grading() -> None:
         source = _write(workspace, "main", "v1", {}, "GradedLocked") / "module.hf"
         text = "module GradedLocked;\npublic definition Nat Twice(Nat n @ NatExact(2)) => n + n;\n"
         source.write_text(text, encoding="utf-8")
+        _fmt(source)
         lock = workspace / "holdfast.lock.json"
         bundle = workspace / "checked.json"
         lock_command = ["lock-package", str(workspace), "main", "v1", "--output", str(lock)]
@@ -163,6 +169,7 @@ def _locked_grading() -> None:
         ensure("Graded replay Twice NatExact: SHA256" in emitted, "locked build lost its grade receipt")
 
         source.write_text(text.replace("NatExact(2)", "NatExact(1)"), encoding="utf-8")
+        _fmt(source)
         status, output, error = _parser_command(build_command)
         ensure(status == 1 and not output and "stale" in error, error)
         status, _, error = _parser_command(lock_command)
@@ -189,6 +196,8 @@ def _locked_graded_import() -> None:
         build_command = ["build-package", str(workspace), str(lock), "--output", str(bundle)]
 
         def relock() -> None:
+            if client.is_file():
+                _fmt(client)
             status, _, error = _parser_command(lock_command)
             ensure(status == 0, error)
 
@@ -263,6 +272,8 @@ def _locked_transitive_grade_import() -> None:
         build_command = ["build-package", str(workspace), str(lock), "--output", str(bundle)]
 
         def relock() -> None:
+            if client.is_file():
+                _fmt(client)
             status, _, error = _parser_command(lock_command)
             ensure(status == 0, error)
 
@@ -306,6 +317,8 @@ def _locked_graded_callback_import() -> None:
         build_command = ["build-package", str(workspace), str(lock), "--output", str(bundle)]
 
         def relock() -> None:
+            if client.is_file():
+                _fmt(client)
             status, _, error = _parser_command(lock_command)
             ensure(status == 0, error)
 
@@ -363,6 +376,8 @@ def _locked_graded_type_import() -> None:
         build_command = ["build-package", str(workspace), str(lock), "--output", str(bundle)]
 
         def relock() -> None:
+            if client.is_file():
+                _fmt(client)
             status, _, error = _parser_command(lock_command)
             ensure(status == 0, error)
 
@@ -421,6 +436,8 @@ def _locked_graded_box_import() -> None:
         build_command = ["build-package", str(workspace), str(lock), "--output", str(bundle)]
 
         def relock() -> None:
+            if client.is_file():
+                _fmt(client)
             status, _, error = _parser_command(lock_command)
             ensure(status == 0, error)
 
@@ -652,6 +669,7 @@ def _graded_protocol_client_comparison() -> None:
         build_command = ["build-package", str(workspace), str(lock), "--output", str(bundle)]
 
         def relock() -> None:
+            _fmt(client_path)
             st, _, err = _parser_command(lock_command)
             ensure(st == 0, err)
 

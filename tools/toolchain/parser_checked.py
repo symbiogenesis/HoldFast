@@ -1585,7 +1585,7 @@ def _runtime_entry(cache: Path, wanted: dict[str, str]) -> Path:
     return directory
 
 
-def _read_runtime(directory: Path, wanted: dict[str, str], *, legacy: bool = False) -> holdfast_parser.Build | None:
+def _read_runtime(directory: Path, wanted: dict[str, str]) -> holdfast_parser.Build | None:
     receipt_path = directory / "receipt.json"
     if not receipt_path.is_file():
         return None
@@ -1595,8 +1595,7 @@ def _read_runtime(directory: Path, wanted: dict[str, str], *, legacy: bool = Fal
         raise ValueError("checked parser runtime receipt is malformed") from error
     _require(isinstance(receipt, dict), "checked parser runtime receipt is malformed")
     if receipt.get("inputs") != wanted:
-        _require(legacy, "checked parser cache receipt names different inputs")
-        return None
+        raise ValueError("checked parser cache receipt names different inputs")
     outputs = receipt.get("generated_sha256")
     exe = directory / "holdfast-checked-parser"
     if not isinstance(outputs, dict) or not exe.is_file() or file_sha256(exe) != outputs.get("holdfast-parser"):
@@ -1626,19 +1625,6 @@ def ensure_checked_build(root: Path | None = None, *, archive: Path | None = Non
         if cached is not None:
             return cached
         with holdfast_parser._file_lock(cache / "runtime.lock", timeout=TIMEOUT):
-            # Reuse a verified shared-cache entry under the lock that protects its receipt.
-            legacy = _read_runtime(cache, wanted, legacy=True)
-            if legacy is not None:
-                exe = directory / "holdfast-checked-parser"
-                copied = _read_file_bytes(legacy.executable)
-                outputs = cast("dict[str, str]", legacy.receipt["generated_sha256"])
-                _require(_sha256(copied) == outputs["holdfast-parser"], "checked parser executable changed after its build")
-                with atomic_path(exe) as pending:
-                    pending.write_bytes(copied)
-                    pending.chmod(0o755)
-                receipt = {**legacy.receipt, "directory": str(directory)}
-                publish_report(directory / "receipt.json", receipt)
-                return holdfast_parser.Build(directory, exe, receipt)
             return _build_runtime(repo, cache, directory, wanted, archive)
 
 

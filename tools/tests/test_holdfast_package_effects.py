@@ -9,7 +9,7 @@ from tempfile import TemporaryDirectory
 
 from tests.harness import TOOLS, Case, ensure, raises
 from tests.test_holdfast_packages import _write
-from toolchain import elaborate, packages, parser, proofenv, rocq_cache, solver_ledger
+from toolchain import elaborate, mathematical_authoring, packages, parser, proofenv, rocq_cache, solver_ledger
 from toolchain.ast import HoldFastError
 
 INDEPENDENT_CASES = True
@@ -111,6 +111,8 @@ def _locked_refactor() -> None:
         lock, output = workspace / "lock.json", workspace / "bundle.json"
 
         def relock() -> None:
+            with parser.cached_build(ROOT) as compiled:
+                client.write_bytes(mathematical_authoring.format_syntax(compiled, client.read_bytes()))
             packages.lock_package(ROOT, workspace, "client", "v1", lock)
 
         def build() -> bytes:
@@ -206,6 +208,8 @@ public u32 Run() effects calls(Chosen.Step) => API.Run();
         lock = workspace / "lock.json"
 
         def build() -> None:
+            with parser.cached_build(ROOT) as compiled:
+                client.write_bytes(mathematical_authoring.format_syntax(compiled, client.read_bytes()))
             packages.lock_package(ROOT, workspace, "client", "v1", lock)
             packages.build_package(ROOT, workspace, lock, None)
 
@@ -322,6 +326,8 @@ public record Watcher(API.Counter Counter) {
         lock, output = workspace / "lock.json", workspace / "bundle.json"
 
         def build() -> None:
+            with parser.cached_build(ROOT) as compiled:
+                client.write_bytes(mathematical_authoring.format_syntax(compiled, client.read_bytes()))
             packages.lock_package(ROOT, workspace, "client", "v1", lock)
             packages.build_package(ROOT, workspace, lock, output)
 

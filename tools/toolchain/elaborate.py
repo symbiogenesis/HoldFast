@@ -223,7 +223,7 @@ class _Elaborator(
         self.expected_call_type: _Term | None = None
         self.module_name: str = ""
         self.package_instance: str | None = None
-        self.package_edition = "math-1"
+        self.package_edition = "math-2"
         self.nominal_owners: dict[str, str] = {}
         self.local_instances: list[tuple[str, _ImplInstance]] = []
         self.emission_prefix = "holdfast"

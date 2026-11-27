@@ -18,7 +18,7 @@ def _write(workspace: Path, name: str, revision: str, deps: dict[str, str], modu
     (directory / "module.hf").write_text(f"module {module};\n", encoding="utf-8")
     (directory / "target.cfg").write_bytes(b"stable-build-input")
     (directory / packages.MANIFEST).write_text(
-        f'name = "{name}"\nrevision = "{revision}"\nedition = "math-1"\ntarget = "rocq-gallina"\n'
+        f'name = "{name}"\nrevision = "{revision}"\nedition = "math-2"\ntarget = "rocq-gallina"\n'
         f'inputs = ["target.cfg"]\n[modules]\n"{module}" = "module.hf"\n[dependencies]\n'
         + "".join(f'{key} = "{value}"\n' for key, value in deps.items()), encoding="utf-8")
     return directory
@@ -145,17 +145,16 @@ def _package_editions() -> None:
         workspace = Path(temporary)
         _write(workspace, "lib", "v1", {}, "Lib")
         manifest = _write(workspace, "main", "v1", {"lib": "v1"}, "Main") / packages.MANIFEST
-        legacy = manifest.read_text()
+        current = manifest.read_text()
         producer: packages.Object = {"frontend": "fixed"}
-        first = packages.resolve(workspace, "main", "v1", producer)
-        manifest.write_text(legacy.replace("math-1", "math-2"))
-        _refuses(workspace, "stale package lock", lock=first.lock)
-        second = packages.resolve(workspace, "main", "v1", producer)
-        ensure(second.scopes["Main"].edition == "math-2" and second.scopes["Lib"].edition == "math-1",
-               "the importing package's edition leaked into its dependency")
-        packages.resolve(workspace, "main", "v1", producer, locked=second.lock)
-        manifest.write_text(legacy.replace("math-1", "unknown"))
-        _refuses(workspace, "unsupported manifest")
+        resolved = packages.resolve(workspace, "main", "v1", producer)
+        ensure(resolved.scopes["Main"].edition == "math-2" and resolved.scopes["Lib"].edition == "math-2",
+               "resolved package closure lost math-2 edition")
+        packages.resolve(workspace, "main", "v1", producer, locked=resolved.lock)
+        for bad_edition in ("math-1", "unknown"):
+            manifest.write_text(current.replace("math-2", bad_edition))
+            _refuses(workspace, "stale package lock", lock=resolved.lock)
+            _refuses(workspace, "unsupported manifest")
 
 
 def cases() -> list[Case]:

@@ -15,16 +15,16 @@ INDEPENDENT_CASES = True
 CLIENT = b"""module Protocol.Consumer;
 import HoldFast.FirstSlice;
 public definition Span<byte> Destination() => Span.AllocZeroed(64usize, 8usize);
-public definition Span<byte> ConflictingHeader() => MakePacket8(128usize, 0x56u8, 0x05u8, 0x00u8, 0x00u8,
+public definition Span<byte> ConflictingHeader() => FirstSlice.MakePacket8(128usize, 0x56u8, 0x05u8, 0x00u8, 0x00u8,
     0x11u8, 0x22u8, 0x33u8, 0x44u8);
 public theorem ObserveHeader(ref Span<byte> dst, in Span<byte> pkt)
     requires dst.CanRead
     requires dst.CanWrite
     requires pkt.CanRead
-    ensures PacketOutcome(PrepareAndValidatePacket(ref dst, in pkt)) == SpecPacketOutcome(in dst, in pkt)
+    ensures FirstSlice.PacketOutcome(FirstSlice.PrepareAndValidatePacket(ref dst, in pkt)) == FirstSlice.SpecPacketOutcome(in dst, in pkt)
     proof
     {
-        assert PacketOutcome(PrepareAndValidatePacket(ref dst, in pkt)) == SpecPacketOutcome(in dst, in pkt);
+        assert FirstSlice.PacketOutcome(FirstSlice.PrepareAndValidatePacket(ref dst, in pkt)) == FirstSlice.SpecPacketOutcome(in dst, in pkt);
     }
 """
 

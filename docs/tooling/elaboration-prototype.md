@@ -281,14 +281,14 @@ Native checking reports `?name` sites (`assert n == 4 by ?bound;` -> `Eq(Nat, n,
 
 ## Locked mathematical packages
 
-Batch builds compose `math-1`/`math-2` on `rocq-gallina` ([import rules](../language/first-release.md#modules-and-packages)) from `<name>/<revision>/holdfast-package.toml` (names, edition, target, relative `modules`/`dependencies`/`inputs`; [example](../../examples/packages/scale/v1/holdfast-package.toml)):
+Batch builds compose `math-2` packages on `rocq-gallina` ([import rules](../language/first-release.md#modules-and-packages)) from `<name>/<revision>/holdfast-package.toml` (names, edition, target, relative `modules`/`dependencies`/`inputs`; [example](../../examples/packages/scale/v1/holdfast-package.toml)):
 
 ```console
 python tools/run.py holdfast-parser lock-package examples/packages scale v1 --output scale.lock
 python tools/run.py holdfast-parser build-package examples/packages scale.lock --output scale.json
 ```
 
-Locks bind manifests, file digests, modules, revisions, dependencies (single revision per diamond; imports restricted to self, direct deps, and `HoldFast.Numerics`), parser/elaborator, and target config; package-instance digests stamp nominal declarations across sibling/transitive closures. Builds re-read inputs before emitting ordered module/lock/source/instance/Gallina digests (optional bundle maps full module names to Gallina files; missing revisions, undeclared imports, owner collisions, cycles, and stale locks fail; `math-2` roots enforce [default authoring checks](authoring-tools.md#locked-package-authoring); capped at 64 packages, 256 files, 16 MiB inputs, 32 MiB Gallina). [Package contract](../language/first-release.md#modules-and-packages)
+Locks bind manifests, file digests, modules, revisions, dependencies (single revision per diamond; imports restricted to self, direct deps, and `HoldFast.Numerics`), parser/elaborator, and target config; package-instance digests stamp nominal declarations across sibling/transitive closures. Builds re-read inputs before emitting ordered module/lock/source/instance/Gallina digests (optional bundle maps full module names to Gallina files; missing revisions, undeclared imports, owner collisions, cycles, and stale locks fail; root packages enforce [default authoring checks](authoring-tools.md#locked-package-authoring); capped at 64 packages, 256 files, 16 MiB inputs, 32 MiB Gallina). [Package contract](../language/first-release.md#modules-and-packages)
 
 ## Try the mathematical fragment
 

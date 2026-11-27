@@ -499,7 +499,7 @@ class PackageScope:
 
     instance: str
     modules: frozenset[str]
-    edition: str = "math-1"
+    edition: str = "math-2"
 
 
 

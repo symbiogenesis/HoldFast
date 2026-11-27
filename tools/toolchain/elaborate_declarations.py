@@ -1121,13 +1121,10 @@ class _DeclarationsMixin:
         return any(self._has_unapplied_rec_var(child, rec_var_id) for child in term.args)
 
     def _import_bindings(
-        self: _Elaborator, node: Node, namespace: str, public: set[str], *, qualified_only: bool,
+        self: _Elaborator, node: Node, namespace: str, public: set[str],
     ) -> dict[str, tuple[str, ...]]:
         if "items" not in node:
-            return {
-                name: (f"{namespace}.{name}",) if qualified_only else (name, f"{namespace}.{name}")
-                for name in sorted(public)
-            }
+            return {name: (f"{namespace}.{name}",) for name in sorted(public)}
         bindings: dict[str, tuple[str, ...]] = {}
         local_names: set[str] = set()
         for item in self.nodes(node["items"]):
@@ -1146,11 +1143,13 @@ class _DeclarationsMixin:
         if modifiers:
             raise self.fail("unsupported", "import declarations do not accept modifiers", node)
         imp_name = self.name(node["name"])
-        namespace = self.name(node["alias"]) if "alias" in node else imp_name
-        qualified_only = "alias" in node
-        if self.package_edition == "math-2" and not qualified_only and "items" not in node:
+        qualified_only = "alias" in node or "items" not in node
+        if "alias" in node:
+            namespace = self.name(node["alias"])
+        elif "items" not in node:
             namespace = imp_name.rsplit(".", 1)[-1]
-            qualified_only = True
+        else:
+            namespace = imp_name
         if namespace in self.module_aliases or (qualified_only and (
             namespace in self.globals or namespace in self.interfaces or namespace in self.imported_modules
         )):
@@ -1159,7 +1158,7 @@ class _DeclarationsMixin:
             self.module_aliases.add(namespace)
         if imp_name == "HoldFast.Numerics":
             for short_name, bindings in self._import_bindings(
-                node, namespace, set(_NUMERICS_ALIASES), qualified_only=qualified_only,
+                node, namespace, set(_NUMERICS_ALIASES),
             ).items():
                 target = self.globals[_NUMERICS_ALIASES[short_name]]
                 for alias_name in bindings:
@@ -1247,9 +1246,7 @@ class _DeclarationsMixin:
         inaccessible = mod.private_symbols if siblings else mod.private_symbols | mod.internal_symbols
         for priv_sym in inaccessible:
             self.inaccessible_private_symbols[f"{namespace}.{priv_sym}"] = imp_name
-            if not qualified_only and "items" not in node and priv_sym not in self.globals:
-                self.inaccessible_private_symbols[priv_sym] = imp_name
-        for symbol, bindings in self._import_bindings(node, namespace, accessible, qualified_only=qualified_only).items():
+        for symbol, bindings in self._import_bindings(node, namespace, accessible).items():
             for visible_name in bindings:
                 if symbol in mod.union_ctors and not visible_name.rsplit(".", 1)[-1][:1].isupper():
                     raise self.fail("name", f"constructor import '{visible_name}' requires an uppercase initial", node)

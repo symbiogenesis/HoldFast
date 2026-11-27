@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 name = "scale"
 revision = "v1"
-edition = "math-1"
+edition = "math-2"
 target = "rocq-gallina"
 inputs = []
 

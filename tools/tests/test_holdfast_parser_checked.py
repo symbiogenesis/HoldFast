@@ -270,19 +270,21 @@ def _host_replacement_and_retirement() -> None:
     root = Path(__file__).resolve().parents[2]
     with tempfile.TemporaryDirectory(prefix="holdfast-checked-runtime-") as temporary:
         runtime_dir = Path(temporary)
-        exe = runtime_dir / "holdfast-checked-parser"
+        wanted = checked._runtime_inputs(root)
+        entry_dir = checked._runtime_entry(runtime_dir, wanted)
+        exe = entry_dir / "holdfast-checked-parser"
         exe.write_bytes(b"original binary")
         receipt: dict[str, object] = {
             "schema": 1,
-            "inputs": checked._runtime_inputs(root),
+            "inputs": wanted,
             "generated_sha256": {"holdfast-parser": checked._sha256(b"different binary")},
         }
-        (runtime_dir / "receipt.json").write_text(json.dumps(receipt), encoding="utf-8")
+        (entry_dir / "receipt.json").write_text(json.dumps(receipt), encoding="utf-8")
         with patch.object(checked, "_runtime_root", return_value=runtime_dir):
             with raises(ValueError, msg="tampered runtime binary was accepted") as raised:
                 checked.ensure_checked_build(root)
             ensure("changed after its build" in str(raised.exception), "tampered runtime binary lost its cause")
-        tampered = holdfast_parser.Build(runtime_dir, exe, receipt)
+        tampered = holdfast_parser.Build(entry_dir, exe, receipt)
         with raises(ValueError, msg="tampered explicit build was accepted") as raised:
             checked.parse_checked(source, compiled=tampered)
         ensure("changed after its build" in str(raised.exception), "tampered explicit build lost its cause")

@@ -143,7 +143,7 @@ def resolve(workspace: Path, root_name: str, root_revision: str, producer: Objec
         manifest = tomllib.loads(raw.decode("utf-8"))
         if (set(manifest) != {"name", "revision", "edition", "target", "modules", "dependencies", "inputs"}
                 or (manifest["name"], manifest["revision"]) != (name, revision)
-                or manifest["edition"] not in ("math-1", "math-2") or manifest["target"] != "rocq-gallina"):
+                or manifest["edition"] != "math-2" or manifest["target"] != "rocq-gallina"):
             raise ValueError(f"unsupported manifest identity, fields, edition or target in {path}")
         dependencies = {key: _token(val, REVISION, "dependency revision")
                         for key, val in _object(manifest["dependencies"], "dependencies").items()}
@@ -228,8 +228,6 @@ def read_lock(lock_path: Path) -> tuple[bytes, Object, str, str]:
 
 def _authoring_paths(workspace: Path, lock: Object, name: str, revision: str) -> dict[str, Path]:
     row = _object(_object(lock["packages"], "packages")[name], "root package")
-    if row["edition"] != "math-2":
-        return {}
     base = workspace.resolve(strict=True) / name / revision
     return {module: _path(base, rel) for module, rel in _object(row["modules"], "root modules").items()}
 

@@ -133,10 +133,10 @@ retains separate consumer and arithmetic qualification gates beyond this runtime
 scope; it adds no primitive or first-release client.
 
 Numeric aliases follow the [module rules](#modules-and-packages). Use
-`import HoldFast.Numerics { int };` for an unqualified `int` in either package
-edition. A plain `import HoldFast.Numerics;` binds `Numerics.int` in `math-2`
-and opens `int` in `math-1` or stand-alone source. An explicit namespace alias
-also works, as does the fully qualified `HoldFast.Numerics.int`.
+`import HoldFast.Numerics { int };` for an unqualified `int`, or plain
+`import HoldFast.Numerics;` to bind the `Numerics` namespace (`Numerics.int`).
+An explicit namespace alias also works, as does the fully qualified
+`HoldFast.Numerics.int`.
 The dependency lock binds the standard library package and its definitions;
 there is no implicit prelude or import-order precedence. A duplicate local or
 imported alias name is diagnosed under the same rules as another duplicate
@@ -252,17 +252,13 @@ value when its use is specialized, or the build reports a located obligation or
 refusal with no runtime fallback. [`const` declarations](surface-grammar.md#required-static-constants)
 spell the interface, and [the core's staging rules](core-design.md#refinement-effects-and-staging)
 bound conversion and erasure.
-In a locked `math-2` package, a plain `import Module.Path;` introduces the
-namespace `Path`. Use `Path.Operation(...)` to call an export. Imports in a
-`math-1` package or a stand-alone mathematical source retain their open scope.
-`import Module.Path as M;` introduces only the namespace `M` in either edition.
-`import Module.Path { State, Busy as Occupied };` brings just those declarations
-into scope. Constructors retain their nominal identity under an uppercase alias.
-The importing package selects its own edition independently of each dependency.
-Before migrating an open import, identify its consumed exports and select them
-explicitly, or qualify uses with a namespace. If two module paths end with the
-same name, give at least one an explicit namespace alias. Replay callers'
-contracts and check imported instance selection across the migration.
+A plain `import Module.Path;` introduces the namespace `Path`. Use
+`Path.Operation(...)` to call an export. `import Module.Path as M;` introduces
+the explicit namespace alias `M`. `import Module.Path { State, Busy as Occupied };`
+brings just those selected declarations into scope. Constructors retain their
+nominal identity under an uppercase alias. If two module paths end with the
+same name, give at least one an explicit namespace alias. All locked packages
+use the `math-2` edition.
 Qualified names resolve independently of import order. Duplicate local/imported
 bindings are errors unless an explicit alias distinguishes them. A public nominal
 identity comprises the resolved package instance, module path and declaration
