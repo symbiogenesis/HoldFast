@@ -399,6 +399,25 @@ owns the checker and encoding constraints.
 
 Adoption depends on the selected version, client theorem, generated-code boundary, transitive assumptions, license and measured benefit.
 
+#### 2025–2026 Algorithmic, Complexity, and Proof-Checking Breakthroughs
+
+HoldFast incorporates 2025–2026 theoretical computer science and formal-verification results only where they improve proof reconstruction, kernel-bypass safety, static-memory data structures, or analysis convergence without enlarging the trusted computing base.
+
+| Discovery | HoldFast integration | Assurance boundary |
+| --- | --- | --- |
+| Versioned E-Graphs (Cesario et al., PLDI 2026 Distinguished Artifact) | [VersionedEGraph](../../tools/toolchain/proof_certificates.py) and [proof elaboration](../../tools/toolchain/elaborate_proofs.py) share parent equivalences across branches via trail-backed `push_version` / `pop_version` scopes and emit shortest-path `Refl`/`Symm`/`Trans`/`Congr` terms. | Untrusted proof producer checked by Rocq 9.3.0 (`Print Assumptions` and `rocqchk`); dependent-argument congruences that fail `Congr` typing fall back cleanly without emitting invalid Gallina. |
+| Certificate-producing arithmetic & proof skeletons (FLEX July 2026; CPC CAV 2026; Ethos & Proof Skeletons IJCAR 2026) | [NatDifferenceProver](../../tools/toolchain/proof_certificates.py), [FixedIntOrderProver](../../tools/toolchain/proof_certificates.py), and [prelude lemmas](../../tools/toolchain/elaborate_types.py) reconstruct weighted `nat` difference-logic chains, fixed-width integer (`u8`–`i64`, `usize`) order chains, and unreachable-branch contradictions. | Zero solver-trust axioms; every emitted certificate replays through the Rocq kernel under the bounded search budget. |
+| Kernel guard-checker fixes & proof-bypass auditing (Rocq #22382 / CVE-2026-72705 patched in 9.3.0; arXiv:2603.20405) | [The solver ledger](../../tools/toolchain/solver_ledger.py) strips nested comments and refuses `Parameter`/`Conjecture`/`Admitted`/`admit` and `Unset Guard/Positivity/Universe Checking` or `Set Type in Type`, and `check_prover_version` enforces Rocq `>= 9.3.0`. | Complements statement preservation and `Print Assumptions` audits; does not establish specification adequacy against informal intent. |
+| Optimal open addressing without reordering: Funnel & Elastic hashing (Farach-Colton, Krapivin, Kuszmaul, FOCS 2025, disproving Yao's 1985 conjecture) | [FunnelTable](../../tools/rocq/funnel_table.v) mechanizes fixed-capacity funnel layouts in Rocq 9.3.0 with closed proofs of bounds safety, level disjointness, non-reordering slot immutability, lookup completeness, fail-closed exhaustion, and bounded static probes. | Targets extreme load factors ($\delta < 0.05$) in zero-heap immovable storage; flat linear probing and SIMD-friendly layouts still win at moderate load factors due to constant-factor locality. |
+| Reverse-postorder iterative dominators | [Loan CFG validation](../../tools/toolchain/loans.py) computes forward reachability and reverse postorder in one DFS pass and converges dominators in 1–2 iterations on reducible graphs. | Preserves exact dominator sets and irreducible-cycle refusals; diagnostic-only graph engine remains outside target proof certificates. |
+
+**Evaluated 2025–2026 results not incorporated into HoldFast:**
+
+- **Unreviewed late-2026 AI-assisted complexity and mathematics claims** (October 2026 Exponential Time Hypothesis disproofs, October 2026 *The Unique Games Theorem*, November 2026 $\text{VP} \neq \text{VNP}$, Aaronson–Ambainis formalizations, and Millennium-problem claims): these are either preprints undergoing independent human specification/proof review or complexity/number-theory separations without a systems-compiler consumer. Their operational lesson—that kernel checking alone is insufficient if assumptions, `Admitted`, or kernel flags bypass the intended statement—is enforced directly in [the solver ledger](../../tools/toolchain/solver_ledger.py).
+- **Sub-sorting directed shortest paths** (Duan, Mao, Mao, Shu, Yin, STOC 2025, $O(m \log^{2/3} n)$): targets massive sparse graphs, whereas HoldFast's bounded CFG and proof graphs ($n \le 256$) and difference-logic negative-cycle detection run faster with simpler BFS/Bellman-Ford traversal.
+- **Time-in-square-root-space simulation** (Ryan Williams, STOC 2025, $O(\sqrt{t \log t})$ via Cook–Mertz tree evaluation): a landmark complexity separation whose algebraic simulation overhead is unsuitable for static-memory CHERI execution.
+- **Linear-time planar 4-coloring and near-linear Vizing edge coloring** (Inoue et al., FOCS 2026; STOC 2025): planar map coloring and general edge coloring do not replace non-planar interference-graph register allocation in the retained CHERI-CompCert backend.
+
 ### What a Golden Binary Can Mean
 
 A binary is executable, but being executable does not make it a correctness oracle for itself.
