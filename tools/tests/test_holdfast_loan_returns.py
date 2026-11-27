@@ -2,14 +2,19 @@
 """Replay shared views and their owner states on source control-flow paths."""
 
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import cast
 
 from tests.harness import TOOLS, Case, ensure, raises
-from toolchain import parser, proofenv, solver_ledger
+from toolchain import loans, parser, proofenv, solver_ledger
 from toolchain.ast import HoldFastError
-from toolchain.elaborate import elaborate
+from toolchain.elaborate import _Elaborator, elaborate
+from toolchain.elaborate_borrows import _BorrowMixin
+from toolchain.elaborate_protocol import _Protocol
+from toolchain.elaborate_types import Node
 
 
 def _replay_view_proof(gallina: str, proof: str, module: str, theorems: list[str]) -> None:
@@ -1448,6 +1453,376 @@ Proof. vm_compute. repeat split; reflexivity. Qed.
     ])
 
 
+def _exclusive_conditional_return_and_prophecy() -> None:
+    fixtures = TOOLS / "tests" / "fixtures"
+    source = (fixtures / "exclusive-conditional-return.hf").read_bytes()
+    with parser.cached_build(TOOLS.parent) as compiled:
+        gallina = elaborate(source, parser.parse_source(compiled, source, surface=True)).gallina
+        # Negative: mutating owner while returned ref borrow is still live
+        bad_conflict = b"""// SPDX-License-Identifier: Apache-2.0
+module ExclusiveReturnConflict;
+public record EntryPair(byte First, byte Second);
+public ref<'a> byte PickFirst<region 'a>(ref<'a> EntryPair pair) {
+    return ref pair.First;
+}
+public byte UseAfterOwnerWrite(owned EntryPair pair) {
+    var cur = pair;
+    let r = PickFirst(ref cur);
+    cur = EntryPair(1u8, 2u8);
+    return r;
+}
+"""
+        with raises(HoldFastError, msg="mutating cur while returned ref r is live must be rejected"):
+            elaborate(bad_conflict, parser.parse_source(compiled, bad_conflict, surface=True))
+
+    pair_ctor = next(iter(re.findall(r"Definition (\w+_EntryPair_ctor)\b", gallina)))
+    pair_fst = next(iter(re.findall(r"Definition (\w+_EntryPair_First)\b", gallina)))
+    pair_snd = next(iter(re.findall(r"Definition (\w+_EntryPair_Second)\b", gallina)))
+    write_fn = next(iter(re.findall(r"Definition (\w+_WriteThroughReturnedRef)\b", gallina)))
+    proof = f"""
+Import HoldFast_ExclusiveConditionalReturn.
+Local Definition trial_b (n : nat) : holdfast_int 0 :=
+  holdfast_mk_int 0 (holdfast_nat_to_bits 8 n).
+Theorem exclusive_conditional_prophecy_ok :
+  let p := {pair_ctor} (trial_b 3) (trial_b 4) in
+  let r_true := {write_fn} p true (trial_b 55) in
+  let r_false := {write_fn} p false (trial_b 66) in
+  {pair_fst} r_true = trial_b 55 /\\
+  {pair_snd} r_true = trial_b 4 /\\
+  {pair_fst} r_false = trial_b 3 /\\
+  {pair_snd} r_false = trial_b 66.
+Proof. vm_compute. repeat split; reflexivity. Qed.
+"""
+    _replay_view_proof(gallina, proof, "ExclusiveConditionalReturn", [
+        "exclusive_conditional_prophecy_ok",
+    ])
+
+
+def _lending_iterator_gat_and_hrtb() -> None:
+    fixtures = TOOLS / "tests" / "fixtures"
+    gat_src = (fixtures / "lending-iterator-gat.hf").read_bytes()
+    hrtb_src = (fixtures / "fnmut-hrtb-callback.hf").read_bytes()
+    with parser.cached_build(TOOLS.parent) as compiled:
+        gat_gallina = elaborate(gat_src, parser.parse_source(compiled, gat_src, surface=True)).gallina
+        hrtb_gallina = elaborate(hrtb_src, parser.parse_source(compiled, hrtb_src, surface=True)).gallina
+
+        # Negative: FnOnce cannot be invoked twice
+        bad_fnonce = b"""// SPDX-License-Identifier: Apache-2.0
+module BadFnOnce;
+public byte CallTwice(byte x, FnOnce<region 'r>(in<'r> byte) -> byte cb) {
+    let a = cb(in x);
+    let b = cb(in x);
+    return a.WrappingAdd(b);
+}
+"""
+        with raises(HoldFastError, msg="FnOnce invoked twice must fail") as fnonce_err:
+            elaborate(bad_fnonce, parser.parse_source(compiled, bad_fnonce, surface=True))
+        ensure("FnOnce" in fnonce_err.exception.message, f"unexpected FnOnce error: {fnonce_err.exception.message}")
+
+        # Negative: higher-ranked region cannot escape through return
+        bad_hrtb_escape = b"""// SPDX-License-Identifier: Apache-2.0
+module BadHrtbEscape;
+public byte EscapeHrtb(byte x, FnMut<region 'r>(in<'r> byte) -> in<'r> byte cb) {
+    let leaked = cb(in x);
+    return leaked;
+}
+public in<'a> byte ReturnOuter<region 'a>(in<'a> byte x, FnMut<region 'r>(in<'r> byte) -> in<'r> byte cb) {
+    return cb(in x);
+}
+"""
+        with raises(HoldFastError, msg="returning HR region value must fail"):
+            elaborate(bad_hrtb_escape, parser.parse_source(compiled, bad_hrtb_escape, surface=True))
+
+        # Negative: impl missing GAT associated type
+        bad_missing_gat = b"""// SPDX-License-Identifier: Apache-2.0
+module MissingGat;
+public record BoxByte(byte V);
+public interface Lending<Self> {
+    type Item<region 'next>;
+    public Self.Item<'next> Step<region 'next>(ref<'next> Self self);
+}
+public impl Lending<BoxByte> {
+    public in<'next> byte Step<region 'next>(ref<'next> BoxByte self) {
+        return in self.V;
+    }
+}
+"""
+        with raises(HoldFastError, msg="impl missing GAT associated type must fail") as gat_err:
+            elaborate(bad_missing_gat, parser.parse_source(compiled, bad_missing_gat, surface=True))
+        ensure("associated type" in gat_err.exception.message, f"unexpected missing GAT error: {gat_err.exception.message}")
+
+    cur_ctor = next(iter(re.findall(r"Definition (\w+_PairCursor_ctor)\b", gat_gallina)))
+    cur_fst = next(iter(re.findall(r"Definition (\w+_PairCursor_First)\b", gat_gallina)))
+    cur_step = next(iter(re.findall(r"Definition (\w+_PairCursor_Step)\b", gat_gallina)))
+    step_fn = next(iter(re.findall(r"Definition (\w+_StepPairCursor)\b", gat_gallina)))
+    mut_fn = next(iter(re.findall(r"Definition (\w+_MutateViaGat)\b", gat_gallina)))
+    gat_proof = f"""
+Import HoldFast_LendingIteratorGat.
+Local Definition trial_b (n : nat) : holdfast_int 0 :=
+  holdfast_mk_int 0 (holdfast_nat_to_bits 8 n).
+Theorem gat_lending_iterator_ok :
+  let c := {cur_ctor} (trial_b 10) (trial_b 20) (trial_b 0) in
+  let m := {mut_fn} c (trial_b 77) in
+  {step_fn} c = trial_b 30 /\\
+  {cur_fst} m = trial_b 77 /\\
+  {cur_step} m = trial_b 1.
+Proof. vm_compute. repeat split; reflexivity. Qed.
+"""
+    _replay_view_proof(gat_gallina, gat_proof, "LendingIteratorGat", ["gat_lending_iterator_ok"])
+
+    slot_ctor = next(iter(re.findall(r"Definition (\w+_ByteSlot_ctor)\b", hrtb_gallina)))
+    use_cb = next(iter(re.findall(r"Definition (\w+_UseCallbacks)\b", hrtb_gallina)))
+    hrtb_proof = f"""
+Import HoldFast_FnMutHrtbCallback.
+Local Definition trial_b (n : nat) : holdfast_int 0 :=
+  holdfast_mk_int 0 (holdfast_nat_to_bits 8 n).
+Theorem fnmut_hrtb_ok :
+  {use_cb} ({slot_ctor} (trial_b 10) (trial_b 5)) = trial_b 26.
+Proof. vm_compute. reflexivity. Qed.
+"""
+    _replay_view_proof(hrtb_gallina, hrtb_proof, "FnMutHrtbCallback", ["fnmut_hrtb_ok"])
+
+
+def _shared_mut_and_ante_beat_proofs() -> None:
+    fixtures = TOOLS / "tests" / "fixtures"
+    shared_src = (fixtures / "shared-mut-stable-element.hf").read_bytes()
+    union_src = (fixtures / "tag-preserving-union-mut.hf").read_bytes()
+    cap_src = (fixtures / "capacity-preserving-push.hf").read_bytes()
+    with parser.cached_build(TOOLS.parent) as compiled:
+        shared_gallina = elaborate(shared_src, parser.parse_source(compiled, shared_src, surface=True)).gallina
+        union_gallina = elaborate(union_src, parser.parse_source(compiled, union_src, surface=True)).gallina
+        cap_gallina = elaborate(cap_src, parser.parse_source(compiled, cap_src, surface=True)).gallina
+
+        # Negative: overlapping current-content fact is purged after shared ref write, while disjoint fact survives
+        stale_fact = b"""// SPDX-License-Identifier: Apache-2.0
+module StaleSharedFact;
+public record Pair(byte First, byte Second);
+public byte CheckPurged(owned Pair p)
+    requires p.First == 5u8
+{
+    var cur = p;
+    let a = shared ref cur;
+    let b = shared ref cur;
+    b.First = 9u8;
+    assert a.First == 5u8;
+    return a.First;
+}
+"""
+        with raises(HoldFastError, msg="stale current-content fact must be purged after shared ref write"):
+            elaborate(stale_fact, parser.parse_source(compiled, stale_fact, surface=True))
+
+        # Verify disjoint field fact IS preserved across shared ref write
+        disjoint_fact = b"""// SPDX-License-Identifier: Apache-2.0
+module DisjointSharedFact;
+public record Pair(byte First, byte Second);
+public byte CheckDisjointPreserved(owned Pair p)
+    requires p.Second == 4u8
+{
+    var cur = p;
+    let a = shared ref cur;
+    let b = shared ref cur;
+    b.First = 9u8;
+    assert cur.Second == 4u8;
+    return a.First.WrappingAdd(cur.Second);
+}
+"""
+        elaborate(disjoint_fact, parser.parse_source(compiled, disjoint_fact, surface=True))
+
+        # Negative: dependent type index using shared-mutable value
+        bad_dep = b"""// SPDX-License-Identifier: Apache-2.0
+module BadSharedDepIndex;
+public Nat DepLen(shared ref Nat n, Vec<byte, n> v) {
+    return 0;
+}
+"""
+        with raises(HoldFastError, msg="shared ref binding must be rejected in dependent type index"):
+            elaborate(bad_dep, parser.parse_source(compiled, bad_dep, surface=True))
+
+        # Negative: unstable shared ref write to union
+        bad_unstable_union = b"""// SPDX-License-Identifier: Apache-2.0
+module BadUnstableUnion;
+public union U { Empty(); Active(byte V); }
+public Unit RetagThroughShared(owned U u) {
+    var cur = u;
+    let s = shared ref cur;
+    s = Empty;
+    return ();
+}
+"""
+        with raises(HoldFastError, msg="unstable union write via shared ref must be rejected") as uerr:
+            elaborate(bad_unstable_union, parser.parse_source(compiled, bad_unstable_union, surface=True))
+        ensure("unstable-shared-mut-write" in uerr.exception.message, f"unexpected error: {uerr.exception.message}")
+
+        # Negative: Slots.Push without LiveCount < capacity proof
+        bad_push = b"""// SPDX-License-Identifier: Apache-2.0
+module BadPush;
+public Unit PushUnchecked(ref Slots<byte, 4> slots, byte item)
+    requires slots.CanWrite
+{
+    slots.Push(item);
+    return ();
+}
+"""
+        with raises(HoldFastError, msg="Slots.Push without LiveCount < capacity must be rejected"):
+            elaborate(bad_push, parser.parse_source(compiled, bad_push, surface=True))
+
+    sp_ctor = next(iter(re.findall(r"Definition (\w+_StablePair_ctor)\b", shared_gallina)))
+    sm_fn = next(iter(re.findall(r"Definition (\w+_SharedMutAliasUpdate)\b", shared_gallina)))
+    cell_fn = next(iter(re.findall(r"Definition (\w+_CellAliasUpdate)\b", shared_gallina)))
+    shared_proof = f"""
+Import HoldFast_SharedMutStableElement.
+Local Definition trial_b (n : nat) : holdfast_int 0 :=
+  holdfast_mk_int 0 (holdfast_nat_to_bits 8 n).
+Theorem shared_mut_observes_write_ok :
+  {sm_fn} ({sp_ctor} (trial_b 3) (trial_b 4)) = trial_b 16 /\\
+  {cell_fn} tt = trial_b 17.
+Proof. vm_compute. repeat split; reflexivity. Qed.
+"""
+    _replay_view_proof(shared_gallina, shared_proof, "SharedMutStableElement", ["shared_mut_observes_write_ok"])
+
+    u_vacant = next(iter(re.findall(r"Definition (\w+_Vacant)\b", union_gallina)))
+    u_active = next(iter(re.findall(r"Definition (\w+_Active)\b", union_gallina)))
+    u_fn = next(iter(re.findall(r"Definition (\w+_UpdateActivePayload)\b", union_gallina)))
+    union_proof = f"""
+Import HoldFast_TagPreservingUnionMut.
+Local Definition trial_b (n : nat) : holdfast_int 0 :=
+  holdfast_mk_int 0 (holdfast_nat_to_bits 8 n).
+Theorem tag_preserving_union_ok :
+  {u_fn} ({u_active} (trial_b 7) (trial_b 2)) (trial_b 9) = trial_b 7 /\\
+  {u_fn} ({u_vacant} tt) (trial_b 9) = trial_b 0.
+Proof. vm_compute. repeat split; reflexivity. Qed.
+"""
+    _replay_view_proof(union_gallina, union_proof, "TagPreservingUnionMut", ["tag_preserving_union_ok"])
+    ensure("holdfast_Slots_Write" in cap_gallina, "expected Slots.Push lowered to holdfast_Slots_Write")
+
+
+def _partial_field_move_and_loop_cursor() -> None:
+    fixtures = TOOLS / "tests" / "fixtures"
+    cursor_src = (fixtures / "loop-mutable-cursor.hf").read_bytes()
+    pmove_src = (fixtures / "partial-field-move.hf").read_bytes()
+    with parser.cached_build(TOOLS.parent) as compiled:
+        elaborate(cursor_src, parser.parse_source(compiled, cursor_src, surface=True))
+        pmove_gallina = elaborate(pmove_src, parser.parse_source(compiled, pmove_src, surface=True)).gallina
+
+        bad_use_moved = b"""// SPDX-License-Identifier: Apache-2.0
+module BadUseMoved;
+public record SliceBox(byte Tag, byte Len);
+public record PairBuffer(SliceBox Left, SliceBox Right);
+public byte UseBeforeReinit(owned PairBuffer pair) {
+    var cur = pair;
+    let movedLeft = move cur.Left;
+    return cur.Left.Tag;
+}
+"""
+        with raises(HoldFastError, msg="using moved field before re-init must fail") as perr:
+            elaborate(bad_use_moved, parser.parse_source(compiled, bad_use_moved, surface=True))
+        ensure("use-after-owner-move" in perr.exception.message, f"unexpected error: {perr.exception.message}")
+
+    sb_ctor = next(iter(re.findall(r"Definition (\w+_SliceBox_ctor)\b", pmove_gallina)))
+    pb_ctor = next(iter(re.findall(r"Definition (\w+_PairBuffer_ctor)\b", pmove_gallina)))
+    sb_tag = next(iter(re.findall(r"Definition (\w+_SliceBox_Tag)\b", pmove_gallina)))
+    rot_fn = next(iter(re.findall(r"Definition (\w+_RotateLeftField)\b", pmove_gallina)))
+    pmove_proof = f"""
+Import HoldFast_PartialFieldMove.
+Local Definition trial_b (n : nat) : holdfast_int 0 :=
+  holdfast_mk_int 0 (holdfast_nat_to_bits 8 n).
+Theorem partial_field_move_ok :
+  let p := {pb_ctor} ({sb_ctor} (trial_b 11) (trial_b 3)) ({sb_ctor} (trial_b 22) (trial_b 4)) in
+  {sb_tag} ({rot_fn} p (trial_b 99) (trial_b 8)) = trial_b 11.
+Proof. vm_compute. reflexivity. Qed.
+"""
+    _replay_view_proof(pmove_gallina, pmove_proof, "PartialFieldMove", ["partial_field_move_ok"])
+
+
+def _multi_region_variance_records_unions() -> None:
+    fixtures = TOOLS / "tests" / "fixtures"
+    mr_src = (fixtures / "multi-region-disambiguation.hf").read_bytes()
+    with parser.cached_build(TOOLS.parent) as compiled:
+        elaborate(mr_src, parser.parse_source(compiled, mr_src, surface=True))
+
+        # Positive: record & union fields with region-annotated borrows
+        first_class_borrows = b"""// SPDX-License-Identifier: Apache-2.0
+module FirstClassBorrows;
+public record ViewPair<region 'a>(in<'a> byte Left, shared ref<'a> byte Right);
+public union BorrowOpt<region 'a> {
+    None();
+    SomeRef(ref<'a> byte Slot);
+}
+public byte ReadPair<region 'a>(ViewPair<'a> p) {
+    return p.Left;
+}
+"""
+        elaborate(first_class_borrows, parser.parse_source(compiled, first_class_borrows, surface=True))
+
+        # Negative: invariant ref<'a> region mismatch across two parameters
+        bad_inv = b"""// SPDX-License-Identifier: Apache-2.0
+module BadInvariantRegion;
+public byte TieRegions<region 'a>(ref<'a> byte x, ref<'a> byte y) {
+    return x.WrappingAdd(y);
+}
+public byte CallMismatch<region 'x, region 'y>(ref<'x> byte a, ref<'y> byte b) {
+    return TieRegions(ref a, ref b);
+}
+"""
+        with raises(HoldFastError, msg="mismatched invariant regions must fail"):
+            elaborate(bad_inv, parser.parse_source(compiled, bad_inv, surface=True))
+
+        # Negative: missing Outlives<'a, 'b> bound for covariant return
+        bad_outlives = b"""// SPDX-License-Identifier: Apache-2.0
+module BadOutlives;
+public in<'b> byte CoerceMissing<region 'a, region 'b>(in<'a> byte first) {
+    return first;
+}
+"""
+        with raises(HoldFastError, msg="missing Outlives<'a, 'b> must fail"):
+            elaborate(bad_outlives, parser.parse_source(compiled, bad_outlives, surface=True))
+
+
+def _loan_certificate_rocq_soundness_replay() -> None:
+    fixtures = TOOLS / "tests" / "fixtures"
+    src = (fixtures / "exclusive-conditional-return.hf").read_bytes()
+    with parser.cached_build(TOOLS.parent) as compiled:
+        parsed = parser.parse_source(compiled, src, surface=True)
+    dummy = _Elaborator(_Protocol(src))
+    examples: list[str] = []
+    ast_root = cast("Node", cast("object", parsed["ast"]))
+    for raw_decl in cast("list[Node]", ast_root["declarations"]):
+        if raw_decl.get("kind") == "function":
+            name_node = cast("Node", raw_decl["name"])
+            fn_name = cast("str", name_node["text"])
+            if fn_name not in {"PickFirstOrMutate", "WriteThroughReturnedRef"}:
+                continue
+            adapted, _ = dummy._prepare_loan_ast(raw_decl)
+            lowered = loans.lower_function(adapted)
+            report = loans.analyze(lowered.owners, lowered.graph)
+            examples.append(_BorrowMixin.build_rocq_certificate_example(f"cert_{fn_name}", report, lowered))
+    ensure(len(examples) == 2, f"expected 2 certificate examples, got {len(examples)}")
+    with TemporaryDirectory(prefix="holdfast-loan-cert-replay-") as tmp:
+        tp = Path(tmp)
+        shutil.copy2(TOOLS / "rocq" / "loan_semantics.v", tp / "loan_semantics.v")
+        shutil.copy2(TOOLS / "rocq" / "loan_soundness.v", tp / "loan_soundness.v")
+        (tp / "CertReplay.v").write_text(
+            "From Stdlib Require Import List ZArith Bool.\n"
+            "Import ListNotations.\n"
+            "Require Import loan_semantics loan_soundness.\n"
+            "Import LoanSemantics LoanSoundness.\n"
+            + "\n".join(examples),
+            encoding="utf-8",
+        )
+        for vfile in ("loan_semantics.v", "loan_soundness.v", "CertReplay.v"):
+            res = subprocess.run([*proofenv.rocq_command(), "-q", vfile], cwd=tp, capture_output=True, text=True, timeout=180, check=False)
+            ensure(res.returncode == 0, f"{vfile} failed: {res.stderr}")
+        chk = subprocess.run(
+            ["opam", "exec", "--switch", proofenv.ROCQ_SWITCH, "--", "rocqchk", "-silent", "CertReplay"],
+            cwd=tp,
+            capture_output=True,
+            text=True,
+            timeout=180,
+            check=False,
+        )
+        ensure(chk.returncode == 0, f"rocqchk CertReplay failed: {chk.stderr}")
+
+
 def cases() -> list[Case]:
     return [
         Case("conditional view return and sibling owner writeback", _conditional_view_return, lane="toolchain"),
@@ -1463,4 +1838,10 @@ def cases() -> list[Case]:
         Case("loop-carried cursor reborrowing and conditional returned view", _loop_cursor_reborrow, lane="toolchain"),
         Case("higher-ranked region-polymorphic view callbacks", _higher_ranked_view_callback, lane="toolchain"),
         Case("two-phase receiver elaboration, evaluation order, and Rocq replay", _two_phase_receiver_replay, lane="toolchain"),
+        Case("exclusive conditional ref return and prophecy writeback replay", _exclusive_conditional_return_and_prophecy, lane="toolchain"),
+        Case("GAT LendingIterator and FnMut/FnOnce HRTB callback replay", _lending_iterator_gat_and_hrtb, lane="toolchain"),
+        Case("shared ref safe mutability, tag-preserving union, and capacity-preserving push", _shared_mut_and_ante_beat_proofs, lane="toolchain"),
+        Case("loop mutable cursor reborrowing and partial field move re-init", _partial_field_move_and_loop_cursor, lane="toolchain"),
+        Case("multi-region disambiguation, variance, and first-class borrowed fields", _multi_region_variance_records_unions, lane="toolchain"),
+        Case("check_loan_certificate Rocq kernel replay for HoldFast functions", _loan_certificate_rocq_soundness_replay, lane="toolchain"),
     ]

@@ -529,100 +529,41 @@ class _PatternsMixin:
                 if borrow_mode == "ref" and parent_mode != "ref":
                     raise self.fail(
                         "type",
-                        f"cannot take exclusive 'ref' borrow from shared 'in' borrow '{tname}' (exclusive-from-shared)",
+                        f"cannot take exclusive 'ref' borrow from shared '{parent_mode}' borrow '{tname}' (exclusive-from-shared)",
                         site_node,
                     )
+                if borrow_mode == "shared_ref" and parent_mode == "in":
+                    raise self.fail(
+                        "type",
+                        f"cannot take 'shared ref' borrow from shared 'in' borrow '{tname}' (exclusive-from-shared)",
+                        site_node,
+                    )
+                self._check_path_not_moved(owner_name, field_path, target_node)
             else:
                 owner_name = tname
                 field_path = ()
-                if borrow_mode == "ref":
+                self._check_path_not_moved(owner_name, field_path, target_node)
+                if borrow_mode in {"ref", "shared_ref"}:
                     if tname in self.readonly_in_params or self._is_readonly_span(environment[tname].term):
                         raise self.fail(
                             "type",
-                            f"cannot take exclusive 'ref' borrow of read-only 'in' parameter '{tname}'",
+                            f"cannot take '{borrow_mode}' borrow of read-only 'in' parameter '{tname}'",
                             site_node,
                         )
                     if tname in self.frozen_collections:
                         raise self.fail(
                             "type",
-                            f"cannot take exclusive 'ref' borrow of frozen collection '{tname}'",
+                            f"cannot take '{borrow_mode}' borrow of frozen collection '{tname}'",
                             site_node,
                         )
-                    if tname not in self.mutable_locals:
+                    if tname not in self.mutable_locals and tname not in self.shared_ref_locals:
                         raise self.fail(
                             "type",
                             f"cannot take exclusive 'ref' borrow of immutable binding '{tname}'; declare it with 'var' or 'ref'",
                             site_node,
                         )
         elif t_kind == "member":
-            recv_node = self._unwrap_group(self.node(target_node["value"]))
-            fname = self.name(target_node["name"])
-            if recv_node["kind"] != "name":
-                raise self.fail("unsupported", "field borrow target must be a named local or borrow", target_node)
-            rname = self.name(recv_node["name"])
-            if rname not in environment:
-                raise self.fail("name", f"unknown identifier '{rname}'", recv_node)
-            if rname in self.uninitialized_out_params:
-                raise self.fail("type", f"cannot borrow field of uninitialized 'out' parameter '{rname}'", recv_node)
-            if rname in self.local_borrows:
-                parent_mode, owner_name, parent_path = self.local_borrows[rname]
-                if parent_path:
-                    raise self.fail(
-                        "unsupported",
-                        "nested field reborrows beyond one record field level are not supported",
-                        target_node,
-                    )
-                if borrow_mode == "ref" and parent_mode != "ref":
-                    raise self.fail(
-                        "type",
-                        f"cannot take exclusive 'ref' borrow of field '{fname}' from shared 'in' borrow '{rname}' (exclusive-from-shared)",
-                        site_node,
-                    )
-                field_path = (fname,)
-            else:
-                owner_name = rname
-                field_path = (fname,)
-                if borrow_mode == "ref":
-                    if rname in self.readonly_in_params:
-                        raise self.fail(
-                            "type",
-                            f"cannot take exclusive 'ref' borrow of field '{fname}' on read-only 'in' parameter '{rname}'",
-                            site_node,
-                        )
-                    if rname in self.frozen_collections:
-                        raise self.fail(
-                            "type",
-                            f"cannot take exclusive 'ref' borrow of field '{fname}' on frozen collection '{rname}'",
-                            site_node,
-                        )
-                    if rname not in self.mutable_locals:
-                        raise self.fail(
-                            "type",
-                            f"cannot take exclusive 'ref' borrow of field '{fname}' on immutable record '{rname}'; declare it with 'var' or 'ref'",
-                            site_node,
-                        )
-            rec_ty = self.whnf(environment[owner_name].type)
-            head, _ = self.spine(rec_ty)
-            if head.kind != "const" or not isinstance(head.value, str) or head.value not in self.records_by_type:
-                raise self.fail("type", f"cannot borrow field '{fname}' from non-record '{owner_name}'", target_node)
-            record_info = self.records_by_type[head.value]
-            field_index = next(
-                (idx for idx, rf in enumerate(record_info.fields) if rf.name == fname),
-                None,
-            )
-            if field_index is None:
-                raise self.fail("name", f"record '{record_info.name}' has no field '{fname}'", target_node)
-            rf = record_info.fields[field_index]
-            if borrow_mode == "ref":
-                if cast("int", rf.var.value) in self.constant_parameters or rf.readonly_span:
-                    raise self.fail("type", f"cannot take exclusive 'ref' borrow of constant or read-only field '{fname}'", target_node)
-                for later_rf in record_info.fields[field_index + 1:]:
-                    if cast("int", rf.var.value) in self.free(later_rf.type):
-                        raise self.fail(
-                            "type",
-                            f"cannot take exclusive 'ref' borrow of field '{fname}' because later field '{later_rf.name}' depends on it",
-                            target_node,
-                        )
+            return self._resolve_nested_borrow_target(borrow_mode, target_node, environment, site_node)
         else:
             raise self.fail("type", f"'{borrow_mode}' borrow requires a variable or record field place", target_node)
         projected = self._project_borrow_binding(owner_name, field_path, environment, target_node)
@@ -815,14 +756,14 @@ class _PatternsMixin:
             type_mod: str | None = None
             if node["type"] is not None:
                 tnode = self.node(node["type"])
-                if tnode["kind"] == "modified_type" and tnode.get("modifier") in {"in", "ref"}:
+                if tnode["kind"] == "modified_type" and tnode.get("modifier") in {"in", "ref", "shared_ref"}:
                     type_mod = cast("str", tnode["modifier"])
             expr_mod: str | None = None
             borrow_target_node = value_node
             if (
                 value_node["kind"] == "unary"
                 and isinstance(value_node.get("operator"), dict)
-                and cast("Node", value_node["operator"]).get("text") in {"in", "ref"}
+                and cast("Node", value_node["operator"]).get("text") in {"in", "ref", "shared_ref"}
             ):
                 expr_mod = cast("str", cast("Node", value_node["operator"])["text"])
                 borrow_target_node = self._unwrap_group(self.node(value_node["value"]))
@@ -836,7 +777,7 @@ class _PatternsMixin:
             if borrow_mode is not None:
                 bname = self.name(node["name"])
                 if self._is_indexed_borrow_target(borrow_target_node):
-                    typed_borrow = cast("Literal['in', 'ref']", borrow_mode)
+                    typed_borrow: Literal["in", "ref"] = "ref" if borrow_mode == "ref" else "in"
                     info, binding = self._resolve_indexed_local_borrow(
                         typed_borrow, borrow_target_node, environment, node
                     )
@@ -850,6 +791,8 @@ class _PatternsMixin:
                     if bname in self.frozen_collections:
                         raise self.fail("type", f"cannot rebind collection '{bname}' while iterating over it", node)
                     self.local_borrows.pop(bname, None)
+                    self.prophecy_borrows.pop(bname, None)
+                    self._clear_partial_move_on_write(bname, ())
                     self.indexed_local_borrows[bname] = info
                     self.indexed_borrow_peers.append(
                         _IndexedBorrowPeer(
@@ -864,15 +807,40 @@ class _PatternsMixin:
                             nested_indices=info.nested_indices,
                         )
                     )
-                    if borrow_mode == "ref":
+                    if node["kind"] == "var":
+                        self.var_locals.add(bname)
+                    else:
+                        self.var_locals.discard(bname)
+                    if borrow_mode == "ref" or node["kind"] == "var":
                         self.mutable_locals.add(bname)
                     else:
                         self.mutable_locals.discard(bname)
+                    if borrow_mode == "shared_ref":
+                        self.shared_ref_locals.add(bname)
+                    else:
+                        self.shared_ref_locals.discard(bname)
                     self.slice_views.pop(bname, None)
                     self.slice_view_own_updates.pop(bname, None)
                     self.local_value_regions.pop(bname, None)
+                    if node["type"] is not None:
+                        self.local_type_regions[bname] = self._extract_type_region_qual(self.node(node["type"]))
                     self.bind_local(extended, bname, binding)
                     return extended
+                if borrow_mode == "ref" and borrow_target_node["kind"] == "call":
+                    call_b = self.expression(borrow_target_node, environment)
+                    if (unwrapped_p := self._maybe_bind_prophecy_local(bname, call_b, environment, True)) is not None:
+                        extended = dict(environment)
+                        self._consume_call_updates(extended, node)
+                        self.local_borrows.pop(bname, None)
+                        self.indexed_local_borrows.pop(bname, None)
+                        if node["kind"] == "var":
+                            self.var_locals.add(bname)
+                        else:
+                            self.var_locals.discard(bname)
+                        self.mutable_locals.add(bname)
+                        self.shared_ref_locals.discard(bname)
+                        self.bind_local(extended, bname, unwrapped_p)
+                        return extended
                 if borrow_mode == "ref" and borrow_target_node["kind"] == "call" and self._is_tracked_span_view_call(borrow_target_node):
                     binding = self.expression(borrow_target_node, environment)
                     if node["type"] is not None:
@@ -917,7 +885,12 @@ class _PatternsMixin:
                     self._check_new_slice_view_disjoint(bname, binding.term, parent_name, extended, node)
                     self.local_borrows.pop(bname, None)
                     self.indexed_local_borrows.pop(bname, None)
+                    self.prophecy_borrows.pop(bname, None)
                     self.mutable_locals.add(bname)
+                    if node["kind"] == "var":
+                        self.var_locals.add(bname)
+                    else:
+                        self.var_locals.discard(bname)
                     self.slice_views[bname] = parent_name
                     self.slice_view_own_updates.pop(bname, None)
                     self.local_value_regions.pop(bname, None)
@@ -936,14 +909,26 @@ class _PatternsMixin:
                 if bname in self.frozen_collections:
                     raise self.fail("type", f"cannot rebind collection '{bname}' while iterating over it", node)
                 self.indexed_local_borrows.pop(bname, None)
+                self.prophecy_borrows.pop(bname, None)
+                self._clear_partial_move_on_write(bname, ())
                 self.local_borrows[bname] = (borrow_mode, owner_name, field_path)
-                if borrow_mode == "ref":
+                if node["kind"] == "var":
+                    self.var_locals.add(bname)
+                else:
+                    self.var_locals.discard(bname)
+                if borrow_mode == "ref" or node["kind"] == "var":
                     self.mutable_locals.add(bname)
                 else:
                     self.mutable_locals.discard(bname)
+                if borrow_mode == "shared_ref":
+                    self.shared_ref_locals.add(bname)
+                else:
+                    self.shared_ref_locals.discard(bname)
                 self.slice_views.pop(bname, None)
                 self.slice_view_own_updates.pop(bname, None)
                 self.local_value_regions.pop(bname, None)
+                if node["type"] is not None:
+                    self.local_type_regions[bname] = self._extract_type_region_qual(self.node(node["type"]))
                 self.bind_local(extended, bname, binding)
                 return extended
             if node["type"] is None:
@@ -951,23 +936,33 @@ class _PatternsMixin:
             else:
                 value_type = self.type(self.node(node["type"]), environment)
                 binding = _Binding(self.check(self.node(node["value"]), value_type, environment), value_type)
-        self._check_value_copy(self.node(node["value"]), binding.type)
+        bname = self.name(node["name"])
+        if (unwrapped_p := self._maybe_bind_prophecy_local(bname, binding, environment, node["kind"] == "var")) is not None:
+            binding = unwrapped_p
+        else:
+            self.prophecy_borrows.pop(bname, None)
+            self._check_value_copy(self.node(node["value"]), binding.type)
         extended = dict(environment)
         self._consume_call_updates(extended, node)
-        bname = self.name(node["name"])
         if self.in_executable_function and (paths := self._result_paths(bname, binding.type)):
             self.result_bindings[id(node)] = paths
         if bname in self.frozen_collections:
             raise self.fail("type", f"cannot rebind collection '{bname}' while iterating over it", node)
         self.local_borrows.pop(bname, None)
         self.indexed_local_borrows.pop(bname, None)
+        self._clear_partial_move_on_write(bname, ())
         if node["kind"] == "var":
+            self.var_locals.add(bname)
             self.mutable_locals.add(bname)
         else:
+            self.var_locals.discard(bname)
             self.mutable_locals.discard(bname)
+        self.shared_ref_locals.discard(bname)
         self.slice_views.pop(bname, None)
         self.slice_view_own_updates.pop(bname, None)
         self.local_value_regions.pop(bname, None)
+        if node["kind"] != "constant_local" and node.get("type") is not None:
+            self.local_type_regions[bname] = self._extract_type_region_qual(self.node(node["type"]))
         if (hr_tag := self._term_hr_region(binding.term, environment)) is not None:
             self.local_value_regions[bname] = (id(binding.term), hr_tag)
         b_w = self.whnf(binding.term)
@@ -1186,6 +1181,7 @@ class _PatternsMixin:
                             )
                             for f in facts
                         )
+                scrut_prophecy = self.prophecy_call_results.get(id(scrutinee.term))
                 for name, bound in first.bindings:
                     bound_term = bound.term
                     bound_type = bound.type
@@ -1193,10 +1189,32 @@ class _PatternsMixin:
                         if col_var != col_scrutinee:
                             bound_term = self.substitute(bound_term, cast("int", col_var.value), col_scrutinee)
                             bound_type = self.substitute(bound_type, cast("int", col_var.value), col_scrutinee)
-                    self.bind_local(arm_env, name, _Binding(bound_term, bound_type))
+                    if scrut_prophecy is not None and (pinfo := self._is_prophecy_pair_type(bound_type)) is not None:
+                        val_t, owner_t = pinfo
+                        fn_t = self.pi(val_t, owner_t)
+                        self.prophecy_borrows[name] = (
+                            scrut_prophecy[0],
+                            _apps(_constant("Snd"), val_t, fn_t, bound_term),
+                            val_t,
+                        )
+                        self.mutable_locals.add(name)
+                        self.bind_local(arm_env, name, _Binding(_apps(_constant("Fst"), val_t, fn_t, bound_term), val_t))
+                    else:
+                        self.bind_local(arm_env, name, _Binding(bound_term, bound_type))
                 for pat, (_, col_scrutinee, col_type) in zip(first.patterns, columns, strict=True):
                     for name in pat.names:
-                        self.bind_local(arm_env, name, _Binding(col_scrutinee, col_type))
+                        if scrut_prophecy is not None and (pinfo := self._is_prophecy_pair_type(col_type)) is not None:
+                            val_t, owner_t = pinfo
+                            fn_t = self.pi(val_t, owner_t)
+                            self.prophecy_borrows[name] = (
+                                scrut_prophecy[0],
+                                _apps(_constant("Snd"), val_t, fn_t, col_scrutinee),
+                                val_t,
+                            )
+                            self.mutable_locals.add(name)
+                            self.bind_local(arm_env, name, _Binding(_apps(_constant("Fst"), val_t, fn_t, col_scrutinee), val_t))
+                        else:
+                            self.bind_local(arm_env, name, _Binding(col_scrutinee, col_type))
                 arm = first.arm
                 self.site = arm
                 leaf_expected = (self.substitute(motive_body, root_var_id, leaf_pattern)

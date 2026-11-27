@@ -750,6 +750,53 @@ class _IntrinsicsMixin:
             return _Binding(
                 _apps(_constant("Slots_Write"), elem_t, cap_t, s_b.term, idx_t, val_t), s_b.type
             )
+        if member_name == "Push":
+            if receiver is not None:
+                if len(arg_nodes) != 1:
+                    raise self.fail("type", "Slots.Push expects 1 value argument on a receiver", node)
+                _, elem_t, cap_t = self.spine(self.whnf(receiver.type))[0], *self.spine(self.whnf(receiver.type))[1]
+                s_b = receiver
+                val_t = self.check(arg_nodes[0], elem_t, environment)
+            else:
+                if len(arg_nodes) != 2:
+                    raise self.fail("type", "Slots.Push expects (slots, value) arguments", node)
+                s_b, elem_t, cap_t = self._require_slots_binding(arg_nodes[0], environment)
+                val_t = self.check(arg_nodes[1], elem_t, environment)
+            if self._is_readonly_span(s_b.term):
+                raise self.fail("type", "cannot push to a read-only 'in Slots' borrow", node)
+            can_w = _apps(_constant("Slots_CanWrite"), elem_t, cap_t, s_b.term)
+            if not self._prove_bool_precondition(can_w, environment):
+                raise self.fail("type", "cannot prove Slots has valid tag and write permission (Slots.CanWrite)", node)
+            live_t = _apps(_constant("Slots_LiveCount"), elem_t, cap_t, s_b.term)
+            cap_u = self._slots_cap_usize_term(cap_t)
+            lt_cap = (
+                _apps(_constant("int_lt_usize"), live_t, cap_u)
+                if self.whnf(cap_u).kind == "int"
+                else _apps(_constant("<"), _app(_constant("int_to_nat_usize"), live_t), cap_t)
+            )
+            if not self._prove_bool_precondition(lt_cap, environment):
+                raise self.fail(
+                    "type",
+                    "cannot prove Slots.Push stays within capacity (LiveCount < capacity); unsafe reallocation is disallowed",
+                    node,
+                )
+            return _Binding(
+                _apps(_constant("Slots_Write"), elem_t, cap_t, s_b.term, live_t, val_t), s_b.type
+            )
+        if member_name == "Clear":
+            if receiver is not None:
+                if arg_nodes:
+                    raise self.fail("type", "Slots.Clear expects no arguments on a receiver", node)
+                _, elem_t, cap_t = self.spine(self.whnf(receiver.type))[0], *self.spine(self.whnf(receiver.type))[1]
+                s_b = receiver
+            else:
+                if len(arg_nodes) != 1:
+                    raise self.fail("type", "Slots.Clear expects 1 Slots argument", node)
+                s_b, elem_t, cap_t = self._require_slots_binding(arg_nodes[0], environment)
+            if self._is_readonly_span(s_b.term):
+                raise self.fail("type", "cannot clear a read-only 'in Slots' borrow", node)
+            base_t = _apps(_constant("Slots_Base"), elem_t, cap_t, s_b.term)
+            return _Binding(_apps(_constant("Slots_AllocVacant"), elem_t, cap_t, base_t), s_b.type)
         if member_name == "CopyRepresentation":
             if len(arg_nodes) != 3:
                 raise self.fail("type", "CopyRepresentation expects (src, dst, count) arguments", node)
@@ -1183,27 +1230,44 @@ class _IntrinsicsMixin:
     def _elaborate_unary(
         self: _Elaborator, node: Node, environment: dict[str, _Binding], *, expected_int: _Term | None = None
     ) -> _Binding:
-        if isinstance(node["operator"], dict) and node["operator"].get("text") == "in":
+        if isinstance(node["operator"], dict) and node["operator"].get("text") in {"in", "shared_ref"}:
+            bmode = cast("str", node["operator"]["text"])
+            val_node = self.node(node["value"])
+            if self._is_indexed_borrow_target(self._unwrap_group(val_node)):
+                _, projected = self._resolve_indexed_local_borrow("in", self._unwrap_group(val_node), environment, node)
+                return projected
             _, _, projected = self._resolve_local_borrow_target(
-                "in", self.node(node["value"]), environment, node
+                bmode, val_node, environment, node
             )
             return projected
         if isinstance(node["operator"], dict) and node["operator"].get("text") == "ref":
-            raise self.fail(
-                "type",
-                "exclusive 'ref' borrow cannot escape as a value expression; ref argument is only supported as the target of Format.Write or a mutable call target (exclusive-loan-escape)",
-                node,
+            val_node = self.node(node["value"])
+            if self._is_indexed_borrow_target(self._unwrap_group(val_node)):
+                _, projected = self._resolve_indexed_local_borrow("ref", self._unwrap_group(val_node), environment, node)
+                return projected
+            _, _, projected = self._resolve_local_borrow_target(
+                "ref", val_node, environment, node
             )
+            return projected
         if isinstance(node["operator"], dict) and node["operator"].get("text") == "move":
             if self.in_inline_proof:
                 raise self.fail("type", "an erased proof cannot move a runtime value", node)
             target_node = self._unwrap_group(self.node(node["value"]))
-            if target_node["kind"] in {"member", "index"}:
+            if target_node["kind"] == "index":
                 raise self.fail(
                     "type",
                     "cannot move a projected field or element out of its owning container (partial-owner-move-unsupported)",
                     node,
                 )
+            if target_node["kind"] == "member":
+                split = self._split_member_path(target_node)
+                if split is None:
+                    raise self.fail(
+                        "type",
+                        "cannot move a projected field or element out of its owning container (partial-owner-move-unsupported)",
+                        node,
+                    )
+                return self._record_partial_field_move(split[0], split[1], environment, node)
             if target_node["kind"] != "name":
                 raise self.fail(
                     "type",
@@ -2827,19 +2891,34 @@ class _IntrinsicsMixin:
                         arg_terms.append(arg_b.term)
                     else:
                         arg_terms.append(self.check(val_node, p_dom, environment))
-            if self.expected_call_type is not None:
-                expected_ret = self._instantiate_generic_type(iface.generic_vars, type_args, mspec.return_type)
-                for mgv, mgt in zip(mspec.generic_vars, m_gen_args, strict=True):
-                    expected_ret = self.substitute(expected_ret, cast("int", mgv.value), mgt)
-                for j, pv in enumerate(mspec.param_vars):
-                    expected_ret = self.substitute(expected_ret, cast("int", pv.value), arg_terms[j])
-                self._try_unify(expected_ret, self.expected_call_type)
+        resolved_targs = tuple(self.whnf(t) for t in type_args)
+        concrete_assoc = self.impl_assoc_types.get((iface.name, resolved_targs))
+        if concrete_assoc is None:
+            for (iname, targs), assoc_map in self.impl_assoc_types.items():
+                if iname == iface.name and len(targs) == len(resolved_targs) and all(
+                    self._try_unify(t1, t2) for t1, t2 in zip(targs, resolved_targs, strict=True)
+                ):
+                    concrete_assoc = assoc_map
+                    break
+        assoc_specs = self.interface_assoc_types.get(iface.name, {})
+        if self.expected_call_type is not None:
+            expected_ret = self._instantiate_generic_type(iface.generic_vars, type_args, mspec.return_type)
+            for mgv, mgt in zip(mspec.generic_vars, m_gen_args, strict=True):
+                expected_ret = self.substitute(expected_ret, cast("int", mgv.value), mgt)
+            for j, pv in enumerate(mspec.param_vars):
+                expected_ret = self.substitute(expected_ret, cast("int", pv.value), arg_terms[j])
+            if concrete_assoc is not None:
+                for aname, aspec in assoc_specs.items():
+                    if aspec.abstract_var.kind == "var" and aname in concrete_assoc:
+                        expected_ret = self.substitute(
+                            expected_ret, cast("int", aspec.abstract_var.value), concrete_assoc[aname].rhs_type
+                        )
+            self._try_unify(expected_ret, self.expected_call_type)
         offset = int(pre_evaluated_recv is not None)
         self._check_indexed_call_loans(
             call_args, {i - offset: pos for i, pos in indices.items()},
             {i - offset: pos for i, pos in shared_indices.items()}, environment,
         )
-        resolved_targs = tuple(self.whnf(t) for t in type_args)
         witness_dict, ensures_dict = self._resolve_single_interface_witness(
             iface.name, resolved_targs, environment, node
         )
@@ -2862,6 +2941,12 @@ class _IntrinsicsMixin:
         res_type = mspec.return_type
         for sv, cv in zip(all_spec_vars, all_call_vals, strict=True):
             res_type = self.substitute(res_type, cast("int", sv.value), cv)
+        if concrete_assoc is not None:
+            for aname, aspec in assoc_specs.items():
+                if aspec.abstract_var.kind == "var" and aname in concrete_assoc:
+                    res_type = self.substitute(
+                        res_type, cast("int", aspec.abstract_var.value), concrete_assoc[aname].rhs_type
+                    )
         for vname in out_loan_names:
             self.uninitialized_out_params.discard(vname)
         fn_head, fn_partial_args = self.spine(self.resolve(fn_term))
@@ -2870,7 +2955,10 @@ class _IntrinsicsMixin:
         if fn_head.kind == "const" and isinstance(fn_head.value, str):
             u_param_ids, idx_to_term = self.callable_ref_updates.get(fn_head.value, ((), {}))
         full_call_args = [*fn_partial_args, *m_gen_args, *arg_terms]
+        prophecy_owners: list[str] = []
         for idx, (t_node, t_dom) in loan_targets.items():
+            if t_node["kind"] == "name":
+                prophecy_owners.append(self.name(t_node["name"]))
             if idx in idx_to_term and len(full_call_args) >= len(u_param_ids):
                 upd_term = idx_to_term[idx]
                 for pid, aval in zip(u_param_ids, full_call_args, strict=False):
@@ -2886,6 +2974,8 @@ class _IntrinsicsMixin:
                 for pid, aval in zip(rem_m_ids, rem_vals, strict=True):
                     inst_ens = self.substitute(inst_ens, pid, aval)
                 self.active_facts.append(self.whnf(inst_ens))
+        if prophecy_owners and self._is_prophecy_pair_type(res_type) is not None:
+            self._record_prophecy_call_result(res_term, res_type, tuple(prophecy_owners), False)
         return _Binding(res_term, res_type)
 
     def _elaborate_record_method_call(
@@ -3238,7 +3328,14 @@ class _IntrinsicsMixin:
                     head, _ = self.spine(self.resolve(qualified.term))
                     self.navigation.reference(self.module_name, node["name"], head.value)
                 return qualified
-            receiver = self.expression(recv_node, environment)
+            prev_suppress = self._suppress_moved_owner_check
+            if (member_path := self._split_member_path(node)) is not None:
+                self._check_path_not_moved(member_path[0], member_path[1], node)
+                self._suppress_moved_owner_check = member_path[0]
+            try:
+                receiver = self.expression(recv_node, environment)
+            finally:
+                self._suppress_moved_owner_check = prev_suppress
             if self.in_executable_function and self._dotted_member_path(self._unwrap_group(recv_node)) is None:
                 paths = self._result_paths("", receiver.type)
                 selected = f".{member_name}"
@@ -3249,6 +3346,14 @@ class _IntrinsicsMixin:
             name = self.operator(node["name"]) if kind == "operator" else self.name(node["name"])
             if kind == "name" and name in self.uninitialized_out_params:
                 raise self.fail("type", f"cannot read uninitialized 'out' parameter '{name}'", node)
+            if kind == "name" and name != self._suppress_moved_owner_check:
+                self._check_path_not_moved(name, (), node)
+            if kind == "name" and name in self.invalidated_prophecy_borrows:
+                raise self.fail(
+                    "type",
+                    f"cannot use returned borrow '{name}' after owner '{self.invalidated_prophecy_borrows[name]}' was mutated (conflicting-access)",
+                    node,
+                )
             if name == "Type":
                 return _Binding(_SORT, _term("sort", value=1))
             if name == "Prop":
@@ -3358,6 +3463,19 @@ class _IntrinsicsMixin:
                     return self._elaborate_seq_intrinsic(node, member_name, gen_args, call_args, environment)
                 if receiver["kind"] == "name" and self.name(receiver["name"]) == "Slots" and "Slots" not in environment:
                     return self._elaborate_slots_intrinsic(node, member_name, gen_args, call_args, environment)
+                if receiver["kind"] == "name" and self.name(receiver["name"]) in {"LocalCell", "BorrowCell"} and self.name(receiver["name"]) not in environment:
+                    cell_kind = self.name(receiver["name"])
+                    self._ensure_cell_prelude(cell_kind)
+                    if member_name == "New":
+                        if len(call_args) != 1:
+                            raise self.fail("type", f"{cell_kind}.New expects 1 value argument", node)
+                        self.node(call_args[0], "argument")
+                        val_b = self.expression(self.node(call_args[0]["value"]), environment)
+                        return _Binding(
+                            _apps(_constant(f"holdfast_{cell_kind}_New"), val_b.type, val_b.term),
+                            _app(_constant(cell_kind), val_b.type),
+                        )
+                    raise self.fail("name", f"unknown constructor '{cell_kind}.{member_name}'", node)
                 dst_spec = None
                 char_type = False
                 if not gen_args:
@@ -3471,7 +3589,8 @@ class _IntrinsicsMixin:
                 if not gen_args and (
                     member_name in _INT_INTRINSICS
                     or member_name in {"At", "Update", "Append", "Take", "Skip", "Slice", "Contains", "All", "Any"}
-                    or member_name in {"LivePrefix", "VacantRange", "VacantSuffix", "PrefixModel", "Read", "Write"}
+                    or member_name in {"LivePrefix", "VacantRange", "VacantSuffix", "PrefixModel", "Read", "Write", "Push", "Clear"}
+                    or member_name in {"Get", "Set"}
                 ):
                     recv_b = self.expression(receiver, environment)
                     recv_for_method = recv_b
@@ -3484,20 +3603,53 @@ class _IntrinsicsMixin:
                         return self._elaborate_seq_method(
                             node, recv_b, recv_targs[0], member_name, call_args, environment
                         )
+                    if recv_head in {_constant("LocalCell"), _constant("BorrowCell")} and len(recv_targs) == 1:
+                        cell_name = str(recv_head.value)
+                        elem_t = recv_targs[0]
+                        self._ensure_cell_prelude(cell_name)
+                        if (cell_name == "LocalCell" and member_name == "Get") or (cell_name == "BorrowCell" and member_name == "Read"):
+                            if call_args:
+                                raise self.fail("type", f"{cell_name}.{member_name} expects 0 arguments", node)
+                            fn_c = "Get" if cell_name == "LocalCell" else "Read"
+                            return _Binding(_apps(_constant(f"holdfast_{cell_name}_{fn_c}"), elem_t, recv_b.term), elem_t)
+                        if (cell_name == "LocalCell" and member_name == "Set") or (cell_name == "BorrowCell" and member_name == "Write"):
+                            if len(call_args) != 1:
+                                raise self.fail("type", f"{cell_name}.{member_name} expects 1 value argument", node)
+                            self.node(call_args[0], "argument")
+                            new_val_t = self.check(self.node(call_args[0]["value"]), elem_t, environment)
+                            fn_c = "Set" if cell_name == "LocalCell" else "Write"
+                            new_cell = _Binding(
+                                _apps(_constant(f"holdfast_{cell_name}_{fn_c}"), elem_t, recv_b.term, new_val_t),
+                                recv_b.type,
+                            )
+                            self._record_call_update(receiver, new_cell, writes=True)
+                            if self._unwrap_group(receiver)["kind"] == "name":
+                                rname = self.name(self._unwrap_group(receiver)["name"])
+                                self._purge_overlapping_facts_on_shared_write(rname, (), None, environment)
+                            return _Binding(_term("unit"), _UNIT)
                     if (
                         recv_head == _constant("Slots")
                         and len(recv_targs) == 2
-                        and member_name in {"LivePrefix", "VacantRange", "VacantSuffix", "PrefixModel", "Read", "Write"}
+                        and member_name in {"LivePrefix", "VacantRange", "VacantSuffix", "PrefixModel", "Read", "Write", "Push", "Clear"}
                     ):
                         self.checked_receivers[tuple(cast("list[int]", node["span"]))] = loans._Receiver(
-                            "exclusive" if member_name == "Write" else "shared",
+                            "exclusive" if member_name in {"Write", "Push", "Clear"} else "shared",
                             None,
                             False,
-                            two_phase=member_name == "Write",
+                            two_phase=member_name in {"Write", "Push", "Clear"},
                         )
-                        return self._elaborate_slots_intrinsic(
+                        res_b = self._elaborate_slots_intrinsic(
                             node, member_name, gen_args, call_args, environment, receiver=recv_b
                         )
+                        if member_name in {"Push", "Clear"}:
+                            unw_recv = self._unwrap_group(receiver)
+                            if unw_recv["kind"] == "name":
+                                rname = self.name(unw_recv["name"])
+                                if member_name == "Push":
+                                    self.proved_no_realloc_places.append(loans.Place(rname))
+                                self._record_call_update(receiver, res_b, writes=True)
+                                return _Binding(_term("unit"), _UNIT)
+                        return res_b
                 if recv_for_method is None:
                     recv_for_method = self.expression(receiver, environment)
                 rm_head, rm_targs = self.spine(self.whnf(recv_for_method.type))

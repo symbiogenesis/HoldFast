@@ -1,0 +1,13 @@
+// SPDX-License-Identifier: Apache-2.0
+module CapacityPreservingPush;
+
+public byte PushWhileBorrowed(ref Slots<byte, 4> slots, byte item)
+    requires slots.CanRead
+    requires slots.CanWrite
+    requires slots.LiveCount >= 1usize
+    requires slots.LiveCount < 4usize
+{
+    let first = slots.Read(0usize);
+    slots.Push(item);
+    return first;
+}

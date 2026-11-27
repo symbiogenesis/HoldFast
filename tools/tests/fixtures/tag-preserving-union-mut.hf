@@ -1,0 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+module TagPreservingUnionMut;
+
+public union SlotState {
+    Vacant();
+    Active(byte Header, byte Payload);
+}
+
+public byte UpdateActivePayload(owned SlotState initial, byte replacement)
+{
+    var slot = initial;
+    if (slot is Active(h, p)) {
+        let headerView = in h;
+        slot = Active(h, replacement);
+        return headerView;
+    }
+    return 0u8;
+}

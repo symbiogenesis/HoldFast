@@ -217,7 +217,7 @@ def _mutable_places(elab: _Elaborator, nodes: Iterator[Node]) -> set[str]:
         targets: list[Node] = []
         if kind in {"assignment", "next"}:
             targets.append(elab.node(node["target"]))
-        elif kind == "unary" and cast("Node", node["operator"])["text"] in {"ref", "out", "move"}:
+        elif kind == "unary" and cast("Node", node["operator"])["text"] in {"ref", "shared_ref", "out", "move"}:
             targets.append(elab.node(node["value"]))
         elif kind == "foreach_collection" and node["mode"] == "ref":
             targets.append(elab.node(node["collection"]))
