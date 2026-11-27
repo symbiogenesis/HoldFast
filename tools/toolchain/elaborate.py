@@ -11,8 +11,8 @@ import copy
 import hashlib
 import re
 from collections import Counter
-from collections.abc import Callable, Sequence
-from contextlib import AbstractContextManager, ExitStack, nullcontext
+from collections.abc import Callable, Generator, Sequence
+from contextlib import AbstractContextManager, ExitStack, contextmanager, nullcontext
 from pathlib import Path
 from types import MappingProxyType
 from typing import cast
@@ -319,6 +319,26 @@ class _Elaborator(
         self.decl_first_meta = next(
             (index for index, meta in enumerate(saved) if meta.solution is None), len(saved)
         )
+
+    @contextmanager
+    def speculative_metas(self) -> Generator[list[_Meta]]:
+        """Snapshot ``self.metas`` and unconditionally restore it on block exit."""
+        saved = [_Meta(meta.type, meta.scope, meta.solution) for meta in self.metas]
+        try:
+            yield saved
+        finally:
+            self.restore_metas(saved)
+
+    def speculative_probe(self, probe: Callable[[], bool]) -> bool:
+        """Run ``probe()`` speculatively, rolling back ``self.metas`` on ``False`` or ``HoldFastError``."""
+        saved = [_Meta(meta.type, meta.scope, meta.solution) for meta in self.metas]
+        try:
+            if probe():
+                return True
+        except HoldFastError:
+            pass
+        self.restore_metas(saved)
+        return False
 
     def pi(self, domain: _Term, codomain: _Term, *, nullary: bool = False) -> _Term:
         variable = self.fresh(domain)

@@ -87,8 +87,7 @@ class _IntrinsicsMixin:
             spec = iface.methods.get(method)
             if spec is None or (0 if spec.nullary else len(spec.param_vars)) != arity:
                 continue
-            saved_metas = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
-            try:
+            with self.speculative_metas():
                 available = any(
                     name == iface.name and method in witness and self._try_unify(args[0], implementing_type)
                     for (name, args), witness in self.active_interface_witnesses.items()
@@ -96,8 +95,6 @@ class _IntrinsicsMixin:
                     self._match_impl_arguments(instance, (implementing_type,), environment) is not None
                     for instance in self.impls.get(iface.name, [])
                 )
-            finally:
-                self.restore_metas(saved_metas)
             if available:
                 candidates.append(iface)
         if not candidates:
@@ -2281,13 +2278,7 @@ class _IntrinsicsMixin:
                     )
                 elif sh == _constant("Span_Write") and len(sa) == 4 and r_ty == _USIZE:
                     s_w_idx, s_w_val, s_recv = sa[2], sa[3], sa[1]
-                    next_expected = _apps(
-                        _constant("Span_Read"),
-                        sa[0],
-                        self._default_term_for_type(sa[0]),
-                        s_recv,
-                        s_w_idx,
-                    )
+                    next_expected = _apps(_constant("Span_Read"), sa[0], s_recv, s_w_idx)
                 elif sh == _constant("Slots_Write") and len(sa) == 5 and r_ty == _USIZE:
                     s_w_idx, s_w_val, s_recv = sa[3], sa[4], sa[2]
                     sd = self._sequence_lookup_default(

@@ -1684,8 +1684,7 @@ class _DeclarationsMixin:
     ) -> bool:
         if len(first.target_types) != len(second.target_types):
             return False
-        saved_metas = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
-        try:
+        with self.speculative_metas():
             first_metas: list[_Term] = []
             for gv in first.generic_vars:
                 dom = self.types[cast("int", gv.value)]
@@ -1713,8 +1712,6 @@ class _DeclarationsMixin:
             return all(
                 self._try_unify(t1, t2) for t1, t2 in zip(inst_first, inst_second, strict=True)
             )
-        finally:
-            self.restore_metas(saved_metas)
 
     def _impl_declaration(self: _Elaborator, node: Node, _first_meta: int) -> None:
         modifiers = node["modifiers"]
@@ -2334,10 +2331,9 @@ class _DeclarationsMixin:
             name, arguments = key
             if name != iface_name:
                 continue
-            saved_metas = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
-            if all(self._try_unify(a, b) for a, b in zip(arguments, inst_t_args, strict=True)):
-                active_matches.append((key, witness, self.metas))
-            self.restore_metas(saved_metas)
+            with self.speculative_metas():
+                if all(self._try_unify(a, b) for a, b in zip(arguments, inst_t_args, strict=True)):
+                    active_matches.append((key, witness, self.metas))
         if len(active_matches) > 1:
             raise self.fail("type", f"ambiguous bounds for interface '{iface_name}'", call_site)
         if active_matches:
@@ -2347,11 +2343,10 @@ class _DeclarationsMixin:
 
         matches = []
         for instance in self.impls.get(iface_name, []):
-            saved_metas = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
-            arguments = self._match_impl_arguments(instance, inst_t_args, environment)
-            if arguments is not None:
-                matches.append((instance, arguments, self.metas))
-                self.restore_metas(saved_metas)
+            with self.speculative_metas():
+                arguments = self._match_impl_arguments(instance, inst_t_args, environment)
+                if arguments is not None:
+                    matches.append((instance, arguments, self.metas))
         if not matches:
             raise self.fail(
                 "type", f"no implementation of interface '{iface_name}' for the given type arguments", call_site,
@@ -4087,11 +4082,8 @@ class _DeclarationsMixin:
     def _prove_bool_expr_with_domain_solver(
         self: _Elaborator, val_node: Node, env: dict[str, _Binding]
     ) -> bool:
-        saved_metas = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
-        try:
+        def _probe() -> bool:
             expr_b = self.expression(val_node, env)
-            if self.whnf(expr_b.type) == _BOOL and self._prove_bool_precondition(expr_b.term, env):
-                return True
-        except HoldFastError:
-            self.restore_metas(saved_metas)
-        return False
+            return self.whnf(expr_b.type) == _BOOL and self._prove_bool_precondition(expr_b.term, env)
+
+        return self.speculative_probe(_probe)
