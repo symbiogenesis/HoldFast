@@ -1,0 +1,55 @@
+// SPDX-License-Identifier: Apache-2.0
+
+import Std.Collections.Vec.module, type
+import Std.Fail.abort_on_fail
+
+observe_and_write (left: mut Vec U8) (right: mut Vec U8) (i: Usz) (read_first: Bool): Maybe U8 can Panic, Mutate 'left, Mutate 'right =
+    if i == 0 then
+        selected = left.[0]
+        if read_first then
+            observed = selected.*
+            Vec.clear left
+            Some observed
+        else
+            Some selected.*
+    else if i == 1 then
+        selected = right.[0]
+        if read_first then
+            observed = selected.*
+            Vec.clear right
+            Some observed
+        else
+            Vec.clear left
+            Some selected.*
+    else None
+
+main () =
+    print_to_stdout do
+    abort_on_panic do
+    abort_on_fail do
+    for i in 0usz .. 8 do
+        for rf in 0usz .. 2 do
+            read_first = rf == 1
+            var left = Vec.of [3u8, 4u8]
+            var right = Vec.of [6u8, 7u8]
+            frame = Vec.of [9u8, 10u8]
+            observed = observe_and_write left right i read_first
+            if i == 0 then
+                assert <| observed is Some 3u8
+                if read_first then assert <| Vec.is_empty left
+                else assert <| left == Vec.of [3u8, 4u8]
+                assert <| right == Vec.of [6u8, 7u8]
+            else if i == 1 then
+                assert <| observed is Some 6u8
+                if read_first then
+                    assert <| Vec.is_empty right
+                    assert <| left == Vec.of [3u8, 4u8]
+                else
+                    assert <| Vec.is_empty left
+                    assert <| right == Vec.of [6u8, 7u8]
+            else
+                assert <| observed is None
+                assert <| left == Vec.of [3u8, 4u8]
+                assert <| right == Vec.of [6u8, 7u8]
+            assert <| frame == Vec.of [9u8, 10u8]
+    println "verified 16 cases"

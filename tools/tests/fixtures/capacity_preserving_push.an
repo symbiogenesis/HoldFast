@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: Apache-2.0
+
+import Std.Collections.Vec.module, type
+
+// Vec is shape-unstable in Ante: Vec.push carries `Mutate 'buf!` and rejects
+// reading an interior element reference afterward even when capacity remains.
+push_while_borrowed (buf: mut Vec U8) (item: U8): Maybe U8 can Panic, Mutate 'buf! =
+    if not (Vec.is_empty buf) then
+        first = buf.[0]
+        Vec.push buf item
+        Some first.*
+    else None
+
+main () = ()

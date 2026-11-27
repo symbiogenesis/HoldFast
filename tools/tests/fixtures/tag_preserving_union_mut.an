@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: Apache-2.0
+
+// Sum types are shape-unstable in Ante: mutating the union invalidates any
+// interior reference into a variant payload even when the active tag stays Active.
+type Slot =
+    | Active (header: U8) (payload: U8)
+    | Vacant
+
+overwrite_payload (slot: mut Slot) (byte: U8): Unit can Mutate 'slot! =
+    match slot.*
+    | Active header _ -> slot := Active header byte
+    | Vacant -> ()
+
+update_active_payload (slot: mut Slot) (byte: U8): Maybe U8 can Mutate 'slot! =
+    match slot.*
+    | Active header _ ->
+        overwrite_payload slot byte
+        Some header.*
+    | Vacant -> None
+
+main () = ()

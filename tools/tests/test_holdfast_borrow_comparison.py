@@ -265,14 +265,23 @@ def _pinned_rustc_available() -> list[str] | None:
 
 def _comparison_fixture_contracts() -> None:
     fixtures = TOOLS / "tests" / "fixtures"
-    new_rust_fixtures = ("subslice_disjoint_writeback.rs", "multidim_index_borrows.rs")
+    expected_fixture_cfgs: dict[str, set[str | None]] = {
+        "subslice_disjoint_writeback.rs": {"direct", "coincident", None},
+        "multidim_index_borrows.rs": {"direct", "coincident", None},
+        "exclusive_conditional_return.rs": {None, "live_conflict"},
+        "shared_mut_stable_element.rs": {"direct", None},
+        "tag_preserving_union_mut.rs": {"direct", "coincident", None},
+        "capacity_preserving_push.rs": {"direct", "coincident", None},
+        "multi_region_disambiguation.rs": {"unified_region", None},
+        "partial_field_move.rs": {"use_moved", None},
+    }
     for mode in holdfast_borrow_compare.MODES:
         mode_trials = holdfast_borrow_compare.trials(mode)
         ensure(bool(mode_trials), f"expected non-empty Rust trials for mode {mode}")
-        for new_fixture in new_rust_fixtures:
-            cfgs = {trial.configuration for trial in mode_trials if trial.fixture == new_fixture}
-            ensure(cfgs == {"direct", "coincident", None},
-                   f"mode {mode} missing expected configurations for {new_fixture}: {cfgs}")
+        for fixture_name, expected_cfgs in expected_fixture_cfgs.items():
+            cfgs = {trial.configuration for trial in mode_trials if trial.fixture == fixture_name}
+            ensure(cfgs == expected_cfgs,
+                   f"mode {mode} missing expected configurations for {fixture_name}: {cfgs}")
         for trial in mode_trials:
             fixture_path = fixtures / trial.fixture
             ensure(fixture_path.is_file(), f"missing Rust comparison fixture: {fixture_path}")
@@ -289,49 +298,118 @@ def _comparison_fixture_contracts() -> None:
                 ensure("fn expected_observations()" in source,
                        f"accepted Rust fixture {trial.fixture} must define expected_observations()")
 
-    ensure(len(ante_borrow_compare.TRIALS) >= 2
-           and ante_borrow_compare.TRIALS[0].direct == ante_borrow_compare.DIRECT,
-           "ante_borrow_compare.TRIALS must retain nested_indexed_invalidation.an first")
+    mode_trials_by_mode = {
+        mode: {(trial.fixture, trial.configuration): trial for trial in holdfast_borrow_compare.trials(mode)}
+        for mode in holdfast_borrow_compare.MODES
+    }
+    for entry in holdfast_borrow_compare.MATRIX_CASES:
+        ensure(entry.ante_expected in holdfast_borrow_compare.VERDICTS
+               and entry.holdfast_expected in holdfast_borrow_compare.VERDICTS,
+               f"invalid matrix verdicts for {entry.case}")
+        for mode in holdfast_borrow_compare.MODES:
+            ensure((entry.fixture, entry.cfg) in mode_trials_by_mode[mode],
+                   f"matrix case {entry.case} missing in Rust mode {mode}")
+    synthetic_results: list[dict[str, object]] = [
+        {
+            "mode": mode,
+            "fixture": trial.fixture,
+            "cfg": trial.configuration,
+            "flags": [],
+            "decision": "rejected" if trial.expected else "accepted",
+        }
+        for mode in holdfast_borrow_compare.MODES
+        for trial in holdfast_borrow_compare.trials(mode)
+        if not trial.next_solver
+    ]
+    matrix = holdfast_borrow_compare._comparison_matrix(synthetic_results)
+    matrix_cases = matrix["cases"]
+    if not isinstance(matrix_cases, list) or len(matrix_cases) != len(holdfast_borrow_compare.MATRIX_CASES):
+        raise AssertionError("comparison_matrix did not materialize all MATRIX_CASES")
+    by_case = {row["case"]: row for row in matrix_cases if isinstance(row, dict)}
+    ensure(by_case["exclusive_conditional_return"]["rust_nll"] == "rejected"
+           and by_case["exclusive_conditional_return"]["rust_polonius_legacy"] == "accepted"
+           and by_case["exclusive_conditional_return"]["rust_polonius_alpha"] == "accepted"
+           and by_case["exclusive_conditional_return"]["ante_expected"] == "unsupported",
+           f"unexpected exclusive_conditional_return matrix row: {by_case['exclusive_conditional_return']}")
+    ensure(by_case["shared_mut_stable_element"]["rust_nll"] == "rejected"
+           and by_case["shared_mut_stable_element"]["rust_polonius_legacy"] == "rejected"
+           and by_case["shared_mut_stable_element"]["rust_polonius_alpha"] == "rejected"
+           and by_case["shared_mut_stable_element"]["ante_expected"] == "accepted"
+           and by_case["shared_mut_stable_element"]["holdfast_expected"] == "rejected",
+           f"unexpected shared_mut_stable_element matrix row: {by_case['shared_mut_stable_element']}")
+
+    ensure(len(ante_borrow_compare.TRIALS) >= 4
+           and ante_borrow_compare.TRIALS[0].direct == ante_borrow_compare.DIRECT
+           and ante_borrow_compare.TRIALS[1].direct == ante_borrow_compare.MULTIDIM_DIRECT,
+           "ante_borrow_compare.TRIALS must retain nested_indexed_invalidation.an and multidim_index_borrows.an first")
+    wired_directs = {trial.direct for trial in ante_borrow_compare.TRIALS}
+    ensure({ante_borrow_compare.BRANCH_VIEW_DIRECT, ante_borrow_compare.LOOP_VIEW_DIRECT}.issubset(wired_directs),
+           f"ante_borrow_compare.TRIALS missing branch/loop view trials: {wired_directs}")
     for trial in ante_borrow_compare.TRIALS:
         for required in (trial.direct, trial.rewrite, *((trial.companion_hf,) if trial.companion_hf is not None else ())):
             ensure((fixtures / required).is_file(), f"missing Ante comparison fixture: {required}")
         direct_source = (fixtures / trial.direct).read_text(encoding="utf-8")
         ensure(direct_source.startswith("// SPDX-License-Identifier: Apache-2.0\n"),
                f"missing SPDX header in {trial.direct}")
-        selected_lines = [line for line in direct_source.splitlines() if line == "        Some selected.*"]
+        selected_lines = [line for line in direct_source.splitlines() if line == trial.invalidation_line]
         ensure(len(selected_lines) == 1,
-               f"{trial.direct} must have exactly one 8-space indented 'Some selected.*' line")
+               f"{trial.direct} must have exactly one {trial.invalidation_line!r} line")
+        ensure(trial.invalidation_target in trial.invalidation_line,
+               f"{trial.direct}: invalidation_target {trial.invalidation_target!r} missing from invalidation_line")
         ensure(direct_source.count(trial.direct_mutation) == 1,
                f"{trial.direct} must contain {trial.direct_mutation!r} exactly once")
         coincident_source = direct_source.replace(trial.direct_mutation, trial.coincident_mutation)
-        ensure("        Some selected.*" in coincident_source.splitlines(),
-               f"{trial.coincident} synthesis must preserve 'Some selected.*'")
+        ensure(trial.invalidation_line in coincident_source.splitlines(),
+               f"{trial.coincident} synthesis must preserve {trial.invalidation_line!r}")
         rewrite_source = (fixtures / trial.rewrite).read_text(encoding="utf-8")
         ensure(rewrite_source.startswith("// SPDX-License-Identifier: Apache-2.0\n"),
                f"missing SPDX header in {trial.rewrite}")
-        ensure('println "verified 16 cases"' in rewrite_source,
-               f"{trial.rewrite} must print 'verified 16 cases'")
+        ensure(f'println "{trial.rewrite_output}"' in rewrite_source,
+               f"{trial.rewrite} must print {trial.rewrite_output!r}")
 
-    for control_name in ("branch_view_last_use.an", "loop_view_return.an"):
-        control_source = (fixtures / control_name).read_text(encoding="utf-8")
-        ensure(control_source.startswith("// SPDX-License-Identifier: Apache-2.0\n"),
-               f"missing SPDX header in {control_name}")
-        ensure("import Std.Collections.Vec.module, type" in control_source
-               and "Mutate 'rows!" in control_source
-               and "Vec.clear" in control_source
-               and "selected.*" in control_source,
-               f"{control_name} does not match expected Ante control structure")
+    for modeled_an, snippet in (
+        ("shared_mut_stable_element.an", "b.first := 9u8"),
+        ("tag_preserving_union_mut.an", "overwrite_payload slot byte"),
+        ("capacity_preserving_push.an", "Vec.push buf item"),
+    ):
+        modeled_source = (fixtures / modeled_an).read_text(encoding="utf-8")
+        ensure(modeled_source.startswith("// SPDX-License-Identifier: Apache-2.0\n"),
+               f"missing SPDX header in {modeled_an}")
+        ensure(snippet in modeled_source, f"{modeled_an} missing expected snippet {snippet!r}")
 
     compiler = _pinned_rustc_available()
     if compiler is not None:
         with TemporaryDirectory(prefix="holdfast-new-rust-trials-") as tmp:
             work = Path(tmp)
-            for name in new_rust_fixtures:
+            for name in expected_fixture_cfgs:
                 (work / name).write_bytes((fixtures / name).read_bytes())
-            for mode in holdfast_borrow_compare.MODES:
-                for trial in holdfast_borrow_compare.trials(mode):
-                    if trial.fixture in new_rust_fixtures:
-                        holdfast_borrow_compare._run_trial(compiler, mode, trial, work, measure=False)
+            observed_results = [
+                holdfast_borrow_compare._run_trial(compiler, mode, trial, work, measure=False)
+                for mode in holdfast_borrow_compare.MODES
+                for trial in holdfast_borrow_compare.trials(mode)
+                if trial.fixture in expected_fixture_cfgs
+            ]
+            p3_verdicts = {
+                entry["mode"]: entry["decision"]
+                for entry in observed_results
+                if entry["fixture"] == "exclusive_conditional_return.rs" and entry["cfg"] is None
+            }
+            ensure(p3_verdicts == {
+                "default": "accepted",
+                "off": "rejected",
+                "legacy": "accepted",
+                "next": "accepted",
+            }, f"unexpected Problem Case #3 verdicts: {p3_verdicts}")
+            for shared_mode in holdfast_borrow_compare.MODES:
+                shared_verdict = next(
+                    entry["decision"]
+                    for entry in observed_results
+                    if entry["fixture"] == "shared_mut_stable_element.rs"
+                    and entry["cfg"] == "direct"
+                    and entry["mode"] == shared_mode
+                )
+                ensure(shared_verdict == "rejected",
+                       f"shared_mut_stable_element direct must be rejected in mode {shared_mode}")
 
 
 def cases() -> list[Case]:

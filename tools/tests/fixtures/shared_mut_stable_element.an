@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: Apache-2.0
+
+// Ante's shared-mutable model allows aliased scalar mutation on shape-stable
+// places without proving index or field disjointness.
+type Pair =
+    first: U8
+    second: U8
+
+read_and_overwrite (a: mut Pair) (b: mut Pair): U8 can Mutate 'a, Mutate 'b =
+    selected = a.first
+    b.first := 9u8
+    selected
+
+main () = ()

@@ -18,6 +18,10 @@ DIRECT = "nested_indexed_invalidation.an"
 REWRITE = "nested_indexed_invalidation_rewrite.an"
 MULTIDIM_DIRECT = "multidim_index_borrows.an"
 MULTIDIM_REWRITE = "multidim_index_borrows_rewrite.an"
+BRANCH_VIEW_DIRECT = "branch_view_last_use.an"
+BRANCH_VIEW_REWRITE = "branch_view_last_use_rewrite.an"
+LOOP_VIEW_DIRECT = "loop_view_return.an"
+LOOP_VIEW_REWRITE = "loop_view_return_rewrite.an"
 FLAGS = ("--no-color", "--threads", "1")
 TIMEOUT = 60
 BUILD_TIMEOUT = 300
@@ -31,6 +35,10 @@ class AnteTrial:
     direct_mutation: str
     coincident_mutation: str
     companion_hf: str | None = None
+    invalidation_line: str = "        Some selected.*"
+    invalidation_target: str = "selected.*"
+    invalidation_message: str = "selected may have been invalidated by an earlier mutation"
+    rewrite_output: str = "verified 16 cases"
 
 
 TRIALS = (
@@ -48,6 +56,23 @@ TRIALS = (
         coincident="multidim_index_borrows_coincident.an",
         direct_mutation="Vec.clear grid.[r2]",
         coincident_mutation="Vec.clear grid.[r1]",
+    ),
+    AnteTrial(
+        direct=BRANCH_VIEW_DIRECT,
+        rewrite=BRANCH_VIEW_REWRITE,
+        coincident="branch_view_last_use_coincident.an",
+        direct_mutation="Vec.clear rows.[0]",
+        coincident_mutation="Vec.clear rows.[i]",
+        companion_hf="branch-view-last-use.hf",
+        invalidation_line="            Some selected.*",
+    ),
+    AnteTrial(
+        direct=LOOP_VIEW_DIRECT,
+        rewrite=LOOP_VIEW_REWRITE,
+        coincident="loop_view_return_coincident.an",
+        direct_mutation="if n <= 3 then",
+        coincident_mutation="if n <= 4 then",
+        companion_hf="loop-view-return.hf",
     ),
 )
 
@@ -96,21 +121,29 @@ def _build_compiler(checkout: Path, work: Path) -> tuple[Path, dict[str, object]
 
 
 def _check_invalidation(
-    executable: Path, work: Path, fixture: str, source: str, env: dict[str, str],
+    executable: Path, work: Path, fixture: str, source: str, trial: AnteTrial, env: dict[str, str],
 ) -> dict[str, object]:
-    line, = [line for line, text in enumerate(source.splitlines(), 1) if text.strip() == "Some selected.*"]
+    matches = [(n, text) for n, text in enumerate(source.splitlines(), 1) if text == trial.invalidation_line]
+    if len(matches) != 1:
+        raise ValueError(f"{fixture}: expected a single invalidation line {trial.invalidation_line!r}")
+    line, line_text = matches[0]
+    if trial.invalidation_target not in line_text:
+        raise ValueError(f"{fixture}: invalidation target {trial.invalidation_target!r} missing from {line_text!r}")
+    column = line_text.index(trial.invalidation_target) + 1
     result = subprocess.run([str(executable), fixture, "--check", *FLAGS], cwd=work,
                             capture_output=True, text=True, encoding="utf-8", check=False, timeout=TIMEOUT, env=env)
     diagnostics = re.findall(rf"(?m)^{re.escape(fixture)}:(\d+):(\d+)$", result.stderr)
-    error = "selected may have been invalidated by an earlier mutation"
-    expected = f"{line} |         Some selected.*\t// error: {error}"
-    if (result.returncode != 1 or diagnostics != [(str(line), "14")]
+    expected = f"{line} | {line_text}\t// error: {trial.invalidation_message}"
+    if (result.returncode != 1 or diagnostics != [(str(line), str(column))]
             or expected not in result.stderr or result.stderr.count("// error:") != 1
             or "Found 1 error and 0 warnings" not in result.stderr.splitlines()):
-        raise ValueError(f"{fixture}: expected single invalidation at {line}:14, exit={result.returncode}\n{result.stderr}")
+        raise ValueError(
+            f"{fixture}: expected single invalidation at {line}:{column}, exit={result.returncode}\n{result.stderr}"
+        )
     return {
         "fixture": fixture, "flags": ["--check", *FLAGS], "decision": "rejected",
-        "diagnostics": [{"message": error, "line": line, "column": 14}], "observations": "n/a",
+        "diagnostics": [{"message": trial.invalidation_message, "line": line, "column": column}],
+        "observations": "n/a",
     }
 
 
@@ -137,10 +170,10 @@ def _run_trial(
     encoded = coincident.encode("utf-8")
     (work / trial.coincident).write_bytes(encoded)
     sources[trial.coincident] = sha256_bytes(encoded)
-    results = [_check_invalidation(executable, work, name, source, env)
+    results = [_check_invalidation(executable, work, name, source, trial, env)
                for name, source in ((trial.direct, direct), (trial.coincident, coincident))]
     runtime_flags = ["--backend", "c", "--delete-binary", *FLAGS]
-    if _output([str(executable), trial.rewrite, *runtime_flags], work, env=env) != "verified 16 cases":
+    if _output([str(executable), trial.rewrite, *runtime_flags], work, env=env) != trial.rewrite_output:
         raise ValueError(f"{trial.rewrite} did not execute its expected observations")
     results.append({
         "fixture": trial.rewrite, "flags": runtime_flags, "decision": "accepted",
