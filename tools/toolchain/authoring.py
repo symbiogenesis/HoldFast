@@ -10,6 +10,7 @@ from typing import cast
 
 import toolchain as holdfast
 from toolchain import ast as syntax
+from toolchain import concrete
 from toolchain.source import SourceSnapshot
 
 STYLE_VERSION = 1
@@ -71,39 +72,35 @@ class _Part:
 
 
 def _parts(source: bytes) -> list[_Part]:
-    """Interleave the compiler's tokens with complete original line comments."""
-    text = syntax.source_text(source).replace("\r\n", "\n").replace("\r", "\n")
-    starts = [0, *(index + 1 for index, value in enumerate(text) if value == "\n")]
+    """Interleave the compiler's tokens with complete original line comments via ``concrete.parts``."""
     result: list[_Part] = []
-    cursor = 0
-    for token in holdfast._tokens(source):
-        start = len(text) if token.kind == "eof" else starts[token.line - 1] + token.column - 1
-        token_blank = False
-        while cursor < start:
-            end = cursor
-            while end < start and text[end] in " \t\n":
-                end += 1
-            blank = text[cursor:end].count("\n") > 1
-            if end == start:
-                token_blank = blank
-                cursor = end
-                break
-            if not text.startswith("//", end):
-                raise syntax.HoldFastError("format", token.line, token.column,
-                                       "compiler trivia contains an uncovered source token")
-            comment_end = text.find("\n", end)
-            comment_end = len(text) if comment_end == -1 else comment_end
-            site = syntax.position(text[:end])
-            line_start = starts[site.line - 1]
-            inline = bool(text[line_start:end].strip(" \t"))
-            result.append(_Part(text[end:comment_end], "comment", site.line, site.column,
-                                blank, inline))
-            cursor = comment_end
-        if token.kind == "eof":
-            break
-        result.append(_Part(token.text, token.kind, token.line, token.column,
-                            token_blank))
-        cursor = start + len(token.text)
+    line, column = 1, 1
+    pending_blank = False
+    code_on_line = False
+    for chunk in concrete.parts(source):
+        kind = cast("str", chunk["kind"])
+        spelling = cast("str", chunk["text"]).replace("\r\n", "\n").replace("\r", "\n")
+        start_line, start_col = line, column
+        if "\n" in spelling:
+            nl_count = spelling.count("\n")
+            line += nl_count
+            column = len(spelling.rsplit("\n", 1)[-1]) + 1
+            if nl_count > 1:
+                pending_blank = True
+        else:
+            column += len(spelling)
+        if kind == "whitespace":
+            if "\n" in spelling:
+                code_on_line = False
+            continue
+        if kind in {"line-comment", "documentation-comment"}:
+            result.append(_Part(spelling, "comment", start_line, start_col, pending_blank, code_on_line))
+            pending_blank = False
+            code_on_line = False
+            continue
+        result.append(_Part(spelling, kind, start_line, start_col, pending_blank))
+        pending_blank = False
+        code_on_line = True
     return result
 
 

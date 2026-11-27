@@ -11,6 +11,7 @@ from typing import cast
 from toolchain import (
     HoldFastError,
     concrete,
+    inspection_reader,
     inspection_scopes,
     inspection_syntax,
     inspection_types,
@@ -115,118 +116,23 @@ class Snapshot:
               configuration: str = CONFIGURATION, target: str = TARGET) -> dict[str, object]:
         """Answer bounded queries only while the caller's input and producer closure match."""
         current = self.export()
-        response: dict[str, object] = {
-            "schema": SCHEMA_VERSION, "scope": "holdfast-pure-inspection-query",
-            "snapshot": current["snapshot"], "binding": current["binding"],
-            "status": "refused", "complete": False, "reason": None,
-            "items": [], "total": 0}
-
-        def refuse(reason: str, status: str = "refused") -> dict[str, object]:
-            response.update(status=status, reason=reason)
-            return response
-
         try:
             document = SourceSnapshot(self.document.uri if uri is None else uri, 1,
                                       source.decode("utf-8"), 1)
-            if _binding(document, configuration, target) != current["binding"]:
-                return refuse("stale-input")
+            binding = _binding(document, configuration, target)
         except (OSError, ValueError):
-            return refuse("stale-input")
-        if not isinstance(request, dict) or not all(isinstance(key, str) for key in request):
-            return refuse("malformed-request")
-        query = cast("dict[str, object]", request)
-        if type(query.get("schema")) is not int or query["schema"] != SCHEMA_VERSION:
-            return refuse("schema-version")
-        if query.get("snapshot") != current["snapshot"]:
-            return refuse("stale-snapshot")
-        operation = query.get("operation")
-        if not isinstance(operation, str) or operation not in {
-                "symbol-at", "type-at", "references", "symbols", "tokens", "token-at",
-                "syntax", "syntax-at", "syntax-children", "expressions", "expression-at", "expression-type",
-                "scopes", "scope-at", "scope-symbols"}:
-            return refuse("unsupported-operation", "unsupported")
-        required = {"schema", "snapshot", "operation"}
-        if operation in {"symbol-at", "type-at", "token-at", "syntax-at", "expression-at", "scope-at"}:
-            required.add("offset")
-        elif operation == "references":
-            required.add("symbol")
-        elif operation in {"syntax-children", "expression-type"}:
-            required.add("node")
-        elif operation == "scope-symbols":
-            required.add("scope")
-        if set(query) - {"limit"} != required:
-            return refuse("malformed-request")
-        limit = query.get("limit", MAX_QUERY_RESULTS)
-        if type(limit) is not int or not 1 <= limit <= MAX_QUERY_RESULTS:
-            return refuse("query-limit")
-        if current["status"] != "checked":
-            return refuse(str(current["reason"]), str(current["status"]))
-        symbols = cast("list[dict[str, object]]", current["symbols"])
-        occurrences = cast("list[dict[str, object]]", current["occurrences"])
-        items: list[dict[str, object]]
-        if operation == "symbols":
-            items = symbols
-        elif operation == "tokens":
-            items = cast("list[dict[str, object]]", current["concrete"])
-        elif operation == "syntax":
-            items = cast("list[dict[str, object]]", current["syntax"])
-        elif operation == "expressions":
-            items = cast("list[dict[str, object]]", current["expressions"])
-        elif operation == "scopes":
-            items = cast("list[dict[str, object]]", current["scopes"])
-        elif operation == "scope-symbols":
-            scopes = cast("list[dict[str, object]]", current["scopes"])
-            if not any(item["id"] == query["scope"] for item in scopes):
-                return refuse("stale-or-unknown-scope")
-            items = [item for item in symbols if item["scope"] == query["scope"]]
-        elif operation == "expression-type":
-            nodes = cast("list[dict[str, object]]", current["syntax"])
-            if not any(item["id"] == query["node"] for item in nodes):
-                return refuse("stale-or-unknown-node")
-            items = [item for item in cast("list[dict[str, object]]", current["expressions"])
-                     if item["node"] == query["node"]]
-        elif operation == "syntax-children":
-            nodes = cast("list[dict[str, object]]", current["syntax"])
-            node = next((item for item in nodes if item["id"] == query["node"]), None)
-            if node is None:
-                return refuse("stale-or-unknown-node")
-            items = [item for item in nodes if item["parent"] == node["id"]]
-        elif operation == "references":
-            handle = query["symbol"]
-            if not isinstance(handle, str) or not any(item["id"] == handle for item in symbols):
-                return refuse("stale-or-unknown-symbol")
-            items = [item for item in occurrences if item["symbol"] == handle]
-        else:
-            offset = query["offset"]
-            try:
-                self.document.byte_position(cast("int", offset))
-            except (ValueError, TypeError):
-                return refuse("invalid-offset")
-            if operation in {"syntax-at", "expression-at", "scope-at"}:
-                candidates = cast("list[dict[str, object]]", current[
-                    {"syntax-at": "syntax", "expression-at": "expressions", "scope-at": "scopes"}[operation]])
-                containing = [item for item in reversed(candidates)
-                              if cast("list[int]", item["span"])[0] <= cast("int", offset)
-                              < cast("list[int]", item["span"])[1]]
-                selected = min(containing, key=lambda item: cast("list[int]", item["span"])[1]
-                               - cast("list[int]", item["span"])[0], default=None)
-                items = [] if selected is None else [selected]
-                response.update(status="checked", complete=True, reason=None, total=len(items), items=items)
-                return response
-            candidates = cast("list[dict[str, object]]", current["concrete"]) if operation == "token-at" else occurrences
-            selected = next((item for item in candidates
-                             if cast("list[int]", item["span"])[0] <= cast("int", offset)
-                             < cast("list[int]", item["span"])[1]), None)
-            items = ([] if selected is None else [selected]) if operation == "token-at" else (
-                [] if selected is None else [item for item in symbols if item["id"] == selected["symbol"]])
-            if operation == "type-at" and selected is not None:
-                items = [{"symbol": item["id"], "span": selected["span"], "type": item["type"]}
-                         for item in items]
-        count = len(items)
-        response.update(status="checked" if count <= limit else "partial",
-                        complete=count <= limit, reason=None if count <= limit else "result-limit",
-                        total=count, items=items[:limit])
-        return response
+            return {
+                "schema": SCHEMA_VERSION,
+                "scope": "holdfast-pure-inspection-query",
+                "snapshot": current["snapshot"],
+                "binding": current["binding"],
+                "status": "refused",
+                "complete": False,
+                "reason": "stale-input",
+                "items": [],
+                "total": 0,
+            }
+        return inspection_reader.Reader(self.publication).query(source, request, binding=binding)
 
 
 def inspect(source: bytes, *, uri: str = "memory:holdfast", configuration: str = CONFIGURATION,
