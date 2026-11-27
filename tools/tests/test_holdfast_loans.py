@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Loan-flow checks over hand-built graphs, parser ASTs, and authored source."""
 
+import json
 import re
 import subprocess
 from collections.abc import Callable
@@ -10,7 +11,7 @@ from tempfile import TemporaryDirectory
 from typing import cast
 
 from tests.harness import TOOLS, Case, ensure, raises
-from toolchain import parser, proofenv, solver_ledger
+from toolchain import parser, proofenv, regions, solver_ledger
 from toolchain.ast import HoldFastError
 from toolchain.elaborate import elaborate
 from toolchain.loans import (
@@ -19,7 +20,9 @@ from toolchain.loans import (
     AnalysisRefusalError,
     AssumeDisjoint,
     AssumeIndexNe,
+    AssumeNoRealloc,
     AssumeRefinement,
+    AssumeTagPreserved,
     Bind,
     Borrow,
     Checkpoint,
@@ -38,13 +41,19 @@ from toolchain.loans import (
     Owner,
     PathReport,
     Place,
+    ProvedFacts,
     Reserve,
     Return,
     Use,
     UseRefinement,
+    _Budget,
+    _State,
+    _Value,
     analyze,
     analyze_function,
     analyze_module,
+    base_loan_name,
+    export_loan_certificate,
     lower_function,
     lower_module,
 )
@@ -462,8 +471,39 @@ def _owner_moves() -> None:
     moved = _path(Access(_ROOT, "move"), Access(_BYTES), Borrow(Loan("reader", "workspace", _BYTES)), Use("reader"))
     ensure("use-after-owner-move" in _kinds(moved) and moved.moved_owners == ("workspace",),
            "old owner route survived move")
-    partial = _path(Access(_BYTES, "move"))
-    ensure("partial-owner-move-unsupported" in _kinds(partial), "partial move acquired an implicit rule")
+    partial_wildcard = _path(Access(Place("workspace", ("bytes", "*")), "move"))
+    ensure("partial-owner-move-unsupported" in _kinds(partial_wildcard),
+           "wildcard partial move acquired an implicit rule")
+
+    # Partial field moves: disjoint field moves + re-initialization before whole-owner use succeed.
+    disjoint_moves = _path(
+        Access(_BYTES, "move"),
+        Access(_AUDIT, "move"),
+        Return("done"),
+    )
+    ensure(not disjoint_moves.issues and disjoint_moves.moved_places == (_AUDIT, _BYTES),
+           f"disjoint partial field moves failed: {disjoint_moves}")
+
+    reinit_ok = _path(
+        Access(_BYTES, "move"),
+        Access(_AUDIT, "read"),
+        Access(_BYTES, "write"),
+        Access(_ROOT, "move"),
+        Return("done"),
+    )
+    ensure(not reinit_ok.issues and reinit_ok.moved_owners == ("workspace",) and not reinit_ok.moved_places,
+           f"re-initializing moved field before whole-owner move failed: {reinit_ok}")
+
+    # Negative controls: reading a moved field or moving a partially moved owner without re-init.
+    read_moved_field = _path(Access(_BYTES, "move"), Access(_BYTES, "read"))
+    ensure("use-after-owner-move" in _kinds(read_moved_field),
+           f"reading a moved field was not rejected: {read_moved_field.issues}")
+    move_partial_owner = _path(Access(_BYTES, "move"), Access(_ROOT, "move"))
+    ensure("use-after-owner-move" in _kinds(move_partial_owner),
+           f"moving a partially moved owner without re-init was not rejected: {move_partial_owner.issues}")
+    double_field_move = _path(Access(_BYTES, "move"), Access(_BYTES, "move"))
+    ensure("use-after-owner-move" in _kinds(double_field_move),
+           f"double field move was not rejected: {double_field_move.issues}")
 
 
 def _invariants_and_boundaries() -> None:
@@ -2597,6 +2637,532 @@ def _two_phase_receiver_qualification() -> None:
                f"Q25cd negative {fn_name} pointed to {source[span[0]:span[1]]!r} instead of {expected_snippet!r}")
 
 
+def _polonius_regions_and_nll_case3() -> None:
+    # 1. NLL Problem Case #3 in regions.RegionSolver: conditional return of loan 'L' vs else write.
+    solver = regions.RegionSolver(
+        entry="entry",
+        successors={
+            "entry": ("then_ret", "else_write"),
+            "then_ret": (),
+            "else_write": ("else_ret",),
+            "else_ret": (),
+        },
+        origins=(
+            regions.Origin("a", "param"),
+            regions.Origin("r", "local"),
+        ),
+        origin_loans=(regions.OriginLoan("entry", "r", "L"),),
+        subset_edges=(regions.SubsetEdge("then_ret", "r", "a"),),
+        origin_uses={"then_ret": ("a",)},
+        invalidations={"else_write": ("L",)},
+    )
+    sol = solver.solve()
+    ensure(not sol.diagnostics, f"NLL #3 positive failed in RegionSolver: {sol.diagnostics}")
+    ensure("L" in sol.origin_contains_loan_at("then_ret", "a"),
+           "returned branch origin did not receive loan L")
+    ensure("L" not in sol.live_loans_at("else_write"),
+           "dead local origin leaked loan L onto else_write")
+
+    # Negative control: invalidating L on the returning branch before then_ret emits a 3-span witness.
+    conflict_solver = regions.RegionSolver(
+        entry="entry",
+        successors={"entry": ("then_mid",), "then_mid": ("then_ret",), "then_ret": ()},
+        origins=(regions.Origin("a", "param"), regions.Origin("r", "local")),
+        origin_loans=(regions.OriginLoan("entry", "r", "L"),),
+        subset_edges=(regions.SubsetEdge("then_ret", "r", "a"),),
+        origin_uses={"then_ret": ("a",)},
+        invalidations={"then_mid": ("L",)},
+    )
+    conflict_sol = conflict_solver.solve()
+    ensure(len(conflict_sol.conflicts) == 1, f"expected 1 conflict witness, got {conflict_sol.diagnostics}")
+    witness = conflict_sol.conflicts[0].witness
+    ensure((witness.origin_point, witness.conflict_point, witness.live_use_point)
+           == ("entry", "then_mid", "then_ret"),
+           f"wrong 3-span witness points: {witness}")
+    ensure("r" in witness.origin_chain, f"missing origin chain in witness: {witness}")
+
+    # 2. Multi-region 'a vs 'b separation and declared outlives.
+    bad_regions = regions.RegionSolver(
+        entry="p0",
+        successors={"p0": ()},
+        origins=(regions.Origin("a", "param"), regions.Origin("b", "param")),
+        outlives=(regions.OutlivesConstraint("b", "a", "p0"),),
+    ).solve()
+    ensure(len(bad_regions.outlives_errors) == 1,
+           f"undeclared 'b: 'a outlives was accepted: {bad_regions.diagnostics}")
+
+    good_regions = regions.RegionSolver(
+        entry="p0",
+        successors={"p0": ()},
+        origins=(regions.Origin("a", "param"), regions.Origin("b", "param")),
+        outlives=(regions.OutlivesConstraint("b", "a", "p0"),),
+        declared_outlives=(("b", "a"),),
+    ).solve()
+    ensure(not good_regions.diagnostics, f"declared 'b: 'a outlives failed: {good_regions.diagnostics}")
+
+    # 3. Variance: covariant, contravariant, and invariant.
+    cov_ok = regions.RegionSolver(
+        entry="p0",
+        successors={"p0": ()},
+        origins=(regions.Origin("outer", "param"), regions.Origin("fresh", "hrtb")),
+    )
+    cov_ok.add_variance(regions.Variance.COVARIANT, "outer", "fresh", "p0")
+    ensure(not cov_ok.solve().diagnostics, "covariant outer -> fresh should succeed")
+
+    cov_bad = regions.RegionSolver(
+        entry="p0",
+        successors={"p0": ()},
+        origins=(regions.Origin("outer", "param"), regions.Origin("fresh", "hrtb")),
+    )
+    cov_bad.add_variance(regions.Variance.COVARIANT, "fresh", "outer", "p0")
+    ensure(len(cov_bad.solve().hrtb_escapes) == 1, "covariant fresh -> outer must fail HRTB check")
+
+    contra_ok = regions.RegionSolver(
+        entry="p0",
+        successors={"p0": ()},
+        origins=(regions.Origin("outer", "param"), regions.Origin("fresh", "hrtb")),
+    )
+    contra_ok.add_variance(regions.Variance.CONTRAVARIANT, "fresh", "outer", "p0")
+    ensure(not contra_ok.solve().diagnostics, "contravariant fn(fresh) <: fn(outer) should succeed")
+
+    inv_bad = regions.RegionSolver(
+        entry="p0",
+        successors={"p0": ()},
+        origins=(regions.Origin("outer", "param"), regions.Origin("fresh", "hrtb")),
+    )
+    inv_bad.add_variance(regions.Variance.INVARIANT, "outer", "fresh", "p0")
+    ensure(len(inv_bad.solve().hrtb_escapes) == 1,
+           "invariant ref<'outer> vs ref<'fresh> must reject bidirectional escape")
+
+    # 4. Transitive HRTB 'fresh non-escape through intermediate local origin.
+    hrtb_chain = regions.RegionSolver(
+        entry="n0",
+        successors={"n0": ("n1",), "n1": ()},
+        origins=(
+            regions.Origin("fresh", "hrtb"),
+            regions.Origin("tmp", "local"),
+            regions.Origin("outer", "param"),
+        ),
+        subset_edges=(
+            regions.SubsetEdge("n0", "fresh", "tmp"),
+            regions.SubsetEdge("n1", "tmp", "outer"),
+        ),
+        origin_uses={"n1": ("outer",)},
+    ).solve()
+    ensure(len(hrtb_chain.hrtb_escapes) == 1
+           and hrtb_chain.hrtb_escapes[0].witness.origin_chain == ("fresh", "tmp", "outer"),
+           f"transitive HRTB escape lost origin chain: {hrtb_chain.diagnostics}")
+
+    # 5. CFG-level exclusive ref<'a> conditional return (NLL #3) + negative controls.
+    ref_owners = (Owner("map", borrowed=True, fields=(("slot",), ("other",)), origin="'a", mode="exclusive"),)
+    slot_p = Place("map", ("slot",))
+    other_p = Place("map", ("other",))
+    nll3_graph = Graph(
+        "entry",
+        (
+            Node("entry", Borrow(Loan("val", "map", slot_p, "exclusive", origin="'a")), ("found", "missing")),
+            Node("found", Return("Found", ("val",), origin="'a")),
+            Node("missing", Access(slot_p, "write"), ("missing_ret",)),
+            Node("missing_ret", Return("Missing")),
+        ),
+        return_origin="'a",
+    )
+    nll3_paths = analyze(ref_owners, nll3_graph).paths
+    found_p = next(p for p in nll3_paths if p.outcome == "Found")
+    missing_p = next(p for p in nll3_paths if p.outcome == "Missing")
+    ensure(not found_p.issues and found_p.returned_loans == ("val",) and found_p.retained_loans == ("val",),
+           f"exclusive ref<'a> return failed: {found_p}")
+    ensure(any(ob.kind == "returned-loan-restoration" for ob in found_p.obligations),
+           f"exclusive ref<'a> return did not emit restoration duty: {found_p.obligations}")
+    ensure(not missing_p.issues and not missing_p.returned_loans,
+           f"NLL #3 else write failed: {missing_p}")
+
+    # Negative controls: local owner exclusive escape, wrong region 'b -> 'a, and conflicting sibling return.
+    local_exc = analyze(
+        (Owner("local", borrowed=False, origin="'a"),),
+        Graph("n0", (
+            Node("n0", Borrow(Loan("v", "local", Place("local"), "exclusive", origin="'a")), ("n1",)),
+            Node("n1", Return("Ok", ("v",), origin="'a")),
+        )),
+    ).paths[0]
+    ensure({"local-loan-escape", "exclusive-loan-escape"} <= _kinds(local_exc),
+           f"local exclusive escape was not refused: {local_exc.issues}")
+
+    wrong_region = analyze(
+        (Owner("b_owner", borrowed=True, origin="'b", mode="exclusive"),),
+        Graph("n0", (
+            Node("n0", Borrow(Loan("v", "b_owner", Place("b_owner"), "exclusive", origin="'b")), ("n1",)),
+            Node("n1", Return("Ok", ("v",), origin="'a")),
+        ), return_origin="'a"),
+    ).paths[0]
+    ensure("exclusive-loan-escape" in _kinds(wrong_region),
+           f"mismatched region 'b -> 'a exclusive return was accepted: {wrong_region.issues}")
+
+    conflict_sibling = analyze(
+        ref_owners,
+        Graph("n0", (
+            Node("n0", Borrow(Loan("v1", "map", slot_p, "exclusive", origin="'a")), ("n1",)),
+            Node("n1", Borrow(Loan("v2", "map", slot_p, "shared", origin="'a")), ("n2",)),
+            Node("n2", Return("Ok", ("v1", "v2"), origin="'a")),
+        ), return_origin="'a"),
+    ).paths[0]
+    ensure("competing-loans" in _kinds(conflict_sibling) and "exclusive-loan-escape" in _kinds(conflict_sibling),
+           f"conflicting sibling exclusive return was accepted: {conflict_sibling.issues}")
+
+    disjoint_siblings = analyze(
+        ref_owners,
+        Graph("n0", (
+            Node("n0", Borrow(Loan("v1", "map", slot_p, "exclusive", origin="'a")), ("n1",)),
+            Node("n1", Borrow(Loan("v2", "map", other_p, "exclusive", origin="'a")), ("n2",)),
+            Node("n2", Return("Ok", ("v1", "v2"), origin="'a")),
+        ), return_origin="'a"),
+    ).paths[0]
+    ensure(not disjoint_siblings.issues and disjoint_siblings.returned_loans == ("v1", "v2"),
+           f"disjoint field exclusive sibling returns conflicted: {disjoint_siblings.issues}")
+
+
+def _shared_mut_and_ante_proof_events() -> None:
+    # 1. Aliased shared_mut stable writes succeed without conflicting-access/suspended-parent.
+    buf_owners = (Owner("buf", borrowed=True, fields=(("x",), ("y",))),)
+    xp = Place("buf", ("x",))
+    yp = Place("buf", ("y",))
+    aliased_sm = analyze(buf_owners, _graph(
+        AssumeRefinement("r_x", xp),
+        AssumeRefinement("r_y", yp),
+        Borrow(Loan("sm1", "buf", xp, "shared_mut")),
+        Borrow(Loan("sm2", "buf", xp, "shared_mut")),
+        Access(xp, "write", via="sm1", stability="stable"),
+        Access(xp, "write", via="sm2", stability="stable"),
+        Use("sm1"),
+        Use("sm2"),
+        UseRefinement("r_y"),
+        Return("ok"),
+    )).paths[0]
+    ensure(not aliased_sm.issues,
+           f"aliased shared_mut stable writes or disjoint refinement failed: {aliased_sm.issues}")
+
+    # Overlapping refinement becomes stale after shared_mut write.
+    stale_sm = analyze(buf_owners, _graph(
+        AssumeRefinement("r_x", xp),
+        Borrow(Loan("sm1", "buf", xp, "shared_mut")),
+        Borrow(Loan("sm2", "buf", xp, "shared_mut")),
+        Access(xp, "write", via="sm1", stability="stable"),
+        Use("sm2"),
+        UseRefinement("r_x"),
+    )).paths[0]
+    ensure([(i.node, i.kind) for i in stale_sm.issues] == [("n5", "stale-refinement")],
+           f"shared_mut write did not invalidate overlapping refinement: {stale_sm.issues}")
+
+    # 2. Unstable shared_mut writes rejected unless justified by explicit proof fact.
+    vec_owners = (Owner("vec", borrowed=True, fields=(("tag",), ("payload",))),)
+    vec_i = Place("vec", ("@i",))
+    vec_j = Place("vec", ("@j",))
+    unjustified_unstable = analyze(vec_owners, _graph(
+        Borrow(Loan("sm", "vec", Place("vec"), "shared_mut")),
+        Access(Place("vec"), "write", via="sm", stability="unstable"),
+    )).paths[0]
+    ensure("unstable-shared-mut-write" in _kinds(unjustified_unstable),
+           f"unjustified unstable shared_mut write was accepted: {unjustified_unstable.issues}")
+
+    # Justified by AssumeIndexNe, AssumeDisjoint, AssumeTagPreserved, AssumeNoRealloc:
+    for assumption, target_place in (
+        (AssumeIndexNe("@i", "@j"), vec_i),
+        (AssumeDisjoint(vec_i, vec_j), vec_i),
+        (AssumeTagPreserved(Place("vec")), Place("vec")),
+        (AssumeNoRealloc(Place("vec")), Place("vec")),
+    ):
+        justified = analyze(vec_owners, _graph(
+            assumption,
+            Borrow(Loan("sm", "vec", target_place, "shared_mut")),
+            Access(target_place, "write", via="sm", stability="unstable"),
+        )).paths[0]
+        ensure(not justified.issues,
+               f"justified unstable shared_mut write under {assumption} failed: {justified.issues}")
+
+    # 3. Tag-preserving union mutation (AssumeTagPreserved) beats Ante.
+    payload_p = Place("vec", ("payload",))
+    union_bad = analyze(vec_owners, _graph(
+        Borrow(Loan("inner", "vec", payload_p, "shared_mut")),
+        Access(Place("vec"), "write", stability="unstable"),
+        Use("inner"),
+    )).paths[0]
+    ensure({"suspended-parent", "invalidated-by-unstable-mutation"} <= _kinds(union_bad),
+           f"unguarded union unstable write did not invalidate interior shared_mut: {union_bad.issues}")
+
+    union_ok = analyze(vec_owners, _graph(
+        AssumeTagPreserved(Place("vec")),
+        Borrow(Loan("inner", "vec", payload_p, "shared_mut")),
+        Access(Place("vec"), "write", stability="unstable"),
+        Use("inner"),
+    )).paths[0]
+    ensure(not union_ok.issues, f"AssumeTagPreserved union mutation failed: {union_ok.issues}")
+
+    # 4. len < cap container push (AssumeNoRealloc) beats Ante.
+    push_bad = analyze(vec_owners, _graph(
+        Borrow(Loan("elem", "vec", vec_i, "shared")),
+        Access(Place("vec"), "write", stability="unstable"),
+        Use("elem"),
+    )).paths[0]
+    ensure({"suspended-parent", "invalidated-by-unstable-mutation"} <= _kinds(push_bad),
+           f"unguarded push did not conflict with element loan: {push_bad.issues}")
+
+    push_ok = analyze(vec_owners, _graph(
+        AssumeNoRealloc(Place("vec")),
+        Borrow(Loan("elem", "vec", vec_i, "shared")),
+        Access(Place("vec"), "write", stability="unstable"),
+        Use("elem"),
+    )).paths[0]
+    ensure(not push_ok.issues, f"AssumeNoRealloc container push failed: {push_ok.issues}")
+
+
+def _field_cursor_3span_and_certificate() -> None:
+    # 1. base_loan_name and 3-span diagnostics.
+    ensure(base_loan_name("cursor#2") == "cursor" and base_loan_name("cursor") == "cursor",
+           "base_loan_name did not strip #suffix cleanly")
+    span_report = analyze(_OWNERS, _graph(
+        Borrow(Loan("reader", "workspace", _BYTES)),
+        Access(_BYTES, "write"),
+        Use("reader"),
+    ))
+    span_issue = span_report.paths[0].issues[0]
+    ensure((span_issue.origin_node, span_issue.conflict_node, span_issue.live_use_node, span_issue.proposed_end_node)
+           == ("n0", "n1", "n2", "n2"),
+           f"3-span fields incorrect: {span_issue}")
+
+    # Loop-step #suffix conflict normalizes resource name so borrow_origins lookup succeeds.
+    head_owners = (Owner("head", borrowed=True, fields=(("next",), ("visits",))),)
+    loop_conflict = analyze(head_owners, Graph("entry", (
+        Node("entry", Borrow(Loan("cursor", "head", Place("head"), "exclusive")), ("header",)),
+        Node("header", Nop(), ("body_node", "exit")),
+        Node("body_node", Borrow(Loan("node", "cursor", Place("head", ("next",)), "exclusive")), ("overwrite",)),
+        Node("overwrite", Access(Place("head"), "write", via="cursor"), ("body_visit",)),
+        Node("body_visit", Access(Place("head", ("next",)), "write", via="node"), ("body_adv",)),
+        Node("body_adv", Borrow(Loan("next", "node", Place("head", ("next",)), "exclusive")), ("body_move",)),
+        Node("body_move", Move("next", "cursor"), ("header",)),
+        Node("exit", Use("cursor"), ("done",)),
+        Node("done", Return("done")),
+    )), Limits(paths=16, work=20_000))
+    conflict_issues = [i for p in loop_conflict.paths for i in p.issues if i.kind == "suspended-parent"]
+    ensure(bool(conflict_issues) and all("#" not in res for i in conflict_issues for res in i.resources),
+           f"loop conflict leaked #suffix into Issue.resources: {conflict_issues}")
+
+    # 2. Field-projecting fold_loop_cursor() preserves parent suspension and descendant containment.
+    state = _State(
+        {"head": head_owners[0]},
+        {"head": frozenset({("next",), ("visits",)})},
+        _Budget(1000),
+        "entry",
+    )
+    state.loans["cursor"] = Loan("cursor", "head", Place("head"), "exclusive")
+    state.parents["cursor"] = "head"
+    state.active.add("cursor")
+    state.loans["next"] = Loan("next", "cursor", Place("head", ("next",)), "exclusive")
+    state.parents["next"] = "cursor"
+    state.active.add("next")
+    state.loans["next#1"] = Loan("next#1", "next", Place("head", ("next", "next")), "exclusive")
+    state.parents["next#1"] = "next"
+    state.step_bases["next#1"] = "next"
+    state.active.add("next#1")
+    state.values["cursor"] = _Value(frozenset({"next#1"}), "next#1")
+    state.fold_loop_cursor()
+    ensure("next#1" not in state.active and "next" in state.active
+           and state.values["cursor"].handle == "next",
+           f"field-projecting fold_loop_cursor did not collapse next#1 into next: {state.active}, {state.values}")
+    # Parent suspension is preserved when overwriting cursor's parent after folding.
+    state.access(Node("write_head", Access(Place("head"), "write")), Access(Place("head"), "write"), None)
+    ensure(any(i.kind == "suspended-parent" for i in state.issues),
+           f"parent suspension lost after field-projecting fold_loop_cursor: {state.issues}")
+
+    # Run via real CFG with field-projecting child reborrow:
+    projecting = analyze(head_owners, Graph("entry", (
+        Node("entry", Borrow(Loan("cursor", "head", Place("head", ("next",)), "exclusive")), ("header",)),
+        Node("header", Nop(), ("step", "exit")),
+        Node("step", Borrow(Loan("next", "cursor", Place("head", ("next", "next")), "exclusive")), ("mv",)),
+        Node("mv", Move("next", "cursor"), ("header",)),
+        Node("exit", Use("cursor"), ("done",)),
+        Node("done", Return("done")),
+    )), Limits(paths=8, work=10_000))
+    ensure(all(not p.issues for p in projecting.paths),
+           f"field-projecting loop cursor failed: {projecting.paths}")
+
+    outside = analyze(head_owners, Graph("entry", (
+        Node("entry", Borrow(Loan("cursor", "head", Place("head", ("next",)), "exclusive")), ("header",)),
+        Node("header", Nop(), ("step", "exit")),
+        Node("step", Borrow(Loan("bad", "cursor", Place("head", ("visits",)), "exclusive")), ("mv",)),
+        Node("mv", Move("bad", "cursor"), ("header",)),
+        Node("exit", Use("cursor"), ("done",)),
+        Node("done", Return("done")),
+    )), Limits(paths=8, work=10_000))
+    ensure(any("reborrow-outside-parent" in _kinds(p) for p in outside.paths),
+           f"field-projecting loop hid reborrow-outside-parent: {outside.paths}")
+
+    # 3. Certificate exporter produces serializable JSON matching schema.
+    cert = export_loan_certificate(span_report)
+    encoded = json.dumps(cert)
+    decoded = json.loads(encoded)
+    ensure(decoded["schema"] == "holdfast-loan-certificate-v1" and decoded["valid"] is False
+           and decoded["path_count"] == 1
+           and decoded["paths"][0]["issues"][0]["live_use_node"] == "n2",
+           f"unexpected certificate export: {decoded}")
+
+    # 4. Targeted state merging: identical live loan origins used at different branches merge into 1 path.
+    diamond = analyze(_OWNERS, Graph("split", (
+        Node("split", Borrow(Loan("reader", "workspace", _BYTES)), ("left", "right")),
+        Node("left", Use("reader"), ("join",)),
+        Node("right", Use("reader"), ("join",)),
+        Node("join", Use("reader"), ("done",)),
+        Node("done", Return("ok")),
+    )), Limits(paths=2))
+    ensure(len(diamond.paths) == 1 and not diamond.paths[0].issues,
+           f"targeted state merging split identical live loan origins: {diamond.paths}")
+
+
+def _lowered_proved_facts_and_richer_guards() -> None:
+    def id_node(text: str) -> dict[str, object]:
+        return {"kind": "identifier", "text": text, "span": [0, len(text)]}
+
+    def name_expr(text: str) -> dict[str, object]:
+        return {"kind": "name", "name": id_node(text), "span": [0, len(text)]}
+
+    def member_expr(recv: dict[str, object], field: str) -> dict[str, object]:
+        return {"kind": "member", "value": recv, "name": id_node(field), "span": [0, 1]}
+
+    def index_expr(recv: dict[str, object], idx: dict[str, object]) -> dict[str, object]:
+        return {"kind": "index", "value": recv, "index": idx, "span": [0, 1]}
+
+    def bin_expr(op: str, left: dict[str, object], right: dict[str, object]) -> dict[str, object]:
+        return {
+            "kind": "binary",
+            "operator": {"kind": "operator", "text": op},
+            "left": left,
+            "right": right,
+            "span": [0, 1],
+        }
+
+    def nat_lit(val: str) -> dict[str, object]:
+        return {"kind": "nat", "value": val, "span": [0, len(val)]}
+
+    def borrow_expr(mode: str, val: dict[str, object]) -> dict[str, object]:
+        return {
+            "kind": "unary",
+            "operator": {"kind": "operator", "text": mode},
+            "value": val,
+            "span": [0, 1],
+        }
+
+    # Lowering disjunctive guard `r1 != r2 || c1 != c2` + `a + m <= b` + `i != 0` + `vec.Length < vec.Capacity`.
+    fn_ast: dict[str, object] = {
+        "kind": "function",
+        "name": id_node("RicherGuardsAndFacts"),
+        "parameters": [
+            {"kind": "parameter", "mode": "ref", "name": id_node("grid"), "type": name_expr("Vec")},
+            {"kind": "parameter", "mode": "ref", "name": id_node("vec"), "type": name_expr("Vec")},
+            {"kind": "parameter", "mode": "value", "name": id_node("r1"), "type": name_expr("usize")},
+            {"kind": "parameter", "mode": "value", "name": id_node("r2"), "type": name_expr("usize")},
+            {"kind": "parameter", "mode": "value", "name": id_node("c1"), "type": name_expr("usize")},
+            {"kind": "parameter", "mode": "value", "name": id_node("c2"), "type": name_expr("usize")},
+            {"kind": "parameter", "mode": "value", "name": id_node("a"), "type": name_expr("usize")},
+            {"kind": "parameter", "mode": "value", "name": id_node("b"), "type": name_expr("usize")},
+            {"kind": "parameter", "mode": "value", "name": id_node("m"), "type": name_expr("usize")},
+            {"kind": "parameter", "mode": "value", "name": id_node("i"), "type": name_expr("usize")},
+        ],
+        "contracts": [],
+        "body": {
+            "kind": "block",
+            "statements": [
+                {
+                    "kind": "if",
+                    "condition": bin_expr(
+                        "||",
+                        bin_expr("!=", name_expr("r1"), name_expr("r2")),
+                        bin_expr("!=", name_expr("c1"), name_expr("c2")),
+                    ),
+                    "then_body": [
+                        {
+                            "kind": "let",
+                            "name": id_node("cell1"),
+                            "value": borrow_expr("ref", index_expr(index_expr(name_expr("grid"), name_expr("r1")), name_expr("c1"))),
+                        },
+                        {
+                            "kind": "let",
+                            "name": id_node("cell2"),
+                            "value": borrow_expr("ref", index_expr(index_expr(name_expr("grid"), name_expr("r2")), name_expr("c2"))),
+                        },
+                        {"kind": "expression", "expression": name_expr("cell1")},
+                        {"kind": "expression", "expression": name_expr("cell2")},
+                    ],
+                    "else_body": [],
+                },
+                {
+                    "kind": "if",
+                    "condition": bin_expr(
+                        "&&",
+                        bin_expr(">", name_expr("m"), nat_lit("0")),
+                        bin_expr("<=", bin_expr("+", name_expr("a"), name_expr("m")), name_expr("b")),
+                    ),
+                    "then_body": [
+                        {
+                            "kind": "let",
+                            "name": id_node("va"),
+                            "value": borrow_expr("ref", index_expr(name_expr("vec"), name_expr("a"))),
+                        },
+                        {
+                            "kind": "let",
+                            "name": id_node("vb"),
+                            "value": borrow_expr("ref", index_expr(name_expr("vec"), name_expr("b"))),
+                        },
+                        {"kind": "expression", "expression": name_expr("va")},
+                        {"kind": "expression", "expression": name_expr("vb")},
+                    ],
+                    "else_body": [],
+                },
+                {
+                    "kind": "if",
+                    "condition": bin_expr("!=", name_expr("i"), nat_lit("0")),
+                    "then_body": [],
+                    "else_body": [],
+                },
+                {
+                    "kind": "if",
+                    "condition": bin_expr(
+                        "<",
+                        member_expr(name_expr("vec"), "Length"),
+                        member_expr(name_expr("vec"), "Capacity"),
+                    ),
+                    "then_body": [],
+                    "else_body": [],
+                },
+            ],
+        },
+    }
+
+    facts = ProvedFacts(
+        disjoint_places=((Place("grid", ("@r1", "@c1")), Place("grid", ("@r2", "@c2"))),),
+        arithmetic_disequalities=(("@x", "@y"),),
+        tag_preserved=(Place("vec"),),
+        no_realloc=(Place("vec"),),
+        refinements={"vec_nonempty": Place("vec")},
+        use_refinements=("vec_nonempty",),
+    )
+    lowered = lower_function(fn_ast, proved_facts=facts)
+    events = [n.event for n in lowered.graph.nodes]
+    ensure(any(isinstance(e, AssumeDisjoint) for e in events), "proved_facts missed AssumeDisjoint")
+    ensure(any(isinstance(e, AssumeTagPreserved) for e in events), "proved_facts missed AssumeTagPreserved")
+    ensure(any(isinstance(e, AssumeNoRealloc) for e in events), "proved_facts missed AssumeNoRealloc")
+    ensure(any(isinstance(e, AssumeRefinement) for e in events), "proved_facts missed AssumeRefinement")
+    ensure(any(isinstance(e, UseRefinement) for e in events), "proved_facts missed UseRefinement")
+    ensure(any(isinstance(e, AssumeIndexNe) and e.left == "@i" and e.right == "@_0" for e in events),
+           "i != 0 guard did not lower to AssumeIndexNe(@i, @_0)")
+    ensure(any(isinstance(e, AssumeIndexNe) and e.left == "@a" and e.right == "@b" for e in events),
+           "m > 0 && a + m <= b did not lower to AssumeIndexNe(@a, @b)")
+    ensure(any(isinstance(e, AssumeIndexNe) and e.left == "@r1" and e.right == "@r2" for e in events)
+           and any(isinstance(e, AssumeIndexNe) and e.left == "@c1" and e.right == "@c2" for e in events),
+           "r1 != r2 || c1 != c2 did not lower both disjunct AssumeIndexNe facts")
+    report = analyze_function(fn_ast, proved_facts=facts)
+    ensure(all(not p.issues for p in report.paths),
+           f"richer guards and proved_facts reported unexpected issues: {report.paths}")
+
+
 def cases() -> list[Case]:
     return [
         Case("located receiver order, snapshots, views and retained loans", _located_receiver_timing, lane="toolchain"),
@@ -2646,4 +3212,12 @@ def cases() -> list[Case]:
             Case("lowered symbolic disjointness and unstable container mutations",
                  _lowered_symbolic_disjointness_and_unstable_mutations, lane="toolchain"),
             Case("q25cd two-phase receiver trial fixture and phase verification",
-                 _two_phase_receiver_qualification, lane="toolchain")]
+                 _two_phase_receiver_qualification, lane="toolchain"),
+            Case("polonius regions, variance, hrtb, and exclusive ref returns",
+                 _polonius_regions_and_nll_case3),
+            Case("shared_mut writes, refinement preservation, tag and no-realloc proofs",
+                 _shared_mut_and_ante_proof_events),
+            Case("field-projecting loop cursor, 3-span diagnostics, certificate, and merging",
+                 _field_cursor_3span_and_certificate),
+            Case("lowered proved_facts injection and richer arithmetic/disjunctive guards",
+                 _lowered_proved_facts_and_richer_guards)]
