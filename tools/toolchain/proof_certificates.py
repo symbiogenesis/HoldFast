@@ -14,7 +14,7 @@ axiom-free Gallina terms for independent checking by the Rocq 9.3.0 kernel:
 """
 
 from collections import defaultdict, deque
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
@@ -66,69 +66,49 @@ class VersionedEGraph:
         self.adj: dict[int, list[_ProofEdge]] = defaultdict(list)
         self.merge_count = 0
 
-        self._parent_trail: list[tuple[int, int]] = []
-        self._class_trail: list[tuple[int, int, list[int]]] = []
-        self._pclass_trail: list[tuple[int, int, list[int]]] = []
-        self._sig_trail: list[tuple[tuple[object, ...], int | None]] = []
-        self._adj_trail: list[tuple[int, int]] = []
-        self._pnode_trail: list[tuple[int, int]] = []
-        self._versions: list[tuple[int, int, int, int, int, int, int, int]] = []
+        self._undo_trail: list[tuple[object, ...]] = []
+        self._versions: list[tuple[int, int, int]] = []
 
     def push_version(self) -> int:
         """Start a nested e-graph scope whose merges and nodes roll back on pop."""
-        self._versions.append((
-            len(self.nodes),
-            len(self._parent_trail),
-            len(self._class_trail),
-            len(self._pclass_trail),
-            len(self._sig_trail),
-            len(self._adj_trail),
-            len(self._pnode_trail),
-            self.merge_count,
-        ))
+        self._versions.append((len(self.nodes), len(self._undo_trail), self.merge_count))
         return len(self._versions)
 
     def pop_version(self) -> None:
         """Roll back every node, union, signature entry, and proof edge in the top version."""
         if not self._versions:
             raise ValueError("cannot pop from empty VersionedEGraph version stack")
-        (
-            n_nodes,
-            n_parent,
-            n_class,
-            n_pclass,
-            n_sig,
-            n_adj,
-            n_pnode,
-            old_merges,
-        ) = self._versions.pop()
+        n_nodes, n_undo, old_merges = self._versions.pop()
         self.merge_count = old_merges
-        while len(self._adj_trail) > n_adj:
-            u, v = self._adj_trail.pop()
-            self.adj[u].pop()
-            self.adj[v].pop()
-        while len(self._sig_trail) > n_sig:
-            key, old_val = self._sig_trail.pop()
-            if old_val is None:
-                self.sig_table.pop(key, None)
-            else:
-                self.sig_table[key] = old_val
-        while len(self._pnode_trail) > n_pnode:
-            cls_root, _ = self._pnode_trail.pop()
-            self.parents_of_class[cls_root].pop()
-        while len(self._pclass_trail) > n_pclass:
-            kept, merged, old_list = self._pclass_trail.pop()
-            if old_list:
-                del self.parents_of_class[kept][-len(old_list) :]
-            self.parents_of_class[merged] = old_list
-        while len(self._class_trail) > n_class:
-            kept, merged, old_list = self._class_trail.pop()
-            if old_list:
-                del self.classes[kept][-len(old_list) :]
-            self.classes[merged] = old_list
-        while len(self._parent_trail) > n_parent:
-            idx, old_p = self._parent_trail.pop()
-            self.parent[idx] = old_p
+        while len(self._undo_trail) > n_undo:
+            entry = self._undo_trail.pop()
+            kind = entry[0]
+            if kind == "adj":
+                _, u, v = cast("tuple[str, int, int]", entry)
+                self.adj[u].pop()
+                self.adj[v].pop()
+            elif kind == "sig":
+                _, key, old_val = cast("tuple[str, tuple[object, ...], int | None]", entry)
+                if old_val is None:
+                    self.sig_table.pop(key, None)
+                else:
+                    self.sig_table[key] = old_val
+            elif kind == "pnode":
+                _, cls_root = cast("tuple[str, int]", entry)
+                self.parents_of_class[cls_root].pop()
+            elif kind == "pclass":
+                _, kept, merged, old_list = cast("tuple[str, int, int, list[int]]", entry)
+                if old_list:
+                    del self.parents_of_class[kept][-len(old_list) :]
+                self.parents_of_class[merged] = old_list
+            elif kind == "class":
+                _, kept, merged, old_list = cast("tuple[str, int, int, list[int]]", entry)
+                if old_list:
+                    del self.classes[kept][-len(old_list) :]
+                self.classes[merged] = old_list
+            elif kind == "parent":
+                _, idx, old_p = cast("tuple[str, int, int]", entry)
+                self.parent[idx] = old_p
         while len(self.nodes) > n_nodes:
             nid = len(self.nodes) - 1
             term = self.nodes.pop()
@@ -142,13 +122,148 @@ class VersionedEGraph:
         p = self.parent[nid]
         return nid if p == nid else self.find(p)
 
+    def _decompose_slotted(
+        self, term: _Term,
+    ) -> tuple[object, tuple[_Term, ...], Callable[[Sequence[_Term]], _Term]] | None:
+        """Decompose ``lam``/``pi``/``let`` into an alpha-canonical slotted template and bound-free holes."""
+        if term.kind not in {"lam", "pi", "let"}:
+            return None
+        holes: list[_Term] = []
+
+        def const_rebuilder(node: _Term) -> Callable[[Sequence[_Term]], _Term]:
+            return lambda _hs: node
+
+        def hole_rebuilder(idx: int) -> Callable[[Sequence[_Term]], _Term]:
+            return lambda hs: hs[idx]
+
+        def walk(
+            cur: _Term, bound: dict[int, int], *, allow_hole: bool,
+        ) -> tuple[object, Callable[[Sequence[_Term]], _Term]] | None:
+            cur = self.elab.resolve(cur)
+            if cur.kind in {"meta", "fix"}:
+                return None
+            if cur.kind == "var":
+                vid = cast("int", cur.value)
+                if vid in bound:
+                    return ("$slot", bound[vid]), const_rebuilder(cur)
+                if allow_hole and bound:
+                    idx = len(holes)
+                    holes.append(cur)
+                    return ("$hole", idx), hole_rebuilder(idx)
+                return ("var", vid), const_rebuilder(cur)
+            if allow_hole and bound and cur.kind not in {"sort", "pi"} and not (self.elab.free(cur) & bound.keys()):
+                idx = len(holes)
+                holes.append(cur)
+                return ("$hole", idx), hole_rebuilder(idx)
+            if cur.kind in {"lam", "pi"}:
+                vid = cast("int", cur.value)
+                dom = walk(cur.args[0], bound, allow_hole=False)
+                if dom is None:
+                    return None
+                inner_bound = {**bound, vid: len(bound)}
+                body = walk(cur.args[1], inner_bound, allow_hole=(cur.kind == "lam"))
+                if body is None:
+                    return None
+                dom_k, dom_r = dom
+                body_k, body_r = body
+                kind = cur.kind
+
+                def rebuild_binder(
+                    hs: Sequence[_Term],
+                    *,
+                    _k: str = kind,
+                    _v: int = vid,
+                    _dr: Callable[[Sequence[_Term]], _Term] = dom_r,
+                    _br: Callable[[Sequence[_Term]], _Term] = body_r,
+                ) -> _Term:
+                    return _term(_k, _dr(hs), _br(hs), value=_v)
+
+                return ("binder", kind, dom_k, body_k), rebuild_binder
+            if cur.kind == "let":
+                vid = cast("int", cur.value)
+                dom = walk(cur.args[0], bound, allow_hole=False)
+                val = walk(cur.args[1], bound, allow_hole=bool(bound))
+                inner_bound = {**bound, vid: len(bound)}
+                body = walk(cur.args[2], inner_bound, allow_hole=True)
+                if dom is None or val is None or body is None:
+                    return None
+                dom_k, dom_r = dom
+                val_k, val_r = val
+                body_k, body_r = body
+
+                def rebuild_let(
+                    hs: Sequence[_Term],
+                    *,
+                    _v: int = vid,
+                    _dr: Callable[[Sequence[_Term]], _Term] = dom_r,
+                    _vr: Callable[[Sequence[_Term]], _Term] = val_r,
+                    _br: Callable[[Sequence[_Term]], _Term] = body_r,
+                ) -> _Term:
+                    return _term("let", _dr(hs), _vr(hs), _br(hs), value=_v)
+
+                return ("binder", "let", dom_k, val_k, body_k), rebuild_let
+            if cur.kind == "app":
+                head, args = self.elab.spine(cur)
+                head_res = walk(head, bound, allow_hole=False)
+                if head_res is None:
+                    return None
+                arg_res = [walk(arg, bound, allow_hole=bool(bound)) for arg in args]
+                if any(item is None for item in arg_res):
+                    return None
+                head_k, head_r = head_res
+                resolved_args = [cast("tuple[object, Callable[[Sequence[_Term]], _Term]]", a) for a in arg_res]
+                arg_keys = tuple(ak for ak, _ in resolved_args)
+                arg_rs = tuple(ar for _, ar in resolved_args)
+
+                def rebuild_app(
+                    hs: Sequence[_Term],
+                    *,
+                    _hr: Callable[[Sequence[_Term]], _Term] = head_r,
+                    _ars: tuple[Callable[[Sequence[_Term]], _Term], ...] = arg_rs,
+                ) -> _Term:
+                    return _apps(_hr(hs), *(ar(hs) for ar in _ars))
+
+                return ("app", head_k, arg_keys), rebuild_app
+            if not cur.args:
+                return ("leaf", cur.kind, cur.value), const_rebuilder(cur)
+            child_res = [walk(arg, bound, allow_hole=bool(bound)) for arg in cur.args]
+            if any(item is None for item in child_res):
+                return None
+            resolved_children = [cast("tuple[object, Callable[[Sequence[_Term]], _Term]]", c) for c in child_res]
+            child_keys = tuple(ck for ck, _ in resolved_children)
+            child_rs = tuple(cr for _, cr in resolved_children)
+            kind = cur.kind
+            val = cur.value
+
+            def rebuild_node(
+                hs: Sequence[_Term],
+                *,
+                _k: str = kind,
+                _v: str | int = val,
+                _crs: tuple[Callable[[Sequence[_Term]], _Term], ...] = child_rs,
+            ) -> _Term:
+                return _Term(_k, _v, tuple(cr(hs) for cr in _crs))
+
+            return ("node", kind, val, child_keys), rebuild_node
+
+        walked = walk(term, {}, allow_hole=False)
+        if walked is None:
+            return None
+        template_key, rebuild_fn = walked
+        return ("slotted", template_key), tuple(holes), rebuild_fn
+
     def _decompose(self, term: _Term) -> tuple[object, tuple[_Term, ...]] | None:
         if term.kind == "app":
             head, args = self.elab.spine(term)
             if args and head.kind not in {"pi", "lam", "let", "fix", "meta"}:
                 return ("app", head), tuple(args)
             return None
-        if term.kind not in {"pi", "lam", "let", "fix", "meta"} and term.args:
+        if term.kind in {"lam", "pi", "let"}:
+            slotted = self._decompose_slotted(term)
+            if slotted is not None:
+                return slotted[0], slotted[1]
+            return None
+        if term.kind not in {"fix", "meta"} and term.args:
             return (term.kind, term.value), term.args
         return None
 
@@ -156,7 +271,7 @@ class VersionedEGraph:
         old = self.sig_table.get(key)
         if old == nid:
             return
-        self._sig_trail.append((key, old))
+        self._undo_trail.append(("sig", key, old))
         self.sig_table[key] = nid
 
     def _add_edge(
@@ -164,7 +279,7 @@ class VersionedEGraph:
     ) -> None:
         self.adj[u].append(_ProofEdge(v, eq_type, proof, False))
         self.adj[v].append(_ProofEdge(u, eq_type, proof, True))
-        self._adj_trail.append((u, v))
+        self._undo_trail.append(("adj", u, v))
 
     def intern(self, term: _Term) -> int | None:
         """Intern ``term`` (and first-order subterms), discovering congruences."""
@@ -209,7 +324,7 @@ class VersionedEGraph:
                 if croot not in seen_roots:
                     seen_roots.add(croot)
                     self.parents_of_class[croot].append(nid)
-                    self._pnode_trail.append((croot, nid))
+                    self._undo_trail.append(("pnode", croot))
             sig_key = (op_key, tuple(canon_children))
             existing = self.sig_table.get(sig_key)
             if existing is not None:
@@ -244,15 +359,15 @@ class VersionedEGraph:
             self._add_edge(u, v, eq_type, proof)
             if len(self.classes[ru]) < len(self.classes[rv]):
                 ru, rv = rv, ru
-            self._parent_trail.append((rv, self.parent[rv]))
+            self._undo_trail.append(("parent", rv, self.parent[rv]))
             self.parent[rv] = ru
             merged_members = self.classes.pop(rv)
             self.classes[ru].extend(merged_members)
-            self._class_trail.append((ru, rv, merged_members))
+            self._undo_trail.append(("class", ru, rv, merged_members))
 
             merged_parents = self.parents_of_class.pop(rv, [])
             self.parents_of_class[ru].extend(merged_parents)
-            self._pclass_trail.append((ru, rv, merged_parents))
+            self._undo_trail.append(("pclass", ru, rv, merged_parents))
 
             for pnode in list(self.parents_of_class[ru]):
                 decomp = self._decompose(self.nodes[pnode])
@@ -385,32 +500,14 @@ class VersionedEGraph:
         finally:
             visited_pairs.discard(pair_key)
 
-    def _explain_congruence(
+    def _synthesize_congruence_chain(
         self,
         goal_type: _Term,
-        lhs: _Term,
-        rhs: _Term,
+        l_args: tuple[_Term, ...],
+        r_args: tuple[_Term, ...],
+        rebuild: Callable[[Sequence[_Term]], _Term],
         visited_pairs: set[tuple[int, int]],
     ) -> _Term | None:
-        if lhs == rhs:
-            return _apps(_constant("Refl"), goal_type, lhs)
-        decomp_l = self._decompose(lhs)
-        decomp_r = self._decompose(rhs)
-        if decomp_l is None or decomp_r is None or decomp_l[0] != decomp_r[0]:
-            return None
-        op_key, l_args = decomp_l
-        _, r_args = decomp_r
-        if len(l_args) != len(r_args):
-            return None
-
-        is_app = isinstance(op_key, tuple) and op_key[0] == "app"
-        head_term = cast("_Term", op_key[1]) if is_app else None
-
-        def rebuild(args_seq: list[_Term]) -> _Term:
-            if is_app and head_term is not None:
-                return _apps(head_term, *args_seq)
-            return _Term(lhs.kind, lhs.value, tuple(args_seq))
-
         current_args = list(l_args)
         acc_start: _Term | None = None
         acc_curr: _Term | None = None
@@ -472,6 +569,42 @@ class VersionedEGraph:
                 )
                 acc_curr = after_term
         return acc_proof
+
+    def _explain_congruence(
+        self,
+        goal_type: _Term,
+        lhs: _Term,
+        rhs: _Term,
+        visited_pairs: set[tuple[int, int]],
+    ) -> _Term | None:
+        if lhs == rhs:
+            return _apps(_constant("Refl"), goal_type, lhs)
+        if lhs.kind in {"lam", "pi", "let"} and rhs.kind == lhs.kind:
+            sl_l = self._decompose_slotted(lhs)
+            sl_r = self._decompose_slotted(rhs)
+            if sl_l is None or sl_r is None or sl_l[0] != sl_r[0] or len(sl_l[1]) != len(sl_r[1]):
+                return None
+            if sl_l[1] == sl_r[1]:
+                return _apps(_constant("Refl"), goal_type, lhs) if self.elab.convertible(lhs, rhs) else None
+            return self._synthesize_congruence_chain(goal_type, sl_l[1], sl_r[1], sl_l[2], visited_pairs)
+        decomp_l = self._decompose(lhs)
+        decomp_r = self._decompose(rhs)
+        if decomp_l is None or decomp_r is None or decomp_l[0] != decomp_r[0]:
+            return None
+        op_key, l_args = decomp_l
+        _, r_args = decomp_r
+        if len(l_args) != len(r_args):
+            return None
+
+        is_app = isinstance(op_key, tuple) and op_key[0] == "app"
+        head_term = cast("_Term", op_key[1]) if is_app else None
+
+        def rebuild(args_seq: Sequence[_Term]) -> _Term:
+            if is_app and head_term is not None:
+                return _apps(head_term, *args_seq)
+            return _Term(lhs.kind, lhs.value, tuple(args_seq))
+
+        return self._synthesize_congruence_chain(goal_type, l_args, r_args, rebuild, visited_pairs)
 
 
 class _OrderGraphSearch:

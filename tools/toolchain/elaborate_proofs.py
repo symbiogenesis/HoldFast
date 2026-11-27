@@ -2051,6 +2051,27 @@ class _ProofsMixin:
                             ua[1],
                             _apps(_constant("holdfast_nat_eq_of_eqb"), ua[0], ua[1], fact.term),
                         )
+                    elif uh in {_constant("eq_bool"), _constant("<==>")} and len(ua) == 2:
+                        egraph.assert_equality(
+                            _BOOL,
+                            ua[0],
+                            ua[1],
+                            _apps(_constant("holdfast_eq_bool_true"), ua[0], ua[1], fact.term),
+                        )
+                    elif (
+                        uh.kind == "const"
+                        and isinstance(uh.value, str)
+                        and uh.value.startswith("int_eq_")
+                        and len(ua) == 2
+                    ):
+                        spec = _INT_SPECS.get(uh.value[len("int_eq_") :])
+                        if spec is not None:
+                            egraph.assert_equality(
+                                spec.const,
+                                ua[0],
+                                ua[1],
+                                _apps(_constant("holdfast_int_eq_true"), _term("nat", value=spec.tag), ua[0], ua[1], fact.term),
+                            )
             proof = egraph.explain(goal_type, lhs, rhs)
             if proof is not None:
                 return proof

@@ -12,7 +12,7 @@ from toolchain import elaborate, parser, proofenv, rocq_cache, solver_ledger
 from toolchain.ast import HoldFastError
 from toolchain.elaborate import _Elaborator
 from toolchain.elaborate_protocol import _Protocol
-from toolchain.elaborate_types import _NAT, _apps, _constant
+from toolchain.elaborate_types import _NAT, _apps, _constant, _term
 from toolchain.proof_certificates import VersionedEGraph
 
 
@@ -276,12 +276,154 @@ public usize ContradictoryUsizeBranch(usize a, usize b, usize z)
             elaborate.elaborate(bad, parser.parse_source(compiled, bad, surface=True))
 
 
+def _slotted_egraph_unit_cases() -> None:
+    proto = _Protocol(b"module SlottedUnit;")
+    elab = _Elaborator(proto)
+    eg = VersionedEGraph(elab)
+    a, b, c, d = (_constant(name) for name in ("a", "b", "c", "d"))
+    f = _constant("f")
+    ho_apply = _constant("ho_apply")
+    fn_ty = elab.pi(_NAT, _NAT)
+    elab.constants["f"] = elaborate._Binding(f, elab.pi(_NAT, fn_ty))
+    elab.constants["ho_apply"] = elaborate._Binding(ho_apply, elab.pi(fn_ty, fn_ty))
+    for sym in (a, b, c, d):
+        elab.constants[str(sym.value)] = elaborate._Binding(sym, _NAT)
+    p_ab = _constant("p_ab")
+    p_cd = _constant("p_cd")
+    elab.constants["p_ab"] = elaborate._Binding(p_ab, _apps(_constant("Eq"), _NAT, a, b))
+    elab.constants["p_cd"] = elaborate._Binding(p_cd, _apps(_constant("Eq"), _NAT, c, d))
+
+    # Distinct binder variable IDs with structurally identical bodies: alpha-equivalence.
+    x = elab.fresh(_NAT)
+    y = elab.fresh(_NAT)
+    u = elab.fresh(_NAT)
+    v = elab.fresh(_NAT)
+    lam_alpha_1 = _term("lam", _NAT, _apps(f, x, _term("nat", value=1)), value=x.value)
+    lam_alpha_2 = _term("lam", _NAT, _apps(f, y, _term("nat", value=1)), value=y.value)
+    ensure(eg.equivalent(lam_alpha_1, lam_alpha_2), "alpha-equivalent lambdas did not merge in slotted e-graph")
+    alpha_proof = eg.explain(fn_ty, lam_alpha_1, lam_alpha_2)
+    if alpha_proof is None:
+        raise AssertionError("alpha-equivalence proof synthesis failed")
+    ensure(
+        elab.convertible(elab.infer(alpha_proof), _apps(_constant("Eq"), fn_ty, lam_alpha_1, lam_alpha_2)),
+        "alpha-equivalence proof has wrong type",
+    )
+
+    # Binder-crossing congruence without funext, isolated inside a push_version/pop_version scope.
+    lam_a = _term("lam", _NAT, _apps(f, x, a), value=x.value)
+    lam_b = _term("lam", _NAT, _apps(f, y, b), value=y.value)
+    ensure(not eg.equivalent(lam_a, lam_b), "unrelated hole lambdas merged prematurely")
+
+    nested_a = _term("lam", _NAT, _term("lam", _NAT, _apps(f, _apps(f, x, y), a), value=y.value), value=x.value)
+    nested_b = _term("lam", _NAT, _term("lam", _NAT, _apps(f, _apps(f, u, v), b), value=v.value), value=u.value)
+    nested_ty = elab.pi(_NAT, fn_ty)
+
+    depth = eg.push_version()
+    ensure(depth == 1, f"expected depth 1, got {depth}")
+    ensure(eg.assert_equality(_NAT, a, b, p_ab), "failed to assert a == b in slotted child version")
+    ensure(eg.assert_equality(_NAT, c, d, p_cd), "failed to assert c == d in slotted child version")
+
+    ensure(eg.equivalent(lam_a, lam_b), "binder-crossing congruence failed under slotted lambdas")
+    lam_proof = eg.explain(fn_ty, lam_a, lam_b)
+    if lam_proof is None:
+        raise AssertionError("binder-crossing lambda congruence failed to synthesize proof")
+    ensure(
+        elab.convertible(elab.infer(lam_proof), _apps(_constant("Eq"), fn_ty, lam_a, lam_b)),
+        "binder-crossing lambda congruence proof has wrong type",
+    )
+
+    ensure(eg.equivalent(nested_a, nested_b), "nested slotted binder congruence failed")
+    nested_proof = eg.explain(nested_ty, nested_a, nested_b)
+    if nested_proof is None:
+        raise AssertionError("nested slotted binder proof failed")
+    ensure(
+        elab.convertible(elab.infer(nested_proof), _apps(_constant("Eq"), nested_ty, nested_a, nested_b)),
+        "nested slotted binder proof has wrong type",
+    )
+
+    outer_l = _apps(ho_apply, lam_a, c)
+    outer_r = _apps(ho_apply, lam_b, d)
+    ensure(eg.equivalent(outer_l, outer_r), "higher-order congruence with slotted lambda arg failed")
+    outer_proof = eg.explain(_NAT, outer_l, outer_r)
+    if outer_proof is None:
+        raise AssertionError("higher-order slotted congruence proof synthesis failed")
+    ensure(
+        elab.convertible(elab.infer(outer_proof), _apps(_constant("Eq"), _NAT, outer_l, outer_r)),
+        "higher-order slotted congruence proof has wrong type",
+    )
+
+    # Capture-avoidance control: (fun x => f x x) must NOT merge with (fun y => f y x).
+    lam_diag = _term("lam", _NAT, _apps(f, x, x), value=x.value)
+    lam_free = _term("lam", _NAT, _apps(f, y, x), value=y.value)
+    ensure(not eg.equivalent(lam_diag, lam_free), "slotted e-graph conflated bound slot with free variable")
+
+    eg.pop_version()
+    ensure(not eg.equivalent(lam_a, lam_b), "slotted lambda congruence leaked across pop_version")
+    ensure(eg.equivalent(lam_alpha_1, lam_alpha_2), "alpha-equivalence lost after pop_version")
+
+
+def _slotted_egraph_and_int_congruence(*, batch: rocq_cache.BatchChecker | None = None) -> None:
+    source = b"""module SlottedIntReplay;
+public definition Nat Combine(Nat x, Nat y) => x + y;
+public definition Nat ApplyNat(Fn(Nat x) -> Nat f, Nat z) => f(z);
+public definition usize MixUsize(usize x, usize y) => x;
+public definition bool FlipBool(bool b) => !b;
+
+public lemma HigherOrderLambdaCongr(Nat a, Nat b, Nat c, Nat d)
+    requires a == b
+    requires c == d
+    ensures ApplyNat(Fn(Nat x) -> Nat => Combine(x, a), c)
+         == ApplyNat(Fn(Nat y) -> Nat => Combine(y, b), d)
+    proof
+    {
+        assert ApplyNat(Fn(Nat x) -> Nat => Combine(x, a), c)
+            == ApplyNat(Fn(Nat y) -> Nat => Combine(y, b), d);
+    }
+
+public usize ScopedIntAndBoolCongr(usize a, usize b, usize c, usize p, usize q, bool f1, bool f2, bool f3)
+{
+    if (a == b && b == c && p == q) {
+        assert MixUsize(a, p) == MixUsize(c, q);
+    } else {
+        return a;
+    }
+    if (f1 == f2 && f2 == f3) {
+        assert FlipBool(f1) == FlipBool(f3);
+        return a;
+    } else {
+        return b;
+    }
+}
+"""
+    mod = elaborate.gallina_module_name("SlottedIntReplay")
+    with parser.cached_build(TOOLS.parent) as compiled:
+        gallina = elaborate.elaborate(source, parser.parse_source(compiled, source, surface=True)).gallina
+    checked_exports = [
+        name
+        for name in solver_ledger.math_exports(gallina)
+        if "_assert_" in name or name.endswith("_HigherOrderLambdaCongr")
+    ]
+    ensure(len(checked_exports) == 3, f"expected 3 slotted/int e-graph exports, got {checked_exports}")
+    consumers = "\n".join(f"Print Assumptions {mod}.{name}." for name in checked_exports) + "\n"
+    _replay_gallina("SlottedIntReplay", source, consumers, 3, batch=batch)
+
+    leaked = source.replace(b"return a;\n    } else {\n        return b;", b"return a;\n    } else {\n        assert FlipBool(f1) == FlipBool(f3);\n        return b;")
+    with (
+        parser.cached_build(TOOLS.parent) as compiled,
+        raises(HoldFastError, msg="bool branch equality leaked into else branch"),
+    ):
+        elaborate.elaborate(leaked, parser.parse_source(compiled, leaked, surface=True))
+
+
 def cases() -> list[Case]:
     batch = rocq_cache.BatchChecker()
     return [
         Case("versioned-egraph-unit", _versioned_egraph_unit_cases),
+        Case("slotted-egraph-unit", _slotted_egraph_unit_cases),
         Case("egraph-congruence-and-branch-isolation",
              partial(_egraph_congruence_and_branch_isolation, batch=batch), lane="toolchain"),
+        Case("slotted-egraph-and-int-congruence",
+             partial(_slotted_egraph_and_int_congruence, batch=batch), lane="toolchain"),
         Case("weighted-nat-difference-logic",
              partial(_weighted_nat_difference_logic, batch=batch), lane="toolchain"),
         Case("fixed-int-order-certificates",
