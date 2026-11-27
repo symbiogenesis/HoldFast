@@ -11,7 +11,7 @@
 | [language/core-design.md](language/core-design.md) | Core design, explicit loan and mutation rules, refinement/domain tier, and proof obligations |
 | [language/surface-grammar.md](language/surface-grammar.md) | Concrete grammar, precedence, and layout |
 | [language/loan-analysis.md](language/loan-analysis.md) | Loan-end inference over explicit flow facts and checked indexed-call comparisons |
-| [language/language-landscape.md](language/language-landscape.md) | Related designs for handlers, async lifecycles, unions, and spans |
+| [language/language-landscape.md](language/language-landscape.md) | Related designs for handlers, async lifecycles, ownership modes, unions, and spans |
 
 ## Toolchain and IDE
 

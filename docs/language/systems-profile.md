@@ -48,7 +48,7 @@ interface. A driver package declares which of the following it uses.
 | Pointer arithmetic and layout | Relate source offsets, allocation identity, extent, alignment and permissions to the access. Exercise a valid interior view and an equal numeric address presented with stale ownership. |
 | Atomic publication | Bind width, alignment, access kind, order, scope and progress requirements to actual instructions and the memory model. Check that a reader cannot observe publication with stale payload. An emulated lock requires its own cost, blocking and interrupt-safety contract. |
 | MMIO and DMA | Specify access width, ordering, visibility, coherence and effects of reads and writes. A register read with side effects occurs the declared number of times. A cached ordinary load cannot stand in for it. |
-| Vector or intrinsic operation | State lanes, alignment, feature detection and masking semantics on the chosen ISA. Check a tail at the boundary of a valid region, including inactive lanes. A scalar fallback must satisfy the same public behavior, memory-access, leakage and resource requirements. |
+| Vector or intrinsic operation | State lanes, alignment, feature detection and masking semantics on the chosen ISA. Check a tail at the boundary of a valid region, including inactive lanes. A scalar fallback must satisfy the same public behavior, memory-access, leakage and resource requirements. See [numerical workloads](../extensions/numerical-workloads.md#portability-and-numerical-guarantees) for verified scheduling and SIMD/data-parallel boundaries. |
 
 Freeze the client, required properties and public API before selecting a second
 architecture. Reuse the same source and client proof where their assumptions
@@ -61,7 +61,10 @@ owns the instruction and device semantics.
 
 State each cost claim as a comparison on a frozen workload. For example, an
 erased loan witness should add zero call operands, stores and branches relative
-to the hand-written implementation that establishes the same contract. Follow
+to the hand-written implementation that establishes the same contract, and
+higher-order static abstractions must satisfy closure-free specialization
+([2LTT staging reference](../extensions/metaprogramming.md#design-references))
+and non-escaping locality where claimed. Follow
 the [verified abstraction cost protocol](../assurance/workflow-contract.md#cost-of-the-verified-abstraction)
 for the final-image comparison. Compare Rust on the same target when its
 guarantees, ABI and backend permit that comparison. Attribute costs of a

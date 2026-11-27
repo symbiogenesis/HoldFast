@@ -26,7 +26,7 @@ enclosing handler. Effekt and Lexa instead use lexically scoped capabilities.
 Cloning a continuation must also rebind references into its copied frames.
 Virtualizing Continuations addresses that with virtual handler addresses.
 HoldFast's [candidate handler representation](../extensions/handlers-async.md#handler-lookup-capture-and-return)
-uses delimiter-relative frame references.
+uses delimiter-relative frame references. Complementary 2026 foundations—[Handling Higher-Order Effectful Operations with Judgemental Monadic Laws](https://doi.org/10.1145/3776678) (Yang & Wu, POPL 2026) and [HMCFA](https://doi.org/10.1145/3828703) (Whiting & Germane, ICFP 2026)—inform scoped handler laws and precise big-step control-flow analysis for handler specialization.
 [Virtualizing Continuations](https://cs.uwaterloo.ca/~yizhou/papers/multilexa-pldi2026.pdf)
 
 ## Automatic resource analysis for handlers
@@ -68,8 +68,16 @@ and boxes value-type cases. HoldFast uses [nominal tagged unions](reference.md#d
 with explicit cases and exhaustive matching.
 [C# union proposal](https://devblogs.microsoft.com/dotnet/csharp-15-union-types/)
 
-Swift's `Span` is a copyable shared view and `MutableSpan` is a noncopyable
-exclusive view. Both depend on the lifetime of their source. HoldFast's
-[loan rules](reference.md#loans-and-parameter-modes) similarly distinguish
-shared and exclusive views, and name the borrowed place in the lifetime.
+Swift's `Span` (building on Swift 6.2/6.3 `~Escapable` non-escapable types in SE-0446, `Span` in SE-0447, and lifetime-dependency tracking) is a copyable shared view and `MutableSpan` is a noncopyable
+exclusive view. Both depend on the lifetime of their source. Along a related
+ergonomic axis, [Hylo's Mutable Value Semantics](https://doi.org/10.5381/jot.2022.21.2.a2)
+uses projection subscripts (`let`/`inout`/`set`/`sink`) to mutate in place
+without pervasive surface lifetime annotations, while OxCaml's modal axes
+([POPL 2025](https://doi.org/10.1145/3704859)) and [Mode Crossing](https://doi.org/10.1145/3828681)
+(ICFP 2026) infer locality, uniqueness, and contention and automatically cross
+deeply immutable types to remove boilerplate. HoldFast's
+[loan rules](reference.md#loans-and-parameter-modes) unify explicit call-site
+loan modes (`in`/`ref`/`out`/`owned`), place-named lifetimes, two-phase
+receivers, and [checked pure-value mode crossing](../extensions/graded-foundation.md#inference-specialization-and-admission)
+with kernel-checked functional and resource proofs.
 [Swift `MutableSpan`](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0467-MutableSpan.md)

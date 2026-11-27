@@ -50,12 +50,12 @@ See the [elaboration research comparison](../assurance/verification-strategy.md#
 
 | Mechanism considered | Selected bounded use | Missing evidence |
 | --- | --- | --- |
-| Dependent value/computation separation and bidirectional elaboration | Stable pure indices; state change in computations; declared public signatures | Substitution, coherent elaboration and interpretation for the combined fragment |
-| Aeneas/Creusot-style borrow-end reasoning and flow-sensitive analysis | Finite parent/child loan tree with restoration predicates; infer ends from uses within a control-flow region | Parent suspension, returned branches and loop joins over the actual logic; no inherited Rust soundness claim |
+| Dependent value/computation separation and bidirectional elaboration | Stable pure indices; state change in computations; declared public signatures; 2LTT closure-free staging (Kovács, ICFP 2024) and AdapTT/Observational CIC functorial transport insights | Substitution, coherent elaboration and interpretation for the combined fragment (retaining intensional CIC + checked transports and Rocq 9.3 `SProp` for strict proof-irrelevant witnesses) |
+| Aeneas/Creusot-style borrow-end reasoning and flow-sensitive analysis | Finite parent/child loan tree with restoration predicates; infer ends from uses within a control-flow region; ghost-safe prophecy encoding (Creusot HAL `hal-04816198`), local commutation diagrams (JFLA 2026), and OxCaml mode crossing (POPL 2025 / ICFP 2026) for deeply immutable values | Parent suspension, returned branches and loop joins over the actual logic; no inherited Rust/OCaml soundness claim |
 | DeepSEA/Sepref representation and scoped refinement | One explicit entry/exit representation shared by implementation and functional contract | Rocq/CHERI interpretation and representation transport |
 | Equations, Rocq-Elpi and binding generators | Generate and check dependent definitions and binding operations | Computation, equations and exact assumptions for the selected tuple; generated laws do not extend conversion |
 | Modal effects and affine handlers | Closed synchronous summaries only, with one effect presentation | Polymorphism, scoped discharge and handlers remain later extensions |
-| RefinedC/Flux-style refinements and Rocq arithmetic automation | Declared arithmetic fragment, checked reconstruction and visible residuals | Correct translation between words, logical integers and target representation |
+| RefinedC/Flux-style refinements and Rocq arithmetic automation | Declared arithmetic fragment, checked reconstruction, Versioned/Slotted E-Graphs, Verified E-Graphs (Pyrosome), SMTCoq/Trakt/Sniper reflective/certificate reconstruction, and visible residuals | Correct translation between words, logical integers and target representation |
 
 ## Judgments and interpretations
 
@@ -108,7 +108,7 @@ proved transition. The fixture uses fixed-size storage. For initialization and
 bulk relocation, see the [ownership library contract](first-release.md#ownership-libraries).
 Entry snapshots are immutable values justified by the entry representation and grant no access while ownership is lent.
 
-Branches join through checked entailments to one common resource predicate or through an indexed sum retaining the alternatives. `Ready(view of dst)` and `Rejected(owner restored)` cannot silently join into `owner restored`. Equality beyond conversion requires a checked transport; runtime equality requires a decision operation and its correctness law. No global UIP, proof irrelevance or extensionality axiom is introduced.
+Branches join through checked entailments to one common resource predicate or through an indexed sum retaining the alternatives. `Ready(view of dst)` and `Rejected(owner restored)` cannot silently join into `owner restored`. Equality beyond conversion requires a checked transport; runtime equality requires a decision operation and its correctness law. Rocq 9.3.0's native `SProp` and sort polymorphism may carry strictly proof-irrelevant erased witnesses inside the existing kernel without introducing any global UIP, proof irrelevance, or extensionality axiom on `Prop` or `Type`.
 
 ## Loans and control flow
 
