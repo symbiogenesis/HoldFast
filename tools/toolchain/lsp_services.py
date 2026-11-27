@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Bounded projection of the pure compiler's resolved facts into LSP results."""
 
-import hashlib
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, replace
@@ -22,8 +21,8 @@ from toolchain.ast import (
 )
 from toolchain.documentation import DocumentationSource
 from toolchain.facts import MAX_COMPLETION_OPTIONS, MAX_OCCURRENCES, MAX_SYMBOLS, PureType
-from toolchain.lsp_worker import run_worker
-from toolchain.protocol_json import decode_message, encode_message
+from toolchain.lsp_worker import run_json_worker
+from toolchain.protocol_json import encode_message
 from toolchain.source import SourceSnapshot
 
 SEMANTIC_TOKEN_TYPES = ("function", "parameter", "variable")
@@ -45,15 +44,13 @@ def inspect_document(source: bytes, *, concrete: bool = False,
     """Run only the checkout's fixed fact producer, never a client-selected tool."""
     try:
         mode = "--inspect-snapshot" if concrete else "--inspect-completion" if completion else "--inspect"
-        result = decode_message(run_worker(source, mode))
-        if result.pop("source_sha256", None) != hashlib.sha256(source).hexdigest():
-            raise InspectionError("Inspection result differs from the requested source")
+        return run_json_worker(
+            source, mode, mismatch_message="Inspection result differs from the requested source",
+        )
     except subprocess.TimeoutExpired as error:
         raise InspectionError("Pure prototype inspection exceeded 5 seconds") from error
     except (OSError, ValueError) as error:
         raise InspectionError("Pure prototype inspection worker unavailable") from error
-    else:
-        return result
 
 
 def inspect_completions(source: bytes) -> dict[str, object]:

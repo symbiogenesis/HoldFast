@@ -3,7 +3,6 @@
 
 import hashlib
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -15,12 +14,13 @@ from toolchain._isolated_worker import (
     cast_str_list,
     decode_header_pair,
     read_exact,
+    worker_env_key,
     write_batch_reply,
 )
 from toolchain.authoring import format_source
 from toolchain.completion import recover
 from toolchain.concrete import parts
-from toolchain.protocol_json import MAX_BODY_BYTES
+from toolchain.protocol_json import MAX_BODY_BYTES, decode_message
 
 _SUBPROCESS_RUN = subprocess.run
 _BATCH_WORKER = IsolatedBatchWorker()
@@ -42,36 +42,37 @@ def reset_worker() -> None:
 
 def run_worker(source: bytes, *args: str) -> bytes:
     """Run one isolated compiler operation with the language server's time and output bounds."""
-    if getattr(subprocess, "run", None) is not _SUBPROCESS_RUN:
-        done = subprocess.run(
-            worker_command(*args), input=source, capture_output=True,
-            timeout=_WORKER_TIMEOUT_SECONDS, check=False,
-        )
-        if done.returncode or len(done.stdout) > MAX_BODY_BYTES:
-            raise ValueError("compiler worker failed or exceeded its output bound")
-        return done.stdout
-    bounded = source[:MAX_SOURCE_BYTES + 1]
+    fallback = getattr(subprocess, "run", None) is not _SUBPROCESS_RUN
+    bounded = source if fallback else source[:MAX_SOURCE_BYTES + 1]
     args_json = json.dumps(list(args), ensure_ascii=True, separators=(",", ":")).encode("utf-8")
     header = f"{len(bounded)} ".encode("ascii") + args_json + b"\n"
-    key = (
-        sys.executable,
-        os.environ.get("VOS_BUILD_ROOT"),
-        os.environ.get("VOS_ROCQ"),
-        os.environ.get("VOS_ROCQCHK"),
-        os.environ.get("OPAMROOT"),
-        MAX_BODY_BYTES,
-    )
-    code, body = _BATCH_WORKER.request(
-        key,
-        worker_command("--batch"),
-        header,
-        bounded,
+    return _BATCH_WORKER.run_or_batch(
+        fallback=fallback,
+        one_shot_command=worker_command(*args),
+        batch_command=worker_command("--batch"),
+        key=worker_env_key(max_body_bytes=MAX_BODY_BYTES),
+        header=header,
+        payload=bounded,
         timeout_seconds=_WORKER_TIMEOUT_SECONDS,
         max_body_bytes=MAX_BODY_BYTES,
+        error_message="compiler worker failed or exceeded its output bound",
     )
-    if code != 0 or len(body) > MAX_BODY_BYTES:
-        raise ValueError("compiler worker failed or exceeded its output bound")
-    return body
+
+
+def run_json_worker(
+    source: bytes,
+    *args: str,
+    verify_source_sha256: bool = True,
+    pop_source_sha256: bool = True,
+    mismatch_message: str = "Worker result differs from the current source",
+) -> dict[str, object]:
+    """Run the isolated LSP worker and decode/verify its JSON response."""
+    result = decode_message(run_worker(source, *args))
+    if verify_source_sha256:
+        digest = result.pop("source_sha256", None) if pop_source_sha256 else result.get("source_sha256")
+        if digest != hashlib.sha256(source).hexdigest():
+            raise ValueError(mismatch_message)
+    return result
 
 
 def _execute(source: bytes, argv_tail: list[str]) -> tuple[int, bytes]:

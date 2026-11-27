@@ -9,6 +9,7 @@ from toolchain.lsp_rename_clients import (
     NEOVIM_SHUTDOWN,
     _range,
     qualify_versioned_edits,
+    verify_edit_session,
 )
 
 DISK = "// 😀 retain == in comments\nmodule Editor;\npublic bool Check(bool keep) => keep == false;\n"
@@ -73,83 +74,70 @@ ELISP = ELISP_SETUP + r"""
 def verify_session(wire: dict[str, object], observation: dict[str, object], uri: str) -> None:
     """Reconstruct the action's unsaved input and both post-application queries."""
     require, obj = clients._require, clients._object
-    require(type(wire.get("exit_code")) is int and wire["exit_code"] == 0, "unclean editor exit")
     expected_sequence = ["initialize", "preview", "after", "again"]
-    received: list[str] = []
-    pending: dict[object, tuple[str, object]] = {}
-    request_ids: set[object] = set()
-    source, version, preview_version = "", -1, -1
     doc = {"uri": uri}
-    for index, raw in enumerate(clients._array(wire.get("frames"))):
-        frame = obj(raw)
-        message = obj(frame.get("message"))
-        require(frame.get("index") == index and message.get("jsonrpc") == "2.0", "invalid wire frame")
-        direction = frame.get("direction")
-        method, identifier = message.get("method"), message.get("id")
-        if direction == "server_to_client":
-            if method is None and identifier in pending:
-                key, expected = pending.pop(identifier)
-                require("error" not in message, f"editor request failed: {key}")
-                result = message.get("result")
-                if key == "initialize":
-                    caps = obj(obj(result).get("capabilities"))
-                    require(caps.get("codeActionProvider") == {"codeActionKinds": [KIND]}, "rewrite unavailable")
-                else:
-                    require(result == expected and observation.get(key) == result, f"{key} differs from the oracle")
-                    if key == "preview":
-                        action = obj(clients._array(result)[0])
-                        change = obj(clients._array(obj(action["edit"])["documentChanges"])[0])
-                        require(type(obj(change["textDocument"])["version"]) is int, "invalid workspace edit version")
-                received.append(key)
-            continue
-        require(direction == "client_to_server", "invalid wire direction")
-        if method is not None and identifier is not None:
-            require(type(identifier) in (int, str) and identifier not in request_ids, "invalid or reused request id")
-            request_ids.add(identifier)
-        params = obj(message.get("params") or {})
-        if method == "initialize":
-            caps = obj(params.get("capabilities"))
-            require(obj(obj(caps.get("workspace")).get("workspaceEdit")).get("documentChanges") is True,
-                    "client lacks versioned edits")
-            actions = obj(obj(caps.get("textDocument")).get("codeAction"))
-            literal = obj(actions.get("codeActionLiteralSupport"))
-            kinds = obj(literal.get("codeActionKind")).get("valueSet")
-            require(KIND in clients._array(kinds), "client lacks literal rewrite actions")
-            pending[identifier] = ("initialize", None)
-        elif method in ("textDocument/didOpen", "textDocument/didChange"):
-            updated = obj(params.get("textDocument"))
-            next_version = updated.get("version")
-            if updated.get("uri") != uri or type(next_version) is not int or next_version <= version:
-                raise ValueError("unrelated or stale overlay")
-            version = next_version
-            if method == "textDocument/didOpen":
-                require(updated.get("text") == DISK and source == "", "unexpected opening source")
-                source = DISK
-            else:
-                for change in clients._array(params.get("contentChanges")):
-                    source = clients._wire_source_edit(source, obj(change))
-        elif method == METHOD:
-            require(identifier is not None and not pending and 1 <= len(received) < len(expected_sequence),
-                    "unsolicited rewrite request")
-            require(params == {"textDocument": doc, "range": _range(2, 37, 37),
-                               "context": {"diagnostics": [], "only": [KIND]}}, "wrong rewrite selection")
-            key = expected_sequence[len(received)]
-            if key == "preview":
-                require(source == SOURCE and version > 0, "rewrite used the wrong overlay")
-                preview_version = version
-                expected = [{"title": "Simplify Boolean comparison (HOLDFAST103)", "kind": KIND,
-                             "edit": {"documentChanges": [{"textDocument": {**doc, "version": version},
-                                                           "edits": [{"range": _range(2, 32, 45),
-                                                                      "newText": "!(keep)"}]}]}}]
-            else:
-                stale_version = observation.get("stale_version")
-                require(source == EDITED and type(stale_version) is int and version == stale_version > preview_version,
-                        "stale replay does not identify the changed overlay")
-                expected = []
-            pending[identifier] = (key, expected)
-    require(received == expected_sequence and not pending, "incomplete rewrite sequence")
-    require(observation.get("fresh") == observation.get("stale") == source == EDITED,
-            "fresh application or stale replay changed unexpected bytes")
+    preview_version = -1
+
+    def _check_client_caps(caps: dict[str, object]) -> None:
+        actions = obj(obj(caps.get("textDocument")).get("codeAction"))
+        literal = obj(actions.get("codeActionLiteralSupport"))
+        kinds = obj(literal.get("codeActionKind")).get("valueSet")
+        require(KIND in clients._array(kinds), "client lacks literal rewrite actions")
+
+    def _check_server_caps(caps: dict[str, object]) -> None:
+        require(caps.get("codeActionProvider") == {"codeActionKinds": [KIND]}, "rewrite unavailable")
+
+    def _check_preview(result: object) -> None:
+        action = obj(clients._array(result)[0])
+        change = obj(clients._array(obj(action["edit"])["documentChanges"])[0])
+        require(type(obj(change["textDocument"])["version"]) is int, "invalid workspace edit version")
+
+    def _handle_request(
+        method: str,
+        identifier: object,
+        params: dict[str, object],
+        source: str,
+        version: int,
+        _negotiated: bool,
+        received: list[str],
+        pending: dict[object, tuple[str, object]],
+    ) -> None:
+        nonlocal preview_version
+        if method != METHOD:
+            return
+        require(identifier is not None and not pending and 1 <= len(received) < len(expected_sequence),
+                "unsolicited rewrite request")
+        require(params == {"textDocument": doc, "range": _range(2, 37, 37),
+                           "context": {"diagnostics": [], "only": [KIND]}}, "wrong rewrite selection")
+        key = expected_sequence[len(received)]
+        if key == "preview":
+            require(source == SOURCE and version > 0, "rewrite used the wrong overlay")
+            preview_version = version
+            expected: object = [{"title": "Simplify Boolean comparison (HOLDFAST103)", "kind": KIND,
+                                 "edit": {"documentChanges": [{"textDocument": {**doc, "version": version},
+                                                               "edits": [{"range": _range(2, 32, 45),
+                                                                          "newText": "!(keep)"}]}]}}]
+        else:
+            stale_version = observation.get("stale_version")
+            require(source == EDITED and type(stale_version) is int and version == stale_version > preview_version,
+                    "stale replay does not identify the changed overlay")
+            expected = []
+        pending[identifier] = (key, expected)
+
+    verify_edit_session(
+        wire,
+        observation,
+        uri,
+        disk=DISK,
+        edited=EDITED,
+        expected_sequence=expected_sequence,
+        check_client_caps=_check_client_caps,
+        check_server_caps=_check_server_caps,
+        check_preview=_check_preview,
+        handle_request=_handle_request,
+        incomplete_message="incomplete rewrite sequence",
+        changed_bytes_message="fresh application or stale replay changed unexpected bytes",
+    )
 
 
 def qualify() -> dict[str, object]:

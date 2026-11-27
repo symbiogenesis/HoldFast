@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Explicit incomplete-source completion edits from one checked compiler repair."""
 
-import hashlib
 import subprocess
 from collections.abc import Callable
 from dataclasses import replace
@@ -14,8 +13,8 @@ from toolchain.lsp_services import (
     Position,
     validate_inspection,
 )
-from toolchain.lsp_worker import run_worker
-from toolchain.protocol_json import decode_message, encode_message
+from toolchain.lsp_worker import run_json_worker
+from toolchain.protocol_json import encode_message
 from toolchain.source import SourceSnapshot
 
 type Completer = Callable[[bytes, int], dict[str, object]]
@@ -24,12 +23,12 @@ type Completer = Callable[[bytes, int], dict[str, object]]
 def inspect_recovery(source: bytes, cursor: int) -> dict[str, object]:
     """Use the checkout's isolated compiler worker with a fixed two-repair budget."""
     try:
-        result = decode_message(run_worker(source, "--complete-at", str(cursor)))
-        if result.pop("source_sha256", None) != hashlib.sha256(source).hexdigest():
-            raise InspectionError("Completion repair differs from the current source")
+        return run_json_worker(
+            source, "--complete-at", str(cursor),
+            mismatch_message="Completion repair differs from the current source",
+        )
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         raise InspectionError("Completion repair worker unavailable or exceeded its budget") from error
-    return result
 
 
 def _project_recovery(snapshot: SourceSnapshot, position: Position,

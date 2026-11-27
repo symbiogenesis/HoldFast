@@ -7,8 +7,8 @@ from collections.abc import Callable
 
 from toolchain.ast import MAX_SOURCE_BYTES
 from toolchain.lsp_services import InspectionError
-from toolchain.lsp_worker import run_worker
-from toolchain.protocol_json import decode_message, encode_message
+from toolchain.lsp_worker import run_json_worker
+from toolchain.protocol_json import encode_message
 from toolchain.source import SourceSnapshot
 
 type Formatter = Callable[[bytes], dict[str, object]]
@@ -17,7 +17,7 @@ type Formatter = Callable[[bytes], dict[str, object]]
 def format_document(source: bytes) -> dict[str, object]:
     """Run the fixed compiler library without invoking its file-writing command."""
     try:
-        return decode_message(run_worker(source, "--format"))
+        return run_json_worker(source, "--format", verify_source_sha256=False)
     except subprocess.TimeoutExpired as error:
         raise InspectionError("Pure prototype formatting exceeded 5 seconds") from error
     except (OSError, ValueError) as error:

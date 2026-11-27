@@ -143,8 +143,25 @@ def _range(line: int, start: int, end: int) -> dict[str, object]:
     return {"start": {"line": line, "character": start}, "end": {"line": line, "character": end}}
 
 
-def verify_session(wire: dict[str, object], observation: dict[str, object], uri: str) -> None:
-    """Reconstruct the overlay at each request and compare both editor and wire results."""
+def verify_edit_session(
+    wire: dict[str, object],
+    observation: dict[str, object],
+    uri: str,
+    *,
+    disk: str,
+    edited: str,
+    expected_sequence: list[str],
+    check_server_caps: Callable[[dict[str, object]], None],
+    check_preview: Callable[[object], None],
+    handle_request: Callable[
+        [str, object, dict[str, object], str, int, bool, list[str], dict[object, tuple[str, object]]],
+        None,
+    ],
+    check_client_caps: Callable[[dict[str, object]], None] | None = None,
+    incomplete_message: str = "incomplete edit sequence",
+    changed_bytes_message: str = "fresh application or stale refusal changed unexpected bytes",
+) -> None:
+    """Reconstruct an editor overlay wire transcript and check oracle/observation agreement."""
     require, obj = clients._require, clients._object
     require(type(wire.get("exit_code")) is int and wire["exit_code"] == 0, "unclean editor exit")
     source, version = "", -1
@@ -154,9 +171,8 @@ def verify_session(wire: dict[str, object], observation: dict[str, object], uri:
     negotiated = False
     for index, raw in enumerate(clients._array(wire.get("frames"))):
         frame = obj(raw)
-        require(frame.get("index") == index, "invalid frame order")
         message = obj(frame.get("message"))
-        require(message.get("jsonrpc") == "2.0", "invalid RPC version")
+        require(frame.get("index") == index and message.get("jsonrpc") == "2.0", "invalid wire frame")
         direction = frame.get("direction")
         method, identifier = message.get("method"), message.get("id")
         if direction == "server_to_client":
@@ -165,26 +181,25 @@ def verify_session(wire: dict[str, object], observation: dict[str, object], uri:
                 require("error" not in message, f"editor request failed: {key}")
                 result = message.get("result")
                 if key == "initialize":
-                    caps = obj(obj(result).get("capabilities"))
-                    require(caps.get("renameProvider") == {"prepareProvider": True}, "rename unavailable")
+                    check_server_caps(obj(obj(result).get("capabilities")))
                     negotiated = True
                 else:
-                    require(result == expected and observation.get(key) == result, f"{key} disagrees with wire/oracle")
+                    require(result == expected and observation.get(key) == result, f"{key} differs from the oracle")
                     if key == "preview":
-                        change = obj(clients._array(obj(result)["documentChanges"])[0])
-                        require(type(obj(change["textDocument"])["version"]) is int, "invalid version in workspace edit")
+                        check_preview(result)
                 received.append(key)
             continue
         require(direction == "client_to_server", "invalid wire direction")
         if method is not None and identifier is not None:
-            if type(identifier) not in (int, str) or identifier in request_ids:
-                raise ValueError("invalid or reused request id")
+            require(type(identifier) in (int, str) and identifier not in request_ids, "invalid or reused request id")
             request_ids.add(identifier)
         params = obj(message.get("params") or {})
         if method == "initialize":
             caps = obj(params.get("capabilities"))
             require(obj(obj(caps.get("workspace")).get("workspaceEdit")).get("documentChanges") is True,
                     "client lacks versioned edits")
+            if check_client_caps is not None:
+                check_client_caps(caps)
             requests[identifier] = ("initialize", None)
         elif method in ("textDocument/didOpen", "textDocument/didChange"):
             document = obj(params.get("textDocument"))
@@ -193,37 +208,76 @@ def verify_session(wire: dict[str, object], observation: dict[str, object], uri:
                 raise ValueError("unrelated or stale overlay")
             version = next_version
             if method == "textDocument/didOpen":
-                require(document.get("text") == DISK and source == "", "unexpected opening source")
-                source = DISK
+                require(document.get("text") == disk and source == "", "unexpected opening source")
+                source = disk
             else:
                 for change in clients._array(params.get("contentChanges")):
                     source = clients._wire_source_edit(source, obj(change))
-        elif method in ("textDocument/prepareRename", "textDocument/rename", "textDocument/definition"):
-            require(negotiated and obj(params.get("textDocument")) == {"uri": uri}, "wrong editor document")
-            require(identifier is not None and identifier not in requests, "missing or reused request")
-            if method == "textDocument/definition":
-                require(source == RENAMED and received[-1:] in (["preview"], ["definition"]),
-                        "lookup did not follow the applied rename")
-                require(params.get("position") == {"line": 4, "character": 12}, "wrong renamed reference")
-                require(type(observation.get("stale_version")) is int and observation["stale_version"] == version,
-                        "stale application does not identify the newer version")
-                key = "again" if "definition" in received else "definition"
-                requests[identifier] = (key, {"uri": uri, "range": _range(3, 8, 15)})
-            else:
-                require(source == SOURCE and version > 0, "rename used wrong source or version")
-                require(params.get("position") == {"line": 3, "character": 9}, "wrong rename selection")
-                if method == "textDocument/prepareRename":
-                    requests[identifier] = ("prepared", {"range": _range(3, 8, 13), "placeholder": "value"})
-                else:
-                    require(params.get("newName") == "renamed", "wrong rename target")
-                    requests[identifier] = ("preview", {"documentChanges": [{
-                        "textDocument": {"uri": uri, "version": version},
-                        "edits": [{"range": span, "newText": "renamed"} for span in (_range(3, 8, 13), _range(4, 11, 16))],
-                    }]})
-    require(received == ["initialize", "prepared", "preview", "definition", "again"] and not requests,
-            "incomplete rename sequence")
-    require(observation.get("fresh") == observation.get("stale") == source == RENAMED,
-            "fresh application or stale refusal changed unexpected bytes")
+        elif isinstance(method, str):
+            handle_request(method, identifier, params, source, version, negotiated, received, requests)
+    require(received == expected_sequence and not requests, incomplete_message)
+    require(observation.get("fresh") == observation.get("stale") == source == edited, changed_bytes_message)
+
+
+def verify_session(wire: dict[str, object], observation: dict[str, object], uri: str) -> None:
+    """Reconstruct the overlay at each request and compare both editor and wire results."""
+    require, obj = clients._require, clients._object
+    doc = {"uri": uri}
+
+    def _check_server_caps(caps: dict[str, object]) -> None:
+        require(caps.get("renameProvider") == {"prepareProvider": True}, "rename unavailable")
+
+    def _check_preview(result: object) -> None:
+        change = obj(clients._array(obj(result)["documentChanges"])[0])
+        require(type(obj(change["textDocument"])["version"]) is int, "invalid version in workspace edit")
+
+    def _handle_request(
+        method: str,
+        identifier: object,
+        params: dict[str, object],
+        source: str,
+        version: int,
+        negotiated: bool,
+        received: list[str],
+        requests: dict[object, tuple[str, object]],
+    ) -> None:
+        if method not in ("textDocument/prepareRename", "textDocument/rename", "textDocument/definition"):
+            return
+        require(negotiated and obj(params.get("textDocument")) == doc, "wrong editor document")
+        require(identifier is not None and identifier not in requests, "missing or reused request")
+        if method == "textDocument/definition":
+            require(source == RENAMED and received[-1:] in (["preview"], ["definition"]),
+                    "lookup did not follow the applied rename")
+            require(params.get("position") == {"line": 4, "character": 12}, "wrong renamed reference")
+            require(type(observation.get("stale_version")) is int and observation["stale_version"] == version,
+                    "stale application does not identify the newer version")
+            key = "again" if "definition" in received else "definition"
+            requests[identifier] = (key, {"uri": uri, "range": _range(3, 8, 15)})
+            return
+        require(source == SOURCE and version > 0, "rename used wrong source or version")
+        require(params.get("position") == {"line": 3, "character": 9}, "wrong rename selection")
+        if method == "textDocument/prepareRename":
+            requests[identifier] = ("prepared", {"range": _range(3, 8, 13), "placeholder": "value"})
+            return
+        require(params.get("newName") == "renamed", "wrong rename target")
+        requests[identifier] = ("preview", {"documentChanges": [{
+            "textDocument": {"uri": uri, "version": version},
+            "edits": [{"range": span, "newText": "renamed"} for span in (_range(3, 8, 13), _range(4, 11, 16))],
+        }]})
+
+    verify_edit_session(
+        wire,
+        observation,
+        uri,
+        disk=DISK,
+        edited=RENAMED,
+        expected_sequence=["initialize", "prepared", "preview", "definition", "again"],
+        check_server_caps=_check_server_caps,
+        check_preview=_check_preview,
+        handle_request=_handle_request,
+        incomplete_message="incomplete rename sequence",
+        changed_bytes_message="fresh application or stale refusal changed unexpected bytes",
+    )
 
 
 def _session(folder: Path, command: list[str], script: str, filename: str, disk: str,

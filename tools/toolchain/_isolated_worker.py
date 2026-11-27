@@ -3,9 +3,11 @@
 
 import atexit
 import contextlib
+import os
 import queue
 import re
 import subprocess
+import sys
 import threading
 from typing import BinaryIO, cast
 
@@ -163,6 +165,60 @@ class IsolatedBatchWorker:
                     self._close_locked(force=True)
                 raise ValueError("compiler worker failed or exceeded its output bound")
             raise ValueError("compiler worker unavailable")
+
+    def run_or_batch(
+        self,
+        *,
+        fallback: bool,
+        one_shot_command: list[str],
+        batch_command: list[str],
+        key: object,
+        header: bytes,
+        payload: bytes,
+        timeout_seconds: float,
+        max_body_bytes: int,
+        error_message: str,
+        timeout_exit: int | None = None,
+    ) -> bytes:
+        """Run one isolated request via patched `subprocess.run` or this persistent batch worker."""
+        if fallback:
+            done = subprocess.run(
+                one_shot_command,
+                input=payload,
+                capture_output=True,
+                timeout=timeout_seconds,
+                check=False,
+            )
+            if timeout_exit is not None and done.returncode == timeout_exit:
+                raise subprocess.TimeoutExpired(done.args, timeout_seconds)
+            if done.returncode or len(done.stdout) > max_body_bytes:
+                raise ValueError(error_message)
+            return done.stdout
+        code, body = self.request(
+            key,
+            batch_command,
+            header,
+            payload,
+            timeout_seconds=timeout_seconds,
+            max_body_bytes=max_body_bytes,
+            timeout_exit=timeout_exit,
+        )
+        if code != 0 or len(body) > max_body_bytes:
+            raise ValueError(error_message)
+        return body
+
+
+def worker_env_key(*extra: object, max_body_bytes: int) -> tuple[object, ...]:
+    """Return the persistent-worker cache key isolating interpreter, env vars, and body limit."""
+    return (
+        sys.executable,
+        *extra,
+        os.environ.get("VOS_BUILD_ROOT"),
+        os.environ.get("VOS_ROCQ"),
+        os.environ.get("VOS_ROCQCHK"),
+        os.environ.get("OPAMROOT"),
+        max_body_bytes,
+    )
 
 
 def decode_header_pair(line: bytes) -> tuple[int, str] | None:
