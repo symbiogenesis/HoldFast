@@ -19,6 +19,7 @@ from typing import cast
 
 from toolchain import StaticEvaluation, gallina_module_name, graded_source, loans
 from toolchain.ast import MAX_SOURCE_BYTES, HoldFastError, ValueType
+from toolchain.elaborate_borrows import _BorrowMixin
 from toolchain.elaborate_contract_lints import _ContractLintsMixin
 from toolchain.elaborate_declarations import _DeclarationsMixin
 from toolchain.elaborate_holes import HoleInspection
@@ -88,7 +89,7 @@ FRONTEND_SOURCES = (
     "hashing.py", "jsonutil.py", "loans.py", "regions.py", "source.py", "trace_runtime.py", "elaborate.py",
     "elaborate_types.py", "elaborate_protocol.py", "elaborate_whnf.py", "elaborate_patterns.py", "elaborate_proofs.py",
     "elaborate_holes.py", "elaborate_statements.py", "elaborate_strings.py", "elaborate_solver.py",
-    "elaborate_intrinsics.py", "elaborate_declarations.py", "elaborate_contract_lints.py",
+    "elaborate_intrinsics.py", "elaborate_borrows.py", "elaborate_declarations.py", "elaborate_contract_lints.py",
     "elaborate_descriptor_lints.py", "elaborate_flow_lints.py", "elaborate_resource_lints.py", "graded_source.py",
     "rocq_cache.py", "source_file.py", "package_navigation.py", "proof_certificates.py",
 )
@@ -116,6 +117,7 @@ __all__ = [
 
 class _Elaborator(
     _WhnfMixin,
+    _BorrowMixin,
     _PatternsMixin,
     _ProofsMixin,
     _StatementsMixin,
@@ -285,6 +287,7 @@ class _Elaborator(
         self.active_lambda_outer_mutables: set[str] = set()
         self.output: list[str] = []
         self.site: Node | None = None
+        self._init_borrow_state()
         self._builtins()
 
     def fail(self, kind: str, message: str, node: Node | None = None) -> HoldFastError:
@@ -666,6 +669,7 @@ class _Elaborator(
         )
         self._register_builtin_unions()
         self._register_int_constants()
+        self._register_borrow_builtins(bind)
 
     def _register_builtin_unions(self) -> None:
         # ArithmeticError { Overflow(); ZeroDivisor(); InvalidShift(); }
@@ -1206,6 +1210,8 @@ class _Elaborator(
             value = self.type(self.node(node["type"]), environment)
             if self.whnf(expected) == _NAT and self.whnf(self.infer(value)) == _USIZE:
                 value = self.whnf(_app(_constant("int_to_nat_usize"), value))
+            if self.whnf(expected) == _NAT:
+                self._check_dependent_type_no_shared_mut(node, value, environment)
             self.unify(self.infer(value), expected)
             return value
         if node["kind"] in {"type", "function_type", "group_type", "tuple_type", "computed_type"}:
@@ -1214,15 +1220,21 @@ class _Elaborator(
             value = self.type(node, environment, require_sort=False)
             if self.whnf(expected) == _NAT and self.whnf(self.infer(value)) == _USIZE:
                 value = self.whnf(_app(_constant("int_to_nat_usize"), value))
+            if self.whnf(expected) == _NAT:
+                self._check_dependent_type_no_shared_mut(node, value, environment)
             self.unify(self.infer(value), expected)
             return value
         if self.whnf(expected) == _NAT and not self._is_unsuffixed_int_expr(node):
             expr_b = self.expression(node, environment)
+            self._check_dependent_type_no_shared_mut(node, expr_b.term, environment)
             if self.whnf(expr_b.type) == _USIZE:
                 return self.whnf(_app(_constant("int_to_nat_usize"), expr_b.term))
             self.unify(expr_b.type, expected)
             return expr_b.term
-        return self.check(node, expected, environment)
+        checked_val = self.check(node, expected, environment)
+        if self.whnf(expected) == _NAT:
+            self._check_dependent_type_no_shared_mut(node, checked_val, environment)
+        return checked_val
 
     def static_argument(self, node: Node, expected: _Term, environment: dict[str, _Binding],
                         *, type_syntax: bool = False) -> _Term:
@@ -1435,7 +1447,7 @@ class _Elaborator(
     def _check_argument_mode(self, expected: str | None, actual: object, site: Node) -> None:
         marker = "move" if expected == "owned" else expected
         if actual == marker:
-            if self.in_inline_proof and marker in {"ref", "out", "move"}:
+            if self.in_inline_proof and marker in {"ref", "shared_ref", "out", "move"}:
                 raise self.fail("type", f"an erased proof cannot pass a '{marker}' argument", site)
             if expected == "in" and self.in_executable_function:
                 marked = self._unwrap_group(self.node(site["value"]))
@@ -1615,7 +1627,45 @@ class _Elaborator(
         call_site = self.site
         term, value_type = binding.term, binding.type
         callee_head, callee_gen_args = self.spine(self.resolve(term))
+        fnonce_consume: set[str] = set()
+        if callee_head.kind == "var":
+            cid = cast("int", callee_head.value)
+            cname = self.parameter_names.get(cid)
+            if cname is None:
+                cname = next((k for k, v in environment.items() if v.term == callee_head), None)
+            if cname is not None and cname in self.consumed_fnonce_vars:
+                raise self.fail(
+                    "type",
+                    f"cannot invoke 'FnOnce' callable '{cname}' more than once",
+                    call_site,
+                )
+            if self.var_fn_modes.get(cid) == "FnOnce" and cname is not None:
+                fnonce_consume.add(cname)
+        for env_k, env_b in environment.items():
+            if env_b.term == term and env_k in self.consumed_fnonce_vars:
+                raise self.fail(
+                    "type",
+                    f"cannot invoke 'FnOnce' callable '{env_k}' more than once",
+                    call_site,
+                )
+            if (
+                env_b.term == term
+                and env_b.term.kind == "var"
+                and self.var_fn_modes.get(cast("int", env_b.term.value)) == "FnOnce"
+            ):
+                fnonce_consume.add(env_k)
         init_vt_w = self.whnf(value_type)
+        if init_vt_w.kind == "pi" and self.pi_fn_modes.get(cast("int", init_vt_w.value)) == "FnOnce":
+            for env_k, env_b in environment.items():
+                if env_b.term == callee_head:
+                    if env_k in self.consumed_fnonce_vars:
+                        raise self.fail(
+                            "type",
+                            f"cannot invoke 'FnOnce' callable '{env_k}' more than once",
+                            call_site,
+                        )
+                    fnonce_consume.add(env_k)
+        self.consumed_fnonce_vars.update(fnonce_consume)
         call_hr_info = (
             self.var_hr_regions.get(cast("int", callee_head.value))
             if callee_head.kind == "var"
@@ -1693,6 +1743,7 @@ class _Elaborator(
                         raise self.fail("name", f"expected argument label '{expected}', got '{spelling}'", node)
                 is_out_param = param_var_id in self.out_parameters
                 is_ref_param = param_var_id in self.ref_parameters
+                is_shared_ref_param = param_var_id in self.shared_ref_parameters
                 is_owned_param = param_var_id in self.owned_parameters
                 is_in_param = param_var_id in self.readonly_span_vars
                 arg_val_node = self._unwrap_group(self.node(node["value"]))
@@ -1701,14 +1752,20 @@ class _Elaborator(
                     if (
                         arg_val_node["kind"] == "unary"
                         and isinstance(arg_val_node.get("operator"), dict)
-                        and cast("Node", arg_val_node["operator"]).get("text") in {"ref", "in", "out", "move"}
+                        and cast("Node", arg_val_node["operator"]).get("text") in {"ref", "in", "out", "move", "shared_ref"}
                     )
                     else None
                 )
                 if arg_val_node["kind"] == "out_variable":
                     arg_mod = "out"
-                mode = ("out" if is_out_param else "ref" if is_ref_param else "in" if is_in_param
-                        else "owned" if is_owned_param else None)
+                mode = (
+                    "out" if is_out_param
+                    else "ref" if is_ref_param
+                    else "shared_ref" if is_shared_ref_param
+                    else "in" if is_in_param
+                    else "owned" if is_owned_param
+                    else None
+                )
                 self._check_argument_mode(mode, arg_mod, node)
                 if self.out_lint_candidates and is_ref_param and callee_head.kind == "const":
                     # An initialization loan requires a named place at each call.
@@ -1767,7 +1824,7 @@ class _Elaborator(
                 else:
                     arg_ident_node = (
                         self._unwrap_group(self.node(arg_val_node["value"]))
-                        if arg_mod in {"ref", "in", "move"}
+                        if arg_mod in {"ref", "in", "move", "shared_ref"}
                         else arg_val_node
                     )
                     if is_ref_param and arg_ident_node["kind"] != "name":
@@ -1776,6 +1833,9 @@ class _Elaborator(
                         else:
                             self._resolve_local_borrow_target("ref", arg_ident_node, environment, node)
                             loan_targets[idx] = (arg_ident_node, value_type.args[0])
+                    elif is_shared_ref_param and arg_ident_node["kind"] != "name":
+                        self._resolve_local_borrow_target("shared_ref", arg_ident_node, environment, node)
+                        loan_targets[idx] = (arg_ident_node, value_type.args[0])
                     if arg_ident_node["kind"] == "name":
                         arg_vname = self.name(arg_ident_node["name"])
                         lifted_set = self.lifted_invariants.get(arg_vname)
@@ -1786,11 +1846,24 @@ class _Elaborator(
                                 f"cannot pass record '{arg_vname}' to a callable while invariant '{clause_n}' is lifted",
                                 node,
                             )
-                        if is_ref_param or arg_mod == "ref":
+                        if is_shared_ref_param or arg_mod == "shared_ref":
+                            if arg_vname in self.readonly_in_params or self._is_readonly_span(environment[arg_vname].term):
+                                raise self.fail("type", f"cannot take 'shared ref' borrow of read-only 'in' parameter '{arg_vname}'", node)
+                            if arg_vname not in self.mutable_locals and arg_vname not in self.shared_ref_locals:
+                                raise self.fail("type", f"cannot pass immutable binding '{arg_vname}' as a 'shared ref' argument", node)
+                            seen_loan_names.add(arg_vname)
+                            loan_targets[idx] = (arg_ident_node, value_type.args[0])
+                        elif is_ref_param or arg_mod == "ref":
                             if arg_vname in self.indexed_local_borrows and self.indexed_local_borrows[arg_vname].mode != "ref":
                                 raise self.fail(
                                     "type",
                                     f"cannot borrow shared 'in' borrow '{arg_vname}' as exclusive 'ref' (write-through-shared)",
+                                    node,
+                                )
+                            if arg_vname in self.shared_ref_locals and arg_vname not in self.mutable_locals:
+                                raise self.fail(
+                                    "type",
+                                    f"cannot borrow 'shared ref' binding '{arg_vname}' as exclusive 'ref' (exclusive-from-shared)",
                                     node,
                                 )
                             if arg_vname not in self.mutable_locals:
@@ -1815,16 +1888,17 @@ class _Elaborator(
                             seen_loan_names.add(arg_vname)
                         elif arg_vname in seen_loan_names:
                             raise self.fail("type", f"overlapping loan for '{arg_vname}' in call", node)
-                        all_arg_var_names.add(arg_vname)
+                        if not (is_shared_ref_param or arg_mod == "shared_ref"):
+                            all_arg_var_names.add(arg_vname)
                     required_static = param_var_id in self.constant_parameters
                     checker = self.static_argument if required_static else self.check
                     check_target = (
                         arg_ident_node
-                        if arg_mod in {"ref", "in"} and arg_ident_node is not arg_val_node
+                        if arg_mod in {"ref", "in", "shared_ref"} and arg_ident_node is not arg_val_node
                         else self.node(node["value"])
                     )
-                    if arg_mod in {"in", "ref"}:
-                        if (arg_mod == "in" and check_target["kind"] == "index"
+                    if arg_mod in {"in", "ref", "shared_ref"}:
+                        if (arg_mod in {"in", "shared_ref"} and check_target["kind"] == "index"
                                 and self._unwrap_group(self.node(check_target["value"]))["kind"] == "name"):
                             borrowed, index = self._read_indexed_place(check_target, environment)
                             shared_indices[idx] = index.term
@@ -2017,6 +2091,30 @@ class _Elaborator(
             term = self.specialize(specialized_term) if specializing else specialized_term
             for variable, argument in reversed(runtime_arguments):
                 term = _term("let", self.types[cast("int", variable.value)], argument, term, value=variable.value)
+        if callee_head.kind == "const" and isinstance(callee_head.value, str) and call_site is not None:
+            mapped_ret_reg, has_prophecy_ret = self._check_call_regions(
+                callee_head.value, arguments, environment, call_site
+            )
+            if mapped_ret_reg is not None:
+                self.scoped_term_regions[id(term)] = mapped_ret_reg
+            if has_prophecy_ret:
+                sig = self.fn_region_signatures[callee_head.value]
+                prop_owners: list[str] = []
+                for pidx in sig.prophecy_param_indices:
+                    if pidx < len(arguments):
+                        an = self._unwrap_group(self.node(arguments[pidx]["value"]))
+                        if (
+                            an["kind"] == "unary"
+                            and isinstance(an.get("operator"), dict)
+                            and cast("Node", an["operator"]).get("text") == "ref"
+                        ):
+                            an = self._unwrap_group(self.node(an["value"]))
+                        if an["kind"] == "name":
+                            prop_owners.append(self.name(an["name"]))
+                if prop_owners:
+                    vt_head, _ = self.spine(self.whnf(value_type))
+                    is_res_wrapped = vt_head == _constant("holdfast_Result")
+                    self._record_prophecy_call_result(term, value_type, tuple(prop_owners), is_res_wrapped)
         if call_hr_info is not None:
             hr_regions, _, hr_result_region = call_hr_info
             if hr_result_region is not None and hr_result_region in hr_regions:
@@ -2142,6 +2240,10 @@ class _Elaborator(
                 param_type_node["kind"] == "modified_type"
                 and param_type_node.get("modifier") == "ref"
             )
+            is_shared_ref_param = (
+                param_type_node["kind"] == "modified_type"
+                and param_type_node.get("modifier") == "shared_ref"
+            )
             is_out_param = (
                 param_type_node["kind"] == "modified_type"
                 and param_type_node.get("modifier") == "out"
@@ -2156,10 +2258,20 @@ class _Elaborator(
             domain = self.type(source_type, extended, allow_out=True)
             variable = self.fresh(domain)
             dom_w = self.whnf(domain)
-            if dom_w.kind == "pi" and cast("int", dom_w.value) in self.pi_hr_regions:
-                self.var_hr_regions[cast("int", variable.value)] = self.pi_hr_regions[cast("int", dom_w.value)]
+            if dom_w.kind == "pi":
+                if cast("int", dom_w.value) in self.pi_hr_regions:
+                    self.var_hr_regions[cast("int", variable.value)] = self.pi_hr_regions[cast("int", dom_w.value)]
+                if cast("int", dom_w.value) in self.pi_fn_modes:
+                    self.var_fn_modes[cast("int", variable.value)] = self.pi_fn_modes[cast("int", dom_w.value)]
             if (p_reg := self._extract_type_region(param_type_node)) is not None:
                 self.param_type_regions[cast("int", variable.value)] = p_reg
+            p_mod = (
+                cast("str | None", param_type_node.get("modifier"))
+                if param_type_node["kind"] == "modified_type"
+                else None
+            )
+            if p_mod is not None or p_reg is not None:
+                self.var_region_mode[cast("int", variable.value)] = (p_mod or "", p_reg)
             if annotated_fn:
                 if node.get("const", False):
                     raise self.fail("unsupported", "contracted Fn parameters must be runtime parameters", node)
@@ -2172,6 +2284,8 @@ class _Elaborator(
                 self.readonly_span_vars.add(cast("int", variable.value))
             if is_ref_param:
                 self.ref_parameters.add(cast("int", variable.value))
+            if is_shared_ref_param:
+                self.shared_ref_parameters.add(cast("int", variable.value))
             if is_out_param:
                 self.out_parameters.add(cast("int", variable.value))
             if is_owned_param:
@@ -2196,6 +2310,9 @@ class _Elaborator(
                     self.readonly_in_params.add(name)
                 if is_ref_param or is_out_param:
                     self.mutable_locals.add(name)
+                if is_shared_ref_param:
+                    self.shared_ref_locals.add(name)
+                self.local_type_regions[name] = self._extract_type_region_qual(param_type_node)
                 if is_out_param:
                     self.out_param_names.add(name)
                     self.uninitialized_out_params.add(name)
@@ -2259,7 +2376,9 @@ class _Elaborator(
                 result = _PROP
             else:
                 parts = name.split(".")
-                if (
+                if (assoc_t := self._try_resolve_assoc_type(name, raw_arguments, arguments, environment)) is not None:
+                    result = assoc_t
+                elif (
                     len(parts) > 1
                     and not arguments
                     and name not in environment
@@ -2276,6 +2395,8 @@ class _Elaborator(
                         binding = self.lookup(name, environment, raw=True)
                         result = binding.term
                 else:
+                    if name in {"LocalCell", "BorrowCell"}:
+                        self._ensure_cell_prelude(name)
                     binding = self.lookup(name, environment, raw=True)
                     result, value_type = binding.term, binding.type
                     for argument in arguments:
@@ -2307,9 +2428,14 @@ class _Elaborator(
                 and not eff_nodes[0]["arguments"]
             )
             self.no_roles(node, "captures", "contracts")
-            if not allow_none_eff:
-                self.no_roles(node, "effects")
-            if node["mode"] != "Fn":
+            fn_mode = cast("str", node["mode"])
+            if fn_mode == "Fn":
+                if not allow_none_eff:
+                    self.no_roles(node, "effects")
+            elif fn_mode in {"FnMut", "FnOnce"}:
+                if self.in_callable_signature_kind in {"definition", "theorem", "lemma", "property", "constant"}:
+                    raise self.fail("unsupported", "only pure Fn callable types are supported")
+            else:
                 raise self.fail("unsupported", "only pure Fn callable types are supported")
             fn_generics = self.nodes(node["generics"])
             fn_params = self.nodes(node["parameters"])
@@ -2319,6 +2445,7 @@ class _Elaborator(
             prev_mutable = set(self.mutable_locals)
             prev_out = set(self.out_param_names)
             prev_uninit = set(self.uninitialized_out_params)
+            prev_shared = set(self.shared_ref_locals)
             try:
                 variables, extended = self.telescope(fn_generics, fn_params, environment, unit=True)
                 param_regions = tuple(self._extract_type_region(self.node(p["type"])) for p in fn_params)
@@ -2331,6 +2458,9 @@ class _Elaborator(
                 self.mutable_locals = prev_mutable
                 self.out_param_names = prev_out
                 self.uninitialized_out_params = prev_uninit
+                self.shared_ref_locals = prev_shared
+            if result.kind == "pi":
+                self.pi_fn_modes[cast("int", result.value)] = fn_mode
             if hr_regions and result.kind == "pi":
                 self.pi_hr_regions[cast("int", result.value)] = (
                     frozenset(hr_regions),
@@ -2339,11 +2469,12 @@ class _Elaborator(
                 )
         elif kind == "modified_type":
             modifier = node.get("modifier")
+            lt_name: str | None = None
             if node.get("lifetime") is not None:
-                if modifier not in {"in", "ref"}:
+                if modifier not in {"in", "ref", "shared_ref"}:
                     raise self.fail(
                         "unsupported",
-                        "explicit loan lifetimes are only supported on 'in' and 'ref' modifiers",
+                        "explicit loan lifetimes are only supported on 'in', 'ref', and 'shared_ref' modifiers",
                         node,
                     )
                 lt_node = self.node(node["lifetime"], "lifetime")
@@ -2370,7 +2501,7 @@ class _Elaborator(
                 if inner_w in (_PROP, _UNIT) or inner_w.kind in {"pi", "sort"}:
                     raise self.fail("type", "'owned' parameter requires a runtime value type", node)
                 result = inner_type
-            elif modifier in {"in", "ref"}:
+            elif modifier in {"in", "ref", "shared_ref"}:
                 inner_type = self.type(self.node(node["type"]), environment, require_sort=require_sort)
                 if not self._is_supported_loan_type(inner_type):
                     raise self.fail(
@@ -2378,7 +2509,11 @@ class _Elaborator(
                         f"modifier '{modifier}' requires a runtime value type",
                         node,
                     )
-                result = inner_type
+                if modifier == "ref" and self._prophecy_type_active(lt_name):
+                    owner_pack = cast("_Term", self.current_fn_ref_owner_type)
+                    result = _term("prod", inner_type, self.pi(inner_type, owner_pack))
+                else:
+                    result = inner_type
             else:
                 raise self.fail("unsupported", f"type modifier '{modifier}' requires the full frontend", node)
         else:
@@ -2397,6 +2532,8 @@ class _Elaborator(
             return self.check(self.node(node["value"]), expected, environment)
         if node["kind"] == "group":
             return self.check(self.node(node["value"]), expected, environment)
+        if (prophecy := self._build_ref_return_lens(node, expected, environment)) is not None:
+            return prophecy.term
         if node["kind"] not in {"lambda", "typed_lambda", "block"} and (
             self._is_propagatable_union(expected)
             or (self.current_return_type is not None and expected == self.current_return_type)
@@ -2490,12 +2627,18 @@ class _Elaborator(
             if expected_w is not None and expected_w.kind == "pi"
             else None
         )
+        lambda_fn_mode = (
+            self.pi_fn_modes.get(cast("int", expected_w.value), "Fn")
+            if expected_w is not None and expected_w.kind == "pi"
+            else "Fn"
+        )
         if node["kind"] == "typed_lambda":
             parameter_role = "parameter"
             signature = self.type(self.node(node["signature"]), environment)
             if expected is not None:
                 self.unify(signature, expected)
             signature_node = self.node(node["signature"], "function_type")
+            lambda_fn_mode = cast("str", signature_node["mode"])
             gen_nodes = self.nodes(signature_node["generics"])
             non_region_gens, lambda_regions = self._extract_regions(gen_nodes)
             if non_region_gens:
@@ -2515,10 +2658,14 @@ class _Elaborator(
         prev_readonly_in = set(self.readonly_in_params)
         prev_ret = self.current_return_type
         prev_outer_mutables = set(self.active_lambda_outer_mutables)
+        prev_lambda_mode = self.active_lambda_fn_mode
         is_hr_lambda = bool(lambda_regions) or expected_hr is not None
         self.active_regions.update(lambda_regions)
-        if is_hr_lambda:
+        self.active_lambda_fn_mode = lambda_fn_mode
+        if is_hr_lambda and lambda_fn_mode == "Fn":
             self.active_lambda_outer_mutables = set(self.mutable_locals)
+        else:
+            self.active_lambda_outer_mutables = set()
         try:
             if not parameters:
                 variable = self.fresh(_UNIT)
@@ -2619,7 +2766,7 @@ class _Elaborator(
                         if (
                             env_b.term.kind == "var"
                             and cast("int", env_b.term.value) in captured_free
-                            and self._contains_span_type(env_b.type)
+                            and self._contains_borrow_or_region_type(env_b.type, env_k)
                         ):
                             raise self.fail(
                                 "type",
@@ -2628,6 +2775,8 @@ class _Elaborator(
                             )
             lam_term = self.wrap("lam", variables, body.term)
             pi_type = self.wrap("pi", variables, body.type)
+            if pi_type.kind == "pi":
+                self.pi_fn_modes[cast("int", pi_type.value)] = lambda_fn_mode
             if lambda_regions and pi_type.kind == "pi":
                 self.pi_hr_regions[cast("int", pi_type.value)] = (
                     frozenset(lambda_regions),
@@ -2640,6 +2789,7 @@ class _Elaborator(
             self.readonly_in_params = prev_readonly_in
             self.current_return_type = prev_ret
             self.active_lambda_outer_mutables = prev_outer_mutables
+            self.active_lambda_fn_mode = prev_lambda_mode
 
 
 

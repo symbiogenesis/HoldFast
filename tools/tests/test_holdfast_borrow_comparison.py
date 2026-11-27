@@ -335,8 +335,10 @@ def _comparison_fixture_contracts() -> None:
            and by_case["shared_mut_stable_element"]["rust_polonius_legacy"] == "rejected"
            and by_case["shared_mut_stable_element"]["rust_polonius_alpha"] == "rejected"
            and by_case["shared_mut_stable_element"]["ante_expected"] == "accepted"
-           and by_case["shared_mut_stable_element"]["holdfast_expected"] == "rejected",
+           and by_case["shared_mut_stable_element"]["holdfast_expected"] == "accepted",
            f"unexpected shared_mut_stable_element matrix row: {by_case['shared_mut_stable_element']}")
+    ensure(by_case["partial_field_move"]["holdfast_expected"] == "accepted",
+           f"unexpected partial_field_move matrix row: {by_case['partial_field_move']}")
 
     ensure(len(ante_borrow_compare.TRIALS) >= 4
            and ante_borrow_compare.TRIALS[0].direct == ante_borrow_compare.DIRECT
@@ -412,11 +414,33 @@ def _comparison_fixture_contracts() -> None:
                        f"shared_mut_stable_element direct must be rejected in mode {shared_mode}")
 
 
+def _holdfast_comparison_fixtures_elaborate() -> None:
+    fixtures = TOOLS / "tests" / "fixtures"
+    hf_fixtures = (
+        "exclusive-conditional-return.hf",
+        "lending-iterator-gat.hf",
+        "fnmut-hrtb-callback.hf",
+        "loop-mutable-cursor.hf",
+        "shared-mut-stable-element.hf",
+        "tag-preserving-union-mut.hf",
+        "capacity-preserving-push.hf",
+        "partial-field-move.hf",
+        "multi-region-disambiguation.hf",
+    )
+    with parser.cached_build(TOOLS.parent) as compiled:
+        for fname in hf_fixtures:
+            source = (fixtures / fname).read_bytes()
+            ensure(source.startswith(b"// SPDX-License-Identifier: Apache-2.0\n"), f"missing SPDX in {fname}")
+            elaborate(source, parser.parse_source(compiled, source, surface=True))
+
+
 def cases() -> list[Case]:
     return [
         Case("comparison fixture contracts and markers", _comparison_fixture_contracts, lane="any"),
         Case("guarded nested-row invalidation with peer and frame replay", _nested_indexed_invalidation,
              lane="toolchain"),
         Case("direct local indexed borrows with path-sensitive separation", _direct_indexed_borrows,
+             lane="toolchain"),
+        Case("Wave 2 HoldFast comparison fixtures elaborate cleanly", _holdfast_comparison_fixtures_elaborate,
              lane="toolchain"),
     ]

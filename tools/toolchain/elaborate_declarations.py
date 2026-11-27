@@ -303,7 +303,7 @@ class _DeclarationsMixin:
             if param_node.get("const", False):
                 raise self.fail("unsupported", "record fields cannot be marked const", param_node)
             pt = self.node(param_node["type"])
-            if pt["kind"] == "modified_type" and pt.get("modifier") not in {"in", "owned"}:
+            if pt["kind"] == "modified_type" and pt.get("modifier") not in {"in", "ref", "shared_ref", "owned"}:
                 raise self.fail("unsupported", f"record fields cannot have loan modifier '{pt.get('modifier')}'", param_node)
         variables, environment = self.telescope(generics, parameters, {}, unit=False)
         generic_vars = variables[:len(generics)]
@@ -349,6 +349,17 @@ class _DeclarationsMixin:
         type_binding = _Binding(_constant(type_emitted), type_sig, len(generics))
         self.globals[name] = type_binding
         self.constants[type_emitted] = type_binding
+        decl_reg_tuple = tuple(sorted(decl_regions))
+        self.type_region_params[type_emitted] = decl_reg_tuple
+        self.type_region_variances[type_emitted] = self._compute_record_region_variances(decl_reg_tuple, parameters)
+        self.record_field_borrows[type_emitted] = tuple(
+            (
+                self.name(p["name"]),
+                self._extract_type_region_qual(self.node(p["type"])).modifier,
+                self._extract_type_region_qual(self.node(p["type"])).region,
+            )
+            for p in parameters
+        )
 
         record_type_app = _apps(_constant(type_emitted), *generic_vars)
         if not field_vars:
@@ -921,7 +932,7 @@ class _DeclarationsMixin:
                 if param_node.get("const", False):
                     raise self.fail("unsupported", "union constructor fields cannot be marked const", param_node)
                 pt = self.node(param_node["type"])
-                if pt["kind"] == "modified_type" and pt.get("modifier") != "owned":
+                if pt["kind"] == "modified_type" and pt.get("modifier") not in {"in", "ref", "shared_ref", "owned"}:
                     raise self.fail("unsupported", f"union constructor fields cannot have loan modifier '{pt.get('modifier')}'", param_node)
             field_vars, _ = self.telescope([], cparams, generic_env, unit=False)
             field_names = [self.name(p["name"]) for p in cparams]
@@ -978,6 +989,21 @@ class _DeclarationsMixin:
         type_binding = _Binding(_constant(type_emitted), type_sig, len(generics))
         self.globals[name] = type_binding
         self.constants[type_emitted] = type_binding
+        decl_reg_tuple = tuple(sorted(decl_regions))
+        self.type_region_params[type_emitted] = decl_reg_tuple
+        all_ctor_params = [p for c in constructors for p in self.nodes(c["parameters"])]
+        self.type_region_variances[type_emitted] = self._compute_record_region_variances(decl_reg_tuple, all_ctor_params)
+        self.union_ctor_borrows[type_emitted] = {
+            self.name(c["name"]): tuple(
+                (
+                    self.name(p["name"]),
+                    self._extract_type_region_qual(self.node(p["type"])).modifier,
+                    self._extract_type_region_qual(self.node(p["type"])).region,
+                )
+                for p in self.nodes(c["parameters"])
+            )
+            for c in constructors
+        }
 
         union_type_app = _apps(_constant(type_emitted), *generic_vars)
         union_ctors: list[_UnionCtor] = []
@@ -1198,6 +1224,7 @@ class _DeclarationsMixin:
         self.callable_effect_reads.update(mod.callable_effect_reads)
         self.callable_callback_effects.update(mod.callable_callback_effects)
         self.callable_effect_arities.update(mod.callable_effect_arities)
+        self._borrow_import_state(mod)
         self.untracked_effect_functions.update(mod.untracked_effect_functions)
         self.checked_resource_consumers.update(mod.checked_resource_consumers)
         self.fix_names.update(mod.fix_names)
@@ -1408,6 +1435,9 @@ class _DeclarationsMixin:
                 self.out_param_names.clear()
                 self.uninitialized_out_params.clear()
                 mkind = mnode["kind"]
+                if mkind == "associated_type":
+                    self._declare_interface_assoc_type(name, identity, mnode, generic_env)
+                    continue
                 if mkind not in {"function", "definition", "lemma", "theorem"}:
                     raise self.fail("unsupported", f"interface member '{mkind}' is not supported", mnode)
                 m_modifiers = mnode["modifiers"]
@@ -1458,8 +1488,9 @@ class _DeclarationsMixin:
                                 cnode,
                             )
                     m_vars, m_env = self.telescope(m_generics, m_params, generic_env, unit=True)
-                    m_gen_vars = m_vars[: len(m_generics)]
-                    m_param_vars = m_vars[len(m_generics) :]
+                    non_region_m_generics = [g for g in m_generics if g.get("mode") != "region"]
+                    m_gen_vars = m_vars[: len(non_region_m_generics)]
+                    m_param_vars = m_vars[len(non_region_m_generics) :]
                     m_param_labels = [
                         self.name(p.get("label", p["name"])) if p["name"] is not None else None for p in m_params
                     ]
@@ -1471,7 +1502,12 @@ class _DeclarationsMixin:
                             if pt["kind"] == "modified_type"
                             else None
                         )
-                    m_res_type = self.type(self.node(mnode["result"]), m_env)
+                    prev_sig_k = self.in_callable_signature_kind
+                    self.in_callable_signature_kind = "function" if mkind == "function" else "definition"
+                    try:
+                        m_res_type = self.type(self.node(mnode["result"]), m_env)
+                    finally:
+                        self.in_callable_signature_kind = prev_sig_k
                     m_sig = self.wrap("pi", m_vars, m_res_type)
                     m_self_var = self.fresh(m_sig)
                     all_m_param_ids = tuple(cast("int", v.value) for v in [*generic_vars, *m_vars])
@@ -1532,7 +1568,7 @@ class _DeclarationsMixin:
                     )
                     methods[mname] = mspec
                     self.active_interface_witnesses[active_key][mname] = _Binding(
-                        m_self_var, m_sig, len(m_generics)
+                        m_self_var, m_sig, len(non_region_m_generics)
                     )
                     if m_ens_terms:
                         rem_ids = tuple(cast("int", v.value) for v in m_vars)
@@ -1607,6 +1643,7 @@ class _DeclarationsMixin:
         finally:
             self.active_interface_witnesses.pop(active_key, None)
             self.active_interface_ensures.pop(active_key, None)
+            self.active_assoc_types.clear()
             self.mutable_locals.clear()
             self.local_borrows.clear()
             self.indexed_local_borrows.clear()
@@ -1732,11 +1769,18 @@ class _DeclarationsMixin:
                     node,
                 )
         member_nodes = self.nodes(node["declarations"])
+        impl_assoc_nodes: dict[str, Node] = {}
         impl_methods_by_name: dict[str, Node] = {}
         impl_laws_by_name: dict[str, Node] = {}
         for mnode in member_nodes:
             self.site = mnode
             mkind = mnode["kind"]
+            if mkind == "associated_type":
+                aname = self.name(mnode["name"])
+                if aname in impl_assoc_nodes:
+                    raise self.fail("name", f"duplicate associated type '{aname}' in impl of '{iface_name}'", mnode)
+                impl_assoc_nodes[aname] = mnode
+                continue
             if mkind not in {"function", "definition", "lemma", "theorem"}:
                 raise self.fail("unsupported", f"impl member '{mkind}' is not supported", mnode)
             mname = self.name(mnode["name"])
@@ -1779,7 +1823,13 @@ class _DeclarationsMixin:
         emitted_methods: dict[str, _Binding] = {}
         applied_self_methods: dict[str, _Term] = {}
         try:
+            resolved_assoc = self._check_impl_assoc_types(
+                iface_name, iface.name, impl_assoc_nodes, impl_env, tuple(target_types), node
+            )
+            if resolved_assoc:
+                self.impl_assoc_types[(iface.name, tuple(target_types))] = resolved_assoc
             for mname, mspec in iface.methods.items():
+                self._reset_borrow_callable_state()
                 mnode = impl_methods_by_name[mname]
                 self.site = mnode
                 self.reset_budget()
@@ -1861,6 +1911,9 @@ class _DeclarationsMixin:
                         expected_dom = self.substitute(expected_dom, cast("int", gv.value), tv)
                     for prev_smv, prev_mv in zip(spec_m_vars[:idx_v], m_vars[:idx_v], strict=True):
                         expected_dom = self.substitute(expected_dom, cast("int", prev_smv.value), prev_mv)
+                    for aspec, arhs in self.active_assoc_types.values():
+                        if aspec.abstract_var.kind == "var":
+                            expected_dom = self.substitute(expected_dom, cast("int", aspec.abstract_var.value), arhs)
                     self.site = mnode
                     self.unify(self.types[cast("int", mv.value)], expected_dom)
                 expected_ret = mspec.return_type
@@ -1868,8 +1921,23 @@ class _DeclarationsMixin:
                     expected_ret = self.substitute(expected_ret, cast("int", gv.value), tv)
                 for spec_mv, mv in zip(spec_m_vars, m_vars, strict=True):
                     expected_ret = self.substitute(expected_ret, cast("int", spec_mv.value), mv)
-                m_res_type = self.type(self.node(mnode["result"]), m_env)
-                self.site = self.node(mnode["result"])
+                for aspec, arhs in self.active_assoc_types.values():
+                    if aspec.abstract_var.kind == "var":
+                        expected_ret = self.substitute(expected_ret, cast("int", aspec.abstract_var.value), arhs)
+                m_res_node = self.node(mnode["result"])
+                non_region_impl_m_generics = [g for g in m_generics if g.get("mode") != "region"]
+                self._prepare_callable_prophecy_context(
+                    m_params, m_vars[len(non_region_impl_m_generics):], m_res_node
+                )
+                prev_sig_k = self.in_callable_signature_kind
+                self.in_callable_signature_kind = "function" if mkind == "function" else "definition"
+                self._prophecy_return_depth += 1
+                try:
+                    m_res_type = self.type(m_res_node, m_env)
+                finally:
+                    self._prophecy_return_depth -= 1
+                    self.in_callable_signature_kind = prev_sig_k
+                self.site = m_res_node
                 self.unify(m_res_type, expected_ret)
 
                 inst_req_bools: list[_Term] = []
@@ -2205,6 +2273,7 @@ class _DeclarationsMixin:
         finally:
             self.active_interface_witnesses.pop(self_active_key, None)
             self.active_interface_ensures.pop(self_active_key, None)
+            self.active_assoc_types.clear()
             for wk in active_where_keys:
                 self.active_interface_witnesses.pop(wk, None)
                 self.active_interface_ensures.pop(wk, None)
@@ -2361,28 +2430,26 @@ class _DeclarationsMixin:
     def _check_callable_loans(
         self: _Elaborator, fn_node: Node, enclosing_type: str | None = None
     ) -> None:
-        structs: dict[str, loans._StructInfo] = {}
-        for rname, rinfo in self.records.items():
-            fpaths = tuple((rf.name,) for rf in rinfo.fields)
-            invs = tuple(
-                inv.name for inv in rinfo.invariants if not inv.name.startswith("__anon_")
-            )
-            sinfo = loans._StructInfo(fpaths, {}, invs)
-            structs[rname] = sinfo
-            short_name = rname.split("_")[-1]
-            if short_name not in structs:
-                structs[short_name] = sinfo
+        structs, fn_returns, proved_facts = self._build_loans_structs_and_facts()
         fn_name = self.name(fn_node["name"])
-        lowerer = loans._FunctionLowerer(fn_name, fn_node, enclosing_type, structs)
+        adapted_fn_node, remapped_results = self._prepare_loan_ast(fn_node)
+        lowerer = loans._FunctionLowerer(
+            fn_name,
+            adapted_fn_node,
+            enclosing_type,
+            structs,
+            fn_returns,
+            proved_facts=proved_facts,
+        )
         lowerer.checked_receivers = self.checked_receivers
         lowerer.checked_scalar_calls = self.checked_scalar_calls
         if self.in_executable_function:
-            lowerer.result_bindings = self.result_bindings
+            lowerer.result_bindings = remapped_results
             for param in self.nodes(fn_node["parameters"]):
                 if param["kind"] == "parameter":
                     pname = self.name(param["name"])
                     ptype = self.node(param["type"])
-                    if ptype.get("modifier") not in {"in", "ref", "out"} and pname in self.entry_env:
+                    if ptype.get("modifier") not in {"in", "ref", "shared_ref", "out"} and pname in self.entry_env:
                         lowerer.result_parameters.update(self._result_paths(pname, self.entry_env[pname].type))
             lowerer.result_names = lowerer.result_parameters.union(*lowerer.result_bindings.values())
         try:
@@ -2393,115 +2460,16 @@ class _DeclarationsMixin:
         if issue := lowerer.unexamined_result(lowered.graph):
             name, site = issue
             raise self.fail("type", f"unexamined Result '{name}': match it, propagate it with '?' or return it", site)
-        borrow_origins = {
-            event.loan.name: (event.loan, lowered.node_sites[cfg_node.name])
-            for cfg_node in lowered.graph.nodes
-            if isinstance(event := cfg_node.event, (loans.Borrow, loans.Reserve))
-        }
+        borrow_origins: dict[str, tuple[loans.Loan, Node]] = {}
+        for cfg_node in lowered.graph.nodes:
+            if isinstance(event := cfg_node.event, (loans.Borrow, loans.Reserve)):
+                entry = (event.loan, lowered.node_sites.get(cfg_node.name, fn_node))
+                borrow_origins[event.loan.name] = entry
+                borrow_origins.setdefault(loans.base_loan_name(event.loan.name), entry)
         for path in report.paths:
             for issue in path.issues:
-                site = lowered.node_sites.get(issue.node, fn_node)
-                res = issue.resources
-                if issue.kind in {
-                    "suspended-parent", "conflicting-access", "competing-loans",
-                    "conflicting-receiver-reservation",
-                }:
-                    loan, origin = borrow_origins[res[-1]]
-                    start = self.fail("type", "", origin)
-                    footprint = loan.place.owner + "".join(
-                        "[*]" if part == "*" else f".{part}" for part in loan.place.fields
-                    )
-                    operation = "borrow" if issue.kind == "competing-loans" else "access"
-                    if issue.kind == "conflicting-receiver-reservation":
-                        raise self.fail(
-                            "type",
-                            f"operation conflicts with the reserved receiver '{footprint}' "
-                            f"selected at line {start.line}, column {start.column} ({issue.kind})",
-                            site,
-                        )
-                    raise self.fail(
-                        "type",
-                        f"{operation} conflicts with a live {loan.mode} loan of '{footprint}' "
-                        f"created at line {start.line}, column {start.column} ({issue.kind})",
-                        site,
-                    )
-                if issue.kind == "exclusive-from-shared":
-                    new_l = res[0] if res else ""
-                    parent_l = res[1] if len(res) > 1 else ""
-                    raise self.fail(
-                        "type",
-                        f"cannot take exclusive 'ref' borrow '{new_l}' from shared 'in' borrow '{parent_l}' (exclusive-from-shared)",
-                        site,
-                    )
-                if issue.kind == "write-through-shared":
-                    loan_id = res[0] if res else ""
-                    raise self.fail(
-                        "type",
-                        f"cannot mutate through shared 'in' borrow '{loan_id}' (write-through-shared)",
-                        site,
-                    )
-                if issue.kind == "local-loan-escape":
-                    loan_id = res[0] if res else ""
-                    owner_id = res[1] if len(res) > 1 else ""
-                    raise self.fail(
-                        "type",
-                        f"cannot return loan '{loan_id}' borrowed from local variable '{owner_id}' (local-loan-escape)",
-                        site,
-                    )
-                if issue.kind == "exclusive-loan-escape":
-                    loan_id = res[0] if res else ""
-                    raise self.fail(
-                        "type",
-                        f"cannot return exclusive 'ref' loan '{loan_id}' (exclusive-loan-escape)",
-                        site,
-                    )
-                if issue.kind == "scoped-loan-escape":
-                    loan_id = res[0] if res else ""
-                    raise self.fail(
-                        "type",
-                        f"cannot allow scoped loan '{loan_id}' to escape its scope (scoped-loan-escape)",
-                        site,
-                    )
-                if issue.kind == "use-after-owner-move":
-                    owner_id = res[0] if res else ""
-                    raise self.fail(
-                        "type",
-                        f"cannot use or borrow '{owner_id}' after it was moved (use-after-owner-move)",
-                        site,
-                    )
-                if issue.kind == "partial-owner-move-unsupported":
-                    owner_id = res[0] if res else ""
-                    raise self.fail(
-                        "type",
-                        f"cannot move a projected field or element out of '{owner_id}' (partial-owner-move-unsupported)",
-                        site,
-                    )
-                if issue.kind == "move-through-loan-unsupported":
-                    loan_id = res[0] if res else ""
-                    raise self.fail(
-                        "type",
-                        f"cannot move through loan '{loan_id}' (move-through-loan-unsupported)",
-                        site,
-                    )
-                if issue.kind == "open-invariant-whole-receiver":
-                    owner_id = res[0] if res else ""
-                    raise self.fail(
-                        "type",
-                        f"cannot access whole record '{owner_id}' while an invariant clause is lifted (open-invariant-whole-receiver)",
-                        site,
-                    )
-                if issue.kind == "unclosed-invariant":
-                    owner_id = res[0] if res else ""
-                    raise self.fail(
-                        "type",
-                        f"lifted invariant on '{owner_id}' is not closed on all exit paths (unclosed-invariant)",
-                        site,
-                    )
-                raise self.fail(
-                    "type",
-                    f"loan analysis rejected callable '{fn_name}': {issue.kind} ({', '.join(res)})",
-                    site,
-                )
+                raise self._format_borrow_conflict_error(issue, lowered, borrow_origins, fn_node)
+        self._discharge_loan_obligations(report, lowered, fn_node)
 
     def _parse_effects_clause(
         self: _Elaborator,
@@ -2809,6 +2777,7 @@ class _DeclarationsMixin:
         self.static_effect_sites.clear()
         self.slice_views.clear()
         self.restored_view_terms.clear()
+        self._reset_borrow_callable_state()
         kind = node["kind"]
         if kind == "import":
             self._import_declaration(node)
@@ -2903,6 +2872,8 @@ class _DeclarationsMixin:
         generics, decl_regions = self._extract_regions(raw_generics)
         self.active_regions = set(decl_regions)
         parameters = [] if kind in {"alias", "constant", "property"} else self.nodes(node["parameters"])
+        prev_sig_kind = self.in_callable_signature_kind
+        self.in_callable_signature_kind = cast("str", kind)
         variables, environment = self.telescope(
             generics, parameters, {}, unit=kind not in {"alias", "constant", "property"},
             callback_contracts=kind in {"function", "definition"},
@@ -3003,13 +2974,16 @@ class _DeclarationsMixin:
                     for req_idx, req_contract in enumerate(requires_clauses):
                         req_val_node = self.node(req_contract["value"])
                         saved_req_metas = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
-                        req_val: _Binding | None = None
-                        if req_val_node["kind"] != "quantifier":
-                            try:
-                                req_val = self.expression(req_val_node, environment)
-                            except HoldFastError:
-                                self.restore_metas(saved_req_metas)
-                                req_val = None
+                        if (outlives_b := self._record_outlives_constraint_if_present(req_val_node)) is not None:
+                            req_val = outlives_b
+                        else:
+                            req_val = None
+                            if req_val_node["kind"] != "quantifier":
+                                try:
+                                    req_val = self.expression(req_val_node, environment)
+                                except HoldFastError:
+                                    self.restore_metas(saved_req_metas)
+                                    req_val = None
                         if req_val is not None and self.whnf(req_val.type) == _BOOL:
                             req_bool_terms.append(req_val.term)
                             call_requirements.append(req_val.term)
@@ -3066,7 +3040,13 @@ class _DeclarationsMixin:
                     for req_prop in reversed(req_props):
                         result = self.pi(req_prop, result)
                 else:
-                    result = self.type(self.node(node["result"]), environment)
+                    res_node = self.node(node["result"])
+                    self._prepare_callable_prophecy_context(parameters, param_vars, res_node)
+                    self._prophecy_return_depth += 1
+                    try:
+                        result = self.type(res_node, environment)
+                    finally:
+                        self._prophecy_return_depth -= 1
                     raw_body = node["value"] if kind == "definition" else node["body"]
                     if raw_body is None:
                         raise self.fail("unsupported", "abstract callable signatures have no emitted implementation", node)
@@ -3381,6 +3361,11 @@ class _DeclarationsMixin:
                     len(generics),
                     post_env_facts,
                 )
+            if kind in {"definition", "function"}:
+                self._record_callable_region_signature(
+                    emitted, node, raw_generics, parameters, param_vars, self.node(node["result"])
+                )
+            self.in_callable_signature_kind = prev_sig_kind
             if where_iface_constraints:
                 base_param_ids = tuple(cast("int", v.value) for v in [*generic_vars, *param_vars])
                 self.callable_where_constraints[emitted] = (

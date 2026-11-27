@@ -1,0 +1,27 @@
+// SPDX-License-Identifier: Apache-2.0
+module FnMutHrtbCallback;
+
+public record ByteSlot(byte Current, byte Bonus);
+
+public byte ApplyMutTwice(
+    in ByteSlot slot,
+    FnMut<region 'fresh>(in<'fresh> byte) -> in<'fresh> byte cb)
+{
+    let a = cb(in slot.Current);
+    let b = cb(in slot.Bonus);
+    return a.WrappingAdd(b);
+}
+
+public byte ApplyOnce(
+    in ByteSlot slot,
+    FnOnce<region 'fresh>(in<'fresh> byte) -> byte cb)
+{
+    return cb(in slot.Current);
+}
+
+public byte UseCallbacks(in ByteSlot slot)
+{
+    let mutTotal = ApplyMutTwice(in slot, FnMut<region 'r>(in<'r> byte x) -> in<'r> byte => x);
+    let onceVal = ApplyOnce(in slot, FnOnce<region 'r>(in<'r> byte x) -> byte => x.WrappingAdd(1u8));
+    return mutTotal.WrappingAdd(onceVal);
+}

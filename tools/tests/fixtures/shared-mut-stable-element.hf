@@ -1,0 +1,24 @@
+// SPDX-License-Identifier: Apache-2.0
+module SharedMutStableElement;
+
+public record StablePair(byte First, byte Second);
+
+public byte SharedMutAliasUpdate(owned StablePair initial)
+{
+    var pair = initial;
+    let a = shared ref pair;
+    let b = shared ref pair;
+    let before = a.First;
+    b.First = 9u8;
+    return before.WrappingAdd(a.First).WrappingAdd(b.Second);
+}
+
+public byte CellAliasUpdate()
+{
+    var cell = LocalCell.New(5u8);
+    let c1 = shared ref cell;
+    let c2 = shared ref cell;
+    let oldVal = c1.Get();
+    c2.Set(12u8);
+    return oldVal.WrappingAdd(c1.Get());
+}

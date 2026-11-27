@@ -1,0 +1,56 @@
+// SPDX-License-Identifier: Apache-2.0
+module LendingIteratorGat;
+
+public record PairCursor(byte First, byte Second, byte Step);
+
+public interface LendingIterator<Self> {
+    type Item<region 'next>;
+    public Self.Item<'next> Next<region 'next>(ref<'next> Self self);
+}
+
+public impl LendingIterator<PairCursor> {
+    type Item<region 'next> = in<'next> byte;
+
+    public in<'next> byte Next<region 'next>(ref<'next> PairCursor self)
+    {
+        if (self.Step == 0u8) {
+            self = PairCursor(self.First, self.Second, 1u8);
+            return in self.First;
+        }
+        return in self.Second;
+    }
+}
+
+public interface MutLendingIterator<Self> {
+    type MutItem<region 'next>;
+    public Self.MutItem<'next> NextMut<region 'next>(ref<'next> Self self);
+}
+
+public impl MutLendingIterator<PairCursor> {
+    type MutItem<region 'next> = ref<'next> byte;
+
+    public ref<'next> byte NextMut<region 'next>(ref<'next> PairCursor self)
+    {
+        if (self.Step == 0u8) {
+            self = PairCursor(self.First, self.Second, 1u8);
+            return ref self.First;
+        }
+        return ref self.Second;
+    }
+}
+
+public byte StepPairCursor(owned PairCursor cursor)
+{
+    var cur = cursor;
+    let first = PairCursor.Next(ref cur);
+    let second = PairCursor.Next(ref cur);
+    return first.WrappingAdd(second);
+}
+
+public PairCursor MutateViaGat(owned PairCursor cursor, byte updated)
+{
+    var cur = cursor;
+    let slot = PairCursor.NextMut(ref cur);
+    slot = updated;
+    return cur;
+}

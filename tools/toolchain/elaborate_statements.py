@@ -817,9 +817,13 @@ class _StatementsMixin:
             tname = self.name(target["name"])
             if tname not in updated:
                 raise self.fail("name", f"unknown identifier '{tname}'", target)
+            if op == "=" and self._is_reborrow_assignment(tname, val_node):
+                if tname in self.frozen_collections:
+                    raise self.fail("type", f"cannot mutate collection '{tname}' while iterating over it", statement)
+                return self._elaborate_reborrow_assignment(tname, val_node, updated, statement)
             if tname in self.frozen_collections:
                 raise self.fail("type", f"cannot mutate collection '{tname}' while iterating over it", statement)
-            if tname in self.local_borrows and self.local_borrows[tname][0] != "ref":
+            if tname in self.local_borrows and self.local_borrows[tname][0] not in {"ref", "shared_ref"}:
                 raise self.fail(
                     "type",
                     f"cannot assign through shared 'in' borrow '{tname}' (write-through-shared)",
@@ -831,12 +835,24 @@ class _StatementsMixin:
                     f"cannot assign through shared 'in' borrow '{tname}' (write-through-shared)",
                     target,
                 )
-            if tname not in self.mutable_locals:
+            if (
+                tname not in self.mutable_locals
+                and tname not in self.shared_ref_locals
+                and tname not in self.prophecy_borrows
+            ):
                 raise self.fail(
                     "type",
                     f"cannot assign to immutable binding '{tname}'; declare it with 'var' or 'ref'",
                     target,
                 )
+            if tname in self.invalidated_prophecy_borrows:
+                raise self.fail(
+                    "type",
+                    f"cannot use returned borrow '{tname}' after owner '{self.invalidated_prophecy_borrows[tname]}' was mutated (conflicting-access)",
+                    target,
+                )
+            if tname not in self.prophecy_borrows:
+                self._invalidate_prophecy_borrows_for_owner(tname)
             if tname in self.active_lambda_outer_mutables:
                 raise self.fail("type", f"cannot mutate outer variable '{tname}' inside higher-ranked callback", statement)
             if tname in self.local_borrows:
@@ -880,6 +896,9 @@ class _StatementsMixin:
                         f"cannot assign value from higher-ranked callback region to outer binding '{tname}'",
                         statement,
                     )
+            if tname in self.prophecy_borrows:
+                self._apply_prophecy_write(tname, _Binding(rhs_term, cur_b.type), updated, statement)
+                return updated
             if tname in self.local_borrows:
                 self._apply_borrow_write(tname, _Binding(rhs_term, cur_b.type), updated, statement)
                 return updated
@@ -897,8 +916,28 @@ class _StatementsMixin:
                 self._check_record_invariants(
                     rinfo, rec_targs, rhs_term, updated, statement, exclude_clauses=lifted
                 )
+            elif (
+                rec_head.kind == "const"
+                and isinstance(rec_head.value, str)
+                and rec_head.value in self.unions_by_type
+            ):
+                uinfo = self.unions_by_type[rec_head.value]
+                self._check_union_tag_preserved(tname, cur_b.term, rhs_term, uinfo, updated)
+            self._clear_partial_move_on_write(tname, ())
             updated[tname] = _Binding(rhs_term, cur_b.type)
-            self._refresh_local_borrows(updated, statement)
+            if tname in self.shared_ref_locals:
+                if not self._is_shape_stable_type(cur_b.type) and tname not in {
+                    p.owner for p in self.proved_tag_preserved_places
+                }:
+                    raise self.fail(
+                        "type",
+                        f"unstable write through 'shared ref' binding '{tname}' requires a shape-stable or tag-preserved proof (unstable-shared-mut-write)",
+                        statement,
+                    )
+                self._purge_overlapping_facts_on_shared_write(tname, (), None, updated)
+                self._refresh_shared_mut_aliases(tname, updated, statement)
+            else:
+                self._refresh_local_borrows(updated, statement)
             return updated
         if target["kind"] == "member":
             recv_node = self._unwrap_group(self.node(target["value"]))
@@ -1037,7 +1076,7 @@ class _StatementsMixin:
                     f"cannot mutate field '{fname}' of uninitialized 'out' parameter '{rname}'; initialize the whole value first",
                     target,
                 )
-            if rname in self.local_borrows and self.local_borrows[rname][0] != "ref":
+            if rname in self.local_borrows and self.local_borrows[rname][0] not in {"ref", "shared_ref"}:
                 raise self.fail(
                     "type",
                     f"cannot mutate field '{fname}' through shared 'in' borrow '{rname}' (write-through-shared)",
@@ -1049,7 +1088,7 @@ class _StatementsMixin:
                     f"cannot mutate field '{fname}' through shared 'in' borrow '{rname}' (write-through-shared)",
                     target,
                 )
-            if rname not in self.mutable_locals:
+            if rname not in self.mutable_locals and rname not in self.shared_ref_locals:
                 raise self.fail(
                     "type",
                     f"cannot mutate field '{fname}' of immutable record '{rname}'; declare it with 'var' or 'ref'",
@@ -1109,8 +1148,14 @@ class _StatementsMixin:
             self._check_record_invariants(
                 record_info, type_args, new_rec_term, updated, statement, exclude_clauses=lifted
             )
+            self._clear_partial_move_on_write(rname, (fname,))
+            self._invalidate_prophecy_borrows_for_owner(rname)
             updated[rname] = _Binding(new_rec_term, cur_b.type)
-            self._refresh_local_borrows(updated, statement)
+            if rname in self.shared_ref_locals:
+                self._purge_overlapping_facts_on_shared_write(rname, (fname,), None, updated)
+                self._refresh_shared_mut_aliases(rname, updated, statement)
+            else:
+                self._refresh_local_borrows(updated, statement)
             return updated
         if target["kind"] == "index":
             recv_node = self._unwrap_group(self.node(target["value"]))
@@ -1371,7 +1416,7 @@ class _StatementsMixin:
         site_node: Node,
     ) -> None:
         bmode, owner_name, field_path = self.local_borrows[bname]
-        if bmode != "ref":
+        if bmode not in {"ref", "shared_ref"}:
             raise self.fail(
                 "type",
                 f"cannot mutate through shared 'in' borrow '{bname}' (write-through-shared)",
@@ -1399,37 +1444,34 @@ class _StatementsMixin:
                     updated[parent_name] = _Binding(
                         _apps(_constant("Span_Restore"), _U8, p_b.term, new_binding.term), p_b.type
                     )
-        elif len(field_path) == 1:
-            fname = field_path[0]
+        else:
             owner_b = updated[owner_name]
-            rec_type = self.whnf(owner_b.type)
-            head, type_args = self.spine(rec_type)
-            if (
-                head.kind != "const"
-                or not isinstance(head.value, str)
-                or head.value not in self.records_by_type
-            ):
-                raise self.fail("type", f"borrowed owner '{owner_name}' is not a record", site_node)
-            record_info = self.records_by_type[head.value]
-            field_index = next(
-                (idx for idx, rf in enumerate(record_info.fields) if rf.name == fname),
-                None,
-            )
-            if field_index is None:
-                raise self.fail("name", f"record '{record_info.name}' has no field '{fname}'", site_node)
-            final_fields: list[_Term] = []
-            for idx, rf in enumerate(record_info.fields):
-                if idx == field_index:
-                    final_fields.append(new_binding.term)
-                else:
-                    final_fields.append(_apps(_constant(rf.proj_const), *type_args, owner_b.term))
-            new_rec_term = _apps(_constant(record_info.ctor_const), *type_args, *final_fields)
             lifted = self.lifted_invariants.get(owner_name, set()) | self.lifted_invariants.get(bname, set())
-            self._check_record_invariants(
-                record_info, type_args, new_rec_term, updated, site_node, exclude_clauses=lifted
+            new_rec_term = self._update_record_field_path(
+                owner_b.term,
+                owner_b.type,
+                field_path,
+                new_binding.term,
+                updated,
+                site_node,
+                exclude_clauses=lifted,
             )
             updated[owner_name] = _Binding(new_rec_term, owner_b.type)
-        self._refresh_local_borrows(updated, site_node)
+        self._clear_partial_move_on_write(owner_name, field_path)
+        if bmode == "shared_ref" or owner_name in self.shared_ref_locals:
+            written_ty = updated[owner_name].type if not field_path else new_binding.type
+            if not self._is_shape_stable_type(written_ty) and owner_name not in {
+                p.owner for p in self.proved_tag_preserved_places
+            }:
+                raise self.fail(
+                    "type",
+                    f"unstable write through 'shared ref' binding '{bname}' requires a shape-stable or tag-preserved proof (unstable-shared-mut-write)",
+                    site_node,
+                )
+            self._purge_overlapping_facts_on_shared_write(owner_name, field_path, None, updated)
+            self._refresh_shared_mut_aliases(owner_name, updated, site_node)
+        else:
+            self._refresh_local_borrows(updated, site_node)
 
     def _apply_indexed_borrow_write(
         self: _Elaborator,
@@ -3479,12 +3521,15 @@ class _StatementsMixin:
                     )
                     continue
                 if kind == "foreach":
-                    if (
-                        index < len(statements) - 1
-                        and self._split_range_foreach_return(self.node(statement["body"], "block")) is not None
-                    ):
+                    if index < len(statements) - 1 and self._stmt_may_return(self.node(statement["body"], "block")):
+                        if self._split_range_foreach_return(self.node(statement["body"], "block")) is not None:
+                            return finish(
+                                self._elaborate_returning_foreach_statement(
+                                    statement, statements[index + 1:], extended, expected, (*active_facts, *statement_facts)
+                                )
+                            )
                         return finish(
-                            self._elaborate_returning_foreach_statement(
+                            self._elaborate_general_returning_loop(
                                 statement, statements[index + 1:], extended, expected, (*active_facts, *statement_facts)
                             )
                         )
@@ -3498,7 +3543,7 @@ class _StatementsMixin:
                         coll_node["kind"] == "range"
                         and statement["mode"] == "value"
                         and index < len(statements) - 1
-                        and self._split_range_foreach_return(self.node(statement["body"], "block")) is not None
+                        and self._stmt_may_return(self.node(statement["body"], "block"))
                     ):
                         range_stmt: Node = {
                             "kind": "foreach",
@@ -3509,8 +3554,14 @@ class _StatementsMixin:
                             "contracts": statement["contracts"],
                             "body": statement["body"],
                         }
+                        if self._split_range_foreach_return(self.node(statement["body"], "block")) is not None:
+                            return finish(
+                                self._elaborate_returning_foreach_statement(
+                                    range_stmt, statements[index + 1:], extended, expected, (*active_facts, *statement_facts)
+                                )
+                            )
                         return finish(
-                            self._elaborate_returning_foreach_statement(
+                            self._elaborate_general_returning_loop(
                                 range_stmt, statements[index + 1:], extended, expected, (*active_facts, *statement_facts)
                             )
                         )
@@ -3519,6 +3570,12 @@ class _StatementsMixin:
                     )
                     continue
                 if kind == "while":
+                    if index < len(statements) - 1 and self._stmt_may_return(self.node(statement["body"], "block")):
+                        return finish(
+                            self._elaborate_general_returning_loop(
+                                statement, statements[index + 1:], extended, expected, (*active_facts, *statement_facts)
+                            )
+                        )
                     extended = self._elaborate_while_statement(
                         statement, extended, (*active_facts, *statement_facts)
                     )
@@ -3641,6 +3698,33 @@ class _StatementsMixin:
                     then_returns = bool(then_stmts and then_stmts[-1]["kind"] == "return")
                     else_returns = bool(else_stmts and else_stmts[-1]["kind"] == "return")
                     if not then_returns and not else_returns:
+                        if self._stmt_may_return(statement):
+                            target_ret = expected if expected is not None else self.current_return_type
+                            if target_ret is None:
+                                raise self.fail("type", "returning conditional requires a known return type", statement)
+                            ref_names = tuple(n for n in sorted(self.entry_env) if n in self.mutable_locals and n in extended)
+                            state_names = tuple(n for n in extended if n in self.mutable_locals)
+                            acc_term, _, _ = self._elaborate_returning_block(
+                                statements[index:], extended, target_ret, (*active_facts, *statement_facts),
+                                snap_names=ref_names, state_names=state_names,
+                            )
+                            acc_t = self.infer(acc_term)
+                            m_v = self.fresh(acc_t)
+                            ret_pk_t = acc_t.args[0]
+                            st_pk_t = acc_t.args[1]
+                            rp = self.fresh(ret_pk_t)
+                            rv, _ = self._unpack_names_with_head(ref_names, extended, _Binding(rp, ret_pk_t), target_ret)
+                            sv = self.fresh(st_pk_t)
+                            res_t = _term(
+                                "sum_match",
+                                _term("lam", acc_t, target_ret, value=m_v.value),
+                                acc_term,
+                                _term("lam", ret_pk_t, rv, value=rp.value),
+                                _term("lam", st_pk_t, self._default_term_for_type(target_ret), value=sv.value),
+                            )
+                            self.final_ref_bindings = dict(extended)
+                            self.final_return_facts = list(self.active_facts[saved_active_len:])
+                            return finish(_Binding(res_t, target_ret))
                         extended, _ = self._elaborate_non_returning_block(
                             {"kind": "block", "span": statement["span"], "statements": [statement]},
                             extended,
@@ -3742,6 +3826,7 @@ class _StatementsMixin:
                             cur_stmt,
                         )
                     self._check_span_view_use(result.term, extended, cur_stmt, use="return")
+                    self._check_return_region(value_node, extended, cur_stmt)
                     if self.uninitialized_out_params:
                         uninit_list = ", ".join(sorted(self.uninitialized_out_params))
                         raise self.fail(
