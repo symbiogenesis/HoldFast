@@ -32,6 +32,12 @@ from toolchain import (
 from toolchain import (
     surface as holdfast_surface,
 )
+from toolchain._isolated_worker import (
+    close_worker_proc as _close_worker_proc,
+)
+from toolchain._isolated_worker import (
+    parse_batch_reply_line,
+)
 from toolchain.ast import MAX_SOURCE_BYTES, MAX_SYNTAX_DEPTH, HoldFastError, trivia_end
 from toolchain.atomic import atomic_path, publish_report
 from toolchain.hashing import file_sha256 as _digest
@@ -544,23 +550,6 @@ _VERIFIED_EXE_LOCK = threading.Lock()
 _VERIFIED_EXECUTABLES: dict[str, tuple[str, tuple[int, int, int, int, int]]] = {}
 
 
-def _close_worker_proc(proc: subprocess.Popen[bytes] | None) -> None:
-    if proc is not None:
-        if proc.stdin is not None:
-            with contextlib.suppress(OSError):
-                proc.stdin.close()
-        with contextlib.suppress(OSError, subprocess.SubprocessError):
-            proc.wait(timeout=2)
-        for stream in (proc.stdout, proc.stderr):
-            if stream is not None:
-                with contextlib.suppress(OSError):
-                    stream.close()
-        if proc.poll() is None:
-            with contextlib.suppress(OSError, subprocess.SubprocessError):
-                proc.terminate()
-                proc.wait(timeout=2)
-
-
 def reset_worker() -> None:
     """Terminate any persistent development-parser `--batch` worker."""
     with _DEV_WORKER_LOCK:
@@ -693,15 +682,17 @@ def _parse_batch(compiled: Build, source: bytes, *, surface: bool, layout: bool)
             except OSError:
                 line = b""
             if line:
-                trimmed = line.rstrip(b"\r\n")
-                code_bytes, sep, payload = trimmed.partition(b" ")
-                if sep != b" " or code_bytes not in (b"0", b"1"):
+                try:
+                    code, payload = parse_batch_reply_line(
+                        line, error_message="native parser returned malformed JSON",
+                    )
+                except ValueError:
                     _DEV_WORKER["proc"] = None
                     _DEV_WORKER["executable"] = None
                     _DEV_WORKER["buf"] = bytearray()
                     _close_worker_proc(proc)
-                    raise ValueError("native parser returned malformed JSON")
-                return int(code_bytes), payload, stderr_bytes
+                    raise
+                return code, payload, stderr_bytes
             _DEV_WORKER["proc"] = None
             _DEV_WORKER["executable"] = None
             _DEV_WORKER["buf"] = bytearray()

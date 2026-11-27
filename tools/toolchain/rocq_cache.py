@@ -6,7 +6,6 @@ import json
 import shutil
 import subprocess
 import tempfile
-import threading
 import weakref
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -14,6 +13,7 @@ from pathlib import Path
 from filelock import FileLock
 
 from toolchain import elaborate_types, proofenv
+from toolchain.hashing import file_sha256
 
 type CompileFn = Callable[[list[str], Path, str], subprocess.CompletedProcess[str]]
 
@@ -26,10 +26,6 @@ _PRELUDE_IMPORTS = (
     "Export HoldFastPrelude.\n"
     "Import Init.Datatypes Init.Nat Init.Logic Init.Specif Arith.PeanoNat Lia ZArith.BinInt.\n"
 )
-
-_COMPILER_LOCK = threading.Lock()
-_COMPILER_DIGESTS: dict[tuple[str, int, int, int, int], str] = {}
-
 
 def support_cache_root() -> Path | None:
     """Return the persistent native Rocq `.vo` cache root, or `None` if unavailable."""
@@ -49,21 +45,9 @@ def compiler_sha256(compiler: Sequence[str]) -> str | None:
     if not path.is_file():
         return None
     try:
-        stat = path.stat()
+        return file_sha256(path)
     except OSError:
         return None
-    sig = (str(path.resolve()), stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
-    with _COMPILER_LOCK:
-        cached = _COMPILER_DIGESTS.get(sig)
-    if cached is not None:
-        return cached
-    try:
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    except OSError:
-        return None
-    with _COMPILER_LOCK:
-        _COMPILER_DIGESTS[sig] = digest
-    return digest
 
 
 def _default_compile(compiler: list[str], directory: Path, name: str) -> subprocess.CompletedProcess[str]:

@@ -6,7 +6,6 @@ extraction, and runtime checks.
 """
 
 import atexit
-import contextlib
 import hashlib
 import io
 import json
@@ -31,6 +30,12 @@ from toolchain import (
 )
 from toolchain import (
     parser as holdfast_parser,
+)
+from toolchain._isolated_worker import (
+    close_worker_proc as _close_proc,
+)
+from toolchain._isolated_worker import (
+    parse_batch_reply_line,
 )
 from toolchain.ast import source_text
 from toolchain.atomic import atomic_path, publish_report
@@ -1347,8 +1352,8 @@ def _runtime(directory: Path, steps: list[dict[str, object]]) -> dict[str, objec
                   directory / "runtime-config.stdout", steps)
     where = _run(_opam(["rocqchk", "-where"]), directory,
                  directory / "runtime-where.stdout", steps).strip()
-    paths = _run(_opam(["rocq", "top", "-q", "-quiet"]), directory,
-                 directory / "runtime-loadpath.stdout", steps, source=b"Print LoadPath.\n")
+    load_path = _run(_opam(["rocq", "top", "-q", "-quiet"]), directory,
+                     directory / "runtime-loadpath.stdout", steps, source=b"Print LoadPath.\n")
     settings = dict(line.split("=", 1) for line in config.splitlines() if "=" in line)
     if any(key not in settings or not Path(settings[key]).is_absolute()
            for key in ("COQLIB", "COQCORELIB")):
@@ -1358,7 +1363,7 @@ def _runtime(directory: Path, steps: list[dict[str, object]]) -> dict[str, objec
         raise ValueError("unsupported Menhir support kernel library path")
     roots.add(Path(where).resolve())
     # The prover prints long load-path rows on two lines on some platforms.
-    listing = re.sub(r"\n\s+(/)", r" \1", paths).splitlines()
+    listing = re.sub(r"\n\s+(/)", r" \1", load_path).splitlines()
     if not listing or listing[0] != "Installed / Logical Path / Physical path:":
         raise ValueError("unsupported Menhir support prover load-path listing")
     for line in listing[1:]:
@@ -1370,7 +1375,7 @@ def _runtime(directory: Path, steps: list[dict[str, object]]) -> dict[str, objec
             roots.add(path)
     minimal = sorted(path for path in roots
                      if not any(path != other and path.is_relative_to(other) for other in roots))
-    paths: list[Path] = []
+    inventory_paths: list[Path] = []
     for root in minimal:
         if not root.is_dir():
             raise ValueError("Menhir support installed library root is missing")
@@ -1378,13 +1383,13 @@ def _runtime(directory: Path, steps: list[dict[str, object]]) -> dict[str, objec
             if path.is_symlink() and path.is_dir():
                 raise ValueError("Menhir support installed library has a directory alias")
             if path.is_file():
-                paths.append(path)
-    if not paths:
+                inventory_paths.append(path)
+    if not inventory_paths:
         raise ValueError("Menhir support installed library inventory is empty")
-    with ThreadPoolExecutor(max_workers=min(16, os.process_cpu_count() or 1, len(paths))) as pool:
-        digests = list(pool.map(file_sha256, paths))
-    files = dict(zip((str(path) for path in paths), digests, strict=True))
-    return {"config": config, "load_path": paths, "files_sha256": files}
+    with ThreadPoolExecutor(max_workers=min(16, os.process_cpu_count() or 1, len(inventory_paths))) as pool:
+        digests = list(pool.map(file_sha256, inventory_paths))
+    files = dict(zip((str(path) for path in inventory_paths), digests, strict=True))
+    return {"config": config, "load_path": load_path, "files_sha256": files}
 
 
 def _stage(sources: dict[str, bytes], directory: Path, *, reference: bool) -> None:
@@ -1630,23 +1635,6 @@ _WORKER_LOCK = threading.Lock()
 _WORKER_STATE: dict[str, object] = {"proc": None, "key": None, "command": None}
 
 
-def _close_proc(proc: subprocess.Popen[bytes] | None) -> None:
-    if proc is not None:
-        if proc.stdin is not None:
-            with contextlib.suppress(OSError):
-                proc.stdin.close()
-        with contextlib.suppress(OSError, subprocess.SubprocessError):
-            proc.wait(timeout=2)
-        for stream in (proc.stdout, proc.stderr):
-            if stream is not None:
-                with contextlib.suppress(OSError):
-                    stream.close()
-        if proc.poll() is None:
-            with contextlib.suppress(OSError, subprocess.SubprocessError):
-                proc.terminate()
-                proc.wait(timeout=2)
-
-
 def reset_checked_worker() -> None:
     """Terminate any persistent checked-parser batch worker."""
     with _WORKER_LOCK:
@@ -1808,11 +1796,10 @@ def parse_checked(source: bytes, *, root: Path | None = None,
             _close_proc(proc)
         if not line:
             raise RuntimeError("checked parser batch worker terminated without a response")
-    trimmed = line.rstrip(b"\r\n")
-    code_bytes, sep, raw_json = trimmed.partition(b" ")
-    if sep != b" " or code_bytes not in (b"0", b"1"):
-        raise ValueError("checked parser returned a malformed batch response")
-    return holdfast_parser.decode_response(source, int(code_bytes), raw_json, surface=False)
+    code, raw_json = parse_batch_reply_line(
+        line, error_message="checked parser returned a malformed batch response",
+    )
+    return holdfast_parser.decode_response(source, code, raw_json, surface=False)
 
 
 def trace_worker_pids() -> tuple[int, int]:

@@ -187,3 +187,31 @@ def cast_str_list(value: object) -> list[str]:
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise ValueError("worker arguments must be a list of strings")
     return cast("list[str]", value)
+
+
+def close_worker_proc(proc: subprocess.Popen[bytes] | None) -> None:
+    """Close stdio handles on a parser batch worker and wait/terminate cleanly."""
+    if proc is None:
+        return
+    if proc.stdin is not None:
+        with contextlib.suppress(OSError):
+            proc.stdin.close()
+    with contextlib.suppress(OSError, subprocess.SubprocessError):
+        proc.wait(timeout=2)
+    for stream in (proc.stdout, proc.stderr):
+        if stream is not None:
+            with contextlib.suppress(OSError):
+                stream.close()
+    if proc.poll() is None:
+        with contextlib.suppress(OSError, subprocess.SubprocessError):
+            proc.terminate()
+            proc.wait(timeout=2)
+
+
+def parse_batch_reply_line(line: bytes, *, error_message: str) -> tuple[int, bytes]:
+    """Decode `<exit_code> <json_payload>\\n` from a parser `--batch` worker."""
+    trimmed = line.rstrip(b"\r\n")
+    code_bytes, sep, payload = trimmed.partition(b" ")
+    if sep != b" " or code_bytes not in (b"0", b"1"):
+        raise ValueError(error_message)
+    return int(code_bytes), payload
