@@ -24,7 +24,6 @@ from toolchain.elaborate_types import (
     _Binding,
     _constant,
     _int_term,
-    _Meta,
     _Term,
     _term,
 )
@@ -72,7 +71,7 @@ class _ProofsMixin:
             self.static_forbidden = previous
 
     def _try_unify(self: _Elaborator, left: _Term, right: _Term) -> bool:
-        saved = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+        saved = self.snapshot_metas()
         try:
             self.unify(left, right)
         except HoldFastError as error:
@@ -101,7 +100,7 @@ class _ProofsMixin:
             and len(p.args) == len(t.args)
             and p.kind not in {"pi", "lam", "let"}
         ):
-            saved = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+            saved = self.snapshot_metas()
             if all(self._match_meta_pattern(pa, ta) for pa, ta in zip(p.args, t.args, strict=True)):
                 return True
             self.restore_metas(saved)
@@ -171,7 +170,7 @@ class _ProofsMixin:
         v: _Term,
         proof_term: _Term,
     ) -> _Term | None:
-        saved = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+        saved = self.snapshot_metas()
         if not (self._try_unify(self.infer(goal_type), _SORT)
                 and self._try_unify(self.infer(eq_type), _SORT)):
             self.restore_metas(saved)
@@ -234,7 +233,7 @@ class _ProofsMixin:
         if replaced and ctx is not None and ctx != z:
             fn = _term("lam", eq_type, ctx, value=z.value)
             return _apps(_constant("Congr"), eq_type, goal_type, u, v, fn, proof_term)
-        self.restore_metas([_Meta(m.type, m.scope, m.solution) for m in saved])
+        self.restore_metas(saved)
         if not (self._try_unify(self.infer(goal_type), _SORT)
                 and self._try_unify(self.infer(eq_type), _SORT)):
             self.restore_metas(saved)
@@ -245,7 +244,7 @@ class _ProofsMixin:
         if rep_l and ctx_l != z and self._try_unify(self.substitute(ctx_l, z_id, v), rhs):
             fn = _term("lam", eq_type, ctx_l, value=z.value)
             return _apps(_constant("Congr"), eq_type, goal_type, u, v, fn, proof_term)
-        self.restore_metas([_Meta(m.type, m.scope, m.solution) for m in saved])
+        self.restore_metas(saved)
         if not (self._try_unify(self.infer(goal_type), _SORT)
                 and self._try_unify(self.infer(eq_type), _SORT)):
             self.restore_metas(saved)
@@ -272,7 +271,7 @@ class _ProofsMixin:
     ) -> _Term | None:
         if not edges:
             return None
-        saved = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+        saved = self.snapshot_metas()
         if not (self._try_unify(self.infer(goal_type), _SORT)
                 and self._try_unify(self.infer(eq_type), _SORT)):
             self.restore_metas(saved)
@@ -285,14 +284,14 @@ class _ProofsMixin:
             fn = _term("lam", eq_type, ctx_l, value=z.value)
             congr_p = _apps(_constant("Congr"), eq_type, goal_type, u, v, fn, proof_term)
             for _, eu, ev, ep in edges:
-                step_saved = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+                step_saved = self.snapshot_metas()
                 if self._try_unify(eu, mid) and self._try_unify(ev, rhs):
                     return _apps(_constant("Trans"), goal_type, lhs, mid, rhs, congr_p, ep)
                 self.restore_metas(step_saved)
                 congr2 = self._try_congruence(goal_type, mid, rhs, goal_type, eu, ev, ep)
                 if congr2 is not None:
                     return _apps(_constant("Trans"), goal_type, lhs, mid, rhs, congr_p, congr2)
-        self.restore_metas([_Meta(m.type, m.scope, m.solution) for m in saved])
+        self.restore_metas(saved)
         if not (self._try_unify(self.infer(goal_type), _SORT)
                 and self._try_unify(self.infer(eq_type), _SORT)):
             self.restore_metas(saved)
@@ -303,7 +302,7 @@ class _ProofsMixin:
             fn = _term("lam", eq_type, ctx_r, value=z.value)
             congr_p = _apps(_constant("Congr"), eq_type, goal_type, u, v, fn, proof_term)
             for _, eu, ev, ep in edges:
-                step_saved = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+                step_saved = self.snapshot_metas()
                 if self._try_unify(eu, lhs) and self._try_unify(ev, mid):
                     return _apps(_constant("Trans"), goal_type, lhs, mid, rhs, ep, congr_p)
                 self.restore_metas(step_saved)
@@ -334,7 +333,7 @@ class _ProofsMixin:
     ) -> _Term | None:
         if len(sequence) < 2:
             return None
-        saved = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+        saved = self.snapshot_metas()
         steps: list[tuple[_Term, _Term, _Term]] = []
         current = lhs
         for fact in sequence:
@@ -1077,7 +1076,7 @@ class _ProofsMixin:
                 not all_facts
                 or (
                     not facts
-                    and all(m.solution is not None for m in self.metas[self.decl_first_meta :])
+                    and self._unsolved_metas == 0
                 )
             ):
                 if self._try_unify(lhs, rhs):
@@ -1101,7 +1100,7 @@ class _ProofsMixin:
                             if v2 == u3 and v3 == rhs and i3 not in {i1, i2}:
                                 step12 = _apps(_constant("Trans"), goal_type, lhs, v1, v2, p1, p2)
                                 return _apps(_constant("Trans"), goal_type, lhs, v2, rhs, step12, p3)
-            if all(m.solution is not None for m in self.metas[self.decl_first_meta :]):
+            if self._unsolved_metas == 0:
                 if allow_refl and self._try_unify(lhs, rhs):
                     return _apps(_constant("Refl"), goal_type, lhs)
                 for _, u, v, p in reversed(edges):
@@ -1123,7 +1122,7 @@ class _ProofsMixin:
                     if hw == _constant("&&") and len(aw) == 2:
                         lhs_head, lhs_args = hw, aw
                 if lhs_head == _constant("&&") and len(lhs_args) == 2:
-                    saved_and = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+                    saved_and = self.snapshot_metas()
                     try:
                         pa = self._prove_proposition(
                             _apps(_constant("Eq"), _BOOL, lhs_args[0], _term("bool", value=1)),
@@ -1167,7 +1166,7 @@ class _ProofsMixin:
                         tag = _term("nat", value=spec.tag)
                         if allow_refl and self._try_unify(cmp_args[0], cmp_args[1]):
                             return _apps(_constant("holdfast_int_eq_refl"), tag, cmp_args[0])
-                        saved_ieq = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+                        saved_ieq = self.snapshot_metas()
                         try:
                             p_eq = self._prove_proposition(
                                 _apps(_constant("Eq"), spec.const, cmp_args[0], cmp_args[1]),
@@ -1184,7 +1183,7 @@ class _ProofsMixin:
                 if cmp_head in {_constant("eq_bool"), _constant("<==>")} and len(cmp_args) == 2:
                     if allow_refl and self._try_unify(cmp_args[0], cmp_args[1]):
                         return _app(_constant("holdfast_eq_bool_refl"), cmp_args[0])
-                    saved_beq = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+                    saved_beq = self.snapshot_metas()
                     try:
                         p_beq = self._prove_proposition(
                             _apps(_constant("Eq"), _BOOL, cmp_args[0], cmp_args[1]),
@@ -1315,7 +1314,7 @@ class _ProofsMixin:
                     if ct_sym is not None:
                         return ct_sym
             for _, u, v, p in reversed(edges):
-                saved = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+                saved = self.snapshot_metas()
                 if self._try_unify(u, lhs) and self._try_unify(v, rhs):
                     return p
                 self.restore_metas(saved)
@@ -1324,14 +1323,14 @@ class _ProofsMixin:
             )) is not None:
                 return egraph_proof
             for i1, u1, v1, p1 in edges:
-                saved1 = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+                saved1 = self.snapshot_metas()
                 if not self._try_unify(u1, lhs):
                     self.restore_metas(saved1)
                     continue
                 for i2, u2, v2, p2 in edges:
                     if i1 == i2:
                         continue
-                    saved2 = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+                    saved2 = self.snapshot_metas()
                     if self._try_unify(v1, u2) and self._try_unify(v2, rhs):
                         return _apps(_constant("Trans"), goal_type, lhs, v1, rhs, p1, p2)
                     self.restore_metas(saved2)
@@ -1375,7 +1374,7 @@ class _ProofsMixin:
         bh, b_args = self.spine(b)
         if ah != bh or len(a_args) != len(b_args) or ah.kind == "meta":
             return False
-        saved = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+        saved = self.snapshot_metas()
         try:
             self.unify(a, b)
         except HoldFastError:
@@ -1564,7 +1563,7 @@ class _ProofsMixin:
         eq_false_type = _apps(_constant("Eq"), _BOOL, cond, false_term)
         h_true = self.fresh(eq_true_type)
         h_false = self.fresh(eq_false_type)
-        saved = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+        saved = self.snapshot_metas()
         true_bool_facts = self._fact_bool_terms((_Binding(h_true, eq_true_type),), environment)
         self.active_facts.extend(true_bool_facts)
         try:
@@ -1618,7 +1617,7 @@ class _ProofsMixin:
     ) -> _Term | None:
         if depth > 8:
             return None
-        saved = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+        saved = self.snapshot_metas()
         if self._try_unify(lhs, rhs):
             return _apps(_constant("Refl"), goal_type, self.whnf(rhs))
         self.restore_metas(saved)
@@ -1744,7 +1743,7 @@ class _ProofsMixin:
         if goal_eq is not None and just_eq is not None:
             goal_type, lhs, rhs = goal_eq
             eq_type, u, v = just_eq
-            saved = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+            saved = self.snapshot_metas()
             if (self._try_unify(eq_type, goal_type)
                     and self._try_unify(v, lhs)
                     and self._try_unify(u, rhs)):
@@ -2033,7 +2032,7 @@ class _ProofsMixin:
     ) -> _Term | None:
         if not allow_refl and self.resolve(lhs) == self.resolve(rhs):
             return None
-        saved = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+        saved = self.snapshot_metas()
         try:
             egraph = VersionedEGraph(self)
             for fact in all_facts:
@@ -2086,7 +2085,7 @@ class _ProofsMixin:
         environment: dict[str, _Binding],
         facts: tuple[_Binding, ...],
     ) -> _Term | None:
-        saved = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+        saved = self.snapshot_metas()
         try:
             proof = FixedIntOrderProver(self).prove(goal, environment, facts)
             if proof is not None:
@@ -2102,7 +2101,7 @@ class _ProofsMixin:
         environment: dict[str, _Binding],
         facts: tuple[_Binding, ...],
     ) -> _Term | None:
-        saved = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+        saved = self.snapshot_metas()
         try:
             if (nat_contra := NatDifferenceProver(self).find_contradiction(
                 goal, environment, facts, _MAX_NAT_BOUND_JOINS,
@@ -2158,7 +2157,7 @@ class _ProofsMixin:
                 solved = self._try_domain_solver_goal(node, goal, environment, facts)
                 if solved is not None:
                     return solved
-            saved_prove_m = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+            saved_prove_m = self.snapshot_metas()
             try:
                 term = self._prove_proposition(goal, environment, facts, node)
             except HoldFastError as failure:
@@ -2305,7 +2304,7 @@ class _ProofsMixin:
         fact_type: _Term,
         environment: dict[str, _Binding],
     ) -> _Term | None:
-        saved_ex = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+        saved_ex = self.snapshot_metas()
         ex_layers: list[tuple[_Term, _Term, _Term]] = []
         curr_ex = goal_whnf
         while curr_ex.kind == "ex":

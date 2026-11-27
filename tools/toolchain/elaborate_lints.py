@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, cast
 
 from toolchain.ast import HoldFastError
-from toolchain.elaborate_types import Node, _Meta
+from toolchain.elaborate_types import Node
 
 if TYPE_CHECKING:
     from toolchain.elaborate import _Elaborator
@@ -43,9 +43,9 @@ def lint_probe(
     """Isolate elaboration budgets, caches, and metas for advisory lint checks."""
     work, reductions, site = compiler.work, compiler.reductions, compiler.site
     serial = compiler.serial
-    metas, first_meta, cache = compiler.metas, compiler.decl_first_meta, compiler.whnf_cache
+    saved_metas = compiler.snapshot_metas()
+    cache = compiler.whnf_cache
     freezes, freeze_bytes = compiler.freeze_checks, compiler.freeze_check_bytes
-    compiler.metas = [_Meta(meta.type, meta.scope, meta.solution) for meta in metas]
     compiler.whnf_cache = {}
     compiler.freeze_checks = {}
     compiler.work = min(work, work_limit) if cap_to_remaining else work_limit
@@ -59,5 +59,6 @@ def lint_probe(
             compiler.types.pop(binder, None)
         compiler.serial = serial
         compiler.work, compiler.reductions, compiler.site = work, reductions, site
-        compiler.metas, compiler.decl_first_meta, compiler.whnf_cache = metas, first_meta, cache
+        compiler.restore_metas(saved_metas)
+        compiler.whnf_cache = cache
         compiler.freeze_checks, compiler.freeze_check_bytes = freezes, freeze_bytes

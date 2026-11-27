@@ -4,7 +4,6 @@
 import hashlib
 import re
 from collections.abc import Iterator
-from itertools import accumulate
 from typing import cast
 
 from toolchain.ast import (
@@ -174,11 +173,13 @@ _SYNTAX_WORDS = {
 
 class _Protocol:
     def __init__(self, source: bytes) -> None:
-        text = source_text(source)
+        source_text(source)
         self.source = source
         self.remaining = MAX_SOURCE_BYTES
         self.holes: dict[int, Node] = {}
-        self.boundaries = set(accumulate((len(char.encode("utf-8")) for char in text), initial=0))
+
+    def _is_boundary(self, offset: int) -> bool:
+        return offset == len(self.source) or (self.source[offset] & 0xC0) != 0x80
 
     def error(self, kind: str, message: str, node: Node | None = None) -> HoldFastError:
         offset = 0 if node is None else cast("list[int]", node.get("span", [0]))[0]
@@ -191,7 +192,7 @@ class _Protocol:
             raise self.error("protocol", "syntax span must contain two integer offsets")
         start, end = cast("tuple[int, int]", tuple(raw))
         if (not parent[0] <= start < end <= parent[1]
-                or start not in self.boundaries or end not in self.boundaries):
+                or not self._is_boundary(start) or not self._is_boundary(end)):
             raise self.error("protocol", "syntax span is empty, escaping or splits UTF-8")
         return start, end
 

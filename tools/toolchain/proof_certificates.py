@@ -30,7 +30,6 @@ from toolchain.elaborate_types import (
     _constant,
     _int_term,
     _IntSpec,
-    _Meta,
     _Term,
     _term,
 )
@@ -369,7 +368,7 @@ class VersionedEGraph:
             self.parents_of_class[ru].extend(merged_parents)
             self._undo_trail.append(("pclass", ru, rv, merged_parents))
 
-            for pnode in list(self.parents_of_class[ru]):
+            for pnode in merged_parents:
                 decomp = self._decompose(self.nodes[pnode])
                 if decomp is None:
                     continue
@@ -463,7 +462,7 @@ class VersionedEGraph:
                 u_node = self.nodes[src_id]
                 v_node = self.nodes[edge.dst]
                 if edge.proof is not None and edge.eq_type is not None:
-                    saved = [_Meta(m.type, m.scope, m.solution) for m in self.elab.metas]
+                    saved = self.elab.snapshot_metas()
                     if not self.elab._try_unify(edge.eq_type, goal_type):
                         self.elab.restore_metas(saved)
                         return None
@@ -486,7 +485,7 @@ class VersionedEGraph:
                 acc_v = next_v
 
             if not self._uses_prelude_lemma(acc_p):
-                saved_chk = [_Meta(m.type, m.scope, m.solution) for m in self.elab.metas]
+                saved_chk = self.elab.snapshot_metas()
                 try:
                     inferred = self.elab.infer(acc_p)
                     expected = _apps(_constant("Eq"), goal_type, lhs_r, rhs_r)
@@ -516,7 +515,7 @@ class VersionedEGraph:
         for idx, (a_i, b_i) in enumerate(zip(l_args, r_args, strict=True)):
             if a_i == b_i:
                 continue
-            saved = [_Meta(m.type, m.scope, m.solution) for m in self.elab.metas]
+            saved = self.elab.snapshot_metas()
             try:
                 arg_ty = self.elab.infer(a_i)
                 arg_ty_b = self.elab.infer(b_i)

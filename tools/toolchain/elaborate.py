@@ -152,7 +152,10 @@ class _Elaborator(
         self.work = MAX_WORK
         self.reductions = MAX_REDUCTIONS
         self.metas: list[_Meta] = []
+        self._meta_trail: list[tuple[int, frozenset[int], _Term | None]] = []
+        self._unsolved_metas = 0
         self.decl_first_meta = 0
+        self._cached_loans_structs: tuple[int, dict[str, loans._StructInfo]] | None = None
         self.whnf_cache: dict[int, tuple[_Term, _Term]] = {}
         self.types: dict[int, _Term] = {}
         # Callable parameter labels are source metadata, never CIC constructors.
@@ -310,20 +313,50 @@ class _Elaborator(
         self.types[index] = value_type
         return _term("var", value=index)
 
-    def restore_metas(self, saved: list[_Meta]) -> None:
+    def snapshot_metas(self) -> tuple[int, int]:
+        """Return an O(1) rollback checkpoint for ``self.metas``."""
+        return (len(self.metas), len(self._meta_trail))
+
+    def restore_metas(self, saved: tuple[int, int] | list[_Meta]) -> None:
         """Restore inference state without retaining reductions from abandoned solutions."""
-        unchanged = self.metas == saved
-        self.metas = saved
-        if not unchanged:
-            self.whnf_cache.clear()
-        self.decl_first_meta = next(
-            (index for index, meta in enumerate(saved) if meta.solution is None), len(saved)
-        )
+        if isinstance(saved, list):
+            unchanged = self.metas == saved
+            self.metas = saved
+            self._meta_trail.clear()
+            self._unsolved_metas = sum(1 for meta in saved if meta.solution is None)
+            if not unchanged:
+                self.whnf_cache.clear()
+            self.decl_first_meta = next(
+                (index for index, meta in enumerate(saved) if meta.solution is None), len(saved)
+            )
+            return
+        saved_len, saved_trail = saved
+        if len(self.metas) == saved_len and len(self._meta_trail) == saved_trail:
+            return
+        while len(self._meta_trail) > saved_trail:
+            idx, old_scope, old_solution = self._meta_trail.pop()
+            if idx < saved_len:
+                meta = self.metas[idx]
+                was_unsolved = meta.solution is None
+                now_unsolved = old_solution is None
+                meta.scope = old_scope
+                meta.solution = old_solution
+                if now_unsolved and not was_unsolved:
+                    self._unsolved_metas += 1
+                elif was_unsolved and not now_unsolved:
+                    self._unsolved_metas -= 1
+        if len(self.metas) > saved_len:
+            for meta in self.metas[saved_len:]:
+                if meta.solution is None:
+                    self._unsolved_metas -= 1
+            del self.metas[saved_len:]
+        self.whnf_cache.clear()
+        self.decl_first_meta = min(self.decl_first_meta, saved_len)
 
     @contextmanager
-    def speculative_metas(self) -> Generator[list[_Meta]]:
+    def speculative_metas(self) -> Generator[tuple[int, int]]:
         """Snapshot ``self.metas`` and unconditionally restore it on block exit."""
-        saved = [_Meta(meta.type, meta.scope, meta.solution) for meta in self.metas]
+        saved = self.snapshot_metas()
         try:
             yield saved
         finally:
@@ -331,7 +364,7 @@ class _Elaborator(
 
     def speculative_probe(self, probe: Callable[[], bool]) -> bool:
         """Run ``probe()`` speculatively, rolling back ``self.metas`` on ``False`` or ``HoldFastError``."""
-        saved = [_Meta(meta.type, meta.scope, meta.solution) for meta in self.metas]
+        saved = self.snapshot_metas()
         try:
             if probe():
                 return True
@@ -863,6 +896,7 @@ class _Elaborator(
         for binding in environment.values():
             scope.update(self.free(binding.term))
         self.metas.append(_Meta(value_type, frozenset(scope)))
+        self._unsolved_metas += 1
         return _term("meta", value=index)
 
     def resolve(self, term: _Term) -> _Term:
@@ -938,13 +972,32 @@ class _Elaborator(
             )
             memo[tid] = (term, res)
             return res
-        if not resolved.args:
+        args = resolved.args
+        n_args = len(args)
+        if n_args == 0:
             memo[tid] = (term, resolved)
             return resolved
-        new_args = tuple(self.substitute(value, variable, replacement, memo) for value in resolved.args)
-        if all(na is oa for na, oa in zip(new_args, resolved.args, strict=True)):
-            memo[tid] = (term, resolved)
-            return resolved
+        if n_args == 1:
+            a0 = args[0]
+            na0 = self.substitute(a0, variable, replacement, memo)
+            if na0 is a0:
+                memo[tid] = (term, resolved)
+                return resolved
+            new_args: tuple[_Term, ...] = (na0,)
+        elif n_args == 2:
+            a0, a1 = args
+            na0 = self.substitute(a0, variable, replacement, memo)
+            na1 = self.substitute(a1, variable, replacement, memo)
+            if na0 is a0 and na1 is a1:
+                memo[tid] = (term, resolved)
+                return resolved
+            new_args = (na0, na1)
+        else:
+            new_list = [self.substitute(value, variable, replacement, memo) for value in args]
+            if all(na is oa for na, oa in zip(new_list, args, strict=True)):
+                memo[tid] = (term, resolved)
+                return resolved
+            new_args = tuple(new_list)
         res = _Term(resolved.kind, resolved.value, new_args)
         inherited = self.checked_zero_type_codomains.get(tid) or self.checked_zero_type_codomains.get(id(resolved))
         if inherited is not None and inherited:
@@ -1027,6 +1080,9 @@ class _Elaborator(
             # Narrow nested unsolved variables too: a future solution cannot escape indirectly.
             self.restrict(right, record.scope)
             self.unify(record.type, self.infer(right))
+            self._meta_trail.append((index, record.scope, record.solution))
+            if record.solution is None:
+                self._unsolved_metas -= 1
             record.solution = right
             return
         if left.kind != right.kind or left.value != right.value:
@@ -1044,8 +1100,12 @@ class _Elaborator(
     def restrict(self, term: _Term, scope: frozenset[int]) -> None:
         term = self.resolve(term)
         if term.kind == "meta":
-            record = self.metas[cast("int", term.value)]
-            record.scope = record.scope & scope
+            index = cast("int", term.value)
+            record = self.metas[index]
+            new_scope = record.scope & scope
+            if new_scope != record.scope:
+                self._meta_trail.append((index, record.scope, record.solution))
+                record.scope = new_scope
         for child in term.args:
             self.restrict(child, scope)
 

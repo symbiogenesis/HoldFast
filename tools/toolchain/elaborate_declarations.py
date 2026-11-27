@@ -34,7 +34,6 @@ from toolchain.elaborate_types import (
     _InterfaceLawSpec,
     _InterfaceMethodSpec,
     _IntSpec,
-    _Meta,
     _RecordField,
     _RecordInfo,
     _RecordInvariant,
@@ -543,7 +542,7 @@ class _DeclarationsMixin:
                     rp_type = self.substitute(rp.type, cast("int", rp.self_var.value), self_var)
                     inv_env[pname] = _Binding(_apps(_constant(rp.prop_const), *generic_vars, self_var), rp_type)
             val_node = self.node(c_node["value"])
-            saved_inv_metas = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+            saved_inv_metas = self.snapshot_metas()
             try:
                 inv_b = self.expression(val_node, inv_env)
                 inv_w = self.whnf(inv_b.type)
@@ -696,7 +695,7 @@ class _DeclarationsMixin:
         )
         for req_idx, req_contract in enumerate(requires_clauses):
             req_val_node = self.node(req_contract["value"])
-            saved_req_metas = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+            saved_req_metas = self.snapshot_metas()
             req_val: _Binding | None = None
             if req_val_node["kind"] != "quantifier":
                 try:
@@ -2301,7 +2300,7 @@ class _DeclarationsMixin:
     def _match_impl_arguments(
         self: _Elaborator, instance: _ImplInstance, arguments: tuple[_Term, ...], environment: dict[str, _Binding],
     ) -> list[_Term] | None:
-        saved_metas = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+        saved_metas = self.snapshot_metas()
         g_metas: list[_Term] = []
         for gv in instance.generic_vars:
             dom = self.types[cast("int", gv.value)]
@@ -2978,7 +2977,7 @@ class _DeclarationsMixin:
                     req_vars.extend(self._bind_record_input_proofs(input_props, environment))
                     for req_idx, req_contract in enumerate(requires_clauses):
                         req_val_node = self.node(req_contract["value"])
-                        saved_req_metas = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+                        saved_req_metas = self.snapshot_metas()
                         if (outlives_b := self._record_outlives_constraint_if_present(req_val_node)) is not None:
                             req_val = outlives_b
                         else:
@@ -3027,7 +3026,7 @@ class _DeclarationsMixin:
                         is_post_env_theorem = True
                         result = _apps(_constant("Eq"), _BOOL, _term("bool", value=1), _term("bool", value=1))
                     else:
-                        saved_ens_m = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+                        saved_ens_m = self.snapshot_metas()
                         self.active_facts.extend(req_bool_terms)
                         try:
                             result = self.proposition(self.node(ensures_clauses[0]["value"]), environment)
@@ -3162,7 +3161,7 @@ class _DeclarationsMixin:
                                             "type", "could not discharge theorem postcondition", ens_contract
                                         ) from None
                                 self.reset_budget()
-                                saved_ens_p = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+                                saved_ens_p = self.snapshot_metas()
                                 ens_proof: _Term | None = None
                                 try:
                                     ens_proof = self._prove_proposition(
@@ -3673,7 +3672,7 @@ class _DeclarationsMixin:
                             post_state_images,
                         )
                         self.reset_budget()
-                        saved_sym_m = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+                        saved_sym_m = self.snapshot_metas()
                         try:
                             sym_eb = self.expression(ens_val_node, sym_post_env)
                             if self.whnf(sym_eb.type) == _BOOL:
@@ -3984,7 +3983,7 @@ class _DeclarationsMixin:
         prop_eqs: list[tuple[_Term, _Term, _Term]] = []
         bool_conjuncts: list[_Term] = []
         for fact in self.final_theorem_facts:
-            saved = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+            saved = self.snapshot_metas()
             if self._try_unify(fact.type, ens_prop):
                 return True
             self.restore_metas(saved)
@@ -4017,7 +4016,7 @@ class _DeclarationsMixin:
                 v_s = self._simplify_span_read_with_facts(v, self.active_facts)
                 for a1, a2 in ((lhs, rhs), (lhs_s, rhs_s)):
                     for b1, b2 in ((u, v), (u_s, v_s)):
-                        saved = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+                        saved = self.snapshot_metas()
                         if (self._try_unify(a1, b1) and self._try_unify(a2, b2)) or (
                             self._try_unify(a1, b2) and self._try_unify(a2, b1)
                         ):
@@ -4027,7 +4026,7 @@ class _DeclarationsMixin:
 
         def match_bool_conjunct(conj: _Term) -> bool:
             for bc in bool_conjuncts:
-                saved = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+                saved = self.snapshot_metas()
                 if self._try_unify(conj, bc):
                     return True
                 self.restore_metas(saved)

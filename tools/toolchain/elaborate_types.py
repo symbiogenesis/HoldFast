@@ -4,7 +4,8 @@
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Literal
+from functools import cache
+from typing import Literal, override
 
 from toolchain.ast import MAX_LITERAL_DIGITS
 
@@ -57,29 +58,76 @@ type Node = dict[str, object]
 
 
 
-@dataclass(frozen=True)
 class _Term:
+    __slots__ = ("_hash", "args", "kind", "value")
     kind: str
-    value: str | int = ""
-    args: tuple[_Term, ...] = ()
+    value: str | int
+    args: tuple[_Term, ...]
+    _hash: int
+
+    def __init__(self, kind: str, value: str | int = "", args: tuple[_Term, ...] = ()) -> None:
+        object.__setattr__(self, "kind", kind)
+        object.__setattr__(self, "value", value)
+        object.__setattr__(self, "args", args)
+        object.__setattr__(self, "_hash", hash((kind, value, args)))
+
+    @override
+    def __setattr__(self, name: str, value: object) -> None:
+        raise AttributeError(f"cannot assign to field {name!r}")
+
+    @override
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError(f"cannot delete field {name!r}")
+
+    @override
+    def __hash__(self) -> int:
+        return self._hash
+
+    @override
+    def __eq__(self, other: object) -> bool:
+        if self is other:
+            return True
+        if type(other) is not _Term:
+            return NotImplemented
+        return (
+            self._hash == other._hash
+            and self.kind == other.kind
+            and self.value == other.value
+            and self.args == other.args
+        )
+
+    @override
+    def __repr__(self) -> str:
+        return f"_Term(kind={self.kind!r}, value={self.value!r}, args={self.args!r})"
+
+
+_BOOL_FALSE = _Term("bool", 0, ())
+_BOOL_TRUE = _Term("bool", 1, ())
+_UNIT_TERM = _Term("unit", "", ())
 
 
 def _term(kind: str, *args: _Term, value: str | int = "") -> _Term:
-    return _Term(kind, value, tuple(args))
+    if not args:
+        if kind == "bool":
+            return _BOOL_TRUE if value else _BOOL_FALSE
+        if kind == "unit" and value == "":
+            return _UNIT_TERM
+    return _Term(kind, value, args)
 
 
 def _app(function: _Term, argument: _Term) -> _Term:
-    return _term("app", function, argument)
+    return _Term("app", "", (function, argument))
 
 
 def _apps(function: _Term, *arguments: _Term) -> _Term:
     for argument in arguments:
-        function = _app(function, argument)
+        function = _Term("app", "", (function, argument))
     return function
 
 
+@cache
 def _constant(name: str) -> _Term:
-    return _term("const", value=name)
+    return _Term("const", name, ())
 
 
 _NAT = _constant("Nat")
@@ -90,7 +138,7 @@ _SORT = _term("sort", value=0)
 _PROP = _term("sort", value=-1)
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _IntSpec:
     name: str
     tag: int
@@ -184,14 +232,14 @@ def _int_term(spec: _IntSpec, value: int) -> _Term:
     return _term("int", spec.const, value=value)
 
 
-@dataclass
+@dataclass(slots=True)
 class _Meta:
     type: _Term
     scope: frozenset[int]
     solution: _Term | None = None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _FnContract:
     argument: int
     result: int
@@ -199,7 +247,7 @@ class _FnContract:
     ensures: tuple[_Term, ...]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class _Binding:
     term: _Term
     type: _Term

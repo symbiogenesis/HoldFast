@@ -1884,37 +1884,42 @@ class _BorrowMixin:
     def _build_loans_structs_and_facts(
         self: _Elaborator,
     ) -> tuple[dict[str, loans._StructInfo], dict[str, str | None], loans.ProvedFacts]:
-        structs: dict[str, loans._StructInfo] = {}
-        for rname, rinfo in self.records.items():
-            fpaths = tuple((rf.name,) for rf in rinfo.fields)
-            invs = tuple(inv.name for inv in rinfo.invariants if not inv.name.startswith("__anon_"))
-            views: dict[str, tuple[str, ...]] = {}
-            ftypes: dict[str, str | None] = {}
-            methods: dict[str, loans._Receiver | None] = {}
-            for rf in rinfo.fields:
-                head, _ = self.spine(self.whnf(rf.type))
-                if head.kind == "const" and isinstance(head.value, str):
-                    if head.value == "Span" or head.value in self.records_by_type:
-                        views[rf.name] = (rf.name,)
-                    ftypes[rf.name] = head.value
-                else:
-                    ftypes[rf.name] = None
-            for mname, rmethod in rinfo.methods.items():
-                is_mut = (
-                    rmethod.method_const in self.callable_ref_updates
-                    or (not rmethod.reads_receiver and rmethod.method_const in self.nonstatic_callables)
-                )
-                methods[mname] = loans._Receiver(
-                    mode="exclusive" if is_mut else "shared",
-                    view=None,
-                    retained=False,
-                    two_phase=False,
-                )
-            sinfo = loans._StructInfo(fpaths, views, invs, methods, ftypes)
-            structs[rname] = sinfo
-            short_name = rname.split("_")[-1]
-            if short_name not in structs:
-                structs[short_name] = sinfo
+        cached_structs = self._cached_loans_structs
+        if cached_structs is not None and cached_structs[0] == len(self.records):
+            structs = cached_structs[1]
+        else:
+            structs = {}
+            for rname, rinfo in self.records.items():
+                fpaths = tuple((rf.name,) for rf in rinfo.fields)
+                invs = tuple(inv.name for inv in rinfo.invariants if not inv.name.startswith("__anon_"))
+                views: dict[str, tuple[str, ...]] = {}
+                ftypes: dict[str, str | None] = {}
+                methods: dict[str, loans._Receiver | None] = {}
+                for rf in rinfo.fields:
+                    head, _ = self.spine(self.whnf(rf.type))
+                    if head.kind == "const" and isinstance(head.value, str):
+                        if head.value == "Span" or head.value in self.records_by_type:
+                            views[rf.name] = (rf.name,)
+                        ftypes[rf.name] = head.value
+                    else:
+                        ftypes[rf.name] = None
+                for mname, rmethod in rinfo.methods.items():
+                    is_mut = (
+                        rmethod.method_const in self.callable_ref_updates
+                        or (not rmethod.reads_receiver and rmethod.method_const in self.nonstatic_callables)
+                    )
+                    methods[mname] = loans._Receiver(
+                        mode="exclusive" if is_mut else "shared",
+                        view=None,
+                        retained=False,
+                        two_phase=False,
+                    )
+                sinfo = loans._StructInfo(fpaths, views, invs, methods, ftypes)
+                structs[rname] = sinfo
+                short_name = rname.split("_")[-1]
+                if short_name not in structs:
+                    structs[short_name] = sinfo
+            self._cached_loans_structs = (len(self.records), structs)
 
         fn_returns: dict[str, str | None] = dict(self.callable_return_source_names)
         disjoint_places = list(self.proved_disjoint_places)

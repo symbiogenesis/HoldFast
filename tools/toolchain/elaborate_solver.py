@@ -151,7 +151,11 @@ class _SolverMixin:
         return ()
 
     def _expand_bool_facts(self: _Elaborator, raw_facts: list[_Term]) -> list[_Term]:
+        return self._expand_bool_facts_with_set(raw_facts)[0]
+
+    def _expand_bool_facts_with_set(self: _Elaborator, raw_facts: list[_Term]) -> tuple[list[_Term], set[_Term]]:
         expanded: list[_Term] = []
+        seen: set[_Term] = set()
         queue = deque(raw_facts)
         while queue:
             item = self.whnf(queue.popleft())
@@ -193,7 +197,8 @@ class _SolverMixin:
                 if neg != item:
                     queue.append(neg)
                     continue
-            if item not in expanded:
+            if item not in seen:
+                seen.add(item)
                 expanded.append(item)
                 queue.extend(self._slots_predicate_components(head, args))
         changed = True
@@ -204,10 +209,11 @@ class _SolverMixin:
                 if fh == _constant("==>") and len(fa) == 2:
                     ant = self.whnf(fa[0])
                     con = self.whnf(fa[1])
-                    if ant in expanded and con not in expanded:
+                    if ant in seen and con not in seen:
+                        seen.add(con)
                         expanded.append(con)
                         changed = True
-        return expanded
+        return expanded, seen
 
     def _parse_cmp_fact(self: _Elaborator, fact: _Term) -> tuple[str, _IntSpec | None, _Term, _Term] | None:
         return self._parse_cmp_fact_shape(self.whnf(fact))
@@ -551,11 +557,8 @@ class _SolverMixin:
         usize_spec = _INT_SPECS["usize"]
         zero_u = _int_term(usize_spec, 0)
         curr = self.whnf(s)
+        cur_off = s_off
         for _ in range(32):
-            curr_ro = self._span_root_and_offset_term(elem, curr)
-            if curr_ro is None or curr_ro[0] != target_root:
-                break
-            cur_off = curr_ro[1]
             c_head, c_args = self.spine(curr)
             if c_head == _constant("Span_AllocZeroed") and len(c_args) == 3:
                 return _int_term(_INT_SPECS["u8"], 0)
@@ -564,9 +567,17 @@ class _SolverMixin:
                 continue
             if c_head == _constant("Span_Slice") and len(c_args) == 4:
                 curr = self.whnf(c_args[1])
+                curr_ro = self._span_root_and_offset_term(elem, curr)
+                if curr_ro is None or curr_ro[0] != target_root:
+                    break
+                cur_off = curr_ro[1]
                 continue
             if c_head == _constant("Span_Restore") and len(c_args) == 3:
                 curr = self.whnf(c_args[2])
+                curr_ro = self._span_root_and_offset_term(elem, curr)
+                if curr_ro is None or curr_ro[0] != target_root:
+                    break
+                cur_off = curr_ro[1]
                 continue
             if c_head == _constant("Span_Write") and len(c_args) == 4:
                 inner, w_idx, val = c_args[1], c_args[2], c_args[3]
@@ -785,28 +796,24 @@ class _SolverMixin:
             f_op, f_spec, f_l, f_r = parsed
             ufl = self._unwrap_numeric_subject(f_l)
             ufr = self._unwrap_numeric_subject(f_r)
-            if (ufl == uwl or self.convertible(ufl, uwl)) and (ufr == uwr or self.convertible(ufr, uwr)):
-                if op_kind == f_op:
-                    return True
-                if op_kind == "le" and f_op in {"lt", "eq"}:
-                    return True
-                if op_kind == "ge" and f_op in {"gt", "eq"}:
-                    return True
-                if op_kind == "ne" and f_op in {"lt", "gt"}:
-                    return True
-            if (ufl == uwr or self.convertible(ufl, uwr)) and (ufr == uwl or self.convertible(ufr, uwl)):
-                if op_kind == "lt" and f_op == "gt":
-                    return True
-                if op_kind == "le" and f_op in {"ge", "eq"}:
-                    return True
-                if op_kind == "gt" and f_op == "lt":
-                    return True
-                if op_kind == "ge" and f_op in {"le", "eq"}:
-                    return True
-                if op_kind == "eq" and f_op == "eq":
-                    return True
-                if op_kind == "ne" and f_op in {"ne", "lt", "gt"}:
-                    return True
+            can_fwd = (
+                op_kind == f_op
+                or (op_kind == "le" and f_op in {"lt", "eq"})
+                or (op_kind == "ge" and f_op in {"gt", "eq"})
+                or (op_kind == "ne" and f_op in {"lt", "gt"})
+            )
+            if can_fwd and (ufl == uwl or self.convertible(ufl, uwl)) and (ufr == uwr or self.convertible(ufr, uwr)):
+                return True
+            can_rev = (
+                (op_kind == "lt" and f_op == "gt")
+                or (op_kind == "le" and f_op in {"ge", "eq"})
+                or (op_kind == "gt" and f_op == "lt")
+                or (op_kind == "ge" and f_op in {"le", "eq"})
+                or (op_kind == "eq" and f_op == "eq")
+                or (op_kind == "ne" and f_op in {"ne", "lt", "gt"})
+            )
+            if can_rev and (ufl == uwr or self.convertible(ufl, uwr)) and (ufr == uwl or self.convertible(ufr, uwl)):
+                return True
             if xor_lr is not None and spec is not None and f_spec == spec and f_op == op_kind:
                 f_xl = self._xor_canonical_form(ufl, spec, facts)
                 f_xr = self._xor_canonical_form(ufr, spec, facts)
@@ -1001,19 +1008,28 @@ class _SolverMixin:
         return bool(op_kind == "ne" and (can_reach(uwl, uwr, True) or can_reach(uwr, uwl, True)))
 
     def _prove_bool_precondition(
-        self: _Elaborator, cond: _Term, environment: dict[str, _Binding], depth: int = 0
+        self: _Elaborator,
+        cond: _Term,
+        environment: dict[str, _Binding],
+        depth: int = 0,
+        _facts: tuple[list[_Term], set[_Term]] | None = None,
     ) -> bool:
         w = self._collapse_span_metadata(cond)
         if w == _term("bool", value=1):
             return True
         if w == _term("bool", value=0):
             return False
-        facts = self._expand_bool_facts([*self.active_facts, *self._fact_bool_terms((), environment)])
-        if w in facts or cond in facts:
+        if _facts is None:
+            facts, fact_set = self._expand_bool_facts_with_set(
+                [*self.active_facts, *self._fact_bool_terms((), environment)]
+            )
+        else:
+            facts, fact_set = _facts
+        if w in fact_set or cond in fact_set:
             return True
         head, args = self.spine(w)
         if head == _constant("&&") and len(args) == 2:
-            if not self._prove_bool_precondition(args[0], environment, depth):
+            if not self._prove_bool_precondition(args[0], environment, depth, _facts=(facts, fact_set)):
                 return False
             self.active_facts.append(args[0])
             try:
@@ -1021,8 +1037,9 @@ class _SolverMixin:
             finally:
                 self.active_facts.pop()
         if head == _constant("||") and len(args) == 2:
-            return self._prove_bool_precondition(args[0], environment, depth) or self._prove_bool_precondition(
-                args[1], environment, depth
+            return (
+                self._prove_bool_precondition(args[0], environment, depth, _facts=(facts, fact_set))
+                or self._prove_bool_precondition(args[1], environment, depth, _facts=(facts, fact_set))
             )
         if head == _constant("==>") and len(args) == 2:
             self.active_facts.append(args[0])
@@ -1039,7 +1056,7 @@ class _SolverMixin:
         if head == _constant("!") and len(args) == 1:
             neg = self._negate_bool_term(args[0])
             if neg != w:
-                return self._prove_bool_precondition(neg, environment, depth)
+                return self._prove_bool_precondition(neg, environment, depth, _facts=(facts, fact_set))
         if head == _constant("eq_unit") and len(args) == 2:
             return True
         if head == _constant("eq_bool") and len(args) == 2 and self.convertible(args[0], args[1]):
@@ -1048,12 +1065,12 @@ class _SolverMixin:
             return True
         if head == _constant("Span_Disjoint") and len(args) == 3:
             a_t, b_t = args[1], args[2]
-            if _apps(_constant("Span_Disjoint"), _U8, b_t, a_t) in facts:
+            if _apps(_constant("Span_Disjoint"), _U8, b_t, a_t) in fact_set:
                 return True
             ra, rb = self._root_span(a_t), self._root_span(b_t)
             if (ra, rb) != (a_t, b_t) and (
-                _apps(_constant("Span_Disjoint"), _U8, ra, rb) in facts
-                or _apps(_constant("Span_Disjoint"), _U8, rb, ra) in facts
+                _apps(_constant("Span_Disjoint"), _U8, ra, rb) in fact_set
+                or _apps(_constant("Span_Disjoint"), _U8, rb, ra) in fact_set
             ):
                 return True
             for sa, sb in ((a_t, b_t), (ra, rb)):
@@ -1068,7 +1085,7 @@ class _SolverMixin:
                             return True
         if head == _constant("Slots_Disjoint") and len(args) == 5:
             elem, cap_a, cap_b, a_t, b_t = args
-            if _apps(_constant("Slots_Disjoint"), elem, cap_b, cap_a, b_t, a_t) in facts:
+            if _apps(_constant("Slots_Disjoint"), elem, cap_b, cap_a, b_t, a_t) in fact_set:
                 return True
             ra, rb = self._root_span(a_t), self._root_span(b_t)
             if (ra, rb) != (a_t, b_t):
@@ -1080,7 +1097,10 @@ class _SolverMixin:
                             return True
         components = self._slots_predicate_components(head, args)
         if components:
-            return all(self._prove_bool_precondition(component, environment, depth) for component in components)
+            return all(
+                self._prove_bool_precondition(component, environment, depth, _facts=(facts, fact_set))
+                for component in components
+            )
         if head == _constant("Seq_All") and len(args) == 3:
             elem, seq_t, pred_t = args
             s_head, s_args = self.spine(self.whnf(seq_t))
@@ -1122,11 +1142,14 @@ class _SolverMixin:
                         cnt_seq = _apps(_constant("Seq_Count"), elem, seq_t)
                         if self._prove_comparison("eq", None, ta[2], cnt_seq, facts):
                             return True
+        seq_at_terms: list[_Term] | None = None
         for f_item in facts:
             fh, fa = self.spine(f_item)
             if fh == _constant("Seq_All") and len(fa) == 3:
                 all_elem, all_seq, all_pred = fa
-                for sub_t in self._collect_seq_at_terms(w):
+                if seq_at_terms is None:
+                    seq_at_terms = self._collect_seq_at_terms(w)
+                for sub_t in seq_at_terms:
                     sh, sa = self.spine(sub_t)
                     if sh == _constant("Seq_At") and len(sa) == 4 and self.convertible(sa[2], all_seq):
                         inst_pred = self.whnf(_app(all_pred, sub_t))
@@ -1165,14 +1188,14 @@ class _SolverMixin:
                     w_true = self.substitute(w_b, b_id, _term("bool", value=1))
                     w_false = self.substitute(w_b, b_id, _term("bool", value=0))
                     neg_if_cond = self._negate_bool_term(if_cond)
-                    if if_cond in facts or self.whnf(if_cond) in facts:
-                        return self._prove_bool_precondition(w_true, environment, depth + 1)
-                    if neg_if_cond in facts or self.whnf(neg_if_cond) in facts:
-                        return self._prove_bool_precondition(w_false, environment, depth + 1)
-                    if self._prove_bool_precondition(if_cond, environment, depth + 1):
-                        return self._prove_bool_precondition(w_true, environment, depth + 1)
-                    if self._prove_bool_precondition(neg_if_cond, environment, depth + 1):
-                        return self._prove_bool_precondition(w_false, environment, depth + 1)
+                    if if_cond in fact_set or self.whnf(if_cond) in fact_set:
+                        return self._prove_bool_precondition(w_true, environment, depth + 1, _facts=(facts, fact_set))
+                    if neg_if_cond in fact_set or self.whnf(neg_if_cond) in fact_set:
+                        return self._prove_bool_precondition(w_false, environment, depth + 1, _facts=(facts, fact_set))
+                    if self._prove_bool_precondition(if_cond, environment, depth + 1, _facts=(facts, fact_set)):
+                        return self._prove_bool_precondition(w_true, environment, depth + 1, _facts=(facts, fact_set))
+                    if self._prove_bool_precondition(neg_if_cond, environment, depth + 1, _facts=(facts, fact_set)):
+                        return self._prove_bool_precondition(w_false, environment, depth + 1, _facts=(facts, fact_set))
                     self.active_facts.append(if_cond)
                     try:
                         ok_true = self._prove_bool_precondition(w_true, environment, depth + 1)

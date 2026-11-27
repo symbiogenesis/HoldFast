@@ -28,7 +28,6 @@ from toolchain.elaborate_types import (
     _InterfaceInfo,
     _InterfaceMethodSpec,
     _IntSpec,
-    _Meta,
     _parse_numeric_magnitude,
     _RecordInfo,
     _RecordMethod,
@@ -1697,7 +1696,7 @@ class _IntrinsicsMixin:
         if head == _constant("Vec") and len(targs) == 2:
             elem_t, len_t = targs
             if not self._is_unsuffixed_int_expr(idx_node):
-                saved_idx_m = [_Meta(m.type, m.scope, m.solution) for m in self.metas]
+                saved_idx_m = self.snapshot_metas()
                 idx_b = self.expression(idx_node, environment)
                 idx_head, _ = self.spine(self.whnf(idx_b.type))
                 if idx_head == _constant("Fin"):
