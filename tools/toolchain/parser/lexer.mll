@@ -62,6 +62,42 @@ let pure_unsupported word =
   | "var", _ -> "'var' declares a mutable binding; let and unmarked type-first bindings are immutable. Local reassignment requires the wider HoldFast surface; the pure prototype does not support mutation"
   | _, Some requested -> "'" ^ word ^ "' requests " ^ requested ^ "; the pure Nat/bool prototype cannot check ownership, borrowing or resource lifetimes"
   | _ -> "'" ^ word ^ "' is outside the pure prototype"
+(* Skip whitespace and comments from [index] without advancing [lexbuf]. *)
+let skip_trivia lexbuf index =
+  let source = lexbuf.Lexing.lex_buffer in
+  let length = lexbuf.Lexing.lex_buffer_len in
+  let at i = Bytes.get source i in
+  let rec comment depth i =
+    if depth > Ast.max_delimiter_depth then refuse "limit" lexbuf "annotation comment nesting exceeds 256"
+    else if i + 1 >= length then length
+    else if at i = '/' && at (i + 1) = '*' then comment (depth + 1) (i + 2)
+    else if at i = '*' && at (i + 1) = '/' then
+      if depth = 1 then i + 2 else comment (depth - 1) (i + 2)
+    else comment depth (i + 1)
+  in
+  let rec walk i =
+    if i >= length then length
+    else match at i with
+      | ' ' | '\t' | '\r' | '\n' -> walk (i + 1)
+      | '/' when i + 1 < length && at (i + 1) = '*' -> walk (comment 1 (i + 2))
+      | '/' when i + 1 < length && at (i + 1) = '/' ->
+          let rec line current =
+            if current < length && at current <> '\r' && at current <> '\n' then line (current + 1) else current
+          in
+          walk (line (i + 2))
+      | _ -> i
+  in
+  walk index
+
+let followed_by_ref lexbuf =
+  let source = lexbuf.Lexing.lex_buffer in
+  let length = lexbuf.Lexing.lex_buffer_len in
+  let index = skip_trivia lexbuf lexbuf.Lexing.lex_curr_pos in
+  let is_subsequent = function 'A'..'Z' | 'a'..'z' | '0'..'9' | '_' -> true | _ -> false in
+  index + 3 <= length
+  && Bytes.sub_string source index 3 = "ref"
+  && (index + 3 = length || not (is_subsequent (Bytes.get source (index + 3))))
+
 (* Use the shape of a binder and its trailing tokens to classify an annotation.
    The driver supplies the complete source with Lexing.from_string. *)
 let annotation lexbuf parenthesized =
@@ -71,24 +107,7 @@ let annotation lexbuf parenthesized =
   let initial = function 'A'..'Z' | 'a'..'z' | '_' -> true | _ -> false in
   let subsequent value = initial value || (value >= '0' && value <= '9') in
   let rec word index = if index < length && subsequent (at index) then word (index + 1) else index in
-  let rec comment depth index =
-    if depth > Ast.max_delimiter_depth then refuse "limit" lexbuf "annotation comment nesting exceeds 256"
-    else if index + 1 >= length then length
-    else if at index = '/' && at (index + 1) = '*' then comment (depth + 1) (index + 2)
-    else if at index = '*' && at (index + 1) = '/' then
-      if depth = 1 then index + 2 else comment (depth - 1) (index + 2)
-    else comment depth (index + 1)
-  in
-  let rec trivia index =
-    if index >= length then length
-    else match at index with
-      | ' ' | '\t' | '\r' | '\n' -> trivia (index + 1)
-      | '/' when index + 1 < length && at (index + 1) = '*' -> trivia (comment 1 (index + 2))
-      | '/' when index + 1 < length && at (index + 1) = '/' ->
-          let rec line current = if current < length && at current <> '\r' && at current <> '\n' then line (current + 1) else current in
-          trivia (line (index + 2))
-      | _ -> index
-  in
+  let trivia index = skip_trivia lexbuf index in
   let rec skip_raw quotes index =
     if index >= length then length
     else if at index = '"' then
@@ -336,7 +355,10 @@ let identifier state lexbuf =
   | "Fn" -> FN | "FnMut" -> FNMUT | "FnOnce" -> FNONCE | "is" -> IS
   | "carrier" -> CARRIER | "zero" -> ZERO | "one" -> ONE | "add" -> ADD | "mul" -> MUL
   | "admits" -> ADMITS | "interpret" -> INTERPRET | "laws" -> LAWS
-  | _ -> if annotation_name lexbuf then ANNOTATION_NAME word else IDENT word
+  | _ ->
+      if state.surface && word = "shared" && followed_by_ref lexbuf then SHARED
+      else if annotation_name lexbuf then ANNOTATION_NAME word
+      else IDENT word
 let digit_run lexbuf spelling prefix valid =
   let length = String.length spelling in
   let index = ref prefix in

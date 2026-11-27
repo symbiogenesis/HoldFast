@@ -5,6 +5,7 @@ let optional = function None -> Null | Some value -> value.syntax
 let children = function None -> [] | Some value -> [value]
 let strings values = Array (List.map (fun value -> String value) values)
 let const_fields = function None -> [] | Some _ -> [("const", Boolean true)]
+let grade_fields = function None -> [] | Some value -> [("grade", value.syntax)]
 let refuse_syntax first message = raise (Refusal ("syntax", first.Lexing.pos_cnum, message))
 let refuse_bare_local first =
   refuse_syntax first "local declaration requires 'let' or 'var' before its type (write 'let T x = e;' or 'var T x = e;')"
@@ -42,15 +43,21 @@ let is_constructor_spelling text =
 let is_binder_spelling text =
   not (String.contains text '.') && String.length text > 0
   && (text.[0] = '_' || (text.[0] >= 'a' && text.[0] <= 'z'))
-let build_pattern first last target values =
+let build_pattern first last target values grade =
   let spelling = name_text target in
   match values with
   | None ->
-      if spelling = "_" then make "wildcard_pattern" first last [] []
-      else if is_constructor_spelling spelling then
+      if spelling = "_" then begin
+        if grade <> None then
+          refuse_syntax first "wildcard pattern '_' cannot carry a use grade '@'";
+        make "wildcard_pattern" first last [] []
+      end else if is_constructor_spelling spelling then begin
+        if grade <> None then
+          refuse_syntax first "constructor pattern cannot carry a use grade '@'";
         make "constructor_pattern" first last [("name", target); ("arguments", Array [])] []
-      else if is_binder_spelling spelling then
-        make "binding_pattern" first last [("name", target)] []
+      end else if is_binder_spelling spelling then
+        make "binding_pattern" first last
+          ([("name", target)] @ grade_fields grade) (children grade)
       else
         refuse_syntax first
           "pattern binder must be an unqualified lowercase or '_' identifier; constructor patterns require an uppercase constructor name"
@@ -60,6 +67,8 @@ let build_pattern first last target values =
   | Some args ->
       if not (is_constructor_spelling spelling) then
         refuse_syntax first ("constructor pattern '" ^ spelling ^ "' requires an uppercase constructor name")
+      else if grade <> None then
+        refuse_syntax first "constructor pattern cannot carry a use grade '@'"
       else
         make "constructor_pattern" first last [("name", target); ("arguments", array args)] args
 let rec is_range = function
@@ -72,7 +81,7 @@ let rec is_range = function
 %token LPAREN RPAREN LBRACE RBRACE SEMICOLON COMMA EQUAL PLUS STAR EQ LE EOF
 %token <string> IDENT DECIMAL
 %token PRIVATE INTERNAL ASYNC RECORD STRUCT UNION INTERFACE IMPL IMPORT ALIAS NAMESPACE AS
-%token OWNED MOVE IN REF OUT GHOST TRACKED SCOPED REGION CAPTURES GRADE DOMAIN
+%token OWNED MOVE IN REF OUT GHOST TRACKED SCOPED SHARED REGION CAPTURES GRADE DOMAIN
 %token REQUIRES ENSURES RESTORES WHERE EFFECTS INVARIANT DECREASES PROGRESS
 %token VIEW GROWS TYPE PREDICATE PROOF
 %token EFFECT RESUMES HANDLE SHALLOW WITH RESUME DISPOSE REHANDLE
@@ -489,7 +498,7 @@ s_modified_type(base):
         ("lifetime", optional lifetime); ("type", value.syntax)] (value :: children lifetime) }
 %inline s_type_modifier:
   OWNED { "owned" } | IN { "in" } | REF { "ref" } | OUT { "out" } | GHOST { "ghost" }
-| TRACKED { "tracked" } | SCOPED { "scoped" }
+| TRACKED { "tracked" } | SCOPED { "scoped" } | SHARED REF { "shared_ref" }
 s_loan_lifetime:
   s_generic_open value=LIFETIME GT
     { make "lifetime" $startpos $endpos [("name", name $startpos(value) $endpos(value) value)] [] }
@@ -610,14 +619,17 @@ s_nonempty_simple_statement:
         (condition :: body :: contracts) }
 | FOREACH LPAREN mode=s_iteration_mode binding=s_iteration_binding IN collection=s_expression RPAREN
   contracts=list(s_contract) body=s_block
-    { let binding_name, annotation = binding in
+    { let binding_name, annotation, grade = binding in
       if mode = "value" && annotation = None && is_range collection.syntax then
-        make "foreach" $startpos $endpos [("name", binding_name); ("range", collection.syntax);
-          ("contracts", array contracts); ("body", body.syntax)] (collection :: body :: contracts)
-      else make "foreach_collection" $startpos $endpos [("name", binding_name);
-        ("type", optional annotation); ("mode", String mode); ("collection", collection.syntax);
-        ("contracts", array contracts); ("body", body.syntax)]
-        (children annotation @ collection :: body :: contracts) }
+        make "foreach" $startpos $endpos
+          ([("name", binding_name); ("range", collection.syntax);
+            ("contracts", array contracts); ("body", body.syntax)] @ grade_fields grade)
+          (collection :: body :: contracts @ children grade)
+      else make "foreach_collection" $startpos $endpos
+        ([("name", binding_name); ("type", optional annotation); ("mode", String mode);
+          ("collection", collection.syntax); ("contracts", array contracts); ("body", body.syntax)]
+         @ grade_fields grade)
+        (children annotation @ collection :: body :: contracts @ children grade) }
 | kind=s_local_kind binding=s_local_initializer SEMICOLON
     { let suffix, fields, parts = binding in
       make (kind ^ suffix) $startpos $endpos fields parts }
@@ -656,8 +668,8 @@ s_annotation_type_atom:
 s_iteration_mode:
   LET { "value" } | IN { "in" } | REF { "ref" }
 s_iteration_binding:
-  binding_name=s_identifier { binding_name, None }
-| annotation=s_type binding_name=s_identifier { binding_name, Some annotation }
+  binding_name=s_identifier grade=option(s_grade) { binding_name, None, grade }
+| annotation=s_type binding_name=s_identifier grade=option(s_grade) { binding_name, Some annotation, grade }
 %inline s_proof_block_kind:
   PROOF { "proof" } | CALC { "calc" }
 s_assert_tail:
@@ -695,8 +707,10 @@ s_match_case:
     { make "case" $startpos $endpos(statement)
         [("pattern", pattern.syntax); ("statements", array [statement])] [pattern; statement] }
 s_match_motive:
-  AS scrutinee=s_identifier COLON value_type=s_type
-    { make "match_motive" $startpos $endpos [("name", scrutinee); ("type", value_type.syntax)] [value_type] }
+  AS scrutinee=s_identifier grade=option(s_grade) COLON value_type=s_type
+    { make "match_motive" $startpos $endpos
+        ([("name", scrutinee); ("type", value_type.syntax)] @ grade_fields grade)
+        (value_type :: children grade) }
 s_match_expression_case:
   pattern=s_pattern FATARROW value=s_expression
     { make "expression_case" $startpos $endpos [("pattern", pattern.syntax); ("value", value.syntax)] [pattern; value] }
@@ -706,11 +720,13 @@ s_empty_match:
   MATCH LPAREN value=s_expression RPAREN motive=option(s_match_motive) LBRACE RBRACE
     { value, motive }
 s_pattern:
-  target=s_path values=option(s_pattern_arguments)
-    { build_pattern $startpos $endpos target values }
+  target=s_path values=option(s_pattern_arguments) grade=option(s_pattern_grade)
+    { build_pattern $startpos $endpos target values grade }
 | value=s_product_pattern { value }
 | payload=s_literal_payload
     { let kind, fields = payload in make (kind ^ "_pattern") $startpos $endpos fields [] }
+s_pattern_grade:
+  AT value=s_range_with(s_parameter_open) { value }
 s_pattern_arguments:
   s_parameter_open values=comma_list(s_pattern_argument) RPAREN { values }
 s_pattern_argument:
@@ -722,10 +738,10 @@ s_pattern_argument:
 s_local_pattern:
   value=s_product_pattern { value }
 | first=s_value_identifier values=s_pattern_arguments
-    { build_pattern $startpos $endpos first (Some values) }
+    { build_pattern $startpos $endpos first (Some values) None }
 | first=s_value_identifier rest=nonempty_list(s_path_segment) values=option(s_pattern_arguments)
     { let target = name $startpos $endpos (String.concat "." (name_text first :: rest)) in
-      build_pattern $startpos $endpos target values }
+      build_pattern $startpos $endpos target values None }
 s_product_pattern:
   s_parameter_open RPAREN { make "unit_pattern" $startpos $endpos [] [] }
 | s_parameter_open value=s_pattern RPAREN
@@ -764,7 +780,7 @@ s_statement_expression:
 %inline s_quantifier_kind:
   FORALL { "forall" } | EXISTS { "exists" }
 s_lambda_parameter:
-  constant=option(CONST) value_type=s_annotation_type parameter_name=s_identifier grade=option(s_grade)
+  constant=ioption(CONST) value_type=s_annotation_type parameter_name=s_identifier grade=option(s_grade)
     { make "lambda_parameter" $symbolstartpos $endpos
         ([("type", value_type.syntax); ("name", parameter_name);
           ("grade", optional grade)] @ const_fields constant) (value_type :: children grade) }
@@ -860,7 +876,7 @@ s_field_update:
   MINUS { name $startpos $endpos "-" } | value=negation_operator { value }
 | TILDE { name $startpos $endpos "~" } | MOVE { name $startpos $endpos "move" }
 | IN { name $startpos $endpos "in" } | REF { name $startpos $endpos "ref" }
-| OUT { name $startpos $endpos "out" }
+| OUT { name $startpos $endpos "out" } | SHARED REF { name $startpos $endpos "shared_ref" }
 | STAR { name $startpos $endpos "*" } | AMP { name $startpos $endpos "&" }
 | AWAIT { name $startpos $endpos "await" } | SPAWN { name $startpos $endpos "spawn" }
 | COMMIT { name $startpos $endpos "commit" }
