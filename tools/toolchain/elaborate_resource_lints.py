@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, cast
 from toolchain import loans
 from toolchain.elaborate_lints import node_offset, report_lint
 from toolchain.elaborate_protocol import syntax_nodes as _walk
-from toolchain.elaborate_types import _BOOL, _CHAR, _NAT, _UNIT, _parse_numeric_magnitude
+from toolchain.elaborate_types import _parse_numeric_magnitude
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

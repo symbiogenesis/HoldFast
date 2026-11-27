@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Tests for derived distributive modality combinators (Q25bz)."""
 
-from pathlib import Path
 import subprocess
 import tempfile
+from pathlib import Path
 
 from tests.harness import TOOLS, Case, ensure, raises
 from toolchain import elaborate, parser, proofenv, rocq_cache, solver_ledger

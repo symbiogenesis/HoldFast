@@ -9,7 +9,15 @@ from tempfile import TemporaryDirectory
 
 from tests.harness import TOOLS, Case, ensure, raises
 from tests.test_holdfast_packages import _write
-from toolchain import elaborate, mathematical_authoring, packages, parser, proofenv, rocq_cache, solver_ledger
+from toolchain import (
+    elaborate,
+    mathematical_authoring,
+    packages,
+    parser,
+    proofenv,
+    rocq_cache,
+    solver_ledger,
+)
 from toolchain.ast import HoldFastError
 
 INDEPENDENT_CASES = True
