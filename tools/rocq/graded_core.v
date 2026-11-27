@@ -1702,9 +1702,7 @@ Proof.
     constructor; [apply IH; reflexivity | apply ctype_demand_sound; exact Ht].
 Qed.
 
-(* Subtyping & subgrading:
-   - Box covariance in capability order (q' <= q, i.e., allows q' q)
-   - Pi contravariance in domain type and domain capability grade (allows s s', allows r r') *)
+(* Subtyping/subgrading: covariant in Box (allows q' q, i.e., q' <= q); contravariant in Pi domain/grade (allows s s', allows r r'). *)
 Inductive Subty {D : JoinDomain} : cenv D -> cty D -> cty D -> Prop :=
 | SubRefl : forall env A B,
     cty_alpha_eq A B -> Subty env A B

@@ -4384,7 +4384,7 @@ Lemma weaken_cidx_demand_join : forall (D : JoinDomain) j (b : cbinding D) env_a
              vec_allows d' (vec_insert_zero (length env_a) d).
 Proof.
   intros D j b env_a env_b i d Hj H.
-  (* Wait: CIdxDemandCase replaces env with extended env, so generalize over env1 = env_a ++ env_b *)
+  (* Generalize over env1 = env_a ++ env_b because CIdxDemandCase extends env. *)
   remember (env_a ++ env_b) as env1 eqn:Henv1.
   revert b env_a env_b Henv1.
   induction H; intros b0 env_a env_b0 Henv1; subst env.

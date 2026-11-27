@@ -124,9 +124,7 @@ Arguments dependencies {_} _.
 Definition substitute_row {D} (binder : nat) (argument row : Row D) : Row D :=
   fun i => if Nat.eqb binder i then zero else apply_row (row binder) row argument i.
 
-(* Supply the term and result-type demands and the dependency rows for later declarations.
-   The caller retains earlier rows and drops the replaced declaration's row.
-   See [substitution and structural rules](../../docs/extensions/graded-foundation.md#substitution-and-structural-rules). *)
+(* Combines term, result-type, and later-dependency demand rows (caller keeps prior rows and drops the replaced one). [substitution and structural rules](../../docs/extensions/graded-foundation.md#substitution-and-structural-rules) *)
 Definition substitute {D} (binder : nat) (argument : Row D) (used : Demands D) : Demands D :=
   {| computation := substitute_row binder argument (computation used);
      type_use := substitute_row binder argument (type_use used);

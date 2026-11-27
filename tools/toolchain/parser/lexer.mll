@@ -21,8 +21,7 @@ let opening state lexbuf token =
     refuse "limit" lexbuf (Printf.sprintf "delimiter nesting exceeds %d" Ast.max_delimiter_depth);
   token
 let closing state token = state.delimiters <- max 0 (state.delimiters - 1); token
-(* Test the generic-argument grammar on a copy of the lexer state and positions.
-   Nested probes share the buffered source, decision cache and token budget. *)
+(* Probe generic-arg syntax on copied state/pos; nested probes share buffer, cache, and token budget. *)
 let generic_application next state lexbuf =
   let offset = Lexing.lexeme_start lexbuf in
   match Hashtbl.find_opt state.generic_probes offset with
@@ -98,8 +97,7 @@ let followed_by_ref lexbuf =
   && Bytes.sub_string source index 3 = "ref"
   && (index + 3 = length || not (is_subsequent (Bytes.get source (index + 3))))
 
-(* Use the shape of a binder and its trailing tokens to classify an annotation.
-   The driver supplies the complete source with Lexing.from_string. *)
+(* Classify annotations from binder shape and trailing tokens (driver uses Lexing.from_string). *)
 let annotation lexbuf parenthesized =
   let source = lexbuf.Lexing.lex_buffer in
   let length = lexbuf.Lexing.lex_buffer_len in
@@ -131,8 +129,7 @@ let annotation lexbuf parenthesized =
     else if quotes = 2 then start_quote + 2
     else quoted (start_quote + 1)
   in
-  (* A grade or a generic value may contain a callback block. Skip its balanced
-     delimiters without interpreting statements or changing lexer positions. *)
+  (* Skip balanced callback delimiters in grades/generics without executing statements or mutating positions. *)
   let rec block closing depth index =
     if depth > Ast.max_delimiter_depth then refuse "limit" lexbuf "annotation block nesting exceeds 256"
     else if index >= length then length
@@ -223,8 +220,7 @@ let annotation lexbuf parenthesized =
         | '[' -> binder_tail parens (brackets + 1) graded (index + 1)
         | ']' when brackets > 0 -> binder_tail parens (brackets - 1) graded (index + 1)
         | '@' when parens = 0 && brackets = 0 -> binder_tail parens brackets true (index + 1)
-        (* A comma can separate generic grade arguments as well as binders. Keep
-           the grade flag so either case can still reach a balanced block. *)
+        (* Keep graded across top-level commas separating generic grade args or binders so either reaches a block. *)
         | ',' when parens = 0 && brackets = 0 -> binder_tail parens brackets graded (index + 1)
         | ('<' | '>' | '!') when index + 1 < length && at (index + 1) = '=' ->
             binder_tail parens brackets graded (index + 2)
@@ -244,8 +240,7 @@ let annotation lexbuf parenthesized =
       | ',' -> binder_tail 0 0 false (after_binder + 1)
       | '@' -> binder_tail 0 0 true (after_binder + 1)
       | _ -> false)
-(* Look for '=>' after the matching ')' without advancing the lexer. The grammar
-   also accepts the resulting LAMBDA_OPEN token in parameter and pattern positions. *)
+(* Peek for '=>' past matching ')' without advancing; grammar also accepts LAMBDA_OPEN in param/pattern positions. *)
 let lambda_open lexbuf =
   let source = lexbuf.Lexing.lex_buffer in
   let length = lexbuf.Lexing.lex_buffer_len in
@@ -377,7 +372,7 @@ let digit_run lexbuf spelling prefix valid =
 let pure_decimal lexbuf =
   let spelling = Lexing.lexeme lexbuf in
   let count = digit_run lexbuf spelling 0 (function '0'..'9' -> true | _ -> false) in
-  (* Let the next pure lexer call classify the suffix at its own source position. *)
+  (* Hand suffix classification back to the pure lexer at its exact source position. *)
   lexbuf.Lexing.lex_curr_pos <- lexbuf.Lexing.lex_start_pos + count;
   lexbuf.Lexing.lex_curr_p <- { lexbuf.Lexing.lex_curr_p with
     Lexing.pos_cnum = lexbuf.Lexing.lex_start_p.Lexing.pos_cnum + count };

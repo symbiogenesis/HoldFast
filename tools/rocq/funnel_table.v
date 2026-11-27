@@ -1,8 +1,6 @@
 (* SPDX-License-Identifier: Apache-2.0 *)
 
-(* Mechanized fixed-capacity Funnel Hashing (Farach-Colton, Krapivin, Kuszmaul)
-   for HoldFast's zero-heap, non-relocating static storage discipline.
-   All slots stay immovable in place once written (no reordering). *)
+(* Fixed-capacity Funnel Hashing (Farach-Colton, Krapivin, Kuszmaul) for HoldFast's zero-heap static storage (slots stay immovable once written). *)
 
 From Stdlib Require Import List Arith.PeanoNat Bool.Bool Lia.
 Import ListNotations.

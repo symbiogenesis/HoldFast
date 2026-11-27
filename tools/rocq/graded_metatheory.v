@@ -791,7 +791,7 @@ Proof.
     unfold fresh in Hfi. destruct (lookup inner y); [discriminate | exact Hfr].
 Qed.
 
-(* Helper: replacing type_uses of a binding in env with a same_demand preserves judgments *)
+(* Replacing a binding's type_uses with a same_demand one preserves judgments. *)
 Lemma lookup_rel_cons : forall env1 env2 b1 b2,
   binder b1 = binder b2 ->
   annotation b1 = annotation b2 ->
@@ -1324,9 +1324,7 @@ Proof.
     + cbn. rewrite (IH2 Hd2). reflexivity.
 Qed.
 
-(* Also need same_demand for substitute_demand_distr:
-   substitute_demand x z (substitute_demand x0 z0 b) == substitute_demand x0 (substitute_demand x z z0) (substitute_demand x z b)
-   when x <> x0 and uses z x0 = 0! *)
+(* Distributivity of substitute_demand up to same_demand when x <> x0 and uses z x0 = 0. *)
 Lemma substitute_demand_distr : forall x z x0 z0 b,
   x <> x0 ->
   uses z x0 = 0 ->

@@ -39,9 +39,7 @@ Inductive indexed :=
 | IndexedName (name : nat)
 | BuildIndexed (shape : indexed_shape) (length : index) (payload : nat).
 
-(* A type index can refer to the contents of a box or the length of an indexed
-   pair. An explicit pair constructor contributes both fields before projection.
-   See [modal elimination](../../docs/extensions/graded-foundation.md#dependent-data-and-elimination). *)
+(* Type index for box contents or indexed-pair length (explicit pairs supply both fields pre-projection). [modal elimination](../../docs/extensions/graded-foundation.md#dependent-data-and-elimination) *)
 Inductive type_index :=
 | PlainIndex (value : index)
 | BoxContents (name : nat)
@@ -274,8 +272,7 @@ Proof.
       inversion checked; subst. constructor. now apply index_demand_sound.
 Qed.
 
-(* Kinds introduce no binders. Replacing their indices keeps the replacement's
-   free names in scope. *)
+(* Kinds bind no names, so replacing indices preserves free-name scoping. *)
 Fixpoint map_indices (replace : type_index -> type_index) (k : kind) : kind :=
   match k with
   | BoxKind q payload => BoxKind q (map_indices replace payload)
