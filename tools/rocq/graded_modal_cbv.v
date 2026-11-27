@@ -12,17 +12,17 @@ Definition open_box (name motive_name q : nat) (packed : boxed) (body : GradedPu
   LetBox name motive_name packed (ProductKind NatKind (type_identity (BoxContents motive_name)))
     (Pair (NaturalValue body) (vec_identity (PromotedContents q (GradedPure.IndexVar name)))).
 
-Lemma dependent_pair_counts_reads : forall allows scope body extent k computation dependency values name,
-  DerivesWith allows scope (Pair (NaturalValue body) (vec_identity extent))
+Lemma dependent_pair_counts_reads : forall allows exact_branches scope body extent k computation dependency values name,
+  DerivesModal allows exact_branches scope (Pair (NaturalValue body) (vec_identity extent))
     (used k computation dependency) ->
   count_occ Nat.eq_dec (snd (evaluate_index values body)) name = GradedPure.uses computation name.
 Proof.
-  intros allows scope body extent k computation dependency values name typed.
-  inversion typed as [| | | | | left right a b u v w z arithmetic vector | | | |]; subst.
+  intros allows exact_branches scope body extent k computation dependency values name typed.
+  inversion typed as [| | | | | left right a b u v w z arithmetic vector | | | | | | | | | | | | |]; subst.
   inversion arithmetic; subst.
   unfold vec_identity in vector.
   inversion vector as [| | | | binder allowance domain term codomain a' u' v' row
-    fresh domain_ok identity allowed formed | | | | |]; subst.
+    fresh domain_ok identity allowed formed | | | | | | | | | | | | | |]; subst.
   inversion identity; subst.
   rewrite GradedPure.uses_append, GradedPure.uses_without.
   assert ((if name =? 3 then 0 else GradedPure.uses [(3, 1)] name) = 0) as no_reads.
@@ -32,11 +32,11 @@ Proof.
 Qed.
 
 Theorem checked_box_open_preserves_argument_with : forall
-  (allows : nat -> nat -> Prop) allowsb
+  (allows : nat -> nat -> Prop) allowsb exact_branches
   (sound : forall actual allowance, allowsb actual allowance = true -> allows actual allowance)
   State Event scope name motive_name packed q body checked values
   (argument : State -> execution State Event) initial after effects payload,
-  check_with allowsb scope (open_box name motive_name q packed body) = Some checked ->
+  check_modal allowsb exact_branches scope (open_box name motive_name q packed body) = Some checked ->
   argument initial = {| final_state := after; trace := effects; result := Returned payload |} ->
   exists box_grade source_uses contents returned reads,
     BoxDerives scope packed box_grade source_uses contents /\
@@ -48,17 +48,17 @@ Theorem checked_box_open_preserves_argument_with : forall
          result := Returned returned |} /\
     allows (count_occ Nat.eq_dec reads name) box_grade.
 Proof.
-  intros allows allowsb sound State Event scope name motive_name packed q body checked values
+  intros allows allowsb exact_branches sound State Event scope name motive_name packed q body checked values
     argument initial after effects payload accepted evaluated.
   unfold open_box in accepted.
-  pose proof (checked_let_box_demands_with allows allowsb sound _ _ _ _ _ _ _ accepted) as opened.
+  pose proof (checked_let_box_demands_with allows allowsb exact_branches sound _ _ _ _ _ _ _ accepted) as opened.
   destruct opened as (box_grade & source_uses & contents & computation & dependency & motive_row
     & boxed_ok & _ & body_ok & admitted & _ & output_kind & _).
   cbn [specialize map_indices type_identity] in body_ok.
   rewrite Nat.eqb_refl in body_ok.
   cbn [specialize map_indices type_identity] in output_kind.
   rewrite Nat.eqb_refl in output_kind.
-  pose proof (dependent_pair_counts_reads _ _ _ _ _ _ _ (extend_values values name payload) name body_ok)
+  pose proof (dependent_pair_counts_reads _ _ _ _ _ _ _ _ (extend_values values name payload) name body_ok)
     as read_count.
   unfold apply_natural_lambda, sequence_argument. rewrite evaluated. cbn.
   unfold evaluate_natural_body.
@@ -97,12 +97,12 @@ Definition open_slice_box (values : nat -> nat) (body : GradedPure.index)
   (opened, match result evaluated with Returned extent => Some extent | Failed _ => None end).
 
 Theorem checked_slice_box_preserves_owner_with : forall
-  (allows : nat -> nat -> Prop) allowsb
+  (allows : nat -> nat -> Prop) allowsb exact_branches
   (sound : forall actual allowance, allowsb actual allowance = true -> allows actual allowance)
   scope motive_name box body checked values argument owner,
   let '(name, allowance) := binder_grade argument in
   find_kind scope box = Some (BoxNat allowance) ->
-  check_with allowsb scope (open_box name motive_name allowance (BoxName box) body) = Some checked ->
+  check_modal allowsb exact_branches scope (open_box name motive_name allowance (BoxName box) body) = Some checked ->
   let evaluated := run_slice_argument argument owner in
   let '(opened, extent) := open_slice_box values body argument owner in
   value_kind checked = ProductKind NatKind (type_identity (BoxContents box)) /\
@@ -123,10 +123,10 @@ Theorem checked_slice_box_preserves_owner_with : forall
         allows (count_occ Nat.eq_dec reads name) allowance
   end.
 Proof.
-  intros allows allowsb sound scope motive_name box body checked values argument owner.
+  intros allows allowsb exact_branches sound scope motive_name box body checked values argument owner.
   destruct (binder_grade argument) as [name q] eqn:binder.
   intros box_kind accepted.
-  pose proof (checked_let_box_demands_with allows allowsb sound _ _ _ _ _ _ _ accepted)
+  pose proof (checked_let_box_demands_with allows allowsb exact_branches sound _ _ _ _ _ _ _ accepted)
     as (grade & uses & contents & computation & dependency & motive_row & boxed & _ & _ & _ & _ &
       kind_checked & _).
   inversion boxed as [key allowance found |]; subst.
@@ -136,7 +136,7 @@ Proof.
   destruct (run_slice_argument argument owner) as [after effects outcome] eqn:evaluated.
   cbn [fst final_state trace result] in *.
   destruct outcome as [payload | reason].
-  - pose proof (checked_box_open_preserves_argument_with allows allowsb sound byte_span span_event
+  - pose proof (checked_box_open_preserves_argument_with allows allowsb exact_branches sound byte_span span_event
       scope name motive_name (BoxName box) q body checked values
       (fun _ => {| final_state := after; trace := effects; result := Returned payload |})
       owner after effects payload accepted eq_refl)

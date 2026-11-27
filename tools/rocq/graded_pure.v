@@ -51,6 +51,15 @@ Proof.
       apply Nat.eqb_eq in equal. subst y. now rewrite removed.
 Qed.
 
+Lemma uses_scale : forall k d x, uses (scale k d) x = k * uses d x.
+Proof.
+  intros k d x. induction d as [| [y m] rest IH].
+  - cbn. now rewrite Nat.mul_0_r.
+  - change (scale k ((y, m) :: rest)) with ((y, k * m) :: scale k rest).
+    cbn [uses]. rewrite IH, Nat.mul_add_distr_l.
+    now destruct (Nat.eqb x y); rewrite ?Nat.mul_0_r.
+Qed.
+
 Lemma absent_use : forall d x, ~ In x (map fst d) -> uses d x = 0.
 Proof.
   induction d as [| [y n] rest IH]; intros x absent; cbn in *.

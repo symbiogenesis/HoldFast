@@ -58,9 +58,7 @@ Qed.
 
 Lemma zero_scaled_use : forall argument y, uses (scale 0 argument) y = 0.
 Proof.
-  induction argument as [| [x count] rest IH]; intros y; cbn.
-  - reflexivity.
-  - rewrite IH. now destruct (Nat.eqb y x).
+  intros argument y. now rewrite GradedPure.uses_scale.
 Qed.
 
 Theorem zero_use_preserves_row : forall row argument x,

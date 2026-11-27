@@ -137,7 +137,7 @@ def _worker_reply_binding() -> None:
 
 def _changed_grade_support_refuses() -> None:
     with _running() as server:
-        support = Path(__file__).resolve().parents[1] / "rocq" / "graded_source.v"
+        support = Path(__file__).resolve().parents[1] / "rocq" / "graded_core_source.v"
         ensure(support in server.compiler_inputs, "grade checker omitted from the prepared compiler generation")
         original_hash = playground.file_sha256
 

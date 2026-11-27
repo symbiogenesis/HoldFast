@@ -100,68 +100,66 @@ Proof.
     reflexivity.
 Qed.
 
-Lemma erased_sequence_agrees_derives : forall (allows : nat -> nat -> Prop),
-  (forall actual, allows actual 0 -> actual = 0) ->
-  forall State Event (arguments : list (natural_argument State Event)) env body checked
-    values1 values2 initial,
-  DerivesWith allows env (natural_telescope (map parameter arguments) body) checked ->
-  (forall name, In name (index_reads body) -> values1 name = values2 name) ->
-  erased_cbv_eval arguments values2 body initial =
-    evaluate_natural_sequence arguments values1 body initial.
+Fixpoint eval_zero_grade_sequence {State Event : Type}
+    (on_zero : nat -> (nat -> nat) -> (nat -> nat))
+    (arguments : list (natural_argument State Event)) (values : nat -> nat)
+    (body : index) (initial : State) : execution State (observation Event) :=
+  match arguments with
+  | [] => evaluate_natural_body values body initial
+  | argument :: rest =>
+      sequence_argument (run_argument argument)
+        (fun value =>
+          eval_zero_grade_sequence on_zero rest
+            (let '(name, allowance) := parameter argument in
+             if Nat.eqb allowance 0 then on_zero name values else extend_values values name value)
+            body) initial
+  end.
+
+Lemma erased_cbv_eval_as_zero_grade : forall State Event
+    (arguments : list (natural_argument State Event)) values body initial,
+  erased_cbv_eval arguments values body initial =
+    eval_zero_grade_sequence (fun _ vals => vals) arguments values body initial.
 Proof.
-  intros allows zero_is_0 State Event.
-  induction arguments as [| argument rest IH];
-    intros env body checked values1 values2 initial typed agree.
-  - unfold erased_cbv_eval. cbn. unfold evaluate_natural_body.
-    erewrite evaluate_index_extensional; [reflexivity |].
-    intros name present. symmetry. now apply agree.
-  - destruct argument as [[name allowance] run].
-    cbn [map parameter natural_telescope] in typed.
-    pose proof (natural_telescope_reads_with allows
-      ((name, allowance) :: map parameter rest) env body checked typed values1)
-      as [bound _].
-    inversion typed as [| | x q domain body' codomain a u v
-      fresh_x typed_domain derives_rest allowed_x | | | |]; subst.
-    unfold erased_cbv_eval.
-    cbn [map evaluate_erased_arguments evaluate_natural_sequence].
-    unfold sequence_argument.
-    change (run_erased_argument (erase_argument {| parameter := (name, allowance); run_argument := run |})) with run.
-    change (retained_binder (erase_argument {| parameter := (name, allowance); run_argument := run |}))
-      with (retain_parameter (name, allowance)).
-    unfold retain_parameter. cbv beta iota.
-    cbn [parameter fst snd run_argument].
-    destruct (run initial) as [after effects [value | reason]] eqn:ran;
-      cbn [final_state trace result]; [| reflexivity].
-    destruct (Nat.eqb allowance 0) eqn:is_zero.
-    + apply Nat.eqb_eq in is_zero. subst allowance.
-      cbn [Nat.eqb]. cbv iota.
-      destruct (bound name 0 (or_introl eq_refl)) as [_ allowed_reads].
-      rewrite evaluate_index_reads in allowed_reads.
-      apply zero_is_0 in allowed_reads.
-      apply (count_occ_not_In Nat.eq_dec) in allowed_reads.
-      change (evaluate_erased_arguments (map erase_argument rest)) with (erased_cbv_eval rest).
-      erewrite (IH _ _ _ (extend_values values1 name value) values2 after derives_rest); [reflexivity |].
-      intros reader present. unfold extend_values.
-      destruct (Nat.eqb reader name) eqn:eq_reader.
-      * apply Nat.eqb_eq in eq_reader. subst reader. contradiction.
-      * now apply agree.
-    + change (evaluate_erased_arguments (map erase_argument rest)) with (erased_cbv_eval rest).
-      erewrite (IH _ _ _ (extend_values values1 name value) (extend_values values2 name value) after derives_rest);
-        [reflexivity |].
-      intros reader present. unfold extend_values.
-      destruct (Nat.eqb reader name); [reflexivity | now apply agree].
+  intros State Event arguments. induction arguments as [| [[name allowance] run] rest IH];
+    intros values body initial; [reflexivity |].
+  unfold erased_cbv_eval.
+  cbn [map evaluate_erased_arguments eval_zero_grade_sequence].
+  unfold sequence_argument, erase_argument, retain_parameter.
+  cbn [retained_binder run_erased_argument parameter run_argument].
+  destruct (run initial) as [after effects [value | reason]];
+    cbn [final_state trace result]; [| reflexivity].
+  destruct (Nat.eqb allowance 0);
+    unfold erased_cbv_eval in IH; rewrite IH; reflexivity.
 Qed.
 
-Lemma sentinel_sequence_agrees_derives : forall (allows : nat -> nat -> Prop),
+Lemma sentinel_eval_as_zero_grade : forall State Event
+    (arguments : list (natural_argument State Event)) values body initial,
+  evaluate_sentinel_arguments arguments values body initial =
+    eval_zero_grade_sequence (fun name vals => extend_values vals name 0) arguments values body initial.
+Proof.
+  intros State Event arguments. induction arguments as [| [[name allowance] run] rest IH];
+    intros values body initial; [reflexivity |].
+  cbn [evaluate_sentinel_arguments eval_zero_grade_sequence].
+  unfold sequence_argument. cbn [parameter run_argument fst snd].
+  destruct (run initial) as [after effects [value | reason]];
+    cbn [final_state trace result]; [| reflexivity].
+  destruct (Nat.eqb allowance 0);
+    rewrite IH; reflexivity.
+Qed.
+
+Lemma zero_grade_sequence_agrees_derives : forall (allows : nat -> nat -> Prop),
   (forall actual, allows actual 0 -> actual = 0) ->
+  forall (on_zero : nat -> (nat -> nat) -> (nat -> nat)),
+  (forall name values1 values2 y, y <> name -> values1 y = values2 y ->
+    values1 y = on_zero name values2 y) ->
   forall State Event (arguments : list (natural_argument State Event)) env body checked
     values1 values2 initial,
   DerivesWith allows env (natural_telescope (map parameter arguments) body) checked ->
   (forall name, In name (index_reads body) -> values1 name = values2 name) ->
-  evaluate_sentinel_arguments arguments values2 body initial =
+  eval_zero_grade_sequence on_zero arguments values2 body initial =
     evaluate_natural_sequence arguments values1 body initial.
 Proof.
-  intros allows zero_is_0 State Event.
+  intros allows zero_is_0 on_zero on_zero_other State Event.
   induction arguments as [| argument rest IH];
     intros env body checked values1 values2 initial typed agree.
   - cbn. unfold evaluate_natural_body.
@@ -174,27 +172,56 @@ Proof.
       as [bound _].
     inversion typed as [| | x q domain body' codomain a u v
       fresh_x typed_domain derives_rest allowed_x | | | |]; subst.
-    cbn [evaluate_sentinel_arguments evaluate_natural_sequence].
-    unfold sequence_argument. cbn [parameter fst snd run_argument].
+    cbn [eval_zero_grade_sequence evaluate_natural_sequence parameter fst snd run_argument].
+    unfold sequence_argument.
     destruct (run initial) as [after effects [value | reason]] eqn:ran;
       cbn [final_state trace result]; [| reflexivity].
     destruct (Nat.eqb allowance 0) eqn:is_zero.
     + apply Nat.eqb_eq in is_zero. subst allowance.
-      cbn [Nat.eqb]. cbv iota.
       destruct (bound name 0 (or_introl eq_refl)) as [_ allowed_reads].
       rewrite evaluate_index_reads in allowed_reads.
       apply zero_is_0 in allowed_reads.
       apply (count_occ_not_In Nat.eq_dec) in allowed_reads.
-      erewrite (IH _ _ _ (extend_values values1 name value) (extend_values values2 name 0) after derives_rest);
+      erewrite (IH _ _ _ (extend_values values1 name value) (on_zero name values2) after derives_rest);
         [reflexivity |].
       intros reader present. unfold extend_values.
       destruct (Nat.eqb reader name) eqn:eq_reader.
       * apply Nat.eqb_eq in eq_reader. subst reader. contradiction.
-      * now apply agree.
+      * apply Nat.eqb_neq in eq_reader. apply on_zero_other; [exact eq_reader | now apply agree].
     + erewrite (IH _ _ _ (extend_values values1 name value) (extend_values values2 name value) after derives_rest);
         [reflexivity |].
       intros reader present. unfold extend_values.
       destruct (Nat.eqb reader name); [reflexivity | now apply agree].
+Qed.
+
+Lemma erased_sequence_agrees_derives : forall (allows : nat -> nat -> Prop),
+  (forall actual, allows actual 0 -> actual = 0) ->
+  forall State Event (arguments : list (natural_argument State Event)) env body checked
+    values1 values2 initial,
+  DerivesWith allows env (natural_telescope (map parameter arguments) body) checked ->
+  (forall name, In name (index_reads body) -> values1 name = values2 name) ->
+  erased_cbv_eval arguments values2 body initial =
+    evaluate_natural_sequence arguments values1 body initial.
+Proof.
+  intros allows zero_is_0 State Event arguments env body checked values1 values2 initial typed agree.
+  rewrite erased_cbv_eval_as_zero_grade.
+  eapply zero_grade_sequence_agrees_derives; eauto.
+Qed.
+
+Lemma sentinel_sequence_agrees_derives : forall (allows : nat -> nat -> Prop),
+  (forall actual, allows actual 0 -> actual = 0) ->
+  forall State Event (arguments : list (natural_argument State Event)) env body checked
+    values1 values2 initial,
+  DerivesWith allows env (natural_telescope (map parameter arguments) body) checked ->
+  (forall name, In name (index_reads body) -> values1 name = values2 name) ->
+  evaluate_sentinel_arguments arguments values2 body initial =
+    evaluate_natural_sequence arguments values1 body initial.
+Proof.
+  intros allows zero_is_0 State Event arguments env body checked values1 values2 initial typed agree.
+  rewrite sentinel_eval_as_zero_grade.
+  eapply zero_grade_sequence_agrees_derives; eauto.
+  intros name v1 v2 y Hneq Heq. unfold extend_values.
+  apply Nat.eqb_neq in Hneq. now rewrite Hneq.
 Qed.
 
 Theorem cbv_zero_grade_erasure_sound_with : forall (allows : nat -> nat -> Prop) allowsb,
@@ -491,22 +518,6 @@ Example erasure_preserves_failure_prefix_example :
        trace := [ArgumentEvent 3; ArgumentReturned 10; ArgumentEvent 4];
        result := Failed 9 |}.
 Proof. cbn. split; [eexists; reflexivity | split; reflexivity]. Qed.
-
-Local Definition at_index (n : nat) := holdfast_nat_to_usize n.
-Local Definition byte (n : nat) := holdfast_mk_int 0 (holdfast_nat_to_bits 8 n).
-Local Definition empty_owner : byte_span := holdfast_Span_AllocZeroed _ (at_index 11) (at_index 4).
-Local Definition initial_owner := span_write (span_write empty_owner (at_index 2) (byte 6)) (at_index 3) (byte 21).
-Local Definition store_at base index to name grade failure :=
-  {| binder_grade := (name, grade); start := at_index base; length := at_index 2;
-     element := at_index index; replacement := byte to; failure_after_write := failure |}.
-Local Definition store_prefix := store_at 1 0 9 1 0 None.
-Local Definition store_next := store_at 1 1 15 2 3 None.
-Local Definition store_failing := store_at 1 1 15 2 3 (Some 9).
-Local Definition store_suffix := store_at 0 0 17 3 0 None.
-
-Local Definition slice_events argument := map ArgumentEvent
-  [SliceBorrowed (start argument) (length argument);
-   ElementWritten (owner_index argument) (replacement argument); OwnerRestored].
 
 Example span_zero_grade_erasure_preserves_owner_and_writeback :
   let arguments := [store_prefix; store_next] in

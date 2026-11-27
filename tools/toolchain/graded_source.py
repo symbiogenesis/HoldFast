@@ -162,10 +162,7 @@ class CustomDomainSpec:
 
 
 _PRIMITIVES = frozenset({"Nat", "bool", "Vec", "Type", *GradeDomain})
-_ROCQ_FILES = ("graded_pure.v", "graded_domains.v", "graded_source.v")
-_MODAL_FILES = ("graded_pure.v", "graded_domains.v", "graded_modal.v", "graded_modal_source.v")
-_CORE_FILES = ("graded_pure.v", "graded_domains.v", "graded_core.v", "graded_core_source.v")
-SUPPORT_FILES = tuple(dict.fromkeys((*_ROCQ_FILES, *_MODAL_FILES, *_CORE_FILES)))
+SUPPORT_FILES = ("graded_pure.v", "graded_domains.v", "graded_core.v", "graded_core_source.v")
 REPLAY_DEADLINE: ContextVar[float | None] = ContextVar("graded_replay_deadline", default=None)
 
 _BOUND_ZERO_VALUES = {"0", "false", "LZero", "AZero", "Lo"}
@@ -4537,7 +4534,7 @@ class ModuleReplay:
                 raise self.protocol.error("unsupported", "graded checking requires an available Rocq prover",
                                           definition.source) from error
             self.directory = Path(self.stack.enter_context(tempfile.TemporaryDirectory(prefix="holdfast-graded-module-")))
-        dependencies = _CORE_FILES
+        dependencies = SUPPORT_FILES
         if any(name not in self.hashes for name in dependencies):
             self.hashes.update(_support(self.root, self.compiler, self.directory, dependencies))
         source_hash = hashlib.sha256(self.protocol.source).hexdigest()
@@ -4609,7 +4606,7 @@ def check(
     compiler = proofenv.rocq_command()
     with tempfile.TemporaryDirectory(prefix="holdfast-graded-source-") as temporary:
         directory = Path(temporary)
-        kernel_hashes = _support(root, compiler, directory, _CORE_FILES)
+        kernel_hashes = _support(root, compiler, directory, SUPPORT_FILES)
         demand, certificate = _replay(compiler, directory, lowerer, certificate)
     ensure_unchanged(snapshot)
 

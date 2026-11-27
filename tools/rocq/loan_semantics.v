@@ -1518,15 +1518,65 @@ Definition read_scalar_mem (m : memory) (p : place) : option nat :=
   | None => None
   end.
 
-Definition write_stable_mem (m : memory) (p : place) (n : nat) : option memory :=
-  match lookup_owner m (p_owner p) with
+Definition modify_mem_at (w : owner_val -> option owner_val) (m : memory) (o : owner_id)
+    : option memory :=
+  match lookup_owner m o with
   | Some oe =>
-      match write_stable_val (oe_val oe) (p_path p) n with
-      | Some v' => update_owner m (p_owner p) {| oe_borrowed := oe_borrowed oe; oe_val := v' |}
+      match w (oe_val oe) with
+      | Some v' => update_owner m o {| oe_borrowed := oe_borrowed oe; oe_val := v' |}
       | None => None
       end
   | None => None
   end.
+
+Lemma modify_mem_at_preserves_addr : forall w m o m' a,
+  (forall v v', w v = Some v' -> val_bid v' = val_bid v) ->
+  (forall v v' st, w v = Some v' -> valid_stamps v st = true -> valid_stamps v' st = true) ->
+  modify_mem_at w m o = Some m' ->
+  addr_valid m a ->
+  addr_valid m' a.
+Proof.
+  intros w m o m' a Hbid Hst Hw Ha.
+  unfold modify_mem_at in Hw.
+  destruct (lookup_owner m o) as [oe |] eqn:Ho; [| discriminate].
+  destruct (w (oe_val oe)) as [v' |] eqn:Hv'; [| discriminate].
+  unfold update_owner, addr_valid, addr_valid_b, lookup_owner in *.
+  destruct (Nat.eq_dec o (addr_owner a)) as [Heq | Hneq].
+  - rewrite <- Heq in *.
+    rewrite (assoc_get_update_same Nat.eqb Nat.eqb_eq m o
+               {| oe_borrowed := oe_borrowed oe; oe_val := v' |} m' Hw).
+    rewrite Ho in Ha. cbn in *.
+    rewrite (Hbid _ _ Hv').
+    destruct (val_bid (oe_val oe)); [| discriminate].
+    apply andb_true_iff in Ha as [Hrbid Hstp].
+    rewrite Hrbid; cbn. eapply Hst; eauto.
+  - rewrite (assoc_get_update_other Nat.eqb Nat.eqb_eq m o
+               (addr_owner a) {| oe_borrowed := oe_borrowed oe; oe_val := v' |} m' Hneq Hw).
+    exact Ha.
+Qed.
+
+Lemma modify_mem_at_frame : forall w m o m' p2,
+  (o = p_owner p2 -> forall v v', w v = Some v' -> read_val v' (p_path p2) = read_val v (p_path p2)) ->
+  modify_mem_at w m o = Some m' ->
+  read_val_mem m' p2 = read_val_mem m p2.
+Proof.
+  intros w m o m' p2 Hval Hw.
+  unfold modify_mem_at in Hw.
+  destruct (lookup_owner m o) as [oe |] eqn:Ho; [| discriminate].
+  destruct (w (oe_val oe)) as [v' |] eqn:Hv'; [| discriminate].
+  unfold update_owner, read_val_mem, lookup_owner in *.
+  destruct (Nat.eq_dec o (p_owner p2)) as [Heq | Hneq].
+  - rewrite <- Heq in *.
+    rewrite (assoc_get_update_same Nat.eqb Nat.eqb_eq m o
+               {| oe_borrowed := oe_borrowed oe; oe_val := v' |} m' Hw).
+    rewrite Ho; cbn. apply Hval; [reflexivity | exact Hv'].
+  - rewrite (assoc_get_update_other Nat.eqb Nat.eqb_eq m o
+               (p_owner p2) {| oe_borrowed := oe_borrowed oe; oe_val := v' |} m' Hneq Hw).
+    reflexivity.
+Qed.
+
+Definition write_stable_mem (m : memory) (p : place) (n : nat) : option memory :=
+  modify_mem_at (fun v => write_stable_val v (p_path p) n) m (p_owner p).
 
 Lemma write_stable_mem_preserves_addr : forall m p n m' a,
   write_stable_mem m p n = Some m' ->
@@ -1534,25 +1584,10 @@ Lemma write_stable_mem_preserves_addr : forall m p n m' a,
   addr_valid m' a.
 Proof.
   intros m p n m' a Hw Ha.
-  unfold write_stable_mem in Hw.
-  destruct (lookup_owner m (p_owner p)) as [oe |] eqn:Ho; [| discriminate].
-  destruct (write_stable_val (oe_val oe) (p_path p) n) as [v' |] eqn:Hv'; [| discriminate].
-  unfold update_owner in Hw.
-  unfold addr_valid, addr_valid_b in *.
-  unfold lookup_owner in *.
-  destruct (Nat.eq_dec (p_owner p) (addr_owner a)) as [Heq | Hneq].
-  - rewrite <- Heq in *.
-    rewrite (assoc_get_update_same Nat.eqb Nat.eqb_eq m (p_owner p)
-               {| oe_borrowed := oe_borrowed oe; oe_val := v' |} m' Hw).
-    rewrite Ho in Ha. cbn in *.
-    rewrite (write_stable_preserves_bid (oe_val oe) (p_path p) n v' Hv').
-    destruct (val_bid (oe_val oe)) as [rbid |] eqn:Hrb; [| discriminate].
-    apply andb_true_iff in Ha as [Hrbid Hst].
-    rewrite Hrbid; cbn.
-    eapply write_stable_preserves_stamps; eauto.
-  - rewrite (assoc_get_update_other Nat.eqb Nat.eqb_eq m (p_owner p)
-               (addr_owner a) {| oe_borrowed := oe_borrowed oe; oe_val := v' |} m' Hneq Hw).
-    exact Ha.
+  eapply modify_mem_at_preserves_addr;
+    [intros v v' Hv'; eapply write_stable_preserves_bid; exact Hv'
+    | intros v v' st Hv' Hst; eapply write_stable_preserves_stamps; [exact Hv' | exact Hst]
+    | exact Hw | exact Ha].
 Qed.
 
 Lemma write_stable_mem_frame : forall m p1 p2 n m',
@@ -1561,22 +1596,11 @@ Lemma write_stable_mem_frame : forall m p1 p2 n m',
   read_val_mem m' p2 = read_val_mem m p2.
 Proof.
   intros m p1 p2 n m' Hdisj Hw.
-  unfold write_stable_mem in Hw.
-  destruct (lookup_owner m (p_owner p1)) as [oe |] eqn:Ho; [| discriminate].
-  destruct (write_stable_val (oe_val oe) (p_path p1) n) as [v' |] eqn:Hv'; [| discriminate].
-  unfold update_owner in Hw.
-  unfold read_val_mem, lookup_owner in *.
-  destruct (Nat.eq_dec (p_owner p1) (p_owner p2)) as [Heq | Hneq].
-  - rewrite <- Heq in *.
-    rewrite (assoc_get_update_same Nat.eqb Nat.eqb_eq m (p_owner p1)
-               {| oe_borrowed := oe_borrowed oe; oe_val := v' |} m' Hw).
-    rewrite Ho; cbn.
-    unfold places_disjoint, places_disjoint_b in Hdisj.
-    rewrite <- Heq, Nat.eqb_refl in Hdisj; cbn in Hdisj.
-    eapply write_stable_val_frame; eauto.
-  - rewrite (assoc_get_update_other Nat.eqb Nat.eqb_eq m (p_owner p1)
-               (p_owner p2) {| oe_borrowed := oe_borrowed oe; oe_val := v' |} m' Hneq Hw).
-    reflexivity.
+  eapply modify_mem_at_frame; [| exact Hw].
+  intros Heq v v' Hv'.
+  unfold places_disjoint, places_disjoint_b in Hdisj.
+  rewrite <- Heq, Nat.eqb_refl in Hdisj; cbn in Hdisj.
+  eapply write_stable_val_frame; [exact Hdisj | exact Hv'].
 Qed.
 
 Lemma write_stable_mem_preserves_borrowed : forall m p n m' o oe,
@@ -1585,7 +1609,7 @@ Lemma write_stable_mem_preserves_borrowed : forall m p n m' o oe,
   exists oe', lookup_owner m' o = Some oe' /\ oe_borrowed oe' = oe_borrowed oe.
 Proof.
   intros m p n m' o oe Hw Ho.
-  unfold write_stable_mem in Hw.
+  unfold write_stable_mem, modify_mem_at in Hw.
   destruct (lookup_owner m (p_owner p)) as [oe0 |] eqn:Ho0; [| discriminate].
   destruct (write_stable_val (oe_val oe0) (p_path p) n) as [v' |] eqn:Hv'; [| discriminate].
   unfold update_owner, lookup_owner in *.
@@ -1600,49 +1624,20 @@ Proof.
 Qed.
 
 (* ================================================================= *)
-(* 5. Unstable Writes, Tag-Preserving Union, Capacity-Preserving Push*)
+(* 5. Generic Path Modifier, Unstable/Tag-Preserving/Push Operations *)
 (* ================================================================= *)
 
-Inductive unstable_kind : Type :=
-| UClear
-| UResize (new_cap : nat)
-| URetag (new_tag : tag_id) (new_payload : owner_val)
-| UDrop.
-
-Fixpoint write_unstable_val (v : owner_val) (steps : list proj_step)
-    (next_bid : backing_id) (kind : unstable_kind) : option owner_val :=
+Fixpoint modify_val_at (f : owner_val -> option owner_val)
+    (v : owner_val) (steps : list proj_step) : option owner_val :=
   match steps with
-  | [] =>
-      match kind with
-      | UClear =>
-          match v with
-          | VContainer _ cap _ => Some (VContainer next_bid cap [])
-          | _ => None
-          end
-      | UResize new_cap =>
-          match v with
-          | VContainer _ _ elems =>
-              Some (VContainer next_bid new_cap (firstn new_cap elems))
-          | _ => None
-          end
-      | URetag new_tag new_payload =>
-          match v with
-          | VUnion _ _ _ => Some (VUnion new_tag next_bid new_payload)
-          | _ => None
-          end
-      | UDrop =>
-          match v with
-          | VMoved => None
-          | _ => Some VMoved
-          end
-      end
-  | SField f :: rest =>
+  | [] => f v
+  | SField fd :: rest =>
       match v with
       | VRecord bid fs =>
-          match assoc_get Nat.eqb fs f with
+          match assoc_get Nat.eqb fs fd with
           | Some fv =>
-              match write_unstable_val fv rest next_bid kind with
-              | Some fv' => option_map (VRecord bid) (assoc_update Nat.eqb fs f fv')
+              match modify_val_at f fv rest with
+              | Some fv' => option_map (VRecord bid) (assoc_update Nat.eqb fs fd fv')
               | None => None
               end
           | None => None
@@ -1654,7 +1649,7 @@ Fixpoint write_unstable_val (v : owner_val) (steps : list proj_step)
       | VContainer bid cap elems =>
           match nth_error elems i with
           | Some ev =>
-              match write_unstable_val ev rest next_bid kind with
+              match modify_val_at f ev rest with
               | Some ev' => option_map (VContainer bid cap) (list_set elems i ev')
               | None => None
               end
@@ -1665,112 +1660,69 @@ Fixpoint write_unstable_val (v : owner_val) (steps : list proj_step)
   | SUnionPayload :: rest =>
       match v with
       | VUnion utag pbid p =>
-          option_map (VUnion utag pbid) (write_unstable_val p rest next_bid kind)
+          option_map (VUnion utag pbid) (modify_val_at f p rest)
       | _ => None
       end
   | _ => None
   end.
 
-Fixpoint write_tag_preserving_val (v : owner_val) (steps : list proj_step)
-    (expected_tag : tag_id) (new_payload : nat) : option owner_val :=
-  match steps with
-  | [] =>
-      match v with
-      | VUnion utag pbid (VScalar _) =>
-          if Nat.eqb utag expected_tag then
-            Some (VUnion utag pbid (VScalar new_payload))
-          else None
-      | _ => None
-      end
-  | SField f :: rest =>
-      match v with
-      | VRecord bid fs =>
-          match assoc_get Nat.eqb fs f with
-          | Some fv =>
-              match write_tag_preserving_val fv rest expected_tag new_payload with
-              | Some fv' => option_map (VRecord bid) (assoc_update Nat.eqb fs f fv')
-              | None => None
-              end
-          | None => None
-          end
-      | _ => None
-      end
-  | SElem i :: rest =>
-      match v with
-      | VContainer bid cap elems =>
-          match nth_error elems i with
-          | Some ev =>
-              match write_tag_preserving_val ev rest expected_tag new_payload with
-              | Some ev' => option_map (VContainer bid cap) (list_set elems i ev')
-              | None => None
-              end
-          | None => None
-          end
-      | _ => None
-      end
-  | SUnionPayload :: rest =>
-      match v with
-      | VUnion utag pbid p =>
-          option_map (VUnion utag pbid)
-            (write_tag_preserving_val p rest expected_tag new_payload)
-      | _ => None
-      end
-  | _ => None
-  end.
-
-Lemma write_tag_preserving_bid : forall v steps tag payload v',
-  write_tag_preserving_val v steps tag payload = Some v' ->
+Lemma modify_val_at_preserves_bid_step : forall f v steps v',
+  steps <> [] ->
+  modify_val_at f v steps = Some v' ->
   val_bid v' = val_bid v.
 Proof.
-  intros v steps. revert v.
-  induction steps as [| s rest IH]; intros v tag payload v' H;
-    cbn [write_tag_preserving_val option_map] in H.
-  - destruct v; try discriminate. destruct v; try discriminate.
-    destruct (Nat.eqb utag tag); inversion H; reflexivity.
-  - destruct s, v; cbn [write_tag_preserving_val option_map] in H; try discriminate.
-    + destruct (assoc_get Nat.eqb fields f); [| discriminate].
-      destruct (write_tag_preserving_val o rest tag payload); [| discriminate].
-      destruct (assoc_update _ _ _ _); cbn in H; inversion H; reflexivity.
-    + destruct (nth_error elems idx); [| discriminate].
-      destruct (write_tag_preserving_val o rest tag payload); [| discriminate].
-      destruct (list_set _ _ _); cbn in H; inversion H; reflexivity.
-    + destruct (write_tag_preserving_val v rest tag payload); cbn in H; inversion H; reflexivity.
+  intros f v [| s rest] v' Hne H; [contradiction |].
+  destruct s, v; cbn [modify_val_at option_map] in H; try discriminate.
+  - destruct (assoc_get Nat.eqb fields f0); [| discriminate].
+    destruct (modify_val_at f o rest); [| discriminate].
+    destruct (assoc_update _ _ _ _); cbn in H; inversion H; reflexivity.
+  - destruct (nth_error elems idx); [| discriminate].
+    destruct (modify_val_at f o rest); [| discriminate].
+    destruct (list_set _ _ _); cbn in H; inversion H; reflexivity.
+  - destruct (modify_val_at f v rest); cbn in H; inversion H; reflexivity.
 Qed.
 
-Lemma write_tag_preserving_stamps : forall v steps tag payload v' st,
-  write_tag_preserving_val v steps tag payload = Some v' ->
+Lemma modify_val_at_preserves_bid : forall f v steps v',
+  (forall u u', f u = Some u' -> val_bid u' = val_bid u) ->
+  modify_val_at f v steps = Some v' ->
+  val_bid v' = val_bid v.
+Proof.
+  intros f v [| s rest] v' Hleaf H.
+  - cbn [modify_val_at] in H. eapply Hleaf; exact H.
+  - eapply modify_val_at_preserves_bid_step; [| exact H]. discriminate.
+Qed.
+
+Lemma modify_val_at_preserves_stamps : forall f v steps v' st,
+  (forall u u', f u = Some u' -> val_bid u' = val_bid u) ->
+  (forall u u' st0, f u = Some u' -> valid_stamps u st0 = true -> valid_stamps u' st0 = true) ->
+  modify_val_at f v steps = Some v' ->
   valid_stamps v st = true ->
   valid_stamps v' st = true.
 Proof.
-  intros v steps. revert v.
-  induction steps as [| s rest IH]; intros v tag payload v' st Hw Hv.
-  - cbn [write_tag_preserving_val] in Hw. destruct v; try discriminate. destruct v; try discriminate.
-    destruct (Nat.eqb utag tag); inversion Hw; subst; clear Hw.
-    destruct st as [| st0 str]; [reflexivity |].
-    destruct st0; cbn [valid_stamps] in *; try discriminate.
-    destruct (Nat.eqb utag0 utag && Nat.eqb pbid0 pbid) eqn:Eu;
-      cbn [andb valid_stamps] in *; cbv iota in *; [| discriminate].
-    destruct str; [reflexivity | destruct s; cbn in Hv; discriminate].
+  intros f v steps v' st Hbid Hleaf Hw Hv.
+  revert v v' st Hw Hv.
+  induction steps as [| s rest IH]; intros v v' st Hw Hv.
+  - cbn [modify_val_at] in Hw. eapply Hleaf; eauto.
   - destruct st as [| st0 str].
     + destruct v' eqn:Ev'; try reflexivity.
-      exfalso. apply write_tag_preserving_bid in Hw.
+      exfalso. apply (modify_val_at_preserves_bid f v (s :: rest) VMoved Hbid) in Hw.
       cbn in Hw, Hv. destruct v; discriminate.
-    + destruct s, v; cbn [write_tag_preserving_val option_map] in Hw; try discriminate.
-      * destruct (assoc_get Nat.eqb fields f) as [fv |] eqn:Hf; [| discriminate].
-        destruct (write_tag_preserving_val fv rest tag payload) as [fv' |] eqn:Hwfv; [| discriminate].
-        destruct (assoc_update Nat.eqb fields f fv') as [fs' |] eqn:Hup;
+    + destruct s, v; cbn [modify_val_at option_map] in Hw; try discriminate.
+      * destruct (assoc_get Nat.eqb fields f0) as [fv |] eqn:Hf; [| discriminate].
+        destruct (modify_val_at f fv rest) as [fv' |] eqn:Hwfv; [| discriminate].
+        destruct (assoc_update Nat.eqb fields f0 fv') as [fs' |] eqn:Hup;
           cbn in Hw; [| discriminate].
         inversion Hw; subst; clear Hw.
         destruct st0; cbn [valid_stamps] in *; try discriminate.
         destruct (Nat.eqb bid0 bid); cbv iota in Hv; [| discriminate].
-        destruct (assoc_get Nat.eqb fields f0) as [fv0 |] eqn:Hf0; cbv iota in Hv; [| discriminate].
-        destruct (Nat.eq_dec f f0) as [-> | Hneq].
-        -- rewrite (assoc_get_update_same Nat.eqb Nat.eqb_eq fields f0 fv' fs' Hup).
+        destruct (assoc_get Nat.eqb fields f1) as [fv0 |] eqn:Hf0; cbv iota in Hv; [| discriminate].
+        destruct (Nat.eq_dec f0 f1) as [-> | Hneq].
+        -- rewrite (assoc_get_update_same Nat.eqb Nat.eqb_eq fields f1 fv' fs' Hup).
            rewrite Hf in Hf0; inversion Hf0; subst. eapply IH; eauto.
-        -- rewrite (assoc_get_update_other Nat.eqb Nat.eqb_eq fields f f0 fv' fs' Hneq Hup).
+        -- rewrite (assoc_get_update_other Nat.eqb Nat.eqb_eq fields f0 f1 fv' fs' Hneq Hup).
            rewrite Hf0; exact Hv.
       * destruct (nth_error elems idx) as [ev |] eqn:He; [| discriminate].
-        destruct (write_tag_preserving_val ev rest tag payload) as [ev' |] eqn:Hwev; [| discriminate].
+        destruct (modify_val_at f ev rest) as [ev' |] eqn:Hwev; [| discriminate].
         destruct (list_set elems idx ev') as [elems' |] eqn:Hls;
           cbn in Hw; [| discriminate].
         inversion Hw; subst; clear Hw.
@@ -1784,8 +1736,8 @@ Proof.
               rewrite He0; exact Hv.
         -- destruct (Nat.eqb bid0 bid && Nat.leb (off + len) (length elems)) eqn:Hb;
              cbn [andb] in Hv; cbv iota in Hv; [| discriminate].
-           apply andb_true_iff in Hb as [Hbid Hlen].
-           rewrite (list_set_length elems idx ev' elems' Hls), Hbid, Hlen; cbn [andb]; cbv iota.
+           apply andb_true_iff in Hb as [Hbid0 Hlen].
+           rewrite (list_set_length elems idx ev' elems' Hls), Hbid0, Hlen; cbn [andb]; cbv iota.
            destruct str as [| st1 str1]; [reflexivity |].
            destruct st1; try discriminate.
            destruct (Nat.eqb bid0 bid1 && Nat.ltb idx0 len);
@@ -1797,7 +1749,7 @@ Proof.
               rewrite He in He0; inversion He0; subst. eapply IH; eauto.
            ++ rewrite (list_set_nth_other elems idx (off + idx0) ev' elems' Hneq Hls).
               rewrite He0; exact Hv.
-      * destruct (write_tag_preserving_val v rest tag payload) as [p' |] eqn:Hwp;
+      * destruct (modify_val_at f v rest) as [p' |] eqn:Hwp;
           cbn in Hw; [| discriminate].
         inversion Hw; subst; clear Hw.
         destruct st0; cbn [valid_stamps] in *; try discriminate.
@@ -1806,69 +1758,227 @@ Proof.
         eapply IH; eauto.
 Qed.
 
-Fixpoint push_cap_preserving_val (v : owner_val) (steps : list proj_step)
-    (new_elem : owner_val) : option owner_val :=
-  match steps with
-  | [] =>
+Lemma modify_val_at_frame_ext : forall f (P : list proj_step -> Prop) ext target s1 s2 v v',
+  (forall a t, P (a :: t) -> P t) ->
+  (forall u' t, P t -> steps_disjoint_b ext t = true ->
+    f target = Some u' -> read_val u' t = read_val target t) ->
+  read_val v s1 = Some target ->
+  P s2 ->
+  steps_disjoint_b (s1 ++ ext) s2 = true ->
+  modify_val_at f v s1 = Some v' ->
+  read_val v' s2 = read_val v s2.
+Proof.
+  intros f P ext target s1 s2 v v' HP Hleaf Hrv Hp Hdisj Hw.
+  revert v s2 v' Hrv Hp Hdisj Hw.
+  induction s1 as [| a r1 IH]; intros v0 s2 v0' Hrv Hp Hdisj Hw.
+  - cbn [app] in Hdisj. cbn [modify_val_at] in Hw.
+    destruct v0; cbn [read_val] in Hrv; try discriminate;
+      inversion Hrv; clear Hrv; subst; eapply Hleaf; eauto.
+  - destruct s2 as [| b r2]; [cbn in Hdisj; discriminate |].
+    apply HP in Hp as Hp_r2.
+    cbn [app] in Hdisj.
+    destruct a, b, v0;
+      cbn [steps_disjoint_b step_disjoint_b proj_step_beq modify_val_at option_map read_val]
+        in Hdisj, Hw, Hrv; try discriminate.
+    + destruct (Nat.eqb f0 f1) eqn:Ef.
+      * apply Nat.eqb_eq in Ef; subst f1.
+        cbn [negb] in Hdisj; cbv iota in Hdisj.
+        destruct (assoc_get Nat.eqb fields f0) as [fv |] eqn:Hf; [| discriminate].
+        destruct (modify_val_at f fv r1) as [fv' |] eqn:Hwfv; [| discriminate].
+        destruct (assoc_update Nat.eqb fields f0 fv') as [fs' |] eqn:Hup; cbn in Hw; [| discriminate].
+        inversion Hw; subst; cbn [read_val].
+        rewrite (assoc_get_update_same Nat.eqb Nat.eqb_eq fields f0 fv' fs' Hup), Hf.
+        eapply IH; eauto.
+      * apply Nat.eqb_neq in Ef.
+        destruct (assoc_get Nat.eqb fields f0); [| discriminate].
+        destruct (modify_val_at f o r1); [| discriminate].
+        destruct (assoc_update Nat.eqb fields f0 o0) as [fs' |] eqn:Hup; cbn in Hw; [| discriminate].
+        inversion Hw; subst; cbn [read_val].
+        rewrite (assoc_get_update_other Nat.eqb Nat.eqb_eq fields f0 f1 o0 fs' Ef Hup).
+        reflexivity.
+    + destruct (Nat.eqb idx idx0) eqn:Ei.
+      * apply Nat.eqb_eq in Ei; subst idx0.
+        cbn [negb] in Hdisj; cbv iota in Hdisj.
+        destruct (nth_error elems idx) as [ev |] eqn:He; [| discriminate].
+        destruct (modify_val_at f ev r1) as [ev' |] eqn:Hwev; [| discriminate].
+        destruct (list_set elems idx ev') as [elems' |] eqn:Hls; cbn in Hw; [| discriminate].
+        inversion Hw; subst; cbn [read_val].
+        rewrite (list_set_nth_same elems idx ev' elems' Hls), He.
+        eapply IH; eauto.
+      * apply Nat.eqb_neq in Ei.
+        destruct (nth_error elems idx); [| discriminate].
+        destruct (modify_val_at f o r1); [| discriminate].
+        destruct (list_set elems idx o0) as [elems' |] eqn:Hls; cbn in Hw; [| discriminate].
+        inversion Hw; subst; cbn [read_val].
+        rewrite (list_set_nth_other elems idx idx0 o0 elems' Ei Hls).
+        reflexivity.
+    + destruct (Nat.ltb idx off || Nat.leb (off + len) idx) eqn:Hsep;
+        [| cbv iota in Hdisj; discriminate].
+      apply orb_true_iff in Hsep.
+      assert (Hout : idx < off \/ off + len <= idx).
+      { destruct Hsep as [H1 | H2]; [left; now apply Nat.ltb_lt | right; now apply Nat.leb_le]. }
+      destruct (nth_error elems idx); [| discriminate].
+      destruct (modify_val_at f o r1); [| discriminate].
+      destruct (list_set elems idx o0) as [elems' |] eqn:Hls; cbn in Hw; [| discriminate].
+      inversion Hw; subst; cbn [read_val].
+      rewrite (list_set_length elems idx o0 elems' Hls).
+      destruct (Nat.leb (off + len) (length elems)); [| reflexivity].
+      destruct r2 as [| s2' r2'].
+      * f_equal; f_equal; apply firstn_skipn_ext; [eapply list_set_length; eauto |].
+        intros j Hj1 Hj2. apply list_set_nth_other with (i := idx) (v := o0); [lia | exact Hls].
+      * destruct s2'; try reflexivity.
+        destruct (Nat.ltb idx0 len) eqn:Hk; [| reflexivity].
+        apply Nat.ltb_lt in Hk.
+        rewrite (list_set_nth_other elems idx (off + idx0) o0 elems'); [reflexivity | lia | exact Hls].
+    + destruct (modify_val_at f v0 r1) as [p' |] eqn:Hwp;
+        cbn in Hw; [| discriminate].
+      inversion Hw; subst; cbn [read_val]. eapply IH; eauto.
+Qed.
+
+Lemma modify_val_at_some_read_val : forall f v s v',
+  f VMoved = None ->
+  modify_val_at f v s = Some v' ->
+  exists target, read_val v s = Some target.
+Proof.
+  intros f v s. revert v.
+  induction s as [| a rest IH]; intros v v' Hvm Hw.
+  - destruct v; cbn in *; [eexists; reflexivity | eexists; reflexivity | eexists; reflexivity | eexists; reflexivity | eexists; reflexivity | rewrite Hvm in Hw; discriminate].
+  - destruct a, v; cbn [modify_val_at option_map read_val] in *; try discriminate.
+    + destruct (assoc_get Nat.eqb fields f0) as [fv |] eqn:Hf; [| discriminate].
+      destruct (modify_val_at f fv rest) eqn:Hm; [| discriminate].
+      eapply IH; [exact Hvm | exact Hm].
+    + destruct (nth_error elems idx) as [ev |] eqn:He; [| discriminate].
+      destruct (modify_val_at f ev rest) eqn:Hm; [| discriminate].
+      eapply IH; [exact Hvm | exact Hm].
+    + destruct (modify_val_at f v rest) eqn:Hm; [| discriminate].
+      eapply IH; [exact Hvm | exact Hm].
+Qed.
+
+Lemma modify_val_at_frame : forall f v s1 s2 v',
+  f VMoved = None ->
+  steps_disjoint_b s1 s2 = true ->
+  modify_val_at f v s1 = Some v' ->
+  read_val v' s2 = read_val v s2.
+Proof.
+  intros f v s1 s2 v' Hvm Hdisj Hw.
+  destruct (modify_val_at_some_read_val f v s1 v' Hvm Hw) as [target Hrv].
+  eapply (modify_val_at_frame_ext f (fun _ => True) [] target s1 s2 v v');
+    [trivial | intros u' t _ Hd _; cbn in Hd; discriminate | exact Hrv | exact I
+    | rewrite app_nil_r; exact Hdisj | exact Hw].
+Qed.
+
+Inductive unstable_kind : Type :=
+| UClear
+| UResize (new_cap : nat)
+| URetag (new_tag : tag_id) (new_payload : owner_val)
+| UDrop.
+
+Definition write_unstable_leaf (next_bid : backing_id) (kind : unstable_kind)
+    (v : owner_val) : option owner_val :=
+  match kind with
+  | UClear =>
       match v with
-      | VContainer bid cap elems =>
-          if Nat.ltb (length elems) cap then
-            Some (VContainer bid cap (elems ++ [new_elem]))
-          else None
+      | VContainer _ cap _ => Some (VContainer next_bid cap [])
       | _ => None
       end
-  | SField f :: rest =>
+  | UResize new_cap =>
       match v with
-      | VRecord bid fs =>
-          match assoc_get Nat.eqb fs f with
-          | Some fv =>
-              match push_cap_preserving_val fv rest new_elem with
-              | Some fv' => option_map (VRecord bid) (assoc_update Nat.eqb fs f fv')
-              | None => None
-              end
-          | None => None
-          end
+      | VContainer _ _ elems =>
+          Some (VContainer next_bid new_cap (firstn new_cap elems))
       | _ => None
       end
-  | SElem i :: rest =>
+  | URetag new_tag new_payload =>
       match v with
-      | VContainer bid cap elems =>
-          match nth_error elems i with
-          | Some ev =>
-              match push_cap_preserving_val ev rest new_elem with
-              | Some ev' => option_map (VContainer bid cap) (list_set elems i ev')
-              | None => None
-              end
-          | None => None
-          end
+      | VUnion _ _ _ => Some (VUnion new_tag next_bid new_payload)
       | _ => None
       end
-  | SUnionPayload :: rest =>
+  | UDrop =>
       match v with
-      | VUnion utag pbid p =>
-          option_map (VUnion utag pbid) (push_cap_preserving_val p rest new_elem)
-      | _ => None
+      | VMoved => None
+      | _ => Some VMoved
       end
+  end.
+
+Definition write_unstable_val (v : owner_val) (steps : list proj_step)
+    (next_bid : backing_id) (kind : unstable_kind) : option owner_val :=
+  modify_val_at (write_unstable_leaf next_bid kind) v steps.
+
+Definition write_tag_preserving_leaf (expected_tag : tag_id) (new_payload : nat)
+    (v : owner_val) : option owner_val :=
+  match v with
+  | VUnion utag pbid (VScalar _) =>
+      if Nat.eqb utag expected_tag then
+        Some (VUnion utag pbid (VScalar new_payload))
+      else None
   | _ => None
   end.
+
+Definition write_tag_preserving_val (v : owner_val) (steps : list proj_step)
+    (expected_tag : tag_id) (new_payload : nat) : option owner_val :=
+  modify_val_at (write_tag_preserving_leaf expected_tag new_payload) v steps.
+
+Lemma write_tag_preserving_leaf_bid : forall tag payload u u',
+  write_tag_preserving_leaf tag payload u = Some u' -> val_bid u' = val_bid u.
+Proof.
+  intros tag payload [| | | utag pbid [] | |] u' H; cbn in H; try discriminate.
+  destruct (Nat.eqb utag tag); inversion H; reflexivity.
+Qed.
+
+Lemma write_tag_preserving_bid : forall v steps tag payload v',
+  write_tag_preserving_val v steps tag payload = Some v' ->
+  val_bid v' = val_bid v.
+Proof.
+  intros v steps tag payload v' H.
+  eapply modify_val_at_preserves_bid;
+    [apply write_tag_preserving_leaf_bid | exact H].
+Qed.
+
+Lemma write_tag_preserving_stamps : forall v steps tag payload v' st,
+  write_tag_preserving_val v steps tag payload = Some v' ->
+  valid_stamps v st = true ->
+  valid_stamps v' st = true.
+Proof.
+  intros v steps tag payload v' st Hw Hv.
+  eapply modify_val_at_preserves_stamps;
+    [apply write_tag_preserving_leaf_bid | | exact Hw | exact Hv].
+  intros u u' st0 Hu Hv0.
+  destruct u; try discriminate. destruct u; try discriminate.
+  cbn in Hu. destruct (Nat.eqb utag tag); inversion Hu; subst; clear Hu.
+  destruct st0 as [| st1 str]; [reflexivity |].
+  destruct st1; cbn [valid_stamps] in *; try discriminate.
+  destruct (Nat.eqb utag0 utag && Nat.eqb pbid0 pbid) eqn:Eu;
+    cbn [andb valid_stamps] in *; cbv iota in *; [| discriminate].
+  destruct str; [reflexivity | destruct s; cbn in Hv0; discriminate].
+Qed.
+
+Definition push_cap_preserving_leaf (new_elem : owner_val)
+    (v : owner_val) : option owner_val :=
+  match v with
+  | VContainer bid cap elems =>
+      if Nat.ltb (length elems) cap then
+        Some (VContainer bid cap (elems ++ [new_elem]))
+      else None
+  | _ => None
+  end.
+
+Definition push_cap_preserving_val (v : owner_val) (steps : list proj_step)
+    (new_elem : owner_val) : option owner_val :=
+  modify_val_at (push_cap_preserving_leaf new_elem) v steps.
+
+Lemma push_cap_preserving_leaf_bid : forall elem u u',
+  push_cap_preserving_leaf elem u = Some u' -> val_bid u' = val_bid u.
+Proof.
+  intros elem [| bid cap elems | | | |] u' H; cbn [push_cap_preserving_leaf] in H; try discriminate.
+  destruct (Nat.ltb (length elems) cap); inversion H; reflexivity.
+Qed.
 
 Lemma push_cap_preserving_bid : forall v steps elem v',
   push_cap_preserving_val v steps elem = Some v' ->
   val_bid v' = val_bid v.
 Proof.
-  intros v steps. revert v.
-  induction steps as [| s rest IH]; intros v elem v' H;
-    cbn [push_cap_preserving_val option_map] in H.
-  - destruct v; try discriminate.
-    destruct (Nat.ltb (length elems) cap); inversion H; reflexivity.
-  - destruct s, v; cbn [push_cap_preserving_val option_map] in H; try discriminate.
-    + destruct (assoc_get Nat.eqb fields f); [| discriminate].
-      destruct (push_cap_preserving_val o rest elem); [| discriminate].
-      destruct (assoc_update _ _ _ _); cbn in H; inversion H; reflexivity.
-    + destruct (nth_error elems idx); [| discriminate].
-      destruct (push_cap_preserving_val o rest elem); [| discriminate].
-      destruct (list_set _ _ _); cbn in H; inversion H; reflexivity.
-    + destruct (push_cap_preserving_val v rest elem); cbn in H; inversion H; reflexivity.
+  intros v steps elem v' H.
+  eapply modify_val_at_preserves_bid;
+    [apply push_cap_preserving_leaf_bid | exact H].
 Qed.
 
 Lemma nth_error_app_lt : forall {A : Type} (xs ys : list A) i,
@@ -1882,86 +1992,35 @@ Lemma push_cap_preserving_stamps : forall v steps elem v' st,
   valid_stamps v st = true ->
   valid_stamps v' st = true.
 Proof.
-  intros v steps. revert v.
-  induction steps as [| s rest IH]; intros v elem v' st Hw Hv.
-  - cbn [push_cap_preserving_val] in Hw. destruct v; try discriminate.
-    destruct (Nat.ltb (length elems) cap); inversion Hw; subst; clear Hw.
-    destruct st as [| st0 str]; [reflexivity |].
-    destruct st0; cbn [valid_stamps] in *; try discriminate.
-    + destruct (Nat.eqb bid0 bid); cbv iota in Hv; [| discriminate].
-      destruct (nth_error elems idx) as [ev |] eqn:He; cbv iota in Hv; [| discriminate].
-      assert (Hlt : idx < length elems) by (apply nth_error_Some; congruence).
-      rewrite nth_error_app1 by exact Hlt. rewrite He. exact Hv.
-    + destruct (Nat.eqb bid0 bid) eqn:Ebid;
-        cbn [andb] in Hv; cbv iota in Hv; [| discriminate].
-      destruct (Nat.leb (off + len) (length elems)) eqn:Hlen;
-        cbn [andb] in Hv; cbv iota in Hv; [| discriminate].
-      rewrite length_app; cbn [length].
-      apply Nat.leb_le in Hlen.
-      assert (Hlen' : Nat.leb (off + len) (length elems + 1) = true) by (apply Nat.leb_le; lia).
-      rewrite Hlen'; cbn [andb]; cbv iota.
-      destruct str as [| st1 str1]; [reflexivity |].
-      destruct st1; try discriminate.
-      destruct (Nat.eqb bid0 bid1 && Nat.ltb idx len) eqn:Hk;
-        cbn [andb] in Hv; cbv iota in Hv; [| discriminate].
-      apply andb_true_iff in Hk as [Hbid1 Hk].
-      apply Nat.ltb_lt in Hk.
-      destruct (nth_error elems (off + idx)) as [ev |] eqn:He; cbv iota in Hv; [| discriminate].
-      assert (Hlt : off + idx < length elems) by (apply nth_error_Some; congruence).
-      rewrite nth_error_app1 by exact Hlt. rewrite He. exact Hv.
-  - destruct st as [| st0 str].
-    + destruct v' eqn:Ev'; try reflexivity.
-      exfalso. apply push_cap_preserving_bid in Hw.
-      cbn in Hw, Hv. destruct v; discriminate.
-    + destruct s, v; cbn [push_cap_preserving_val option_map] in Hw; try discriminate.
-      * destruct (assoc_get Nat.eqb fields f) as [fv |] eqn:Hf; [| discriminate].
-        destruct (push_cap_preserving_val fv rest elem) as [fv' |] eqn:Hwfv; [| discriminate].
-        destruct (assoc_update Nat.eqb fields f fv') as [fs' |] eqn:Hup;
-          cbn in Hw; [| discriminate].
-        inversion Hw; subst; clear Hw.
-        destruct st0; cbn [valid_stamps] in *; try discriminate.
-        destruct (Nat.eqb bid0 bid); cbv iota in Hv; [| discriminate].
-        destruct (assoc_get Nat.eqb fields f0) as [fv0 |] eqn:Hf0; cbv iota in Hv; [| discriminate].
-        destruct (Nat.eq_dec f f0) as [-> | Hneq].
-        -- rewrite (assoc_get_update_same Nat.eqb Nat.eqb_eq fields f0 fv' fs' Hup).
-           rewrite Hf in Hf0; inversion Hf0; subst. eapply IH; eauto.
-        -- rewrite (assoc_get_update_other Nat.eqb Nat.eqb_eq fields f f0 fv' fs' Hneq Hup).
-           rewrite Hf0; exact Hv.
-      * destruct (nth_error elems idx) as [ev |] eqn:He; [| discriminate].
-        destruct (push_cap_preserving_val ev rest elem) as [ev' |] eqn:Hwev; [| discriminate].
-        destruct (list_set elems idx ev') as [elems' |] eqn:Hls;
-          cbn in Hw; [| discriminate].
-        inversion Hw; subst; clear Hw.
-        destruct st0; cbn [valid_stamps] in *; try discriminate.
-        -- destruct (Nat.eqb bid0 bid); cbv iota in Hv; [| discriminate].
-           destruct (nth_error elems idx0) as [ev0 |] eqn:He0; cbv iota in Hv; [| discriminate].
-           destruct (Nat.eq_dec idx idx0) as [-> | Hneq].
-           ++ rewrite (list_set_nth_same elems idx0 ev' elems' Hls).
-              rewrite He in He0; inversion He0; subst. eapply IH; eauto.
-           ++ rewrite (list_set_nth_other elems idx idx0 ev' elems' Hneq Hls).
-              rewrite He0; exact Hv.
-        -- destruct (Nat.eqb bid0 bid && Nat.leb (off + len) (length elems)) eqn:Hb;
-             cbn [andb] in Hv; cbv iota in Hv; [| discriminate].
-           apply andb_true_iff in Hb as [Hbid Hlen].
-           rewrite (list_set_length elems idx ev' elems' Hls), Hbid, Hlen; cbn [andb]; cbv iota.
-           destruct str as [| st1 str1]; [reflexivity |].
-           destruct st1; try discriminate.
-           destruct (Nat.eqb bid0 bid1 && Nat.ltb idx0 len);
-             cbn [andb] in Hv; cbv iota in Hv; [| discriminate].
-           destruct (nth_error elems (off + idx0)) as [ev0 |] eqn:He0; cbv iota in Hv; [| discriminate].
-           destruct (Nat.eq_dec idx (off + idx0)) as [Heq | Hneq].
-           ++ rewrite Heq in *.
-              rewrite (list_set_nth_same elems (off + idx0) ev' elems' Hls).
-              rewrite He in He0; inversion He0; subst. eapply IH; eauto.
-           ++ rewrite (list_set_nth_other elems idx (off + idx0) ev' elems' Hneq Hls).
-              rewrite He0; exact Hv.
-      * destruct (push_cap_preserving_val v rest elem) as [p' |] eqn:Hwp;
-          cbn in Hw; [| discriminate].
-        inversion Hw; subst; clear Hw.
-        destruct st0; cbn [valid_stamps] in *; try discriminate.
-        destruct (Nat.eqb utag0 utag && Nat.eqb pbid0 pbid);
-          cbn [andb valid_stamps] in *; [| discriminate].
-        eapply IH; eauto.
+  intros v steps elem v' st Hw Hv.
+  eapply modify_val_at_preserves_stamps;
+    [apply push_cap_preserving_leaf_bid | | exact Hw | exact Hv].
+  intros u u' st0 Hu Hv0.
+  destruct u; try discriminate.
+  cbn [push_cap_preserving_leaf] in Hu. destruct (Nat.ltb (length elems) cap); inversion Hu; subst; clear Hu.
+  destruct st0 as [| st1 str]; [reflexivity |].
+  destruct st1; cbn [valid_stamps] in *; try discriminate.
+  - destruct (Nat.eqb bid0 bid); cbv iota in Hv0; [| discriminate].
+    destruct (nth_error elems idx) as [ev |] eqn:He; cbv iota in Hv0; [| discriminate].
+    assert (Hlt : idx < length elems) by (apply nth_error_Some; congruence).
+    rewrite nth_error_app1 by exact Hlt. rewrite He. exact Hv0.
+  - destruct (Nat.eqb bid0 bid) eqn:Ebid;
+      cbn [andb] in Hv0; cbv iota in Hv0; [| discriminate].
+    destruct (Nat.leb (off + len) (length elems)) eqn:Hlen;
+      cbn [andb] in Hv0; cbv iota in Hv0; [| discriminate].
+    rewrite length_app; cbn [length].
+    apply Nat.leb_le in Hlen.
+    assert (Hlen' : Nat.leb (off + len) (length elems + 1) = true) by (apply Nat.leb_le; lia).
+    rewrite Hlen'; cbn [andb]; cbv iota.
+    destruct str as [| st2 str1]; [reflexivity |].
+    destruct st2; try discriminate.
+    destruct (Nat.eqb bid0 bid1 && Nat.ltb idx len) eqn:Hk;
+      cbn [andb] in Hv0; cbv iota in Hv0; [| discriminate].
+    apply andb_true_iff in Hk as [Hbid1 Hk].
+    apply Nat.ltb_lt in Hk.
+    destruct (nth_error elems (off + idx)) as [ev |] eqn:He; cbv iota in Hv0; [| discriminate].
+    assert (Hlt : off + idx < length elems) by (apply nth_error_Some; congruence).
+    rewrite nth_error_app1 by exact Hlt. rewrite He. exact Hv0.
 Qed.
 
 (* ================================================================= *)
@@ -2067,49 +2126,47 @@ Definition has_live_child (loans : list loan_entry) (l : loan_id) : bool :=
     | None => false
     end) loans.
 
+Definition update_loan (f : loan_entry -> loan_entry) (l : loan_id)
+    (loans : list loan_entry) : list loan_entry :=
+  map (fun le => if Nat.eqb (ln_id le) l then f le else le) loans.
+
 Definition set_loan_suspended (loans : list loan_entry) (l : loan_id) (susp : bool)
     : list loan_entry :=
-  map (fun le =>
-    if Nat.eqb (ln_id le) l then
-      {| ln_id := ln_id le;
-         ln_origin := ln_origin le;
-         ln_parent := ln_parent le;
-         ln_root_loan := ln_root_loan le;
-         ln_place := ln_place le;
-         ln_addr := ln_addr le;
-         ln_mode := ln_mode le;
-         ln_suspended := susp;
-         ln_returned := ln_returned le |}
-    else le) loans.
+  update_loan (fun le =>
+    {| ln_id := ln_id le;
+       ln_origin := ln_origin le;
+       ln_parent := ln_parent le;
+       ln_root_loan := ln_root_loan le;
+       ln_place := ln_place le;
+       ln_addr := ln_addr le;
+       ln_mode := ln_mode le;
+       ln_suspended := susp;
+       ln_returned := ln_returned le |}) l loans.
 
 Definition set_loan_mode (loans : list loan_entry) (l : loan_id) (m : loan_mode)
     : list loan_entry :=
-  map (fun le =>
-    if Nat.eqb (ln_id le) l then
-      {| ln_id := ln_id le;
-         ln_origin := ln_origin le;
-         ln_parent := ln_parent le;
-         ln_root_loan := ln_root_loan le;
-         ln_place := ln_place le;
-         ln_addr := ln_addr le;
-         ln_mode := m;
-         ln_suspended := ln_suspended le;
-         ln_returned := ln_returned le |}
-    else le) loans.
+  update_loan (fun le =>
+    {| ln_id := ln_id le;
+       ln_origin := ln_origin le;
+       ln_parent := ln_parent le;
+       ln_root_loan := ln_root_loan le;
+       ln_place := ln_place le;
+       ln_addr := ln_addr le;
+       ln_mode := m;
+       ln_suspended := ln_suspended le;
+       ln_returned := ln_returned le |}) l loans.
 
 Definition set_loan_returned (loans : list loan_entry) (l : loan_id) : list loan_entry :=
-  map (fun le =>
-    if Nat.eqb (ln_id le) l then
-      {| ln_id := ln_id le;
-         ln_origin := ln_origin le;
-         ln_parent := ln_parent le;
-         ln_root_loan := ln_root_loan le;
-         ln_place := ln_place le;
-         ln_addr := ln_addr le;
-         ln_mode := ln_mode le;
-         ln_suspended := ln_suspended le;
-         ln_returned := true |}
-    else le) loans.
+  update_loan (fun le =>
+    {| ln_id := ln_id le;
+       ln_origin := ln_origin le;
+       ln_parent := ln_parent le;
+       ln_root_loan := ln_root_loan le;
+       ln_place := ln_place le;
+       ln_addr := ln_addr le;
+       ln_mode := ln_mode le;
+       ln_suspended := ln_suspended le;
+       ln_returned := true |}) l loans.
 
 Definition remove_loan (loans : list loan_entry) (l : loan_id) : list loan_entry :=
   filter (fun le => negb (Nat.eqb (ln_id le) l)) loans.
@@ -2204,25 +2261,11 @@ Inductive step_op : Type :=
 
 Definition write_unstable_mem (m : memory) (p : place) (next_bid : backing_id)
     (kind : unstable_kind) : option memory :=
-  match lookup_owner m (p_owner p) with
-  | Some oe =>
-      match write_unstable_val (oe_val oe) (p_path p) next_bid kind with
-      | Some v' => update_owner m (p_owner p) {| oe_borrowed := oe_borrowed oe; oe_val := v' |}
-      | None => None
-      end
-  | None => None
-  end.
+  modify_mem_at (fun v => write_unstable_val v (p_path p) next_bid kind) m (p_owner p).
 
 Definition write_tag_preserving_mem (m : memory) (pu : place) (expected_tag : tag_id)
     (new_payload : nat) : option memory :=
-  match lookup_owner m (p_owner pu) with
-  | Some oe =>
-      match write_tag_preserving_val (oe_val oe) (p_path pu) expected_tag new_payload with
-      | Some v' => update_owner m (p_owner pu) {| oe_borrowed := oe_borrowed oe; oe_val := v' |}
-      | None => None
-      end
-  | None => None
-  end.
+  modify_mem_at (fun v => write_tag_preserving_val v (p_path pu) expected_tag new_payload) m (p_owner pu).
 
 Definition push_cap_preserving_mem (m : memory) (pc : place) (new_elem : owner_val)
     : option (memory * nat) :=

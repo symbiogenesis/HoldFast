@@ -2846,7 +2846,7 @@ its argument demand by the callee's advertised bound. The Rocq checker uses
 the `NatBound` order and refuses excess computation demand and stale type-use
 rows. The source projection refuses mixed domains within the dependency closure.
 [Bounded source](../../tools/tests/fixtures/graded-bounded.hf) ·
-[Replay predicate and soundness](../../tools/rocq/graded_source.v)
+[Core source replay predicate](../../tools/rocq/graded_core_source.v)
 
 Bounded modal replay admits use of a `Box` payload below its advertised bound
 while retaining the exact type demand of the dependent motive. It also
@@ -2855,7 +2855,7 @@ overuse, inconsistent motives, mixed domains and stale type rows. The exact
 mode refuses the relaxed uses. Rocq audits the bounded soundness and motive
 demand results with closed assumptions.
 [Bounded modal replay](../../tools/tests/test_holdfast_graded_modal.py) ·
-[Modal source predicate](../../tools/rocq/graded_modal_source.v)
+[Core source replay predicate](../../tools/rocq/graded_core_source.v)
 
 The dependent pair source trial reconstructs a checked match on a named
 `Indexed` record or a constructed pair. Exact replay checks two shared

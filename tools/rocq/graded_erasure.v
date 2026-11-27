@@ -810,11 +810,7 @@ Qed.
 
 Lemma uses_scale_nat : forall n d y, uses (scale n d) y = n * uses d y.
 Proof.
-  intros n d y. induction d as [| [k m] rest IH].
-  - cbn. lia.
-  - change (scale n ((k, m) :: rest)) with ((k, n * m) :: scale n rest).
-    cbn [uses]. rewrite IH, Nat.mul_add_distr_l.
-    destruct (Nat.eqb y k); [| rewrite Nat.mul_0_r]; reflexivity.
+  exact GradedPure.uses_scale.
 Qed.
 
 Lemma env_rel_scale_pos : forall theta env k d rho erho,
@@ -1309,6 +1305,51 @@ Qed.
 (* Part 5: Q25cb Zero-Type-Use Substitution Skipping                 *)
 (* ================================================================= *)
 
+Definition skip_judgment (env : context) (x : nat) (ann : ty) (body_ty new_ty : ty)
+    (comp : demand) (arg_row : option demand) : option judgment :=
+  match type_demand ({| binder := x; annotation := ann; type_uses := [] |} :: env) body_ty, arg_row with
+  | Some row, Some a =>
+      let keep := Nat.eqb (uses row x) 0 in
+      Some {|
+        result_type := if keep then body_ty else new_ty;
+        computation_demand := comp;
+        type_demand_row := if keep then row else substitute_demand x a row;
+      |}
+  | _, _ => None
+  end.
+
+Lemma skip_judgment_agrees : forall env x ann body_ty new_ty comp arg_row_opt,
+  (forall row, type_demand ({| binder := x; annotation := ann; type_uses := [] |} :: env) body_ty = Some row ->
+    uses row x = 0 -> new_ty = body_ty) ->
+  match option_map (fun arg_row =>
+          match type_demand ({| binder := x; annotation := ann; type_uses := [] |} :: env) body_ty with
+          | Some row =>
+              Some {| result_type := new_ty;
+                      computation_demand := comp;
+                      type_demand_row := substitute_demand x arg_row row |}
+          | None => None
+          end) arg_row_opt,
+        skip_judgment env x ann body_ty new_ty comp arg_row_opt with
+  | Some (Some r1), Some r2 =>
+      result_type r1 = result_type r2 /\
+      computation_demand r1 = computation_demand r2 /\
+      same_demand (type_demand_row r1) (type_demand_row r2)
+  | Some None, None | None, None => True
+  | _, _ => False
+  end.
+Proof.
+  intros env x ann body_ty new_ty comp arg_row_opt Hzero.
+  unfold skip_judgment.
+  destruct (type_demand ({| binder := x; annotation := ann; type_uses := [] |} :: env) body_ty)
+    as [row |] eqn:Hrow; [| destruct arg_row_opt; exact I].
+  destruct arg_row_opt as [arg_row |]; cbn; [| exact I].
+  destruct (Nat.eqb (uses row x) 0) eqn:Hx.
+  - apply Nat.eqb_eq in Hx. repeat split; try reflexivity.
+    + cbn. exact (Hzero row eq_refl Hx).
+    + cbn. apply zero_use_preserves_row. exact Hx.
+  - repeat split; try reflexivity; intro y; reflexivity.
+Qed.
+
 Definition apply_nat_spec (env : context) (x allowance : nat) (cod : ty)
     (callee_u : demand) (arg : index) : option judgment :=
   match type_demand ({| binder := x; annotation := Natural; type_uses := [] |} :: env) cod,
@@ -1324,23 +1365,9 @@ Definition apply_nat_spec (env : context) (x allowance : nat) (cod : ty)
 
 Definition apply_nat_skip (env : context) (x allowance : nat) (cod : ty)
     (callee_u : demand) (arg : index) : option judgment :=
-  match type_demand ({| binder := x; annotation := Natural; type_uses := [] |} :: env) cod,
-        index_demand env arg with
-  | Some cod_row, Some arg_row =>
-      if Nat.eqb (uses cod_row x) 0 then
-        Some {|
-          result_type := cod;
-          computation_demand := callee_u ++ scale allowance arg_row;
-          type_demand_row := cod_row;
-        |}
-      else
-        Some {|
-          result_type := substitute_type x arg cod;
-          computation_demand := callee_u ++ scale allowance arg_row;
-          type_demand_row := substitute_demand x arg_row cod_row;
-        |}
-  | _, _ => None
-  end.
+  skip_judgment env x Natural cod (substitute_type x arg cod)
+    (callee_u ++ scale allowance (match index_demand env arg with Some a => a | None => [] end))
+    (index_demand env arg).
 
 Theorem apply_nat_skip_agrees : forall env x allowance cod callee_u arg,
   match apply_nat_spec env x allowance cod callee_u arg,
@@ -1355,16 +1382,16 @@ Theorem apply_nat_skip_agrees : forall env x allowance cod callee_u arg,
 Proof.
   intros env x allowance cod callee_u arg.
   unfold apply_nat_spec, apply_nat_skip.
-  destruct (type_demand ({| binder := x; annotation := Natural; type_uses := [] |} :: env) cod)
-    as [cod_row |] eqn:Hcod; [| exact I].
-  destruct (index_demand env arg) as [arg_row |] eqn:Harg; [| exact I].
-  destruct (Nat.eqb (uses cod_row x) 0) eqn:Hx.
-  - apply Nat.eqb_eq in Hx.
-    apply type_demand_sound in Hcod.
-    repeat split; try reflexivity.
-    + cbn. eapply zero_type_use; eauto.
-    + cbn. apply zero_use_preserves_row. exact Hx.
-  - repeat split; try reflexivity; intro y; reflexivity.
+  pose proof (skip_judgment_agrees env x Natural cod (substitute_type x arg cod)
+    (callee_u ++ scale allowance (match index_demand env arg with Some a => a | None => [] end))
+    (index_demand env arg)) as H.
+  assert (Hz : forall row,
+    type_demand ({| binder := x; annotation := Natural; type_uses := [] |} :: env) cod = Some row ->
+    uses row x = 0 -> substitute_type x arg cod = cod).
+  { intros row Hrow Hx. apply type_demand_sound in Hrow. eapply zero_type_use; eauto. }
+  specialize (H Hz).
+  destruct (type_demand ({| binder := x; annotation := Natural; type_uses := [] |} :: env) cod),
+           (index_demand env arg); exact H.
 Qed.
 
 Definition apply_type_spec (env : context) (x allowance : nat) (cod : ty)
@@ -1382,23 +1409,9 @@ Definition apply_type_spec (env : context) (x allowance : nat) (cod : ty)
 
 Definition apply_type_skip (env : context) (x allowance : nat) (cod : ty)
     (callee_u : demand) (arg : ty) : option judgment :=
-  match type_demand ({| binder := x; annotation := Universe 0; type_uses := [] |} :: env) cod,
-        type_demand env arg with
-  | Some cod_row, Some arg_row =>
-      if Nat.eqb (uses cod_row x) 0 then
-        Some {|
-          result_type := cod;
-          computation_demand := callee_u ++ scale allowance arg_row;
-          type_demand_row := cod_row;
-        |}
-      else
-        Some {|
-          result_type := substitute_type_variable x arg cod;
-          computation_demand := callee_u ++ scale allowance arg_row;
-          type_demand_row := substitute_demand x arg_row cod_row;
-        |}
-  | _, _ => None
-  end.
+  skip_judgment env x (Universe 0) cod (substitute_type_variable x arg cod)
+    (callee_u ++ scale allowance (match type_demand env arg with Some a => a | None => [] end))
+    (type_demand env arg).
 
 Theorem apply_type_skip_agrees : forall env x allowance cod callee_u arg,
   match apply_type_spec env x allowance cod callee_u arg,
@@ -1413,16 +1426,16 @@ Theorem apply_type_skip_agrees : forall env x allowance cod callee_u arg,
 Proof.
   intros env x allowance cod callee_u arg.
   unfold apply_type_spec, apply_type_skip.
-  destruct (type_demand ({| binder := x; annotation := Universe 0; type_uses := [] |} :: env) cod)
-    as [cod_row |] eqn:Hcod; [| exact I].
-  destruct (type_demand env arg) as [arg_row |] eqn:Harg; [| exact I].
-  destruct (Nat.eqb (uses cod_row x) 0) eqn:Hx.
-  - apply Nat.eqb_eq in Hx.
-    apply type_demand_sound in Hcod.
-    repeat split; try reflexivity.
-    + cbn. eapply zero_type_var_use; eauto.
-    + cbn. apply zero_use_preserves_row. exact Hx.
-  - repeat split; try reflexivity; intro y; reflexivity.
+  pose proof (skip_judgment_agrees env x (Universe 0) cod (substitute_type_variable x arg cod)
+    (callee_u ++ scale allowance (match type_demand env arg with Some a => a | None => [] end))
+    (type_demand env arg)) as H.
+  assert (Hz : forall row,
+    type_demand ({| binder := x; annotation := Universe 0; type_uses := [] |} :: env) cod = Some row ->
+    uses row x = 0 -> substitute_type_variable x arg cod = cod).
+  { intros row Hrow Hx. apply type_demand_sound in Hrow. eapply zero_type_var_use; eauto. }
+  specialize (H Hz).
+  destruct (type_demand ({| binder := x; annotation := Universe 0; type_uses := [] |} :: env) cod),
+           (type_demand env arg); exact H.
 Qed.
 
 Definition let_nat_spec (env : context) (x : nat) (init : index)
@@ -1440,23 +1453,9 @@ Definition let_nat_spec (env : context) (x : nat) (init : index)
 
 Definition let_nat_skip (env : context) (x : nat) (init : index)
     (body_ty : ty) (body_u : demand) : option judgment :=
-  match type_demand ({| binder := x; annotation := Natural; type_uses := [] |} :: env) body_ty,
-        index_demand env init with
-  | Some body_row, Some init_row =>
-      if Nat.eqb (uses body_row x) 0 then
-        Some {|
-          result_type := body_ty;
-          computation_demand := without x body_u ++ init_row;
-          type_demand_row := body_row;
-        |}
-      else
-        Some {|
-          result_type := substitute_type x init body_ty;
-          computation_demand := without x body_u ++ init_row;
-          type_demand_row := substitute_demand x init_row body_row;
-        |}
-  | _, _ => None
-  end.
+  skip_judgment env x Natural body_ty (substitute_type x init body_ty)
+    (without x body_u ++ match index_demand env init with Some a => a | None => [] end)
+    (index_demand env init).
 
 Theorem let_nat_skip_agrees : forall env x init body_ty body_u,
   match let_nat_spec env x init body_ty body_u,
@@ -1471,16 +1470,16 @@ Theorem let_nat_skip_agrees : forall env x init body_ty body_u,
 Proof.
   intros env x init body_ty body_u.
   unfold let_nat_spec, let_nat_skip.
-  destruct (type_demand ({| binder := x; annotation := Natural; type_uses := [] |} :: env) body_ty)
-    as [body_row |] eqn:Hbody; [| exact I].
-  destruct (index_demand env init) as [init_row |] eqn:Hinit; [| exact I].
-  destruct (Nat.eqb (uses body_row x) 0) eqn:Hx.
-  - apply Nat.eqb_eq in Hx.
-    apply type_demand_sound in Hbody.
-    repeat split; try reflexivity.
-    + cbn. eapply zero_type_use; eauto.
-    + cbn. apply zero_use_preserves_row. exact Hx.
-  - repeat split; try reflexivity; intro y; reflexivity.
+  pose proof (skip_judgment_agrees env x Natural body_ty (substitute_type x init body_ty)
+    (without x body_u ++ match index_demand env init with Some a => a | None => [] end)
+    (index_demand env init)) as H.
+  assert (Hz : forall row,
+    type_demand ({| binder := x; annotation := Natural; type_uses := [] |} :: env) body_ty = Some row ->
+    uses row x = 0 -> substitute_type x init body_ty = body_ty).
+  { intros row Hrow Hx. apply type_demand_sound in Hrow. eapply zero_type_use; eauto. }
+  specialize (H Hz).
+  destruct (type_demand ({| binder := x; annotation := Natural; type_uses := [] |} :: env) body_ty),
+           (index_demand env init); exact H.
 Qed.
 
 Example erasure_unused_nat_example :

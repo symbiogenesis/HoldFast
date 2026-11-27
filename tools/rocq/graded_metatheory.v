@@ -463,11 +463,7 @@ Qed.
 Lemma uses_scale : forall n d y,
   uses (scale n d) y = n * uses d y.
 Proof.
-  intros n d y. induction d as [| [k m] rest IH].
-  - cbn. lia.
-  - change ((if Nat.eqb y k then n * m else 0) + uses (scale n rest) y =
-            n * ((if Nat.eqb y k then m else 0) + uses rest y)).
-    rewrite IH. destruct (Nat.eqb y k); lia.
+  exact GradedPure.uses_scale.
 Qed.
 
 Lemma uses_substitute_demand : forall x z d y,

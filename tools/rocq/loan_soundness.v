@@ -97,28 +97,22 @@ Lemma write_unstable_preserves_bid : forall v steps next_bid kind v',
   write_unstable_val v steps next_bid kind = Some v' ->
   val_bid v' = val_bid v.
 Proof.
-  intros v [| s rest] next_bid kind v' Hne Hw; [contradiction |].
-  destruct s, v; cbn [write_unstable_val option_map] in Hw; try discriminate.
-  - destruct (assoc_get Nat.eqb fields f); [| discriminate].
-    destruct (write_unstable_val o rest next_bid kind); [| discriminate].
-    destruct (assoc_update _ _ _ _); cbn in Hw; inversion Hw; reflexivity.
-  - destruct (nth_error elems idx); [| discriminate].
-    destruct (write_unstable_val o rest next_bid kind); [| discriminate].
-    destruct (list_set _ _ _); cbn in Hw; inversion Hw; reflexivity.
-  - destruct (write_unstable_val v rest next_bid kind); cbn in Hw; inversion Hw; reflexivity.
+  intros v steps next_bid kind v' Hne H.
+  eapply modify_val_at_preserves_bid_step; eauto.
 Qed.
 
-Lemma write_unstable_preserves_disjoint_stamps : forall s1 s2 v next_bid kind v' st,
+Lemma modify_val_at_preserves_disjoint_stamps : forall g s1 s2 v v' st,
   steps_disjoint_b s1 s2 = true ->
   steps_match_stamps s2 st = true ->
-  write_unstable_val v s1 next_bid kind = Some v' ->
+  modify_val_at g v s1 = Some v' ->
   valid_stamps v st = true ->
   valid_stamps v' st = true.
 Proof.
-  induction s1 as [| a r1 IH]; intros [| b r2] v next_bid kind v' st Hdisj Hmatch Hw Hv;
+  intros g s1.
+  induction s1 as [| a r1 IH]; intros [| b r2] v v' st Hdisj Hmatch Hw Hv;
     cbn [steps_disjoint_b] in Hdisj; try discriminate.
   destruct a, b, v;
-    cbn [steps_disjoint_b step_disjoint_b proj_step_beq write_unstable_val option_map]
+    cbn [steps_disjoint_b step_disjoint_b proj_step_beq modify_val_at option_map]
       in Hdisj, Hw; try discriminate.
   - (* SField vs SField *)
     destruct st as [| st0 str]; [cbn in Hmatch; discriminate |].
@@ -129,7 +123,7 @@ Proof.
     + apply Nat.eqb_eq in Ef; subst f0.
       cbn [negb] in Hdisj; cbv iota in Hdisj.
       destruct (assoc_get Nat.eqb fields f) as [fv |] eqn:Hf; [| discriminate].
-      destruct (write_unstable_val fv r1 next_bid kind) as [fv' |] eqn:Hwfv; [| discriminate].
+      destruct (modify_val_at g fv r1) as [fv' |] eqn:Hwfv; [| discriminate].
       destruct (assoc_update Nat.eqb fields f fv') as [fs' |] eqn:Hup;
         cbn in Hw; [| discriminate].
       inversion Hw; subst; clear Hw.
@@ -141,7 +135,7 @@ Proof.
       eapply IH; eauto.
     + apply Nat.eqb_neq in Ef.
       destruct (assoc_get Nat.eqb fields f) as [fv |] eqn:Hf; [| discriminate].
-      destruct (write_unstable_val fv r1 next_bid kind) as [fv' |] eqn:Hwfv; [| discriminate].
+      destruct (modify_val_at g fv r1) as [fv' |] eqn:Hwfv; [| discriminate].
       destruct (assoc_update Nat.eqb fields f fv') as [fs' |] eqn:Hup;
         cbn in Hw; [| discriminate].
       inversion Hw; subst; clear Hw.
@@ -159,7 +153,7 @@ Proof.
     + apply Nat.eqb_eq in Ei; subst idx0.
       cbn [negb] in Hdisj; cbv iota in Hdisj.
       destruct (nth_error elems idx) as [ev |] eqn:He; [| discriminate].
-      destruct (write_unstable_val ev r1 next_bid kind) as [ev' |] eqn:Hwev; [| discriminate].
+      destruct (modify_val_at g ev r1) as [ev' |] eqn:Hwev; [| discriminate].
       destruct (list_set elems idx ev') as [elems' |] eqn:Hls;
         cbn in Hw; [| discriminate].
       inversion Hw; subst; clear Hw.
@@ -171,7 +165,7 @@ Proof.
       eapply IH; eauto.
     + apply Nat.eqb_neq in Ei.
       destruct (nth_error elems idx) as [ev |] eqn:He; [| discriminate].
-      destruct (write_unstable_val ev r1 next_bid kind) as [ev' |] eqn:Hwev; [| discriminate].
+      destruct (modify_val_at g ev r1) as [ev' |] eqn:Hwev; [| discriminate].
       destruct (list_set elems idx ev') as [elems' |] eqn:Hls;
         cbn in Hw; [| discriminate].
       inversion Hw; subst; clear Hw.
@@ -192,7 +186,7 @@ Proof.
     apply andb_true_iff in Htmp as [Ho0 Hl0].
     apply Nat.eqb_eq in Ho0; apply Nat.eqb_eq in Hl0; subst off0 len0.
     destruct (nth_error elems idx) as [ev |] eqn:He; [| discriminate].
-    destruct (write_unstable_val ev r1 next_bid kind) as [ev' |] eqn:Hwev; [| discriminate].
+    destruct (modify_val_at g ev r1) as [ev' |] eqn:Hwev; [| discriminate].
     destruct (list_set elems idx ev') as [elems' |] eqn:Hls;
       cbn in Hw; [| discriminate].
     inversion Hw; subst; clear Hw.
@@ -217,13 +211,24 @@ Proof.
     destruct st as [| st0 str]; [cbn in Hmatch; discriminate |].
     destruct st0; cbn [steps_match_stamps] in Hmatch; try discriminate.
     cbn in Hdisj.
-    destruct (write_unstable_val v r1 next_bid kind) as [p' |] eqn:Hwp;
+    destruct (modify_val_at g v r1) as [p' |] eqn:Hwp;
       cbn in Hw; [| discriminate].
     inversion Hw; subst; clear Hw.
     cbn [valid_stamps] in *.
     destruct (Nat.eqb utag0 utag && Nat.eqb pbid0 pbid);
       cbn [andb] in Hv; cbv iota in Hv; [| discriminate].
     eapply IH; eauto.
+Qed.
+
+Lemma write_unstable_preserves_disjoint_stamps : forall s1 s2 v next_bid kind v' st,
+  steps_disjoint_b s1 s2 = true ->
+  steps_match_stamps s2 st = true ->
+  write_unstable_val v s1 next_bid kind = Some v' ->
+  valid_stamps v st = true ->
+  valid_stamps v' st = true.
+Proof.
+  intros s1 s2 v next_bid kind v' st.
+  apply modify_val_at_preserves_disjoint_stamps.
 Qed.
 
 Lemma write_unstable_mem_preserves_disjoint_addr : forall m p1 p2 next_bid kind m' a,
@@ -234,15 +239,14 @@ Lemma write_unstable_mem_preserves_disjoint_addr : forall m p1 p2 next_bid kind 
   addr_valid m' a.
 Proof.
   intros m p1 p2 next_bid kind m' a Hdisj Hmatch Hw Ha.
-  unfold write_unstable_mem in Hw.
+  unfold write_unstable_mem, modify_mem_at in Hw.
   destruct (lookup_owner m (p_owner p1)) as [oe |] eqn:Ho; [| discriminate].
   destruct (write_unstable_val (oe_val oe) (p_path p1) next_bid kind) as [v' |] eqn:Hv';
     [| discriminate].
   unfold addr_matches_place in Hmatch.
   apply andb_true_iff in Hmatch as [Ho_eq Hst_m].
   apply Nat.eqb_eq in Ho_eq.
-  unfold addr_valid, addr_valid_b in *.
-  unfold update_owner, lookup_owner in *.
+  unfold addr_valid, addr_valid_b, update_owner, lookup_owner in *.
   destruct (Nat.eq_dec (p_owner p1) (addr_owner a)) as [Heq | Hneq].
   - rewrite <- Heq in *.
     rewrite (assoc_get_update_same Nat.eqb Nat.eqb_eq m (p_owner p1)
@@ -268,25 +272,10 @@ Lemma write_tag_preserving_mem_preserves_addr : forall m pu tag payload m' a,
   addr_valid m' a.
 Proof.
   intros m pu tag payload m' a Hw Ha.
-  unfold write_tag_preserving_mem in Hw.
-  destruct (lookup_owner m (p_owner pu)) as [oe |] eqn:Ho; [| discriminate].
-  destruct (write_tag_preserving_val (oe_val oe) (p_path pu) tag payload) as [v' |] eqn:Hv';
-    [| discriminate].
-  unfold addr_valid, addr_valid_b in *.
-  unfold update_owner, lookup_owner in *.
-  destruct (Nat.eq_dec (p_owner pu) (addr_owner a)) as [Heq | Hneq].
-  - rewrite <- Heq in *.
-    rewrite (assoc_get_update_same Nat.eqb Nat.eqb_eq m (p_owner pu)
-               {| oe_borrowed := oe_borrowed oe; oe_val := v' |} m' Hw).
-    rewrite Ho in Ha; cbn in *.
-    rewrite (write_tag_preserving_bid (oe_val oe) (p_path pu) tag payload v' Hv').
-    destruct (val_bid (oe_val oe)); [| discriminate].
-    apply andb_true_iff in Ha as [Hrbid Hst].
-    rewrite Hrbid; cbn.
-    eapply write_tag_preserving_stamps; eauto.
-  - rewrite (assoc_get_update_other Nat.eqb Nat.eqb_eq m (p_owner pu)
-               (addr_owner a) {| oe_borrowed := oe_borrowed oe; oe_val := v' |} m' Hneq Hw).
-    exact Ha.
+  eapply modify_mem_at_preserves_addr;
+    [intros v v' Hv'; eapply write_tag_preserving_bid; exact Hv'
+    | intros v v' st Hv' Hst; eapply write_tag_preserving_stamps; [exact Hv' | exact Hst]
+    | exact Hw | exact Ha].
 Qed.
 
 Lemma push_cap_preserving_mem_preserves_addr : forall m pc elem m' old_len a,
@@ -304,21 +293,12 @@ Proof.
   destruct (update_owner m (p_owner pc) {| oe_borrowed := oe_borrowed oe; oe_val := v' |})
     as [m'' |] eqn:Hu; [| discriminate].
   inversion Hw; subst; clear Hw.
-  unfold addr_valid, addr_valid_b in *.
-  unfold update_owner, lookup_owner in *.
-  destruct (Nat.eq_dec (p_owner pc) (addr_owner a)) as [Heq | Hneq].
-  - rewrite <- Heq in *.
-    rewrite (assoc_get_update_same Nat.eqb Nat.eqb_eq m (p_owner pc)
-               {| oe_borrowed := oe_borrowed oe; oe_val := v' |} m' Hu).
-    rewrite Ho in Ha; cbn in *.
-    rewrite (push_cap_preserving_bid (oe_val oe) (p_path pc) elem v' Hv').
-    destruct (val_bid (oe_val oe)); [| discriminate].
-    apply andb_true_iff in Ha as [Hrbid Hst].
-    rewrite Hrbid; cbn.
-    eapply push_cap_preserving_stamps; eauto.
-  - rewrite (assoc_get_update_other Nat.eqb Nat.eqb_eq m (p_owner pc)
-               (addr_owner a) {| oe_borrowed := oe_borrowed oe; oe_val := v' |} m' Hneq Hu).
-    exact Ha.
+  assert (Hmod : modify_mem_at (fun v => push_cap_preserving_val v (p_path pc) elem) m (p_owner pc) = Some m').
+  { unfold modify_mem_at. rewrite Ho, Hv'. exact Hu. }
+  eapply modify_mem_at_preserves_addr;
+    [intros v0 v0' Hv0; eapply push_cap_preserving_bid; exact Hv0
+    | intros v0 v0' st Hv0 Hst; eapply push_cap_preserving_stamps; [exact Hv0 | exact Hst]
+    | exact Hmod | exact Ha].
 Qed.
 
 Definition loan_entry_wf_b (m : memory) (le : loan_entry) : bool :=
@@ -389,25 +369,30 @@ Proof.
   intro Hin. apply filter_In in Hin as [Hin _]. contradiction.
 Qed.
 
+Lemma update_loan_ids : forall f loans l,
+  (forall le, ln_id (f le) = ln_id le) ->
+  map ln_id (update_loan f l loans) = map ln_id loans.
+Proof.
+  intros f loans l Hf. induction loans as [| le rest IH]; cbn; [reflexivity |].
+  destruct (Nat.eqb (ln_id le) l); cbn; f_equal; try apply Hf; apply IH.
+Qed.
+
 Lemma set_loan_suspended_ids : forall loans l susp,
   map ln_id (set_loan_suspended loans l susp) = map ln_id loans.
 Proof.
-  induction loans as [| le rest IH]; intros l susp; cbn; [reflexivity |].
-  destruct (Nat.eqb (ln_id le) l); cbn; f_equal; apply IH.
+  intros loans l susp. apply update_loan_ids; reflexivity.
 Qed.
 
 Lemma set_loan_mode_ids : forall loans l m,
   map ln_id (set_loan_mode loans l m) = map ln_id loans.
 Proof.
-  induction loans as [| le rest IH]; intros l m; cbn; [reflexivity |].
-  destruct (Nat.eqb (ln_id le) l); cbn; f_equal; apply IH.
+  intros loans l m. apply update_loan_ids; reflexivity.
 Qed.
 
 Lemma set_loan_returned_ids : forall loans l,
   map ln_id (set_loan_returned loans l) = map ln_id loans.
 Proof.
-  induction loans as [| le rest IH]; intro l; cbn; [reflexivity |].
-  destruct (Nat.eqb (ln_id le) l); cbn; f_equal; apply IH.
+  intros loans l. apply update_loan_ids; reflexivity.
 Qed.
 
 Lemma has_loan_false_notin : forall loans l,
@@ -466,81 +451,11 @@ Lemma write_unstable_mem_frame : forall m p1 p2 next_bid kind m',
   read_val_mem m' p2 = read_val_mem m p2.
 Proof.
   intros m p1 p2 next_bid kind m' Hdisj Hw.
-  unfold read_val_mem, write_unstable_mem in *.
-  destruct (lookup_owner m (p_owner p1)) as [oe |] eqn:Ho; [| discriminate].
-  destruct (write_unstable_val (oe_val oe) (p_path p1) next_bid kind) as [v' |] eqn:Hv';
-    [| discriminate].
-  unfold update_owner, lookup_owner in *.
-  destruct (Nat.eq_dec (p_owner p1) (p_owner p2)) as [Heq | Hneq].
-  - rewrite <- Heq in *.
-    rewrite (assoc_get_update_same Nat.eqb Nat.eqb_eq m (p_owner p1)
-               {| oe_borrowed := oe_borrowed oe; oe_val := v' |} m' Hw).
-    rewrite Ho; cbn.
-    unfold places_disjoint, places_disjoint_b in Hdisj.
-    rewrite <- Heq, Nat.eqb_refl in Hdisj; cbn in Hdisj.
-    clear - Hdisj Hv'.
-    revert v' Hdisj Hv'. generalize (oe_val oe) as v0. generalize (p_path p2) as s2.
-    induction (p_path p1) as [| a r1 IH]; intros [| b r2] v0 v' Hdisj Hv';
-      cbn [steps_disjoint_b] in Hdisj; try discriminate.
-    destruct a, b, v0;
-      cbn [steps_disjoint_b step_disjoint_b proj_step_beq write_unstable_val option_map]
-        in Hdisj, Hv'; try discriminate.
-    + destruct (Nat.eqb f f0) eqn:Ef.
-      * apply Nat.eqb_eq in Ef; subst f0.
-        cbn [negb] in Hdisj; cbv iota in Hdisj.
-        destruct (assoc_get Nat.eqb fields f) as [fv |] eqn:Hf; [| discriminate].
-        destruct (write_unstable_val fv r1 next_bid kind) as [fv' |] eqn:Hwfv; [| discriminate].
-        destruct (assoc_update Nat.eqb fields f fv') as [fs' |] eqn:Hup; cbn in Hv'; [| discriminate].
-        inversion Hv'; subst; cbn [read_val].
-        rewrite (assoc_get_update_same Nat.eqb Nat.eqb_eq fields f fv' fs' Hup), Hf.
-        eapply IH; eauto.
-      * apply Nat.eqb_neq in Ef.
-        destruct (assoc_get Nat.eqb fields f); [| discriminate].
-        destruct (write_unstable_val o r1 next_bid kind); [| discriminate].
-        destruct (assoc_update Nat.eqb fields f o0) as [fs' |] eqn:Hup; cbn in Hv'; [| discriminate].
-        inversion Hv'; subst; cbn [read_val].
-        rewrite (assoc_get_update_other Nat.eqb Nat.eqb_eq fields f f0 o0 fs' Ef Hup).
-        reflexivity.
-    + destruct (Nat.eqb idx idx0) eqn:Ei.
-      * apply Nat.eqb_eq in Ei; subst idx0.
-        cbn [negb] in Hdisj; cbv iota in Hdisj.
-        destruct (nth_error elems idx) as [ev |] eqn:He; [| discriminate].
-        destruct (write_unstable_val ev r1 next_bid kind) as [ev' |] eqn:Hwev; [| discriminate].
-        destruct (list_set elems idx ev') as [elems' |] eqn:Hls; cbn in Hv'; [| discriminate].
-        inversion Hv'; subst; cbn [read_val].
-        rewrite (list_set_nth_same elems idx ev' elems' Hls), He.
-        eapply IH; eauto.
-      * apply Nat.eqb_neq in Ei.
-        destruct (nth_error elems idx); [| discriminate].
-        destruct (write_unstable_val o r1 next_bid kind); [| discriminate].
-        destruct (list_set elems idx o0) as [elems' |] eqn:Hls; cbn in Hv'; [| discriminate].
-        inversion Hv'; subst; cbn [read_val].
-        rewrite (list_set_nth_other elems idx idx0 o0 elems' Ei Hls).
-        reflexivity.
-    + destruct (Nat.ltb idx off || Nat.leb (off + len) idx) eqn:Hsep;
-        [| cbv iota in Hdisj; discriminate].
-      apply orb_true_iff in Hsep.
-      assert (Hout : idx < off \/ off + len <= idx).
-      { destruct Hsep as [H1 | H2]; [left; now apply Nat.ltb_lt | right; now apply Nat.leb_le]. }
-      destruct (nth_error elems idx); [| discriminate].
-      destruct (write_unstable_val o r1 next_bid kind); [| discriminate].
-      destruct (list_set elems idx o0) as [elems' |] eqn:Hls; cbn in Hv'; [| discriminate].
-      inversion Hv'; subst; cbn [read_val].
-      rewrite (list_set_length elems idx o0 elems' Hls).
-      destruct (Nat.leb (off + len) (length elems)); [| reflexivity].
-      destruct r2 as [| s2' r2'].
-      * f_equal; f_equal; apply firstn_skipn_ext; [eapply list_set_length; eauto |].
-        intros j Hj1 Hj2. apply list_set_nth_other with (i := idx) (v := o0); [lia | exact Hls].
-      * destruct s2'; try reflexivity.
-        destruct (Nat.ltb idx0 len) eqn:Hk; [| reflexivity].
-        apply Nat.ltb_lt in Hk.
-        rewrite (list_set_nth_other elems idx (off + idx0) o0 elems'); [reflexivity | lia | exact Hls].
-    + destruct (write_unstable_val v0 r1 next_bid kind) as [p' |] eqn:Hwp;
-        cbn in Hv'; [| discriminate].
-      inversion Hv'; subst; cbn [read_val]. eapply IH; eauto.
-  - rewrite (assoc_get_update_other Nat.eqb Nat.eqb_eq m (p_owner p1)
-               (p_owner p2) {| oe_borrowed := oe_borrowed oe; oe_val := v' |} m' Hneq Hw).
-    reflexivity.
+  eapply modify_mem_at_frame; [| exact Hw].
+  intros Heq v v' Hv'.
+  unfold places_disjoint, places_disjoint_b in Hdisj.
+  rewrite <- Heq, Nat.eqb_refl in Hdisj; cbn in Hdisj.
+  eapply (modify_val_at_frame (write_unstable_leaf next_bid kind)); [destruct kind; reflexivity | exact Hdisj | exact Hv'].
 Qed.
 
 Lemma write_tag_preserving_mem_frame : forall m pu p2 tag payload m',
@@ -549,89 +464,15 @@ Lemma write_tag_preserving_mem_frame : forall m pu p2 tag payload m',
   read_val_mem m' p2 = read_val_mem m p2.
 Proof.
   intros m pu p2 tag payload m' Hdisj Hw.
-  unfold read_val_mem, write_tag_preserving_mem in *.
-  destruct (lookup_owner m (p_owner pu)) as [oe |] eqn:Ho; [| discriminate].
-  destruct (write_tag_preserving_val (oe_val oe) (p_path pu) tag payload)
-    as [v' |] eqn:Hv'; [| discriminate].
-  unfold update_owner, lookup_owner in *.
-  destruct (Nat.eq_dec (p_owner pu) (p_owner p2)) as [Heq | Hneq].
-  - rewrite <- Heq in *.
-    rewrite (assoc_get_update_same Nat.eqb Nat.eqb_eq m (p_owner pu)
-               {| oe_borrowed := oe_borrowed oe; oe_val := v' |} m' Hw).
-    rewrite Ho; cbn.
-    unfold places_disjoint, places_disjoint_b, PUnionPayload in Hdisj; cbn in Hdisj.
-    rewrite <- Heq, Nat.eqb_refl in Hdisj; cbn in Hdisj.
-    clear - Hdisj Hv'.
-    revert v' Hdisj Hv'. generalize (oe_val oe) as v0. generalize (p_path p2) as s2.
-    induction (p_path pu) as [| a r1 IH]; intros [| b r2] v0 v' Hdisj Hv'.
-    + cbn in Hdisj; discriminate.
-    + cbn in Hdisj. destruct b; cbn in Hdisj; try discriminate.
-    + cbn in Hdisj; discriminate.
-    + cbn [app] in Hdisj. destruct a, b, v0;
-        cbn [steps_disjoint_b step_disjoint_b proj_step_beq write_tag_preserving_val option_map]
-          in Hdisj, Hv'; try discriminate.
-      * destruct (Nat.eqb f f0) eqn:Ef.
-        -- apply Nat.eqb_eq in Ef; subst f0.
-           cbn [negb] in Hdisj; cbv iota in Hdisj.
-           destruct (assoc_get Nat.eqb fields f) as [fv |] eqn:Hf; [| discriminate].
-           destruct (write_tag_preserving_val fv r1 tag payload) as [fv' |] eqn:Hwfv; [| discriminate].
-           destruct (assoc_update Nat.eqb fields f fv') as [fs' |] eqn:Hup;
-             cbn in Hv'; [| discriminate].
-           inversion Hv'; subst; cbn [read_val].
-           rewrite (assoc_get_update_same Nat.eqb Nat.eqb_eq fields f fv' fs' Hup), Hf.
-           eapply IH; eauto.
-        -- apply Nat.eqb_neq in Ef.
-           destruct (assoc_get Nat.eqb fields f); [| discriminate].
-           destruct (write_tag_preserving_val o r1 tag payload); [| discriminate].
-           destruct (assoc_update Nat.eqb fields f o0) as [fs' |] eqn:Hup;
-             cbn in Hv'; [| discriminate].
-           inversion Hv'; subst; cbn [read_val].
-           rewrite (assoc_get_update_other Nat.eqb Nat.eqb_eq fields f f0 o0 fs' Ef Hup).
-           reflexivity.
-      * destruct (Nat.eqb idx idx0) eqn:Ei.
-        -- apply Nat.eqb_eq in Ei; subst idx0.
-           cbn [negb] in Hdisj; cbv iota in Hdisj.
-           destruct (nth_error elems idx) as [ev |] eqn:He; [| discriminate].
-           destruct (write_tag_preserving_val ev r1 tag payload) as [ev' |] eqn:Hwev; [| discriminate].
-           destruct (list_set elems idx ev') as [elems' |] eqn:Hls;
-             cbn in Hv'; [| discriminate].
-           inversion Hv'; subst; cbn [read_val].
-           rewrite (list_set_nth_same elems idx ev' elems' Hls), He.
-           eapply IH; eauto.
-        -- apply Nat.eqb_neq in Ei.
-           destruct (nth_error elems idx); [| discriminate].
-           destruct (write_tag_preserving_val o r1 tag payload); [| discriminate].
-           destruct (list_set elems idx o0) as [elems' |] eqn:Hls;
-             cbn in Hv'; [| discriminate].
-           inversion Hv'; subst; cbn [read_val].
-           rewrite (list_set_nth_other elems idx idx0 o0 elems' Ei Hls).
-           reflexivity.
-      * destruct (Nat.ltb idx off || Nat.leb (off + len) idx) eqn:Hsep;
-          [| cbv iota in Hdisj; discriminate].
-        apply orb_true_iff in Hsep.
-        assert (Hout : idx < off \/ off + len <= idx).
-        { destruct Hsep as [H1 | H2]; [left; now apply Nat.ltb_lt | right; now apply Nat.leb_le]. }
-        destruct (nth_error elems idx); [| discriminate].
-        destruct (write_tag_preserving_val o r1 tag payload); [| discriminate].
-        destruct (list_set elems idx o0) as [elems' |] eqn:Hls;
-          cbn in Hv'; [| discriminate].
-        inversion Hv'; subst; cbn [read_val].
-        rewrite (list_set_length elems idx o0 elems' Hls).
-        destruct (Nat.leb (off + len) (length elems)); [| reflexivity].
-        destruct r2 as [| s2' r2'].
-        -- f_equal; f_equal; apply firstn_skipn_ext; [eapply list_set_length; eauto |].
-           intros j Hj1 Hj2. apply list_set_nth_other with (i := idx) (v := o0); [lia | exact Hls].
-        -- destruct s2'; try reflexivity.
-           destruct (Nat.ltb idx0 len) eqn:Hk; [| reflexivity].
-           apply Nat.ltb_lt in Hk.
-           rewrite (list_set_nth_other elems idx (off + idx0) o0 elems');
-             [reflexivity | lia | exact Hls].
-      * destruct (write_tag_preserving_val v0 r1 tag payload) as [p' |] eqn:Hwp;
-          cbn in Hv'; [| discriminate].
-        inversion Hv'; subst; cbn [read_val]. eapply IH; eauto.
-  - rewrite (assoc_get_update_other Nat.eqb Nat.eqb_eq m (p_owner pu)
-               (p_owner p2) {| oe_borrowed := oe_borrowed oe; oe_val := v' |} m' Hneq Hw).
-    reflexivity.
+  eapply modify_mem_at_frame; [| exact Hw].
+  intros Heq v v' Hv'.
+  unfold places_disjoint, places_disjoint_b, PUnionPayload in Hdisj; cbn in Hdisj.
+  rewrite <- Heq, Nat.eqb_refl in Hdisj; cbn in Hdisj.
+  destruct (modify_val_at_some_read_val (write_tag_preserving_leaf tag payload) v (p_path pu) v' eq_refl Hv') as [target Hrv].
+  eapply (modify_val_at_frame_ext (write_tag_preserving_leaf tag payload)
+            (fun _ => True) [SUnionPayload] target (p_path pu) (p_path p2) v v');
+    [trivial | intros u' t _ Hd _; destruct t as [| []]; cbn in Hd; discriminate
+    | exact Hrv | exact I | exact Hdisj | exact Hv'].
 Qed.
 
 Lemma firstn_skipn_app_le : forall {A : Type} (xs ys : list A) off len,
@@ -697,7 +538,7 @@ Lemma push_cap_preserving_mem_frame : forall m pc p2 elem m' old_len,
   read_val_mem m' p2 = read_val_mem m p2.
 Proof.
   intros m pc p2 elem m' old_len Hdisj Hne Hw.
-  unfold read_val_mem, push_cap_preserving_mem in *.
+  unfold push_cap_preserving_mem in Hw.
   destruct (lookup_owner m (p_owner pc)) as [oe |] eqn:Ho; [| discriminate].
   destruct (read_val (oe_val oe) (p_path pc)) as [vc |] eqn:Hrv; [| discriminate].
   destruct vc as [| b_c cap_c elems_c | | | |]; try discriminate.
@@ -706,121 +547,52 @@ Proof.
   destruct (update_owner m (p_owner pc) {| oe_borrowed := oe_borrowed oe; oe_val := v' |})
     as [m'' |] eqn:Hu; [| discriminate].
   inversion Hw; subst; clear Hw.
-  unfold update_owner, lookup_owner in *.
+  unfold read_val_mem, update_owner, lookup_owner in *.
   destruct (Nat.eq_dec (p_owner pc) (p_owner p2)) as [Heq | Hneq].
   - rewrite <- Heq in *.
     rewrite (assoc_get_update_same Nat.eqb Nat.eqb_eq m (p_owner pc)
-               {| oe_borrowed := oe_borrowed oe; oe_val := v' |} m' Hu).
-    rewrite Ho; cbn.
+               {| oe_borrowed := oe_borrowed oe; oe_val := v' |} m' Hu), Ho; cbn.
     unfold places_disjoint, places_disjoint_b, PElem in Hdisj; cbn in Hdisj.
     rewrite <- Heq, Nat.eqb_refl in Hdisj; cbn in Hdisj.
-    clear - Hdisj Hne Hv' Hrv.
-    revert v' Hdisj Hne Hv' Hrv. generalize (oe_val oe) as v0. generalize (p_path p2) as s2.
-    induction (p_path pc) as [| a r1 IH]; intros [| b r2] v0 v' Hdisj Hne Hv' Hrv;
-      cbn [app] in Hdisj; cbn [steps_disjoint_b] in Hdisj; try discriminate.
-    + destruct v0; cbn [push_cap_preserving_val] in Hv'; try discriminate.
-      cbn [read_val] in Hrv; inversion Hrv as [[Eb Ec Ee]]; subst b_c cap_c elems_c; clear Hrv.
-      destruct (Nat.ltb (length elems) cap) eqn:Hcap; cbv iota in Hv';
-        [| discriminate]; inversion Hv'; subst; clear Hv'.
-      inversion Hne as [| ? ? Hb_ne Hr2_ne]; subst.
-      destruct b; cbn [steps_disjoint_b step_disjoint_b proj_step_beq] in Hdisj;
-        cbv iota in Hdisj; try discriminate.
-      * destruct (Nat.eqb (length elems) idx) eqn:Elen; [cbn in Hdisj; discriminate |].
-        apply Nat.eqb_neq in Elen.
-        cbn [read_val].
-        destruct (Nat.lt_ge_cases idx (length elems)) as [Hlt | Hge].
+    eapply (modify_val_at_frame_ext (push_cap_preserving_leaf elem)
+              (fun s => Forall step_nonempty s) [SElem (length elems_c)]
+              (VContainer b_c cap_c elems_c) (p_path pc) (p_path p2) (oe_val oe) v');
+      [| | exact Hrv | exact Hne | exact Hdisj | exact Hv'].
+    + intros a t Ha. inversion Ha; assumption.
+    + intros u' t Ht Hd Hu'.
+      cbn [push_cap_preserving_leaf] in Hu'.
+      destruct (Nat.ltb (length elems_c) cap_c); [| discriminate].
+      inversion Hu'; subst u'; clear Hu'.
+      destruct t as [| b t']; [cbn in Hd; discriminate |].
+      inversion Ht as [| ? ? Hb_ne Ht']; subst.
+      destruct b; cbn [steps_disjoint_b step_disjoint_b proj_step_beq] in Hd;
+        cbv iota in Hd; try discriminate.
+      * destruct (Nat.eqb (length elems_c) idx) eqn:Elen; [cbn in Hd; discriminate |].
+        apply Nat.eqb_neq in Elen. cbn [read_val].
+        destruct (Nat.lt_ge_cases idx (length elems_c)) as [Hlt | Hge].
         -- rewrite nth_error_app1 by exact Hlt. reflexivity.
-        -- assert (Hge1 : length (elems ++ [elem]) <= idx) by (rewrite length_app; cbn; lia).
+        -- assert (Hge1 : length (elems_c ++ [elem]) <= idx) by (rewrite length_app; cbn; lia).
            rewrite (proj2 (nth_error_None _ idx) Hge1), (proj2 (nth_error_None _ idx) Hge).
            reflexivity.
-      * destruct (Nat.ltb (length elems) off || Nat.leb (off + len) (length elems))
-          eqn:Hsep; [| cbn in Hdisj; discriminate].
-        apply orb_true_iff in Hsep.
-        cbn [read_val].
-        destruct (Nat.leb (off + len) (length elems)) eqn:Hb1.
+      * destruct (Nat.ltb (length elems_c) off || Nat.leb (off + len) (length elems_c)) eqn:Hsep;
+          [| cbn in Hd; discriminate].
+        apply orb_true_iff in Hsep. cbn [read_val].
+        destruct (Nat.leb (off + len) (length elems_c)) eqn:Hb1.
         -- apply Nat.leb_le in Hb1.
-           assert (Hb2 : Nat.leb (off + len) (length (elems ++ [elem])) = true)
+           assert (Hb2 : Nat.leb (off + len) (length (elems_c ++ [elem])) = true)
              by (rewrite length_app; cbn; apply Nat.leb_le; lia).
            rewrite Hb2.
-           destruct r2 as [| s2' r2'].
+           destruct t' as [| s2' r2'].
            ++ f_equal; f_equal. apply firstn_skipn_app_le; exact Hb1.
            ++ destruct s2'; try reflexivity.
               destruct (Nat.ltb idx len) eqn:Hk; [| reflexivity].
-              apply Nat.ltb_lt in Hk.
-              rewrite nth_error_app1 by lia; reflexivity.
-        -- apply Nat.leb_gt in Hb1.
-           cbn in Hb_ne.
-           assert (Hout : length elems < off \/ off + len <= length elems).
+              apply Nat.ltb_lt in Hk. rewrite nth_error_app1 by lia; reflexivity.
+        -- apply Nat.leb_gt in Hb1. cbn in Hb_ne.
+           assert (Hout : length elems_c < off \/ off + len <= length elems_c).
            { destruct Hsep as [H1 | H2]; [left; now apply Nat.ltb_lt | right; now apply Nat.leb_le]. }
-           assert (Hb2 : Nat.leb (off + len) (length (elems ++ [elem])) = false)
+           assert (Hb2 : Nat.leb (off + len) (length (elems_c ++ [elem])) = false)
              by (rewrite length_app; cbn; apply Nat.leb_gt; lia).
            rewrite Hb2; reflexivity.
-    + inversion Hne as [| ? ? Hb_ne Hr2_ne]; subst.
-      destruct a, b, v0;
-        cbn [steps_disjoint_b step_disjoint_b proj_step_beq push_cap_preserving_val option_map]
-          in Hdisj, Hv'; try discriminate.
-      * destruct (Nat.eqb f f0) eqn:Ef.
-        -- apply Nat.eqb_eq in Ef; subst f0.
-           cbn [negb] in Hdisj; cbv iota in Hdisj.
-           destruct (assoc_get Nat.eqb fields f) as [fv |] eqn:Hf; [| discriminate].
-           destruct (push_cap_preserving_val fv r1 elem) as [fv' |] eqn:Hwfv; [| discriminate].
-           destruct (assoc_update Nat.eqb fields f fv') as [fs' |] eqn:Hup;
-             cbn in Hv'; [| discriminate].
-           inversion Hv'; subst; cbn [read_val].
-           rewrite (assoc_get_update_same Nat.eqb Nat.eqb_eq fields f fv' fs' Hup), Hf.
-           cbn [read_val] in Hrv; rewrite Hf in Hrv.
-           eapply IH; eauto.
-        -- apply Nat.eqb_neq in Ef.
-           destruct (assoc_get Nat.eqb fields f); [| discriminate].
-           destruct (push_cap_preserving_val o r1 elem); [| discriminate].
-           destruct (assoc_update Nat.eqb fields f o0) as [fs' |] eqn:Hup;
-             cbn in Hv'; [| discriminate].
-           inversion Hv'; subst; cbn [read_val].
-           rewrite (assoc_get_update_other Nat.eqb Nat.eqb_eq fields f f0 o0 fs' Ef Hup).
-           reflexivity.
-      * destruct (Nat.eqb idx idx0) eqn:Ei.
-        -- apply Nat.eqb_eq in Ei; subst idx0.
-           cbn [negb] in Hdisj; cbv iota in Hdisj.
-           destruct (nth_error elems idx) as [ev |] eqn:He; [| discriminate].
-           destruct (push_cap_preserving_val ev r1 elem) as [ev' |] eqn:Hwev; [| discriminate].
-           destruct (list_set elems idx ev') as [elems' |] eqn:Hls;
-             cbn in Hv'; [| discriminate].
-           inversion Hv'; subst; cbn [read_val].
-           rewrite (list_set_nth_same elems idx ev' elems' Hls), He.
-           cbn [read_val] in Hrv; rewrite He in Hrv.
-           eapply IH; eauto.
-        -- apply Nat.eqb_neq in Ei.
-           destruct (nth_error elems idx); [| discriminate].
-           destruct (push_cap_preserving_val o r1 elem); [| discriminate].
-           destruct (list_set elems idx o0) as [elems' |] eqn:Hls;
-             cbn in Hv'; [| discriminate].
-           inversion Hv'; subst; cbn [read_val].
-           rewrite (list_set_nth_other elems idx idx0 o0 elems' Ei Hls).
-           reflexivity.
-      * destruct (Nat.ltb idx off || Nat.leb (off + len) idx) eqn:Hsep;
-          [| cbv iota in Hdisj; discriminate].
-        apply orb_true_iff in Hsep.
-        assert (Hout : idx < off \/ off + len <= idx).
-        { destruct Hsep as [H1 | H2]; [left; now apply Nat.ltb_lt | right; now apply Nat.leb_le]. }
-        destruct (nth_error elems idx); [| discriminate].
-        destruct (push_cap_preserving_val o r1 elem); [| discriminate].
-        destruct (list_set elems idx o0) as [elems' |] eqn:Hls;
-          cbn in Hv'; [| discriminate].
-        inversion Hv'; subst; cbn [read_val].
-        rewrite (list_set_length elems idx o0 elems' Hls).
-        destruct (Nat.leb (off + len) (length elems)); [| reflexivity].
-        destruct r2 as [| s2' r2'].
-        -- f_equal; f_equal; apply firstn_skipn_ext; [eapply list_set_length; eauto |].
-           intros j Hj1 Hj2. apply list_set_nth_other with (i := idx) (v := o0); [lia | exact Hls].
-        -- destruct s2'; try reflexivity.
-           destruct (Nat.ltb idx0 len) eqn:Hk; [| reflexivity].
-           apply Nat.ltb_lt in Hk.
-           rewrite (list_set_nth_other elems idx (off + idx0) o0 elems');
-             [reflexivity | lia | exact Hls].
-      * destruct (push_cap_preserving_val v0 r1 elem) as [p' |] eqn:Hwp;
-          cbn in Hv'; [| discriminate].
-        inversion Hv'; subst; cbn [read_val].
-        cbn [read_val] in Hrv. eapply IH; eauto.
   - rewrite (assoc_get_update_other Nat.eqb Nat.eqb_eq m (p_owner pc)
                (p_owner p2) {| oe_borrowed := oe_borrowed oe; oe_val := v' |} m' Hneq Hu).
     reflexivity.
@@ -1374,7 +1146,7 @@ Proof.
                     ln_addr := ln_addr pe; ln_mode := ln_mode pe;
                     ln_suspended := false; ln_returned := ln_returned pe |}.
           repeat split; [| exact Hpid_eq].
-          unfold set_loan_suspended. apply in_map_iff. exists pe; split; [| exact Hin_rem].
+          unfold set_loan_suspended, update_loan. apply in_map_iff. exists pe; split; [| exact Hin_rem].
           rewrite Hpid_eq, Nat.eqb_refl; reflexivity. }
         destruct Hex as [pe' [Hin' [Hid' Hsusp']]].
         assert (Hnd_set : NoDup (map ln_id (set_loan_suspended (remove_loan (st_loans st) l) pid false)))
@@ -1406,7 +1178,7 @@ Proof.
     unfold apply_prophecy_restore in Hprop.
     split_and.
     + intros old_v Hold.
-      unfold write_stable_mem in Hprop.
+      unfold write_stable_mem, modify_mem_at in Hprop.
       rewrite Ho in Hprop.
       destruct (write_stable_val (oe_val oe) (p_path (ln_place le)) v_prophecy) as [v' |] eqn:Hv';
         [| discriminate].
@@ -1724,7 +1496,7 @@ Proof.
         exists root_exit; split; [| reflexivity].
         apply lookup_loan_In.
         -- rewrite set_loan_suspended_ids, map_remove_loan. now apply NoDup_filter.
-        -- unfold set_loan_suspended. apply in_map_iff. exists root_le; split; [| exact Hin_rem].
+        -- unfold set_loan_suspended, update_loan. apply in_map_iff. exists root_le; split; [| exact Hin_rem].
            unfold root_exit; rewrite Hid_root, Nat.eqb_refl; reflexivity.
         -- exact Hid_root.
       * intros q Hdisj.

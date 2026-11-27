@@ -43,16 +43,21 @@ def _test_all_seven_combinators_positive() -> None:
     ensure("WeakenBox" in weak.holdfast_source and "Box<A, 1>" in weak.holdfast_source, weak.holdfast_source)
 
 
-def _test_structure_inspection_and_refusals() -> None:
+def _test_structure_inspection() -> None:
     src = """
     module Structures;
+    // record Ignored(Nat fake);
     public record Box<T, grade q : NatExact>(T Value @ q);
     public record Pair<A, B>(A First, B Second);
-    public union Either<A, B> { Left(A left), Right(B right) };
+    public union Either<A, B> { Left(A left); Right(B right); }
     """
     spec = gc.inspect_holdfast_structures(src)
     ensure(spec.box_domain == gi.InferenceDomain.NAT_EXACT, f"wrong box domain: {spec}")
     ensure("Pair" in spec.records and "Either" in spec.unions, f"missing inspected decls: {spec}")
+    ensure("Ignored" not in spec.records, f"commented record leaked into AST inspection: {spec}")
+
+
+def _test_domain_and_authority_refusals() -> None:
 
     a = gc.BaseType("A")
     # Refusal 1: weaken_box in NatExact when q != q'
@@ -185,7 +190,8 @@ def _test_rocq_combinator_replay_and_tamper() -> None:
 def cases() -> list[Case]:
     return [
         Case("all seven derived distributive modality combinators", _test_all_seven_combinators_positive),
-        Case("structure inspection and domain/authority refusal controls", _test_structure_inspection_and_refusals),
+        Case("domain and authority refusal controls", _test_domain_and_authority_refusals),
+        Case("structure inspection via canonical HoldFast parser", _test_structure_inspection, lane="toolchain"),
         Case("Rocq kernel replay and tampered combinator certificate refusal",
              _test_rocq_combinator_replay_and_tamper, lane="toolchain"),
     ]
