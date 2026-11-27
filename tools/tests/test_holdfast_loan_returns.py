@@ -11,9 +11,8 @@ from typing import cast
 from tests.harness import TOOLS, Case, ensure, raises
 from toolchain import loans, parser, proofenv, rocq_cache, solver_ledger
 from toolchain.ast import HoldFastError
-from toolchain.elaborate import _Elaborator, elaborate
+from toolchain.elaborate import elaborate
 from toolchain.elaborate_borrows import _BorrowMixin
-from toolchain.elaborate_protocol import _Protocol
 from toolchain.elaborate_types import Node
 
 INDEPENDENT_CASES = True
@@ -1795,7 +1794,6 @@ def _loan_certificate_rocq_soundness_replay(*, batch: rocq_cache.BatchChecker | 
     src = (fixtures / "exclusive-conditional-return.hf").read_bytes()
     with parser.cached_build(TOOLS.parent) as compiled:
         parsed = parser.parse_source(compiled, src, surface=True)
-    dummy = _Elaborator(_Protocol(src))
     examples: list[str] = []
     ast_root = cast("Node", cast("object", parsed["ast"]))
     for raw_decl in cast("list[Node]", ast_root["declarations"]):
@@ -1804,8 +1802,7 @@ def _loan_certificate_rocq_soundness_replay(*, batch: rocq_cache.BatchChecker | 
             fn_name = cast("str", name_node["text"])
             if fn_name not in {"PickFirstOrMutate", "WriteThroughReturnedRef"}:
                 continue
-            adapted, _ = dummy._prepare_loan_ast(raw_decl)
-            lowered = loans.lower_function(adapted)
+            lowered = loans.lower_function(raw_decl)
             report = loans.analyze(lowered.owners, lowered.graph)
             examples.append(_BorrowMixin.build_rocq_certificate_example(f"cert_{fn_name}", report, lowered))
     ensure(len(examples) == 2, f"expected 2 certificate examples, got {len(examples)}")

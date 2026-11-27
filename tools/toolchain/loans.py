@@ -2597,9 +2597,10 @@ def _extract_borrow_expr(expr: dict[str, object]) -> tuple[str, dict[str, object
         return str(curr.get("mode", "in")), _ast_node(curr["value"])
     if kind == "unary":
         op = _op_text(curr.get("operator"))
-        if op in {"in", "ref", "out", "move", "shared_mut"}:
+        if op in {"in", "ref", "out", "move", "shared_mut", "shared_ref"}:
             inner = curr.get("value") if "value" in curr else curr.get("operand")
-            return op, _ast_node(inner)
+            norm_op = "shared_mut" if op == "shared_ref" else op
+            return norm_op, _ast_node(inner)
     return None
 
 
@@ -2636,12 +2637,12 @@ def _type_modifiers(type_node: object) -> set[str]:
                 for m in raw_mods:
                     mtext = _op_text(m)
                     if mtext:
-                        mods.add(mtext)
+                        mods.add("shared_mut" if mtext == "shared_ref" else mtext)
             raw_mod = curr.get("modifier")
             if raw_mod is not None:
                 mtext = _op_text(raw_mod)
                 if mtext:
-                    mods.add(mtext)
+                    mods.add("shared_mut" if mtext == "shared_ref" else mtext)
         curr = curr.get("type") or curr.get("value")
     return mods
 
@@ -3104,6 +3105,7 @@ class _FunctionLowerer:
         self.handle_modes: dict[str, Mode] = {}
         self.handle_origins: dict[str, str] = {}
         self.positive_vars: set[str] = set()
+        self.cursor_binders: set[str] = set()
         self.used_binders: set[str] = set()
         self.nodes: list[Node] = []
         self.edges: dict[str, list[str]] = {}
@@ -3279,7 +3281,8 @@ class _FunctionLowerer:
                 continue
             if pkind == "parameter" and param.get("name") is not None:
                 pname = _id_text(param["name"])
-                pmode = param.get("mode", "value")
+                raw_pmode = param.get("mode", "value")
+                pmode = "shared_mut" if raw_pmode == "shared_ref" else raw_pmode
                 ptype_node = param.get("parameter_type") or param.get("type")
                 ptype = _type_base_name(ptype_node)
                 mods = _type_modifiers(ptype_node)
@@ -4244,6 +4247,8 @@ class _FunctionLowerer:
                     if borrow_info is not None:
                         amode, aval = borrow_info
 
+                if amode == "shared_ref":
+                    amode = "shared_mut"
                 if amode in {"in", "ref", "out", "shared_mut"}:
                     loan_mode: Mode = (
                         "shared"
@@ -4513,6 +4518,10 @@ class _FunctionLowerer:
             if kind in {"let", "var", "typed_local", "constant_local"}:
                 bname = _id_text(stmt["name"])
                 val = _ast_node(stmt["value"])
+                if kind == "var":
+                    borrow_info = _extract_borrow_expr(val)
+                    if borrow_info is not None and borrow_info[0] in {"in", "ref", "shared_mut"}:
+                        self.cursor_binders.add(bname)
                 current = self._lower_binding(
                     current,
                     bname,
@@ -4564,6 +4573,15 @@ class _FunctionLowerer:
                 target = _ast_node(stmt["target"])
                 val = _ast_node(stmt["value"])
                 op = _op_text(stmt.get("operator", "=")) or "="
+                if kind == "assignment" and op == "=" and _is_ident(target):
+                    reborrow_name = _id_text(target["name"])
+                    borrow_info = _extract_borrow_expr(val)
+                    if (
+                        reborrow_name in self.cursor_binders
+                        and borrow_info is not None
+                        and borrow_info[0] in {"in", "ref", "shared_mut"}
+                    ):
+                        return self._lower_binding(current, reborrow_name, val)
                 tname = _id_text(target["name"]) if _is_ident(target) else ""
                 place = self._try_place(target)
                 if place is not None:

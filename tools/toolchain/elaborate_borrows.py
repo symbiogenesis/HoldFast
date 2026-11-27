@@ -80,12 +80,6 @@ class _ImplAssocTypeDef:
     qual: _TypeRegionQual
 
 
-_UNSTABLE_CONTAINER_METHODS = frozenset({
-    "Push", "Pop", "Clear", "Resize", "Append", "Extend", "Insert", "Remove",
-    "push", "pop", "clear", "resize", "append", "extend", "insert", "remove",
-})
-
-
 class _BorrowMixin:
     """Borrow, region, GAT, shared-mutability, prophecy-lens, and loan-bridge support."""
 
@@ -357,18 +351,11 @@ class _BorrowMixin:
         return None
 
     def _region_outlives_closure(self: _Elaborator, extra: tuple[tuple[str, str], ...] = ()) -> set[tuple[str, str]]:
-        closure = set(self.declared_region_outlives) | set(extra)
-        for r in self.active_regions:
-            closure.add((r, r))
-        changed = True
-        while changed:
-            changed = False
-            for a, b in list(closure):
-                for c, d in list(closure):
-                    if b == c and (a, d) not in closure:
-                        closure.add((a, d))
-                        changed = True
-        return closure
+        return regions.transitive_closure(
+            self.declared_region_outlives | set(extra),
+            self.active_regions,
+            include_self_cycles=True,
+        )
 
     def _check_region_assignable(
         self: _Elaborator,
@@ -1916,69 +1903,6 @@ class _BorrowMixin:
     # Elaborator <-> loans.py <-> loan_soundness.v bridge
     # ------------------------------------------------------------------
 
-    def _prepare_loan_ast(
-        self: _Elaborator, fn_node: Node,
-    ) -> tuple[Node, dict[int, set[str]]]:
-        """Adapt schema-2 AST for ``loans._FunctionLowerer`` (``shared_ref`` -> ``shared_mut`` & cursor reborrows)."""
-        cursor_names: set[str] = set()
-        remapped_results: dict[int, set[str]] = {}
-
-        def transform(node: object) -> object:
-            if isinstance(node, list):
-                return [transform(item) for item in node]
-            if not isinstance(node, dict):
-                return node
-            kind = node.get("kind")
-            cloned: dict[str, object] = {}
-            for k, v in node.items():
-                cloned[k] = transform(v)
-            if kind == "modified_type" and cloned.get("modifier") == "shared_ref":
-                cloned["modifier"] = "shared_mut"
-            elif kind == "unary" and isinstance(cloned.get("operator"), dict):
-                op_d = dict(cast("dict[str, object]", cloned["operator"]))
-                if op_d.get("text") == "shared_ref":
-                    op_d["text"] = "shared_mut"
-                    cloned["operator"] = op_d
-            elif kind in {"var", "let", "typed_local"} and isinstance(cloned.get("name"), dict):
-                val = cloned.get("value")
-                if isinstance(val, dict):
-                    unw = val
-                    while isinstance(unw, dict) and unw.get("kind") == "group":
-                        unw = unw.get("value")
-                    if (
-                        isinstance(unw, dict)
-                        and unw.get("kind") == "unary"
-                        and isinstance(unw.get("operator"), dict)
-                        and cast("dict[str, object]", unw["operator"]).get("text") in {"in", "ref", "shared_mut"}
-                    ):
-                        bname = cast("str", cast("dict[str, object]", cloned["name"]).get("text", ""))
-                        if kind == "var":
-                            cursor_names.add(bname)
-            elif kind == "assignment" and isinstance(cloned.get("target"), dict):
-                tgt = cast("dict[str, object]", cloned["target"])
-                val = cloned.get("value")
-                if tgt.get("kind") == "name" and isinstance(tgt.get("name"), dict) and isinstance(val, dict):
-                    tname = cast("str", cast("dict[str, object]", tgt["name"]).get("text", ""))
-                    unw = val
-                    while isinstance(unw, dict) and unw.get("kind") == "group":
-                        unw = unw.get("value")
-                    is_reborrow = (
-                        isinstance(unw, dict)
-                        and unw.get("kind") == "unary"
-                        and isinstance(unw.get("operator"), dict)
-                        and cast("dict[str, object]", unw["operator"]).get("text") in {"in", "ref", "shared_mut"}
-                    )
-                    if tname in cursor_names and is_reborrow:
-                        cloned["kind"] = "var"
-                        cloned["name"] = tgt["name"]
-                        cloned["type"] = None
-            if id(node) in self.result_bindings:
-                remapped_results[id(cloned)] = self.result_bindings[id(node)]
-            return cloned
-
-        adapted = cast("Node", transform(fn_node))
-        return adapted, remapped_results
-
     def _build_loans_structs_and_facts(
         self: _Elaborator,
     ) -> tuple[dict[str, loans._StructInfo], dict[str, str | None], loans.ProvedFacts]:
@@ -2430,6 +2354,7 @@ class _BorrowMixin:
         exit_id = len(lowered.graph.nodes)
         loan_ids: dict[str, int] = {}
         origin_ids: dict[str, int] = {}
+        field_ids: dict[str, int] = {}
         loan_places_str: dict[int, str] = {}
         owner_fields: dict[int, set[int]] = {oid: set() for oid in owner_ids.values()}
         owner_elems: dict[int, int] = dict.fromkeys(owner_ids.values(), 0)
@@ -2446,6 +2371,11 @@ class _BorrowMixin:
                 origin_ids[key] = len(origin_ids) + 1
             return origin_ids[key]
 
+        def get_field_id(seg: str) -> int:
+            if seg not in field_ids:
+                field_ids[seg] = len(field_ids) + 1
+            return field_ids[seg]
+
         def render_place(p: loans.Place) -> str:
             oid = owner_ids.get(p.owner, 1)
             res = f"(PRoot {oid})"
@@ -2454,7 +2384,7 @@ class _BorrowMixin:
                     owner_elems[oid] = max(owner_elems.get(oid, 0), 1)
                     res = f"(PElem {res} 0)"
                 else:
-                    fid = abs(hash(seg)) % 100 + 1
+                    fid = get_field_id(seg)
                     if res == f"(PRoot {oid})":
                         owner_fields.setdefault(oid, set()).add(fid)
                     res = f"(PField {res} {fid})"

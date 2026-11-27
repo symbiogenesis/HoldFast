@@ -2,12 +2,37 @@
 """Location-sensitive Polonius-style origin, subset, variance, and HRTB region solver."""
 
 from collections import deque
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Literal, cast
 
 type OriginKind = Literal["param", "local", "hrtb"]
+
+
+def transitive_closure(
+    edges: Iterable[tuple[str, str]],
+    reflexive_on: Iterable[str] = (),
+    *,
+    include_self_cycles: bool = True,
+) -> set[tuple[str, str]]:
+    """Compute transitive closure over directed region pairs."""
+    rel = set(edges)
+    for item in reflexive_on:
+        rel.add((item, item))
+    changed = True
+    while changed:
+        changed = False
+        snapshot = list(rel)
+        by_src: dict[str, list[str]] = {}
+        for a, b in snapshot:
+            by_src.setdefault(a, []).append(b)
+        for a, b in snapshot:
+            for c in by_src.get(b, ()):
+                if (include_self_cycles or a != c) and (a, c) not in rel:
+                    rel.add((a, c))
+                    changed = True
+    return rel
 
 
 class Variance(StrEnum):
@@ -385,19 +410,10 @@ class RegionSolver:
             for pt in points:
                 rel = subset_at[pt]
                 # Transitive closure at point `pt`.
-                trans_changed = True
-                while trans_changed:
-                    trans_changed = False
-                    snapshot = list(rel)
-                    by_src: dict[str, list[str]] = {}
-                    for a, b in snapshot:
-                        by_src.setdefault(a, []).append(b)
-                    for a, b in snapshot:
-                        for c in by_src.get(b, ()):
-                            if a != c and (a, c) not in rel:
-                                rel.add((a, c))
-                                trans_changed = True
-                                changed = True
+                closed = transitive_closure(rel, include_self_cycles=False)
+                if len(closed) != len(rel):
+                    rel.update(closed)
+                    changed = True
                 # Propagate subset edges to successors where both origins remain live.
                 for succ in succs[pt]:
                     succ_live = live_in[succ] | self.origin_uses.get(succ, set())

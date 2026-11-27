@@ -2437,10 +2437,9 @@ class _DeclarationsMixin:
     ) -> None:
         structs, fn_returns, proved_facts = self._build_loans_structs_and_facts()
         fn_name = self.name(fn_node["name"])
-        adapted_fn_node, remapped_results = self._prepare_loan_ast(fn_node)
         lowerer = loans._FunctionLowerer(
             fn_name,
-            adapted_fn_node,
+            fn_node,
             enclosing_type,
             structs,
             fn_returns,
@@ -2449,7 +2448,7 @@ class _DeclarationsMixin:
         lowerer.checked_receivers = self.checked_receivers
         lowerer.checked_scalar_calls = self.checked_scalar_calls
         if self.in_executable_function:
-            lowerer.result_bindings = remapped_results
+            lowerer.result_bindings = dict(self.result_bindings)
             for param in self.nodes(fn_node["parameters"]):
                 if param["kind"] == "parameter":
                     pname = self.name(param["name"])
