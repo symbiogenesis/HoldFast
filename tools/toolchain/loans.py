@@ -11,12 +11,19 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Literal, cast
 
-type Mode = Literal["shared", "exclusive"]
+from toolchain import regions
+
+type Mode = Literal["shared", "exclusive", "shared_mut"]
 type AccessKind = Literal["read", "write", "move"]
 type Stability = Literal["stable", "unstable"]
 type Overlap = Literal["yes", "no", "unknown"]
 
 _NAME = re.compile(r"[A-Za-z_][A-Za-z_0-9]*\Z")
+
+
+def base_loan_name(name: str) -> str:
+    """Strip any loop-step ``#suffix`` from a canonical loan identity."""
+    return name.partition("#")[0]
 
 
 class AnalysisRefusalError(ValueError):
@@ -36,6 +43,8 @@ class Owner:
     # A projection prefix is a declared field; distinct siblings may be split.
     fields: tuple[tuple[str, ...], ...] = ()
     invariants: tuple[str, ...] = ()
+    origin: str | None = None
+    mode: Mode | None = None
 
 
 @dataclass(frozen=True)
@@ -46,6 +55,7 @@ class Loan:
     mode: Mode = "shared"
     scoped: bool = False
     invariant: str | None = None
+    origin: str | None = None
 
 
 @dataclass(frozen=True)
@@ -114,6 +124,7 @@ class Move:
 class Return:
     outcome: str = "return"
     captures: tuple[str, ...] = ()
+    origin: str | None = None
 
 
 @dataclass(frozen=True)
@@ -179,13 +190,28 @@ class DropRefinement:
 
 
 @dataclass(frozen=True)
+class AssumeTagPreserved:
+    """Assume a tagged union's discriminant/tag is preserved for ``place``."""
+
+    place: Place
+
+
+@dataclass(frozen=True)
+class AssumeNoRealloc:
+    """Assume a container has spare capacity and will not reallocate on append/push."""
+
+    place: Place
+
+
+@dataclass(frozen=True)
 class Nop:
     pass
 
 
 type Event = (Borrow | Reserve | Activate | Access | Bind | Use | Drop | Move | Return | Checkpoint
               | OpenInvariant | CloseInvariant | AssumeDisjoint | AssumeIndexNe | InvalidateSymbol
-              | AssumeRefinement | UseRefinement | DropRefinement | Nop)
+              | AssumeRefinement | UseRefinement | DropRefinement
+              | AssumeTagPreserved | AssumeNoRealloc | Nop)
 
 
 @dataclass(frozen=True)
@@ -199,6 +225,8 @@ class Node:
 class Graph:
     entry: str
     nodes: tuple[Node, ...]
+    return_origin: str | None = None
+    declared_outlives: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -215,6 +243,10 @@ class Issue:
     node: str
     kind: str
     resources: tuple[str, ...] = ()
+    origin_node: str | None = None
+    conflict_node: str | None = None
+    live_use_node: str | None = None
+    proposed_end_node: str | None = None
 
 
 @dataclass(frozen=True)
@@ -248,6 +280,7 @@ class PathReport:
     moved_owners: tuple[str, ...]
     active_invariants: tuple[tuple[str, str], ...] = ()
     open_invariants: tuple[tuple[str, str], ...] = ()
+    moved_places: tuple[Place, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -287,6 +320,14 @@ def _symbol_name(value: object) -> str:
         return value
     _name(value)
     return f"@{value}"
+
+
+def _origin_name(value: object) -> str:
+    if not isinstance(value, str) or not value or len(value) > 129:
+        raise AnalysisRefusalError("region origins must be nonempty normalized identifiers")
+    ident = value.removeprefix("'")
+    _name(ident)
+    return value
 
 
 def _is_symbolic(part: object) -> bool:
@@ -395,7 +436,16 @@ def _validate(
             budget.spend()
         if len(set(owner.invariants)) != len(owner.invariants):
             raise AnalysisRefusalError("duplicate invariant declaration")
+        if owner.origin is not None:
+            _origin_name(owner.origin)
+        if owner.mode is not None and owner.mode not in ("shared", "exclusive", "shared_mut"):
+            raise AnalysisRefusalError("malformed owner mode")
         owner_map[owner.name] = owner
+    if graph.return_origin is not None:
+        _origin_name(graph.return_origin)
+    for sup, sub in graph.declared_outlives:
+        _origin_name(sup)
+        _origin_name(sub)
 
     nodes: dict[str, Node] = {}
     known = set(owner_map)
@@ -418,7 +468,8 @@ def _validate(
         if not isinstance(node.event, (Borrow, Reserve, Activate, Access, Bind, Use, Drop, Move, Return,
                                        Checkpoint, OpenInvariant, CloseInvariant,
                                        AssumeDisjoint, AssumeIndexNe, InvalidateSymbol,
-                                       AssumeRefinement, UseRefinement, DropRefinement, Nop)):
+                                       AssumeRefinement, UseRefinement, DropRefinement,
+                                       AssumeTagPreserved, AssumeNoRealloc, Nop)):
             raise AnalysisRefusalError("unknown event")
         if isinstance(node.event, (Borrow, Reserve)) and not isinstance(node.event.loan, Loan):
             raise AnalysisRefusalError("borrow must contain an immutable Loan record")
@@ -491,6 +542,9 @@ def _validate(
         if isinstance(event, (Borrow, Reserve, Access)):
             place = event.place if isinstance(event, Access) else event.loan.place
             _validate_place(place, owner_map)
+        if isinstance(event, (AssumeTagPreserved, AssumeNoRealloc)):
+            _validate_place(event.place, owner_map)
+            budget.spend(len(event.place.fields) + 1)
         if isinstance(event, AssumeDisjoint):
             _validate_place(event.left, owner_map, allow_wildcard=False)
             _validate_place(event.right, owner_map, allow_wildcard=False)
@@ -511,8 +565,10 @@ def _validate(
                 raise AnalysisRefusalError(f"missing refinement reference: {event.name}")
             budget.spend()
         if isinstance(event, (Borrow, Reserve)):
-            if event.loan.mode not in ("shared", "exclusive") or type(event.loan.scoped) is not bool:
+            if event.loan.mode not in ("shared", "exclusive", "shared_mut") or type(event.loan.scoped) is not bool:
                 raise AnalysisRefusalError("malformed loan mode")
+            if event.loan.origin is not None:
+                _origin_name(event.loan.origin)
             if isinstance(event, Reserve) and event.loan.mode != "exclusive":
                 raise AnalysisRefusalError("receiver reservation requires an exclusive loan")
             if event.loan.invariant is not None:
@@ -533,6 +589,8 @@ def _validate(
         if isinstance(event, (Return, Checkpoint)):
             label = event.outcome if isinstance(event, Return) else event.kind
             _name(label)
+            if isinstance(event, Return) and event.origin is not None:
+                _origin_name(event.origin)
 
     # Check forward reachability from entry and record reverse postorder for dominators.
     reached: set[str] = set()
@@ -836,6 +894,66 @@ def _compute_cfg_liveness(
     return demanded_before, demanded_after, reachable_names
 
 
+def _compute_cfg_demand_sites(
+    graph: Graph, nodes: dict[str, Node], budget: _Budget
+) -> tuple[
+    dict[str, frozenset[str]],
+    dict[str, frozenset[str]],
+    dict[str, dict[str, str]],
+    dict[str, dict[str, str]],
+]:
+    ordered = tuple(reversed(graph.nodes))
+    future_nodes: dict[str, frozenset[str]] = {name: frozenset({name}) for name in nodes}
+    must_before: dict[str, frozenset[str]] = dict.fromkeys(nodes, frozenset())
+    direct_uses: dict[str, frozenset[str]] = {}
+    for name, node in nodes.items():
+        match node.event:
+            case Use(rname) | Access(via=rname) if rname is not None:
+                direct_uses[name] = frozenset({rname})
+            case Return(captures=names):
+                direct_uses[name] = frozenset(names)
+            case Activate(rname, captures, possible_captures):
+                direct_uses[name] = frozenset({rname, *captures, *possible_captures})
+            case _:
+                direct_uses[name] = frozenset()
+
+    first_demand: dict[str, dict[str, str]] = {name: {} for name in nodes}
+    last_demand: dict[str, dict[str, str]] = {name: {} for name in nodes}
+    changed = True
+    while changed:
+        changed = False
+        for node in ordered:
+            budget.spend()
+            fut = frozenset({node.name}).union(*(future_nodes[succ] for succ in node.successors))
+            if fut != future_nodes[node.name]:
+                future_nodes[node.name] = fut
+                changed = True
+            if node.successors:
+                after = frozenset.intersection(
+                    *(must_before[succ] for succ in node.successors)
+                )
+            else:
+                after = frozenset()
+            before = _transfer_demand_backward(node, after)
+            if before != must_before[node.name]:
+                must_before[node.name] = before
+                changed = True
+            new_first: dict[str, str] = {}
+            new_last: dict[str, str] = {}
+            for succ in node.successors:
+                for res, target_node in first_demand[succ].items():
+                    new_first.setdefault(res, target_node)
+                new_last.update(last_demand[succ])
+            for res in direct_uses[node.name]:
+                new_first[res] = node.name
+                new_last.setdefault(res, node.name)
+            if new_first != first_demand[node.name] or new_last != last_demand[node.name]:
+                first_demand[node.name] = new_first
+                last_demand[node.name] = new_last
+                changed = True
+    return must_before, future_nodes, first_demand, last_demand
+
+
 def _compute_cfg_relevance(
     graph: Graph, nodes: dict[str, Node], budget: _Budget
 ) -> tuple[
@@ -856,6 +974,8 @@ def _compute_cfg_relevance(
                 places.append(place)
             case AssumeDisjoint(left, right):
                 places.extend((left, right))
+            case AssumeTagPreserved(place) | AssumeNoRealloc(place):
+                places.append(place)
             case AssumeIndexNe(left, right):
                 local_symbols[name].update((_symbol_name(left), _symbol_name(right)))
             case InvalidateSymbol(symbol):
@@ -909,10 +1029,19 @@ class _State:
         fields: dict[str, frozenset[tuple[str, ...]]],
         budget: _Budget,
         entry_name: str,
+        *,
+        graph_return_origin: str | None = None,
+        region_solution: regions.RegionSolution | None = None,
+        first_demand: dict[str, dict[str, str]] | None = None,
+        last_demand: dict[str, dict[str, str]] | None = None,
     ) -> None:
         self.owners = owners
         self.fields = fields
         self.budget = budget
+        self.graph_return_origin = graph_return_origin
+        self.region_solution = region_solution
+        self.first_demand = first_demand or {}
+        self.last_demand = last_demand or {}
         self.nodes: tuple[str, ...] = ()
         self.outcome = "fallthrough"
         self.issues: list[Issue] = []
@@ -925,6 +1054,7 @@ class _State:
         self.values: dict[str, _Value] = {}
         self.loans: dict[str, Loan] = {}
         self.parents: dict[str, str] = {}
+        self.loan_origin_node: dict[str, str] = {}
         self.last_demand_node: dict[str, str] = {}
         self.seen_binders: dict[str, str] = {}
         self.active: set[str] = set()
@@ -942,10 +1072,15 @@ class _State:
         }
         self.returned: frozenset[str] = frozenset()
         self.moved: set[str] = set()
+        self.moved_places: set[Place] = set()
         self.invalid: set[str] = set()
         self.disjoint_places: set[tuple[Place, Place]] = set()
         self.disjoint_symbols: set[tuple[str, str]] = set()
+        self.tag_preserved: set[Place] = set()
+        self.no_realloc: set[Place] = set()
         self.refinements: dict[str, Place] = {}
+        self.refinement_origin_node: dict[str, str] = {}
+        self.refinement_invalidated_node: dict[str, str] = {}
         self.stale_refinements: set[str] = set()
         self.unstable_invalidated: set[str] = set()
         self.frozen_places: dict[str, Place] = {}
@@ -957,6 +1092,10 @@ class _State:
         copy.owners = self.owners
         copy.fields = self.fields
         copy.budget = self.budget
+        copy.graph_return_origin = self.graph_return_origin
+        copy.region_solution = self.region_solution
+        copy.first_demand = self.first_demand
+        copy.last_demand = self.last_demand
         copy.nodes = self.nodes
         copy.outcome = self.outcome
         copy.issues = list(self.issues)
@@ -966,6 +1105,7 @@ class _State:
         copy.values = dict(self.values)
         copy.loans = dict(self.loans)
         copy.parents = dict(self.parents)
+        copy.loan_origin_node = dict(self.loan_origin_node)
         copy.last_demand_node = dict(self.last_demand_node)
         copy.seen_binders = dict(self.seen_binders)
         copy.active = set(self.active)
@@ -975,10 +1115,15 @@ class _State:
         copy.explicit_invariants = dict(self.explicit_invariants)
         copy.returned = self.returned
         copy.moved = set(self.moved)
+        copy.moved_places = set(self.moved_places)
         copy.invalid = set(self.invalid)
         copy.disjoint_places = set(self.disjoint_places)
         copy.disjoint_symbols = set(self.disjoint_symbols)
+        copy.tag_preserved = set(self.tag_preserved)
+        copy.no_realloc = set(self.no_realloc)
         copy.refinements = dict(self.refinements)
+        copy.refinement_origin_node = dict(self.refinement_origin_node)
+        copy.refinement_invalidated_node = dict(self.refinement_invalidated_node)
         copy.stale_refinements = set(self.stale_refinements)
         copy.unstable_invalidated = set(self.unstable_invalidated)
         copy.frozen_places = dict(self.frozen_places)
@@ -995,12 +1140,22 @@ class _State:
         relevant_owners: frozenset[str] | None = None,
         relevant_symbols: frozenset[str] | None = None,
         relevant_refinements: frozenset[str] | None = None,
+        must_demanded: frozenset[str] | None = None,
+        future_nodes: frozenset[str] | None = None,
     ) -> tuple[object, ...]:
         self.budget.spend(len(relevant_names) + len(self.active) + len(self.reserved))
         relevant_values = {name: self.values[name] for name in relevant_names if name in self.values}
         relevant_loans = self.ancestors(self.active | self.reserved | {
             loan for value in relevant_values.values() for loan in value.captures
         })
+        must_demanded_loans: set[str] = set()
+        if must_demanded is not None:
+            for dname in must_demanded:
+                if (val := self.values.get(dname)) is not None:
+                    must_demanded_loans.update(val.captures)
+                elif dname in self.reserved:
+                    must_demanded_loans.add(dname)
+            must_demanded_loans = set(self.ancestors(must_demanded_loans))
         relevant_binders = (relevant_names & history_names) | self.reserved
         live_places = [self._effective_place(name) for name in relevant_loans]
         for rname, rplace in self.refinements.items():
@@ -1012,15 +1167,32 @@ class _State:
         }
         return (
             frozenset(relevant_values.items()),
-            frozenset((name, self.loans[name], self.parents[name], self.last_demand_node.get(name))
-                      for name in relevant_loans),
-            frozenset((name, self.seen_binders[name]) for name in relevant_binders if name in self.seen_binders),
+            frozenset(
+                (
+                    name,
+                    self.loans[name],
+                    self.parents[name],
+                    None if name in must_demanded_loans else self.last_demand_node.get(name),
+                )
+                for name in relevant_loans
+            ),
+            frozenset(
+                (
+                    name,
+                    self.seen_binders[name]
+                    if future_nodes is None or self.seen_binders[name] in future_nodes
+                    else "__past__",
+                )
+                for name in relevant_binders
+                if name in self.seen_binders
+            ),
             frozenset(self.active),
             frozenset(self.reserved),
             frozenset(self.opened),
             frozenset(self.active_invariants),
             frozenset(self.explicit_invariants.items()),
             frozenset(self.moved),
+            frozenset(mp for mp in self.moved_places if mp.owner in active_owners),
             frozenset(self.invalid & relevant_loans),
             frozenset(self.unstable_invalidated & relevant_loans),
             frozenset((name, self.frozen_places[name]) for name in relevant_loans if name in self.frozen_places),
@@ -1034,6 +1206,8 @@ class _State:
                 pair for pair in self.disjoint_symbols
                 if pair[0] in active_symbols or pair[1] in active_symbols
             ),
+            frozenset(p for p in self.tag_preserved if p.owner in active_owners),
+            frozenset(p for p in self.no_realloc if p.owner in active_owners),
             frozenset(
                 (rname, rplace) for rname, rplace in self.refinements.items()
                 if relevant_refinements is None or rname in relevant_refinements
@@ -1068,10 +1242,79 @@ class _State:
                 seen_restorations.add(restoration)
         return before != (len(self.nodes), len(self.issues), len(self.obligations), len(self.restorations))
 
-    def issue(self, node: Node, kind: str, *resources: str) -> None:
+    def _resolve_loan_spans(
+        self, node: Node, canonical_loan: str
+    ) -> tuple[str | None, str | None, str | None]:
+        origin_node = self.loan_origin_node.get(canonical_loan)
+        live_use: str | None = None
+        last_use: str | None = None
+        demand_map = self.first_demand.get(node.name, {})
+        last_map = self.last_demand.get(node.name, {})
+        candidates = [
+            vname for vname, val in self.values.items() if canonical_loan in val.captures
+        ]
+        if canonical_loan in self.reserved:
+            candidates.append(canonical_loan)
+        base = base_loan_name(canonical_loan)
+        if base != canonical_loan:
+            candidates.append(base)
+        for cand in candidates:
+            if live_use is None and cand in demand_map:
+                live_use = demand_map[cand]
+            if cand in last_map:
+                last_use = last_map[cand]
+        if live_use is None and self.region_solution is not None:
+            for diag in self.region_solution.conflicts:
+                if diag.loan in {canonical_loan, base} and diag.witness.conflict_point == node.name:
+                    origin_node = origin_node or diag.witness.origin_point
+                    live_use = diag.witness.live_use_point
+                    break
+        proposed_end = last_use or live_use or self.last_demand_node.get(canonical_loan)
+        return origin_node, live_use, proposed_end
+
+    def _issue_loan(self, node: Node, kind: str, *loans_or_resources: str) -> None:
+        normalized = tuple(base_loan_name(res) for res in loans_or_resources)
+        target_canon = loans_or_resources[-1] if loans_or_resources else None
+        origin_node: str | None = None
+        live_use_node: str | None = None
+        proposed_end_node: str | None = None
+        if target_canon is not None and (
+            target_canon in self.loans or target_canon in self.loan_origin_node
+        ):
+            origin_node, live_use_node, proposed_end_node = self._resolve_loan_spans(
+                node, target_canon
+            )
+        self.issue(
+            node,
+            kind,
+            *normalized,
+            origin_node=origin_node,
+            conflict_node=node.name,
+            live_use_node=live_use_node,
+            proposed_end_node=proposed_end_node,
+        )
+
+    def issue(
+        self,
+        node: Node,
+        kind: str,
+        *resources: str,
+        origin_node: str | None = None,
+        conflict_node: str | None = None,
+        live_use_node: str | None = None,
+        proposed_end_node: str | None = None,
+    ) -> None:
         # Repeated rejection at a loop site still rejects the current grant.
         self.issues_emitted += 1
-        item = Issue(node.name, kind, resources)
+        item = Issue(
+            node.name,
+            kind,
+            resources,
+            origin_node=origin_node,
+            conflict_node=conflict_node,
+            live_use_node=live_use_node,
+            proposed_end_node=proposed_end_node,
+        )
         if item not in self.issues:
             self.issues.append(item)
 
@@ -1136,7 +1379,7 @@ class _State:
     def check_reserved(self, node: Node, place: Place, *resources: str) -> None:
         for other in sorted(self.reserved):
             if self.compare(node, place, other) == "yes":
-                self.issue(node, "conflicting-receiver-reservation", *resources, other)
+                self._issue_loan(node, "conflicting-receiver-reservation", *resources, other)
 
     def check_reserved_transfer(self, node: Node, captures: frozenset[str]) -> None:
         if self.reserved:
@@ -1151,38 +1394,78 @@ class _State:
             self.last_demand_node[ancestor] = node.name
         self.reserved -= names
 
+    def _place_touches_moved(self, place: Place, moved_place: Place) -> bool:
+        if place.owner != moved_place.owner:
+            return False
+        if _within(place, moved_place) or _within(moved_place, place):
+            return True
+        if "*" in place.fields or any(_is_symbolic(part) for part in place.fields):
+            return (
+                _overlap(
+                    place,
+                    moved_place,
+                    self.fields,
+                    self.disjoint_places,
+                    self.disjoint_symbols,
+                )
+                != "no"
+            )
+        return False
+
+    def _has_stability_proof(self, place: Place) -> bool:
+        if any(_within(place, p) or _within(p, place) for p in self.tag_preserved):
+            return True
+        if any(_within(place, p) or _within(p, place) for p in self.no_realloc):
+            return True
+        for left_p, right_p in self.disjoint_places:
+            if _within(place, left_p) or _within(place, right_p):
+                return True
+        place_syms = {part for part in place.fields if _is_symbolic(part)}
+        return bool(
+            place_syms
+            and any(s1 in place_syms or s2 in place_syms for s1, s2 in self.disjoint_symbols)
+        )
+
     def borrow(self, node: Node, name: str, *, reserve: bool = False) -> None:
         loan = self.loans[name]
         parent = self.parents[name]
         prior_issues = self.issues_emitted
+        self.loan_origin_node[name] = node.name
         self.obligation(
             node, "receiver-reservation-interpretation" if reserve else "loan-interpretation", name, parent
         )
         if "*" in loan.place.fields:
             self.obligation(node, "unknown-footprint", name, loan.place.owner, *loan.place.fields)
-        if loan.place.owner in self.moved:
+        if loan.place.owner in self.moved or any(
+            self._place_touches_moved(loan.place, mp) for mp in self.moved_places
+        ):
             self.issue(node, "use-after-owner-move", loan.place.owner)
         if parent in self.owners:
             parent_place = Place(parent)
+            parent_owner = self.owners[parent]
+            if parent_owner.mode == "shared" and loan.mode != "shared":
+                self._issue_loan(node, "exclusive-from-shared", name, parent)
         else:
             parent_loan = self.loans[parent]
             parent_place = self._effective_place(parent)
             if parent not in self.active:
-                self.issue(node, "borrow-parent-has-no-grant", name, parent)
+                self._issue_loan(node, "borrow-parent-has-no-grant", name, parent)
             if parent in self.unstable_invalidated:
-                self.issue(node, "invalidated-by-unstable-mutation", parent)
-            if parent_loan.mode == "shared" and loan.mode == "exclusive":
-                self.issue(node, "exclusive-from-shared", name, parent)
+                self._issue_loan(node, "invalidated-by-unstable-mutation", parent)
+            if (parent_loan.mode == "shared" and loan.mode != "shared") or (
+                parent_loan.mode == "shared_mut" and loan.mode == "exclusive"
+            ):
+                self._issue_loan(node, "exclusive-from-shared", name, parent)
         if self.containment(node, loan.place, parent_place, parent) == "no":
-            self.issue(node, "reborrow-outside-parent", name, parent)
+            self._issue_loan(node, "reborrow-outside-parent", name, parent)
         if loan.invariant is not None and self._loan_invariant(loan) not in self.opened:
-            self.issue(node, "loan-invariant-not-open", name, loan.invariant)
+            self.issue(node, "loan-invariant-not-open", base_loan_name(name), loan.invariant)
         ancestors = self.ancestors({name}) - {name}
         for other in sorted(self.active - ancestors):
             if (loan.mode == "exclusive" and not reserve) or self.loans[other].mode == "exclusive":
                 overlap = self.compare(node, loan.place, other)
                 if overlap == "yes":
-                    self.issue(node, "competing-loans", name, other)
+                    self._issue_loan(node, "competing-loans", name, other)
         if loan.mode == "exclusive":
             self.check_reserved(node, loan.place, name)
         if self.issues_emitted == prior_issues:
@@ -1212,7 +1495,24 @@ class _State:
                 if overlap != "no":
                     del self.refinements[rname]
                     self.stale_refinements.add(rname)
-        if event.place.owner in self.moved:
+                    self.refinement_invalidated_node[rname] = node.name
+        if event.kind == "write" and event.via is None:
+            if not event.place.fields:
+                self.moved.discard(event.place.owner)
+                self.moved_places = {
+                    mp for mp in self.moved_places if mp.owner != event.place.owner
+                }
+            elif event.place.owner in self.moved or any(
+                _within(event.place, mp) and event.place != mp for mp in self.moved_places
+            ):
+                self.issue(node, "use-after-owner-move", event.place.owner)
+            else:
+                self.moved_places = {
+                    mp for mp in self.moved_places if not _within(mp, event.place)
+                }
+        elif event.place.owner in self.moved or any(
+            self._place_touches_moved(event.place, mp) for mp in self.moved_places
+        ):
             self.issue(node, "use-after-owner-move", event.place.owner)
         if not event.place.fields:
             for pair in sorted(self.opened):
@@ -1222,47 +1522,119 @@ class _State:
             if route is None:
                 return
             if route not in self.active:
-                self.issue(node, "access-route-has-no-grant", route)
+                self._issue_loan(node, "access-route-has-no-grant", route)
                 return
             if route in self.unstable_invalidated:
-                self.issue(node, "invalidated-by-unstable-mutation", route)
+                self._issue_loan(node, "invalidated-by-unstable-mutation", route)
             loan = self.loans[route]
             if self.containment(node, event.place, self._effective_place(route), route) == "no":
-                self.issue(node, "access-outside-loan", route)
-            if event.kind != "read" and loan.mode != "exclusive":
-                self.issue(node, "write-through-shared", route)
+                self._issue_loan(node, "access-outside-loan", route)
+            if event.kind != "read" and loan.mode == "shared":
+                self._issue_loan(node, "write-through-shared", route)
+            if (
+                event.kind != "read"
+                and loan.mode == "shared_mut"
+                and event.stability == "unstable"
+                and not self._has_stability_proof(event.place)
+            ):
+                self._issue_loan(node, "unstable-shared-mut-write", route)
             if event.kind == "move":
-                self.issue(node, "move-through-loan-unsupported", route)
+                self._issue_loan(node, "move-through-loan-unsupported", route)
         ancestors = self.ancestors({route}) if route is not None else frozenset()
+        route_mode = self.loans[route].mode if route is not None and route in self.loans else None
         for other in sorted(self.active - ancestors):
             overlap = self.compare(node, event.place, other)
             if overlap == "no":
                 continue
-            if event.kind != "read" and event.stability == "unstable":
-                other_place = self._effective_place(other)
-                if len(other_place.fields) >= len(event.place.fields):
-                    self.unstable_invalidated.add(other)
-                    self.invalid.add(other)
+            other_loan = self.loans[other]
+            other_place = self._effective_place(other)
+            protected_tag = any(
+                _within(event.place, p) and _within(other_place, p) for p in self.tag_preserved
+            )
+            protected_norealloc = any(
+                _within(event.place, p)
+                and _within(other_place, p)
+                and len(other_place.fields) > len(p.fields)
+                for p in self.no_realloc
+            )
+            stability_protected = (
+                protected_tag
+                or protected_norealloc
+                or (other_loan.mode == "shared_mut" and self._has_stability_proof(event.place))
+            )
+            if (
+                event.kind != "read"
+                and event.stability == "unstable"
+                and not stability_protected
+                and len(other_place.fields) >= len(event.place.fields)
+            ):
+                self.unstable_invalidated.add(other)
+                self.invalid.add(other)
             # An owner/ancestor route cannot bypass a live descendant permission.
             descendant = route is None or route in self.ancestors({other})
             exclusive_ancestor = (
                 descendant and route is not None and self.loans[route].mode == "exclusive"
             )
+            # Aliased shared_mut stable writes (and proof-justified unstable writes) do not conflict.
+            if (
+                other_loan.mode == "shared_mut"
+                and (route is None or route_mode == "shared_mut")
+                and (event.kind == "read" or event.stability == "stable" or stability_protected)
+            ):
+                continue
+            if (
+                other_loan.mode == "shared"
+                and event.kind != "read"
+                and protected_norealloc
+            ):
+                continue
             if overlap == "yes" and (
                 exclusive_ancestor
                 or event.kind != "read"
-                or self.loans[other].mode == "exclusive"
+                or other_loan.mode == "exclusive"
             ):
-                self.issue(node, "suspended-parent" if descendant else "conflicting-access", other)
+                self._issue_loan(
+                    node, "suspended-parent" if descendant else "conflicting-access", other
+                )
         if event.kind == "move" and event.via is None:
+            self.tag_preserved = {
+                p
+                for p in self.tag_preserved
+                if _overlap(event.place, p, self.fields, self.disjoint_places, self.disjoint_symbols) == "no"
+            }
+            self.no_realloc = {
+                p
+                for p in self.no_realloc
+                if _overlap(event.place, p, self.fields, self.disjoint_places, self.disjoint_symbols) == "no"
+            }
             if event.place.fields:
-                self.issue(node, "partial-owner-move-unsupported", event.place.owner)
+                if "*" in event.place.fields or any(_is_symbolic(f) for f in event.place.fields):
+                    self.issue(node, "partial-owner-move-unsupported", event.place.owner)
+                else:
+                    self.moved_places.add(event.place)
+                    for rname, rplace in list(self.refinements.items()):
+                        if (
+                            _overlap(
+                                event.place,
+                                rplace,
+                                self.fields,
+                                self.disjoint_places,
+                                self.disjoint_symbols,
+                            )
+                            != "no"
+                        ):
+                            del self.refinements[rname]
+                            self.stale_refinements.add(rname)
+                            self.refinement_invalidated_node[rname] = node.name
+            elif any(mp.owner == event.place.owner for mp in self.moved_places):
+                self.issue(node, "use-after-owner-move", event.place.owner)
             else:
                 self.moved.add(event.place.owner)
                 for rname, rplace in list(self.refinements.items()):
                     if rplace.owner == event.place.owner:
                         del self.refinements[rname]
                         self.stale_refinements.add(rname)
+                        self.refinement_invalidated_node[rname] = node.name
 
     def end_dead(self, fallback_node: str, live: frozenset[str]) -> None:
         # Every child is deeper than its ancestor. Lexical names only break ties.
@@ -1284,6 +1656,7 @@ class _State:
             self.unstable_invalidated.discard(name)
             self.frozen_places.pop(name, None)
             self.step_bases.pop(name, None)
+            self.loan_origin_node.pop(name, None)
 
     def fold_loop_cursor(self) -> None:
         if not self.step_bases:
@@ -1319,9 +1692,14 @@ class _State:
                         s_loan = self.loans[s]
                         p_loan = self.loans[p]
                         expected_child = chain[-2 * k + idx + 1]
+                        s_place = self._effective_place(s)
+                        p_place = self._effective_place(p)
+                        place_compatible = s_place == p_place or (
+                            _within(s_place, p_place) and "*" not in p_place.fields
+                        )
                         if (
                             self.step_bases.get(s, s) != self.step_bases.get(p, p)
-                            or self._effective_place(s) != self._effective_place(p)
+                            or not place_compatible
                             or s_loan.mode != p_loan.mode
                             or s_loan.scoped != p_loan.scoped
                             or s_loan.invariant != p_loan.invariant
@@ -1356,6 +1734,7 @@ class _State:
                         self.parents.pop(s, None)
                         self.frozen_places.pop(s, None)
                         self.step_bases.pop(s, None)
+                        self.loan_origin_node.pop(s, None)
                     changed = True
                     break
                 if changed:
@@ -1425,6 +1804,7 @@ class _State:
                                 loan.mode,
                                 loan.scoped,
                                 loan.invariant,
+                                loan.origin,
                             )
                         )
                         self.loans[canonical] = actual_loan
@@ -1499,7 +1879,7 @@ class _State:
                 else:
                     for captured in sorted(used):
                         if captured in self.unstable_invalidated:
-                            self.issue(node, "invalidated-by-unstable-mutation", captured)
+                            self._issue_loan(node, "invalidated-by-unstable-mutation", captured)
                         self.access(node, Access(self._effective_place(captured), via=name), captured)
             case AssumeDisjoint(left, right):
                 self.disjoint_places.add(_canonical_place_pair(left, right))
@@ -1510,12 +1890,24 @@ class _State:
                 if left_sym != right_sym:
                     self.disjoint_symbols.add(_canonical_symbol_pair(left_sym, right_sym))
                 self.obligation(node, "disjointness-assumption", left_sym, right_sym)
+            case AssumeTagPreserved(place):
+                self.tag_preserved.add(place)
+                self.obligation(node, "tag-preservation-assumption", place.owner, *place.fields)
+            case AssumeNoRealloc(place):
+                self.no_realloc.add(place)
+                self.obligation(node, "no-realloc-assumption", place.owner, *place.fields)
             case InvalidateSymbol(symbol):
                 sym = _symbol_name(symbol)
                 self.disjoint_symbols = {pair for pair in self.disjoint_symbols if sym not in pair}
                 self.disjoint_places = {
                     pair for pair in self.disjoint_places
                     if sym not in pair[0].fields and sym not in pair[1].fields
+                }
+                self.tag_preserved = {
+                    _replace_symbol_in_place(p, sym) for p in self.tag_preserved
+                }
+                self.no_realloc = {
+                    _replace_symbol_in_place(p, sym) for p in self.no_realloc
                 }
                 for lname in self.active | self.reserved:
                     eplace = self._effective_place(lname)
@@ -1525,22 +1917,44 @@ class _State:
                     if sym in rplace.fields:
                         del self.refinements[rname]
                         self.stale_refinements.add(rname)
+                        self.refinement_invalidated_node[rname] = node.name
             case AssumeRefinement(name, place):
                 self.refinements[name] = place
+                self.refinement_origin_node[name] = node.name
+                self.refinement_invalidated_node.pop(name, None)
                 self.stale_refinements.discard(name)
                 self.obligation(node, "refinement-interpretation", name, place.owner, *place.fields)
             case UseRefinement(name):
                 if name in self.stale_refinements:
-                    self.issue(node, "stale-refinement", name)
+                    self.issue(
+                        node,
+                        "stale-refinement",
+                        name,
+                        origin_node=self.refinement_origin_node.get(name),
+                        conflict_node=self.refinement_invalidated_node.get(name, node.name),
+                        live_use_node=node.name,
+                    )
                 elif name not in self.refinements:
                     self.issue(node, "unavailable-refinement", name)
-                elif self.refinements[name].owner in self.moved:
-                    self.issue(node, "stale-refinement", name)
+                elif self.refinements[name].owner in self.moved or any(
+                    self._place_touches_moved(self.refinements[name], mp)
+                    for mp in self.moved_places
+                ):
+                    self.issue(
+                        node,
+                        "stale-refinement",
+                        name,
+                        origin_node=self.refinement_origin_node.get(name),
+                        conflict_node=node.name,
+                        live_use_node=node.name,
+                    )
             case DropRefinement(name):
                 if name not in self.refinements and name not in self.stale_refinements:
                     self.issue(node, "unavailable-refinement", name)
                 else:
                     self.refinements.pop(name, None)
+                    self.refinement_origin_node.pop(name, None)
+                    self.refinement_invalidated_node.pop(name, None)
                     self.stale_refinements.discard(name)
             case OpenInvariant(name, clauses):
                 conjuncts, is_explicit = _invariant_conjuncts(self.owners, name, clauses)
@@ -1592,6 +2006,20 @@ class _State:
             self.cancel_reservations(node, self.reserved)
         self.end_dead(node.name, live_after)
 
+    def _effective_loan_origin(self, name: str) -> str | None:
+        curr: str | None = name
+        visited: set[str] = set()
+        while curr is not None and curr in self.loans and curr not in visited:
+            visited.add(curr)
+            loan = self.loans[curr]
+            if loan.origin is not None:
+                return loan.origin
+            parent = self.parents.get(curr)
+            if parent in self.owners:
+                return self.owners[parent].origin
+            curr = parent
+        return None
+
     def finalize(self, terminal: Node) -> PathReport:
         for pair in sorted(self.opened):
             self.issue(terminal, "unclosed-invariant", *self._invariant_res(pair))
@@ -1599,21 +2027,105 @@ class _State:
         # scope. An unscoped descriptor cannot launder a scoped parent grant.
         for name in sorted(self.ancestors(self.returned)):
             if self.loans[name].scoped:
-                self.issue(terminal, "scoped-loan-escape", name)
-        for name in sorted(self.returned):
+                self._issue_loan(terminal, "scoped-loan-escape", name)
+
+        returned_list = sorted(self.returned)
+        for idx, left_name in enumerate(returned_list):
+            left_loan = self.loans[left_name]
+            for right_name in returned_list[idx + 1:]:
+                right_loan = self.loans[right_name]
+                if right_name in self.ancestors({left_name}) or left_name in self.ancestors(
+                    {right_name}
+                ):
+                    continue
+                if left_loan.mode == "exclusive" or right_loan.mode == "exclusive":
+                    overlap = _overlap(
+                        self._effective_place(left_name),
+                        self._effective_place(right_name),
+                        self.fields,
+                        self.disjoint_places,
+                        self.disjoint_symbols,
+                    )
+                    if overlap != "no":
+                        self._issue_loan(terminal, "competing-loans", left_name, right_name)
+
+        ret_origin = terminal.event.origin if isinstance(terminal.event, Return) else None
+        for name in returned_list:
             loan = self.loans[name]
+            root_owner = self.owners[loan.place.owner]
             if name in self.invalid:
-                self.issue(terminal, "invalid-loan-escape", name)
-            if loan.mode != "shared":
-                self.issue(terminal, "exclusive-loan-escape", name)
-            if not self.owners[loan.place.owner].borrowed:
-                self.issue(terminal, "local-loan-escape", name)
+                self._issue_loan(terminal, "invalid-loan-escape", name)
+            if not root_owner.borrowed:
+                self._issue_loan(terminal, "local-loan-escape", name)
+            if loan.mode == "exclusive":
+                target_origin = ret_origin or self.graph_return_origin or root_owner.origin
+                eff_loan_origin = self._effective_loan_origin(name)
+                owner_origin = root_owner.origin
+                origin_matches = (
+                    root_owner.borrowed
+                    and root_owner.mode != "shared"
+                    and target_origin is not None
+                    and owner_origin is not None
+                    and (
+                        owner_origin == target_origin
+                        or (
+                            self.region_solution is not None
+                            and self.region_solution.can_outlive(
+                                owner_origin, target_origin, terminal.name
+                            )
+                        )
+                    )
+                    and (
+                        eff_loan_origin == target_origin
+                        or (
+                            self.region_solution is not None
+                            and eff_loan_origin is not None
+                            and self.region_solution.can_outlive(
+                                eff_loan_origin, target_origin, terminal.name
+                            )
+                        )
+                    )
+                )
+                region_ok = True
+                if self.region_solution is not None:
+                    for diag in (
+                        *self.region_solution.hrtb_escapes,
+                        *self.region_solution.outlives_errors,
+                    ):
+                        chain = diag.witness.origin_chain
+                        if chain and (
+                            chain[0] in {eff_loan_origin, owner_origin}
+                            or chain[-1] == target_origin
+                        ):
+                            region_ok = False
+                            break
+                anc = self.ancestors({name})
+                has_sibling_conflict = any(
+                    other != name
+                    and other not in anc
+                    and _overlap(
+                        self._effective_place(name),
+                        self._effective_place(other),
+                        self.fields,
+                        self.disjoint_places,
+                        self.disjoint_symbols,
+                    )
+                    != "no"
+                    for other in sorted(self.active | self.returned)
+                )
+                if not origin_matches or not region_ok or has_sibling_conflict:
+                    self._issue_loan(terminal, "exclusive-loan-escape", name)
+                else:
+                    self.obligation(terminal, "returned-loan-restoration", name, self.parents[name])
             self.obligation(terminal, "returned-loan-lifetime", name, loan.place.owner)
         suspended = tuple(
             sorted(
                 {self.loans[name].place for name in self.active},
                 key=lambda place: (place.owner, place.fields),
             )
+        )
+        moved_places = tuple(
+            sorted(self.moved_places, key=lambda place: (place.owner, place.fields))
         )
         return PathReport(
             self.nodes,
@@ -1627,7 +2139,139 @@ class _State:
             tuple(sorted(self.moved)),
             tuple(sorted(self.active_invariants)),
             tuple(sorted(self.opened)),
+            moved_places,
         )
+
+
+def _build_region_solution(
+    owners: tuple[Owner, ...],
+    graph: Graph,
+    budget: _Budget,
+) -> regions.RegionSolution:
+    budget.spend()
+    solver = regions.RegionSolver(
+        entry=graph.entry,
+        successors={node.name: node.successors for node in graph.nodes},
+        declared_outlives=graph.declared_outlives,
+    )
+    owner_origins: dict[str, str] = {}
+    param_origins: set[str] = set()
+    for owner in owners:
+        if owner.origin is not None:
+            kind: regions.OriginKind = "param" if owner.borrowed else "local"
+            solver.add_origin(regions.Origin(owner.origin, kind=kind))
+            owner_origins[owner.name] = owner.origin
+            if kind == "param":
+                param_origins.add(owner.origin)
+    if graph.return_origin is not None:
+        solver.add_origin(regions.Origin(graph.return_origin, kind="param"))
+        param_origins.add(graph.return_origin)
+
+    loan_origins: dict[str, str] = {}
+    handle_origins: dict[str, set[str]] = {}
+    for node in graph.nodes:
+        budget.spend()
+        ev = node.event
+        if isinstance(ev, (Borrow, Reserve)):
+            loan = ev.loan
+            orig = loan.origin or f"__loan_{loan.name}"
+            kind = "param" if orig in param_origins else "local"
+            if orig not in solver.origins:
+                solver.add_origin(regions.Origin(orig, kind=kind))
+            loan_origins[loan.name] = orig
+            handle_origins.setdefault(loan.name, set()).add(orig)
+            solver.add_origin_loan(regions.OriginLoan(node.name, orig, loan.name))
+            parent_orig = owner_origins.get(loan.parent) or loan_origins.get(loan.parent)
+            if parent_orig is not None:
+                solver.add_outlives(regions.OutlivesConstraint(parent_orig, orig, node.name))
+        elif isinstance(ev, Bind):
+            caps: set[str] = set()
+            for cap in ev.captures:
+                caps.update(handle_origins.get(cap, ()))
+            if caps:
+                handle_origins[ev.name] = caps
+        elif isinstance(ev, Move):
+            if ev.source in handle_origins:
+                handle_origins[ev.target] = set(handle_origins[ev.source])
+        elif isinstance(ev, Use):
+            for orig in handle_origins.get(ev.name, ()):
+                solver.add_origin_use(node.name, orig)
+        elif isinstance(ev, Access) and ev.via is not None:
+            for orig in handle_origins.get(ev.via, ()):
+                solver.add_origin_use(node.name, orig)
+        elif isinstance(ev, Return):
+            target = ev.origin or graph.return_origin
+            for cap in ev.captures:
+                for orig in handle_origins.get(cap, ()):
+                    solver.add_origin_use(node.name, orig)
+                    if target is not None:
+                        if target not in solver.origins:
+                            solver.add_origin(regions.Origin(target, kind="param"))
+                        solver.add_outlives(regions.OutlivesConstraint(orig, target, node.name))
+    return solver.solve()
+
+
+def export_loan_certificate(report: Report) -> dict[str, object]:
+    """Export a ``Report`` into a JSON-serializable schema matching ``loan_soundness.v``."""
+    if not isinstance(report, Report):
+        raise AnalysisRefusalError("certificate export requires an immutable Report record")
+    return {
+        "schema": "holdfast-loan-certificate-v1",
+        "status": report.status,
+        "valid": all(not path.issues for path in report.paths),
+        "path_count": len(report.paths),
+        "paths": [
+            {
+                "index": idx,
+                "nodes": list(path.nodes),
+                "outcome": path.outcome,
+                "valid": not path.issues,
+                "issues": [
+                    {
+                        "node": issue.node,
+                        "kind": issue.kind,
+                        "resources": list(issue.resources),
+                        "origin_node": issue.origin_node,
+                        "conflict_node": issue.conflict_node,
+                        "live_use_node": issue.live_use_node,
+                        "proposed_end_node": issue.proposed_end_node,
+                    }
+                    for issue in path.issues
+                ],
+                "obligations": [
+                    {
+                        "node": ob.node,
+                        "kind": ob.kind,
+                        "resources": list(ob.resources),
+                        "status": ob.status,
+                    }
+                    for ob in path.obligations
+                ],
+                "restorations": [
+                    {
+                        "node": rest.node,
+                        "loan": rest.loan,
+                        "parent": rest.parent,
+                        "place": {"owner": rest.place.owner, "fields": list(rest.place.fields)},
+                        "status": rest.status,
+                    }
+                    for rest in path.restorations
+                ],
+                "returned_loans": list(path.returned_loans),
+                "retained_loans": list(path.retained_loans),
+                "suspended": [
+                    {"owner": p.owner, "fields": list(p.fields)} for p in path.suspended
+                ],
+                "moved_owners": list(path.moved_owners),
+                "moved_places": [
+                    {"owner": p.owner, "fields": list(p.fields)} for p in path.moved_places
+                ],
+                "active_invariants": [list(pair) for pair in path.active_invariants],
+                "open_invariants": [list(pair) for pair in path.open_invariants],
+            }
+            for idx, path in enumerate(report.paths)
+        ],
+    }
 
 
 def analyze(owners: tuple[Owner, ...], graph: Graph, limits: Limits | None = None) -> Report:
@@ -1650,9 +2294,13 @@ def analyze(owners: tuple[Owner, ...], graph: Graph, limits: Limits | None = Non
     budget = _Budget(limits.work)
     nodes, dominators = _validate(owners, graph, limits, budget)
     demanded_before, demanded_after, reachable_names = _compute_cfg_liveness(graph, nodes, budget)
+    must_demand_before, future_nodes, first_demand, last_demand = _compute_cfg_demand_sites(
+        graph, nodes, budget
+    )
     reachable_owners, reachable_symbols, reachable_refinements = _compute_cfg_relevance(
         graph, nodes, budget
     )
+    region_solution = _build_region_solution(owners, graph, budget)
     binder_counts = Counter(_binder(node.event) for node in graph.nodes)
     # Binder history matters for ambiguous identities and conditional captures.
     history_names = {name for name, count in binder_counts.items() if name is not None and count > 1}
@@ -1690,7 +2338,16 @@ def analyze(owners: tuple[Owner, ...], graph: Graph, limits: Limits | None = Non
     pending_joins: dict[str, deque[tuple[object, ...]]] = {
         name: deque() for name in join_states
     }
-    initial = _State(owner_map, fields, budget, graph.entry)
+    initial = _State(
+        owner_map,
+        fields,
+        budget,
+        graph.entry,
+        graph_return_origin=graph.return_origin,
+        region_solution=region_solution,
+        first_demand=first_demand,
+        last_demand=last_demand,
+    )
     entry_key = ()
     if graph.entry in join_states:
         entry_key = initial.join_key(
@@ -1699,6 +2356,8 @@ def analyze(owners: tuple[Owner, ...], graph: Graph, limits: Limits | None = Non
             reachable_owners[graph.entry],
             reachable_symbols[graph.entry],
             reachable_refinements[graph.entry],
+            must_demand_before[graph.entry],
+            future_nodes[graph.entry],
         )
         join_states[graph.entry][entry_key] = initial.clone()
     branch_worklist: list[tuple[str, _State, tuple[object, ...]]] = [(graph.entry, initial, entry_key)]
@@ -1750,6 +2409,8 @@ def analyze(owners: tuple[Owner, ...], graph: Graph, limits: Limits | None = Non
                     reachable_owners[successor],
                     reachable_symbols[successor],
                     reachable_refinements[successor],
+                    must_demand_before[successor],
+                    future_nodes[successor],
                 )
                 buckets = join_states[successor]
                 if env_key in buckets:
@@ -1788,6 +2449,101 @@ class _StructInfo:
     invariants: tuple[str, ...]
     methods: dict[str, _Receiver | None] = field(default_factory=dict)
     field_types: dict[str, str | None] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ProvedFacts:
+    """Optional semantic facts injected into ``_FunctionLowerer`` / ``lower_function``."""
+
+    disjoint_places: tuple[tuple[Place, Place], ...] = ()
+    arithmetic_disequalities: tuple[tuple[str, str], ...] = ()
+    tag_preserved: tuple[Place, ...] = ()
+    no_realloc: tuple[Place, ...] = ()
+    refinements: Mapping[str, Place] = field(default_factory=dict)
+    use_refinements: tuple[str, ...] = ()
+    record_views: Mapping[str, Mapping[str, tuple[str, ...]]] = field(default_factory=dict)
+    methods: Mapping[str, Mapping[str, _Receiver | None]] = field(default_factory=dict)
+    function_returns: Mapping[str, str | None] = field(default_factory=dict)
+    return_summaries: Mapping[str, str] = field(default_factory=dict)
+
+
+def _normalize_proved_facts(
+    proved_facts: ProvedFacts | Mapping[str, object] | None,
+) -> ProvedFacts | None:
+    if proved_facts is None or isinstance(proved_facts, ProvedFacts):
+        return proved_facts
+    if not isinstance(proved_facts, Mapping):
+        raise AnalysisRefusalError("proved_facts must be a ProvedFacts record or mapping")
+
+    def _places_seq(key: str) -> tuple[Place, ...]:
+        raw = proved_facts.get(key, ())
+        if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes)):
+            raise AnalysisRefusalError(f"proved_facts[{key!r}] must be a sequence of Places")
+        return tuple(cast("Sequence[Place]", raw))
+
+    raw_disjoint = proved_facts.get("disjoint_places", ())
+    disjoint_pairs = (
+        tuple((pair[0], pair[1]) for pair in cast("Sequence[tuple[Place, Place]]", raw_disjoint))
+        if isinstance(raw_disjoint, Sequence) and not isinstance(raw_disjoint, (str, bytes))
+        else ()
+    )
+    raw_arith = proved_facts.get("arithmetic_disequalities", ())
+    arith_pairs = (
+        tuple((pair[0], pair[1]) for pair in cast("Sequence[tuple[str, str]]", raw_arith))
+        if isinstance(raw_arith, Sequence) and not isinstance(raw_arith, (str, bytes))
+        else ()
+    )
+    raw_refs = proved_facts.get("refinements", {})
+    refs = (
+        dict(cast("Mapping[str, Place]", raw_refs))
+        if isinstance(raw_refs, Mapping)
+        else {}
+    )
+    raw_use_refs = proved_facts.get("use_refinements", ())
+    use_refs = (
+        tuple(cast("Sequence[str]", raw_use_refs))
+        if isinstance(raw_use_refs, Sequence) and not isinstance(raw_use_refs, (str, bytes))
+        else ()
+    )
+    raw_views = proved_facts.get("record_views", {})
+    views = (
+        {
+            str(k): {str(vk): tuple(vv) for vk, vv in v.items()}
+            for k, v in cast("Mapping[str, Mapping[str, Sequence[str]]]", raw_views).items()
+        }
+        if isinstance(raw_views, Mapping)
+        else {}
+    )
+    raw_methods = proved_facts.get("methods", {})
+    methods = (
+        dict(cast("Mapping[str, Mapping[str, _Receiver | None]]", raw_methods))
+        if isinstance(raw_methods, Mapping)
+        else {}
+    )
+    raw_fn_ret = proved_facts.get("function_returns", {})
+    fn_returns = (
+        dict(cast("Mapping[str, str | None]", raw_fn_ret))
+        if isinstance(raw_fn_ret, Mapping)
+        else {}
+    )
+    raw_summaries = proved_facts.get("return_summaries", {})
+    summaries = (
+        dict(cast("Mapping[str, str]", raw_summaries))
+        if isinstance(raw_summaries, Mapping)
+        else {}
+    )
+    return ProvedFacts(
+        disjoint_places=disjoint_pairs,
+        arithmetic_disequalities=arith_pairs,
+        tag_preserved=_places_seq("tag_preserved"),
+        no_realloc=_places_seq("no_realloc"),
+        refinements=refs,
+        use_refinements=use_refs,
+        record_views=views,
+        methods=methods,
+        function_returns=fn_returns,
+        return_summaries=summaries,
+    )
 
 
 def _ast_node(value: object, role: str = "AST node") -> dict[str, object]:
@@ -1844,7 +2600,7 @@ def _extract_borrow_expr(expr: dict[str, object]) -> tuple[str, dict[str, object
         return str(curr.get("mode", "in")), _ast_node(curr["value"])
     if kind == "unary":
         op = _op_text(curr.get("operator"))
-        if op in {"in", "ref", "out", "move"}:
+        if op in {"in", "ref", "out", "move", "shared_mut"}:
             inner = curr.get("value") if "value" in curr else curr.get("operand")
             return op, _ast_node(inner)
     return None
@@ -1929,6 +2685,34 @@ def _body_statements(raw: object) -> list[dict[str, object]]:
             return _ast_nodes(raw.get("statements", []))
         return [cast("dict[str, object]", raw)]
     raise AnalysisRefusalError("expected statement block or list")
+
+
+def _extract_region_name(type_node: object) -> str | None:
+    if not isinstance(type_node, dict):
+        return None
+    kind = type_node.get("kind")
+    if kind == "modified_type":
+        lifetime = type_node.get("lifetime")
+        if isinstance(lifetime, dict):
+            ltext = lifetime.get("text")
+            if not isinstance(ltext, str) and isinstance(lifetime.get("name"), dict):
+                ltext = cast("dict[str, object]", lifetime["name"]).get("text")
+            if isinstance(ltext, str):
+                stripped = ltext.removeprefix("'")
+                if "." not in stripped and _NAME.fullmatch(stripped):
+                    return f"'{stripped}"
+        return _extract_region_name(type_node.get("type"))
+    if kind in {"type", "type_application", "generic_application"}:
+        for arg in _ast_nodes(type_node.get("arguments", [])):
+            found = _extract_region_name(arg)
+            if found is not None:
+                return found
+    if kind in {"tuple_type", "function_type"}:
+        for item in _ast_nodes(type_node.get("elements", type_node.get("parameters", []))):
+            found = _extract_region_name(item)
+            if found is not None:
+                return found
+    return None
 
 
 def _extract_return_lifetime_place(type_node: object) -> Place | None:
@@ -2258,6 +3042,7 @@ class _FunctionLowerer:
         enclosing_type: str | None,
         structs: dict[str, _StructInfo],
         function_returns: dict[str, str | None] | None = None,
+        proved_facts: ProvedFacts | Mapping[str, object] | None = None,
     ) -> None:
         self.fn_name = fn_name
         self.fn_node = fn_node
@@ -2269,8 +3054,44 @@ class _FunctionLowerer:
         self.in_proof = False
         self.in_receiver_argument = False
         self.enclosing_type = enclosing_type
-        self.structs = structs
-        self.function_returns = function_returns or {}
+        self.proved_facts = _normalize_proved_facts(proved_facts)
+        merged_structs = dict(structs)
+        if self.proved_facts is not None:
+            for tname, extra_views in self.proved_facts.record_views.items():
+                if tname in merged_structs:
+                    info = merged_structs[tname]
+                    views = dict(info.views)
+                    views.update(extra_views)
+                    fields = list(info.fields)
+                    for vpath in extra_views.values():
+                        if vpath and vpath not in fields:
+                            fields.append(vpath)
+                    merged_structs[tname] = _StructInfo(
+                        tuple(fields), views, info.invariants, dict(info.methods), dict(info.field_types)
+                    )
+                else:
+                    merged_structs[tname] = _StructInfo(
+                        tuple(p for p in extra_views.values() if p),
+                        dict(extra_views),
+                        (),
+                    )
+            for tname, extra_methods in self.proved_facts.methods.items():
+                if tname in merged_structs:
+                    info = merged_structs[tname]
+                    methods = dict(info.methods)
+                    methods.update(extra_methods)
+                    merged_structs[tname] = _StructInfo(
+                        info.fields, dict(info.views), info.invariants, methods, dict(info.field_types)
+                    )
+                else:
+                    merged_structs[tname] = _StructInfo((), {}, (), dict(extra_methods))
+        self.structs = merged_structs
+        self.function_returns: dict[str, str | None] = dict(function_returns or {})
+        if self.proved_facts is not None:
+            self.function_returns.update(self.proved_facts.function_returns)
+        self.return_summaries: dict[str, str] = (
+            dict(self.proved_facts.return_summaries) if self.proved_facts is not None else {}
+        )
         self.checked_receivers: dict[tuple[int, ...], _Receiver | None] = {}
         self.checked_scalar_calls: set[tuple[int, ...]] = set()
         self.owners: dict[str, Owner] = {}
@@ -2284,6 +3105,8 @@ class _FunctionLowerer:
         # Map loan handle name -> Place.
         self.handle_places: dict[str, Place] = {}
         self.handle_modes: dict[str, Mode] = {}
+        self.handle_origins: dict[str, str] = {}
+        self.positive_vars: set[str] = set()
         self.used_binders: set[str] = set()
         self.nodes: list[Node] = []
         self.edges: dict[str, list[str]] = {}
@@ -2294,6 +3117,7 @@ class _FunctionLowerer:
         self.loan_counter = 0
         return_type_node = fn_node.get("return_type") or fn_node.get("result")
         self.return_lifetime_place = _extract_return_lifetime_place(return_type_node)
+        self.return_origin = _extract_region_name(return_type_node)
         self.returns_scalar_value = _is_scalar_value_type(return_type_node)
 
     def _fresh_node(self, prefix: str = "n", event: Event | None = None) -> str:
@@ -2386,6 +3210,8 @@ class _FunctionLowerer:
         borrowed: bool,
         type_name: str | None = None,
         type_node: object = None,
+        origin: str | None = None,
+        mode: Mode | None = None,
     ) -> None:
         if not _NAME.fullmatch(name) or (name in self.used_binders and name not in self.owners):
             return
@@ -2404,11 +3230,16 @@ class _FunctionLowerer:
                 for inv in info.invariants:
                     if inv not in self.owner_invariants[name]:
                         self.owner_invariants[name].append(inv)
+        prev = self.owners.get(name)
+        eff_origin = origin if origin is not None else (prev.origin if prev is not None else None)
+        eff_mode = mode if mode is not None else (prev.mode if prev is not None else None)
         self.owners[name] = Owner(
             name,
             borrowed=borrowed,
             fields=tuple(sorted(self.owner_fields[name])),
             invariants=tuple(self.owner_invariants[name]),
+            origin=eff_origin,
+            mode=eff_mode,
         )
 
     def _add_owner_field(self, owner_name: str, path: tuple[str, ...]) -> None:
@@ -2421,6 +3252,8 @@ class _FunctionLowerer:
             borrowed=existing.borrowed,
             fields=tuple(sorted(self.owner_fields[owner_name])),
             invariants=existing.invariants,
+            origin=existing.origin,
+            mode=existing.mode,
         )
 
     def _add_owner_invariants(self, owner_name: str, clauses: Sequence[str]) -> None:
@@ -2436,6 +3269,8 @@ class _FunctionLowerer:
             borrowed=existing.borrowed,
             fields=existing.fields,
             invariants=tuple(inv_list),
+            origin=existing.origin,
+            mode=existing.mode,
         )
 
     def _collect_signature_facts(self) -> None:
@@ -2453,14 +3288,29 @@ class _FunctionLowerer:
                 mods = _type_modifiers(ptype_node)
                 borrowed = (
                     (
-                        pmode in {"in", "ref", "out"}
-                        or bool(mods & {"in", "ref", "out"})
+                        pmode in {"in", "ref", "out", "shared_mut"}
+                        or bool(mods & {"in", "ref", "out", "shared_mut"})
                         or ptype in {"Span", "Slots"}
                     )
                     and pmode != "owned"
                     and "owned" not in mods
                 )
-                self._register_owner(pname, borrowed=borrowed, type_name=ptype, type_node=ptype_node)
+                origin = _extract_region_name(ptype_node)
+                mode: Mode | None = None
+                if pmode == "shared_mut" or "shared_mut" in mods:
+                    mode = "shared_mut"
+                elif pmode in {"ref", "out"} or bool(mods & {"ref", "out"}):
+                    mode = "exclusive"
+                elif pmode == "in" or "in" in mods:
+                    mode = "shared"
+                self._register_owner(
+                    pname,
+                    borrowed=borrowed,
+                    type_name=ptype,
+                    type_node=ptype_node,
+                    origin=origin,
+                    mode=mode,
+                )
 
         for contract in _ast_nodes(self.fn_node.get("contracts", [])):
             ckind = contract.get("kind")
@@ -2793,6 +3643,48 @@ class _FunctionLowerer:
                 self._register_owner(bname, borrowed=False)
         return current
 
+    @staticmethod
+    def _unwrap_group_expr(node: object) -> dict[str, object] | None:
+        curr = node
+        while isinstance(curr, dict) and curr.get("kind") == "group":
+            curr = curr.get("expression") or curr.get("value")
+        return cast("dict[str, object]", curr) if isinstance(curr, dict) else None
+
+    @staticmethod
+    def _nat_literal(node: object) -> int | None:
+        if isinstance(node, dict) and node.get("kind") == "nat":
+            raw = node.get("value")
+            if isinstance(raw, str) and raw.isdigit():
+                return int(raw)
+        return None
+
+    @classmethod
+    def _extract_add_offset(cls, node: object) -> tuple[str, int | None, str | None] | None:
+        unwrapped = cls._unwrap_group_expr(node)
+        if unwrapped is None or unwrapped.get("kind") != "binary":
+            return None
+        if _op_text(unwrapped.get("operator")) != "+":
+            return None
+        left = cls._unwrap_group_expr(unwrapped.get("left"))
+        right = cls._unwrap_group_expr(unwrapped.get("right"))
+        if left is None or right is None:
+            return None
+        if _is_ident(left):
+            base = _id_text(left["name"])
+            lit = cls._nat_literal(right)
+            if lit is not None and _NAME.fullmatch(base):
+                return base, lit, None
+            if _is_ident(right):
+                offset_var = _id_text(right["name"])
+                if _NAME.fullmatch(base) and _NAME.fullmatch(offset_var):
+                    return base, None, offset_var
+        if _is_ident(right):
+            base = _id_text(right["name"])
+            lit = cls._nat_literal(left)
+            if lit is not None and _NAME.fullmatch(base):
+                return base, lit, None
+        return None
+
     def _extract_index_ne(self, operand: dict[str, object]) -> tuple[str, str, bool] | None:
         curr = operand
         negated = False
@@ -2808,6 +3700,27 @@ class _FunctionLowerer:
         if curr.get("kind") != "binary":
             return None
         op = _op_text(curr.get("operator"))
+        left = self._unwrap_group_expr(curr["left"])
+        right = self._unwrap_group_expr(curr["right"])
+        if left is None or right is None:
+            return None
+
+        # Check `a + m <= b` / `b >= a + m` / `a + m < b` / `b > a + m` when offset > 0 (or `<`).
+        if not negated and op in {"<=", ">=", "<", ">"}:
+            add_pair: tuple[tuple[str, int | None, str | None], str, bool] | None = None
+            if op in {"<=", "<"} and (add_info := self._extract_add_offset(left)) is not None and _is_ident(right):
+                add_pair = (add_info, _id_text(right["name"]), op == "<")
+            elif op in {">=", ">"} and (add_info := self._extract_add_offset(right)) is not None and _is_ident(left):
+                add_pair = (add_info, _id_text(left["name"]), op == ">")
+            if add_pair is not None:
+                (base, lit, offset_var), other_name, strict = add_pair
+                if base != other_name and _NAME.fullmatch(other_name):
+                    positive = strict or (lit is not None and lit >= 1) or (
+                        offset_var is not None and offset_var in self.positive_vars
+                    )
+                    if positive:
+                        return f"@{base}", f"@{other_name}", True
+
         if op in {"!=", "<", ">"}:
             if negated and op in {"<", ">"}:
                 return None
@@ -2816,17 +3729,51 @@ class _FunctionLowerer:
             on_true = negated
         else:
             return None
-        left = curr["left"]
-        right = curr["right"]
-        while isinstance(left, dict) and left.get("kind") == "group":
-            left = left.get("expression") or left.get("value")
-        while isinstance(right, dict) and right.get("kind") == "group":
-            right = right.get("expression") or right.get("value")
-        if isinstance(left, dict) and isinstance(right, dict) and _is_ident(left) and _is_ident(right):
+
+        if _is_ident(left) and _is_ident(right):
             lname = _id_text(left["name"])
             rname = _id_text(right["name"])
             if lname != rname and _NAME.fullmatch(lname) and _NAME.fullmatch(rname):
                 return f"@{lname}", f"@{rname}", on_true
+        if on_true:
+            for ident_side, lit_side, is_gt in (
+                (left, right, op == ">"),
+                (right, left, op == "<"),
+            ):
+                if _is_ident(ident_side) and self._nat_literal(lit_side) == 0:
+                    iname = _id_text(ident_side["name"])
+                    if _NAME.fullmatch(iname) and (op == "!=" or is_gt or (op == "==" and negated)):
+                        self.positive_vars.add(iname)
+                        return f"@{iname}", "@_0", True
+        return None
+
+    def _extract_no_realloc_guard(self, operand: dict[str, object]) -> Place | None:
+        curr = self._unwrap_group_expr(operand)
+        if curr is None or curr.get("kind") != "binary":
+            return None
+        op = _op_text(curr.get("operator"))
+        if op not in {"<", ">"}:
+            return None
+        left = self._unwrap_group_expr(curr["left"])
+        right = self._unwrap_group_expr(curr["right"])
+        if op == ">":
+            left, right = right, left
+        if left is None or right is None:
+            return None
+        if left.get("kind") != "member" or right.get("kind") != "member":
+            return None
+        len_name = _id_text(left.get("member") or left.get("name"))
+        cap_name = _id_text(right.get("member") or right.get("name"))
+        if len_name not in {"len", "Length", "LiveCount"} or cap_name not in {"cap", "Capacity"}:
+            return None
+        left_recv = self._unwrap_group_expr(left.get("receiver") or left.get("value"))
+        right_recv = self._unwrap_group_expr(right.get("receiver") or right.get("value"))
+        if left_recv is None or right_recv is None:
+            return None
+        lplace = self._try_place(left_recv)
+        rplace = self._try_place(right_recv)
+        if lplace is not None and lplace == rplace:
+            return lplace
         return None
 
     def _emit_conjunctive_index_facts(self, current: str, expr: object) -> str:
@@ -2846,6 +3793,9 @@ class _FunctionLowerer:
             ne_fact = self._extract_index_ne(operand)
             if ne_fact is not None and ne_fact[2]:
                 current = self._emit(current, AssumeIndexNe(ne_fact[0], ne_fact[1]), "assume_ne")
+            norealloc = self._extract_no_realloc_guard(operand)
+            if norealloc is not None:
+                current = self._emit(current, AssumeNoRealloc(norealloc), "assume_norealloc")
         return current
 
     def _lower_condition(
@@ -2865,6 +3815,19 @@ class _FunctionLowerer:
                 pending.extend((_ast_node(operand["right"]), _ast_node(operand["left"])))
                 continue
             conjunct_count += 1
+            if operand.get("kind") == "binary" and _op_text(operand["operator"]) == "||":
+                left_then, left_else, saved_or = self._lower_condition(current, _ast_node(operand["left"]))
+                if outer_handles is None:
+                    outer_handles = dict(saved_or)
+                self.handles = dict(saved_or)
+                right_then, right_else, _ = self._lower_condition(left_else, _ast_node(operand["right"]))
+                self.handles = dict(saved_or)
+                or_then = self._fresh_node("or_then")
+                self._connect(left_then, or_then)
+                self._connect(right_then, or_then)
+                self._connect(right_else, failure)
+                current = or_then
+                continue
             current, captures = self._lower_expr(current, operand)
             if outer_handles is None:
                 outer_handles = dict(self.handles)
@@ -2879,6 +3842,9 @@ class _FunctionLowerer:
                     current = self._emit(current, AssumeIndexNe(left_sym, right_sym), "assume_ne")
                 else:
                     else_fact = (left_sym, right_sym)
+            norealloc = self._extract_no_realloc_guard(operand)
+            if norealloc is not None:
+                current = self._emit(current, AssumeNoRealloc(norealloc), "assume_norealloc")
             if operand.get("kind") in {"is", "is_expression"}:
                 current = self._bind_pattern_from_captures(
                     current, _ast_node(operand["pattern"]), captures, self._try_place(_ast_node(operand["value"])),
@@ -2975,16 +3941,25 @@ class _FunctionLowerer:
                     current, _, place = self._resolve_borrow_target(current, inner)
                     current = self._emit(current, Access(place, "move"), "move_owner")
                     return current, ()
-                loan_mode: Mode = "shared" if mode == "in" else "exclusive"
+                loan_mode: Mode = (
+                    "shared"
+                    if mode == "in"
+                    else ("shared_mut" if mode == "shared_mut" else "exclusive")
+                )
                 current, parent, place = self._resolve_borrow_target(current, inner)
                 loan_name = self._fresh_loan("borrow")
+                parent_origin = self.handle_origins.get(parent) or (
+                    self.owners[parent].origin if parent in self.owners else None
+                )
                 current = self._emit(
                     current,
-                    Borrow(Loan(loan_name, parent, place, mode=loan_mode)),
+                    Borrow(Loan(loan_name, parent, place, mode=loan_mode, origin=parent_origin)),
                     "borrow",
                 )
                 self.handle_places[loan_name] = place
                 self.handle_modes[loan_name] = loan_mode
+                if parent_origin is not None:
+                    self.handle_origins[loan_name] = parent_origin
                 return current, (loan_name,)
 
             if kind == "interpolated_string":
@@ -3272,8 +4247,12 @@ class _FunctionLowerer:
                     if borrow_info is not None:
                         amode, aval = borrow_info
 
-                if amode in {"in", "ref", "out"}:
-                    loan_mode: Mode = "shared" if amode == "in" else "exclusive"
+                if amode in {"in", "ref", "out", "shared_mut"}:
+                    loan_mode: Mode = (
+                        "shared"
+                        if amode == "in"
+                        else ("shared_mut" if amode == "shared_mut" else "exclusive")
+                    )
                     if _is_ident(aval):
                         aname = _id_text(aval["name"])
                         if aname in self.handles and self.handle_modes.get(aname) == loan_mode:
@@ -3381,10 +4360,13 @@ class _FunctionLowerer:
         mods = _type_modifiers(local_type)
         scoped = "scoped" in mods
         explicit_loan_mode: Mode | None = None
-        if "ref" in mods or "out" in mods:
+        if "shared_mut" in mods:
+            explicit_loan_mode = "shared_mut"
+        elif "ref" in mods or "out" in mods:
             explicit_loan_mode = "exclusive"
         elif "in" in mods:
             explicit_loan_mode = "shared"
+        explicit_origin = _extract_region_name(local_type)
 
         borrow_info = _extract_borrow_expr(value_expr)
         if borrow_info is not None:
@@ -3410,12 +4392,19 @@ class _FunctionLowerer:
                 self._register_owner(binder_name, borrowed=False, type_name=_type_base_name(local_type))
                 return current
 
-            loan_mode: Mode = "shared" if mode == "in" else "exclusive"
+            loan_mode: Mode = (
+                "shared"
+                if mode == "in"
+                else ("shared_mut" if mode == "shared_mut" else "exclusive")
+            )
             current, parent, place = self._resolve_borrow_target(current, inner)
             loan_name = self._fresh_binder(binder_name)
+            loan_origin = explicit_origin or self.handle_origins.get(parent) or (
+                self.owners[parent].origin if parent in self.owners else None
+            )
             current = self._emit(
                 current,
-                Borrow(Loan(loan_name, parent, place, mode=loan_mode, scoped=scoped)),
+                Borrow(Loan(loan_name, parent, place, mode=loan_mode, scoped=scoped, origin=loan_origin)),
                 f"borrow_{binder_name}",
             )
             self.handles[binder_name] = loan_name
@@ -3423,6 +4412,9 @@ class _FunctionLowerer:
             self.handle_places[loan_name] = place
             self.handle_modes[binder_name] = loan_mode
             self.handle_modes[loan_name] = loan_mode
+            if loan_origin is not None:
+                self.handle_origins[binder_name] = loan_origin
+                self.handle_origins[loan_name] = loan_origin
             return current
 
         current, caps = self._lower_expr(current, value_expr, handles_result=id(self.current_site) in self.result_bindings)
@@ -3431,9 +4423,19 @@ class _FunctionLowerer:
                 parent_handle = caps[0]
                 place = self.handle_places[parent_handle]
                 loan_name = self._fresh_binder(binder_name)
+                loan_origin = explicit_origin or self.handle_origins.get(parent_handle)
                 current = self._emit(
                     current,
-                    Borrow(Loan(loan_name, parent_handle, place, mode=explicit_loan_mode, scoped=scoped)),
+                    Borrow(
+                        Loan(
+                            loan_name,
+                            parent_handle,
+                            place,
+                            mode=explicit_loan_mode,
+                            scoped=scoped,
+                            origin=loan_origin,
+                        )
+                    ),
                     f"reborrow_{binder_name}",
                 )
                 self.handles[binder_name] = loan_name
@@ -3441,6 +4443,9 @@ class _FunctionLowerer:
                 self.handle_places[loan_name] = place
                 self.handle_modes[binder_name] = explicit_loan_mode
                 self.handle_modes[loan_name] = explicit_loan_mode
+                if loan_origin is not None:
+                    self.handle_origins[binder_name] = loan_origin
+                    self.handle_origins[loan_name] = loan_origin
             elif explicit_loan_mode is None and (
                 _is_scalar_value_type(local_type)
                 or (_is_ident(value_expr) and len(caps) == 1 and caps[0] in self.handle_places)
@@ -3819,9 +4824,9 @@ class _FunctionLowerer:
                         if self.returns_scalar_value and _extract_borrow_expr(val) is None
                         else caps
                     )
-                    self._emit(current, Return(outcome, ret_caps), "ret")
+                    self._emit(current, Return(outcome, ret_caps, origin=self.return_origin), "ret")
                 else:
-                    self._emit(current, Return("return"), "ret")
+                    self._emit(current, Return("return", origin=self.return_origin), "ret")
                 return None
 
             if kind in {"expression", "expression_statement"}:
@@ -3844,11 +4849,34 @@ class _FunctionLowerer:
         finally:
             self.current_site = prev_site
 
+    def _emit_proved_facts(self, current: str) -> str:
+        facts = self.proved_facts
+        if facts is None:
+            return current
+        for left_p, right_p in facts.disjoint_places:
+            if left_p.owner in self.owners and right_p.owner in self.owners:
+                current = self._emit(current, AssumeDisjoint(left_p, right_p), "fact_disjoint")
+        for left_s, right_s in facts.arithmetic_disequalities:
+            current = self._emit(current, AssumeIndexNe(left_s, right_s), "fact_ne")
+        for place in facts.tag_preserved:
+            if place.owner in self.owners:
+                current = self._emit(current, AssumeTagPreserved(place), "fact_tag")
+        for place in facts.no_realloc:
+            if place.owner in self.owners:
+                current = self._emit(current, AssumeNoRealloc(place), "fact_norealloc")
+        for rname, place in facts.refinements.items():
+            if place.owner in self.owners:
+                current = self._emit(current, AssumeRefinement(rname, place), "fact_ref")
+        for rname in facts.use_refinements:
+            if rname in facts.refinements:
+                current = self._emit(current, UseRefinement(rname), "fact_use_ref")
+        return current
+
     def build(self) -> LoweredFunction:
         self._collect_signature_facts()
         self.visible_results = set(self.result_parameters)
         entry = self._fresh_node("entry")
-        current = entry
+        current = self._emit_proved_facts(entry)
         for contract in _ast_nodes(self.fn_node.get("contracts", [])):
             if contract.get("kind") == "requires" or (
                 contract.get("kind") == "contract" and contract.get("role") == "requires"
@@ -3863,7 +4891,7 @@ class _FunctionLowerer:
         if isinstance(body, list) or (isinstance(body, dict) and body.get("kind") == "block"):
             end = self._lower_statements(current, _body_statements(body))
             if end is not None and not isinstance(self.events.get(end), Return):
-                self._emit(end, Return("return"), "ret")
+                self._emit(end, Return("return", origin=self.return_origin), "ret")
         elif isinstance(body, dict):
             end, caps = self._lower_expr(current, body, handles_result=True)
             ret_caps = (
@@ -3872,9 +4900,9 @@ class _FunctionLowerer:
                 else caps
             )
             if end is not None and not isinstance(self.events.get(end), Return):
-                self._emit(end, Return("return", ret_caps), "ret")
+                self._emit(end, Return("return", ret_caps, origin=self.return_origin), "ret")
         else:
-            self._emit(current, Return("return"), "ret")
+            self._emit(current, Return("return", origin=self.return_origin), "ret")
 
         # Keep only reachable nodes from entry so dead post-return placeholders are excluded.
         reached: set[str] = set()
@@ -3905,7 +4933,7 @@ class _FunctionLowerer:
         return LoweredFunction(
             self.fn_name,
             tuple(self.owners.values()),
-            Graph(entry, built_nodes),
+            Graph(entry, built_nodes, return_origin=self.return_origin),
             site_map,
         )
 
@@ -3917,7 +4945,12 @@ def _unwrap_ast_root(ast: object) -> dict[str, object]:
     return node
 
 
-def lower_function(ast: object, function_name: str | None = None) -> LoweredFunction:
+def lower_function(
+    ast: object,
+    function_name: str | None = None,
+    *,
+    proved_facts: ProvedFacts | Mapping[str, object] | None = None,
+) -> LoweredFunction:
     """Lower a parsed schema-2 function, method or definition into a loan Graph."""
     root = _unwrap_ast_root(ast)
     kind = root.get("kind")
@@ -3925,7 +4958,7 @@ def lower_function(ast: object, function_name: str | None = None) -> LoweredFunc
         fname = _id_text(root["name"])
         if function_name is not None and function_name != fname:
             raise AnalysisRefusalError(f"function {function_name!r} not found")
-        return _FunctionLowerer(fname, root, None, {}).build()
+        return _FunctionLowerer(fname, root, None, {}, proved_facts=proved_facts).build()
 
     if kind not in {"surface_file", "module", "file"}:
         raise AnalysisRefusalError("expected a parsed module or function AST node")
@@ -3939,21 +4972,35 @@ def lower_function(ast: object, function_name: str | None = None) -> LoweredFunc
     if function_name is None:
         selected_name, selected_node, enclosing = functions[0]
         return _FunctionLowerer(
-            selected_name, selected_node, enclosing, structs, function_returns
+            selected_name,
+            selected_node,
+            enclosing,
+            structs,
+            function_returns,
+            proved_facts=proved_facts,
         ).build()
     for candidate_name, candidate_node, enclosing in functions:
         if candidate_name == function_name:
             return _FunctionLowerer(
-                candidate_name, candidate_node, enclosing, structs, function_returns
+                candidate_name,
+                candidate_node,
+                enclosing,
+                structs,
+                function_returns,
+                proved_facts=proved_facts,
             ).build()
     raise AnalysisRefusalError(f"function {function_name!r} not found in module")
 
 
-def lower_module(ast: object) -> tuple[LoweredFunction, ...]:
+def lower_module(
+    ast: object,
+    *,
+    proved_facts: ProvedFacts | Mapping[str, object] | None = None,
+) -> tuple[LoweredFunction, ...]:
     """Lower all functions, methods and definitions with bodies in a schema-2 module."""
     root = _unwrap_ast_root(ast)
     if root.get("kind") not in {"surface_file", "module", "file"}:
-        return (lower_function(root),)
+        return (lower_function(root, proved_facts=proved_facts),)
     declarations = _ast_nodes(root.get("declarations", []))
     structs = _collect_structs(declarations)
     function_returns = _collect_function_returns(declarations)
@@ -3965,7 +5012,12 @@ def lower_module(ast: object) -> tuple[LoweredFunction, ...]:
         seen_nodes.add(id(candidate_node))
         lowered.append(
             _FunctionLowerer(
-                candidate_name, candidate_node, enclosing, structs, function_returns
+                candidate_name,
+                candidate_node,
+                enclosing,
+                structs,
+                function_returns,
+                proved_facts=proved_facts,
             ).build()
         )
     if not lowered:
@@ -3974,18 +5026,25 @@ def lower_module(ast: object) -> tuple[LoweredFunction, ...]:
 
 
 def analyze_function(
-    ast: object, function_name: str | None = None, limits: Limits | None = None
+    ast: object,
+    function_name: str | None = None,
+    limits: Limits | None = None,
+    *,
+    proved_facts: ProvedFacts | Mapping[str, object] | None = None,
 ) -> Report:
     """Lower and analyze one schema-2 function, method or definition."""
-    lowered = lower_function(ast, function_name)
+    lowered = lower_function(ast, function_name, proved_facts=proved_facts)
     return analyze(lowered.owners, lowered.graph, limits)
 
 
 def analyze_module(
-    ast: object, limits: Limits | None = None
+    ast: object,
+    limits: Limits | None = None,
+    *,
+    proved_facts: ProvedFacts | Mapping[str, object] | None = None,
 ) -> dict[str, Report]:
     """Lower and analyze every function with a body in a schema-2 module."""
     return {
         lowered.name: analyze(lowered.owners, lowered.graph, limits)
-        for lowered in lower_module(ast)
+        for lowered in lower_module(ast, proved_facts=proved_facts)
     }
