@@ -145,112 +145,37 @@ relocation and fallible builders. Lifting an invariant introduces a linear
 
 ### Two-phase receiver borrows
 
-An implicit initialized `ref` method receiver uses two phases. Evaluate its
-place once and reserve the resolved owner, parent grant and whole-object or
-named-view footprint. The reservation grants no exclusive access. It requires
-an eligible exclusive parent and excludes competing overlapping writes, moves
-and exclusive grants or reservations. Shared reads and shared loans may use the
-footprint during argument evaluation. Unknown containment or overlap must be
-resolved at the relevant permission check.
-
-Evaluate the explicit arguments once in source order. Immediately before
-entering the method, activate the exclusive loan on the reserved footprint.
-Activation checks that no competing overlapping loan remains live, including
-loans retained in argument values or captures. It suspends the parent and
-introduces the ordinary restoration duty. Proved-disjoint permissions remain
-available in both phases. The entry precondition and invariants apply at the
-call, after the arguments' effects. A pre-activation exit discards the
-reservation without a receiver restoration duty and checks cleanup of the
-resources already evaluated or transferred on that exit. A shared or `out`
-receiver, an explicit `ref` argument and a qualified call with an explicit
-receiver argument follow their ordinary grant rules.
-
-The [receiver qualification cases](loan-analysis.md#two-phase-receiver-trial)
-check the phases and their source locations under [checked promotion](#borrow-analysis-promotion).
+Implicit initialized `ref` receivers use two phases: evaluate the receiver place once and reserve the resolved owner, parent grant, and object/named-view footprint (granting no exclusive access, requiring an eligible exclusive parent, and excluding overlapping writes/moves/exclusive grants or reservations while allowing shared reads/loans during argument evaluation; unknown overlap fails at check time). Evaluate explicit arguments left-to-right, then activate the exclusive receiver loan immediately before call entry (verifying no competing loans remain, including inside argument values/captures, suspending the parent, and introducing restoration; disjoint permissions stay live in both phases; entry preconditions/invariants hold after argument effects). Pre-activation exits drop the reservation without receiver restoration while cleaning evaluated/transferred argument resources; shared/`out` receivers, explicit `ref` args, and explicit-receiver qualified calls use ordinary grant timing. [Receiver qualification cases](loan-analysis.md#two-phase-receiver-trial) under [checked promotion](#borrow-analysis-promotion).
 
 ### Borrow-analysis promotion
 
-The [loan diagnostic](loan-analysis.md) proposes ends over finite control-flow
-graphs, including supported reducible loops. Source checking additionally
-requires the following correspondence and resource derivations.
+The [loan diagnostic](loan-analysis.md) proposes ends over finite CFGs (including reducible loops); source checking additionally requires checked correspondence and resource derivations:
 
 | Join | Evidence for the selected source fragment |
 | --- | --- |
-| Source facts | Checked correspondence relates resolved places, field partitions, control edges, call effects and transitive captures to the exact elaborated computation. Unknown overlap remains a proof goal; names, pointer inequality and library spelling create no separation fact. |
-| Loan ends and exits | Checked derivations discharge split, parent suspension and restoration at every reachable exit. Independent source cases cover returned-view success versus restored-owner error, nested reborrows, moved captures, disjoint fields and premature parent reuse. Each invalid neighbor reaches its resource rule after parsing and with an inhabited entry state. |
-| Receiver calls | Interpret and lower [reservation, activation and cancellation](#two-phase-receiver-borrows) against one resolved receiver footprint. Preserve source evaluation order and the argument, method-entry and exit resource predicates. |
-| Mutation and dependent facts | Writes and transitive call effects transform the current resource predicate. Reusing a current-content fact requires a checked preservation or re-establishment step. Immutable historical snapshots stay stable. Check that authorized rereads after an overwrite observe the new value, a stale equality fails, and a proved-disjoint field fact survives. For a represented length change at fixed capacity, shorten a three-element value to one and verify that a previous bound cannot authorize access to index two. The [snapshot and invalidation design](../extensions/interior-mutability.md#snapshots-and-dependent-indices) extends this rule to cells and Ante-style aliases. |
-| Control and demand | Bounded loops establish their invariant at entry and every back edge and close local descendants as specified above. Transitive capture checking respects the selected usage mode. The [default graded checker](first-release.md#default-graded-checking) covers the selected natural domains. Suspension, cyclic captures, broader loan escape and general domains require their own checked rules. |
+| Source facts | Relate resolved places, field partitions, control edges, call effects, and transitive captures to the elaborated computation (unknown overlap remains a goal; names, pointer inequality, and library spelling prove no separation). |
+| Loan ends and exits | Discharge split, parent suspension, and restoration at every reachable exit across returned-view success vs restored-owner error, nested reborrows, moved captures, disjoint fields, and premature parent reuse; invalid neighbors parse with inhabited entry states and fail at the resource rule. |
+| Receiver calls | Interpret and lower [reservation, activation, and cancellation](#two-phase-receiver-borrows) over one resolved footprint, preserving evaluation order and argument/entry/exit resource predicates. |
+| Mutation and dependent facts | Writes/transitive effects update current predicates; reusing current-content facts needs preservation/re-establishment (historical snapshots stay stable; rereads observe writes, stale equalities fail, disjoint fields survive, and shortening length 3 -> 1 invalidates index 2). [Snapshots/invalidation](../extensions/interior-mutability.md#snapshots-and-dependent-indices) extends this to cells and Ante aliases. |
+| Control and demand | Bounded loops prove invariants at entry and back edges and close local descendants; transitive captures respect usage modes ([default graded checker](first-release.md#default-graded-checking) covers natural domains; suspension, cyclic captures, broader loan escape, and general domains need own rules). |
 
-In [first-release qualification](first-release.md#qualification), report
-unsupported patterns, unresolved proofs and exhausted budgets separately from
-semantic rejection and checked acceptance.
+In [first-release qualification](first-release.md#qualification), report unsupported patterns, open goals, and exhausted budgets separately from semantic rejection and checked acceptance.
 
 ## Refinement, effects and staging
 
-Automatic refinement covers quantifier-free linear integer arithmetic over bounded scalars, equality/disequality, finite discriminants and congruence to a positive specialization-time alignment constant. Multiplication is by a known constant. Variable products, general nonlinear arithmetic and open quantified mathematics remain explicit goals. The [first-release primitive contract](first-release.md#primitive-semantics) fixes source operations and their target binding. Machine words enter through checked representability/no-overflow lemmas; intentional modular arithmetic uses explicit word lemmas. Initialization and typestate facts rely on resource rules. Bounded predicates and subrange projections over finite sequences on `.Model`—`Seq<T>.All(x => ...)`, `.Any(x => ...)`, `.Contains(x)`, `.Take(n)`, `.Skip(n)`, `.Slice(a, b)` and `.Count` when the element predicate stays within the supported fragment—together with sequence updates, vacant-slot prefix/suffix range splits (`[0..length)` and `[length..capacity)`) and content equality use pre-proved standard-library domain lemmas in the refinement/domain tier rather than open `forall`/`exists` quantifier instantiation or silently enlarging the arithmetic fragment. Sparse range obligations stay symbolic in static capacity `capacity` without per-element unfolding, and [qualification](first-release.md#qualification) checks capacity invariance ($N = 4$ versus $N = 10^9$).
+Automatic refinement covers quantifier-free linear integer arithmetic over bounded scalars, equality/disequality, finite discriminants, and congruence to positive specialization-time alignment constants (constant multiplication only; variable products, nonlinear math, and open quantifiers stay explicit goals; [primitive contract](first-release.md#primitive-semantics) binds target ops via checked representability/no-overflow lemmas, with modular ops explicit; init/typestate use resource rules). Bounded finite `.Model` predicates/subranges (`Seq<T>.All(x => ...)`, `.Any(x => ...)`, `.Contains(x)`, `.Take(n)`, `.Skip(n)`, `.Slice(a, b)`, `.Count` with supported element bodies), updates, `[0..length)`/`[length..capacity)` range splits, and content equality use pre-proved stdlib domain lemmas rather than open `forall`/`exists` or silent fragment widening; sparse ranges stay symbolic in static `capacity` without $O(\text{capacity})$ unfolding ([capacity-invariance gate](first-release.md#qualification): $N = 4$ vs $N = 10^9$).
 
-Checking uses conversion, resource/capture rules, reconstructed arithmetic, domain automation and explicit proof in that order. Timeout, unsupported formulas or failed reconstruction leave goals unresolved. [R-05-017](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-017) keeps its reconstruction duty. Proof search proves the chosen contract and cannot weaken it to close a goal.
+Checking order: conversion -> resource/capture rules -> reconstructed arithmetic -> domain automation -> explicit proof. Timeouts, unsupported formulas, or failed reconstruction leave open goals without weakening contracts ([R-05-017](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-017)). Effects are closed no-alloc read/write/call footprints (union sequentially; event counts add, or merge into proved bounds/indexed counts); stack slots and specialized envs keep size/layout obligations; effect variables/grades/handlers belong to [extension designs](../extensions/README.md).
 
-Effects are closed read/write/call footprints with no allocation, including transitive callees and environments. Sequential footprints take union; named event counts add. Alternative exact counts must agree or become a proved bound or result-indexed count. Stack slots and specialized environments retain size/layout obligations. Effect variables, general grades and handler discharge belong to the
-[extension designs](../extensions/README.md).
-
-Generators record inputs, environment and outputs for typing, proof and
-source-correspondence checks. Conversion executes only total pure definitions.
-The [staged metaprogramming contract](../extensions/metaprogramming.md) separates required-static
-inputs from ghost/erased indices and use grades, and requires generated terms to
-retain their dependent context, captures, effects and exit resources. Its broader
-reflection and generation facilities are outside this synchronous fixture's
-qualification. Compile-time constants may specialize layouts; runtime lengths
-cannot. Erasure must preserve results, effects, control and observations under the
-same representation, beyond merely type-checking the erased proof.
+Generators record inputs, env, and outputs for typing, proof, and source correspondence; conversion runs total pure defs only. [Metaprogramming rules](../extensions/metaprogramming.md) separate required-static inputs from ghost indices/grades and preserve context, captures, effects, and exits (broader reflection/generation is outside this synchronous fixture; static constants specialize layouts while runtime lengths stay represented; erasure preserves results, effects, control, and observations under one representation beyond mere type-checking).
 
 ### Inline proofs and runtime state
 
-At a program point, an inline proof may export a proposition about the
-values, authorized observations and snapshots available there. Its conclusion
-can justify the next instruction. Checking the proof must leave the runtime
-state at that point intact. In particular, the initialized places, outstanding
-loans, available owners, required verdicts and cleanup duties must agree before
-and after the proof. Reading a logical snapshot adds no target load. Taking
-the snapshot, when it requires a load, needs the ordinary read authority and
-appears in the executable footprint.
-
-Qualify this rule with an output parameter. A real store followed by a proof
-of its value establishes initialization. Moving the only initializer into an
-erased proof must fail even if its callee publishes a valid postcondition.
-Apply the same test to ownership transfer, closing a loan and consuming an
-error verdict. Exercise a method receiver and a nested helper as well as a
-direct call. A theorem about a modeled state transition can describe its
-post-state. Applying it to a running program requires evidence that the
-corresponding operation occurred on that path.
-
-For the core theorem, fix the representation, specialization, executable
-operations and optimization decisions. Replacing one checked proof with
-another of the same law must preserve results, exit resources and observable
-traces for every admitted input. The qualification also changes one
-represented branch condition and checks a case that distinguishes its two
-outputs. For a cost claim, compare the executable sections and calling
-convention at the [selected endpoint](../assurance/workflow-contract.md#cost-of-the-verified-abstraction)
-and retain the artifact identity of each build.
+Inline proofs may export propositions about available values, observations, and snapshots to justify subsequent instructions while leaving runtime state intact (initialized places, loans, owners, verdicts, cleanup duties unchanged; logical snapshots add no load, whereas load-taking snapshots need read authority and enter the footprint). Qualify with an `out` parameter: real store + proof establishes init, whereas moving the only initializer into an erased proof fails even with a valid postcondition (test likewise for ownership transfer, loan close, error verdict consumption, method receivers, nested helpers, and direct calls—applying a transition theorem requires proof the operation ran on that path). Fixing representation, specialization, ops, and optimization while swapping equivalent proofs must preserve results, exits, and traces for all inputs; qualification also flips one represented branch condition and compares executable sections/ABI with build identities at [the cost endpoint](../assurance/workflow-contract.md#cost-of-the-verified-abstraction).
 
 ## Composed qualification fixture
 
-`PrepareAndInspect` exercises private copying, scoped inspection and a returned
-view. Qualification requires a concrete input format and a valid-header witness.
-`Workspace` contains statically disjoint
-`bytes : Buffer(N)` and `audit : Cell(word)` fields. Capacity `N` specializes to a
-representable bound; requested input length `n` and available source extent `s`
-remain represented. Entry grants an initialized immutable source of extent `s`,
-with `n` a representable nonnegative request; it does not assume `n <= s` or
-`n <= N`. The program checks both before source access or request-derived pointer
-arithmetic. Input stays immutable during this sequential fixture under its entry
-permissions; no concurrent snapshot is claimed.
-
-Compare this fixture against an independently reviewed baseline with the same
-copy, inspection, cleanup and returned-view behavior.
-
-An abstract linear `PreparationOpen` fixture token models ordinary cleanup. A total non-failing `finish` consumes it and returns `PreparationClosed`, preserving memory. These experiment-local states do not replace the ring lifecycle. Their concrete interpretation and implementation are prerequisites; assuming a `finish` law cannot open the trial.
+`PrepareAndInspect` exercises private copying, scoped inspection, and returned views (requiring a concrete input format and valid-header witness): `Workspace` holds statically disjoint `bytes : Buffer(N)` (specialized representable `N`) and `audit : Cell(word)`, with represented request `n` and immutable initialized entry source extent `s` (checking `n <= s` and `n <= N` before access or request-derived pointer math; sequential entry permissions, no concurrent snapshot). Compare against an independent baseline at the same copy, inspection, cleanup, and view behavior; linear `PreparationOpen` is consumed once by total non-failing `finish -> PreparationClosed` (experiment-local states, not replacing the ring lifecycle; concrete interpretation/implementation are prerequisites).
 
 ```text
 PrepareAndInspect(ref workspace, in input[s], runtime n, in controls[N],
@@ -284,13 +209,9 @@ if keep_view: return Ready(n, a shared prefix loan into the caller's workspace)
 else: return Rejected(view_not_requested)
 ```
 
-Inspection controls are separate from header validity. A break never denotes a successfully partial copy. Both callbacks are total and effect-free, with disjoint captured representation; the copy callback's unused result cannot alter the intended bytes. Audit begins at zero and counts inspected indices, including the iteration that takes a break. Each iteration increments its cursor exactly once before any continue, and the bound `n <= N` proves the audit increment representable. Break/continue controls are supplied in a public immutable buffer of fixed capacity `N`, with its own grant; only the admitted prefix of length `n` is inspected. Its grant supplies no source-byte authority. Continue skips no required copy or initialization work, which precedes inspection.
+Inspection controls are distinct from header validity (`break` never yields partial copy; both callbacks are total, effect-free, and capture-disjoint; `audit` starts at 0 and increments once per iteration incl. `break`/`continue` with `n <= N` proving representability; `controls[N]` is a public immutable buffer whose prefix `[0..n)` is read without granting source-byte authority; init/copy precede inspection). Trace records `ReadInput(i,b)`, `WriteDestination(i,b)`, `FillCallback(i)`, `CopyCallback(i)`: admitted `n` reads each `i < n` once in order (no other input read), finishes all fill writes before any copy write, counts callbacks by loop bounds, and validates/inspects only the private destination (transported to machine observations without requiring surviving machine helper calls).
 
-The source trace records `ReadInput(i,b)`, `WriteDestination(i,b)`, `FillCallback(i)` and `CopyCallback(i)`. On an admitted length, each input index below `n` is read exactly once, in order, and no other input index is read. Every destination index receives its fill write before any copy write; fill and copy callbacks have their respective loop counts. Validation/inspection read only the private destination. These are explicit functional/trace obligations in addition to set-valued effects. Transport to machine observations remains the route's proof obligation, and an optimized implementation need not retain source helper-call events as actual machine calls.
-
-On `source_too_short` or `too_large`, the entire destination is initialized to zero and no input byte is read or copied. If both bounds fail, `source_too_short` takes precedence. Otherwise the destination holds the input prefix followed by zeros. `invalid_header` corresponds exactly to the header check's invalid answer on that private prefix; both `Ready` and `view_not_requested` require its valid answer. Audit is zero on pre-inspection failures and otherwise equals the inspected-index count. `Ready` retains real `n` with evidence `n <= s` and `n <= N`, with no decoder consumed-length claim. All exits return `PreparationClosed`, preserve input and unrelated storage, and restore workspace ownership except for the returned prefix loan on `Ready`.
-
-The prefix loan is a logical access footprint with represented base and length. The representation must state the hardware authority actually retained: it cannot claim exactly narrowed CHERI bounds for every runtime length without its narrowing theorem and representability check. Source loan rules permit access only within the prefix; arbitrary linked machine code needs the separately required artifact and contextual guarantees. Disjoint tail and audit access use proved splitting, with no claim that ending an empty prefix loan creates or enlarges authority.
+On `source_too_short` or `too_large` (`source_too_short` takes precedence if both fail), destination is all zeros with zero input reads/copies; otherwise destination holds input prefix + zeros (`invalid_header` matches `descriptor_check`; `Ready`/`view_not_requested` require valid headers; `audit` is 0 pre-inspection, else visited count; `Ready` keeps `n` with `n <= s` and `n <= N` without decoder consumed-length claims; all exits return `PreparationClosed`, preserve input/frame, and restore workspace except `Ready`'s prefix loan). Prefix loans are logical footprints with represented base/length (exact CHERI narrowing requires its theorem/representability check; disjoint tail/audit use splitting without creating authority on empty loan end).
 
 | Point | Required resource predicate |
 | --- | --- |

@@ -647,203 +647,45 @@ overlapping/shared-mutation attempts. Their acceptance is no semantic verdict.
 
 ### Concise authoring syntax
 
-- First-class unit types use `Unit`, including `Result<Unit, Error>` and
-  `Fn() -> Unit`; the unit value and pattern are `()`. No empty parenthesized
-  type spelling is accepted. Ordinary `void` operation declarations retain
-  their no-result role and grant no implicit conversion or resource discard.
-- Receiver names in declarations, contracts, views, capture sets and
-  place-named lifetimes use `this`, including `ref this.Tail` and `'this.text`.
-  This is the receiver's source name, not a new authority or permission rule.
-- Range iteration uses `foreach (let index in lower..upper)` with a braced
-  body and the existing loop contracts. The binder is immutable. Bounds,
-  evaluation order/count, representability, decreasing measures, WCET and
-  branch/loop-exit loan obligations are unchanged; there is no implicit
-  enumerator protocol, allocation, copying, conversion or disposal.
-- Calls accept a positional prefix followed by an optional labeled suffix:
-  `Copy(in source, target: ref destination, count: length)`. Every label names
-  exactly the next declared value parameter; argument slots cannot be skipped,
-  reordered, defaulted or repeated. A positional argument after a label is
-  refused. Labels on unnamed callable parameters are refused. Explicit generic
-  arguments retain their own existing syntax and inference rules.
-  The mathematical fragment's partial applications return the remaining
-  callable; labels cannot skip its next parameter or supply a default.
-  Each argument is evaluated once, left to right, with the same loan timing,
-  grades, captures, effects and cleanup obligations as its positional form.
-  Dependent application substitutes each argument through the entire remaining
-  telescope, including types, grades, captures and exit predicates. Labels
-  never supply a conversion, implicit loan, ownership transfer or proof.
-  Located `argument` nodes contain an optional `label` and a `value`; label
-  names and values retain their original byte spans. Both pure syntax routes
-  and mathematical elaboration validate labels against the resolved callable.
-- A call argument may declare an output with `out var name`, including after
-  an argument label. Its located `out_variable` node spans both keywords and
-  the binder. The mathematical elaborator accepts this in standalone calls
-  returning `Unit` when it can derive the callee's output value. Each name
-  must be fresh in the enclosing local environment and among the call's
-  declarations. The mutable locals enter scope together after the call and
-  leave scope at the end of its block. Sibling blocks may reuse their names.
-- Local bindings use `let name = value` or `let T name = value` for immutable
-  bindings, and `var name = value` or `var T name = value` for mutable bindings.
-  The optional annotation chooses type inference independently of mutability.
-  Bare `T name = value` local declarations without `let` or `var` are refused as
-  syntax, directing authors to `let T name = value;` or `var T name = value;`.
-  Binding immutability does not prohibit a
-  write through an eligible exclusive loan, and the pure prototype reports its
-  unsupported mutation boundary without claiming a source borrow judgment.
-- Inferred lambda parameters may omit the annotation: `value => value + 1`,
-  `(value) => value + 1` and `(left, right) => left + right`. Explicitly typed,
-  graded and resource-modified parameters retain their existing forms. An
-  omitted annotation is JSON null in the located `lambda_parameter` node;
-  existing expected-type inference supplies it or reports an unresolved goal.
-  Token shape and delimiters must distinguish lambdas from grouping, products
-  and type annotations without consulting names or types.
-- Ordinary value-returning functions accept `=> EXPR;` after their signature
-  and declaration contracts: `Nat F(Nat x) requires x > 0 => x;`.
-  A located `expression_body` node
-  contains `value` and covers the arrow through the semicolon. The pure entry
-  accepts the same form. Consumers check it as the existing single return,
-  preserving evaluation count/order, result type, effects, resources and source
-  locations. Mathematical functions use `definition ... => EXPR;` under the
-  [body grammar](#bindings-match-arms-and-generic-calls), retaining their distinct declaration
-  kind and pure interpretation. An expression body alone does not assert purity.
-  Semantic consumers reject
-  void shorthand that would discard a result or resource; syntax acceptance
-  alone grants no implicit discard.
-- Declaration contracts use ordinary operator expressions, such as
-  `requires Valid(x)` and `ensures result > x`. A lambda, quantifier, expression-local
-  binding or type expression at the root of a clause is parenthesized:
-  `requires (forall (Nat n) => Valid(n))` or
-  `requires (let n = Limit(x) in n > 0)`. Nested lambdas need no extra grouping,
-  as in `requires items.Model.All(x => x > 0)`. The shared operator grammar
-  and explicit grouping delimit contracts from a function body's arrow without
-  symbol lookup or precedence guesses. The same clause expression rules apply
-  to block-bodied functions and other declarations.
-- Delimited comma lists for parameters, arguments and generic parameters and
-  arguments accept one optional trailing comma after a nonempty list. This
-  includes callable, constructor and pattern argument lists. Empty lists with
-  a comma and doubled commas are refused. Products keep at least two elements;
-  `(value,)` acquires no new tuple or grouping meaning.
-- Token shape distinguishes [bindings and constructors](#shared-operators-and-local-elimination)
-  without consulting a symbol table. A bare `_` discards subject to resource
-  checking. Write nullary cases such as `None` without `()` in patterns and
-  expressions. Local elimination uses
-  `let (owner, receipt) = pair;` or `let Ready(buffer, receipt) = outcome;`, and
-  both expression and statement matches use `Pattern => ...` arms without `case`
-  (`Ok(value) => value,` in an expression match or `Ok(value) => { ... },` /
-  `Ok(value) => return value;` in a statement match). The outer local keyword
-  selects binding mutability. Located binding/constructor/product nodes have
-  distinct roles.
+- **Unit**: type `Unit` (e.g., `Result<Unit, Error>`, `Fn() -> Unit`), value/pattern `()`; no empty `()` type; `void` declarations keep their no-result role without implicit conversion/discard.
+- **Receiver name**: `this` in declarations, contracts, views, captures, and place-named lifetimes (`ref this.Tail`, `'this.text`)—naming only, no new authority.
+- **Range loops**: `foreach (let index in lower..upper) { ... }` with immutable `index` and existing loop contracts (unchanged bounds, evaluation order/count, representability, decreasing measures, WCET, exit loans; no enumerator protocol, allocation, copy, conversion, or disposal).
+- **Labeled calls**: positional prefix + optional labeled suffix (`Copy(in source, target: ref destination, count: length)`); labels match the next declared parameter in order (no skipping, reordering, defaults, duplicates, positional-after-label, or labels on unnamed callable params; generics unchanged; partial apps in math fragment preserve order). Evaluated left-to-right once with positional loan/grade/capture/effect/cleanup semantics, substituting dependents across types/grades/captures/exits (no implicit conversion/loan/move/proof). Located `argument` nodes carry nullable `label` + `value` with exact byte spans; both pure routes and math elaboration validate labels.
+- **`out var` arguments**: `out var name` (incl. after labels) emits `out_variable` spanning keywords + binder; accepted by math elaborator on standalone `Unit` calls when output value derives, requiring fresh names (local env + call), entering scope together post-call until block end (reusable in sibling blocks).
+- **Local bindings**: `let [T] name = value` (immutable) and `var [T] name = value` (mutable); bare `T name = value;` refused syntactically directing to `let`/`var`. Immutable bindings still allow writes through eligible exclusive loans; pure prototype rejects unsupported mutation without claiming borrow verdicts.
+- **Inferred lambda parameters**: `value => value + 1`, `(value) => value + 1`, `(left, right) => left + right` alongside explicitly typed/graded/resource params; omitted annotations are JSON null in `lambda_parameter`, filled by expected-type inference or left unresolved (lexically/syntactically distinct from grouping, products, and annotations).
+- **Expression-bodied functions**: `=> EXPR;` after signature/contracts (`Nat F(Nat x) requires x > 0 => x;`, located `expression_body` covering arrow through `;`), checked identically to single `return` (math defs keep `definition ... => EXPR;` under [body grammar](#bindings-match-arms-and-generic-calls); expression bodies assert no purity, and `void` shorthand cannot drop results/resources).
+- **Contract expressions**: `requires`/`ensures` use ordinary expressions, parenthesizing root lambdas, quantifiers, `let...in`, or type expressions (`requires (forall (Nat n) => Valid(n))`, `requires (let n = Limit(x) in n > 0)`; nested lambdas like `requires items.Model.All(x => x > 0)` need no extra parens) to separate from `=>` bodies without symbol lookup.
+- **Trailing commas**: parameter, argument, generic-parameter/argument, callable, constructor, and pattern lists accept one trailing comma when nonempty (empty comma lists and `,,` refused; products keep >=2 elements so `(value,)` gains no tuple/grouping meaning).
+- **Pattern/binding disambiguation**: token shape separates [bindings and constructors](#shared-operators-and-local-elimination) without symbol tables (`_` discards subject to resources; nullary `None` omits `()`; `let (owner, receipt) = pair;` / `let Ready(buffer, receipt) = outcome;`; expression/statement matches use `Pattern => ...` without `case`, outer `let`/`var` choosing mutability; distinct AST roles).
 
-Acceptance requires independently expected AST roles, original UTF-8 spans,
-precedence, nesting/resource boundaries and malformed neighbors for every form.
-Check labeled and positional call agreement in both pure routes and mathematical
-elaboration, including dependent later parameters, callable labels, generics,
-shadowing, duplicate/unknown/out-of-order labels, positional-after-label calls
-and effectful resource-modified arguments. Check unit values separately from
-types, all loop exits and the distinction between rebinding and loan writes.
-Compose inferred lambdas with products, calls, explicit generics and dependent
-expected types; retain typed/graded loan callbacks and unresolved-inference
-refusals. Check expression bodies against equivalent return blocks in both pure
-routes and mathematical elaboration, comparing generated terms apart from exact
-source provenance. Distinguish lambdas inside declaration contracts from the
-expression body. Exercise list forms independently, including nested generic
-closers, and distinguish binding names from explicit nullary constructors.
-Editor hints follow the [hint contract](../tooling/lsp-prototype.md#authoring-hints).
+**Qualification**: independently expected AST roles, UTF-8 spans, precedence, nesting/resource boundaries, and malformed neighbors for each form; labeled/positional parity (dependent later params, callable labels, generics, shadowing, bad/out-of-order/duplicate labels, positional-after-label, effectful loans); `Unit` values vs types; loop exits and rebinding vs loan writes; inferred lambdas in products/calls/generics/dependents/graded loan callbacks and unresolved refusals; expression bodies vs return blocks (matching generated terms minus provenance; contract lambdas vs body arrows); nested generic closers; bindings vs nullary constructors; editor hints per [hint contract](../tooling/lsp-prototype.md#authoring-hints).
 
 <a id="familiar-authoring-migration"></a>
 
 ### Bindings, match arms, and generic calls
 
-The development parser accepts typed `let`/`var`, comma-separated expression
-arms, mathematical `=>` bodies and generic applications. The pure prototype
-checks typed immutable `Nat`/`bool` locals.
+Development parser supports typed `let`/`var`, comma-separated match arms, math `=>` bodies, and generic calls; pure prototype checks typed immutable `Nat`/`bool` locals.
 
-**Bindings and aliases.** Local declarations use `let [T] name = value` and
-`var [T] name = value` (where `[T]` denotes an optional type annotation), and bare
-`T name = value;` declarations are refused. The [primitive contract](first-release.md#primitive-semantics)
-owns the exact integer aliases exported by `HoldFast.Numerics`: they require explicit
-import or qualification, use ordinary type-name syntax without new keywords,
-implicit conversions, suffixes or default integer types, and agree with their
-underlying fixed-width types in identity, range, layout and operator selection.
+**Bindings and aliases.** `let [T] name = value` and `var [T] name = value` (bare `T name = value;` refused). `HoldFast.Numerics` integer aliases ([primitive contract](first-release.md#primitive-semantics)) require explicit import/qualification, use ordinary type syntax (no new keywords, implicit conversions, suffixes, or default widths), and match underlying types in identity, range, layout, and operators.
 
-**Match arms and mathematical bodies.** As specified in [Concise authoring syntax](#concise-authoring-syntax),
-nonempty expression and statement matches use `PATTERN => ...` arms without
-`case` (`case PATTERN:`, `{,}`, doubled commas and missing separators are
-refused), and mathematical definitions use `definition ... => EXPR;` while
-value initializers, constants, type aliases, associated-type definitions and
-grade-domain equations retain `=`.
+**Match arms and mathematical bodies.** Per [Concise authoring syntax](#concise-authoring-syntax), matches use `PATTERN => ...` without `case` (`case PATTERN:`, `{,}`, `,,`, and missing separators refused); `definition ... => EXPR;` uses arrow, while initializers, constants, type/associated-type aliases, and grade-domain equations keep `=`.
 
-**Generic applications in expressions.** At a postfix expression followed by
-`<`, probe for one complete nonempty generic-argument list ending in its matching
-`>`. Select generic application if the next token is one of these.
+**Generic applications in expressions.** Postfix `<` probes for a complete nonempty generic-argument list ending in `>`, choosing generic application iff followed by:
 
 ```text
 ( ) ] } : ; , . ? == != | ^ && || & [ => < <= >= is as
 ```
 
-Otherwise `<` belongs to the ordinary operator grammar. HoldFast uses C#'s
-fixed follower tokens with its own postfix expressions and generic argument
-grammar.
-[C# grammar ambiguities](https://learn.microsoft.com/dotnet/csharp/language-reference/language-specification/lexical-structure#625-grammar-ambiguities)
+Otherwise `<` is a binary operator (adapting [C# follower rules](https://learn.microsoft.com/dotnet/csharp/language-reference/language-specification/lexical-structure#625-grammar-ambiguities) to HoldFast postfix/generic syntax). Lexer longest-match keeps `F<T>>=x` as `>` + `>=` (write `F<T> == x` with a space; `?name` is its own token). Generic args support dependent values, lifetimes, structural/computed types, trailing commas, and parenthesized expressions; type positions always accept `<...>`; probes are bounded and final regardless of downstream semantic errors. Examples: `Outer(F<A, B>(7))` (1 generic call), `Outer(F < A, B > 7)` (2 comparisons), `Outer(F < A, B > &value)` (1 bitwise expr; write `Outer((F < A), B > &value)` for comparisons), `(f < n) > x` (grouped comparison), `Choose<(a < b)>(value)` (grouped relational arg), `Library.F<T>(value)` / `factory()<T>(value)`, `Foo<T>.Bar`, `Apply(Identity<Nat>, value)`, `(F<T>) > x`. Probes share source/delimiter/depth/duration limits plus a 200,000-token per-parse aggregate inspection cap (exhaustion fails whole parse without falling back to comparisons or leaking speculative AST/tokens).
 
-The lexer skips whitespace and comments between tokens and recognizes the
-longest token at each position. For example, `F<T>>=x` has a closing `>` followed
-by `>=`. Write `F<T> == x` with a space so the closer and equality operator
-are separate tokens. A named hole such as `?name` has its own token.
-
-Arguments use the same grammar as in types, including dependent values,
-lifetimes, explicit structural types, computed types, optional trailing commas
-and parenthesized value expressions. Type positions accept angle arguments
-regardless of the token after the closer. The probe is bounded and uses token
-shape alone. Its classification is final even when the remaining syntax is
-malformed or a name, type or other semantic check fails.
-
-`Outer(F<A, B>(7))` contains one generic call argument, and
-`Outer(F < A, B > 7)` contains two comparison arguments. The `&` follower makes
-`Outer(F < A, B > &value)` one bitwise expression argument. Write
-`Outer((F < A), B > &value)` for two comparisons. To express a grouped
-comparison where `f < n > (x)` selects a generic call, write `(f < n) > x`.
-Relational expressions inside generic arguments use parentheses, as in
-`Choose<(a < b)>(value)`. The rule also applies to member and computed callees,
-including `Library.F<T>(value)` and `factory()<T>(value)`.
-
-Write `Foo<T>.Bar` for member access and `Apply(Identity<Nat>, value)` to pass a
-specialized function value. Parenthesize the application before a token outside
-the follow set, as in `(F<T>) > x`. The closing `)` selects the generic parse.
-The resulting `generic_application` retains its original-byte span and follows
-the ordinary inference, dependent substitution, evaluation, loan, ownership and
-effect rules.
-
-Every probe shares the existing source, delimiter, syntax-depth and duration
-bounds, plus a declared aggregate token-inspection budget covering unsuccessful
-and nested probes. Exhaustion is a resource refusal for the whole parse, never
-permission to reinterpret the source as comparisons. No speculative AST or
-token rewrite may leak into a failed probe. All probes share the aggregate
-bound of 200,000 inspected tokens per parse. Qualification checks the boundary
-and the source-consumption and diagnostic bounds.
-
-**Qualification.** Independently expected fixtures cover all
-four local forms, their AST roles and reassignment diagnostics; aliases versus
-underlying types, exact boundary values, explicit conversion refusals, import/name
-collisions and alias source identity beside target-type identity; empty,
-single and multiple match arms, nested patterns/motives and malformed separators;
-mathematical body arrows beside contracts and alias/constant `=`, and generic
-applications and comparisons with and without grouping. Include nested generic calls,
-computed and member callees, member access on a generic receiver, higher-order
-values, parenthesized relational arguments, all generic-argument modes, trailing
-commas, comments/newlines, Unicode byte spans, incomplete delimiters and
-probe-budget boundaries. Name,
-type, purity, grade and resource mistakes must reach their semantic consumer
-after successful parsing where their token shape is valid.
+**Qualification.** Independently expected fixtures cover all four local forms, AST roles, reassignment errors; aliases vs underlying types, boundaries, conversion refusals, collisions, alias vs target identity; empty/single/multi match arms, nested patterns/motives, bad separators; `=>` vs `=`; generic calls vs comparisons with/without grouping (nested, computed/member callees, generic receivers, higher-order values, parenthesized relationals, all arg modes, trailing commas, comments/newlines, UTF-8 spans, incomplete delimiters, probe-budget limits). Token-valid semantic errors must reach semantic consumers.
 
 ### Ergonomic authoring and bounded collection iteration
 
-The parser preserves unsuffixed literals for [contextual inference](first-release.md#contextual-inference).
-Collection iteration over represented storage needs the corresponding
-[ownership library contracts](first-release.md#ownership-libraries).
+Parser keeps unsuffixed literals for [contextual inference](first-release.md#contextual-inference); represented collection loops require [ownership library contracts](first-release.md#ownership-libraries).
 
-**Collection loops.** The following forms select value, shared-read and exclusive
-element iteration respectively, with an optional explicit element type:
+**Collection loops.** Value, shared-read, and exclusive-element iteration (optional explicit element type):
 
 ```text
 foreach (let item in values) { ConsumeValue(item); }
@@ -852,201 +694,25 @@ foreach (in item in values) { Inspect(in item); }
 foreach (ref byte item in values) { Update(ref item); }
 ```
 
-The element binding is immutable. Value iteration requires permission to copy
-each element; it never consumes an owned element implicitly. `in`/`ref` select
-the corresponding element loan and its eligible source view. No `out`, `move`
-or mutable-rebinding loop binder is introduced. The collection expression is
-evaluated once before iteration. A qualified, coherent bounded iterator library
-supplies the iteration bound, element access, effects and restoration contract;
-there is no ambient enumerator protocol, allocation or implicit disposal.
-Checking proves initialization, bounds, representability, termination/WCET and
-the resource state on exhaustion, `continue`, `break`, return and propagation.
-An element loan cannot escape or overlap the next iteration without a proved
-interface permitting it. Mutation cannot invalidate the iteration footprint or
-bound. The [ownership library contract](first-release.md#ownership-libraries)
-retains all of these semantic obligations.
+Element binders are immutable (value mode needs copy permission without implicit move; `in`/`ref` take element loans; no `out`/`move`/mutable binders). Collection evaluates once; coherent bounded iterators supply bound, access, effects, and restoration (no enumerator protocol, allocation, or implicit disposal), proving init, bounds, representability, termination/WCET, and exit resources across exhaustion, `continue`, `break`, `return`, and `?` without escaping/overlapping loans or footprint invalidation. Unannotated value binders over ranges emit `foreach` (`name`, `range`, `contracts`, `body`); other forms emit `foreach_collection` (`name`, nullable `type`, `mode` in `{value, in, ref}`, `collection`, `contracts`, `body`) purely syntactically (parenthesized ranges stay ranges; typed/loan binders over ranges parse as `foreach_collection` for semantic check; type/collection/contracts/body count toward depth; contracts precede body).
 
-An unannotated value binder whose source expression is a range retains the
-existing `foreach` node and `name`, `range`, `contracts`, `body` fields. Other
-forms produce `foreach_collection` with located `name`, nullable `type`, string
-`mode` (`value`, `in` or `ref`), `collection`, `contracts` and `body` fields.
-Parenthesized range grouping does not change its range role. Explicitly typed
-or loan binders over ranges parse as collection syntax; their eligibility is a
-checking question. This distinction depends only on syntax, never resolution.
-The type, collection, contracts and body all contribute to depth accounting.
-Loop contracts retain the range-loop placement before the braced body.
+**Sequence model vocabulary in contracts.** In `requires`/`ensures`/`restores`/`invariant`, `.Model` (`Seq<T>`, direct or via `ISequenceModel<C, T>`) exposes `.All(x => ...)`, `.Any(x => ...)`, `.Contains(x)`, `.Take(n)`, `.Skip(n)`, `.Slice(a, b)`, `.Count`, `.At(i)`, `.Update(i, v)`, `.Append(x)`, and `IBoundedIterable<C, T>` links `foreach` step `k` to `Model.At(k)`, `.Take(k)`, `.Skip(k)` without `IEnumerable<T>` or `IQueryable<T>` reflection (ordinary member/call/lambda productions inside `s_contract_expression`, no outer parens or new keywords; backed by [ownership library](first-release.md#ownership-libraries) and [refinement tier](core-design.md#refinement-effects-and-staging)).
 
-**Sequence model vocabulary in contracts.** In `requires`, `ensures`, `restores`
-and `invariant`, a container's logical `.Model` (`Seq<T>`, projected directly or
-through `ISequenceModel<C, T>`) exposes the C#/Kotlin-style pure sequence vocabulary
-`.All(x => ...)`, `.Any(x => ...)`, `.Contains(x)`, `.Take(n)`, `.Skip(n)`,
-`.Slice(a, b)` and `.Count` alongside `.At(i)`, `.Update(i, v)` and `.Append(x)`.
-Authors write `requires items.Model.All(x => x > 0)` rather than raw index
-quantifiers. Bounds such as `where C : ISequenceModel<C, T>` and
-`where C : IBoundedIterable<C, T>` project containers to canonical
-`Seq<T>` and connect bounded `foreach` steps to `Model.At(k)`, `Model.Take(k)`
-and `Model.Skip(k)`, without importing stateful `IEnumerable<T>` enumerators or
-runtime `IQueryable<T>` expression-tree reflection. In the surface grammar these
-are ordinary member projections, calls and inferred lambdas inside
-`s_contract_expression`, requiring no outer quantifier parentheses and adding no
-new reserved words or parser productions. Their standard-library definitions and
-pre-proved finite-sequence lemmas belong to the
-[ownership library](first-release.md#ownership-libraries) and
-[refinement/domain tier](core-design.md#refinement-effects-and-staging).
+**Raw string literals and allocation-free checked formatting.** Raw strings open/close with >=3 matching `"` (`string` / `string_pattern`, exact spelling/span; single-line forbids newlines; multi-line requires opening newline, whitespace-indented closing line, >= closing indent on non-empty content lines). Interpolated `$"..."` parses as `interpolated_string` (`span`, raw `value`) with `{expr}` / `{expr:spec}` (non-empty expr within delimiter budget, optional non-empty spec without whitespace/quotes; `{{`/`}}` literal braces; unterminated, `{}`, `{x:}`, unescaped `}`, and pattern `$"..."` refused). Under [Bytes and text](first-release.md#bytes-and-text), `$"..."` is not a heap `string`: it elaborates only inside buffer writes like `Format.Write(ref builder, $"...")` (`ref TextBuilder<capacity>` / `ref Span<byte>`) via static `IFormat<T>` per hole returning `Result<usize, CapacityError>` (no reflection, `ToString()`, or ambient locale; standalone `$"..."`, missing `IFormat<T>`, ignored `Result`, and conflicting hole reads reach semantic/borrow checkers).
 
-**Raw string literals and allocation-free checked formatting.** Raw string
-literals open with three or more double quotes (`"""..."""`) and close with the
-same quote count (`string` in expressions and `string_pattern` in patterns,
-retaining the exact authored spelling and original-byte span). Single-line raw
-strings contain no line breaks; multi-line raw strings require a newline after
-the opening delimiter, a closing delimiter on its own whitespace-indented line,
-and at least that closing indentation prefix on every non-empty content line.
-Excess closing quotes, missing opening/closing line breaks and under-indented
-content lines are syntax refusals. Interpolated format templates `$"..."` parse
-as located `interpolated_string` expression nodes with their original-byte
-`span` and raw `value` spelling. Holes `{expr}` and `{expr:spec}` require a
-non-empty expression, balanced delimiters within the delimiter budget and an
-optional non-empty format specifier without whitespace or quotes; literal braces
-use `{{` and `}}`. Unterminated templates, empty holes (`{}`), empty or
-whitespace-containing specifiers (`{x:}`), unescaped closing braces and `$"..."`
-in pattern positions are syntax refusals. Under the
-[text and ownership contracts](first-release.md#bytes-and-text), `$"..."` is not
-a heap-allocating `string` value: it is elaborated only as the format template
-of an explicit buffer-writing operation such as `Format.Write(ref builder, $"...")`
-targeting `ref TextBuilder<capacity>` or `ref Span<byte>`, resolving a coherent
-static `IFormat<T>` instance per hole (no runtime reflection, virtual `ToString()`
-or ambient locale) and returning `Result<usize, CapacityError>`. Standalone
-`$"..."` bindings, missing `IFormat<T>` instances, unexamined
-`Result<usize, CapacityError>` outcomes and hole expressions that conflict with
-the active `ref` target loan remain valid syntax for the semantic and borrow
-checkers to diagnose.
+**Lightweight `by` justifications on `assert`.** `assert EXPR;`, `assert EXPR by EXPR;`, and `assert EXPR by { ... }` (`let`/`assert` steps, no trailing `;`) produce `assert` with located `value` and nullable `by` (`null`, expr, or block); `by` stays reserved.
 
-**Lightweight `by` justifications on `assert`.** Assertions accept an optional
-Dafny/Verus-style `by` justification: `assert EXPR;`, `assert EXPR by EXPR;`
-(terminated by a semicolon, typically a lemma or proof-carrying call) and
-`assert EXPR by { ... }` (a braced block of intermediate `let` bindings and
-`assert` steps, requiring no trailing semicolon after `}`). Every `assert` node
-exposes located `value` and nullable `by` fields (`null` for a bare assertion,
-the located expression node for `by EXPR;`, or the located `block` node for
-`by { ... }`). `by` remains a reserved keyword in the surface lexer.
+**Conditional expressions, constructor-pattern labels and record updates.** In expressions, `if (COND) THEN else ELSE` parses as `if_expression` (`condition`, `then`, mandatory `else`; `?` stays postfix propagation / prefix hole; desugars to Boolean match), avoiding LR(1) conflicts with statement `if` via `s_statement_expression`. Constructor patterns `Path(arg, ...)` accept positional prefix + declaration-order `label: pattern` (`labeled_pattern` with `label`, `pattern`). Postfix `BASE with { Field = EXPR, ... }` (optional trailing comma) parses at unary precedence as `with_expression` (`value`, nonempty `updates` of `field_update`), binding `move base` cleanly and distinct from callable `with { ... }` and handler `with k =>` (left-to-right declaration-order eval; linear/affine records require `move base with { ... }`).
 
-**Conditional expressions, constructor-pattern labels and record updates.**
-In expression positions (`let` initializers, `=>` expression bodies, `return`
-values, call arguments, contracts and nested expressions), `if (COND) THEN else ELSE`
-parses as a located `if_expression` node with `condition`, `then` and mandatory
-`else` fields, avoiding ternary `?` ambiguity (where `?` remains postfix error
-propagation and prefix typed holes) and desugaring to an exhaustive Boolean
-elimination with the same resource join as a two-arm `match`. Statement-start
-`if` retains its statement production without LR(1) conflict by restricting
-bare statement expressions and assignment targets to `s_statement_expression`.
-Constructor patterns `Path(arg, ...)` accept positional sub-patterns or a
-positional prefix followed by declaration-order `label: pattern` arguments
-(`labeled_pattern` nodes with located `label` and `pattern` fields), matching
-call-expression label order without symbol-table lookup during parsing. Postfix
-`BASE with { Field = EXPR, ... }` (allowing one trailing comma) parses at unary
-precedence as a located `with_expression` node with `value` and nonempty
-`updates` (`field_update` nodes carrying `name` and `value`), so `move packet with { ... }`
-binds `move packet` as the base `value` expression. It does not conflict with
-callable-type `with { requires ...; }` (only in `Fn`/`FnMut`/`FnOnce` types) or
-handler `with k =>`. Evaluation proceeds left-to-right in declaration order;
-linear or affine records require `move base with { ... }` so unreplaced fields
-transfer cleanly and replaced resources are accounted for.
+**Scoped early-exit guards and total read-only expression properties.** Block `let`/`var [grade] [T] PATTERN = EXPR else { ... }` parses as `let_else`/`var_else` (`grade`, nullable `type`, `pattern`, `value`, braced exiting `else` block without trailing `;`, discharging non-matching resources and keeping bindings in scope; headers follow [pattern test scope](#pattern-test-scope)). Module/`record`/`struct`/`union`/`impl` `[visibility] [ghost] T Name [contracts] => EXPR;` parses as `property` (`visibility`, `ghost`, `attributes`, `modifiers`, `name`, `return_type`, `contracts` without `effects`, `body`; refusing `async`, `const`, params, `effects`, and `set` so `a.B` is total, allocation-free, effect-free).
 
-**Scoped early-exit guards and total read-only expression properties.**
-Inside blocks, `let [grade] [T] PATTERN = EXPR else { ... }` and `var [grade] [T] PATTERN = EXPR else { ... }`
-parse as located `let_else` and `var_else` statement nodes with `grade`,
-nullable `type`, `pattern`, `value` and braced `else` block fields (`else`
-takes a block without a trailing semicolon). The `else` block must exit the
-enclosing scope (`return`, `break`, `continue` or diverging handler/propagation)
-and discharge non-matching resources, leaving the pattern's bindings in scope for
-the remainder of the enclosing block. Conditional headers follow the
-[pattern test scope](#pattern-test-scope).
+**Pure typed locals and binding guidance.** Both pure routes accept `let Nat count = value;` and `let bool ready = value;` and refuse bare `Nat count = value;` / `bool ready = value;` (annotation must match initializer without coercion/mutation; schema 1 adds nullable `type`; unsupported types/mutables report diagnostics; formatter preserves authored form).
 
-At module, `record`, `struct`, `union`
-and `impl` declaration scope, `[visibility] [ghost] T Name [contracts] => EXPR;`
-parses as a located `property` declaration with `visibility`, `ghost`,
-`attributes`, `modifiers`, `name`, `return_type`, `contracts` (excluding
-`effects` clauses) and `body` fields. `async` and `const` modifiers, parameter
-lists, `effects` clauses and `set` accessors are syntax refusals on properties,
-guaranteeing that `a.B` is always a total, allocation-free, effect-free read of `a`.
-
-**Pure typed locals and binding guidance.** Both pure syntax routes accept
-`let Nat count = value;` and `let bool ready = value;`, and refuse bare
-`Nat count = value;` and `bool ready = value;` as syntax. The annotation must equal the
-initializer's checked type; it grants no coercion or mutation. In schema 1 an
-annotated `let` adds a located `type` field to its existing local node; unannotated
-`let` keeps its existing shape. The shared pure binding records the optional
-annotation independently of its value. Wider types and mutable locals retain
-their unsupported-feature diagnostics. The formatter preserves whichever accepted spelling was authored.
-
-**Qualification.** Independently expected fixtures cover both pure local routes,
-annotation mismatch, shadowing, original UTF-8 spans, comments/mixed newlines and
-unchanged interpreted terms apart from source provenance. Collection fixtures
-distinguish all modes, optional qualified/applied types, range/grouped-range
-compatibility, nested loops, contracts and exits. Text and formatting fixtures
-cover single-line and multi-line raw string literals (including embedded quotes,
-backslashes and pattern matching), `Format.Write(ref builder, $"...")`
-interpolated templates with expressions, format specifiers and escaped `{{`/`}}`
-braces, syntax-valid semantic error neighbors (standalone `$"..."` value
-bindings and conflicting receiver reads inside holes), and syntax refusals for
-malformed raw-string delimiters/indentation, empty or unclosed interpolation
-holes, malformed specifiers, unescaped braces and interpolated patterns.
-Expression, pattern, update, guard and property fixtures cover `if_expression`
-(including nested conditionals), declaration-order `labeled_pattern` arguments,
-`with_expression` record/model updates (including `move base with { ... }` and
-trailing commas), `let_else`/`var_else` guards, `if (x is Pattern)` branch
-refinements, and read-only `property` declarations (including `ghost` and
-`ensures` contracts), alongside syntax refusals for `if` expressions without
-`else`, statement-start `if` expressions, empty or colon-written `with {}`
-updates, non-block `let ... else`, missing `labeled_pattern` sub-patterns, and
-`async`, `const`, `effects` or setter-block properties. Refuse
-incomplete binders,
-missing `in`, malformed annotations and budget exhaustion without an AST. Keep
-syntax-valid borrowing, copying and cleanup violations for the semantic checker
-to diagnose. Bind consumer facts to exact source and follow [native qualification](#native-qualification).
-Represented inference and iterator acceptance require independent positive and
-invalid-neighbor cases through their actual future producers; parser success
-and an unsupported-feature refusal supply neither verdict.
+**Qualification.** Independent fixtures cover pure locals, mismatches, shadowing, UTF-8 spans, mixed newlines, matching interpreted terms; collection modes, types, range/grouped-range parity, nested loops, contracts, exits; raw strings (single/multi-line, embedded quotes/backslashes, patterns), `Format.Write(ref builder, $"...")` with specifiers and `{{`/`}}`, semantic error neighbors, and malformed raw/interpolated syntax refusals; `if_expression`, `labeled_pattern`, `with_expression` (`move base with`), `let_else`/`var_else`, `if (x is Pattern)`, and `property` declarations with malformed neighbors (`if` missing `else`, statement-start `if_expression`, `with {}`, non-block `else`, missing sub-patterns, `async`/`const`/`effects`/setter properties); incomplete binders, missing `in`, budget exhaustion; semantic errors reaching semantic checkers; [native qualification](#native-qualification) (represented inference and iterators need real future-producer positives/negatives).
 
 ### Required-static constants
 
-The compositional constant interface has three placements. `const T F(...)`
-declares a function that supports constant evaluation and remains callable with
-runtime arguments. `T F(const U input, V value)` requires `input` during
-compilation while `value` may be runtime data. `const T Name = EXPR;` requires
-the initializer's result during compilation. No separate compile-time-only
-function category or `const(expression)` form is introduced.
-
-A constant-compatible function checks its supported pure body symbolically.
-Its parameters need not themselves be declared constant: supplied static values
-make its ordinary evaluator locals static during that invocation. Existing
-admitted total pure functions remain eligible for constant evaluation; the
-function modifier records an explicit checked promise without breaking those
-calls. Unsupported effects, resources, mutation and opaque external calls retain
-their existing refusals, including in dead branches.
-
-A `const` parameter is an immutable, required-static value binder. Its type and
-availability are checked at every application, including labeled, generic,
-partially applied and higher-order applications. A definition checks symbolically
-under that declared availability; a demanded closed instantiation must resolve
-its static arguments before evaluation. Local constant initializers may depend
-on such binders and earlier constants. An unmarked runtime or ghost binder is
-not promoted by an ignored argument, dead branch, inlining or optimization.
-Forwarding a static parameter preserves its requirement. Specialization computes
-the demanded constant locals while retaining runtime inputs and declaration-order
-call-by-value evaluation. An unchanged mathematical template is a logical
-definition, not evidence that a production backend erased a static parameter.
-
-Both Menhir entries and the pure Python route preserve these distinctions.
-The pure function and parameter nodes carry an optional Boolean `const` field,
-omitted for ordinary declarations. Surface function modifiers include `const`;
-surface parameter nodes use the same optional Boolean field. Consumers bind the
-flag to the source keyword and refuse invented, missing or repeated qualifiers.
-Callable parameter requirements survive the mathematical consumer's function
-types, explicitly typed lambdas and substitution. Contextual lambdas inherit
-the expected static-parameter requirement; a conversion cannot discard it.
-Editor signatures identify constant functions and static parameters without
-evaluating source in the protocol adapter.
+Three placements: `const T F(...)` (static-capable + runtime-callable), `T F(const U input, V value)` (static param `input`, runtime `value`), `const T Name = EXPR;` (compile-time initialized value)—no separate `const`-only function kind or `const(expr)`. Constant-compatible functions check pure bodies symbolically (static args make evaluator locals static; existing pure functions stay eligible; unsupported effects/resources/mutation/opaque calls fail even in dead branches). `const` params enforce static args at all calls (positional, labeled, generic, partial, higher-order; unmarked runtime/ghost binders never promote via dead branches/inlining; forwarding preserves `const`; specialization computes static locals while retaining runtime CBV order without proving backend erasure). Both Menhir schemas and Python preserve optional Boolean `const` on functions/params (no invented/repeated flags; math callable types/lambdas/substitution preserve it).
 
 ```text
 public const Nat Square(Nat value) => value * value;
@@ -1058,85 +724,12 @@ public Nat Scale(const Nat factor, Nat value) {
 public Nat Runtime(Nat value) => Scale(factor: Limit, value: value);
 ```
 
-`Square(value)` is also valid with an ordinary runtime input. `Scale` requires
-only its factor statically; its multiplication still processes runtime data.
-Passing an unmarked runtime factor is refused at that argument. These examples
-use the current mathematical scalar fragment. Its
-[static table evaluator](../tooling/elaboration-prototype.md#frozen-static-tables)
-also freezes bounded vectors, including string literal bytes. Format plans,
-scratch mutation and target materialization retain their frontend and
-representation prerequisites. A static initializer value can seed mutable
-storage, but local initialization may still copy bytes on each invocation;
-placement in a composed image determines static storage initialization.
+`Square(value)` works at runtime; `Scale` refuses unmarked runtime `factor`. [Static table evaluator](../tooling/elaboration-prototype.md#frozen-static-tables) also freezes bounded vectors and string literal bytes (image placement governs static storage init vs local copy).
 
-`const T Name = EXPR;` declares an immutable value whose initializer must be
-evaluated during compilation. The explicit type is mandatory. Constants may be
-module or container members, with ordinary visibility modifiers, or local
-statements. A constant denotes a value, not a zero-parameter function; `Limit`
-may index `Vec<Nat, Limit>`, while `Limit()` is a call on a non-callable value.
-The unit type is `Unit`; a zero-parameter callable and a callable with an explicit
-`Unit` parameter have distinct source arities despite their shared CIC encoding.
+`const T Name = EXPR;` requires an explicit type (module/container/local) and denotes a value (`Limit` indexes `Vec<Nat, Limit>`; `Limit()` is invalid; `Fn()` and `Fn(Unit)` remain distinct arities). Initializers accept earlier constants and pure calls on static args (refusing surrounding runtime/let/var/unmarked ghost/generic refs even in dead branches, forward refs, and cycles; bounded work/reduction/numeric/output limits with no runtime fallback, host-width reliance, implicit conversion/ownership/`Dup`/erasure/proof, or `ghost` promotion). Pure prototype evaluates `Nat`/`bool`; math prototype adds `Unit`, `char`, represented words, and bounded static vectors without parsing emitted Gallina or host `eval`. Both parsers preserve declaration order (`declarations` `constant` nodes and `constant_local` with `name`, `type`, `value`); editor navigation/hover/symbols expose constants without evaluating them, omitting redundant hints and invalidating snapshots on bad initializers.
 
-Initializers may use earlier constants and admitted total pure functions applied
-to static arguments. Surrounding runtime parameters, ordinary `let`/`var`
-bindings and unmarked generic or ghost indices are not constant-expression inputs.
-Check dependencies before reduction: a dead branch or unused argument cannot
-hide a forbidden input, effect, resource or authority. Parameters and ordinary
-locals inside a pure function evaluated with static arguments are evaluator
-locals; this does not promote surrounding runtime bindings into constants.
-Explicit static parameters supply the additional admitted symbolic inputs;
-forward and cyclic constant dependencies are refused.
-
-Evaluation has finite work, reduction, numeric and output bounds. Failure,
-unavailable input or exhaustion is a located refusal without a runtime fallback.
-Use mathematical arithmetic or the selected target's checked representation;
-host widths and layouts supply no target constant semantics. Required-static
-availability grants no conversion, ownership, duplication, erasure, proof or
-unchecked optional extraction, and `ghost` alone supplies no static input.
-
-The pure prototype evaluates `Nat` and `bool` constants in both syntax routes.
-The mathematical consumer also admits `Unit`, `char`, represented words and
-bounded vectors of static values. Emit the evaluated
-value with its declared type; retain source-bound resolution and diagnostics.
-Neither evaluator parses emitted Gallina or uses an unchecked host `eval`.
-
-Both parser entries preserve declaration order. The pure `file` has a
-`declarations` array containing functions and `constant` nodes, each constant
-carrying `name`, `type` and `value`. Local `constant_local` nodes have those same
-located fields. The surface declaration also carries its ordinary modifiers.
-The checker records constants as distinct resolved symbols; editor navigation,
-references, hover and document symbols consume those facts without evaluating
-source in the protocol adapter. Explicitly typed constants need no inferred-type
-hint. Invalid or changed initializers invalidate the complete snapshot.
-
-Acceptance requires independently expected values and types for literals,
-arithmetic, comparisons, earlier constants, named pure calls and function-local
-evaluation. Compare both pure routes and mathematical emission, including a
-constant used as a dependent index. Refuse wrong types, runtime/erased inputs,
-ignored or dead forbidden dependencies, forward/cyclic references, constant
-reassignment/calls, missing type/initializer, malformed spans and exhausted
-budgets. Check mixed-newline/UTF-8 editor positions and invalidation. Native fixtures must reach the intended semantic diagnostic.
-
-The compositional increment additionally requires runtime and static calls of the
-same constant function; static-factor/runtime-data specialization with an
-independently expected literal; static-parameter forwarding; declaration-order
-labeled calls; dependent and higher-order function-parameter preservation; refusal
-of runtime, erased, ignored and dead forbidden dependencies; bounded symbolic
-checking and closed evaluation; source-token mutations of every qualifier; and
-current-overlay editor signatures and navigation. Native generation remains
-strict and conflict-free. No valid literal alone establishes a folding theorem,
-source correspondence or production compiler admission.
+Acceptance: independent literal/arithmetic/comparison/constant/pure-call/local-eval tests across pure and math routes (incl. dependent indices); refusals for wrong types, runtime/erased inputs, dead forbidden deps, forward/cyclic refs, reassignment/calls, missing type/init, bad spans, exhaustion, UTF-8/mixed-newline edits; compositional tests for dual runtime/static calls, static-factor specialization, forwarding, labeled calls, dependent/HO preservation, symbolic checking/closed eval, token mutations, and overlay signatures/navigation (strict conflict-free Menhir; no literal folding alone proves folding theorems, correspondence, or backend admission).
 
 ### Native qualification
 
-Menhir's code backend must generate with `--strict --infer --explain`, with no
-unresolved conflicts and no unchecked runtime dependency. Preserve exact locked
-generator/compiler checks and fresh-generation comparison. Use independently
-authored fixtures covering every row, nested combinations, expected AST roles,
-precedence and byte spans. Reject malformed declarations, incomplete input,
-trailing tokens and exhaustion without an AST. Lex comments and literals without
-changing delimiters or keyword interpretation inside them.
-
-`holdfast-parser qualify` must run both the retained pure cases and the surface cases,
-bind all fixture inputs into its receipt, and retain separate syntax verdicts.
-See [parser qualification](../tooling/parser.md) for the locked-toolchain checks.
+`menhir --strict --infer --explain` with zero unresolved conflicts, no unchecked runtime dependency, locked generator/compiler checks, fresh-generation comparison, full AST/precedence/span/error/budget/comment/literal fixtures, and `holdfast-parser qualify` binding all inputs with separate pure and surface verdicts ([parser qualification](../tooling/parser.md)).

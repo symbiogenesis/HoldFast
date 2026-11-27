@@ -362,269 +362,62 @@ qualification also requires its kernel, ABI and target-specific evidence.
 
 ## Ownership libraries
 
-The initial client needs a small, proved library of buffers, immutable/mutable
-spans, bounded iteration, records/sums, initialization and typed errors. Public
-operations state capacity, bounds, overlap, initialization, retained loans and
-resource states on every exit. Every sequence-modeled view or buffer implements
-the law-carrying `ISequenceModel<C, T>` interface for container type `C` and
-element type `T`. It projects the container to its canonical erased pure
-`Model : Seq<T>` (`Nat(Length) == Model.Count`) while
-keeping the C#/Kotlin-style collection predicates and slice combinators—`.All(x => ...)`,
-`.Any(x => ...)`, `.Contains(x)`, `.Take(n)`, `.Skip(n)`, `.Slice(a, b)` and
-`.Count` alongside `.At(i)`, `.Update(i, v)` and `.Append(x)`—as concrete
-operations on `Seq<T>` backed by pre-proved standard-library lemmas. Contracts
-on concrete containers or on `C` with `where C : ISequenceModel<C, T>` write
-`requires items.Model.All(x => x > 0)` rather than raw `forall`/`exists`
-index quantifiers, and bounded predicates over finite sequences with decidable
-element bodies discharge in the
-[decidable/domain refinement tier](core-design.md#refinement-effects-and-staging)
-rather than open quantifier instantiation or polymorphic LINQ dispatch. No
-runtime `IQueryable<T>` or reflection-based expression-tree interface is
-introduced; contract checking inspects `Seq<T>` predicate lambdas statically, and
-compile-time query specialization is an extension under the [staging design](../extensions/metaprogramming.md#evaluation-and-phase-boundaries).
-Iterators carry their bounds and loan contracts; they do not require ordinary
-users to reconstruct a separation-logic proof at each element. Codecs retain the
-platform's required format-description and
-[boundary initialization obligations](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-124).
+Initial clients use a proved library of buffers, immutable/mutable spans, bounded iteration, records/sums, initialization, and typed errors stating capacity, bounds, overlap, initialization, loans, and per-exit resources. Sequence-modeled views/buffers implement `ISequenceModel<C, T>` projecting to erased `Model : Seq<T>` (`Nat(Length) == Model.Count`) with C#/Kotlin-style predicates and slices (`.All(x => ...)`, `.Any(x => ...)`, `.Contains(x)`, `.Take(n)`, `.Skip(n)`, `.Slice(a, b)`, `.Count`, `.At(i)`, `.Update(i, v)`, `.Append(x)`) backed by pre-proved stdlib lemmas. Contracts use `requires items.Model.All(x => x > 0)` (not raw `forall`/`exists`); decidable bounded predicates discharge in the [refinement tier](core-design.md#refinement-effects-and-staging) without open quantifiers, polymorphic LINQ, `IQueryable<T>`, or reflection expression trees (compile-time query specialization stays under [staging](../extensions/metaprogramming.md#evaluation-and-phase-boundaries)). Iterators carry bounds/loan contracts without manual elementwise separation proofs; codecs retain format-description and [R-05-124 initialization duties](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-05-124).
 
-The [collection-loop surface](surface-grammar.md#ergonomic-authoring-and-bounded-collection-iteration)
-uses a law-carrying `IBoundedIterable<C, T>` interface refining `ISequenceModel<C, T>`
-rather than C#'s stateful `IEnumerable<T>` / `IEnumerator<T>` (`MoveNext`/`Current`/`IDisposable`).
-Value iteration requires copy permission; shared/exclusive iteration selects an
-explicit element loan. The source is evaluated once, a declared `Model.Count`
-bound and stable footprint determine iteration, and step `k` connects directly to
-`Model.At(k)`, `Model.Take(k)` and `Model.Skip(k)`. All exhaustion and early-exit
-paths restore or explicitly return the resources promised by the iterator
-contract. No enumerator allocation, implicit disposal, owned-element copy,
-escaping element loan or invalidating mutation is introduced. Parser support is
-syntax-only until a real iterator library and represented checker discharge those
-duties.
+[Collection loops](surface-grammar.md#ergonomic-authoring-and-bounded-collection-iteration) use law-carrying `IBoundedIterable<C, T>` (refining `ISequenceModel<C, T>`) rather than stateful `IEnumerable<T>`/`IEnumerator<T>`. Value iteration needs copy permission; `in`/`ref` select element loans. The collection evaluates once; `Model.Count` and stable footprint bound iteration, tying step `k` to `Model.At(k)`, `Model.Take(k)`, and `Model.Skip(k)` and restoring/returning promised resources on exhaustion and early exits (no enumerator allocation, implicit disposal, escaping loans, or invalidating mutation). Parser support stays syntax-only until an iterator library and represented checker discharge these duties.
 
-`out T` retains its simple rule: no reads before initialization and a fully
-initialized `T` on every normal return, including an error return. Fallible
-construction instead consumes an owned storage/builder state and returns an
-outcome-indexed state: a completed value, an explicitly retained initialized
-prefix, or restored empty storage after total rollback. These are library types
-and resource contracts, not an unchecked `MaybeUninit` escape. The initialization
-map names exactly the fields/elements that may be read or disposed; dropping a
-partially built object visits only those entries, accounts for their resources,
-and restores the promised storage state. Failure must return storage and
-unconsumed inputs or discharge them through an explicit proved operation.
-For an ordinary fallible factory, return `Result<T, E>` and bind the completed
-value on `Ok`. Reserve a state-indexed builder for callers that supplied storage
-or own resources during construction. If an error can leave that storage
-partially initialized, its payload carries the builder and its initialized
-prefix. An `out` diagnostic on an early `Err` or `?` points to that return
-and suggests the factory form when the caller supplied no storage. Boundary
-contracts continue to determine whole-buffer initialization and zeroization.
-The [elaboration replay](../../tools/toolchain/elaboration_check.py) exercises a
-fallible byte update with arbitrary initial contents. It checks the written byte
-on success, restoration of its original value on failure, and preservation of
-every other byte on both paths. Omitting the error-path restoration fails the contract.
-`TextBuilder<capacity>` and `Format.Write(ref builder, $"...")` (or
-`Format.Write(ref span, $"...")` over `ref Span<byte>`) follow the bounded
-buffer-writing contract in [Bytes and text](#bytes-and-text), evaluating hole
-arguments left-to-right under the active receiver loan and returning
-`Result<usize, CapacityError>` with the declared prefix/rollback state on
-`Err(CapacityError)`.
+`out T` forbids pre-init reads and requires full initialization on all normal returns (including errors). Fallible construction consumes owned storage/builder state and returns outcome-indexed state (completed value, retained initialized prefix, or restored empty storage after rollback—library types/contracts, never `MaybeUninit`, tracking exact readable/disposable initialized entries and returning/discharging unconsumed storage on failure). Use `Result<T, E>` factories when callers supply no storage (`out` diagnostics on early `Err`/`?` suggest factories); reserve state-indexed builders for caller-supplied storage or owned mid-build resources. Boundary contracts still govern whole-buffer init/zeroization. [Elaboration replay](../../tools/toolchain/elaboration_check.py) checks fallible byte update with arbitrary entry bytes (written byte on success, restored byte on failure, untouched frame bytes on both). `TextBuilder<capacity>` and `Format.Write` follow [Bytes and text](#bytes-and-text), evaluating holes left-to-right under the receiver loan and returning `Result<usize, CapacityError>` with prefix/rollback state on failure.
 
-Construction, replacement and bounded collection growth must demonstrate failure
-before the first write, partial failure, successful completion and rollback with
-a live unrelated frame. Multi-step container updates that temporarily decouple
-fields declare named invariant conjuncts (`invariant Clause: ...`) and open only
-the affected clauses through `open (ref this) lifts Clause, ... { ... }`:
-unlifted conjuncts remain active without re-proof across disjoint or
-non-invalidating field writes, while the linear close debt forbids early exits
-(`return`, `break`, `continue`, `?`), suspension, handler capture or whole-receiver
-calls until the lifted clauses are re-established at the closing brace. Bulk prefix
-relocation between vacant-slot buffers (`Slots<T, capacity>`) separates physical
-representation copying from logical ownership transfer: `CopyRepresentation`
-performs a CHERI-tag-preserving copy of `[0..count)` into logically vacant
-destination slots (`Vacant<T>`), leaving the destination vacant/unowned and
-recording a revision-bound representation-equality fact without arming destructors
-or duplicating linear ownership, and the erased operation `TransferType<T>`
-consumes that representation-equality fact with the initialized source prefix and
-vacant destination prefix to transition source `[0..count)` to vacant and
-destination `[0..count)` to live initialized `T` in one capacity-independent range
-step. A collection exposes the two steps as one checked prefix-relocation method.
-Its element law establishes that moving a live value to a fresh address preserves
-its invariant and all outstanding observations. An interior pointer into the old
-range, a pinned value, or a device retaining the old address needs a separate
-transition that ends or repairs that dependency. Equality of bytes and tags
-alone cannot establish the law. The mathematical prototype admits fixed-width
-integers, `bool`, `char` and `Unit` at both operations. Generic or opaque
-elements require a checked law before the release implementation can admit them.
-The [element-loan regression](../../tools/tests/test_holdfast_loans.py#_element_loan_during_relocation)
-passes a shared loan of the first occupied slot as one argument and relocates the
-source prefix while evaluating the next argument. The elaborator reports the
-exclusive source borrow at relocation and the earlier element loan. Copying the
-`u32` into a local before the call preserves the value to observe and lets the
-same relocation proceed.
+Construction, replacement, and growth test pre-write failure, partial failure, completion, and rollback with live unrelated frames. Multi-step container updates declare named `invariant Clause: ...` conjuncts and lift affected clauses via `open (ref this) lifts Clause, ... { ... }`: unlifted conjuncts stay active across disjoint/non-invalidating field writes, while the linear close debt forbids early exits (`return`, `break`, `continue`, `?`), suspension, capture, or whole-receiver calls until restored at close. Bulk prefix relocation across `Slots<T, capacity>` splits CHERI-tag-preserving copy (`CopyRepresentation` of `[0..count)` into logically `Vacant<T>` slots with revision-bound representation equality, zero destructors, zero duplicated ownership) from erased logical transfer (`TransferType<T>` flipping source `[0..count)` to vacant and destination `[0..count)` to live initialized `T` in one $O(1)$ range step), exposed as one checked method requiring an element relocation law (destination invariant preservation and absence/repair of old-address observers/interior pointers/pinned values/DMA; byte/tag equality alone is insufficient; prototype admits fixed-width ints, `bool`, `char`, `Unit`, while generic/opaque elements require checked laws). [Element-loan regression](../../tools/tests/test_holdfast_loans.py#_element_loan_during_relocation) rejects a live first-slot shared loan across prefix relocation unless copied to a local `u32` beforehand.
 
-No allocation, emergency capacity or cleanup retry is
-implicit. A later explicit bounded-pool library additionally satisfies the
-[pool declaration and exhaustion contracts](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-08-046), with
-reuse/quiescence proof before returned backing is lent again.
-Its qualification includes an older list whose header survives while growth
-moves its elements into scratch storage. Reclaiming that storage with the list
-still pointing into it must fail at the reclamation obligation. In the valid
-case, build the new elements in scratch and copy the selected bytes into the
-older list's independently owned backing. End the scratch loans, reclaim and
-overwrite the scratch storage, then read the retained bytes from the list.
-A surviving field or element that still points into
-scratch keeps its backing live. These cases apply to the
-[bounded-pool milestone](../../PLAN.md#q25bx) and are drawn from
-[Zero C#'s arena rollback example](https://onurgumus.github.io/zero-csharp/concepts/memory.html#the-restore-hazard).
+No implicit allocation, emergency capacity, or cleanup retry exists; later explicit bounded pools satisfy [R-08-046](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/spec.md#r-08-046) and quiescence/reuse proofs before re-lending backing—tested on [bounded-pool milestone](../../PLAN.md#q25bx) using [Zero C#'s arena rollback cases](https://onurgumus.github.io/zero-csharp/concepts/memory.html#the-restore-hazard) (refuse reclaiming scratch while list points into it; accept copying into list's owned backing, ending scratch loans, overwriting scratch, and reading list).
 
-An initialized buffer can use `buf.Update(buf.ReadCount())` with an implicit
-whole-object `ref` receiver and a count that carries no loan into the call.
-The [receiver rule](core-design.md#two-phase-receiver-borrows) reserves the
-buffer before evaluating the count and acquires exclusivity at method entry.
-A diagnostic identifies the competing access if an argument mutates the buffer
-or retains an overlapping view. It may suggest an explicit snapshot only when
-the snapshot preserves the observed revision, evaluation order and lifetimes.
-
-Public named views still let a caller keep a shared loan of `Count` while a
-method takes exclusive access to `Data`. The provider's disjointness law
-establishes separation for each representation and permitted entry state.
-Qualification repeats this client across a package boundary after a private
-layout change, verifies that overlapping backing fails the law, and records
-which client proofs or annotations changed. The
-[receiver qualification cases](loan-analysis.md#two-phase-receiver-trial)
-check both the argument read and the retained-view conflict.
+Initialized buffers support `buf.Update(buf.ReadCount())` via [two-phase receiver borrowing](core-design.md#two-phase-receiver-borrows) (reserving receiver before arg evaluation, activating exclusivity on entry, diagnosing argument mutations/overlapping views, suggesting snapshots only when preserving revision/order/lifetimes). Public named views allow shared `Count` loans alongside exclusive `Data` calls via provider disjointness laws, qualified across package boundaries after private layout edits ([receiver cases](loan-analysis.md#two-phase-receiver-trial)).
 
 <a id="csharp-transition-guide"></a>
 
 ## Authoring idioms
 
-For authoring syntax and its semantics, use the [language reference](reference.md),
-[authoring style](../tooling/authoring-tools.md#common-style), and
-[checked code actions](../tooling/authoring-tools.md#compiler-verified-assist-dont-coerce-tooling).
-Unwrap before member access with `(Read()?).Value` or an explicit `match`.
+See [language reference](reference.md), [authoring style](../tooling/authoring-tools.md#common-style), and [checked code actions](../tooling/authoring-tools.md#compiler-verified-assist-dont-coerce-tooling). Unwrap before member access via `(Read()?).Value` or `match`.
 
 ## Qualification
 
-The [delivery plan](../../PLAN.md#holdfast-first-release-delivery) selects a real
-bounded byte-buffer consumer and an independently chosen second client before
-implementation. Their contracts must identify actual formats, entry states and
-independently expected success/failure results. A candidate that only parses,
-emits a term or returns an unconstrained theorem has not met this predicate.
+[The delivery plan](../../PLAN.md#holdfast-first-release-delivery) freezes a bounded byte-buffer consumer and independent second client (formats, entry states, expected success/failure) before implementation; parsing, term emission, or unconstrained theorems alone do not pass.
 
 | Subject | Acceptance evidence |
 | --- | --- |
-| Interpretation and concrete resources | Checked elaboration-image laws, an inhabited carrier state, read/write/initialization/frame and loan restoration, with wrong-offset, alias, premature-restoration and partial-initialization neighbors rejected at the intended obligations. Missing laws remain missing; no axiom or source judgment substitutes for them. |
-| Scalar and text behavior | Independent boundary fixtures for every supported type and operation, signed division/remainder signs, zero and minimum/-1, shift zero/width-1/width, exact/wrapping/saturating arithmetic, target versus host width, invalid conversions, embedded NUL, malformed UTF-8/escapes, raw-string delimiter/indentation and LF-normalization rules, static `IFormat<T>` checked formatting (`Result<usize, CapacityError>` on exact fit and `CapacityError` exhaustion without heap allocation or ambient locale), scalar boundaries and byte slicing. Static and runtime meanings agree under the same target. Generate finite boundary classes from an independently reviewed oracle; a shared implementation is not an independent expectation. |
-| Package composition | Two independently authored packages compose with fixed instances; reordered imports preserve meaning; overlap, cycles and conflicting nominal identities are diagnosed. Locked builds reproduce their source/input closure. Contract, representation, proof assumption and tool changes invalidate affected evidence before reuse. |
-| Graded dependent typing | The default build checks both natural domains, dependent substitution, box and indexed-record elimination, and separate type and computation demands on a reviewed client. Incorrect allowances, altered motives and stale dependencies fail at their obligations. Check ordered evaluation and erasure at the claimed representation endpoint, including unused and repeated arguments. [Default graded checking](#default-graded-checking) |
-| Borrowing precision | The default build checks proof-backed symbolic separation, conditional returns, and bounded lending across its supported control flow. Replay restoration and the frame for each exit. Use paired positives and invalid neighbors on held-out clients, record unsupported cases and exhausted budgets, and measure checking cost. [Default borrow checking](#default-borrow-checking) |
-| Everyday ownership | Bounded collection/iterator, `.Model` sequence-predicate/slice, `TextBuilder<capacity>` / `IFormat<T>` checked formatting, [two-phase receiver calls](loan-analysis.md#two-phase-receiver-trial), selective invariant lifting (`invariant Clause: ...` / `open (...) lifts ...`), two-step bulk relocation (`CopyRepresentation` + `TransferType<T>`), fallible-builder and error-propagation clients compile under their actual representations and the [borrow-analysis promotion contract](core-design.md#borrow-analysis-promotion). Escaped views, duplicated tokens, reads of unwritten or moved-out vacant slots, early exits or whole-receiver calls while an invariant clause is lifted, stale current-content facts and lost mandatory outcomes fail at the responsible resource rule. Bounded buffer, builder and bulk-relocation proofs/certificates pass a **capacity-invariance gate**: checking at tiny static capacity ($N = 4$) and large static capacity ($N = 10^9$) produces equal obligation counts and the same proof and certificate structure after changing only the encoded capacity literal. Count and compare emitted range obligations and prohibit per-element unfolding, enumeration or evidence. The current first-slice pilot compares 8 and 10⁹ because its packet requires eight bytes. Each capacity must fit the 4 MiB generated Gallina limit, each Rocq compile and the combined kernel replay must finish within 120 seconds, and the pilot also compares symbolic reduction and work counters. Record actual replay measurements separately from this pass condition. |
-| Complete software path | Authored source and independent contract reach one retained backend with checked correspondence, representation and lowering; applicable final-byte, resource, observation and admission duties meet their existing owners. Report source, artifact and production evidence separately. |
-| Developer usefulness | Record annotation burden, first useful diagnostic, checking latency, code/stack/storage consequences and repair after a semantic-preserving refactor, a representation change and a real contract change on both clients. Count arithmetic lemmas and checked operations, the effect clauses edited for a package-internal refactor or a public widening, and snapshots, named views or loop rewrites required by borrowing. Compare the receiver call with a legal snapshot spelling under equivalent evaluation order. Preserve the held-out client and record the adaptations it needs. |
+| Interpretation and concrete resources | Checked elaboration-image laws, inhabited carrier state, read/write/init/frame/restoration; wrong-offset, alias, premature-restoration, and partial-init neighbors rejected at intended rules (no axiom/source substitutes for missing laws). |
+| Scalar and text behavior | Independent boundary fixtures for all types/ops: signed div/rem signs, 0 and MIN/-1, shift 0/width-1/width, exact/wrapping/saturating ops, target vs host width, invalid conversions, embedded NUL, malformed UTF-8/escapes, raw-string delimiter/indent/LF rules, static `IFormat<T>` formatting (`Result<usize, CapacityError>` on exact fit and exhaustion without heap/locale), scalar boundaries, and byte slicing (generated from independent oracle). |
+| Package composition | Two independent packages compose with fixed instances; import reordering preserves meaning; overlap, cycles, and conflicting nominal IDs diagnosed; locked builds reproduce closures; contract/rep/assumption/tool edits invalidate stale evidence. |
+| Graded dependent typing | Default build checks `NatExact`/`NatBound`, substitution, box/indexed-record elimination, and separate type/computation demands on a reviewed client; bad allowances, altered motives, and stale deps fail at obligations; ordered evaluation and erasure verified at representation endpoint (incl. zero/repeated args). [Default graded checking](#default-graded-checking) |
+| Borrowing precision | Default build checks proof-backed symbolic separation, conditional returns, and bounded lending; replays restoration/frame per exit; pairs positives and negatives on held-out clients; records unsupported cases, exhausted budgets, and checking cost. [Default borrow checking](#default-borrow-checking) |
+| Everyday ownership | Bounded collection/iterator, `.Model` predicates/slices, `TextBuilder<capacity>`/`IFormat<T>`, [two-phase receiver calls](loan-analysis.md#two-phase-receiver-trial), `invariant Clause: ...` / `open (...) lifts ...`, `CopyRepresentation` + `TransferType<T>`, fallible-builder, and `?` clients pass under actual reps and [borrow promotion](core-design.md#borrow-analysis-promotion) (failing escaped views, duplicated tokens, unwritten/vacant reads, early exits/whole calls under lifted clauses, stale content facts, lost verdicts). Bounded buffer/builder/relocation proofs pass a **capacity-invariance gate**: identical obligation counts and proof/certificate structure at $N = 4$ and $N = 10^9$ (8 and 10⁹ in first-slice pilot) modulo capacity literal, zero per-element unfolding, fitting 4 MiB Gallina and 120 s per-compile/combined replay (reporting actual timings separately). |
+| Complete software path | Source and independent contract reach retained backend with checked correspondence, representation, and lowering; final-byte, resource, observation, and admission duties meet owners (source, artifact, production evidence reported separately). |
+| Developer usefulness | Measure annotation burden, first useful diagnostic, latency, code/stack/storage impact, and repair cost across preserving refactors, rep changes, and contract changes on both clients (counting arithmetic lemmas/checked ops, effect clauses edited, snapshots/views/loop rewrites, and receiver vs snapshot spellings). |
 
-Hard safety, resource and admission limits are mandatory. Technical feasibility,
-recurring authoring/maintenance benefit and eventual economic adoption are
-separate decisions. Charge setup and shared maintenance fully, without requiring
-the first two small clients to repay the entire language foundation. Any accepted
-size/speed trade has a declared target envelope and per-case evidence; no average
-hides a missed hard bound.
+Hard safety, resource, and admission limits are mandatory; feasibility, recurring developer value, and economic adoption are separate decisions (setup/shared maintenance charged fully without requiring the first two small clients to repay the foundation; size/speed trades require declared envelopes and per-case evidence).
 
 ### First-slice component and concrete `Span<byte>` carrier <a id="first-slice-qualification"></a>
 
-The [authored packet validator](../../examples/first_slice.hf) copies the accepted
-header and payload into the destination and zero-pads the eight-byte work area.
-Success returns a read-only view of the payload. Framing rejection preserves
-the complete destination. Other protocol rejections clear the work area.
-Every exit preserves the bytes beyond that area.
-[Packet walkthrough](../tooling/packet-walkthrough.md)
+[The authored packet validator](../../examples/first_slice.hf) copies header/payload into destination and zero-pads the 8-byte work area, returning a read-only payload view on success, preserving full destination on framing rejection, clearing the work area on other protocol rejections, and preserving all bytes beyond the work area on every exit. [Packet walkthrough](../tooling/packet-walkthrough.md)
 
-`SpecPacketOutcome` specifies what a caller observes from the returned result.
-It gives framing errors priority over header errors, then checks the payload
-length before the checksum. On success it gives the copied byte count. The
-validator exports the equality between this specification on the entry state
-and `PacketOutcome(result)`. Callers may use that equality with the body opaque.
+`SpecPacketOutcome` gives framing priority over header errors, then checks payload length before checksum, and exports `SpecPacketOutcome(entry) == PacketOutcome(result)` for opaque caller reasoning. At entry, `ref dst` and `in pkt` borrow descriptors with live provenance, bounds, and permissions (extents may overlap); framing reads metadata before any byte access (`FramingShort`), after which success grants exclusive destination and shared packet access and transfers the destination view loan to the result (internal copies enforce entry loans/separation; ordinary calls keep [core loan rules](core-design.md#loans-and-control-flow)).
 
-At this entry point, `ref dst` and `in pkt` initially loan the
-two descriptor places. Each descriptor must already identify live backing
-with valid provenance, bounds and the declared permissions. The backing
-extents may overlap. The framing test reads descriptor metadata and returns
-`FramingShort` before accessing any byte on that path. Its successful edge
-introduces exclusive access to the destination bytes and shared access to
-the packet bytes for the rest of the operation. The success view retains
-its destination loan as specified by the result. Internal copy operations
-require their content loans and separation at entry. Ordinary calls that
-already require exclusive access to backing retain the
-[core loan rule](core-design.md#loans-and-control-flow).
+The generated C harness passes one backing array (`cursor` + logical `base`, initialized equal and advancing together on slice), checking returned cursor/base independently (including empty views) and verifying full destination preservation on overlapping-extent refusal; foreign callers require machine-interpreted descriptor validity before framing interval checks.
 
-The generated C harness passes one backing array through the packet functions.
-Each descriptor carries a byte cursor for memory access and a logical base for
-interval checks. Allocation initializes both to the same offset, and slicing
-advances both. The observer checks the returned cursor and base independently
-against the expected destination offset, including for an empty view.
-Successful cases use disjoint extents of the allocation. The overlap case
-observes the source header through the destination view before calling the
-validator and checks every destination byte against its entry snapshot on
-refusal. Admission for a foreign caller requires the machine interpretation
-to justify descriptor validity and this correspondence before the framing
-test may use its interval comparison.
-
-The [mathematical carrier](../tooling/elaboration-prototype.md) represents a
-`Span<byte>` by its backing store, `Base`, `Length`, `Tag`, `PermRead` and
-`PermWrite`. `Span.AllocZeroed` belongs to specifications and theorems. Span
-operations check bounds, representability of offsets and counts, permissions,
-loans, and any required disjointness. These checks also apply at the last
-representable byte, where an exclusive end address can overflow. Restoration
-requires the view's immediate parent or the parent updated from that view.
-Function postconditions use the returned value and `ref` post-state. Automatic
-restoration checks preserve all five metadata fields of each `ref` span or slot
-descriptor.
+The [mathematical carrier](../tooling/elaboration-prototype.md) models `Span<byte>` with store, `Base`, `Length`, `Tag`, `PermRead`, `PermWrite` (`Span.AllocZeroed` for spec/theorems); ops check bounds, representability (incl. exclusive-end overflow), permissions, loans, and disjointness. Restoration requires the immediate or view-updated parent; automatic `restores` checks preserve all five `ref` metadata fields.
 
 #### Qualification and receipt binding
 
-Run `python tools/run.py holdfast-parser first-slice` for fresh proof and execution
-checks. The [qualification harness](../../tools/toolchain/first_slice.py) owns the
-input fixtures, commands and report fields.
+`python tools/run.py holdfast-parser first-slice` runs fresh proof and execution checks owned by [first_slice.py](../../tools/toolchain/first_slice.py):
 
 | Check | Evidence |
 | --- | --- |
-| Source proof | Parse with Menhir, elaborate to Gallina, compile with `rocq c`, audit exported assumptions and replay with `rocqchk`. The `accepted` verdict requires an empty `solver_trust` ledger. The appended false equality must fail at the expected definition. |
-| Capacity and refusals | Compare proof structure and inference/reduction work at capacities 8 and 10⁹ and replay both proofs. Each negative fixture must parse after its `/*error*/` marker is removed. Elaboration must report the expected category and message fragment at the marked line and column. |
-| Capability execution | The handwritten purecap program checks the live four-byte view has data-load permission alone. Sail must reject the writable-view variant at that check, trap on a store through the narrowed view, and reproduce the bounds and tag traps. |
-| Optional CompCert execution | Lower the validator and scenario drivers to Clight/C, execute under CompCert's interpreter and run purecap images in Sail. Check the passing paths and altered view origin, view write permission, payload, padding, checksum-code and clearing controls. Use `--ccomp /absolute/path/to/ccomp` to require this run. Automatic discovery records `compcert_sail.available: false` when the compiler is missing. [Compiler build contract](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/implementation/contracts/contained-compiler-reuse.md) |
-| Guest C11 regression | Compile the generated validator with the system C compiler at `-O0` and `-O2` and check all five exits. Before reading a successful payload, check its cursor, base, length, tag and permissions. Reject a cursor into the input for an empty view or an identical four-byte payload, and reject a view granting write access. |
-| Inline proof erasure | [The native regression](../../tools/tests/test_holdfast_packet_erasure.py) adds an assertion, proof block and calculation to the checksum implementation, replays the annotated module, and compares the complete guest executable at both optimization levels. A false assertion fails during elaboration. |
+| Source proof | Menhir parse -> Gallina -> `rocq c` -> assumption audit (empty `solver_trust` for `accepted`) -> `rocqchk`; appended false equality must fail at target def. |
+| Capacity and refusals | Equal proof structure and inference/reduction work at capacities 8 and 10⁹; negative fixtures parse without `/*error*/` and fail at expected line/col/category/message. |
+| Capability execution | Handwritten purecap checks 4-byte view has data-load permission only; Sail rejects writable-view variant, traps store through narrowed view, and reproduces bounds/tag traps. |
+| Optional CompCert execution | Lower validator/drivers to Clight/C, run CompCert `-interp` and Sail purecap images across passing paths and mutated view origin/write-perm/payload/padding/checksum/clearing controls (`--ccomp /abs/path/to/ccomp` requires it; otherwise `compcert_sail.available: false`). [Compiler build contract](https://github.com/symbiogenesis/VerifiedOS/blob/main/docs/implementation/contracts/contained-compiler-reuse.md) |
+| Guest C11 regression | System C11 `-O0`/`-O2` checks all 5 exits and verifies cursor, base, length, tag, permissions before payload reads (refusing input-pointing empty/4-byte cursors and writable views). |
+| Inline proof erasure | [Native regression](../../tools/tests/test_holdfast_packet_erasure.py) adds assertion/proof/calc to checksum, replays module, and verifies identical guest binaries at `-O0`/`-O2` (false assertion fails elaboration). |
 
-Use `python tools/run.py holdfast-parser first-slice-bindings <receipt.json>` to
-check a retained schema-2 receipt against the checkout and installed tools.
-A match binds the exact source, toolchain, target profile, generated artifacts
-and check transcripts. The checker regenerates the source-derived Gallina and C,
-reassembles the control images, and derives verdicts from the retained process
-output. It checks each retained type error against its fixture's marked location.
-It requires the full export audit, kernel replay and execution observations,
-including the effective CompCert inputs when that run is present. The checker
-regenerates the C for the passing driver and each compiler control from the
-checked source and compares those bytes with the retained C inventory.
-
-For a compiler-enabled run, the receipt also lists the observed calls at the
-linked validator entry and at each return to the caller. The independent
-[entry reader](../../tools/toolchain/packet_entry.py) checks nine frozen inputs,
-destination and input bytes, descriptor restoration, framing before any backing
-access, and returned scalar view fields. It confirms both redirected cursors
-and the writable view at return, before the caller checks them, and rejects
-any tagged store into the result fields. The binding checker reconstructs these
-observations from the retained image and Sail trace.
-
-Missing or substituted artifacts, malformed or contradictory
-transcripts, and changes during verification refuse a match. Inventories are
-limited to 4,096 entries and 256 MiB in the checkout's local output lane.
-`status: matched` is a binding verdict with `proof_replayed: false`.
-The result lists the packet functional result and returned-view authority in
-`missing_deployed_evidence`. Each needs checked evidence for the exact admitted
-image and entry point. A receipt that substitutes a host packet observation
-for the deployed view evidence fails with the missing target claim.
-[Deployed evidence contract](../assurance/compiler-route-contract.md#evidence-for-each-deployed-claim)
-
-These checks qualify the symbolic source model and record concrete execution
-observations. Exact executable acceptance requires checked source correspondence,
-resource laws over canonical Sail, compiler refinement, contextual preservation
-and artifact admission. The harness reports missing dependencies in `inventory`.
-[Exact executable acceptance](../../PLAN.md#q25ba)
+`python tools/run.py holdfast-parser first-slice-bindings <receipt.json>` verifies a schema-2 receipt against checkout/tools by regenerating Gallina and C, reassembling controls, deriving verdicts from transcripts, checking error locations, auditing exports/replay/CompCert inputs, and comparing regenerated C bytes against retained inventories. Compiler-enabled runs also verify entry/return observations via [packet_entry.py](../../tools/toolchain/packet_entry.py) (9 frozen inputs, bytes, restoration, framing-before-access, scalar view fields, rejecting redirected cursors, writable return views, and tagged result-field stores). Missing/substituted artifacts, contradictory transcripts, or mid-run changes fail (inventories capped at 4,096 entries / 256 MiB locally). `status: matched` sets `proof_replayed: false` and lists functional result and returned-view authority under `missing_deployed_evidence` (host runs cannot satisfy deployed target claims per [deployed evidence contract](../assurance/compiler-route-contract.md#evidence-for-each-deployed-claim)). Exact executable acceptance still requires checked source correspondence, canonical Sail resource laws, compiler refinement, contextual preservation, and admission (`inventory` lists missing producers). [Exact executable acceptance](../../PLAN.md#q25ba)

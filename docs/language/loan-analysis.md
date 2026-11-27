@@ -228,176 +228,48 @@ joins early-returned values and writebacks with the fallthrough exit.
 
 ### Symbolic Span separation
 
-The mathematical frontend checks same-collection indexed call arguments using
-scoped arithmetic facts. When an exclusive argument and another indexed
-argument share a collection, the frontend must establish that their indices
-differ. This covers exclusive pairs and shared/exclusive pairs. Distinct
-slice views of the same owner require separation in a common coordinate system
-before their relative indices can justify distinctness. In the ordered
-shared/exclusive trial, `i < j && j < 4` permits reading element `i` while
-writing back element `j`. The Rocq replay checks the returned value, the
-writeback, the frame and the unchanged failure state in the emitted
-`Span<byte>` model. The direct Rust call and coincident neighbor fail in the
-pinned modes, while the `split_at_mut` spelling passes the observations.
-[HoldFast replay](../../tools/tests/test_holdfast_loans.py#_mixed_indexed_loans) ·
-[Rust fixture](../../tools/tests/fixtures/mixed_indexed_loans.rs)
+The mathematical frontend checks same-collection indexed call args using scoped arithmetic: exclusive+other indexed args require proved index separation, and distinct slice views require separation in common owner coordinates. Ordered shared/exclusive (`i < j && j < 4`) permits reading `i` while writing `j`; Rocq verifies returned value, writeback, frame, and unchanged failure in `Span<byte>`, while pinned Rust modes reject the direct call and coincident neighbor and pass `split_at_mut`. [HoldFast replay](../../tools/tests/test_holdfast_loans.py#_mixed_indexed_loans) · [Rust fixture](../../tools/tests/fixtures/mixed_indexed_loans.rs)
 
-The frontend also checks a call that shares `view[i]` from a named `Span.Slice`
-and exclusively borrows `owner[j]` from its owner. The checker adds each slice
-offset to `i` before applying scoped separation facts. A `Span.ReadOnly`
-wrapper preserves the source offset and extent for the shared argument. For
-two slices at offset one, `j != 2usize + i` proves separation between the call
-arguments.
-If the slice predates an owner write or fill, each reachable branch must
-preserve the full slice extent. Pending mutable argument updates leave
-separation unresolved. The Rocq replay checks the returned byte, owner
-writeback, framed elements and untouched failure state for single and nested
-slices, including read-only wrappers and a write to owner index zero before
-the call.
-[Owner-coordinate replay](../../tools/tests/test_holdfast_loans.py#_owner_coordinate_indexed_loans)
+For `view[i]` (`Span.Slice`) beside `owner[j]`, the checker shifts `i` by slice offsets before separation (`Span.ReadOnly` preserves offset/extent; two offset-1 slices require `j != 2usize + i`). Pre-write/pre-fill slices must survive on every reachable branch; pending mutable arg updates leave separation unresolved. Rocq verifies single/nested slices, read-only wrappers, and pre-call index-0 writes. [Owner-coordinate replay](../../tools/tests/test_holdfast_loans.py#_owner_coordinate_indexed_loans)
 
-A conditional can select the shared indexed argument's slice before the
-owner's updates join. The checker verifies readability, bounds and owner
-coordinates on each reachable selection path. A subsequent common call can
-read from that slice and exclusively borrow another element when the scoped
-facts preserve the slice and separate both elements on every path.
-[Correlated indexed call replay](../../tools/tests/test_holdfast_loans.py#_correlated_indexed_loans)
+Conditional slice selection before owner joins verifies readability, bounds, and owner coordinates on every path before permitting shared+exclusive calls. [Correlated indexed call replay](../../tools/tests/test_holdfast_loans.py#_correlated_indexed_loans)
 
-In the conditional-return trial, the mathematical frontend checks a returned
-slice against the current `ref Span<byte>` on its return path. For a slice
-derived from an earlier state of that owner, an intervening element write needs
-scoped evidence that its index lies outside the slice. A sibling branch can
-update the owner and return an error. The Rocq replay checks the returned byte,
-the owner post-state on each exit, and the untouched elements.
-[Source and replay](../../tools/tests/test_holdfast_loan_returns.py#_conditional_view_return)
+Conditional-return checks verify returned slices against `ref Span<byte>` on return paths (intervening writes need out-of-slice evidence; error branches restore). [Source and replay](../../tools/tests/test_holdfast_loan_returns.py#_conditional_view_return)
 
-When owner updates join before a common return, the frontend checks each
-reachable write history using the facts on that branch. A view of `values[i]`
-can survive a write at index one when `i == 0` and a write at index zero
-when `i != 0`. Each alternative must preserve the view's extent, so a write
-at `i` in either branch is refused. The Rocq model checks the returned byte,
-the branch-specific writeback and the frame. The pinned Rust modes reject
-the same direct source pattern. The `get_disjoint_mut` spelling checks
-overlap at runtime and passes the observations in all four modes.
-[HoldFast replay](../../tools/tests/test_holdfast_loan_returns.py#_joined_view_return) ·
-[Rust fixture](../../tools/tests/fixtures/joined_view_return.rs)
+Joined owner updates check every branch write history (`values[i]` survives index-1 write when `i == 0` and index-0 write when `i != 0`; index-`i` writes fail). Rocq checks value, writeback, and frame; pinned Rust rejects direct source and passes runtime `get_disjoint_mut`. [HoldFast replay](../../tools/tests/test_holdfast_loan_returns.py#_joined_view_return) · [Rust fixture](../../tools/tests/fixtures/joined_view_return.rs)
 
-When a conditional chooses the returned slice itself, the frontend checks each
-possible descriptor under its branch facts. A slice of element zero survives
-a write to element one on the true path, and a slice of element one survives
-a write to element zero on the false path. The checked model relates each
-selected descriptor to the current owner, including the unchanged byte and
-the written neighbor. An overlapping write on either path or a choice under
-an independent condition is refused. The four pinned Rust modes reject the
-direct spelling at the two disjoint writes. Moving view creation to each
-branch after its write passes the same observations using static separation.
-[Correlated return replay](../../tools/tests/test_holdfast_loan_returns.py#_correlated_view_return) ·
-[Rust fixture](../../tools/tests/fixtures/correlated_view_return.rs)
+Conditional slice selection (`0` surviving write at `1` on true, `1` surviving write at `0` on false) checks each descriptor under branch facts (overlapping writes or independent conditions fail); pinned Rust rejects direct source and passes branch-local view creation. [Correlated return replay](../../tools/tests/test_holdfast_loan_returns.py#_correlated_view_return) · [Rust fixture](../../tools/tests/fixtures/correlated_view_return.rs)
 
-The symbolic range-loop trial retains a shared view of element three while
-writing nine into the owner at each index in the prefix `[0, n)`. The loop
-checks write permission and owner length at entry and at the inductive step.
-The guard `n <= 3` proves the summarized write extent is disjoint from the
-returned view. Changing the bound to `n <= 4` permits an overlapping iteration
-and fails at the return check. An explicit `Span.Fill` uses the same
-half-open extent rule, including empty fills and fills beginning at the view's
-end. The Rocq model checks the returned byte against the original and updated
-owner, the written and untouched bytes, and the unchanged error state.
-[HoldFast source](../../tools/tests/fixtures/loop-view-return.hf) ·
-[Kernel replay](../../tools/tests/test_holdfast_loan_returns.py#_loop_view_return)
+Symbolic range loops keep a shared view at index 3 while writing 9 across `[0, n)`: `n <= 3` proves disjointness, whereas `n <= 4` fails at return (`Span.Fill` uses the same half-open rule, incl. empty and view-adjacent fills); Rocq checks original/updated bytes and unchanged error state. [HoldFast source](../../tools/tests/fixtures/loop-view-return.hf) · [Kernel replay](../../tools/tests/test_holdfast_loan_returns.py#_loop_view_return)
 
-The default mathematical checker also lends an exclusive byte in each
-iteration of `foreach (ref byte element in values)` over a directly named
-`Span<byte>` with symbolic length. The model processes the elements in order
-and restores the owner after each element writeback. Unconditional and terminal
-conditional `break` exits write back the breaking element, freeze later
-iterations, check loop invariants on both the break and inductive paths, and
-restore the owner. A competing access during the loan, a non-terminal
-conditional `break`, or a related view retained across a mutating loop is
-refused.
-[Lending source and replay](../../tools/tests/test_holdfast_loan_returns.py#_lending_span_iteration) ·
-[Early break replay](../../tools/tests/test_holdfast_loan_returns.py#_lending_span_break)
+`foreach (ref byte element in values)` over symbolic-length `Span<byte>` lends elements in order and restores on writeback; terminal/unconditional `break` writes back the breaking element, freezes later iterations, checks both invariants, and restores (competing accesses, non-terminal `break`, and retained views fail). [Lending source and replay](../../tools/tests/test_holdfast_loan_returns.py#_lending_span_iteration) · [Early break replay](../../tools/tests/test_holdfast_loan_returns.py#_lending_span_break)
 
-The mathematical elaborator (`tools/toolchain/elaborate_*.py`, including
-`tools/toolchain/elaborate_borrows.py`), region solver
-([`regions.py`](../../tools/toolchain/regions.py)), and CFG analyzer
-([`loans.py`](../../tools/toolchain/loans.py)) also handle:
+The mathematical elaborator (`tools/toolchain/elaborate_*.py`, incl. `elaborate_borrows.py`), region solver ([`regions.py`](../../tools/toolchain/regions.py)), and CFG analyzer ([`loans.py`](../../tools/toolchain/loans.py)) also handle:
 
-- Polonius-style location-sensitive origin, subset, variance (`in` covariant, `ref` and `shared ref` invariant), `Outlives<'a, 'b>`, and multi-region disambiguation checking (`'a` vs `'b`), plus `FnMut` and `FnOnce` higher-ranked region callbacks and generalized outer-capture blocking;
-- exclusive `ref<'a>` conditional and loop returns with prophecy/lens restoration terms across multi-branch and `while`/`foreach`/`match` control flow, associated-type GAT `LendingIterator` interfaces and `impl` bindings, arbitrary-depth nested field reborrows, partial field moves with re-initialization, and loop-carried mutable cursor reborrowing;
-- safe `shared ref` aliased mutation over shape-stable scalars, record fields, and fixed-extent elements (alongside `LocalCell`/`BorrowCell` store-threaded models) with overlapping `active_facts` refinement purging while preserving proved-disjoint refinements, plus proof-backed tag-preserving union mutation (`tag(new) == tag(old)`) and capacity-preserving `Slots.Push` (`LiveCount < capacity`);
-- container stability tracking (`unstable` mutations on `Seq`/`Slots` vs stable element writes), symbolic `requires` and `assert` index-disjointness propagation (`AssumeIndexNe` on CFG entry and proof assertions), path-sensitive `if`/`else` index disequalities, nested container clears (`PathSensitiveRowClear`), and `ProvedFacts` / `path.obligations` / `check_loan_certificate` verification across the elaborator, CFG analyzer, and [zero-axiom Rocq loan soundness proofs](../../tools/rocq/loan_soundness.v);
-- disjoint sub-slice writebacks (`holdfast_bs_shift_onto`) across simultaneous mutable sub-slices, record-field and 2D grid element borrows under disjunctive guards (`r1 != r2 || c1 != c2`), two-phase receiver reservations, and 3-span conflict diagnostics (`origin`, `conflict`, `live_use`/`proposed_end`);
-- paired Rust (`rustc +nightly-2026-11-20`) and Ante (`ante_borrow_compare.py` with `.rs`/`.an` comparison fixtures and `holdfast-borrow-compare`) regression trials across 22 `comparison_matrix` cases (HoldFast accepting all 22 vs 3 in Rust NLL, 7 in Rust Polonius Legacy, 6 in Rust Polonius Alpha, and 3 expected in Ante).
+- Polonius-style location-sensitive origin, subset, variance (`in` covariant, `ref`/`shared ref` invariant), `Outlives<'a, 'b>`, multi-region disambiguation (`'a` vs `'b`), `FnMut`/`FnOnce` HRTBs, and generalized outer-capture blocking;
+- exclusive `ref<'a>` conditional/loop returns with prophecy/lens restoration across multi-branch and `while`/`foreach`/`match`, GAT `LendingIterator` interfaces/`impl`s, arbitrary-depth nested field reborrows, partial field moves with re-init, and loop-carried mutable cursor reborrowing;
+- safe `shared ref` aliased mutation over shape-stable scalars, fields, and fixed-extent elements (plus `LocalCell`/`BorrowCell` store-threaded models) purging overlapping `active_facts` while keeping disjoint refinements, proof-backed tag-preserving union mutation (`tag(new) == tag(old)`), and `Slots.Push` (`LiveCount < capacity`);
+- container stability (`unstable` `Seq`/`Slots` mutations vs stable element writes), symbolic `requires`/`assert` index-disjointness (`AssumeIndexNe`), path-sensitive `if`/`else` disequalities, `PathSensitiveRowClear`, and `ProvedFacts` / `path.obligations` / `check_loan_certificate` across elaborator, CFG analyzer, and [zero-axiom Rocq loan soundness proofs](../../tools/rocq/loan_soundness.v);
+- disjoint sub-slice writebacks (`holdfast_bs_shift_onto`), field and 2D-grid borrows under `r1 != r2 || c1 != c2`, two-phase receiver reservations, and 3-span conflict diagnostics (`origin`, `conflict`, `live_use`/`proposed_end`);
+- paired Rust (`rustc +nightly-2026-11-20`) and Ante (`ante_borrow_compare.py`, `.rs`/`.an` fixtures, `holdfast-borrow-compare`) trials across 22 `comparison_matrix` cases (HoldFast accepting all 22 vs 3 Rust NLL, 7 Rust Polonius Legacy, 6 Rust Polonius Alpha, 3 expected Ante).
 
-[Subslice writeback replay](../../tools/tests/test_holdfast_loan_returns.py#_subslice_disjoint_writeback) ·
-[Field and 2D borrows](../../tools/tests/test_holdfast_loan_returns.py#_field_and_multidim_borrows) ·
-[Loop cursor reborrow](../../tools/tests/test_holdfast_loan_returns.py#_loop_cursor_reborrow) ·
-[Higher-ranked view callback](../../tools/tests/test_holdfast_loan_returns.py#_higher_ranked_view_callback) ·
-[Two-phase receiver replay](../../tools/tests/test_holdfast_loan_returns.py#_two_phase_receiver_replay) ·
-[Exclusive ref returns](../../tools/tests/test_holdfast_loan_returns.py#_exclusive_conditional_return_and_prophecy) ·
-[GAT LendingIterator and FnMut](../../tools/tests/test_holdfast_loan_returns.py#_lending_iterator_gat_and_hrtb) ·
-[Shared ref and proof-backed updates](../../tools/tests/test_holdfast_loan_returns.py#_shared_mut_and_ante_beat_proofs) ·
-[Partial moves and loop cursors](../../tools/tests/test_holdfast_loan_returns.py#_partial_field_move_and_loop_cursor) ·
-[Loan certificate replay](../../tools/tests/test_holdfast_loan_returns.py#_loan_certificate_rocq_soundness_replay) ·
-[Rocq soundness audit](../../tools/tests/test_holdfast_loan_soundness.py) ·
-[Borrow comparison suite](../../tools/tests/test_holdfast_borrow_comparison.py#_comparison_fixture_contracts)
+[Subslice writeback replay](../../tools/tests/test_holdfast_loan_returns.py#_subslice_disjoint_writeback) · [Field and 2D borrows](../../tools/tests/test_holdfast_loan_returns.py#_field_and_multidim_borrows) · [Loop cursor reborrow](../../tools/tests/test_holdfast_loan_returns.py#_loop_cursor_reborrow) · [Higher-ranked view callback](../../tools/tests/test_holdfast_loan_returns.py#_higher_ranked_view_callback) · [Two-phase receiver replay](../../tools/tests/test_holdfast_loan_returns.py#_two_phase_receiver_replay) · [Exclusive ref returns](../../tools/tests/test_holdfast_loan_returns.py#_exclusive_conditional_return_and_prophecy) · [GAT LendingIterator and FnMut](../../tools/tests/test_holdfast_loan_returns.py#_lending_iterator_gat_and_hrtb) · [Shared ref and proof-backed updates](../../tools/tests/test_holdfast_loan_returns.py#_shared_mut_and_ante_beat_proofs) · [Partial moves and loop cursors](../../tools/tests/test_holdfast_loan_returns.py#_partial_field_move_and_loop_cursor) · [Loan certificate replay](../../tools/tests/test_holdfast_loan_returns.py#_loan_certificate_rocq_soundness_replay) · [Rocq soundness audit](../../tools/tests/test_holdfast_loan_soundness.py) · [Borrow comparison suite](../../tools/tests/test_holdfast_borrow_comparison.py#_comparison_fixture_contracts)
 
-If a client must restructure a loop whose last use of a view precedes a write
-to its owner, keep the original loop. Move one use past that write to produce
-the conflicting case. Freeze the accessed place, last use and expected
-restoration point on each path.
-Two 2026 results supply candidate analyses for the parts their models cover.
+For loop restructuring comparisons, keep the original loop and move one use past the write for the conflicting case (freezing place, last use, and expected restoration per path). Two 2026 analyses are candidate comparators:
 
-- MoveLight uses regular expressions to summarize paths rooted in local
-  variables across calls and loops. For a structured path, check whether its
-  summary preserves the distinction between the two live ranges.
-  [OOPSLA paper](https://2026.splashcon.org/details/oopsla-2026/147/Tracking-Borrows-with-Regular-Expressions) · [Lean artifact](https://zenodo.org/records/21850968)
-- Wu, Wang and Chen verify a forward abstract interpretation of Polonius for a
-  Rust core. On the common fragment, compare its alias decision at the write
-  with HoldFast's. Record which source places and control-flow edges the translation
-  preserves. [November 2026 preprint](https://arxiv.org/abs/2611.06319v1)
+- MoveLight regex path summaries ([OOPSLA 2026](https://2026.splashcon.org/details/oopsla-2026/147/Tracking-Borrows-with-Regular-Expressions) · [Lean artifact](https://zenodo.org/records/21850968)): test whether structured-path summaries separate the two live ranges.
+- Wu, Wang, and Chen forward Polonius abstract interpretation ([Nov 2026 preprint](https://arxiv.org/abs/2611.06319v1)): compare write-site alias decisions on the common fragment and record preserved places/CFG edges.
 
-Record any feature a model cannot express, such as an exit that returns a
-HoldFast-specific resource. To qualify an analysis for HoldFast, replay its restoration
-obligations on each exit and measure its work against the same budgets.
-
-In the comparison, distinguish reasoning about loans from resolving generic
-interfaces. Exercise the following source clients with their corresponding
-invalid edits and record the first obligation each compiler can judge.
+Record unexpressible features (e.g., HoldFast-specific resource exits), replay exit restorations, and benchmark against the same budgets. Separate loan reasoning from generic resolution across:
 
 | Client | Required distinction |
 | --- | --- |
-| Returned view on one branch, owner updated on its sibling | The update after the view's last use is safe. An update followed by use of the same view conflicts. |
-| Iterator lending a mutable element from its receiver | The next iteration can proceed after the first loan ends. Holding the first element through a second overlapping loan conflicts. |
-| Generic callback valid for each fresh input lifetime | A noncapturing identity view returns the loan tied to its input. Storing that view in longer-lived state violates the callback contract. |
-| Generic iterator with an associated item | Resolve the required item equality through an independently imported instance, report a genuinely ambiguous selection and check that reordering imports preserves both outcomes. |
+| Returned view on one branch, owner updated on its sibling | Update after view's last use succeeds; update before view use conflicts. |
+| Iterator lending a mutable element from its receiver | Next iteration proceeds after prior loan ends; overlapping element loans conflict. |
+| Generic callback valid for each fresh input lifetime | Noncapturing identity view returns input loan; storing view in longer-lived state violates callback contract. |
+| Generic iterator with an associated item | Resolve item equality via independently imported instance, report genuine ambiguity, and preserve both outcomes under import reordering. |
 
-Pin the Rust edition, compiler revision, flags and crate closure separately for
-each run. Keep ordinary Rust receiver behavior in the baseline. Compare
-Polonius configurations for the loan cases and the next-generation trait solver
-for the generic obligations it judges. Record extra proof terms, annotations,
-unsafe abstractions, runtime checks and source rewrites for each tool.
-[Rust two-phase borrows](https://rustc-dev-guide.rust-lang.org/borrow-check/two-phase-borrows.html)
-and [Rust trait solving](https://rustc-dev-guide.rust-lang.org/solve/trait-solving.html)
-describe the respective subjects.
-
-Record accepted, semantically rejected, unsupported and incomplete cases
-separately. A diagnostic with no detected conflict still carries its unresolved
-proof obligations and supplies no source acceptance. Compare matching behavior
-without weakening ownership, dependent facts, effects or required guarantees.
-Retain manual rewrites, annotations and the first intended diagnostic; an
-unrelated parse/type failure supplies no borrowing rejection evidence.
-For each pinned baseline, count a precision gain when HoldFast accepts a
-matched positive that the baseline refuses on borrowing grounds, replays the
-declared guarantees and refuses the corresponding conflicts. Keep unsupported
-cases outside that count.
-
-Reuse the applicable [measurement record and sampling](../assurance/workflow-contract.md#measurement-record-and-sampling)
-for diagnostic latency, elapsed/CPU time, peak memory and environment identity.
-Record graph size, branching, captures, configured budgets and budget refusals
-alongside successful cases. State each claimed improvement's objective and
-supported workload, including regressions and endpoint differences. Report conclusions for the tested workloads and evidence endpoints.
+Pin Rust edition, revision, flags, and crate closure (keeping ordinary receiver rules, Polonius modes for loans, and next-gen trait solver for generics), recording extra proofs, annotations, `unsafe`, runtime checks, and rewrites ([Rust two-phase](https://rustc-dev-guide.rust-lang.org/borrow-check/two-phase-borrows.html), [Rust trait solving](https://rustc-dev-guide.rust-lang.org/solve/trait-solving.html)). Report accepted, semantically rejected, unsupported, and incomplete cases separately (conflict-free diagnostics with open obligations give no acceptance; parse/type failures give no borrowing rejection); count a precision gain only when HoldFast accepts a matched positive that the baseline rejects on borrowing grounds while replaying guarantees and rejecting conflicts. Use [measurement/sampling](../assurance/workflow-contract.md#measurement-record-and-sampling) alongside graph size, branching, captures, budgets, and budget refusals, scoping claims to tested workloads and endpoints.
 
 <a id="two-phase-receiver-trial"></a>
 
