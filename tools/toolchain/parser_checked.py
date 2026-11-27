@@ -1335,7 +1335,7 @@ def _toolchain(root: Path, directory: Path, steps: list[dict[str, object]]) -> d
         "menhir": generator,
         "binary_sha256": {
             **{name: file_sha256(binary_dir / name)
-               for name in ("rocq", "rocqchk", "ocamlc", "ocamllex")},
+               for name in ("rocq", "rocqchk", "ocamlc", "ocamlopt", "ocamllex")},
             "menhir": file_sha256(sail_bin_dir / "menhir"),
         },
     }
@@ -1469,6 +1469,7 @@ def _runtime_inputs(root: Path) -> dict[str, str]:
         "holdfast_pure_proofs_v_sha256": _sha256(HOLDFAST_PURE_PROOFS_V.encode("utf-8")),
         "holdfast_pure_extraction_v_sha256": _sha256(HOLDFAST_PURE_EXTRACTION_V.encode("utf-8")),
         "checked_main_ml_sha256": _sha256(CHECKED_MAIN_ML.encode("utf-8")),
+        "ocaml_backend": "ocamlopt",
     }
 
 
@@ -1479,15 +1480,15 @@ def _compile_checked_executable(root: Path, tree: Path, token_stub: str,
     (tree / "parser.ml").write_text(token_stub, encoding="utf-8", newline="")
     (tree / "checked_main.ml").write_text(CHECKED_MAIN_ML, encoding="utf-8", newline="")
     ocaml_commands = (
-        ("ast-compile", ["ocamlc", "-c", "ast.ml"]),
-        ("token-stub-compile", ["ocamlc", "-c", "parser.ml"]),
+        ("ast-compile", ["ocamlopt", "-c", "ast.ml"]),
+        ("token-stub-compile", ["ocamlopt", "-c", "parser.ml"]),
         ("lexer-generate", ["ocamllex", "lexer.mll"]),
-        ("lexer-compile", ["ocamlc", "-c", "lexer.ml"]),
-        ("extracted-mli-compile", ["ocamlc", "-w", "-a", "-c", "holdfast_checked_parser.mli"]),
-        ("extracted-ml-compile", ["ocamlc", "-w", "-a", "-c", "holdfast_checked_parser.ml"]),
-        ("checked-main-compile", ["ocamlc", "-c", "checked_main.ml"]),
-        ("checked-link", ["ocamlc", "-o", "holdfast-checked-parser", "ast.cmo",
-                          "parser.cmo", "lexer.cmo", "holdfast_checked_parser.cmo", "checked_main.cmo"]),
+        ("lexer-compile", ["ocamlopt", "-c", "lexer.ml"]),
+        ("extracted-mli-compile", ["ocamlopt", "-w", "-a", "-c", "holdfast_checked_parser.mli"]),
+        ("extracted-ml-compile", ["ocamlopt", "-w", "-a", "-c", "holdfast_checked_parser.ml"]),
+        ("checked-main-compile", ["ocamlopt", "-c", "checked_main.ml"]),
+        ("checked-link", ["ocamlopt", "-o", "holdfast-checked-parser", "ast.cmx",
+                          "parser.cmx", "lexer.cmx", "holdfast_checked_parser.cmx", "checked_main.cmx"]),
     )
     for step_name, cmd in ocaml_commands:
         _run(_opam(cmd), tree, tree / f"{step_name}.stdout", steps)

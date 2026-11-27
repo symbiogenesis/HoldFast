@@ -41,15 +41,21 @@ def _parser_images_identity(pid: int, executable: Path) -> str:
     process = Path(f"/proc/{pid}")
     with executable.open("rb") as stream:
         header = stream.readline(4096)
-    if not header.startswith(b"#!/") or not header.endswith(b"\n"):
-        raise ValueError("checked parser has no supported bytecode interpreter")
-    interpreter = Path(os.fsdecode(header[2:-1]))
     with (process / "cmdline").open("rb") as stream:
         command = stream.read(65537)
-    if (len(command) > 65536 or command.split(b"\0") != [
-            os.fsencode(interpreter), os.fsencode(executable), b"--batch", b""]
-            or not interpreter.samefile(process / "exe")):
+    if len(command) > 65536:
         raise ValueError("live worker does not execute the selected checked parser")
+    args = command.split(b"\0")
+    if header.startswith(b"\x7fELF"):
+        if args != [os.fsencode(executable), b"--batch", b""] or not executable.samefile(process / "exe"):
+            raise ValueError("live worker does not execute the selected checked parser")
+    elif header.startswith(b"#!/") and header.endswith(b"\n"):
+        interpreter = Path(os.fsdecode(header[2:-1]))
+        if (args != [os.fsencode(interpreter), os.fsencode(executable), b"--batch", b""]
+                or not interpreter.samefile(process / "exe")):
+            raise ValueError("live worker does not execute the selected checked parser")
+    else:
+        raise ValueError("checked parser has no supported executable format")
     return trace_runtime.file_identity(trace_runtime.process_images(pid))
 
 

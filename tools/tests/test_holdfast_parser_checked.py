@@ -199,7 +199,7 @@ def _toolchain_controls() -> None:
         sail = locks / "sail.lock"
         sail.write_text(f'"menhir.{checked.RELEASE}"\n', encoding="utf-8")
         (locks / "rocq.lock").write_text(f'"rocq-core.{checked.proofenv.ROCQ_VERSION}"\n', encoding="utf-8")
-        for name in ("rocq", "rocqchk", "ocamlc", "ocamllex", "menhir"):
+        for name in ("rocq", "rocqchk", "ocamlc", "ocamlopt", "ocamllex", "menhir"):
             (directory / name).write_bytes(b"tool identity")
         expected = [
             f"The Rocq Prover, version {checked.proofenv.ROCQ_VERSION}",
@@ -211,7 +211,7 @@ def _toolchain_controls() -> None:
         with patch.object(checked, "_run", side_effect=expected):
             identity = checked._toolchain(directory, directory, [])
         digests = identity["binary_sha256"]
-        ensure(isinstance(digests, dict) and len(digests) == 5, "support tools lost executable identities")
+        ensure(isinstance(digests, dict) and len(digests) == 6, "support tools lost executable identities")
         for index in (0, 1, 2, 3, 4):
             changed = [*expected]
             changed[index] = "different identity"
