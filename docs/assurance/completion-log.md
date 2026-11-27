@@ -2742,22 +2742,29 @@ and call-by-value modal calculi, alongside type-variable irrelevance
 Extended mechanization in Rocq 9.3.0 (all 0-axiom `Print Assumptions` and
 `rocqchk -silent` verified) also closes the GrTT structural and substitution
 metatheory (`weakening_*`, `exchange_derives`, `value_substitution_derives`,
-`type_substitution_derives`, explicit `(s, r)` `GrttCore` calculus), universal
-symbolic semiring polymorphism (`graded_semiring.v`: `poly_infer_sound`,
-`poly_derives_all_valuations`, `poly_*_verified` and negative controls), CBV
-erasure soundness and non-interference (`graded_erasure.v`:
-`erasure_simulation`, `closed_erasure_sound`, `zero_computation_irrelevance`,
-`zero_var_non_interference`), and CBV protocol erasure (`graded_cbv_erasure.v`),
-as well as general ordered modal domains, `Sum` elimination, Boolean
-`Presence`, and type-grade checking in `graded_modal.v`.
+`type_substitution_derives`, explicit `(s, r)` `GrttCore` calculus), the unified
+`GradedCore` / `JoinDomain` calculus (`graded_domains.v`, `graded_core.v`,
+`graded_core_source.v`, and `graded_core_metatheory.v` proving
+`core_weakening`, `core_weakening_erasure`, `core_exchange`, and
+`core_value_substitution` with `LinearDomain`, `AffineDomain`, `SecurityLoHi`,
+and symbolic `GradeExpr`), universal symbolic semiring polymorphism
+(`graded_semiring.v`: `poly_infer_sound`, `poly_derives_all_valuations`,
+`poly_*_verified` and negative controls), CBV erasure soundness and
+non-interference (`graded_erasure.v`: `erasure_simulation`,
+`closed_erasure_sound`, `zero_computation_irrelevance`,
+`zero_var_non_interference`), and CBV protocol erasure
+(`graded_cbv_erasure.v`), as well as general ordered modal domains, `Sum`
+elimination, Boolean `Presence`, and type-grade checking in `graded_modal.v`.
 [GrTT metatheory](../../tools/rocq/graded_metatheory.v) ·
+[Unified graded core](../../tools/rocq/graded_core.v) ·
+[Unified core metatheory](../../tools/rocq/graded_core_metatheory.v) ·
 [Semiring polymorphism](../../tools/rocq/graded_semiring.v) ·
 [CBV erasure](../../tools/rocq/graded_erasure.v) ·
 [Protocol erasure](../../tools/rocq/graded_cbv_erasure.v) ·
 [Metatheory audit](../../tools/tests/test_holdfast_graded_metatheory.py)
 
-General indexed-data elimination beyond sums/boxes/records and target machine
-cost/lowering correspondence remain open.
+Remaining `core_type_substitution`/erasure proofs on `GradedCore` and target
+machine cost/lowering correspondence remain open.
 
 <a id="q25bj-reconstruct-checked-graded-domain-evidence"></a>
 
@@ -2865,18 +2872,25 @@ retains its own row with two uses of the tick count. Controls refuse a wrong
 extent, a different record with the same fields and an invalid projection.
 [Indexed source and controls](../../tools/tests/test_holdfast_graded_modal.py#_dependent_pair_source_replay)
 
-These trials use checked kernel judgments over a trusted source projection,
-extended to general ordered modal domains (`graded-modal-general.hf`), `Sum`
-elimination (`graded-sums.hf`), Boolean `Presence` (`graded-presence.hf`),
-type-grade polymorphism (`graded-type-grades.hf`), and an end-to-end graded
-protocol client (`graded-protocol-client.hf`) across `graded_source.py` and
-`check-grades`.
+These trials use checked kernel judgments over the unified `GradedCore`
+source projection (`graded_source.py`, `graded_core.v`, `graded_core_source.v`,
+and `elaborate_graded.py`), supporting general ordered modal domains
+(`graded-modal-general.hf`), `Sum` elimination (`graded-sums.hf`), Boolean
+`Presence` (`graded-presence.hf`), type-grade polymorphism
+(`graded-type-grades.hf`), `domain` declarations and `<grade q : D>`
+polymorphism (`graded-domains-polymorphism.hf`), `inductive` families
+(`graded-inductive-families.hf`), Rocq-checked `(s, r)` binders and
+structured `grade_error` diagnostics, constraint inference
+(`graded_inference.py` + `holdfast-parser --infer-grades`), CBV erasure links,
+and an end-to-end graded protocol client (`graded-protocol-client.hf`) across
+`check-grades` and ordinary elaboration.
+[Unified graded replay](../../tools/tests/test_holdfast_graded.py#_domains_and_grade_polymorphism) ·
 [General modal replay](../../tools/tests/test_holdfast_graded_modal.py#_general_modal_source_replay) ·
 [Sums and presence replay](../../tools/tests/test_holdfast_graded_modal.py#_sums_and_presence_modal_replay) ·
+[Grade inference replay](../../tools/tests/test_holdfast_graded_inference.py) ·
 [Protocol client](../../tools/tests/fixtures/graded-protocol-client.hf)
 
-Checked source correspondence and reconstruction for broader dependent data
-remain open.
+Target machine lowering and broader arbitrary-domain qualification remain open.
 
 <a id="q25by-compare-fixed-modes-with-a-bounded-grading-increment"></a>
 
@@ -2902,6 +2916,33 @@ check a paired protocol state machine (`graded-protocol-client.hf`) and
 CBV erasure preservation (`graded_cbv_erasure.v`). General release
 cost/benefit qualification across arbitrary backends remains open.
 
+<a id="q25bz-trial-derived-modality-combinators"></a>
+
+## Q25bz · Trial derived modality combinators
+
+`tools/toolchain/graded_combinators.py` and `holdfast-parser derive-combinator`
+inspect HoldFast `record`/`union`/`Box` structures and domain rules to derive
+`dist_pair`, `pull_pair`, `push_sum`, `flatten_box`, `duplicate_box`,
+`extract_box`, and `weaken_box`, refusing `Linear`/non-duplicable contraction,
+unsound `NatExact` weakening, `pull_pair` on disallowed domains, and `push_sum`
+at zero grade, with zero-axiom Rocq replay and tamper checks. Named client
+recurring-benefit qualification remains open.
+[Derived combinators](../../tools/toolchain/graded_combinators.py) ·
+[Combinator replay](../../tools/tests/test_holdfast_graded_combinators.py)
+
+<a id="q25ca-trial-grade-directed-synthesis"></a>
+
+## Q25ca · Trial grade-directed synthesis
+
+`tools/toolchain/graded_synthesis.py` and `holdfast-parser synthesize-graded`
+implement finite-budget grade-directed synthesis with immediate grade/resource
+pruning (`NatExact`, `NatBound`, `Presence`, `Linear`, `Affine`), behavioral
+oracle filtering of well-typed wrong candidates, explicit `SynthesisResidual`
+(`exhausted`/`unsatisfiable`) outcomes, and zero-axiom Rocq verification of
+synthesized terms. Named client benefit qualification remains open.
+[Grade-directed synthesis](../../tools/toolchain/graded_synthesis.py) ·
+[Synthesis replay](../../tools/tests/test_holdfast_graded_synthesis.py)
+
 <a id="q25cb-trial-zero-type-use-substitution-skipping"></a>
 
 ## Q25cb · Trial zero-type-use substitution skipping
@@ -2913,11 +2954,15 @@ type-demand row is also unchanged pointwise. The theorem covers natural indices,
 universes and dependent function types under the checked typing rules.
 The [CBV erasure and skipping development](../../tools/rocq/graded_erasure.v)
 proves `apply_nat_skip_agrees`, `apply_type_skip_agrees`, and
-`let_nat_skip_agrees`, and [the metatheory test suite](../../tools/tests/test_holdfast_graded_metatheory.py)
-verifies `Q25cbBench.v` on a 40-binder dependent `Pi` telescope under Rocq 9.3.0.
-Full frontend-wide replay cost benchmarking remains open.
+`let_nat_skip_agrees`, [the metatheory test suite](../../tools/tests/test_holdfast_graded_metatheory.py)
+verifies `Q25cbBench.v` on a 40-binder dependent `Pi` telescope under Rocq 9.3.0,
+and `tools/toolchain/elaborate.py` integrates zero-type-use `substitute()`
+short-circuiting verified against full substitution and multi-binder HoldFast
+benchmarks (`graded-q25cb-benchmark.hf`). Wider package-scale replay cost studies
+remain open.
 [Irrelevance proof](../../tools/rocq/graded_type_irrelevance.v) ·
-[Skipping proofs](../../tools/rocq/graded_erasure.v)
+[Skipping proofs](../../tools/rocq/graded_erasure.v) ·
+[Frontend skip benchmark](../../tools/tests/test_holdfast_graded.py#_q25cb_zero_type_use_skip_and_benchmark)
 
 <a id="q25cc-compare-borrow-checking-alternatives-on-held-out-clients"></a>
 

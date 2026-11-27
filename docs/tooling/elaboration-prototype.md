@@ -160,19 +160,33 @@ contributes two more uses of the index without any computation demand.
 
 ### General modal domains, sums and type-grade replay
 
-`holdfast-parser check-grades` (`tools/toolchain/graded_source.py`) and
-`tools/rocq/graded_modal_source.v` / `graded_source.v` also support general
-ordered semiring domains (`Domain` records in `tools/rocq/graded_modal.v` with
-arbitrary carrier, meet/join/order and custom modal operators), `Sum` / `InjLeft`
-/ `InjRight` indexed sum elimination, Boolean `Presence` demand rows, and
-type-level grade parameters (`TypeVar` and `grade q : ...` in dependent
-definitions), plus full GrTT metatheory, polymorphic semiring, CBV erasure and
-`Q25cb` deep-telescope Rocq replay suites.
+`holdfast-parser check-grades` (`tools/toolchain/graded_source.py`),
+`tools/toolchain/elaborate_graded.py`, and the unified Rocq core
+(`tools/rocq/graded_domains.v`, `tools/rocq/graded_core.v`,
+`tools/rocq/graded_core_source.v`, `tools/rocq/graded_core_metatheory.v`)
+support `JoinDomain` ordered semiring records (`NatExactJoin`, `NatBoundJoin`,
+`PresenceJoin`, `LinearDomain`, `AffineDomain`, `SecurityLoHi`, and custom
+`domain` declarations) with symbolic `GradeExpr` polynomials, unified `(s, r)`
+binder checking enforced inside Rocq across functions, lambdas, `let`
+bindings, dependent `Box` / `Sigma` / `Sum` / n-field records, `inductive`
+families, `<grade q : D>` grade polymorphism, dependent motives, `Type`/`Type<n>`
+universes combined with modal forms, and structured `grade_error` source-span
+diagnostics. `holdfast-parser` also exposes `--infer-grades`, `derive-combinator`,
+and `synthesize-graded` backed by `graded_inference.py`, `graded_combinators.py`,
+and `graded_synthesis.py`, while `elaborate.py` integrates `Q25cb`
+zero-type-use `substitute()` skipping and CBV erasure verification alongside
+the `graded_metatheory.v`, `graded_semiring.v`, `graded_erasure.v`, and
+`graded_cbv_erasure.v` suites.
+[Unified graded replay](../../tools/tests/test_holdfast_graded.py#_domains_and_grade_polymorphism) ·
+[Q25cb skipping benchmark](../../tools/tests/test_holdfast_graded.py#_q25cb_zero_type_use_skip_and_benchmark) ·
 [General modal replay](../../tools/tests/test_holdfast_graded_modal.py#_general_modal_source_replay) ·
 [Sums and presence replay](../../tools/tests/test_holdfast_graded_modal.py#_sums_and_presence_modal_replay) ·
 [GrTT metatheory suite](../../tools/tests/test_holdfast_graded_metatheory.py) ·
 [Protocol client replay](../../tools/tests/test_holdfast_graded_client.py) ·
-[CBV erasure replay](../../tools/tests/test_holdfast_graded_cbv.py)
+[CBV erasure replay](../../tools/tests/test_holdfast_graded_cbv.py) ·
+[Grade inference replay](../../tools/tests/test_holdfast_graded_inference.py) ·
+[Derived combinators replay](../../tools/tests/test_holdfast_graded_combinators.py) ·
+[Grade-directed synthesis replay](../../tools/tests/test_holdfast_graded_synthesis.py)
 
 These trials establish demand checking for the projected pure terms. The
 [extension qualification](../extensions/graded-foundation.md#extension-selection-and-qualification)

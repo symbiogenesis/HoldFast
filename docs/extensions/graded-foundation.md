@@ -21,14 +21,23 @@ describes the roles and limits of GrTT, GraD and the Agda erasure development.
 The [source replay](../tooling/elaboration-prototype.md#pure-graded-source-replay)
 checks a pure fragment with `NatExact`, `NatBound`, general modal semirings and
 Boolean `Presence`, including graded boxes, indexed sums, type-grade variables
-and dependent records. On the Rocq kernel side, dedicated closed-assumption
-developments mechanize the GrTT structural and substitution metatheory (`weakening`,
-`exchange`, simultaneous value and type-variable substitution, and the explicit
-`(s, r)` core calculus), symbolic semiring polymorphism, CBV erasure with
-non-interference, and verified zero-type-use substitution skipping.
+and dependent records. On the Rocq kernel side, dedicated closed-assumption developments mechanize the
+GrTT structural and substitution metatheory (`weakening`, `exchange`,
+simultaneous value and type-variable substitution, and the explicit `(s, r)` core
+calculus), symbolic semiring polymorphism, CBV erasure with non-interference,
+verified zero-type-use substitution skipping, and the unified `GradedCore` /
+`JoinDomain` calculus (`core_weakening`, `core_exchange`, and
+`core_value_substitution`) with frontend `domain`/`inductive`/`<grade q : D>`
+elaboration, Rocq-replayed constraint inference, derived modality combinators,
+and bounded grade-directed synthesis.
 [GrTT metatheory](../../tools/rocq/graded_metatheory.v) ·
+[Unified graded core](../../tools/rocq/graded_core.v) ·
+[Unified core metatheory](../../tools/rocq/graded_core_metatheory.v) ·
 [Symbolic semiring polymorphism](../../tools/rocq/graded_semiring.v) ·
-[CBV erasure and skipping](../../tools/rocq/graded_erasure.v)
+[CBV erasure and skipping](../../tools/rocq/graded_erasure.v) ·
+[Grade inference](../../tools/toolchain/graded_inference.py) ·
+[Derived combinators](../../tools/toolchain/graded_combinators.py) ·
+[Grade-directed synthesis](../../tools/toolchain/graded_synthesis.py)
 
 ## Extension selection and qualification
 
@@ -44,7 +53,7 @@ Before a trial, freeze benefit thresholds and budgets for annotations, proof/rev
 
 To qualify [GrTT's distinction](../assurance/verification-strategy.md#reading-the-graded-type-claims), replay an index unused computationally that contributes to later declarations and result types, testing both an allowance-violating computation edit and a computation-preserving type-dependency edit across callable and locked module boundaries, naming affected bindings and retained telescope rows.
 
-Gerty's [substitution-skipping optimization](../assurance/verification-strategy.md#reading-the-graded-type-claims) is separate and optional (requiring proved zero-type-use irrelevance, agreement with ordinary substitution, and net checking speedup including solver cost inside an already justified graded build—never commissioning a speed-only tool or relying on donor timings). Pure `NatExact` proves zero-type-demand substitution preserves inferred types and counts; [CBV erasure and skipping](../../tools/rocq/graded_erasure.v) proves `apply_nat_skip_agrees`, `apply_type_skip_agrees`, `let_nat_skip_agrees` (with a 40-binder deep-telescope check), `erasure_simulation`, `closed_erasure_sound`, `zero_computation_irrelevance`, and `zero_var_non_interference` under closed assumptions (representative frontend-wide replay benchmarking remains open). [Irrelevance theorem](../../tools/rocq/graded_type_irrelevance.v) · [Metatheory audit](../../tools/tests/test_holdfast_graded_metatheory.py)
+Gerty's [substitution-skipping optimization](../assurance/verification-strategy.md#reading-the-graded-type-claims) is separate and optional (requiring proved zero-type-use irrelevance, agreement with ordinary substitution, and net checking speedup including solver cost inside an already justified graded build—never commissioning a speed-only tool or relying on donor timings). Pure `NatExact` proves zero-type-demand substitution preserves inferred types and counts; [CBV erasure and skipping](../../tools/rocq/graded_erasure.v) proves `apply_nat_skip_agrees`, `apply_type_skip_agrees`, `let_nat_skip_agrees` (with a 40-binder deep-telescope check), `erasure_simulation`, `closed_erasure_sound`, `zero_computation_irrelevance`, and `zero_var_non_interference` under closed assumptions, and `tools/toolchain/elaborate.py` integrates checked zero-type-use `substitute()` short-circuiting with exact-equality and multi-binder benchmark checks (`_q25cb_zero_type_use_skip_and_benchmark`). [Irrelevance theorem](../../tools/rocq/graded_type_irrelevance.v) · [Metatheory audit](../../tools/tests/test_holdfast_graded_metatheory.py) · [Frontend skip benchmark](../../tools/tests/test_holdfast_graded.py#_q25cb_zero_type_use_skip_and_benchmark)
 
 ### Audio routing candidate
 
@@ -61,7 +70,7 @@ Both checkers reject specializing to the old period; graded checking also reject
 
 ### Conditional usability producers
 
-Granule's [derived distributive combinators](https://arxiv.org/abs/2112.14966) and [grade-directed synthesis](https://doi.org/10.1007/978-3-031-57262-3_4) produce ordinary checked terms (no HoldFast compatibility/correctness evidence or donor code is incorporated). Adoption requires a named client with repetitive conversions or bounded synthesis vs proved combinators/existing proof search: fixing constructors/direction/premises for derivation (not assuming `Box_q (F A) <-> F (Box_q A)`), fixing grammar/components/behavior/budget for synthesis (failed search proves no impossibility), preserving captures/ownership/phase/effects and assumption audits, and testing valid clients, invalid `Dup`/domain premises, changed bindings, well-typed wrong candidates, and bounded failure while measuring recurring benefit vs total checking cost. Derived combinators follow [the generation contract](metaprogramming.md#qualification). [Extension plan](../../PLAN.md#language-extensions)
+Granule's [derived distributive combinators](https://arxiv.org/abs/2112.14966) and [grade-directed synthesis](https://doi.org/10.1007/978-3-031-57262-3_4) produce ordinary checked terms (no HoldFast compatibility/correctness evidence or donor code is incorporated). The prototype modules `tools/toolchain/graded_combinators.py` (`derive-combinator`) and `tools/toolchain/graded_synthesis.py` (`synthesize-graded`) implement structure-checked distributive combinator derivation and resource-pruned bounded synthesis with behavioral oracle rejection, zero-axiom Rocq replay, and negative controls; wider client-benefit adoption still requires a named client with repetitive conversions or bounded synthesis vs proved combinators/existing proof search: fixing constructors/direction/premises for derivation (not assuming `Box_q (F A) <-> F (Box_q A)`), fixing grammar/components/behavior/budget for synthesis (failed search proves no impossibility), preserving captures/ownership/phase/effects and assumption audits, and testing valid clients, invalid `Dup`/domain premises, changed bindings, well-typed wrong candidates, and bounded failure while measuring recurring benefit vs total checking cost. Derived combinators follow [the generation contract](metaprogramming.md#qualification). [Extension plan](../../PLAN.md#language-extensions)
 
 ## Dimensions and lawful domains
 
@@ -92,7 +101,7 @@ Domain D:
   InterpretUse, InterpretTypeUse, CheckCertificate and soundness obligations
 ```
 
-`q <=D q'` admits demand `q` under allowance `q'` (exact-use requires equality; promotion/motive scaling assumes commutative `*`, while noncommutative domains need `GF-domain` ordered actions; custom ops need composition laws; incomparable branches need proved bounds or result-indexed contracts; products need compatible subject/trace interpretations). `NatExact` uses `(`+`, `*`, `=`)`; `NatBound` uses `<=`; Boolean presence uses `(`or`, `and`)` (`1+1=1`). [Rocq domain trial](../../tools/rocq/graded_domains.v) verifies these three ordered semiring records, row certificates, and substitution across exact-to-bound and bound-to-presence maps; [proof/qualification obligations](#proof-and-qualification-obligations) govern source use. Zero-use erasure requires excluding relevant observations (nontriviality/positivity/no-zero-divisors alone are insufficient); exact cardinality needs faithful counts without relaxing zero/two to one; uniqueness needs spatial exclusivity; security needs relational observation laws (idempotent `1` gives none).
+`q <=D q'` admits demand `q` under allowance `q'` (exact-use requires equality; promotion/motive scaling assumes commutative `*`, while noncommutative domains need `GF-domain` ordered actions; custom ops need composition laws; incomparable branches need proved bounds or result-indexed contracts; products need compatible subject/trace interpretations). `NatExact` uses `(`+`, `*`, `=`)`; `NatBound` uses `<=`; Boolean presence uses `(`or`, `and`)` (`1+1=1`). [Rocq domain trial](../../tools/rocq/graded_domains.v) verifies these three ordered semiring records alongside `JoinDomain` (`NatExactJoin`, `NatBoundJoin`, `PresenceJoin`, `LinearDomain`, `AffineDomain`, `SecurityLoHi`), symbolic `GradeExpr` polynomial normalization, row certificates, and substitution across exact-to-bound and bound-to-presence maps; [proof/qualification obligations](#proof-and-qualification-obligations) govern source use. Zero-use erasure requires excluding relevant observations (nontriviality/positivity/no-zero-divisors alone are insufficient); exact cardinality needs faithful counts without relaxing zero/two to one; uniqueness needs spatial exclusivity; security needs relational observation laws (idempotent `1` gives none).
 
 ## Stable telescope and dependency bookkeeping
 
