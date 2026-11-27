@@ -52,7 +52,11 @@ def _parser_command(arguments: list[str]) -> tuple[int, str, str]:
     return status, output.getvalue(), error.getvalue()
 
 
-def _check_audio_route_behavior(directory: Path, name: str, gallina: str) -> None:
+def _check_audio_route_behavior(directory: Path, name: str, gallina: str) -> float:
+    erased_theorems = [
+        line.split()[1] for line in gallina.splitlines()
+        if line.startswith("Theorem ") and "_erased_" in line and "_correspondence" in line
+    ]
     proof = directory / f"{name}.v"
     unit_text, _ = rocq_cache.use_cached_prelude(gallina + """
 Import HoldFast_GradedAudioRoute.
@@ -63,11 +67,14 @@ Theorem stereo_route_returns_samples :
     holdfast_d1_StereoRoute period label_count stereo labels = stereo.
 Proof. reflexivity. Qed.
 Print Assumptions stereo_route_returns_samples.
-""", directory)
+""" + "".join(f"Print Assumptions {thm}.\n" for thm in erased_theorems), directory)
     proof.write_text(unit_text, encoding="utf-8")
+    started = time.perf_counter()
     checked = subprocess.run([*proofenv.rocq_command(), "-q", proof.name], cwd=directory,
                              capture_output=True, text=True, encoding="utf-8", check=True, timeout=30)
-    solver_ledger.audit(checked.stdout, 1, f"{name} behavior", ())
+    elapsed = time.perf_counter() - started
+    solver_ledger.audit(checked.stdout, 1 + len(erased_theorems), f"{name} behavior", ())
+    return elapsed
 
 
 def _audio_route() -> None:
@@ -94,10 +101,24 @@ def _audio_route() -> None:
         baseline_text, annotations = grade_annotations.subn("", source)
         ensure(annotations == 12, "baseline changed the audio route annotation budget")
         baseline.write_text(baseline_text, encoding="utf-8")
-        for path, name in ((baseline, "AudioRouteBaseline"), (fixture, "AudioRouteGraded")):
+        route_metrics: dict[str, dict[str, float | int]] = {}
+        for path, name, key, ann_count in (
+            (baseline, "AudioRouteBaseline", "fixed_mode", 0),
+            (fixture, "AudioRouteGraded", "graded", annotations),
+        ):
+            started = time.perf_counter()
             status, gallina, error = _parser_command(["elaborate", str(path)])
+            elab_s = time.perf_counter() - started
             ensure(status == 0, error)
-            _check_audio_route_behavior(directory, name, gallina)
+            if key == "graded":
+                ensure("_erased_StereoRoute_correspondence" in gallina,
+                       "missing CBV erasure correspondence for StereoRoute")
+            replay_s = _check_audio_route_behavior(directory, name, gallina)
+            route_metrics[key] = {
+                "annotations": ann_count,
+                "elaborate_s": elab_s,
+                "replay_s": replay_s,
+            }
 
         stale = source.replace("RouteInputs()(period + 1, labelCount)", "RouteInputs()(period, labelCount)")
         graded_stale = directory / "GradedStale.hf"
@@ -113,6 +134,14 @@ def _audio_route() -> None:
         graded_stale.write_text(bad_allowance, encoding="utf-8")
         status, output, error = _parser_command(["elaborate", str(graded_stale)])
         ensure(status == 1 and not output and "fails exact computation demand" in error, error)
+        route_metrics["fixed_mode"]["repair_edits"] = 2
+        route_metrics["graded"]["repair_edits"] = 2
+        ensure(
+            route_metrics["graded"]["annotations"] == 12
+            and route_metrics["fixed_mode"]["annotations"] == 0
+            and all(math.isfinite(float(v)) for m in route_metrics.values() for v in m.values()),
+            f"invalid StereoRoute Q25by comparison metrics: {route_metrics}",
+        )
 
 
 def _locked_grading() -> None:
@@ -453,6 +482,10 @@ Print Assumptions round_trip_doubles.
 def _check_protocol_client_behavior(directory: Path, name: str, gallina: str) -> float:
     [route_fn] = re.findall(r"^Definition (\S+_RouteTelemetry) :", gallina, re.MULTILINE)
     [header_fn] = re.findall(r"^Definition (\S+_FrameHeader) :", gallina, re.MULTILINE)
+    erased_theorems = [
+        line.split()[1] for line in gallina.splitlines()
+        if line.startswith("Theorem ") and "_erased_" in line and "_correspondence" in line
+    ]
     proof = directory / f"{name}.v"
     unit_text, _ = rocq_cache.use_cached_prelude(
         gallina + f"""
@@ -478,15 +511,16 @@ Proof. reflexivity. Qed.
 Print Assumptions telemetry_route_returns_payload.
 Print Assumptions telemetry_route_independent_of_audit_len.
 Print Assumptions frame_header_doubles_tag.
-""",
+""" + "".join(f"Print Assumptions {thm}.\n" for thm in erased_theorems),
         directory,
+    )
     )
     proof.write_text(unit_text, encoding="utf-8")
     started = time.perf_counter()
     checked = subprocess.run([*proofenv.rocq_command(), "-q", proof.name], cwd=directory,
                              capture_output=True, text=True, encoding="utf-8", check=True, timeout=30)
     elapsed = time.perf_counter() - started
-    solver_ledger.audit(checked.stdout, 3, f"{name} behavior", ())
+    solver_ledger.audit(checked.stdout, 3 + len(erased_theorems), f"{name} behavior", ())
     return elapsed
 
 
@@ -541,6 +575,26 @@ def _graded_protocol_client_comparison() -> None:
             timings[f"{prefix}_replay"] = _check_protocol_client_behavior(directory, label, gallina)
         ensure(all(math.isfinite(value) and value >= 0.0 for value in timings.values()),
                f"invalid timing measurements: {timings}")
+        comparison_metrics = {
+            "fixed_mode": {
+                "annotations": baseline_annotations,
+                "explicit_proof_theorems": 3,
+                "repair_edits_computation": 3,
+                "repair_edits_dependency": 2,
+                "replay_time": timings["baseline_replay"],
+            },
+            "graded": {
+                "annotations": graded_annotations,
+                "explicit_proof_theorems": 0,
+                "repair_edits_computation": 3,
+                "repair_edits_dependency": 2,
+                "replay_time": timings["graded_replay"],
+                "check_grades_time": timings["check_grades"],
+            },
+        }
+        ensure(comparison_metrics["graded"]["annotations"] == 17
+               and comparison_metrics["fixed_mode"]["annotations"] == 0,
+               f"frozen Q25by comparison metrics drifted: {comparison_metrics}")
 
         candidate = directory / "ProtocolEdit.hf"
         # Computation edits: wrong allowance on payload, wrong usage in FrameHeader, and returning auditTrail.

@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: Apache-2.0
+module GradedQ25cbBenchmark;
+
+public definition Nat CombineStageA(
+    Nat a0 @ NatExact(1, 0), Nat a1 @ NatExact(1, 0),
+    Nat a2 @ NatExact(1, 0), Nat a3 @ NatExact(1, 0),
+    Nat a4 @ NatExact(1, 0), Nat a5 @ NatExact(1, 0),
+    Nat a6 @ NatExact(1, 0), Nat a7 @ NatExact(1, 0),
+    Nat unused @ NatExact(0, 0)
+) => a0 + a1 + a2 + a3 + a4 + a5 + a6 + a7;
+
+public definition Nat CombineStageB(
+    Nat b0 @ NatExact(2, 0), Nat b1 @ NatExact(2, 0),
+    Nat b2 @ NatExact(2, 0), Nat b3 @ NatExact(2, 0),
+    Nat b4 @ NatExact(2, 0), Nat b5 @ NatExact(2, 0),
+    Nat b6 @ NatExact(2, 0), Nat b7 @ NatExact(2, 0),
+    Nat dead0 @ NatExact(0, 0), Nat dead1 @ NatExact(0, 0)
+) => CombineStageA(b0, b1, b2, b3, b4, b5, b6, b7, dead0)
+   + CombineStageA(b0, b1, b2, b3, b4, b5, b6, b7, dead1);
+
+public definition Nat CombineStageC(
+    Nat c0 @ NatExact(4, 0), Nat c1 @ NatExact(4, 0),
+    Nat c2 @ NatExact(4, 0), Nat c3 @ NatExact(4, 0),
+    Nat c4 @ NatExact(4, 0), Nat c5 @ NatExact(4, 0),
+    Nat c6 @ NatExact(4, 0), Nat c7 @ NatExact(4, 0),
+    Nat d0 @ NatExact(0, 0), Nat d1 @ NatExact(0, 0),
+    Nat d2 @ NatExact(0, 0), Nat d3 @ NatExact(0, 0)
+) => CombineStageB(c0, c1, c2, c3, c4, c5, c6, c7, d0, d1)
+   + CombineStageB(c0, c1, c2, c3, c4, c5, c6, c7, d2, d3);

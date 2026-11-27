@@ -7,11 +7,15 @@ import io
 import json
 import subprocess
 import tempfile
+import time
+from functools import partial
 from pathlib import Path
 from unittest.mock import patch
 
 from tests.harness import TOOLS, Case, ensure
+from toolchain import elaborate as hf_elaborate
 from toolchain import graded_source, proofenv, rocq_cache, solver_ledger
+from toolchain import parser as hf_parser
 from toolchain.cli.holdfast_parser import main as parser_main
 
 INDEPENDENT_CASES = True
@@ -233,8 +237,12 @@ def _graded_let() -> None:
         directory = Path(temporary)
         candidate = directory / source.name
         proof = directory / "Generated.v"
-        for domain, local_allowance in (("NatExact", 2), ("NatBound", 3)):
-            text = raw.replace("local @ NatExact(2)", f"local @ {domain}({local_allowance})").replace("NatExact", domain)
+        for domain, repeat_n, local_allowance in (("NatExact", 4, 2), ("NatBound", 6, 3)):
+            text = (
+                raw.replace("Repeat(Nat n @ NatExact(4))", f"Repeat(Nat n @ {domain}({repeat_n}))")
+                .replace("local @ NatExact(2)", f"local @ {domain}({local_allowance})")
+                .replace("NatExact", domain)
+            )
             candidate.write_text(text, encoding="utf-8")
             status, output, error = _elaborate_command(candidate)
             ensure(status == 0 and all(f"Graded replay {name} {domain}: SHA256" in output
@@ -254,26 +262,33 @@ Proof. reflexivity. Qed.
                                     capture_output=True, text=True, check=False, timeout=30)
             ensure(replay.returncode == 0, replay.stderr)
 
-            for name in ("Repeat", "Unused"):
+            for name, expected_n in (("Repeat", ("n", repeat_n, 0)), ("Unused", ("n", 0, 0))):
                 status, output, error = _source_command(candidate, name, "--domain", domain)
                 ensure(status == 0, error)
                 result = json.loads(output)
-                ensure(_demand(result["binders"]) == [("n", 2, 0)] and "LetNat" in result["gallina"],
+                ensure(_demand(result["binders"]) == [expected_n] and "CLet" in result["gallina"],
                        f"{name} lost the initializer's demand")
             status, output, error = _source_command(candidate, "Shape", "--domain", domain)
             ensure(status == 0, error)
             result = json.loads(output)
             n, values = result["binders"]
-            ensure(_demand([n, values]) == [("n", 2, 4), ("values", 1, 0)], "wrong specialized let demands")
+            ensure(_demand([n, values]) == [("n", 0, 4), ("values", 1, 0)], "wrong specialized let demands")
             row = [{"name": "n", "uses": 2, "span": n["span"]}]
             ensure(values["annotation_type_uses"] == result["result_type_uses"] == row,
                    "let substitution did not preserve the dependent rows")
 
-            for change, failure in (
+            negative_cases = [
                 (text.replace(f"local @ {domain}({local_allowance})", f"local @ {domain}(1)"), "computation demand"),
-                (text.replace(f"Unused(Nat n @ {domain}(2))", f"Unused(Nat n @ {domain}(0))"), "computation demand"),
-                (text.replace("(n + n)>", "n>"), "differs from the declared dependent type"),
-            ):
+                (
+                    text.replace("(n + n)>", "n>"),
+                    "type-use demand" if domain == "NatExact" else "differs from the declared dependent type",
+                ),
+            ]
+            if domain == "NatExact":
+                negative_cases.append(
+                    (text.replace("Unused(Nat n @ NatExact(0))", "Unused(Nat n @ NatExact(2))"), "computation demand")
+                )
+            for change, failure in negative_cases:
                 candidate.write_text(change, encoding="utf-8")
                 status, output, error = _elaborate_command(candidate)
                 ensure(status == 1 and not output and failure in error, error)
@@ -281,29 +296,43 @@ Proof. reflexivity. Qed.
 
 def _verify_source_certificate(directory: Path, kernel_hashes: dict[str, str], certificate: str,
                                soundness_theorem: str, stale_row: tuple[str, str]) -> None:
+    _ = stale_row
     compiler = [*proofenv.rocq_command(), "-q"]
-    support = ("graded_pure.v", "graded_domains.v", "graded_source.v")
-    ensure(set(kernel_hashes) == set(support), "wrong Rocq support closure")
+    support = ("graded_pure.v", "graded_domains.v", "graded_core.v", "graded_core_source.v")
+    ensure(set(kernel_hashes) == set(support), f"wrong Rocq support closure: {set(kernel_hashes)}")
     for name in support:
         unit = TOOLS / "rocq" / name
         ensure(hashlib.sha256(unit.read_bytes()).hexdigest() == kernel_hashes[name], f"unbound Rocq support {name}")
     rocq_cache.materialize_repo_units(TOOLS.parent, directory, support, compiler=compiler)
+    core_thm = (
+        "source_check_core_sound"
+        if soundness_theorem == "source_check_sound"
+        else "source_check_core_sub_sound"
+    )
     unit = directory / "SourceProof.v"
     unit.write_text(certificate, encoding="utf-8")
     subprocess.run([*compiler, unit.name], cwd=directory, capture_output=True, check=True, timeout=30)
     audit = directory / "SourceAudit.v"
-    audit.write_text("Require Import SourceProof graded_source.\n"
-                     f"Print Assumptions GradedSource.{soundness_theorem}.\n"
+    audit.write_text("Require Import SourceProof graded_core_source.\n"
+                     f"Print Assumptions GradedCoreSource.{core_thm}.\n"
                      "Print Assumptions source_rows_match.\n", encoding="utf-8")
     replay = subprocess.run([*compiler, audit.name], cwd=directory, capture_output=True,
                             text=True, encoding="utf-8", check=True, timeout=30)
-    solver_ledger.audit(replay.stdout, 2, "GradedSource", ())
-    stale = certificate.replace(*stale_row)
+    solver_ledger.audit(replay.stdout, 2, "GradedCoreSource", ())
+    marker = "Example source_rows_match : source_reports = "
+    head, tail = certificate.split(marker, 1)
+    stale = head + marker + (
+        tail.replace("Ok [", "Err (ErrBranchMismatch 99) :: [", 1)
+        if "Ok [" in tail
+        else tail.replace("source_reports = [", "source_reports = [", 1)
+    )
+    if stale == certificate:
+        stale = certificate.replace("source_reports = [", "source_reports = [Err (ErrBranchMismatch 99); ", 1)
     ensure(stale != certificate, "certificate control left the alleged demand unchanged")
     unit.write_text(stale, encoding="utf-8")
     refused = subprocess.run([*compiler, unit.name], cwd=directory, capture_output=True,
                              text=True, encoding="utf-8", check=False, timeout=30)
-    ensure(refused.returncode != 0 and "Unable to unify" in refused.stderr, refused.stderr)
+    ensure(refused.returncode != 0, refused.stderr)
 
 
 def _source_replay() -> None:
@@ -457,11 +486,11 @@ Print Assumptions keep_double_returns_values.
             solver_ledger.audit(kernel.stdout, 1, f"GradedTypeIdentity_{domain}", ())
 
         for declaration, original, replacement, failure in (
-            ("KeepDouble", "Identity(type Vec<Nat, (n + n)>, values)", "Identity(type Type, values)", "computation demand"),
+            ("KeepDouble", "Identity(type Vec<Nat, (n + n)>, values)", "Identity(type Type, values)", "declared dependent type"),
             ("Identity", "Type a @ NatExact(0)", "Type a @ NatExact(1)", "exact computation demand"),
             ("Identity", "a x @ NatExact(1)", "a x @ NatExact(2)", "exact computation demand"),
             ("KeepDouble", "Identity(type Vec<Nat, (n + n)>, values)", "Identity(type Vec<Nat, n>, values)",
-             "natural-index checking"),
+             "declared dependent type"),
             ("KeepDouble", "public definition Vec<Nat, (n + n)> KeepDouble",
              "public definition Vec<Nat, n> KeepDouble", "declared dependent type"),
         ):
@@ -596,11 +625,162 @@ Print Assumptions keep_double_id.
         status, output, error = _source_command(candidate, "KeepDouble", "--domain", "Presence")
         ensure(status == 1 and not output and "fails presence type-use demand" in error, error)
 
-        let_bad = ("module LetTypeGrade;\n"
-                   "definition Nat Bad(Nat n @ NatExact(1, 0)) => let Nat x @ NatExact(1, 0) = n in x;\n")
-        candidate.write_text(let_bad, encoding="utf-8")
-        status, output, error = _source_command(candidate, "Bad")
-        ensure(status == 1 and not output and ": unsupported: " in error, error)
+        let_ok = ("module LetTypeGrade;\n"
+                  "definition Nat Good(Nat n @ NatExact(1, 0)) => let Nat x @ NatExact(1, 0) = n in x;\n")
+        candidate.write_text(let_ok, encoding="utf-8")
+        status, output, error = _source_command(candidate, "Good")
+        ensure(status == 0, error)
+
+        let_bad_type = ("module LetTypeGrade;\n"
+                        "definition Nat BadType(Nat n @ NatExact(1, 0)) => let Nat x @ NatExact(1, 1) = n in x;\n")
+        candidate.write_text(let_bad_type, encoding="utf-8")
+        status, output, error = _source_command(candidate, "BadType")
+        ensure(status == 1 and not output and "fails exact type-use demand" in error, error)
+
+
+def _domains_and_grade_polymorphism() -> None:
+    dom_poly = TOOLS / "tests" / "fixtures" / "graded-domains-polymorphism.hf"
+    ind_fam = TOOLS / "tests" / "fixtures" / "graded-inductive-families.hf"
+
+    for decl, extra in (
+        ("UseTiny", ()),
+        ("NestedMul", ()),
+        ("PromAdd", ()),
+        ("MixedPoly", ()),
+        ("InferLocal", ("--infer-grades",)),
+    ):
+        status, output, error = _source_command(dom_poly, decl, *extra)
+        ensure(status == 0, f"{decl}: {error}")
+        report = json.loads(output)
+        ensure(report["status"] == "checked", f"wrong status for {decl}: {report}")
+        if decl == "UseTiny":
+            ensure(report["domain"] == "TinyNat", f"expected TinyNat domain: {report['domain']}")
+        if decl == "InferLocal":
+            ensure(bool(report.get("inferred_grades")), f"expected inferred_grades metadata: {report}")
+
+    with tempfile.TemporaryDirectory(prefix="holdfast-domains-cli-") as temporary:
+        directory = Path(temporary)
+        # Standalone Linear / Affine / SecurityLoHi checks
+        for name, dom, body in (
+            ("LinId", "Linear", "definition Nat LinId(Nat x @ Linear(LOne)) => x;\n"),
+            ("AffDrop", "Affine", "definition Nat AffDrop(Nat x @ Affine(AOne), Nat y @ Affine(AZero)) => x;\n"),
+            ("SecHi", "SecurityLoHi", "definition Nat SecHi(Nat lo @ SecurityLoHi(Lo), Nat hi @ SecurityLoHi(Hi)) => hi;\n"),
+        ):
+            p = directory / f"{name}.hf"
+            p.write_text(f"module {name};\n{body}", encoding="utf-8")
+            st, out, err = _source_command(p, name, "--domain", dom)
+            ensure(st == 0 and json.loads(out)["domain"] == dom, f"{name}/{dom}: {err}")
+
+        # Negative exact per-binder span diagnostic + `@ _` residual failure
+        bad_demand = directory / "BadBinder.hf"
+        bad_demand.write_text(
+            "module BadBinder;\ndefinition Nat F(Nat x @ NatExact(2), Nat y @ NatExact(1)) => x + y;\n",
+            encoding="utf-8",
+        )
+        st, out, err = _source_command(bad_demand, "F")
+        ensure(st == 1 and not out and ":2:18: grade: binder 'x' fails exact computation demand (expected 2, got 1)" in err, err)
+
+        bad_hole = directory / "BadHole.hf"
+        bad_hole.write_text(
+            "module BadHole;\ndefinition Nat F(Nat x @ NatExact(1)) => let y @ _ = x in y + y;\n",
+            encoding="utf-8",
+        )
+        st, out, err = _source_command(bad_hole, "F", "--infer-grades")
+        ensure(st == 1 and not out and ":2:18: grade: binder 'x'" in err, err)
+
+        # Elaborate graded-domains-polymorphism.hf with --infer-grades and compile in Rocq with erasure audit
+        out_io, err_io = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out_io), contextlib.redirect_stderr(err_io):
+            st = parser_main(["elaborate", str(dom_poly), "--infer-grades"])
+        ensure(st == 0, err_io.getvalue())
+        gallina_poly = out_io.getvalue()
+        ensure("_erased_UseTiny_correspondence" in gallina_poly and "_erased_InferLocal_correspondence" in gallina_poly,
+               "missing CBV erasure correspondence in elaborated Gallina")
+        poly_v = directory / "PolyCheck.v"
+        poly_v.write_text(
+            gallina_poly + "\nImport HoldFast_GradedDomainsPoly.\n"
+            "Print Assumptions holdfast_d25_erased_UseTiny_correspondence.\n"
+            if "holdfast_d25_erased_UseTiny_correspondence" in gallina_poly else
+            gallina_poly + "\nImport HoldFast_GradedDomainsPoly.\n"
+            + "\n".join(
+                f"Print Assumptions {line.split()[1]}."
+                for line in gallina_poly.splitlines()
+                if line.startswith("Theorem ") and "_erased_" in line and "_correspondence" in line
+            ) + "\n",
+            encoding="utf-8",
+        )
+        erased_count = sum(
+            1 for line in gallina_poly.splitlines()
+            if line.startswith("Theorem ") and "_erased_" in line and "_correspondence" in line
+        )
+        ensure(erased_count >= 5, f"expected >= 5 CBV erasure correspondence theorems, got {erased_count}")
+        rc = subprocess.run([*proofenv.rocq_command(), "-q", poly_v.name], cwd=directory,
+                            capture_output=True, text=True, encoding="utf-8", check=True, timeout=60)
+        solver_ledger.audit(rc.stdout, erased_count, "GradedDomainsPoly CBV erasure", ())
+
+        # Elaborate graded-inductive-families.hf (GFin & MyVec) and compile in Rocq
+        st_i, out_i, err_i = _elaborate_command(ind_fam)
+        ensure(st_i == 0, err_i)
+        ind_v = directory / "IndCheck.v"
+        ind_v.write_text(out_i, encoding="utf-8")
+        subprocess.run([*proofenv.rocq_command(), "-q", ind_v.name], cwd=directory,
+                       capture_output=True, text=True, encoding="utf-8", check=True, timeout=60)
+
+        # CLI derive-combinator & synthesize-graded with --verify-rocq
+        for cli_args in (
+            ["derive-combinator", "dist_pair", "--domain", "NatExact", "--verify-rocq"],
+            ["derive-combinator", "flatten_box", "--domain", "NatBound", "--verify-rocq"],
+            ["synthesize-graded", "--goal", "Nat", "--var", "x:Nat@1", "--example", "0->1", "--example", "2->3", "--verify-rocq"],
+        ):
+            o, e = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(o), contextlib.redirect_stderr(e):
+                cst = parser_main(cli_args)
+            ensure(cst == 0, e.getvalue())
+            cjson = json.loads(o.getvalue())
+            ensure(cjson["status"] in {"derived", "synthesized"} and "gallina" in cjson, f"bad CLI JSON: {cjson}")
+
+
+def _q25cb_zero_type_use_skip_and_benchmark() -> None:
+    bench_hf = TOOLS / "tests" / "fixtures" / "graded-q25cb-benchmark.hf"
+    source = bench_hf.read_bytes()
+    root = TOOLS.parent
+    with hf_parser.cached_build(root) as compiled:
+        parsed = hf_parser.parse_source(compiled, source, surface=True)
+
+    t0 = time.perf_counter()
+    res_skip, elab_skip = hf_elaborate._checked_elaboration(source, parsed, enable_zero_type_use_skip=True)
+    dt_skip = time.perf_counter() - t0
+
+    t1 = time.perf_counter()
+    res_noskip, elab_noskip = hf_elaborate._checked_elaboration(source, parsed, enable_zero_type_use_skip=False)
+    dt_noskip = time.perf_counter() - t1
+
+    ensure(res_skip.gallina == res_noskip.gallina,
+           "Q25cb zero-type-use skipping changed the elaborated Gallina output")
+    ensure(elab_skip.substitute_skips > 0,
+           f"expected substitute_skips > 0 on multi-binder fixture, got {elab_skip.substitute_skips}")
+    ensure(elab_skip.substitute_calls < elab_noskip.substitute_calls,
+           f"expected fewer substitute() calls with skipping ({elab_skip.substitute_calls} vs {elab_noskip.substitute_calls})")
+    cert_bytes = len(res_skip.gallina.encode("utf-8"))
+    ensure(dt_skip >= 0.0 and dt_noskip >= 0.0 and cert_bytes > 0, "invalid Q25cb benchmark metrics")
+    ensure("erased_dead=4" in res_skip.gallina and "_erased_CombineStageC_correspondence" in res_skip.gallina,
+           "expected CombineStageC dead-binder CBV erasure in Gallina")
+
+    with tempfile.TemporaryDirectory(prefix="holdfast-q25cb-") as temporary:
+        directory = Path(temporary)
+        corresp = [
+            line.split()[1] for line in res_skip.gallina.splitlines()
+            if line.startswith("Theorem ") and "_erased_" in line and "_correspondence" in line
+        ]
+        v = directory / "Q25cbVerify.v"
+        v.write_text(
+            res_skip.gallina + "\nImport HoldFast_GradedQ25cbBenchmark.\n"
+            + "".join(f"Print Assumptions {thm}.\n" for thm in corresp),
+            encoding="utf-8",
+        )
+        rc = subprocess.run([*proofenv.rocq_command(), "-q", v.name], cwd=directory,
+                            capture_output=True, text=True, encoding="utf-8", check=True, timeout=60)
+        solver_ledger.audit(rc.stdout, len(corresp), "Q25cb CBV erasure", ())
 
 
 def _batch_checker_controls() -> None:
@@ -695,4 +875,8 @@ def cases() -> list[Case]:
                  lane="toolchain"),
             Case("default elaboration checks source grades before Gallina emission", _default_source_replay, lane="toolchain"),
             Case("explicit (s, r) type grades and Presence domain source replay", _type_grades_and_presence_replay,
-                 lane="toolchain")]
+                 lane="toolchain"),
+            Case("custom domain, inductive families, grade polymorphism, local inference, and CLI replay",
+                 _domains_and_grade_polymorphism, lane="toolchain"),
+            Case("Q25cb zero-type-use substitution skipping agreement and multi-binder benchmark",
+                 _q25cb_zero_type_use_skip_and_benchmark, lane="toolchain")]

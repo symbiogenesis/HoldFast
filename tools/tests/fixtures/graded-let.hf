@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 module GradedLet;
 
-definition Nat Repeat(Nat n @ NatExact(2)) =>
+definition Nat Repeat(Nat n @ NatExact(4)) =>
     let Nat local @ NatExact(2) = n + n in local + local;
 
-definition Nat Unused(Nat n @ NatExact(2)) =>
+definition Nat Unused(Nat n @ NatExact(0)) =>
     let local @ NatExact(0) = n + n in 7;
 
-definition Fn(Vec<Nat, (n + n)> values @ NatExact(1)) -> Vec<Nat, (n + n)> Shape(Nat n @ NatExact(2)) =>
+definition Fn(Vec<Nat, (n + n)> values @ NatExact(1)) -> Vec<Nat, (n + n)> Shape(Nat n @ NatExact(0, 4)) =>
     let Nat length @ NatExact(0) = n + n in
     (Vec<Nat, length> values @ NatExact(1)) => values;

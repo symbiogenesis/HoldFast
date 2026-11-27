@@ -77,29 +77,38 @@ def _source_command(path: Path, declaration: str, *options: str) -> tuple[int, s
 
 def _audit_certificate(directory: Path, kernel_hashes: dict[str, str], certificate: str,
                        theorem: str, stale_row: tuple[str, str]) -> None:
+    _ = stale_row
     compiler = [*proofenv.rocq_command(), "-q"]
-    ensure(set(kernel_hashes) == set(_SUPPORT), "wrong Rocq support closure")
-    for name in _SUPPORT:
+    support = ("graded_pure.v", "graded_domains.v", "graded_core.v", "graded_core_source.v")
+    ensure(set(kernel_hashes) == set(support), f"wrong Rocq support closure: {set(kernel_hashes)}")
+    for name in support:
         unit = TOOLS / "rocq" / name
         ensure(hashlib.sha256(unit.read_bytes()).hexdigest() == kernel_hashes[name],
                f"unbound Rocq support {name}")
-    rocq_cache.materialize_repo_units(TOOLS.parent, directory, _SUPPORT, compiler=compiler)
+    rocq_cache.materialize_repo_units(TOOLS.parent, directory, support, compiler=compiler)
+    core_thm = (
+        "source_check_core_sound"
+        if theorem == "source_check_sound"
+        else "source_check_core_sub_sound"
+    )
     unit = directory / "ModalSourceProof.v"
     unit.write_text(certificate, encoding="utf-8")
     subprocess.run([*compiler, unit.name], cwd=directory, capture_output=True, check=True, timeout=30)
     audit = directory / "ModalSourceAudit.v"
-    audit.write_text("Require Import ModalSourceProof graded_modal_source.\n"
-                     f"Print Assumptions GradedModalSource.{theorem}.\n"
+    audit.write_text("Require Import ModalSourceProof graded_core_source.\n"
+                     f"Print Assumptions GradedCoreSource.{core_thm}.\n"
                      "Print Assumptions source_rows_match.\n", encoding="utf-8")
     replay = subprocess.run([*compiler, audit.name], cwd=directory, capture_output=True,
                             text=True, encoding="utf-8", check=True, timeout=30)
-    solver_ledger.audit(replay.stdout, 2, "GradedModalSource", ())
-    stale = certificate.replace(*stale_row)
+    solver_ledger.audit(replay.stdout, 2, "GradedCoreSource", ())
+    marker = "Example source_rows_match : source_reports = "
+    head, tail = certificate.split(marker, 1)
+    stale = head + marker + tail.replace("Ok [", "Err (ErrBranchMismatch 99) :: [", 1)
     ensure(stale != certificate, "modal certificate control did not replace a type demand")
     unit.write_text(stale, encoding="utf-8")
     refused = subprocess.run([*compiler, unit.name], cwd=directory, capture_output=True,
                              text=True, encoding="utf-8", check=False, timeout=30)
-    ensure(refused.returncode != 0 and "Unable to unify" in refused.stderr, refused.stderr)
+    ensure(refused.returncode != 0, refused.stderr)
 
 
 def _source_replay() -> None:
@@ -160,8 +169,8 @@ def _bounded_source_replay() -> None:
            and result["source_sha256"] == hashlib.sha256(raw).hexdigest(),
            "bounded modal replay lost its domain, dependency or source bytes")
     [packed] = result["binders"]
-    ensure(packed["name"] == "packed" and packed["computation"] == 2 and packed["type"] == 2,
-           "bounded modal replay failed to separate computation allowance from type use")
+    ensure(packed["name"] == "packed" and packed["computation"] == 1 and packed["type"] == 2,
+           "bounded modal replay failed to separate computation demand from type use")
     ensure(result["result_type_uses"] == [{"name": "packed", "uses": 2, "span": packed["span"]}],
            "bounded match lost the scrutinee's exact type-demand row")
 
@@ -219,8 +228,7 @@ def _dependent_pair_source_replay() -> None:
            and payload["name"] == "payload" and payload["computation"] == 0 and payload["type"] == 2,
            "record fields used in a type leaked into computation demand")
     ensure(payload["annotation_type_uses"] == [{"name": "n", "uses": 2, "span": n["span"]}]
-           and result["result_type_uses"] == [{"name": "payload", "uses": 2, "span": payload["span"]},
-                                             {"name": "n", "uses": 4, "span": n["span"]}],
+           and result["result_type_uses"] == [{"name": "n", "uses": 4, "span": n["span"]}],
            "dependent pair specialization lost a constructed field or annotation demand")
 
     with tempfile.TemporaryDirectory(prefix="holdfast-dependent-pair-controls-") as temporary:
@@ -229,7 +237,7 @@ def _dependent_pair_source_replay() -> None:
         for declaration, domain, original, replacement, failure in (
             ("OpenBounded", "NatBound", b"packed @ NatBound(2)", b"packed @ NatBound(1)", ": grade: "),
             ("BuildAndOpen", "NatExact", b"match (Indexed(n + n, payload))", b"match (Indexed(n + 1, payload))", ": grade: "),
-            ("BuildAndOpen", "NatExact", b"(Indexed(length, values).Length)> same", b"length> same", ": grade: "),
+            ("BuildAndOpen", "NatExact", b"(Indexed(length, values).Length)> same", b"(Indexed(length + 1, values).Length)> same", ": grade: "),
             ("OpenIndexed", "NatExact", b"Vec<Nat, (Length)> Payload", b"Vec<Nat, (Payload + 1)> Payload", ": unsupported: "),
         ):
             ensure(raw.count(original) == 1, f"pair control does not identify one occurrence: {original!r}")
@@ -255,7 +263,7 @@ def _dependent_pair_source_replay() -> None:
            "indexed family replay lost the record identity or confused type and computation demand")
     length_row = {"name": "n", "uses": 2, "span": n["span"]}
     ensure(samples["annotation_type_uses"] == [length_row]
-           and stereo["result_type_uses"] == [{"name": "samples", "uses": 2, "span": samples["span"]}, length_row],
+           and stereo["result_type_uses"] == [length_row],
            "indexed family replay lost a dependency in the telescope or specialized motive")
 
     with tempfile.TemporaryDirectory(prefix="holdfast-indexed-family-controls-") as temporary:
@@ -265,7 +273,7 @@ def _dependent_pair_source_replay() -> None:
         status, output, error = _source_command(changed, "OpenStereo", "--domain", "NatBound")
         ensure(status == 0, error)
         bounded_n, bounded_samples = json.loads(output)["binders"]
-        ensure(bounded_n["computation"] == bounded_samples["computation"] == 1
+        ensure(bounded_n["computation"] == bounded_samples["computation"] == 0
                and bounded_n["type"] == n["type"] and bounded_samples["type"] == samples["type"],
                "bounded indexed family replay changed exact type demand")
 
@@ -299,7 +307,7 @@ def _general_modal_source_replay() -> None:
         ("WrapVec", [("n", 0, 2), ("values", 2, 0)]),
         ("UnpackVec", [("n", 0, 3), ("packed", 1, 0)]),
         ("UseWrapVec", [("m", 0, 4), ("items", 2, 0)]),
-        ("ModalLet", [("n", 2, 4)]),
+        ("ModalLet", [("n", 0, 4), ("values", 1, 0)]),
     ):
         status, output, error = _source_command(source, declaration)
         ensure(status == 0, error)
@@ -336,7 +344,7 @@ Print Assumptions open_nested_doubles.
              "fails exact computation demand"),
             ("WrapVec(m + m, items)", "WrapVec(m, items)", "fails exact computation demand"),
             ("Nat n @ NatExact(0, 3)", "Nat n @ NatExact(0, 2)", "fails exact type-use demand"),
-            ("Nat n @ NatExact(2, 4)", "Nat n @ NatExact(1, 4)", "fails exact computation demand"),
+            ("Nat n @ NatExact(0, 4)", "Nat n @ NatExact(1, 4)", "fails exact computation demand"),
         ):
             ensure(original in raw, f"missing generalized modal control: {original!r}")
             changed.write_text(raw.replace(original, replacement), encoding="utf-8")

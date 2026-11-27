@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: Apache-2.0
+module GradedDomainsPoly;
+
+domain TinyNat {
+    carrier Nat;
+    zero 0;
+    one 1;
+    add (Nat a, Nat b) => a + b;
+    mul (Nat a, Nat b) => a * b;
+    admits (Nat a, Nat b) => a <= b;
+    interpret (Nat n) => n;
+    laws true;
+}
+
+record Box<T, grade q : NatExact>(T Value @ NatExact(q));
+record Tagged(Nat Count, Vec<Nat, (Count)> Items);
+union Choice<L, R> { Left(L val); Right(R val); }
+
+public definition Nat UseTiny(Nat x @ TinyNat(2)) => x + x;
+
+public definition Box<T, (q * r)> NestedMul<T, grade q : NatExact, grade r : NatExact>(
+    Box<Box<T, r>, q> bb @ NatExact(1)
+) => match (bb) {
+    Box(inner) => match (inner) {
+        Box(v) => Box<T, (q * r)>(v),
+    },
+};
+
+public definition Box<Nat, (q + r)> PromAdd<grade q : NatExact, grade r : NatExact>(
+    Nat n @ (q + r)
+) => Box<Nat, (q + r)>(n);
+
+public definition (Nat, Choice<T, bool>) MixedPoly<T>(
+    Nat n @ NatExact(1),
+    T x @ NatExact(1)
+) => (n, Left<T, bool>(x));
+
+public definition Nat InferLocal(Nat x @ NatExact(2)) =>
+    let y @ _ = x in y + y;

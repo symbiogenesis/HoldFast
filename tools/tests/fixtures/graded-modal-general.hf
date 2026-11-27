@@ -37,7 +37,7 @@ definition Box<Vec<Nat, (m + m)>, 2> UseWrapVec(
 ) => WrapVec(m + m, items);
 
 definition Fn(Vec<Nat, (n + n)> values @ NatExact(1)) -> Vec<Nat, (n + n)> ModalLet(
-    Nat n @ NatExact(2, 4)
+    Nat n @ NatExact(0, 4)
 ) =>
     let Nat doubled @ NatExact(0) = n + n in
     (Vec<Nat, doubled> values @ NatExact(1)) =>

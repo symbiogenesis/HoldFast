@@ -1,0 +1,24 @@
+// SPDX-License-Identifier: Apache-2.0
+module GradedInductive;
+
+inductive GFin<ghost Nat n> {
+    GFZero(Nat k) : GFin<(k + 1)>;
+    GFSucc(Nat k, GFin<k> prev) : GFin<(k + 1)>;
+}
+
+inductive GVec<T, ghost Nat n> {
+    GVNil() : GVec<T, 0>;
+    GVCons(Nat k, T head @ NatExact(1), GVec<T, k> tail @ NatExact(1)) : GVec<T, (k + 1)>;
+}
+
+public definition Nat FinDepth<ghost Nat n>(GFin<n> f) =>
+    match (f) {
+        GFZero(k) => 0,
+        GFSucc(k, p) => 1,
+    };
+
+public definition bool VecIsEmpty<T, ghost Nat n>(GVec<T, n> xs) =>
+    match (xs) {
+        GVNil => true,
+        GVCons(k, h, t) => false,
+    };
