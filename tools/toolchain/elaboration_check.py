@@ -1889,7 +1889,7 @@ def _runtime(directory: Path, steps: list[dict[str, object]]) -> dict[str, objec
     roots.update(additional)
     minimal = sorted(path for path in roots
                      if not any(path != other and path.is_relative_to(other) for other in roots))
-    files: dict[str, str] = {}
+    paths: list[Path] = []
     for root in minimal:
         if not root.is_dir():
             raise ValueError("HoldFast replay library root is missing")
@@ -1897,9 +1897,12 @@ def _runtime(directory: Path, steps: list[dict[str, object]]) -> dict[str, objec
             if path.is_symlink() and path.is_dir():
                 raise ValueError("HoldFast replay library has a directory alias")
             if path.is_file():
-                files[str(path)] = file_sha256(path)
-    if not files:
+                paths.append(path)
+    if not paths:
         raise ValueError("HoldFast replay runtime inventory is empty")
+    with ThreadPoolExecutor(max_workers=min(16, os.process_cpu_count() or 1, len(paths))) as pool:
+        digests = list(pool.map(file_sha256, paths))
+    files = dict(zip((str(path) for path in paths), digests, strict=True))
     return {"config": config, "load_path": identity, "files_sha256": files}
 
 
@@ -2073,7 +2076,7 @@ def qualify(root: Path) -> dict[str, object]:
                     case_steps: list[dict[str, object]] = []
                     return _case(compiled, case, directory, index, case_steps), case_steps
 
-                with ThreadPoolExecutor(max_workers=min(8, os.process_cpu_count() or 1, len(cases))) as pool:
+                with ThreadPoolExecutor(max_workers=min(os.process_cpu_count() or 1, len(cases))) as pool:
                     results = list(pool.map(run_case, enumerate(cases)))
                 for row, case_steps in results:
                     rows.append(row)

@@ -28,15 +28,19 @@ def _replay_view_proof(gallina: str, proof: str, module: str, theorems: list[str
             directory = batch.work_dir
             stem = batch.unique_stem(module)
         unit = directory / f"{stem}.v"
-        unit.write_text(gallina + proof + audit, encoding="utf-8")
+        unit_text, used_prelude = rocq_cache.use_cached_prelude(gallina + proof + audit, directory)
+        unit.write_text(unit_text, encoding="utf-8")
         replay = subprocess.run([*proofenv.rocq_command(), "-q", unit.name], cwd=directory, capture_output=True,
                                 encoding="utf-8", timeout=180, check=False)
         ensure(replay.returncode == 0, replay.stderr)
         solver_ledger.audit(replay.stdout, len(exports), f"HoldFast_{module}", entries)
         if batch is not None:
+            if used_prelude:
+                batch.register("HoldFastPrelude")
             batch.register(stem)
         else:
-            rocq_cache.check_kernel(directory, [stem])
+            units = ["HoldFastPrelude", stem] if used_prelude else [stem]
+            rocq_cache.check_kernel(directory, units)
 
 
 def _conditional_view_return(*, batch: rocq_cache.BatchChecker | None = None) -> None:

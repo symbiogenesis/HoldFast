@@ -122,7 +122,8 @@ definition Nat ReadTwice(Nat n @ NatExact(4)) =>
         for candidate, labels in cases:
             status, output, error = _elaborate_command(candidate)
             ensure(status == 0 and all(f"Graded replay {label}: SHA256" in output for label in labels), error)
-            proof.write_text(output, encoding="utf-8")
+            unit_text, _ = rocq_cache.use_cached_prelude(output, directory)
+            proof.write_text(unit_text, encoding="utf-8")
             kernel = subprocess.run([*proofenv.rocq_command(), "-q", proof.name], cwd=directory,
                                     capture_output=True, text=True, encoding="utf-8", check=False, timeout=30)
             ensure(kernel.returncode == 0, kernel.stderr)
@@ -131,7 +132,8 @@ definition Nat ReadTwice(Nat n @ NatExact(4)) =>
         callback_positive.write_text(callback_header, encoding="utf-8")
         status, output, error = _elaborate_command(callback_positive)
         ensure(status == 0 and "Graded replay Call NatExact: SHA256" in output, error)
-        proof.write_text(output, encoding="utf-8")
+        unit_text, _ = rocq_cache.use_cached_prelude(output, directory)
+        proof.write_text(unit_text, encoding="utf-8")
         kernel = subprocess.run([*proofenv.rocq_command(), "-q", proof.name], cwd=directory,
                                 capture_output=True, text=True, encoding="utf-8", check=False, timeout=30)
         ensure(kernel.returncode == 0, kernel.stderr)
@@ -145,7 +147,8 @@ definition Nat ReadTwice(Nat n @ NatExact(4)) =>
         status, output, error = _elaborate_command(box_positive)
         ensure(status == 0 and all(f"Graded replay {name} NatExact: SHA256" in output
                                    for name in ("ReadTwice", "Escape", "UseEscape")), error)
-        proof.write_text(output, encoding="utf-8")
+        unit_text, _ = rocq_cache.use_cached_prelude(output, directory)
+        proof.write_text(unit_text, encoding="utf-8")
         kernel = subprocess.run([*proofenv.rocq_command(), "-q", proof.name], cwd=directory,
                                 capture_output=True, text=True, encoding="utf-8", check=False, timeout=30)
         ensure(kernel.returncode == 0, kernel.stderr)
@@ -187,14 +190,15 @@ def _value_application() -> None:
             status, output, error = _elaborate_command(candidate)
             ensure(status == 0 and all(f"Graded replay {name} {domain}: SHA256" in output
                                        for name in ("Preserve", "Route", "Run")), error)
-            proof.write_text(output + """
+            unit_text, _ = rocq_cache.use_cached_prelude(output + """
 Import HoldFast_GradedApplication.
 Example route_preserves_samples : forall n (values : holdfast_Vec nat (n + n)),
   holdfast_d1_Route n values = values.
 Proof. reflexivity. Qed.
 Example run_doubles_seed : forall n, holdfast_d2_Run n = n + n.
 Proof. reflexivity. Qed.
-""", encoding="utf-8")
+""", directory)
+            proof.write_text(unit_text, encoding="utf-8")
             kernel = subprocess.run([*proofenv.rocq_command(), "-q", proof.name], cwd=directory,
                                     capture_output=True, text=True, check=False, timeout=30)
             ensure(kernel.returncode == 0, kernel.stderr)
@@ -234,7 +238,7 @@ def _graded_let() -> None:
             status, output, error = _elaborate_command(candidate)
             ensure(status == 0 and all(f"Graded replay {name} {domain}: SHA256" in output
                                        for name in ("Repeat", "Unused", "Shape")), error)
-            proof.write_text(output + """
+            unit_text, _ = rocq_cache.use_cached_prelude(output + """
 Import HoldFast_GradedLet.
 Example repeat_value : forall n, holdfast_d0_Repeat n = (n + n) + (n + n).
 Proof. reflexivity. Qed.
@@ -243,7 +247,8 @@ Proof. reflexivity. Qed.
 Example keep_shape : forall n (values : holdfast_Vec nat (n + n)),
   holdfast_d2_Shape n values = values.
 Proof. reflexivity. Qed.
-""", encoding="utf-8")
+""", directory)
+            proof.write_text(unit_text, encoding="utf-8")
             replay = subprocess.run([*proofenv.rocq_command(), "-q", proof.name], cwd=directory,
                                     capture_output=True, text=True, check=False, timeout=30)
             ensure(replay.returncode == 0, replay.stderr)
@@ -538,13 +543,14 @@ def _type_grades_and_presence_replay() -> None:
         status, gallina, error = _elaborate_command(source)
         ensure(status == 0 and all(f"Graded replay {name} NatExact: SHA256" in gallina
                                    for name in ("Identity", "KeepDouble", "Relay", "ShareLength")), error)
-        proof.write_text(gallina + """
+        unit_text, _ = rocq_cache.use_cached_prelude(gallina + """
 Import HoldFast_GradedTypeGrades.
 Theorem keep_double_id : forall n (values : holdfast_Vec nat (n + n)),
   holdfast_d1_KeepDouble n values = values.
 Proof. reflexivity. Qed.
 Print Assumptions keep_double_id.
-""", encoding="utf-8")
+""", directory)
+        proof.write_text(unit_text, encoding="utf-8")
         kernel = subprocess.run([*proofenv.rocq_command(), "-q", proof.name], cwd=directory,
                                 capture_output=True, text=True, encoding="utf-8", check=False, timeout=30)
         ensure(kernel.returncode == 0, kernel.stderr)
@@ -626,10 +632,49 @@ def _batch_checker_controls() -> None:
         ensure(not work_dir.exists(), "BatchChecker did not clean up its temporary directory")
 
 
+def _cached_prelude_controls() -> None:
+    prelude = rocq_cache.prelude_source().decode("utf-8")
+    ensure("From Stdlib Require Import Arith.PeanoNat Lia." in prelude
+           and "From Stdlib Require Import ZArith.BinInt." in prelude,
+           "prelude_source altered _PRELUDE directives unexpectedly")
+    with tempfile.TemporaryDirectory(prefix="holdfast-prelude-ctrl-") as temporary:
+        base = Path(temporary)
+        out = base / "work"
+        out.mkdir()
+        plain = "Module Plain.\nDefinition x := 1.\nEnd Plain.\n"
+        unchanged, used_plain = rocq_cache.use_cached_prelude(plain, out)
+        ensure(not used_plain and unchanged == plain, "use_cached_prelude altered output without _PRELUDE")
+        sample = ("(* header *)\nModule Sample.\n\n"
+                  + rocq_cache.elaborate_types._PRELUDE
+                  + "\nDefinition x := 1.\nEnd Sample.\n")
+        fake_calls: list[str] = []
+
+        def fake_materialize(directory: Path, **_kwargs: object) -> None:
+            fake_calls.append(str(directory))
+            (directory / "HoldFastPrelude.vo").write_bytes(b"vo")
+
+        with patch.object(rocq_cache, "materialize_prelude", side_effect=fake_materialize):
+            rewritten, used = rocq_cache.use_cached_prelude(sample, out)
+        ensure(used and len(fake_calls) == 1 and (out / "HoldFastPrelude.vo").is_file(),
+               "use_cached_prelude did not materialize HoldFastPrelude.vo")
+        expected_prefix = (
+            "(* header *)\n"
+            "Require Import HoldFastPrelude.\n"
+            + rocq_cache._PRELUDE_REQUIRES
+            + "Module Sample.\n\n"
+            + rocq_cache._PRELUDE_IMPORTS
+        )
+        ensure(rewritten.startswith(expected_prefix)
+               and "Definition x := 1." in rewritten
+               and rocq_cache.elaborate_types._PRELUDE not in rewritten,
+               "use_cached_prelude produced unexpected rewritten source")
+
+
 def cases() -> list[Case]:
     batch = rocq_cache.BatchChecker()
     return [Case("support cache reuses verified .vo artifacts and repairs corruption", _support_cache_controls),
             Case("rocqchk batch checker deduplicates units and cleans up", _batch_checker_controls),
+            Case("cached HoldFastPrelude rewrites elaborate output cleanly", _cached_prelude_controls),
             Case("pure dependent usage and telescope substitution replay",
                  partial(_replay, "graded_pure", "GradedPure", _PURE_PROOFS, batch=batch), lane="toolchain"),
             Case("ordered grade domains and dependent row certificates",

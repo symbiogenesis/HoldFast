@@ -2,6 +2,7 @@
 """Run an explicit local validation profile with sequential, logged verdicts."""
 
 import argparse
+import os
 import subprocess
 import sys
 import tempfile
@@ -11,7 +12,7 @@ from pathlib import Path
 from toolchain import corpus, env, proofenv
 from toolchain.cli.test import switches
 
-DEFAULT_JOBS = 8
+DEFAULT_JOBS = 8 if sys.platform == "win32" else max(1, os.process_cpu_count() or 8)
 TAIL_BYTES = 16_384
 
 

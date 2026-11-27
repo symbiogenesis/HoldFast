@@ -52,7 +52,7 @@ def _parser_command(arguments: list[str]) -> tuple[int, str, str]:
 
 def _check_audio_route_behavior(directory: Path, name: str, gallina: str) -> None:
     proof = directory / f"{name}.v"
-    proof.write_text(gallina + """
+    unit_text, _ = rocq_cache.use_cached_prelude(gallina + """
 Import HoldFast_GradedAudioRoute.
 Theorem stereo_route_returns_samples :
   forall (period label_count : nat)
@@ -61,7 +61,8 @@ Theorem stereo_route_returns_samples :
     holdfast_d1_StereoRoute period label_count stereo labels = stereo.
 Proof. reflexivity. Qed.
 Print Assumptions stereo_route_returns_samples.
-""", encoding="utf-8")
+""", directory)
+    proof.write_text(unit_text, encoding="utf-8")
     checked = subprocess.run([*proofenv.rocq_command(), "-q", proof.name], cwd=directory,
                              capture_output=True, text=True, encoding="utf-8", check=True, timeout=30)
     solver_ledger.audit(checked.stdout, 1, f"{name} behavior", ())

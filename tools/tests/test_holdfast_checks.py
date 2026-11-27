@@ -175,8 +175,11 @@ def _editorconfig_and_glyph_controls() -> None:
 
         (root / "bidi.py").write_text("x = '\u202e'\n", encoding="utf-8", newline="\n")
         (root / "mojibake.py").write_text("# \u00e2\u20ac\u201d\n", encoding="utf-8", newline="\n")
-        glyph_found = checks.glyph_findings(root, ["bidi.py", "mojibake.py"])
-        ensure(len(glyph_found) == 2, f"bidi and mojibake must both be reported: {glyph_found!r}")
+        glyph_found = checks.glyph_findings(
+            root, ["clean.py", "bidi.py", "mojibake.py"], text_cache={"clean.py": "x = 1\n"},
+        )
+        ensure(len(glyph_found) == 2 and "clean.py" not in "\n".join(glyph_found),
+               f"bidi and mojibake must both be reported: {glyph_found!r}")
 
 
 def _source_reference_controls() -> None:

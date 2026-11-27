@@ -4,6 +4,7 @@
 import glob
 import re
 import tomllib
+from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
 
 from toolchain import corpus
@@ -84,7 +85,12 @@ def _declaration_findings(path: PurePosixPath, text: str) -> list[str]:
     return problems
 
 
-def marks_findings(root: Path, loaded: corpus.Corpus) -> list[str]:
+def marks_findings(
+    root: Path,
+    loaded: corpus.Corpus,
+    *,
+    text_cache: Mapping[str, str] | None = None,
+) -> list[str]:
     """Check opening marks and any additional SPDX license declarations."""
     findings: list[str] = []
     policy = loaded.get("COPYRIGHT.md")
@@ -102,7 +108,13 @@ def marks_findings(root: Path, loaded: corpus.Corpus) -> list[str]:
             continue
         doc = loaded.get(rel)
         try:
-            text = doc.raw if doc is not None else (root / rel).read_text(encoding="utf-8")
+            text = (
+                doc.raw
+                if doc is not None
+                else text_cache[rel]
+                if text_cache is not None and rel in text_cache
+                else (root / rel).read_text(encoding="utf-8")
+            )
         except (OSError, UnicodeDecodeError) as err:
             findings.append(f"{rel}: cannot read SPDX declarations: {err}")
             continue

@@ -94,15 +94,18 @@ def _replay_gallina(module_name: str, source: bytes, consumers: str, expected_re
             directory = batch.work_dir
             stem = batch.unique_stem(module_name)
         target = directory / f"{stem}.v"
-        target.write_text(result.gallina + "\n" + consumers, encoding="utf-8")
+        unit_text, used_prelude = rocq_cache.use_cached_prelude(result.gallina + "\n" + consumers, directory)
+        target.write_text(unit_text, encoding="utf-8")
         replay = subprocess.run([*proofenv.rocq_command(), "-q", target.name], cwd=directory,
                                 capture_output=True, check=False, text=True, timeout=180)
         ensure(replay.returncode == 0, f"rocq c failed:\n{replay.stderr}")
         solver_ledger.audit(replay.stdout, expected_reports, module, ())
         if batch is not None:
+            if used_prelude:
+                batch.register("HoldFastPrelude")
             batch.register(stem)
         else:
-            rocq_cache.check_kernel(directory, [stem])
+            rocq_cache.check_kernel(directory, ["HoldFastPrelude", stem] if used_prelude else [stem])
 
 
 def _egraph_congruence_and_branch_isolation(*, batch: rocq_cache.BatchChecker | None = None) -> None:

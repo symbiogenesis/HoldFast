@@ -20,6 +20,7 @@ import tempfile
 import threading
 import time
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path, PurePosixPath
 from typing import cast
 
@@ -1369,7 +1370,7 @@ def _runtime(directory: Path, steps: list[dict[str, object]]) -> dict[str, objec
             roots.add(path)
     minimal = sorted(path for path in roots
                      if not any(path != other and path.is_relative_to(other) for other in roots))
-    files: dict[str, str] = {}
+    paths: list[Path] = []
     for root in minimal:
         if not root.is_dir():
             raise ValueError("Menhir support installed library root is missing")
@@ -1377,9 +1378,12 @@ def _runtime(directory: Path, steps: list[dict[str, object]]) -> dict[str, objec
             if path.is_symlink() and path.is_dir():
                 raise ValueError("Menhir support installed library has a directory alias")
             if path.is_file():
-                files[str(path)] = file_sha256(path)
-    if not files:
+                paths.append(path)
+    if not paths:
         raise ValueError("Menhir support installed library inventory is empty")
+    with ThreadPoolExecutor(max_workers=min(16, os.process_cpu_count() or 1, len(paths))) as pool:
+        digests = list(pool.map(file_sha256, paths))
+    files = dict(zip((str(path) for path in paths), digests, strict=True))
     return {"config": config, "load_path": paths, "files_sha256": files}
 
 
@@ -1399,11 +1403,11 @@ def _stage(sources: dict[str, bytes], directory: Path, *, reference: bool) -> No
         (directory / relative).write_bytes(content)
 
 
-def _compile(directory: Path, steps: list[dict[str, object]]) -> None:
+def _compile(directory: Path, steps: list[dict[str, object]], *, jobs: int | None = None) -> None:
     _run(_opam(["rocq", "makefile", "-f", "_CoqProject", "-o", "CoqMakefile"]),
          directory, directory / "makefile.stdout", steps)
-    jobs = min(12, os.process_cpu_count() or 2)
-    _run(_opam(["make", "-f", "CoqMakefile", f"-j{jobs}"]),
+    worker_jobs = jobs if jobs is not None else (os.process_cpu_count() or 2)
+    _run(_opam(["make", "-f", "CoqMakefile", f"-j{worker_jobs}"]),
          directory, directory / "compile.stdout", steps)
 
 
@@ -1873,12 +1877,21 @@ def qualify(root: Path, *, archive: Path | None = None) -> dict[str, object]:
             candidate, reference = directory / "candidate", directory / "reference"
             _stage(sources, candidate, reference=False)
             _stage(sources, reference, reference=True)
-            for tree in (candidate, reference):
-                _compile(tree, steps)
+            tree_jobs = max(1, (os.process_cpu_count() or 2) // 2)
+
+            def _build_tree(tree: Path) -> list[dict[str, object]]:
+                tree_steps: list[dict[str, object]] = []
+                _compile(tree, tree_steps, jobs=tree_jobs)
                 (tree / "Frozen.v").write_text(FROZEN_QUERY, encoding="utf-8", newline="")
                 _run(_opam(["rocq", "c", "-R", ".", "MenhirLib", "Frozen.v"]),
-                     tree, tree / "frozen.stdout", steps)
-                _compile_grammar_and_extract(tree, pure_mly, steps)
+                     tree, tree / "frozen.stdout", tree_steps)
+                _compile_grammar_and_extract(tree, pure_mly, tree_steps)
+                return tree_steps
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                cand_steps, ref_steps = list(pool.map(_build_tree, (candidate, reference)))
+            steps.extend(cand_steps)
+            steps.extend(ref_steps)
             generated_v = (candidate / "HoldFastPureGrammar.v").read_bytes()
             _require(bool(generated_v) and generated_v == (reference / "HoldFastPureGrammar.v").read_bytes(),
                      "fresh menhir --coq --strict generation changed HoldFastPureGrammar.v bytes")

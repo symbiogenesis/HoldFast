@@ -188,6 +188,8 @@ def _sync_environment(root: Path, target: Path, token: str, child_env: dict[str,
 
 def _dispatch(python_exe: Path, script: Path, argv: list[str], child_env: dict[str, str]) -> int:
     command = [str(python_exe), str(script), *argv]
+    if sys.platform != "win32":
+        os.execve(str(python_exe), command, child_env)  # noqa: S606
     return subprocess.run(command, env=child_env, check=False).returncode
 
 

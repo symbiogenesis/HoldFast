@@ -13,9 +13,19 @@ from pathlib import Path
 
 from filelock import FileLock
 
-from toolchain import proofenv
+from toolchain import elaborate_types, proofenv
 
 type CompileFn = Callable[[list[str], Path, str], subprocess.CompletedProcess[str]]
+
+_PRELUDE_UNIT = "HoldFastPrelude"
+_PRELUDE_REQUIRES = (
+    "From Corelib Require Init.Datatypes Init.Nat Init.Logic Init.Specif.\n"
+    "From Stdlib Require Arith.PeanoNat Lia ZArith.BinInt.\n"
+)
+_PRELUDE_IMPORTS = (
+    "Export HoldFastPrelude.\n"
+    "Import Init.Datatypes Init.Nat Init.Logic Init.Specif Arith.PeanoNat Lia ZArith.BinInt.\n"
+)
 
 _COMPILER_LOCK = threading.Lock()
 _COMPILER_DIGESTS: dict[tuple[str, int, int, int, int], str] = {}
@@ -199,6 +209,45 @@ def materialize_repo_units(
         file_name = raw_name if raw_name.endswith(".v") else f"{raw_name}.v"
         units.append((file_name, (root / "tools" / "rocq" / file_name).read_bytes()))
     return materialize_units(directory, units, compiler=compiler)
+
+
+def prelude_source() -> bytes:
+    """Return compiled-module Gallina source for the shared HoldFast elaboration prelude."""
+    return elaborate_types._PRELUDE.encode("utf-8")
+
+
+def materialize_prelude(directory: Path, *, compiler: Sequence[str] | None = None) -> None:
+    """Ensure cached ``HoldFastPrelude.vo`` artifacts are present in ``directory``."""
+    materialize_units(directory, [(f"{_PRELUDE_UNIT}.v", prelude_source())], compiler=compiler)
+
+
+def use_cached_prelude(
+    gallina: str,
+    directory: Path,
+    *,
+    compiler: Sequence[str] | None = None,
+) -> tuple[str, bool]:
+    """Replace an inline ``_PRELUDE`` in ``gallina`` with a cached ``HoldFastPrelude.vo`` import."""
+    prelude = elaborate_types._PRELUDE
+    idx = gallina.find(prelude)
+    if idx == -1:
+        return gallina, False
+    mod_pos = gallina.rfind("\nModule ", 0, idx)
+    if mod_pos != -1:
+        insert_at = mod_pos + 1
+    elif gallina.startswith("Module "):
+        insert_at = 0
+    else:
+        return gallina, False
+    materialize_prelude(directory, compiler=compiler)
+    prefix = (
+        gallina[:insert_at]
+        + f"Require Import {_PRELUDE_UNIT}.\n"
+        + _PRELUDE_REQUIRES
+        + gallina[insert_at:idx]
+    )
+    suffix = gallina[idx + len(prelude):]
+    return f"{prefix}{_PRELUDE_IMPORTS}{suffix}", True
 
 
 def check_kernel(directory: Path, units: Sequence[str], *, timeout: int = 180) -> None:

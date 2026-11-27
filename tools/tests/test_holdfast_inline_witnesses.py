@@ -45,16 +45,22 @@ public Nat Observe(Nat n) requires n <= 4 {
             directory = batch.work_dir
             stem = batch.unique_stem("Witness")
         target = directory / f"{stem}.v"
-        target.write_text(gallina + consumer, encoding="utf-8")
+        unit_text, used_prelude = rocq_cache.use_cached_prelude(gallina + consumer, directory)
+        target.write_text(unit_text, encoding="utf-8")
         compile_unit = [*proofenv.rocq_command(), "-q", target.name]
         replay = subprocess.run(compile_unit, cwd=directory, capture_output=True, check=True, timeout=180)
         solver_ledger.audit(replay.stdout.decode(), 1, module, ())
         if batch is not None:
+            if used_prelude:
+                batch.register("HoldFastPrelude")
             batch.register(stem)
         else:
-            rocq_cache.check_kernel(directory, [stem])
+            rocq_cache.check_kernel(directory, ["HoldFastPrelude", stem] if used_prelude else [stem])
         tampered = directory / "TamperedWitness.v"
-        tampered.write_text(gallina + consumer.replace("n 5 = true", "n 3 = true"), encoding="utf-8")
+        tampered_text, _ = rocq_cache.use_cached_prelude(
+            gallina + consumer.replace("n 5 = true", "n 3 = true"), directory,
+        )
+        tampered.write_text(tampered_text, encoding="utf-8")
         rejected = subprocess.run([*proofenv.rocq_command(), "-q", tampered.name], cwd=directory,
                                   capture_output=True, check=False, timeout=180)
         ensure(rejected.returncode != 0 and b"expected to have type" in rejected.stderr,
@@ -142,15 +148,18 @@ def _replay_witnesses(
             directory = batch.work_dir
             stem = batch.unique_stem(module_name)
         target = directory / f"{stem}.v"
-        target.write_text(gallina + "\n" + "".join(consumers), encoding="utf-8")
+        unit_text, used_prelude = rocq_cache.use_cached_prelude(gallina + "\n" + "".join(consumers), directory)
+        target.write_text(unit_text, encoding="utf-8")
         replay = subprocess.run([*proofenv.rocq_command(), "-q", target.name], cwd=directory,
                                 capture_output=True, check=False, text=True, timeout=180)
         ensure(replay.returncode == 0, replay.stderr)
         solver_ledger.audit(replay.stdout, len(consumers), module, ())
         if batch is not None:
+            if used_prelude:
+                batch.register("HoldFastPrelude")
             batch.register(stem)
         else:
-            rocq_cache.check_kernel(directory, [stem])
+            rocq_cache.check_kernel(directory, ["HoldFastPrelude", stem] if used_prelude else [stem])
 
 
 def _joined_branch_witnesses(*, batch: rocq_cache.BatchChecker | None = None) -> None:

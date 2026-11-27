@@ -3,10 +3,12 @@
 
 import ast
 import configparser
+import contextlib
 import io
 import re
 import tokenize
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path, PurePosixPath
 
 import toolchain as holdfast
@@ -59,6 +61,10 @@ _MOJIBAKE_TOKENS = (
     "\u00c2\u00a7",
     "\u00c2\u00b7",
 )
+_FORBIDDEN_CHAR_RE = re.compile(
+    r"[\x00-\x09\x0b-\x1f\x7f\u200b-\u200f\u202a-\u202e\u2060\u2066-\u2069\ufeff\ufffd]"
+)
+_MOJIBAKE_RE = re.compile("|".join(re.escape(token) for token in _MOJIBAKE_TOKENS))
 
 _JS_KEYWORDS = frozenset({
     "async", "await", "break", "case", "catch", "class", "const", "continue",
@@ -126,7 +132,13 @@ _JS_DOLLAR_ID_RE = re.compile(r'\$\(\s*"([A-Za-z0-9_-]+)"\s*\)')
 _JS_SELECT_TAB_RE = re.compile(r'\bselectTab\(\s*"([A-Za-z0-9_-]+)"\s*\)')
 
 
-def editorconfig_findings(root: Path, tracked: Sequence[str]) -> list[str]:
+def editorconfig_findings(
+    root: Path,
+    tracked: Sequence[str],
+    *,
+    raw_cache: Mapping[str, bytes] | None = None,
+    text_cache: Mapping[str, str] | None = None,
+) -> list[str]:
     """Enforce .editorconfig UTF-8, LF, single final newline, trailing-space, and tab rules."""
     cfg_path = root / ".editorconfig"
     if not cfg_path.is_file():
@@ -141,7 +153,7 @@ def editorconfig_findings(root: Path, tracked: Sequence[str]) -> list[str]:
     findings: list[str] = []
     for rel in tracked:
         try:
-            raw = (root / rel).read_bytes()
+            raw = raw_cache[rel] if raw_cache is not None and rel in raw_cache else (root / rel).read_bytes()
         except OSError as err:
             findings.append(f"{rel}: cannot read bytes: {err}")
             continue
@@ -154,7 +166,11 @@ def editorconfig_findings(root: Path, tracked: Sequence[str]) -> list[str]:
         elif raw.endswith(b"\n\n"):
             findings.append(f"{rel}: multiple trailing newlines at end of file")
         try:
-            text = raw.decode("utf-8")
+            text = (
+                text_cache[rel]
+                if text_cache is not None and rel in text_cache
+                else raw.decode("utf-8")
+            )
         except UnicodeDecodeError as err:
             findings.append(f"{rel}: invalid UTF-8 ({err})")
             continue
@@ -166,14 +182,21 @@ def editorconfig_findings(root: Path, tracked: Sequence[str]) -> list[str]:
     return findings
 
 
-def glyph_findings(root: Path, tracked: Sequence[str]) -> list[str]:
+def glyph_findings(
+    root: Path,
+    tracked: Sequence[str],
+    *,
+    text_cache: Mapping[str, str] | None = None,
+) -> list[str]:
     """Refuse bidi/zero-width formatting characters, control characters, tabs, and mojibake."""
     findings: list[str] = []
     for rel in tracked:
         try:
-            text = (root / rel).read_text(encoding="utf-8")
+            text = text_cache[rel] if text_cache is not None and rel in text_cache else (root / rel).read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as err:
             findings.append(f"{rel}: cannot read UTF-8 text: {err}")
+            continue
+        if _FORBIDDEN_CHAR_RE.search(text) is None and _MOJIBAKE_RE.search(text) is None:
             continue
         for lineno, line in enumerate(text.splitlines(), 1):
             findings.extend(
@@ -225,7 +248,12 @@ def _comment_and_docstring_chunks(rel: str, text: str) -> list[tuple[int, str]]:
     ]
 
 
-def source_ref_findings(root: Path, loaded: corpus.Corpus) -> list[str]:
+def source_ref_findings(
+    root: Path,
+    loaded: corpus.Corpus,
+    *,
+    text_cache: Mapping[str, str] | None = None,
+) -> list[str]:
     """Verify relative Markdown links and #fragments in source comments and docstrings."""
     findings: list[str] = []
     base = root.resolve()
@@ -240,9 +268,11 @@ def source_ref_findings(root: Path, loaded: corpus.Corpus) -> list[str]:
         if not rel.endswith(_SOURCE_REF_SUFFIXES):
             continue
         try:
-            text = (root / rel).read_text(encoding="utf-8")
+            text = text_cache[rel] if text_cache is not None and rel in text_cache else (root / rel).read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as err:
             findings.append(f"{rel}: cannot read source file: {err}")
+            continue
+        if "](" not in text:
             continue
         parent_dir = (base / rel).parent
         for lineno, chunk in _comment_and_docstring_chunks(rel, text):
@@ -276,14 +306,19 @@ def source_ref_findings(root: Path, loaded: corpus.Corpus) -> list[str]:
     return findings
 
 
-def holdfast_example_findings(root: Path, tracked: Sequence[str]) -> list[str]:
+def holdfast_example_findings(
+    root: Path,
+    tracked: Sequence[str],
+    *,
+    raw_cache: Mapping[str, bytes] | None = None,
+) -> list[str]:
     """Check tracked pure HoldFast example files for translation and canonical layout."""
     findings: list[str] = []
     for rel in tracked:
         if rel not in _PURE_EXAMPLES:
             continue
         try:
-            raw = (root / rel).read_bytes()
+            raw = raw_cache[rel] if raw_cache is not None and rel in raw_cache else (root / rel).read_bytes()
         except OSError as err:
             findings.append(f"{rel}: cannot read HoldFast example: {err}")
             continue
@@ -863,20 +898,43 @@ def _playground_asset_findings(root: Path, loaded: corpus.Corpus) -> list[str]:
     return findings
 
 
-def javascript_findings(root: Path, loaded: corpus.Corpus) -> list[str]:
+def javascript_findings(
+    root: Path,
+    loaded: corpus.Corpus,
+    *,
+    text_cache: Mapping[str, str] | None = None,
+) -> list[str]:
     """Check tracked JavaScript modules for lexical/identifier integrity and playground DOM bindings."""
     findings: list[str] = []
     for rel in loaded.tracked:
         if not rel.endswith((".mjs", ".js")):
             continue
         try:
-            text = (root / rel).read_text(encoding="utf-8")
+            text = text_cache[rel] if text_cache is not None and rel in text_cache else (root / rel).read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as err:
             findings.append(f"{rel}: cannot read JavaScript file: {err}")
             continue
         findings.extend(_js_module_findings(rel, text))
     findings.extend(_playground_asset_findings(root, loaded))
     return findings
+
+
+def _load_tracked_caches(root: Path, loaded: corpus.Corpus) -> tuple[dict[str, bytes], dict[str, str]]:
+    raw_cache: dict[str, bytes] = {}
+    text_cache: dict[str, str] = {}
+    for rel in loaded.tracked:
+        doc = loaded.get(rel)
+        if doc is not None:
+            text_cache[rel] = doc.raw
+        try:
+            raw = (root / rel).read_bytes()
+        except OSError:
+            continue
+        raw_cache[rel] = raw
+        if rel not in text_cache:
+            with contextlib.suppress(UnicodeDecodeError):
+                text_cache[rel] = raw.decode("utf-8")
+    return raw_cache, text_cache
 
 
 def run(root: Path, *, loaded: corpus.Corpus | RuntimeError | None = None) -> Reporter:
@@ -891,6 +949,7 @@ def run(root: Path, *, loaded: corpus.Corpus | RuntimeError | None = None) -> Re
     except (OSError, ValueError, RuntimeError) as err:
         rep.report("corpus", "load error(s):", [f"cannot load repository corpus: {err}"])
         return rep
+    raw_cache, text_cache = _load_tracked_caches(root, loaded)
     plan = loaded.get("PLAN.md")
     rep.report(
         "estimates",
@@ -907,31 +966,31 @@ def run(root: Path, *, loaded: corpus.Corpus | RuntimeError | None = None) -> Re
     rep.report(
         "marks",
         "SPDX file-header finding(s):",
-        licensing.marks_findings(root, loaded),
+        licensing.marks_findings(root, loaded, text_cache=text_cache),
         "every markable tracked file opens with its canonical SPDX-License-Identifier header",
     )
     rep.report(
         "editorconfig",
         "EditorConfig finding(s):",
-        editorconfig_findings(root, loaded.tracked),
+        editorconfig_findings(root, loaded.tracked, raw_cache=raw_cache, text_cache=text_cache),
         f"all {len(loaded.tracked)} tracked file(s) obey .editorconfig encoding, newline, and whitespace rules",
     )
     rep.report(
         "glyphs",
         "Unicode hygiene finding(s):",
-        glyph_findings(root, loaded.tracked),
+        glyph_findings(root, loaded.tracked, text_cache=text_cache),
         "no tracked file contains forbidden bidi, control, tab, or mojibake characters",
     )
     rep.report(
         "source-refs",
         "source-comment link finding(s):",
-        source_ref_findings(root, loaded),
+        source_ref_findings(root, loaded, text_cache=text_cache),
         "every relative link and #fragment in source comments and docstrings resolves",
     )
     rep.report(
         "holdfast-examples",
         "HoldFast example finding(s):",
-        holdfast_example_findings(root, loaded.tracked),
+        holdfast_example_findings(root, loaded.tracked, raw_cache=raw_cache),
         "all tracked pure HoldFast example files translate and hold to their canonical layout",
     )
     rep.report(
@@ -943,7 +1002,7 @@ def run(root: Path, *, loaded: corpus.Corpus | RuntimeError | None = None) -> Re
     rep.report(
         "javascript",
         "JavaScript and playground asset finding(s):",
-        javascript_findings(root, loaded),
+        javascript_findings(root, loaded, text_cache=text_cache),
         "all tracked JavaScript modules and playground DOM/asset bindings resolve cleanly",
     )
     if "tools/editor/tree-sitter/grammar.js" in loaded.tracked:
@@ -955,11 +1014,15 @@ def run(root: Path, *, loaded: corpus.Corpus | RuntimeError | None = None) -> Re
 
 def run_gate(root: Path) -> Reporter:
     """Run check, markdown, and typecheck in one unified static gate."""
-    try:
-        loaded: corpus.Corpus | RuntimeError = corpus.load(root)
-    except (OSError, ValueError, RuntimeError) as error:
-        loaded = RuntimeError(str(error))
-    rep = run(root, loaded=loaded)
-    rep.extend(markdown.run(root, loaded=loaded))
-    rep.extend(typecheck.run(root))
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        type_future = pool.submit(typecheck.run, root)
+        try:
+            loaded: corpus.Corpus | RuntimeError = corpus.load(root)
+        except (OSError, ValueError, RuntimeError) as error:
+            loaded = RuntimeError(str(error))
+        check_future = pool.submit(run, root, loaded=loaded)
+        markdown_future = pool.submit(markdown.run, root, loaded=loaded)
+        rep = check_future.result()
+        rep.extend(markdown_future.result())
+        rep.extend(type_future.result())
     return rep

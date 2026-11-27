@@ -65,6 +65,8 @@ class ModuleReport(Reporter):
         self.skipped_slow = 0
         self.skipped_lane = 0
         self.seconds = 0.0
+        self.failure_messages: list[str] = []
+        self.captured_lines: list[str] = []
 
 
 def _lanes() -> frozenset[Lane]:
@@ -128,12 +130,49 @@ def _load(name: str, split: bool | None = None) -> list[Case] | str:
     return narrowed
 
 
+_HEAVY_RE = re.compile(r"\brocqchk\b|\b_replay(?:_|\b)")
+_CASE_RE = re.compile(r"\bCase\(")
+
+
+def _module_profile(name: str) -> tuple[int, int]:
+    """Estimate execution weight and case count for LPT scheduling and internal fan-out."""
+    path = TESTS / f"{name}.py"
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError, UnicodeDecodeError:
+        return 0, 0
+    multiplier = 4 if _HEAVY_RE.search(raw) is not None else 1
+    case_count = len(_CASE_RE.findall(raw))
+    return len(raw) * multiplier, case_count
+
+
+def _fanout_count(name: str, total_modules: int, worker_budget: int, case_count: int) -> int:
+    if worker_budget <= 1 or not _declares(name):
+        return 1
+    try:
+        size = (TESTS / f"{name}.py").stat().st_size
+    except OSError:
+        return 1
+    if total_modules == 1:
+        return min(worker_budget, max(1, case_count))
+    if size > 80_000 and worker_budget >= 6:
+        return min(6, worker_budget, max(1, case_count))
+    if size > 40_000 and worker_budget >= 4:
+        return min(4, worker_budget, max(1, case_count))
+    return 1
+
+
 def _run_cases(name: str, cases: list[Case] | str, slow: bool,
-               lanes: frozenset[Lane], share: Shard | None = None) -> ModuleReport:
+               lanes: frozenset[Lane], share: Shard | None = None, *,
+               emit: bool = True) -> ModuleReport:
     """Run a module's selected cases (or `share`'s stride before `--slow` and lane filtering)."""
     rep = ModuleReport()
     if isinstance(cases, str):
-        rep.report(name, "module error(s):", [cases])
+        rep.failure_messages.append(cases)
+        if emit:
+            rep.report(name, "module error(s):", [cases])
+        else:
+            rep.findings += 1
         return rep
 
     listed = len(cases)
@@ -150,29 +189,82 @@ def _run_cases(name: str, cases: list[Case] | str, slow: bool,
             case.fn()
         except (Exception, SystemExit) as err:  # an unexpected exit is a failed case
             failures.append(f"{case.name}: {err}")
-    rep.report(name, "failure(s):", failures,
-               ok=f"{rep.cases} case(s)"
-               + ("" if share is None else f", this shard's share of {listed}"))
-    if rep.skipped_slow or rep.skipped_lane:
-        rep.line(f"       skipped: {rep.skipped_slow} slow case(s), "
-                 f"{rep.skipped_lane} case(s) for unavailable lanes")
+    rep.failure_messages.extend(failures)
+    if emit:
+        rep.report(name, "failure(s):", failures,
+                   ok=f"{rep.cases} case(s)"
+                   + ("" if share is None else f", this shard's share of {listed}"))
+        if rep.skipped_slow or rep.skipped_lane:
+            rep.line(f"       skipped: {rep.skipped_slow} slow case(s), "
+                     f"{rep.skipped_lane} case(s) for unavailable lanes")
+    else:
+        rep.findings += len(failures)
     return rep
 
 
 def _run_module(name: str, slow: bool, lanes: frozenset[Lane], shard: Shard | None = None,
-                splits: frozenset[str] = frozenset()) -> ModuleReport:
+                splits: frozenset[str] = frozenset(), *,
+                virtual_shard: Shard | None = None) -> ModuleReport:
     """Load and run one module, retaining its captured output on failure. Under `shard`,
     a module named in `splits` runs that shard's share of its cases."""
     split = name in splits
     started = time.perf_counter()
     output = StringIO()
     with redirect_stdout(output), redirect_stderr(output):
-        report = _run_cases(name, _load(name, None if shard is None else split), slow, lanes,
-                            shard if split else None)
+        active_share = virtual_shard if virtual_shard is not None else (shard if split else None)
+        report = _run_cases(
+            name,
+            _load(name, None if shard is None else split),
+            slow,
+            lanes,
+            active_share,
+            emit=virtual_shard is None,
+        )
     if report.findings:
-        report.out.extend(output.getvalue().splitlines())
+        lines = output.getvalue().splitlines()
+        if virtual_shard is None:
+            report.out.extend(lines)
+        else:
+            report.captured_lines.extend(lines)
     report.seconds = time.perf_counter() - started
     return report
+
+
+def _run_work_item(
+    item: tuple[str, Shard | None],
+    *,
+    slow: bool,
+    lanes: frozenset[Lane],
+    shard: Shard | None,
+    splits: frozenset[str],
+) -> ModuleReport:
+    name, virtual_shard = item
+    return _run_module(name, slow, lanes, shard, splits, virtual_shard=virtual_shard)
+
+
+def _merge_reports(name: str, parts: list[ModuleReport]) -> ModuleReport:
+    if len(parts) == 1:
+        return parts[0]
+    merged = ModuleReport()
+    failures: list[str] = []
+    seen_failures: set[str] = set()
+    for part in parts:
+        merged.cases += part.cases
+        merged.skipped_slow += part.skipped_slow
+        merged.skipped_lane += part.skipped_lane
+        for message in part.failure_messages:
+            if message not in seen_failures:
+                seen_failures.add(message)
+                failures.append(message)
+        merged.seconds = max(merged.seconds, part.seconds)
+    merged.report(name, "failure(s):", failures, ok=f"{merged.cases} case(s)")
+    if merged.skipped_slow or merged.skipped_lane:
+        merged.line(f"       skipped: {merged.skipped_slow} slow case(s), "
+                    f"{merged.skipped_lane} case(s) for unavailable lanes")
+    if merged.findings:
+        for part in parts:
+            merged.out.extend(part.captured_lines)
+    return merged
 
 
 def run(only: str | None = None, slow: bool = False, jobs: int | None = None,
@@ -219,23 +311,54 @@ def run(only: str | None = None, slow: bool = False, jobs: int | None = None,
             rep.report("tests", "required lane unavailable:",
                        [f"the native toolchain lane requires Linux and opam switch {env.SAIL_SWITCH}"])
             return rep
-        workers = min(jobs or min(16, os.process_cpu_count() or 1), len(names))
+        default_jobs = (
+            min(8, os.process_cpu_count() or 1)
+            if sys.platform == "win32"
+            else (os.process_cpu_count() or 1)
+        )
+        worker_budget = jobs or default_jobs
+        work_entries: list[tuple[int, int, str, Shard | None]] = []
+        for module_index, name in enumerate(names):
+            weight, case_count = _module_profile(name)
+            fanout = _fanout_count(name, len(names), worker_budget, case_count) if shard is None else 1
+            if fanout > 1:
+                per_slice = max(1, weight // fanout)
+                work_entries.extend(
+                    (per_slice, module_index, name, Shard(slice_index, fanout))
+                    for slice_index in range(1, fanout + 1)
+                )
+            else:
+                work_entries.append((weight, module_index, name, None))
+        scheduled_order = sorted(
+            range(len(work_entries)),
+            key=lambda idx: (-work_entries[idx][0], work_entries[idx][1]),
+        )
+        scheduled_items = [(work_entries[idx][2], work_entries[idx][3]) for idx in scheduled_order]
+        workers = min(worker_budget, len(scheduled_items))
         # Use spawn on all platforms so workers never inherit live threads or module patches.
         with ProcessPoolExecutor(max_workers=workers,
                                  mp_context=multiprocessing.get_context("spawn")) as pool:
-            parts = pool.map(partial(_run_module, slow=slow, lanes=lanes, shard=shard,
-                                     splits=splits), names)
-            for name, part in zip(names, parts, strict=True):
-                rep.out.extend(part.out)
-                rep.findings += part.findings
-                executed += part.cases
-                skipped_slow += part.skipped_slow
-                skipped_lane += part.skipped_lane
-                units.append({"kind": "module", "name": name, "cases": part.cases,
-                              "skipped_slow": part.skipped_slow,
-                              "skipped_lane": part.skipped_lane,
-                              "share": str(shard) if name in splits else None,
-                              "seconds": round(part.seconds, 3)})
+            mapped = list(pool.map(partial(_run_work_item, slow=slow, lanes=lanes,
+                                           shard=shard, splits=splits), scheduled_items))
+        grouped: dict[str, list[ModuleReport]] = {name: [] for name in names}
+        restored: list[ModuleReport | None] = [None] * len(work_entries)
+        for sched_pos, part in zip(scheduled_order, mapped, strict=True):
+            restored[sched_pos] = part
+        for entry, maybe_part in zip(work_entries, restored, strict=True):
+            assert maybe_part is not None  # noqa: S101
+            grouped[entry[2]].append(maybe_part)
+        for name in names:
+            part = _merge_reports(name, grouped[name])
+            rep.out.extend(part.out)
+            rep.findings += part.findings
+            executed += part.cases
+            skipped_slow += part.skipped_slow
+            skipped_lane += part.skipped_lane
+            units.append({"kind": "module", "name": name, "cases": part.cases,
+                          "skipped_slow": part.skipped_slow,
+                          "skipped_lane": part.skipped_lane,
+                          "share": str(shard) if name in splits else None,
+                          "seconds": round(part.seconds, 3)})
     timings.write(record, units)
     rep.line(f"{executed} case(s) run; {skipped_slow} slow case(s) skipped; "
              f"{skipped_lane} case(s) skipped for unavailable lanes.")
@@ -261,7 +384,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--require-toolchain", action="store_true",
                         help="fail unless the native toolchain lane is available")
     parser.add_argument("--jobs", type=int,
-                        help="worker processes (default: available CPUs, capped at sixteen)")
+                        help="worker processes (default: available CPUs on Linux, capped at eight on Windows)")
     args = parser.parse_args(argv)
     if args.jobs is not None and args.jobs < 1:
         parser.error("--jobs must be positive")
