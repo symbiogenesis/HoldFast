@@ -28,8 +28,10 @@ calculus), symbolic semiring polymorphism, CBV erasure with non-interference,
 verified zero-type-use substitution skipping, and the unified `GradedCore` /
 `JoinDomain` calculus (`core_weakening`, `core_exchange`,
 `core_value_substitution`, `core_subgrade_admissible`,
-`core_grade_substitution`, `core_zero_type_use_irrelevance`, and
-`core_type_substitution`) with
+`core_grade_substitution`, `core_zero_type_use_irrelevance`,
+`core_type_substitution`, `core_erasure_simulation`,
+`core_closed_erasure_sound`, `core_zero_var_non_interference`,
+`core_cbv_erasure_sound`, and `core_skip_subst_agrees`) with
 frontend `domain`/`inductive`/`<grade q : D>`
 elaboration, Rocq-replayed constraint inference, derived modality combinators,
 and bounded grade-directed synthesis.
@@ -37,6 +39,7 @@ and bounded grade-directed synthesis.
 [Unified graded core](../../tools/rocq/graded_core.v) ·
 [Unified core metatheory](../../tools/rocq/graded_core_metatheory.v) ·
 [Unified core type substitution](../../tools/rocq/graded_core_type_subst.v) ·
+[Unified core CBV erasure](../../tools/rocq/graded_core_erasure.v) ·
 [Symbolic semiring polymorphism](../../tools/rocq/graded_semiring.v) ·
 [CBV erasure and skipping](../../tools/rocq/graded_erasure.v) ·
 [Grade inference](../../tools/toolchain/graded_inference.py) ·

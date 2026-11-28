@@ -2747,10 +2747,12 @@ metatheory (`weakening_*`, `exchange_derives`, `value_substitution_derives`,
 `graded_core_source.v`, `graded_core_metatheory.v` proving
 `core_weakening`, `core_weakening_erasure`, `core_exchange`,
 `core_value_substitution`, `core_subgrade_admissible`,
-`core_grade_substitution`, and `core_zero_type_use_irrelevance`, and
-`graded_core_type_subst.v` proving `core_type_substitution` with
-`LinearDomain`, `AffineDomain`, `SecurityLoHi`,
-and symbolic `GradeExpr`), universal symbolic semiring polymorphism
+`core_grade_substitution`, and `core_zero_type_use_irrelevance`,
+`graded_core_type_subst.v` proving `core_type_substitution`, and
+`graded_core_erasure.v` proving `core_erasure_simulation`,
+`core_closed_erasure_sound`, `core_zero_var_non_interference`,
+`core_cbv_erasure_sound`, and `core_skip_subst_agrees` with `LinearDomain`,
+`AffineDomain`, `SecurityLoHi`, and symbolic `GradeExpr`), universal symbolic semiring polymorphism
 (`graded_semiring.v`: `poly_infer_sound`, `poly_derives_all_valuations`,
 `poly_*_verified` and negative controls), CBV erasure soundness and
 non-interference (`graded_erasure.v`: `erasure_simulation`,
@@ -2762,13 +2764,13 @@ elimination, Boolean `Presence`, and type-grade checking in `graded_modal.v`.
 [Unified graded core](../../tools/rocq/graded_core.v) ·
 [Unified core metatheory](../../tools/rocq/graded_core_metatheory.v) ·
 [Unified core type substitution](../../tools/rocq/graded_core_type_subst.v) ·
+[Unified core CBV erasure](../../tools/rocq/graded_core_erasure.v) ·
 [Semiring polymorphism](../../tools/rocq/graded_semiring.v) ·
 [CBV erasure](../../tools/rocq/graded_erasure.v) ·
 [Protocol erasure](../../tools/rocq/graded_cbv_erasure.v) ·
 [Metatheory audit](../../tools/tests/test_holdfast_graded_metatheory.py)
 
-Remaining erasure proofs on `GradedCore` and target
-machine cost/lowering correspondence remain open.
+Target machine cost/lowering correspondence remains open.
 
 <a id="q25bj-reconstruct-checked-graded-domain-evidence"></a>
 
