@@ -12,8 +12,14 @@ from toolchain import elaborate, parser, proofenv, rocq_cache, solver_ledger
 from toolchain.ast import HoldFastError
 from toolchain.elaborate import _Elaborator
 from toolchain.elaborate_protocol import _Protocol
-from toolchain.elaborate_types import _NAT, _apps, _constant, _term
-from toolchain.proof_certificates import VersionedEGraph
+from toolchain.elaborate_types import _BOOL, _NAT, _apps, _Binding, _constant, _term
+from toolchain.proof_certificates import (
+    MAX_POLY_DEGREE,
+    MAX_POLY_VARS,
+    NatPolyEqualizer,
+    PropositionalPrechecker,
+    VersionedEGraph,
+)
 
 
 def _versioned_egraph_unit_cases() -> None:
@@ -478,11 +484,350 @@ public u32 FnAssertByEGraph(u32 x, u32 y, u32 z)
     _replay_gallina("AssertBySlottedReplay", source, consumers, len(checked_exports), batch=batch)
 
 
+def _mizar_unit_limits() -> None:
+    proto = _Protocol(b"module MizarLimits;")
+    elab = _Elaborator(proto)
+    poly = NatPolyEqualizer(elab)
+
+    # Exceeding MAX_POLY_VARS must fail closed cleanly (return None).
+    many_l = _term("nat", value=0)
+    many_r = _term("nat", value=0)
+    for idx in range(MAX_POLY_VARS + 2):
+        sym = _constant(f"v_{idx}")
+        elab.constants[f"v_{idx}"] = elaborate._Binding(sym, _NAT)
+        many_l = _apps(_constant("+"), many_l, sym)
+        many_r = _apps(_constant("+"), sym, many_r)
+    ensure(poly.prove_equal(many_l, many_r) is None, "NatPolyEqualizer accepted expression past MAX_POLY_VARS")
+
+    # Exceeding MAX_POLY_DEGREE must fail closed cleanly (return None).
+    x = _constant("v_0")
+    high_deg = x
+    for _ in range(MAX_POLY_DEGREE + 1):
+        high_deg = _apps(_constant("*"), high_deg, x)
+    ensure(poly.prove_equal(high_deg, high_deg) is not None, "identical high-degree reflexive check should use Refl")
+    ensure(
+        poly.prove_equal(_apps(_constant("+"), high_deg, _term("nat", value=0)), high_deg) is None,
+        "NatPolyEqualizer accepted polynomial past MAX_POLY_DEGREE",
+    )
+
+    # PropositionalPrechecker tableau refuses tautologies above MAX_PRECHECKER_ATOMS (5).
+    pre = PropositionalPrechecker(elab)
+    atoms = [_constant(f"b_{i}") for i in range(6)]
+    for i, atom in enumerate(atoms):
+        elab.constants[f"b_{i}"] = elaborate._Binding(atom, _BOOL)
+    big_taut = _apps(_constant("||"), atoms[0], _apps(_constant("!"), atoms[0]))
+    for atom in atoms[1:]:
+        big_taut = _apps(_constant("||"), big_taut, _apps(_constant("||"), atom, _apps(_constant("!"), atom)))
+    big_goal = _apps(_constant("Eq"), _BOOL, big_taut, _term("bool", value=1))
+    ensure(pre.prove(big_goal, ()) is None, "PropositionalPrechecker tableau accepted > 5 atoms")
+
+    # Unit propagation still works with > 5 distinct atoms when forward-chaining suffices.
+    facts: list[_Binding] = []
+    p0 = _constant("p_0")
+    elab.constants["p_0"] = elaborate._Binding(p0, _BOOL)
+    facts.append(_Binding(p0, _apps(_constant("Eq"), _BOOL, atoms[0], _term("bool", value=1))))
+    for i in range(5):
+        imp_term = _apps(_constant("==>"), atoms[i], atoms[i + 1])
+        h_name = f"imp_{i}"
+        elab.constants[h_name] = elaborate._Binding(
+            _constant(h_name), _apps(_constant("Eq"), _BOOL, imp_term, _term("bool", value=1)),
+        )
+        facts.append(_Binding(_constant(h_name), elab.constants[h_name].type))
+    target_goal = _apps(_constant("Eq"), _BOOL, atoms[5], _term("bool", value=1))
+    prop_proof = pre.prove(target_goal, tuple(facts))
+    ensure(prop_proof is not None, "PropositionalPrechecker unit propagation failed on 6-atom chain")
+
+
+def _mizar_equalizer_nat_poly_replay(*, batch: rocq_cache.BatchChecker | None = None) -> None:
+    source = b"""module MizarNatPolyReplay;
+public definition Nat StepF(Nat x) => x + 1;
+
+public lemma PolyIdentities(Nat a, Nat b, Nat c)
+    ensures (a + b) * (c + 1) + 0 == c * b + a * c + b + a
+    proof
+    {
+        assert a + b == b + a;
+        assert (a + b) * (c + 1) + 0 == c * b + a * c + b + a;
+        assert (a + b) * (a + b) == a * a + 2 * a * b + b * b;
+        assert Succ(a + b) == b + 1 + a;
+    }
+
+public lemma PolyModEGraph(Nat a, Nat b, Nat c)
+    requires a == b
+    ensures StepF((a + c) * 2) == StepF(2 * c + b + b)
+    proof
+    {
+        assert StepF((a + c) * 2) == StepF(2 * c + b + b);
+    }
+
+public Nat InlinePolyBranch(Nat a, Nat b, Nat c)
+{
+    if (a == b) {
+        assert StepF((a + c) * 2) == StepF(2 * c + b + b);
+        return 1;
+    } else {
+        return 0;
+    }
+}
+"""
+    mod = elaborate.gallina_module_name("MizarNatPolyReplay")
+    with parser.cached_build(TOOLS.parent) as compiled:
+        gallina = elaborate.elaborate(source, parser.parse_source(compiled, source, surface=True)).gallina
+    checked_exports = [
+        name
+        for name in solver_ledger.math_exports(gallina)
+        if "_assert_" in name or name.endswith(("_PolyIdentities", "_PolyModEGraph"))
+    ]
+    ensure(len(checked_exports) == 3, f"expected 3 Nat poly equalizer exports, got {checked_exports}")
+    consumers = "\n".join(f"Print Assumptions {mod}.{name}." for name in checked_exports) + "\n"
+    _replay_gallina("MizarNatPolyReplay", source, consumers, 3, batch=batch)
+
+    for bad_old, bad_new in (
+        (b"assert a + b == b + a;", b"assert a + b == a + c;"),
+        (b"assert (a + b) * (a + b) == a * a + 2 * a * b + b * b;", b"assert (a + b) * c == a * c + b;"),
+        (b"return 0;", b"assert StepF((a + c) * 2) == StepF(2 * c + b + b);\n        return 0;"),
+    ):
+        bad = source.replace(bad_old, bad_new)
+        with (
+            parser.cached_build(TOOLS.parent) as compiled,
+            raises(HoldFastError, msg=f"invalid Nat polynomial assertion accepted: {bad_new!r}"),
+        ):
+            elaborate.elaborate(bad, parser.parse_source(compiled, bad, surface=True))
+
+
+def _mizar_equalizer_properties_replay(*, batch: rocq_cache.BatchChecker | None = None) -> None:
+    source = b"""module MizarPropertiesReplay;
+public definition bool FlipBool(bool b) => !b;
+public definition usize MixUsize(usize x, usize y) => x & y;
+
+public lemma BoolAndIntProperties(bool b, bool c, u32 x, u32 y, u32 z, usize u, usize v, usize w, usize k)
+    requires x <= 100u32
+    requires y <= 100u32
+    requires z <= 100u32
+    ensures MixUsize(u & v, w | k) == MixUsize(v & u, k | w)
+    proof
+    {
+        assert !(!b) == b;
+        assert FlipBool(!(!b)) == FlipBool(b);
+        assert ~(~x) == x;
+        assert (b && b) == b;
+        assert (c || c) == c;
+        assert (x & x) == x;
+        assert (y | y) == y;
+        assert ((x + y) + z) == (z + (x + y));
+        assert ((x ^ y) ^ z) == (z ^ (y ^ x));
+        assert (x ^ x) == 0u32;
+        assert (x ^ 0u32) == x;
+        assert (x + 0u32) == x;
+        assert (x & 0u32) == 0u32;
+        assert (x | 0u32) == x;
+        assert (b && true) == b;
+        assert (b || false) == b;
+        assert MixUsize(u & v, w | k) == MixUsize(v & u, k | w);
+    }
+"""
+    mod = elaborate.gallina_module_name("MizarPropertiesReplay")
+    with parser.cached_build(TOOLS.parent) as compiled:
+        gallina = elaborate.elaborate(source, parser.parse_source(compiled, source, surface=True)).gallina
+    checked_exports = [
+        name
+        for name in solver_ledger.math_exports(gallina)
+        if "_assert_" in name or name.endswith("_BoolAndIntProperties")
+    ]
+    ensure(len(checked_exports) == 1, f"expected 1 equalizer property export, got {checked_exports}")
+    consumers = "\n".join(f"Print Assumptions {mod}.{name}." for name in checked_exports) + "\n"
+    _replay_gallina("MizarPropertiesReplay", source, consumers, 1, batch=batch)
+
+    for bad_old, bad_new in (
+        (b"assert (x ^ x) == 0u32;", b"assert (x ^ y) == 0u32;"),
+        (b"assert (x + 0u32) == x;", b"assert (x + 1u32) == x;"),
+        (b"assert !(!b) == b;", b"assert !b == b;"),
+    ):
+        bad = source.replace(bad_old, bad_new)
+        with (
+            parser.cached_build(TOOLS.parent) as compiled,
+            raises(HoldFastError, msg=f"invalid property/reduction assertion accepted: {bad_new!r}"),
+        ):
+            elaborate.elaborate(bad, parser.parse_source(compiled, bad, surface=True))
+
+
+def _mizar_prechecker_replay(*, batch: rocq_cache.BatchChecker | None = None) -> None:
+    source = b"""module MizarPrecheckerReplay;
+public lemma NaturalDeductionRules(bool p, bool q, bool r)
+    requires p == true ==> q == true
+    requires (q ==> r) == true
+    requires p == true
+    ensures r == true
+    proof
+    {
+        assert q;
+        assert r;
+        assert p || r;
+    }
+
+public lemma ModusTollensAndSyllogism(bool p, bool q, bool s)
+    requires p == true ==> q == true
+    requires (p || s) == true
+    requires !q == true
+    ensures s == true
+    proof
+    {
+        assert !p;
+        assert s;
+    }
+
+public lemma TautologiesAndDeMorgan(bool p, bool q)
+    ensures !(p && q) == (!p || !q)
+    proof
+    {
+        assert p || !p;
+        assert !(p && !p);
+        assert (p ==> q) ==> (!q ==> !p);
+        assert !(p && q) == (!p || !q);
+    }
+
+public Nat ContradictionBranches(bool p, Nat a, Nat b, Nat c, Nat x)
+{
+    if (p && !p) {
+        assert x == 0;
+        return 0;
+    }
+    if (a == b) {
+        if (a != b) {
+            assert x == 0;
+            return 0;
+        }
+    }
+    if (a == b && b == c) {
+        if (a != c) {
+            assert x == 0;
+            return 0;
+        }
+    }
+    return x;
+}
+"""
+    mod = elaborate.gallina_module_name("MizarPrecheckerReplay")
+    with parser.cached_build(TOOLS.parent) as compiled:
+        gallina = elaborate.elaborate(source, parser.parse_source(compiled, source, surface=True)).gallina
+    checked_exports = [
+        name
+        for name in solver_ledger.math_exports(gallina)
+        if "_assert_" in name
+        or name.endswith(("_NaturalDeductionRules", "_ModusTollensAndSyllogism", "_TautologiesAndDeMorgan"))
+    ]
+    ensure(len(checked_exports) == 6, f"expected 6 prechecker exports, got {checked_exports}")
+    consumers = "\n".join(f"Print Assumptions {mod}.{name}." for name in checked_exports) + "\n"
+    _replay_gallina("MizarPrecheckerReplay", source, consumers, 6, batch=batch)
+
+    for bad_old, bad_new in (
+        (b"requires p == true ==> q == true\n    requires (q ==> r) == true\n    requires p == true\n    ensures r == true",
+         b"requires p == true ==> q == true\n    requires q == true\n    ensures p == true"),
+        (b"assert !p;\n        assert s;", b"assert p;"),
+        (b"if (a != b) {", b"if (a != c) {"),
+    ):
+        bad = source.replace(bad_old, bad_new)
+        with (
+            parser.cached_build(TOOLS.parent) as compiled,
+            raises(HoldFastError, msg=f"invalid prechecker assertion accepted: {bad_new!r}"),
+        ):
+            elaborate.elaborate(bad, parser.parse_source(compiled, bad, surface=True))
+
+
+def _mizar_multi_by_replay(*, batch: rocq_cache.BatchChecker | None = None) -> None:
+    source = b"""module MizarMultiByReplay;
+public definition Nat Combine(Nat x, Nat y) => x + y;
+
+public lemma BridgeNat(Nat x, Nat y)
+    requires x == y
+    ensures x == y
+    proof
+    {
+        assert x == y;
+    }
+
+public lemma StepImp(bool a, bool b)
+    requires a == true ==> b == true
+    ensures a == true ==> b == true
+    proof
+    {
+        assert b;
+    }
+
+public lemma FactTrue(bool a)
+    requires a == true
+    ensures a == true
+    proof
+    {
+        assert a;
+    }
+
+public lemma MultiFactByEq(Nat a, Nat b, Nat c, Nat x, Nat z)
+    requires a == b
+    requires b == c
+    requires x == z
+    ensures Combine(a, x) == Combine(c, z)
+    proof
+    {
+        assert Combine(a, x) == Combine(c, z) by (BridgeNat(a, b), BridgeNat(b, c), BridgeNat(x, z));
+    }
+
+public lemma MultiFactByProp(bool p, bool q, bool r)
+    requires p == true ==> q == true
+    requires q == true ==> r == true
+    requires p == true
+    ensures r == true
+    proof
+    {
+        assert r by (StepImp(p, q), StepImp(q, r), FactTrue(p));
+    }
+"""
+    mod = elaborate.gallina_module_name("MizarMultiByReplay")
+    with parser.cached_build(TOOLS.parent) as compiled:
+        gallina = elaborate.elaborate(source, parser.parse_source(compiled, source, surface=True)).gallina
+    checked_exports = [
+        name
+        for name in solver_ledger.math_exports(gallina)
+        if "_assert_" in name or name.endswith(("_MultiFactByEq", "_MultiFactByProp"))
+    ]
+    ensure(len(checked_exports) == 2, f"expected 2 multi-by exports, got {checked_exports}")
+    consumers = "\n".join(f"Print Assumptions {mod}.{name}." for name in checked_exports) + "\n"
+    _replay_gallina("MizarMultiByReplay", source, consumers, 2, batch=batch)
+
+    bad_unlinked = source.replace(
+        b"public lemma MultiFactByEq(Nat a, Nat b, Nat c, Nat x, Nat z)",
+        b"public lemma MultiFactByEq(Nat a, Nat b, Nat c, Nat x, Nat z, Nat w)",
+    ).replace(
+        b"ensures Combine(a, x) == Combine(c, z)",
+        b"ensures Combine(a, x) == Combine(c, w)",
+    ).replace(
+        b"assert Combine(a, x) == Combine(c, z)",
+        b"assert Combine(a, x) == Combine(c, w)",
+    )
+    with (
+        parser.cached_build(TOOLS.parent) as compiled,
+        raises(HoldFastError, msg="insufficient multi-fact by tuple was accepted"),
+    ):
+        elaborate.elaborate(bad_unlinked, parser.parse_source(compiled, bad_unlinked, surface=True))
+
+    bad_nonprop = source.replace(
+        b"by (BridgeNat(a, b), BridgeNat(b, c), BridgeNat(x, z));",
+        b"by (BridgeNat(a, b), 42);",
+    )
+    with (
+        parser.cached_build(TOOLS.parent) as compiled,
+        raises(HoldFastError, msg="non-proposition in multi-fact by tuple was accepted") as raised,
+    ):
+        elaborate.elaborate(bad_nonprop, parser.parse_source(compiled, bad_nonprop, surface=True))
+    ensure(raised.exception.kind == "type", f"unexpected error kind: {raised.exception}")
+
+
 def cases() -> list[Case]:
     batch = rocq_cache.BatchChecker()
     return [
         Case("versioned-egraph-unit", _versioned_egraph_unit_cases),
         Case("slotted-egraph-unit", _slotted_egraph_unit_cases),
+        Case("mizar-equalizer-prechecker-unit-limits", _mizar_unit_limits),
         Case("egraph-congruence-and-branch-isolation",
              partial(_egraph_congruence_and_branch_isolation, batch=batch), lane="toolchain"),
         Case("slotted-egraph-and-int-congruence",
@@ -493,5 +838,13 @@ def cases() -> list[Case]:
              partial(_weighted_nat_difference_logic, batch=batch), lane="toolchain"),
         Case("fixed-int-order-certificates",
              partial(_fixed_int_order_certificates, batch=batch), lane="toolchain"),
+        Case("mizar-equalizer-nat-poly-replay",
+             partial(_mizar_equalizer_nat_poly_replay, batch=batch), lane="toolchain"),
+        Case("mizar-equalizer-properties-replay",
+             partial(_mizar_equalizer_properties_replay, batch=batch), lane="toolchain"),
+        Case("mizar-prechecker-replay",
+             partial(_mizar_prechecker_replay, batch=batch), lane="toolchain"),
+        Case("mizar-multi-by-replay",
+             partial(_mizar_multi_by_replay, batch=batch), lane="toolchain"),
         Case("kernel check proof certificates with rocqchk", batch.verify_all, lane="toolchain"),
     ]
