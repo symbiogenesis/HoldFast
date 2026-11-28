@@ -1702,7 +1702,12 @@ class _ProofsMixin:
                 break
             domain = pi_type.args[0]
             if self._is_prop_type(domain):
-                arg = self._prove_proposition(domain, environment, facts, by_node)
+                saved_pi = self.snapshot_metas()
+                try:
+                    arg = self._prove_proposition(domain, environment, facts, by_node)
+                except HoldFastError:
+                    self.restore_metas(saved_pi)
+                    break
             else:
                 arg = self.meta(domain, environment)
             justification = _Binding(
@@ -1905,7 +1910,12 @@ class _ProofsMixin:
                 break
             domain = pi_type.args[0]
             if self._is_prop_type(domain):
-                arg = self._prove_proposition(domain, environment, facts, by_node)
+                saved_pi = self.snapshot_metas()
+                try:
+                    arg = self._prove_proposition(domain, environment, facts, by_node)
+                except HoldFastError:
+                    self.restore_metas(saved_pi)
+                    break
             else:
                 arg = self.meta(domain, environment)
             justification = _Binding(

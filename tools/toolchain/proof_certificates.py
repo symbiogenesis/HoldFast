@@ -2341,17 +2341,21 @@ class PropositionalPrechecker:
         def solve(
             idx: int,
             assign: dict[_Term, bool],
-            cur_goal: _Term,
-            cur_goal_skel: _BoolSkel | None,
+            subst: dict[_Term, _Term],
             cur_hyps: list[tuple[_BoolSkel, _Term, bool]],
         ) -> _Term | None:
+            cur_goal = (
+                _apps(_constant("Eq"), _BOOL, self._rebuild_skel(goal_skel, subst), _term("bool", value=int(goal_target)))
+                if goal_skel is not None and goal_target is not None
+                else goal
+            )
             for hs, hp, hexp in cur_hyps:
                 val = self._eval_skel(hs, assign)
                 if val is not None and val != hexp:
                     lemma = "holdfast_false_true_elim" if hexp else "holdfast_false_elim"
                     return _apps(_constant(lemma), cur_goal, hp)
-            if cur_goal_skel is not None and goal_target is not None:
-                gval = self._eval_skel(cur_goal_skel, assign)
+            if goal_skel is not None and goal_target is not None:
+                gval = self._eval_skel(goal_skel, assign)
                 if gval is not None and gval == goal_target:
                     return _apps(_constant("Refl"), _BOOL, _term("bool", value=int(goal_target)))
             if idx >= n_atoms:
@@ -2370,17 +2374,9 @@ class PropositionalPrechecker:
             h_false_id = cast("int", h_false.value)
 
             goal_b = cur_goal
-            goal_true = cur_goal
-            goal_false = cur_goal
-            if cur_goal_skel is not None and goal_target is not None:
-                g_expr_b = self._rebuild_skel(cur_goal_skel, {atom: b_var})
+            if goal_skel is not None and goal_target is not None:
+                g_expr_b = self._rebuild_skel(goal_skel, {**subst, atom: b_var})
                 goal_b = _apps(_constant("Eq"), _BOOL, g_expr_b, _term("bool", value=int(goal_target)))
-                goal_true = _apps(
-                    _constant("Eq"), _BOOL, self._rebuild_skel(cur_goal_skel, {atom: true_t}), _term("bool", value=int(goal_target)),
-                )
-                goal_false = _apps(
-                    _constant("Eq"), _BOOL, self._rebuild_skel(cur_goal_skel, {atom: false_t}), _term("bool", value=int(goal_target)),
-                )
 
             def specialize_hyps(repl: _Term, eq_proof: _Term) -> list[tuple[_BoolSkel, _Term, bool]]:
                 next_hyps: list[tuple[_BoolSkel, _Term, bool]] = []
@@ -2401,10 +2397,10 @@ class PropositionalPrechecker:
                     next_hyps.append((new_skel, p_new, hexp))
                 return next_hyps
 
-            yes_proof = solve(idx + 1, {**assign, atom: True}, goal_true, cur_goal_skel, specialize_hyps(true_t, h_true))
+            yes_proof = solve(idx + 1, {**assign, atom: True}, {**subst, atom: true_t}, specialize_hyps(true_t, h_true))
             if yes_proof is None:
                 return None
-            no_proof = solve(idx + 1, {**assign, atom: False}, goal_false, cur_goal_skel, specialize_hyps(false_t, h_false))
+            no_proof = solve(idx + 1, {**assign, atom: False}, {**subst, atom: false_t}, specialize_hyps(false_t, h_false))
             if no_proof is None:
                 return None
 
@@ -2418,7 +2414,7 @@ class PropositionalPrechecker:
             match_t = _term("bool_match", motive_lam, atom, yes_lam, no_lam)
             return _app(match_t, _apps(_constant("Refl"), _BOOL, atom))
 
-        return solve(0, {}, goal, goal_skel, selected)
+        return solve(0, {}, {}, selected)
 
     def prove(self, goal: _Term, facts: tuple[_Binding, ...]) -> _Term | None:
         """Discharge propositional entailments, tautologies, or equality/disequality contradictions."""
@@ -2498,6 +2494,25 @@ class PropositionalPrechecker:
         false_t = _term("bool", value=0)
 
         for fact in facts:
+            ft_w = self.elab.whnf(fact.type)
+            if ft_w.kind == "pi" and cast("int", ft_w.value) not in self.elab.free(ft_w.args[1]):
+                dom_eq = self.elab._extract_equality(ft_w.args[0])
+                cod_eq = self.elab._extract_equality(ft_w.args[1])
+                if (
+                    dom_eq is not None
+                    and cod_eq is not None
+                    and self.elab.whnf(dom_eq[0]) == _BOOL
+                    and self.elab.whnf(cod_eq[0]) == _BOOL
+                    and self.elab.whnf(dom_eq[2]) == truth
+                    and self.elab.whnf(cod_eq[2]) == truth
+                ):
+                    a_t = self.elab.resolve(dom_eq[1])
+                    b_t = self.elab.resolve(cod_eq[1])
+                    imp_expr = _apps(_constant("==>"), a_t, b_t)
+                    imp_p = _apps(_constant("holdfast_implies_of_pi"), a_t, b_t, fact.term)
+                    record_pos(imp_expr, imp_p)
+                    raw_hyps.append((self._parse_skel(imp_expr, self.elab.resolve, self.elab.spine), imp_p, True))
+                continue
             ext = self.elab._extract_equality(fact.type)
             if ext is None:
                 continue

@@ -738,6 +738,7 @@ _GALLINA = {
     "holdfast_implies_of_true": "holdfast_implies_of_true",
     "holdfast_implies_false_l": "holdfast_implies_false_l",
     "holdfast_implies_false_r": "holdfast_implies_false_r",
+    "holdfast_implies_of_pi": "holdfast_implies_of_pi",
     "holdfast_ne_nat_false": "holdfast_ne_nat_false",
     "holdfast_ne_bool_false": "holdfast_ne_bool_false",
     "holdfast_nat_eqb_of_eq": "holdfast_nat_eqb_of_eq",
@@ -3144,6 +3145,9 @@ Proof. destruct a; [reflexivity | discriminate]. Qed.
 
 Lemma holdfast_implies_false_r (a b : bool) (himp : holdfast_implies a b = false) : b = false.
 Proof. destruct a; [exact himp | discriminate]. Qed.
+
+Lemma holdfast_implies_of_pi (a b : bool) (f : a = true -> b = true) : holdfast_implies a b = true.
+Proof. destruct a; [exact (f eq_refl) | reflexivity]. Qed.
 
 Lemma holdfast_ne_nat_false (a b : nat) (h : holdfast_ne_nat a b = true) : Nat.eqb a b = false.
 Proof. unfold holdfast_ne_nat in h. destruct (Nat.eqb a b); [discriminate | reflexivity]. Qed.
