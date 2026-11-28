@@ -3916,6 +3916,7 @@ class _StatementsMixin:
                         else:
                             merged_refs[rk] = yb
                     self.final_ref_bindings = merged_refs
+                    self.final_return_facts = list(self.active_facts[saved_active_len:])
                     return finish(_Binding(
                         self._branch_value(yes.type, condition, yes.term, no.term, yes_guard, no_guard), yes.type,
                     ))
