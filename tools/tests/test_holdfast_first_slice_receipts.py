@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 from tests.harness import TOOLS, Case, ensure, raises
 from toolchain import first_slice as slice_harness
+from toolchain import solver_ledger
 from toolchain.ast import HoldFastError
 from toolchain.cli import holdfast_parser as cli
 
@@ -183,11 +184,27 @@ def _proof_fixture(root: Path, outputs: Path, *, trusted: bool = False,
         'Error: The term "eq_refl true" has type "true = true"\n'
         'while it is expected to have type "true = false".\n').encode())
     (outputs / "FirstSliceAssumptions.v").write_text(
-        "From HoldFastFirstSlice Require Import FirstSlice.\n" + "".join(
-            f"Print Assumptions FirstSlice.{module}.{name}.\n" for name in names), encoding="utf-8")
-    assumption_stdout = "".join(
-        f"Axioms:\n{module}.{axiom} : True\n" if trusted and index == 16
-        else "Closed under the global context\n" for index in range(len(names))).encode("utf-8")
+        solver_ledger.build_audit_script(
+            "From HoldFastFirstSlice Require Import FirstSlice.",
+            [f"FirstSlice.{module}.{name}" for name in names],
+        ),
+        encoding="utf-8",
+    )
+    assumption_stdout = (
+        "".join(
+            f"Axioms:\n{module}.{axiom} : True\n" if trusted and index == 16
+            else "Closed under the global context\n" for index in range(len(names))
+        )
+        + f"{solver_ledger.STATEMENT_AUDIT_MARKER}\n"
+        + f"     : {solver_ledger.STATEMENT_AUDIT_TYPE}\n"
+        + "".join(f"{module}.{name}\n     : True\n" for name in names)
+    ).encode("utf-8")
+    _, statements_sha256 = solver_ledger.parse_full_audit(
+        assumption_stdout.decode("utf-8"),
+        len(names),
+        module,
+        solver_ledger.ledger(gallina),
+    )
     (outputs / "FirstSlice.assumptions.log").write_bytes(assumption_stdout + assumption_stderr)
     for name in ("FirstSlice.vo", "FirstSliceAssumptions.vo"):
         (outputs / name).write_bytes(f"retained {name}".encode())
@@ -205,13 +222,34 @@ def _proof_fixture(root: Path, outputs: Path, *, trusted: bool = False,
     source = root / slice_harness.EXAMPLE
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_bytes(b"module HoldFast.FirstSlice;")
+    first_slice_axioms = f"\n    HoldFastFirstSlice.FirstSlice.{module}.{axiom}" if trusted else " <none>"
+    first_slice_summary = (
+        "\nCONTEXT SUMMARY\n===============\n"
+        "* Theory: Set is predicative\n"
+        "* Theory: Rewrite rules are not allowed\n"
+        f"* Axioms:{first_slice_axioms}\n"
+        "* Constants/Inductives relying on type-in-type: <none>\n"
+        "* Constants/Inductives relying on unsafe (co)fixpoints: <none>\n"
+        "* Inductives whose positivity is assumed: <none>\n"
+    ).encode()
+    cap_summary = (
+        b"\nCONTEXT SUMMARY\n===============\n"
+        b"* Theory: Set is predicative\n"
+        b"* Theory: Rewrite rules are not allowed\n"
+        b"* Axioms: <none>\n"
+        b"* Constants/Inductives relying on type-in-type: <none>\n"
+        b"* Constants/Inductives relying on unsafe (co)fixpoints: <none>\n"
+        b"* Inductives whose positivity is assumed: <none>\n"
+    )
+    (outputs / "FirstSlice.kernel.log").write_bytes(first_slice_summary)
+    (outputs / "CapGate.kernel.log").write_bytes(cap_summary)
     commands = {
         "FirstSlice.compile.log": ["rocq", "c", "-q", "-R", str(outputs), "HoldFastFirstSlice", "FirstSlice.v"],
         "FirstSlice.assumptions.log": ["rocq", "c", "-q", "-R", str(outputs), "HoldFastFirstSlice", "FirstSliceAssumptions.v"],
-        "FirstSlice.kernel.log": ["rocqchk", "-R", str(outputs), "HoldFastFirstSlice", "HoldFastFirstSlice.FirstSlice"],
+        "FirstSlice.kernel.log": ["rocqchk", "-o", "-R", str(outputs), "HoldFastFirstSlice", "HoldFastFirstSlice.FirstSlice"],
         "CapSmall.compile.log": ["rocq", "c", "-q", "-R", str(outputs), "HoldFastFirstSlice", "CapSmall.v"],
         "CapLarge.compile.log": ["rocq", "c", "-q", "-R", str(outputs), "HoldFastFirstSlice", "CapLarge.v"],
-        "CapGate.kernel.log": ["rocqchk", "-R", str(outputs), "HoldFastFirstSlice",
+        "CapGate.kernel.log": ["rocqchk", "-o", "-R", str(outputs), "HoldFastFirstSlice",
                                "HoldFastFirstSlice.CapSmall", "HoldFastFirstSlice.CapLarge"],
         "FirstSliceCorrupted.compile.log": ["rocq", "c", "-q", "-R", str(outputs), "HoldFastFirstSlice", "FirstSliceCorrupted.v"],
     }
@@ -245,6 +283,7 @@ def _proof_fixture(root: Path, outputs: Path, *, trusted: bool = False,
              "message": control.expected_substring}
             for control in slice_harness.NEGATIVE_CONTROLS],
         "proof_corruption_refused": True, "assumption_exports_count": len(names),
+        "statements_sha256": statements_sha256,
         "solver_trusted_count": int(trusted),
         "solver_trusted_axioms": [f"{module}.{axiom}"] if trusted else [],
         "inventory": {**slice_harness.build_foundation_inventory(), "solver_trusted_obligations": [
@@ -580,7 +619,15 @@ def _retained_coverage() -> None:
         root = Path(temporary)
         outputs = root / "slice-fixture"
         outputs.mkdir()
-        for mutation in ("missing-export", "audit-query", "audit-log", "missing-library", "unledgered-axiom"):
+        for mutation in (
+            "missing-export",
+            "audit-query",
+            "audit-log",
+            "missing-library",
+            "unledgered-axiom",
+            "tampered-statements-digest",
+            "unsafe-rocqchk-context",
+        ):
             report = _proof_fixture(root, outputs)
             if mutation == "missing-export":
                 path = outputs / "FirstSlice.v"
@@ -593,6 +640,19 @@ def _retained_coverage() -> None:
                 (outputs / "FirstSlice.assumptions.log").write_bytes(b"Closed under the global context\n")
             elif mutation == "missing-library":
                 (outputs / "FirstSlice.vo").unlink()
+            elif mutation == "tampered-statements-digest":
+                report["statements_sha256"] = "0" * 64
+            elif mutation == "unsafe-rocqchk-context":
+                klog = outputs / "FirstSlice.kernel.log"
+                bad_klog = klog.read_text(encoding="utf-8").replace(
+                    "unsafe (co)fixpoints: <none>",
+                    "unsafe (co)fixpoints:\n    Bad.loop",
+                )
+                klog.write_bytes(bad_klog.encode("utf-8"))
+                for step in cast("list[dict[str, object]]", report["steps"]):
+                    if Path(str(step["log"])).name == "FirstSlice.kernel.log":
+                        step["log_sha256"] = slice_harness._sha256(klog.read_bytes())
+                        step.update(slice_harness._stream_identity(bad_klog, ""))
             else:
                 path = outputs / "FirstSlice.v"
                 path.write_text(path.read_text(encoding="utf-8") + "Axiom hidden : False.\n", encoding="utf-8")

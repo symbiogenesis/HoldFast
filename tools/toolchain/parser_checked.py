@@ -27,6 +27,7 @@ from toolchain import (
     env,
     migration,
     proofenv,
+    solver_ledger,
 )
 from toolchain import (
     parser as holdfast_parser,
@@ -1335,14 +1336,16 @@ def _toolchain(root: Path, directory: Path, steps: list[dict[str, object]]) -> d
     if set(re.findall(r'"menhir\.([^"\s]+)"', sail)) != {RELEASE}:
         raise ValueError("support source does not match the Sail snapshot's Menhir generator")
     lock = (root / "tools/opam/rocq.lock").read_text(encoding="utf-8")
-    if set(re.findall(r'"rocq-core\.([^"\s]+)"', lock)) != {proofenv.ROCQ_VERSION}:
-        raise ValueError("support prover differs from the proof snapshot")
+    runtime_tcb = solver_ledger.locked_runtime_tcb(lock)
+    if findings := solver_ledger.verify_critical_bug_register(lock):
+        raise ValueError("; ".join(findings))
     version = _run(_opam(["rocq", "c", "--version"]), root,
                    directory / "toolchain.stdout", steps)
     found = re.search(r"\bversion\s+([^\s]+)", version)
     releases = {proofenv.ROCQ_VERSION, proofenv.ROCQ_VERSION.removesuffix(".0")}
     if found is None or found[1] not in releases:
         raise ValueError("Menhir support compiler differs from the locked prover")
+    solver_ledger.check_prover_version(version)
     compiler = _run(_opam(["ocamlc", "-version"]), root,
                     directory / "ocaml.stdout", steps).strip()
     if compiler != proofenv.OCAML_VERSION:
@@ -1365,6 +1368,7 @@ def _toolchain(root: Path, directory: Path, steps: list[dict[str, object]]) -> d
         "rocq": version.strip(),
         "ocamlc": compiler,
         "menhir": generator,
+        "runtime_tcb": runtime_tcb,
         "binary_sha256": {
             **{name: file_sha256(binary_dir / name)
                for name in ("rocq", "rocqchk", "ocamlc", "ocamlopt", "ocamllex")},

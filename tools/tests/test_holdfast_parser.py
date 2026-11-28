@@ -340,6 +340,9 @@ def _batch_worker_parity() -> None:
         for bad, kind in (
             (b"module M; public Nat F() => ;", "syntax"),
             (b"// bad \xff\nmodule M;", "encoding"),
+            ("module M; // \u202e bidi".encode(), "encoding"),
+            ("module M; // \u200b zwsp".encode(), "encoding"),
+            (b"module M; // \x00 nul", "encoding"),
         ):
             with raises(HoldFastError, msg=f"batch worker missed refusal {kind}") as raised:
                 parser.parse_source(compiled, bad)

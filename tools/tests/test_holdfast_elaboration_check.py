@@ -151,6 +151,17 @@ def _freshness_controls() -> None:
         ensure("changed" in str(raised.exception), "changed library lost its refusal")
 
 
+_CLEAN_ROCQCHK_SUMMARY = (
+    "\nCONTEXT SUMMARY\n===============\n"
+    "* Theory: Set is predicative\n"
+    "* Theory: Rewrite rules are not allowed\n"
+    "* Axioms: <none>\n"
+    "* Constants/Inductives relying on type-in-type: <none>\n"
+    "* Constants/Inductives relying on unsafe (co)fixpoints: <none>\n"
+    "* Inductives whose positivity is assumed: <none>\n"
+)
+
+
 def _changed_input_completion() -> None:
     """A late edit refuses final publication even after successful kernel commands."""
     with tempfile.TemporaryDirectory(prefix="holdfast-replay-") as temporary:
@@ -167,7 +178,7 @@ def _changed_input_completion() -> None:
                 patch.object(replay.holdfast_parser, "read_source", return_value=b"module M;"), \
                 patch.object(replay, "fixtures", return_value=(example,)), \
                 patch.object(replay, "_case", return_value=row), \
-                patch.object(replay, "_run", return_value=""):
+                patch.object(replay, "_run", return_value=_CLEAN_ROCQCHK_SUMMARY):
             with raises(ValueError, msg="changed source acquired a passing replay receipt") as raised:
                 replay.qualify(directory)
             ensure("changed during" in str(raised.exception), "late edit lost its freshness diagnostic")
@@ -206,7 +217,15 @@ def _pure_routing_and_observations() -> None:
             if arguments[-1] == "Case000.v":
                 (directory / "Case000.vo").write_bytes(b"kernel fixture")
                 return ""
-            return "Closed under the global context\n" * 4
+            return (
+                "Closed under the global context\n" * 4
+                + "holdfast_audit_statements_begin\n"
+                + "     : holdfast_audit_statements_marker\n"
+                + "HoldFastEncoded_415f42.f_F\n     : nat -> nat\n"
+                + "HoldFastEncoded_415f42.c_C\n     : nat\n"
+                + "holdfast_replay_check_0\n     : @eq nat 2 2\n"
+                + "holdfast_replay_check_1\n     : @eq nat 2 2\n"
+            )
 
         with patch.object(replay.holdfast_parser, "parse_source", return_value={}) as parse, \
                 patch.object(replay.holdfast, "translate_ast", return_value=translated) as consume, \
@@ -216,19 +235,23 @@ def _pure_routing_and_observations() -> None:
         parse.assert_called_once_with(compiled, source, surface=False)
         ensure(consume.call_count == 2, "pure consumer was not checked deterministically")
         ensure(row["consumer"] == "pure" and row["category"] == "accepted"
-               and row["assumption_exports"] == ["f_F", "c_C"],
-               "pure exports were omitted from the assumption audit")
+               and row["assumption_exports"] == ["f_F", "c_C"]
+               and isinstance(row.get("statements_sha256"), str) and len(str(row["statements_sha256"])) == 64,
+               "pure exports or canonical statement digest were omitted from the assumption audit")
         generated = (directory / "Case000.v").read_text(encoding="utf-8")
         ensure(generated.startswith(translated.gallina)
                and "Corelib.Init.Logic.eq (HoldFastEncoded_415f42.f_F 2) (2) := Corelib.Init.Logic.eq_refl (2)." in generated
                and "Corelib.Init.Logic.eq (HoldFastEncoded_415f42.c_C) (2)" in generated,
                "independent observations were not compiled in the kernel-checked library")
         audit = (directory / "Case000Assumptions.v").read_text(encoding="utf-8")
-        ensure("Print Assumptions Case000.HoldFastEncoded_415f42.f_F." in audit
+        ensure("Set Printing All." in audit
+               and "Print Assumptions Case000.HoldFastEncoded_415f42.f_F." in audit
                and "Print Assumptions Case000.HoldFastEncoded_415f42.c_C." in audit
                and "Print Assumptions Case000.holdfast_replay_check_0." in audit
-               and "Print Assumptions Case000.holdfast_replay_check_1." in audit,
-               "generated exports or observation proofs escaped the assumption audit")
+               and "Print Assumptions Case000.holdfast_replay_check_1." in audit
+               and "Check @Case000.HoldFastEncoded_415f42.f_F." in audit
+               and "Check @Case000.holdfast_replay_check_1." in audit,
+               "generated exports or observation proofs escaped the canonical assumption audit")
         ensure(len(commands) == 2 and commands[0][-1] == "Case000.v",
                "observation results used an extra host evaluator")
         with patch.object(replay.holdfast_parser, "parse_source", return_value={}), \

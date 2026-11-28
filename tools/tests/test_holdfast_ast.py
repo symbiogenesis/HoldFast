@@ -152,7 +152,7 @@ def _expression_body_uncovered_tokens() -> None:
         (b"module M; public Nat F() => 0 + 1;", b"1"),
         (b"module M; public Nat F() => // hidden 0\n 1;", b"0"),
         (b"module M; public Nat F() => /* unsupported trivia */ 1;", b"1"),
-        (b"module M; public Nat F() => \v 1;", b"1"),
+        (b"module M; public Nat F() => \xc2\xa0 1;", b"1"),
     )
     for source, spelling in sources:
         start = source.index(spelling, source.index(b"=>"))

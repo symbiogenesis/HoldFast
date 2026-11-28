@@ -34,6 +34,7 @@ from toolchain import (
     packet_runtime,
     packet_trace,
     proofenv,
+    rocq_cache,
     solver_ledger,
     trace,
 )
@@ -563,13 +564,13 @@ def _retained_steps(report: dict[str, object], directory: Path, artifacts: dict[
                                           "HoldFastFirstSlice", "FirstSlice.v"]),
         "FirstSlice.assumptions.log": _opam(["rocq", "c", "-q", "-R", str(directory),
                                               "HoldFastFirstSlice", "FirstSliceAssumptions.v"]),
-        "FirstSlice.kernel.log": _opam(["rocqchk", "-R", str(directory), "HoldFastFirstSlice",
+        "FirstSlice.kernel.log": _opam(["rocqchk", "-o", "-R", str(directory), "HoldFastFirstSlice",
                                          "HoldFastFirstSlice.FirstSlice"]),
         "CapSmall.compile.log": _opam(["rocq", "c", "-q", "-R", str(directory),
                                         "HoldFastFirstSlice", "CapSmall.v"]),
         "CapLarge.compile.log": _opam(["rocq", "c", "-q", "-R", str(directory),
                                         "HoldFastFirstSlice", "CapLarge.v"]),
-        "CapGate.kernel.log": _opam(["rocqchk", "-R", str(directory), "HoldFastFirstSlice",
+        "CapGate.kernel.log": _opam(["rocqchk", "-o", "-R", str(directory), "HoldFastFirstSlice",
                                       "HoldFastFirstSlice.CapSmall", "HoldFastFirstSlice.CapLarge"]),
         "FirstSliceCorrupted.compile.log": _opam(["rocq", "c", "-q", "-R", str(directory),
                                                    "HoldFastFirstSlice", "FirstSliceCorrupted.v"]),
@@ -875,18 +876,31 @@ def _retained_proof(root: Path, report: dict[str, object], directory: Path,
     for suffix in (*EXPECTED_LAWS, *EXPECTED_CONTRACT_OBLIGATIONS, *EXPECTED_SCENARIO_THEOREMS):
         if not any(name.endswith(f"_{suffix}") for name in exports):
             raise ValueError(f"first-slice receipt omits required local obligation '{suffix}'")
-    expected_query = "From HoldFastFirstSlice Require Import FirstSlice.\n" + "".join(
-        f"Print Assumptions FirstSlice.{modules[0]}.{name}.\n" for name in exports)
+    expected_query = solver_ledger.build_audit_script(
+        "From HoldFastFirstSlice Require Import FirstSlice.",
+        [f"FirstSlice.{modules[0]}.{name}" for name in exports],
+    )
     if (directory / "FirstSliceAssumptions.v").read_text(encoding="utf-8") != expected_query:
         raise ValueError("first-slice receipt assumption query omits or changes an audited export")
     assumption_output = _retained_steps(report, directory, artifacts)
     trusted = solver_ledger.ledger(gallina)
-    reported = solver_ledger.audit(assumption_output, len(exports), modules[0], trusted)
+    reported, statements_sha256 = solver_ledger.parse_full_audit(
+        assumption_output, len(exports), modules[0], trusted,
+    )
+    solver_ledger.audit_rocqchk_context(
+        (directory / "FirstSlice.kernel.log").read_text(encoding="utf-8"),
+        allowed_axioms=[f"HoldFastFirstSlice.FirstSlice.{modules[0]}.{entry.axiom}" for entry in trusted],
+    )
+    solver_ledger.audit_rocqchk_context(
+        (directory / "CapGate.kernel.log").read_text(encoding="utf-8"),
+        allowed_axioms=(),
+    )
     inventory = report.get("inventory")
     assumptions = ("Closed under the global context (0 axioms)" if not trusted
                    else f"{len(trusted)} solver-trusted axioms; no other assumptions")
     if (type(report.get("assumption_exports_count")) is not int
             or report["assumption_exports_count"] != len(exports)
+            or report.get("statements_sha256") != statements_sha256
             or type(report.get("solver_trusted_count")) is not int
             or report["solver_trusted_count"] != len(trusted)
             or report.get("solver_trusted_axioms") != reported
@@ -916,15 +930,21 @@ def _opam(arguments: list[str]) -> list[str]:
 
 def _run(command: list[str], cwd: Path, log_path: Path,
          steps: list[dict[str, object]], *, timing: packet_trace.Recorder | None = None) -> str:
+    solver_ledger.check_prover_flags(command)
+    run_env = (
+        rocq_cache.scrubbed_checker_env()
+        if any(Path(arg).name == "rocqchk" for arg in command)
+        else None
+    )
     started = time.monotonic_ns()
     child: dict[str, object] = {}
     if timing is None:
-        completed = subprocess.run(command, cwd=cwd, capture_output=True, encoding="utf-8",
+        completed = subprocess.run(command, cwd=cwd, env=run_env, capture_output=True, encoding="utf-8",
                                    errors="replace", timeout=TIMEOUT, check=False)
     else:
         phase, worker = packet_trace.PROOF_STEPS[log_path.name]
-        with timing.span(phase), subprocess.Popen(command, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                encoding="utf-8", errors="replace") as process:
+        with timing.span(phase), subprocess.Popen(command, cwd=cwd, env=run_env, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, encoding="utf-8", errors="replace") as process:
             child["observed_pid"] = process.pid
             with timing.span(worker, process.pid):
                 try:
@@ -2305,9 +2325,13 @@ def _run_capacity_invariance_gate(
         ))
     for local_steps in cap_results:
         steps.extend(local_steps)
-    _run(_opam(["rocqchk", "-R", str(directory), "HoldFastFirstSlice",
+    _run(_opam(["rocqchk", "-o", "-R", str(directory), "HoldFastFirstSlice",
                 "HoldFastFirstSlice.CapSmall", "HoldFastFirstSlice.CapLarge"]),
          directory, directory / "CapGate.kernel.log", steps)
+    solver_ledger.audit_rocqchk_context(
+        (directory / "CapGate.kernel.log").read_text(encoding="utf-8"),
+        allowed_axioms=(),
+    )
     return {
         "small_capacity": "8usize",
         "large_capacity": "1_000_000_000usize",
@@ -2361,8 +2385,10 @@ def _qualify_attempt(
         audited = [f"{module}.{name}" for name in exports]
         assumptions_path = directory / "FirstSliceAssumptions.v"
         assumptions_path.write_text(
-            "From HoldFastFirstSlice Require Import FirstSlice.\n"
-            + "".join(f"Print Assumptions FirstSlice.{name}.\n" for name in audited),
+            solver_ledger.build_audit_script(
+                "From HoldFastFirstSlice Require Import FirstSlice.",
+                [f"FirstSlice.{name}" for name in audited],
+            ),
             encoding="utf-8",
             newline="",
         )
@@ -2374,14 +2400,20 @@ def _qualify_attempt(
             timing=timing,
         )
         trusted = solver_ledger.ledger(translated.gallina)
-        reported_trust = solver_ledger.audit(assumptions_out, len(audited), module, trusted)
+        reported_trust, statements_sha256 = solver_ledger.parse_full_audit(
+            assumptions_out, len(audited), module, trusted,
+        )
 
         _run(
-            _opam(["rocqchk", "-R", str(directory), "HoldFastFirstSlice", "HoldFastFirstSlice.FirstSlice"]),
+            _opam(["rocqchk", "-o", "-R", str(directory), "HoldFastFirstSlice", "HoldFastFirstSlice.FirstSlice"]),
             directory,
             directory / "FirstSlice.kernel.log",
             steps,
             timing=timing,
+        )
+        solver_ledger.audit_rocqchk_context(
+            (directory / "FirstSlice.kernel.log").read_text(encoding="utf-8"),
+            allowed_axioms=[f"HoldFastFirstSlice.FirstSlice.{module}.{entry.axiom}" for entry in trusted],
         )
 
         # Finish the compiler recording as soon as the C translation is available.
@@ -2546,6 +2578,7 @@ def _qualify_attempt(
         "solver_trusted_count": len(trusted),
         "solver_trusted_axioms": reported_trust,
         "assumption_exports_count": len(exports),
+        "statements_sha256": statements_sha256,
         "proof_corruption_refused": True,
         "capacity_invariance": cap_gate,
         "negative_controls_count": len(neg_controls),

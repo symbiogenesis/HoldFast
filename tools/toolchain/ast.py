@@ -200,16 +200,30 @@ def position(prefix: str) -> Site:
     return Site(normalized.count("\n") + 1, len(normalized.rsplit("\n", 1)[-1]) + 1)
 
 
+_FORBIDDEN_SOURCE_CHAR_RE = re.compile(
+    r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u200b-\u200f\u202a-\u202e\u2060\u2066-\u2069\ufeff\ufffd]"
+)
+
+
 def source_text(source: bytes) -> str:
     if len(source) > MAX_SOURCE_BYTES:
         raise HoldFastError("limit", 1, 1, f"source exceeds {MAX_SOURCE_BYTES} bytes")
     if source.startswith(b"\xef\xbb\xbf"):
         raise HoldFastError("encoding", 1, 1, "remove the initial UTF-8 byte-order mark")
     try:
-        return source.decode("utf-8")
+        text = source.decode("utf-8")
     except UnicodeDecodeError as error:
         site = position(source[:error.start].decode("utf-8"))
         raise HoldFastError("encoding", site.line, site.column, "source is not valid UTF-8") from error
+    if (match := _FORBIDDEN_SOURCE_CHAR_RE.search(text)) is not None:
+        site = position(text[:match.start()])
+        raise HoldFastError(
+            "encoding",
+            site.line,
+            site.column,
+            f"source contains forbidden control or formatting character U+{ord(match.group(0)):04X}",
+        )
+    return text
 
 
 _NEWLINE_BYTES_RE = re.compile(rb"\r\n|\r|\n")

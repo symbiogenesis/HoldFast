@@ -198,7 +198,14 @@ def _toolchain_controls() -> None:
         locks.mkdir(parents=True)
         sail = locks / "sail.lock"
         sail.write_text(f'"menhir.{checked.RELEASE}"\n', encoding="utf-8")
-        (locks / "rocq.lock").write_text(f'"rocq-core.{checked.proofenv.ROCQ_VERSION}"\n', encoding="utf-8")
+        (locks / "rocq.lock").write_text(
+            f'"rocq-core.{checked.proofenv.ROCQ_VERSION}"\n'
+            f'"rocq-runtime.{checked.proofenv.ROCQ_VERSION}"\n'
+            f'"ocaml-base-compiler.{checked.proofenv.OCAML_VERSION}"\n'
+            '"zarith.1.14"\n'
+            '"conf-gmp.5"\n',
+            encoding="utf-8",
+        )
         for name in ("rocq", "rocqchk", "ocamlc", "ocamlopt", "ocamllex", "menhir"):
             (directory / name).write_bytes(b"tool identity")
         expected = [
@@ -212,6 +219,9 @@ def _toolchain_controls() -> None:
             identity = checked._toolchain(directory, directory, [])
         digests = identity["binary_sha256"]
         ensure(isinstance(digests, dict) and len(digests) == 6, "support tools lost executable identities")
+        runtime_tcb = identity.get("runtime_tcb")
+        ensure(isinstance(runtime_tcb, dict) and "zarith" in runtime_tcb,
+               "support tools omitted locked runtime TCB metadata")
         for index in (0, 1, 2, 3, 4):
             changed = [*expected]
             changed[index] = "different identity"

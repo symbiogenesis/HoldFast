@@ -14,6 +14,16 @@ let read_source () =
     raise (Ast.Refusal ("limit", 0, "source exceeds 65536 bytes"));
   Bytes.sub_string bytes 0 count
 
+let is_forbidden_codepoint cp =
+  (cp < 0x20 && cp <> 0x09 && cp <> 0x0a && cp <> 0x0d)
+  || cp = 0x7f
+  || (cp >= 0x200b && cp <= 0x200f)
+  || (cp >= 0x202a && cp <= 0x202e)
+  || cp = 0x2060
+  || (cp >= 0x2066 && cp <= 0x2069)
+  || cp = 0xfeff
+  || cp = 0xfffd
+
 let validate_utf8 source =
   if String.starts_with ~prefix:"\xEF\xBB\xBF" source then
     raise (Ast.Refusal ("encoding", 0, "remove the initial UTF-8 byte-order mark"));
@@ -41,6 +51,23 @@ let validate_utf8 source =
            || (lead = 0xf0 && second < 0x90) || (lead = 0xf4 && second >= 0x90)
         then invalid index
       end;
+      let cp =
+        match width with
+        | 1 -> lead
+        | 2 -> ((lead land 0x1f) lsl 6) lor (byte (index + 1) land 0x3f)
+        | 3 ->
+            ((lead land 0x0f) lsl 12)
+            lor ((byte (index + 1) land 0x3f) lsl 6)
+            lor (byte (index + 2) land 0x3f)
+        | _ ->
+            ((lead land 0x07) lsl 18)
+            lor ((byte (index + 1) land 0x3f) lsl 12)
+            lor ((byte (index + 2) land 0x3f) lsl 6)
+            lor (byte (index + 3) land 0x3f)
+      in
+      if is_forbidden_codepoint cp then
+        raise (Ast.Refusal ("encoding", index,
+          Printf.sprintf "source contains forbidden control or formatting character U+%04X" cp));
       walk (index + width)
     end
   in

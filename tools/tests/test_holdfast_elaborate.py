@@ -1261,7 +1261,7 @@ def _ergonomic_source_token_coverage() -> None:
 
     for before, after, value in (("", " + 1", 0), ("0 + ", "", 1),
                                  ("/* ", " */ 1", 0), ("// ", "\n 1", 0),
-                                 ("\v", "", 1)):
+                                 ("\u00a0", "", 1)):
         fixture = _Fixture()
         fixture.function("Forged", _NAT, (), surrounding(_natural(value), before, after))
         _refuses(fixture, "protocol")

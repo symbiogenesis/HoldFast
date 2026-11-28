@@ -198,6 +198,16 @@ def _syntax_and_locations() -> None:
     _refuses(b"module M;\n// invalid \xff\n", "encoding")
     bom = _refuses(b"\xef\xbb\xbfmodule M;", "encoding", "UTF-8 byte-order mark")
     ensure((bom.line, bom.column) == (1, 1), "initial BOM lost its location")
+    for ch, label in (
+        ("\u202e", "U+202E"),
+        ("\u200b", "U+200B"),
+        ("\ufeff", "U+FEFF"),
+        ("\x00", "U+0000"),
+        ("\v", "U+000B"),
+    ):
+        bad = _refuses(f"module M;\n// {ch} hidden\n".encode(), "encoding", label)
+        ensure((bad.line, bad.column) == (2, 4), f"forbidden character {label} lost its location: {bad}")
+    translate(b"module M;\t// ok\r\npublic Nat F() { return 0; }\n")
     _refuses("module M; public Nat Café() { return 0; }", "syntax")
     error = _refuses("module M;\r\npublic Nat F() {\r\n  return missing;\r\n}", "name")
     ensure((error.line, error.column) == (3, 10), "CRLF source location drifted")

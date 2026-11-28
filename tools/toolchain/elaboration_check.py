@@ -1783,7 +1783,9 @@ def _opam(arguments: list[str]) -> list[str]:
 
 
 def _run(arguments: list[str], directory: Path, log: Path,
-         steps: list[dict[str, object]], *, source: bytes | None = None) -> str:
+         steps: list[dict[str, object]], *, source: bytes | None = None,
+         combined_output: bool = False) -> str:
+    solver_ledger.check_prover_flags(arguments)
     if log.exists():
         log = log.with_name(f"{log.stem}-{len(steps)}{log.suffix}")
     started = time.monotonic()
@@ -1792,6 +1794,8 @@ def _run(arguments: list[str], directory: Path, log: Path,
     if arguments and (bin_dir := _rocq_bin()) is not None and Path(arguments[0]).parent == bin_dir:
         run_env = os.environ.copy()
         run_env["PATH"] = f"{bin_dir}{os.pathsep}{run_env.get('PATH', '')}"
+    if any(Path(arg).name == "rocqchk" for arg in arguments):
+        run_env = rocq_cache.scrubbed_checker_env(run_env)
     try:
         done = subprocess.run(arguments, cwd=directory, env=run_env, input=source, capture_output=True,
                               timeout=TIMEOUT, check=False)
@@ -1817,7 +1821,7 @@ def _run(arguments: list[str], directory: Path, log: Path,
     if done.returncode:
         raise RuntimeError(f"HoldFast replay command exited {done.returncode}: "
                            + output.decode("utf-8", errors="replace")[-3000:])
-    return done.stdout.decode("utf-8")
+    return (output if combined_output else done.stdout).decode("utf-8")
 
 
 def _inputs(root: Path) -> dict[str, str]:
@@ -1841,8 +1845,9 @@ def _inputs(root: Path) -> dict[str, str]:
 
 def _toolchain(root: Path, directory: Path, steps: list[dict[str, object]]) -> dict[str, object]:
     lock = (root / "tools/opam/rocq.lock").read_text(encoding="utf-8")
-    if set(re.findall(r'"rocq-core\.([^"\s]+)"', lock)) != {proofenv.ROCQ_VERSION}:
-        raise ValueError("HoldFast replay prover differs from the proof snapshot")
+    runtime_tcb = solver_ledger.locked_runtime_tcb(lock)
+    if findings := solver_ledger.verify_critical_bug_register(lock):
+        raise ValueError("; ".join(findings))
     version = _run(_opam(["rocq", "c", "--version"]), directory,
                    directory / "toolchain.log", steps).strip()
     found = re.search(r"\bversion\s+([^\s]+)", version)
@@ -1860,6 +1865,7 @@ def _toolchain(root: Path, directory: Path, steps: list[dict[str, object]]) -> d
     if not binary_dir.is_absolute():
         raise ValueError("HoldFast replay tool directory must be absolute")
     return {"switch": proofenv.ROCQ_SWITCH, "rocq": version, "ocamlc": compiler,
+            "runtime_tcb": runtime_tcb,
             "binary_sha256": {name: file_sha256(binary_dir / name)
                               for name in ("rocq", "rocqchk", "ocamlc")}}
 
@@ -2029,13 +2035,20 @@ def _case(compiled: holdfast_parser.Build, case: Fixture, directory: Path, index
     audited.extend(f"holdfast_word_consumer_{index}" for index in range(len(case.word_expectations)))
     audited.extend(f"holdfast_freeze_consumer_{index}" for index in range(len(case.freeze_expectations)))
     query = directory / f"{stem}Assumptions.v"
-    query.write_text(f"From HoldFastElaboration Require Import {stem}.\n"
-                     + "".join(f"Print Assumptions {stem}.{name}.\n" for name in audited),
-                     encoding="utf-8", newline="")
+    query.write_text(
+        solver_ledger.build_audit_script(
+            f"From HoldFastElaboration Require Import {stem}.",
+            [f"{stem}.{name}" for name in audited],
+        ),
+        encoding="utf-8",
+        newline="",
+    )
     assumptions = _run(_opam(["rocq", "c", *rocq_flags, query.name]),
                        directory, directory / f"{stem}.assumptions.log", steps)
     trusted = solver_ledger.ledger(translated.gallina)
-    reported_trust = solver_ledger.audit(assumptions, len(audited), module, trusted)
+    reported_trust, statements_sha256 = solver_ledger.parse_full_audit(
+        assumptions, len(audited), module, trusted,
+    )
     if reported_trust:
         raise ValueError(f"HoldFast replay {case.name}: translation emitted solver-trust axioms")
     artifact = directory / f"{stem}.vo"
@@ -2043,6 +2056,7 @@ def _case(compiled: holdfast_parser.Build, case: Fixture, directory: Path, index
                 "gallina": str(target), "gallina_sha256": file_sha256(target),
                 "assumptions": str(query), "assumptions_sha256": file_sha256(query),
                 "assumption_exports": exports,
+                "statements_sha256": statements_sha256,
                 "solver_trusted": [entry.as_json() for entry in trusted],
                 "observations": [list(value) for value in case.observations],
                 "library": f"HoldFastElaboration.{stem}", "vo": str(artifact),
@@ -2068,10 +2082,11 @@ def check_arithmetic(root: Path, path: Path) -> dict[str, object]:
         if (prelude_dir / "HoldFastPrelude.vo").is_file():
             chk_flags = ["-Q", prelude_tmp, "", *chk_flags]
             chk_units = ["HoldFastPrelude", *chk_units]
-        _run(_opam(["rocqchk", *chk_flags, *chk_units]),
-             directory, directory / "kernel.log", steps)
+        kernel_out = _run(_opam(["rocqchk", "-silent", "-o", *chk_flags, *chk_units]),
+                          directory, directory / "kernel.log", steps, combined_output=True)
+        solver_ledger.audit_rocqchk_context(kernel_out)
         return {"source_sha256": row["source_sha256"], "word_operation_checks": row["word_operation_checks"],
-                "status": "kernel-checked"}
+                "statements_sha256": row["statements_sha256"], "status": "kernel-checked"}
 
 
 def _observations(rows: list[dict[str, object]], steps: list[dict[str, object]]) -> dict[str, str]:
@@ -2145,8 +2160,9 @@ def qualify(root: Path) -> dict[str, object]:
                 if (prelude_dir / "HoldFastPrelude.vo").is_file():
                     chk_flags = ["-Q", prelude_tmp, "", *chk_flags]
                     chk_units = ["HoldFastPrelude", *libraries]
-                _run(_opam(["rocqchk", *chk_flags, *chk_units]),
-                     directory, directory / "kernel.log", steps)
+                kernel_out = _run(_opam(["rocqchk", "-silent", "-o", *chk_flags, *chk_units]),
+                                  directory, directory / "kernel.log", steps, combined_output=True)
+                solver_ledger.audit_rocqchk_context(kernel_out)
             _require(_inputs(root) == inputs and _toolchain(root, directory, steps) == tools
                      and _runtime(directory, steps) == runtime,
                      "HoldFast replay inputs, toolchain or runtime changed during qualification")
