@@ -715,6 +715,69 @@ _GALLINA = {
     "holdfast_int_lt_le_contra": "holdfast_int_lt_le_contra",
     "holdfast_gt_add_pos": "holdfast_gt_add_pos",
     "holdfast_int_add_assoc": "holdfast_int_add_assoc",
+    "holdfast_int_ne_false": "holdfast_int_ne_false",
+    "holdfast_npe_const": "holdfast_npe_const",
+    "holdfast_npe_var": "holdfast_npe_var",
+    "holdfast_npe_add": "holdfast_npe_add",
+    "holdfast_npe_mul": "holdfast_npe_mul",
+    "holdfast_npoly_sound": "holdfast_npoly_sound",
+    "holdfast_not_involutive": "holdfast_not_involutive",
+    "holdfast_not_true_to_false": "holdfast_not_true_to_false",
+    "holdfast_not_false_to_true": "holdfast_not_false_to_true",
+    "holdfast_not_intro": "holdfast_not_intro",
+    "holdfast_bool_contra": "holdfast_bool_contra",
+    "holdfast_or_intro_l": "holdfast_or_intro_l",
+    "holdfast_or_intro_r": "holdfast_or_intro_r",
+    "holdfast_or_elim_l": "holdfast_or_elim_l",
+    "holdfast_or_elim_r": "holdfast_or_elim_r",
+    "holdfast_and_false_elim_l": "holdfast_and_false_elim_l",
+    "holdfast_and_false_elim_r": "holdfast_and_false_elim_r",
+    "holdfast_implies_mp": "holdfast_implies_mp",
+    "holdfast_implies_mt": "holdfast_implies_mt",
+    "holdfast_implies_of_false": "holdfast_implies_of_false",
+    "holdfast_implies_of_true": "holdfast_implies_of_true",
+    "holdfast_implies_false_l": "holdfast_implies_false_l",
+    "holdfast_implies_false_r": "holdfast_implies_false_r",
+    "holdfast_ne_nat_false": "holdfast_ne_nat_false",
+    "holdfast_ne_bool_false": "holdfast_ne_bool_false",
+    "holdfast_nat_eqb_of_eq": "holdfast_nat_eqb_of_eq",
+    "holdfast_nat_eq_contra": "holdfast_nat_eq_contra",
+    "holdfast_int_eq_contra": "holdfast_int_eq_contra",
+    "holdfast_and_comm": "holdfast_and_comm",
+    "holdfast_or_comm": "holdfast_or_comm",
+    "holdfast_eq_bool_comm": "holdfast_eq_bool_comm",
+    "holdfast_ne_bool_comm": "holdfast_ne_bool_comm",
+    "holdfast_and_idem": "holdfast_and_idem",
+    "holdfast_or_idem": "holdfast_or_idem",
+    "holdfast_bool_and_true_r": "holdfast_bool_and_true_r",
+    "holdfast_bool_and_false_r": "holdfast_bool_and_false_r",
+    "holdfast_bool_or_false_r": "holdfast_bool_or_false_r",
+    "holdfast_bool_or_true_r": "holdfast_bool_or_true_r",
+    "holdfast_bool_and_not_r": "holdfast_bool_and_not_r",
+    "holdfast_bool_or_not_r": "holdfast_bool_or_not_r",
+    "holdfast_eq_nat_comm": "holdfast_eq_nat_comm",
+    "holdfast_ne_nat_comm": "holdfast_ne_nat_comm",
+    "holdfast_int_not_involutive": "holdfast_int_not_involutive",
+    "holdfast_int_and_comm": "holdfast_int_and_comm",
+    "holdfast_int_or_comm": "holdfast_int_or_comm",
+    "holdfast_int_xor_comm": "holdfast_int_xor_comm",
+    "holdfast_int_add_comm": "holdfast_int_add_comm",
+    "holdfast_int_eq_comm": "holdfast_int_eq_comm",
+    "holdfast_int_ne_comm": "holdfast_int_ne_comm",
+    "holdfast_int_and_idem": "holdfast_int_and_idem",
+    "holdfast_int_or_idem": "holdfast_int_or_idem",
+    "holdfast_int_and_assoc": "holdfast_int_and_assoc",
+    "holdfast_int_or_assoc": "holdfast_int_or_assoc",
+    "holdfast_int_xor_assoc": "holdfast_int_xor_assoc",
+    "holdfast_int_add_zero_r": "holdfast_int_add_zero_r",
+    "holdfast_int_add_zero_l": "holdfast_int_add_zero_l",
+    "holdfast_int_xor_self": "holdfast_int_xor_self",
+    "holdfast_int_xor_zero_r": "holdfast_int_xor_zero_r",
+    "holdfast_int_xor_zero_l": "holdfast_int_xor_zero_l",
+    "holdfast_int_and_zero_r": "holdfast_int_and_zero_r",
+    "holdfast_int_and_zero_l": "holdfast_int_and_zero_l",
+    "holdfast_int_or_zero_r": "holdfast_int_or_zero_r",
+    "holdfast_int_or_zero_l": "holdfast_int_or_zero_l",
     **{
         f"int_{op}_{spec.name}": f"(holdfast_int_{op} ({spec.tag} : Corelib.Init.Datatypes.nat))"
         for spec in _INT_SPECS.values()
@@ -3029,6 +3092,632 @@ Proof.
   intros tag a b c. apply holdfast_int_bits_inj. rewrite !holdfast_int_add_bits.
   unfold holdfast_bits_add. rewrite !holdfast_bits_rev_rev. f_equal.
   eapply holdfast_bits_add_lsb_assoc_gen. reflexivity.
+Qed.
+
+Lemma holdfast_not_involutive (a : bool) : holdfast_not (holdfast_not a) = a.
+Proof. destruct a; reflexivity. Qed.
+
+Lemma holdfast_not_true_to_false (a : bool) (h : holdfast_not a = true) : a = false.
+Proof. destruct a; [discriminate | reflexivity]. Qed.
+
+Lemma holdfast_not_false_to_true (a : bool) (h : holdfast_not a = false) : a = true.
+Proof. destruct a; [reflexivity | discriminate]. Qed.
+
+Lemma holdfast_not_intro (a : bool) (h : a = false) : holdfast_not a = true.
+Proof. destruct a; [discriminate | reflexivity]. Qed.
+
+Lemma holdfast_bool_contra (P : Type@{holdfast_u0}) (a : bool) (ht : a = true) (hf : a = false) : P.
+Proof. rewrite ht in hf. discriminate. Qed.
+
+Lemma holdfast_or_intro_l (a b : bool) (ha : a = true) : holdfast_or a b = true.
+Proof. rewrite ha. reflexivity. Qed.
+
+Lemma holdfast_or_intro_r (a b : bool) (hb : b = true) : holdfast_or a b = true.
+Proof. destruct a; [reflexivity | exact hb]. Qed.
+
+Lemma holdfast_or_elim_l (a b : bool) (hor : holdfast_or a b = true) (hna : a = false) : b = true.
+Proof. rewrite hna in hor. exact hor. Qed.
+
+Lemma holdfast_or_elim_r (a b : bool) (hor : holdfast_or a b = true) (hnb : b = false) : a = true.
+Proof. destruct a; [reflexivity | rewrite hnb in hor; exact hor]. Qed.
+
+Lemma holdfast_and_false_elim_l (a b : bool) (hand : holdfast_and a b = false) (ha : a = true) : b = false.
+Proof. rewrite ha in hand. exact hand. Qed.
+
+Lemma holdfast_and_false_elim_r (a b : bool) (hand : holdfast_and a b = false) (hb : b = true) : a = false.
+Proof. destruct a; [rewrite hb in hand; exact hand | reflexivity]. Qed.
+
+Lemma holdfast_implies_mp (a b : bool) (himp : holdfast_implies a b = true) (ha : a = true) : b = true.
+Proof. rewrite ha in himp. exact himp. Qed.
+
+Lemma holdfast_implies_mt (a b : bool) (himp : holdfast_implies a b = true) (hnb : b = false) : a = false.
+Proof. destruct a; [rewrite hnb in himp; discriminate | reflexivity]. Qed.
+
+Lemma holdfast_implies_of_false (a b : bool) (hna : a = false) : holdfast_implies a b = true.
+Proof. rewrite hna. reflexivity. Qed.
+
+Lemma holdfast_implies_of_true (a b : bool) (hb : b = true) : holdfast_implies a b = true.
+Proof. destruct a; [exact hb | reflexivity]. Qed.
+
+Lemma holdfast_implies_false_l (a b : bool) (himp : holdfast_implies a b = false) : a = true.
+Proof. destruct a; [reflexivity | discriminate]. Qed.
+
+Lemma holdfast_implies_false_r (a b : bool) (himp : holdfast_implies a b = false) : b = false.
+Proof. destruct a; [exact himp | discriminate]. Qed.
+
+Lemma holdfast_ne_nat_false (a b : nat) (h : holdfast_ne_nat a b = true) : Nat.eqb a b = false.
+Proof. unfold holdfast_ne_nat in h. destruct (Nat.eqb a b); [discriminate | reflexivity]. Qed.
+
+Lemma holdfast_ne_bool_false (a b : bool) (h : holdfast_ne_bool a b = true) : holdfast_eq_bool a b = false.
+Proof. unfold holdfast_ne_bool in h. destruct (holdfast_eq_bool a b); [discriminate | reflexivity]. Qed.
+
+Lemma holdfast_nat_eqb_of_eq (a b : nat) (p : a = b) : Nat.eqb a b = true.
+Proof. subst b. apply Nat.eqb_refl. Qed.
+
+Lemma holdfast_nat_eq_contra (P : Type@{holdfast_u0}) (a b : nat) (heq : a = b) (hne : Nat.eqb a b = false) : P.
+Proof. subst b. rewrite Nat.eqb_refl in hne. discriminate. Qed.
+
+Lemma holdfast_int_eq_contra (P : Type@{holdfast_u0}) (tag : nat) (a b : holdfast_int tag)
+    (heq : a = b) (hne : holdfast_int_eq tag a b = false) : P.
+Proof. subst b. rewrite holdfast_int_eq_refl in hne. discriminate. Qed.
+
+Lemma holdfast_and_comm (a b : bool) : holdfast_and a b = holdfast_and b a.
+Proof. destruct a, b; reflexivity. Qed.
+
+Lemma holdfast_or_comm (a b : bool) : holdfast_or a b = holdfast_or b a.
+Proof. destruct a, b; reflexivity. Qed.
+
+Lemma holdfast_eq_bool_comm (a b : bool) : holdfast_eq_bool a b = holdfast_eq_bool b a.
+Proof. destruct a, b; reflexivity. Qed.
+
+Lemma holdfast_ne_bool_comm (a b : bool) : holdfast_ne_bool a b = holdfast_ne_bool b a.
+Proof. destruct a, b; reflexivity. Qed.
+
+Lemma holdfast_and_idem (a : bool) : holdfast_and a a = a.
+Proof. destruct a; reflexivity. Qed.
+
+Lemma holdfast_or_idem (a : bool) : holdfast_or a a = a.
+Proof. destruct a; reflexivity. Qed.
+
+Lemma holdfast_bool_and_true_r (a : bool) : holdfast_and a true = a.
+Proof. destruct a; reflexivity. Qed.
+
+Lemma holdfast_bool_and_false_r (a : bool) : holdfast_and a false = false.
+Proof. destruct a; reflexivity. Qed.
+
+Lemma holdfast_bool_or_false_r (a : bool) : holdfast_or a false = a.
+Proof. destruct a; reflexivity. Qed.
+
+Lemma holdfast_bool_or_true_r (a : bool) : holdfast_or a true = true.
+Proof. destruct a; reflexivity. Qed.
+
+Lemma holdfast_bool_and_not_r (a : bool) : holdfast_and a (holdfast_not a) = false.
+Proof. destruct a; reflexivity. Qed.
+
+Lemma holdfast_bool_or_not_r (a : bool) : holdfast_or a (holdfast_not a) = true.
+Proof. destruct a; reflexivity. Qed.
+
+Lemma holdfast_eq_nat_comm (a b : nat) : Nat.eqb a b = Nat.eqb b a.
+Proof. apply Nat.eqb_sym. Qed.
+
+Lemma holdfast_ne_nat_comm (a b : nat) : holdfast_ne_nat a b = holdfast_ne_nat b a.
+Proof. unfold holdfast_ne_nat. rewrite Nat.eqb_sym. reflexivity. Qed.
+
+Lemma holdfast_bits_not_len (a : holdfast_bits) :
+  holdfast_bits_len (holdfast_bits_not a) = holdfast_bits_len a.
+Proof. induction a as [|x xs IH]; simpl; auto. Qed.
+
+Lemma holdfast_bits_not_involutive (a : holdfast_bits) :
+  holdfast_bits_not (holdfast_bits_not a) = a.
+Proof. induction a as [|x xs IH]; simpl; [reflexivity | destruct x; simpl; f_equal; exact IH]. Qed.
+
+Lemma holdfast_bits_and_len (a b : holdfast_bits) :
+  holdfast_bits_len a = holdfast_bits_len b ->
+  holdfast_bits_len (holdfast_bits_and a b) = holdfast_bits_len a.
+Proof.
+  revert b. induction a as [|x xs IH]; intros [|y ys] H; simpl in *; try discriminate; [reflexivity |].
+  f_equal. apply IH. congruence.
+Qed.
+
+Lemma holdfast_bits_and_comm (a b : holdfast_bits) :
+  holdfast_bits_and a b = holdfast_bits_and b a.
+Proof.
+  revert b. induction a as [|x xs IH]; intros [|y ys]; simpl; try reflexivity.
+  f_equal; [apply holdfast_and_comm | apply IH].
+Qed.
+
+Lemma holdfast_bits_and_idem (a : holdfast_bits) :
+  holdfast_bits_and a a = a.
+Proof.
+  induction a as [|x xs IH]; simpl; [reflexivity | f_equal; [apply holdfast_and_idem | exact IH]].
+Qed.
+
+Lemma holdfast_bits_and_assoc (a b c : holdfast_bits) :
+  holdfast_bits_and (holdfast_bits_and a b) c = holdfast_bits_and a (holdfast_bits_and b c).
+Proof.
+  revert b c. induction a as [|x xs IH]; intros [|y ys] [|z zs]; simpl; try reflexivity.
+  f_equal; [destruct x, y, z; reflexivity | apply IH].
+Qed.
+
+Lemma holdfast_bits_or_len (a b : holdfast_bits) :
+  holdfast_bits_len a = holdfast_bits_len b ->
+  holdfast_bits_len (holdfast_bits_or a b) = holdfast_bits_len a.
+Proof.
+  revert b. induction a as [|x xs IH]; intros [|y ys] H; simpl in *; try discriminate; [reflexivity |].
+  f_equal. apply IH. congruence.
+Qed.
+
+Lemma holdfast_bits_or_comm (a b : holdfast_bits) :
+  holdfast_bits_or a b = holdfast_bits_or b a.
+Proof.
+  revert b. induction a as [|x xs IH]; intros [|y ys]; simpl; try reflexivity.
+  f_equal; [apply holdfast_or_comm | apply IH].
+Qed.
+
+Lemma holdfast_bits_or_idem (a : holdfast_bits) :
+  holdfast_bits_or a a = a.
+Proof.
+  induction a as [|x xs IH]; simpl; [reflexivity | f_equal; [apply holdfast_or_idem | exact IH]].
+Qed.
+
+Lemma holdfast_bits_or_assoc (a b c : holdfast_bits) :
+  holdfast_bits_or (holdfast_bits_or a b) c = holdfast_bits_or a (holdfast_bits_or b c).
+Proof.
+  revert b c. induction a as [|x xs IH]; intros [|y ys] [|z zs]; simpl; try reflexivity.
+  f_equal; [destruct x, y, z; reflexivity | apply IH].
+Qed.
+
+Lemma holdfast_bits_xor_len (a b : holdfast_bits) :
+  holdfast_bits_len a = holdfast_bits_len b ->
+  holdfast_bits_len (holdfast_bits_xor a b) = holdfast_bits_len a.
+Proof.
+  revert b. induction a as [|x xs IH]; intros [|y ys] H; simpl in *; try discriminate; [reflexivity |].
+  f_equal. apply IH. congruence.
+Qed.
+
+Lemma holdfast_bits_xor_comm (a b : holdfast_bits) :
+  holdfast_bits_xor a b = holdfast_bits_xor b a.
+Proof.
+  revert b. induction a as [|x xs IH]; intros [|y ys]; simpl; try reflexivity.
+  f_equal; [destruct x, y; reflexivity | apply IH].
+Qed.
+
+Lemma holdfast_bits_xor_assoc (a b c : holdfast_bits) :
+  holdfast_bits_xor (holdfast_bits_xor a b) c = holdfast_bits_xor a (holdfast_bits_xor b c).
+Proof.
+  revert b c. induction a as [|x xs IH]; intros [|y ys] [|z zs]; simpl; try reflexivity.
+  f_equal; [destruct x, y, z; reflexivity | apply IH].
+Qed.
+
+Lemma holdfast_bits_add_lsb_comm (a b : holdfast_bits) (c : bool) :
+  holdfast_bits_add_lsb a b c = holdfast_bits_add_lsb b a c.
+Proof.
+  revert b c. induction a as [|x xs IH]; intros [|y ys] c; simpl; try reflexivity.
+  f_equal; [destruct x, y, c; reflexivity |].
+  replace (holdfast_or (holdfast_and x y) (holdfast_and (holdfast_xorb x y) c))
+    with (holdfast_or (holdfast_and y x) (holdfast_and (holdfast_xorb y x) c))
+    by (destruct x, y, c; reflexivity).
+  apply IH.
+Qed.
+
+Lemma holdfast_bits_zero_rev_acc (a acc : holdfast_bits) :
+  holdfast_bits_zero a = true -> holdfast_bits_zero acc = true ->
+  holdfast_bits_zero (holdfast_bits_rev_acc a acc) = true.
+Proof.
+  revert acc. induction a as [|x xs IH]; intros acc Ha Hacc; simpl in *; [exact Hacc |].
+  destruct x; [discriminate |]. apply IH; [exact Ha | simpl; exact Hacc].
+Qed.
+
+Lemma holdfast_bits_zero_rev (a : holdfast_bits) :
+  holdfast_bits_zero a = true -> holdfast_bits_zero (holdfast_bits_rev a) = true.
+Proof. intro Ha. apply holdfast_bits_zero_rev_acc; [exact Ha | reflexivity]. Qed.
+
+Lemma holdfast_bits_zero_unique (a b : holdfast_bits) :
+  holdfast_bits_len a = holdfast_bits_len b ->
+  holdfast_bits_zero a = true -> holdfast_bits_zero b = true -> a = b.
+Proof.
+  revert b. induction a as [|x xs IH]; intros [|y ys] Hlen Ha Hb; simpl in *; try discriminate; [reflexivity |].
+  destruct x, y; simpl in Ha, Hb; try discriminate. f_equal. apply IH; [congruence | exact Ha | exact Hb].
+Qed.
+
+Lemma holdfast_bits_xor_self_zero (a : holdfast_bits) :
+  holdfast_bits_zero (holdfast_bits_xor a a) = true.
+Proof. induction a as [|x xs IH]; simpl; [reflexivity | destruct x; simpl; exact IH]. Qed.
+
+Lemma holdfast_bits_xor_zero_right (a z : holdfast_bits) :
+  holdfast_bits_len a = holdfast_bits_len z ->
+  holdfast_bits_zero z = true -> holdfast_bits_xor a z = a.
+Proof.
+  revert z. induction a as [|x xs IH]; intros [|y ys] Hlen Hz; simpl in *; try discriminate; [reflexivity |].
+  destruct y; [discriminate |]. destruct x; cbn; f_equal; (apply IH; [congruence | exact Hz]).
+Qed.
+
+Lemma holdfast_bits_and_zero_right (a z : holdfast_bits) :
+  holdfast_bits_len a = holdfast_bits_len z ->
+  holdfast_bits_zero z = true -> holdfast_bits_and a z = z.
+Proof.
+  revert z. induction a as [|x xs IH]; intros [|y ys] Hlen Hz; simpl in *; try discriminate; [reflexivity |].
+  destruct y; [discriminate |]. destruct x; cbn; f_equal; (apply IH; [congruence | exact Hz]).
+Qed.
+
+Lemma holdfast_bits_or_zero_right (a z : holdfast_bits) :
+  holdfast_bits_len a = holdfast_bits_len z ->
+  holdfast_bits_zero z = true -> holdfast_bits_or a z = a.
+Proof.
+  revert z. induction a as [|x xs IH]; intros [|y ys] Hlen Hz; simpl in *; try discriminate; [reflexivity |].
+  destruct y; [discriminate |]. destruct x; cbn; f_equal; (apply IH; [congruence | exact Hz]).
+Qed.
+
+Lemma holdfast_bits_eqb_comm (a b : holdfast_bits) :
+  holdfast_bits_eqb a b = holdfast_bits_eqb b a.
+Proof.
+  revert b. induction a as [|x xs IH]; intros [|y ys]; simpl; try reflexivity.
+  rewrite holdfast_eq_bool_comm, IH. reflexivity.
+Qed.
+
+Lemma holdfast_int_not_bits (tag : nat) (a : holdfast_int tag) :
+  holdfast_int_bits tag (holdfast_int_not tag a) = holdfast_bits_not (holdfast_int_bits tag a).
+Proof.
+  unfold holdfast_int_not, holdfast_mk_int. cbn [holdfast_int_bits].
+  apply holdfast_bits_word_exact. rewrite holdfast_bits_not_len, holdfast_int_width. reflexivity.
+Qed.
+
+Lemma holdfast_int_not_involutive (tag : nat) (a : holdfast_int tag) :
+  holdfast_int_not tag (holdfast_int_not tag a) = a.
+Proof. apply holdfast_int_bits_inj. rewrite !holdfast_int_not_bits. apply holdfast_bits_not_involutive. Qed.
+
+Lemma holdfast_int_and_bits (tag : nat) (a b : holdfast_int tag) :
+  holdfast_int_bits tag (holdfast_int_and tag a b) =
+  holdfast_bits_and (holdfast_int_bits tag a) (holdfast_int_bits tag b).
+Proof.
+  unfold holdfast_int_and, holdfast_mk_int. cbn [holdfast_int_bits].
+  apply holdfast_bits_word_exact. rewrite holdfast_bits_and_len; rewrite !holdfast_int_width; reflexivity.
+Qed.
+
+Lemma holdfast_int_or_bits (tag : nat) (a b : holdfast_int tag) :
+  holdfast_int_bits tag (holdfast_int_or tag a b) =
+  holdfast_bits_or (holdfast_int_bits tag a) (holdfast_int_bits tag b).
+Proof.
+  unfold holdfast_int_or, holdfast_mk_int. cbn [holdfast_int_bits].
+  apply holdfast_bits_word_exact. rewrite holdfast_bits_or_len; rewrite !holdfast_int_width; reflexivity.
+Qed.
+
+Lemma holdfast_int_xor_bits (tag : nat) (a b : holdfast_int tag) :
+  holdfast_int_bits tag (holdfast_int_xor tag a b) =
+  holdfast_bits_xor (holdfast_int_bits tag a) (holdfast_int_bits tag b).
+Proof.
+  unfold holdfast_int_xor, holdfast_mk_int. cbn [holdfast_int_bits].
+  apply holdfast_bits_word_exact. rewrite holdfast_bits_xor_len; rewrite !holdfast_int_width; reflexivity.
+Qed.
+
+Lemma holdfast_int_and_comm (tag : nat) (a b : holdfast_int tag) :
+  holdfast_int_and tag a b = holdfast_int_and tag b a.
+Proof. apply holdfast_int_bits_inj. rewrite !holdfast_int_and_bits. apply holdfast_bits_and_comm. Qed.
+
+Lemma holdfast_int_or_comm (tag : nat) (a b : holdfast_int tag) :
+  holdfast_int_or tag a b = holdfast_int_or tag b a.
+Proof. apply holdfast_int_bits_inj. rewrite !holdfast_int_or_bits. apply holdfast_bits_or_comm. Qed.
+
+Lemma holdfast_int_xor_comm (tag : nat) (a b : holdfast_int tag) :
+  holdfast_int_xor tag a b = holdfast_int_xor tag b a.
+Proof. apply holdfast_int_bits_inj. rewrite !holdfast_int_xor_bits. apply holdfast_bits_xor_comm. Qed.
+
+Lemma holdfast_int_add_comm (tag : nat) (a b : holdfast_int tag) :
+  holdfast_int_add tag a b = holdfast_int_add tag b a.
+Proof.
+  apply holdfast_int_bits_inj. rewrite !holdfast_int_add_bits.
+  unfold holdfast_bits_add. rewrite holdfast_bits_add_lsb_comm. reflexivity.
+Qed.
+
+Lemma holdfast_int_eq_comm (tag : nat) (a b : holdfast_int tag) :
+  holdfast_int_eq tag a b = holdfast_int_eq tag b a.
+Proof. unfold holdfast_int_eq. apply holdfast_bits_eqb_comm. Qed.
+
+Lemma holdfast_int_ne_comm (tag : nat) (a b : holdfast_int tag) :
+  holdfast_int_ne tag a b = holdfast_int_ne tag b a.
+Proof. unfold holdfast_int_ne. rewrite holdfast_int_eq_comm. reflexivity. Qed.
+
+Lemma holdfast_int_and_idem (tag : nat) (a : holdfast_int tag) :
+  holdfast_int_and tag a a = a.
+Proof. apply holdfast_int_bits_inj. rewrite holdfast_int_and_bits. apply holdfast_bits_and_idem. Qed.
+
+Lemma holdfast_int_or_idem (tag : nat) (a : holdfast_int tag) :
+  holdfast_int_or tag a a = a.
+Proof. apply holdfast_int_bits_inj. rewrite holdfast_int_or_bits. apply holdfast_bits_or_idem. Qed.
+
+Lemma holdfast_int_and_assoc (tag : nat) (a b c : holdfast_int tag) :
+  holdfast_int_and tag (holdfast_int_and tag a b) c = holdfast_int_and tag a (holdfast_int_and tag b c).
+Proof. apply holdfast_int_bits_inj. rewrite !holdfast_int_and_bits. apply holdfast_bits_and_assoc. Qed.
+
+Lemma holdfast_int_or_assoc (tag : nat) (a b c : holdfast_int tag) :
+  holdfast_int_or tag (holdfast_int_or tag a b) c = holdfast_int_or tag a (holdfast_int_or tag b c).
+Proof. apply holdfast_int_bits_inj. rewrite !holdfast_int_or_bits. apply holdfast_bits_or_assoc. Qed.
+
+Lemma holdfast_int_xor_assoc (tag : nat) (a b c : holdfast_int tag) :
+  holdfast_int_xor tag (holdfast_int_xor tag a b) c = holdfast_int_xor tag a (holdfast_int_xor tag b c).
+Proof. apply holdfast_int_bits_inj. rewrite !holdfast_int_xor_bits. apply holdfast_bits_xor_assoc. Qed.
+
+Lemma holdfast_int_add_zero_r (tag : nat) (a z : holdfast_int tag)
+    (hz : holdfast_bits_zero (holdfast_int_bits tag z) = true) :
+  holdfast_int_add tag a z = a.
+Proof.
+  apply holdfast_int_bits_inj. rewrite holdfast_int_add_bits. unfold holdfast_bits_add.
+  rewrite holdfast_bits_zero_right.
+  - apply holdfast_bits_rev_rev.
+  - apply holdfast_bits_zero_rev. exact hz.
+  - rewrite !holdfast_bits_rev_length, !holdfast_int_width. reflexivity.
+Qed.
+
+Lemma holdfast_int_add_zero_l (tag : nat) (z a : holdfast_int tag)
+    (hz : holdfast_bits_zero (holdfast_int_bits tag z) = true) :
+  holdfast_int_add tag z a = a.
+Proof. rewrite holdfast_int_add_comm. apply holdfast_int_add_zero_r. exact hz. Qed.
+
+Lemma holdfast_int_xor_self (tag : nat) (a z : holdfast_int tag)
+    (hz : holdfast_bits_zero (holdfast_int_bits tag z) = true) :
+  holdfast_int_xor tag a a = z.
+Proof.
+  apply holdfast_int_bits_inj. rewrite holdfast_int_xor_bits.
+  apply holdfast_bits_zero_unique.
+  - rewrite holdfast_bits_xor_len; rewrite !holdfast_int_width; reflexivity.
+  - apply holdfast_bits_xor_self_zero.
+  - exact hz.
+Qed.
+
+Lemma holdfast_int_xor_zero_r (tag : nat) (a z : holdfast_int tag)
+    (hz : holdfast_bits_zero (holdfast_int_bits tag z) = true) :
+  holdfast_int_xor tag a z = a.
+Proof.
+  apply holdfast_int_bits_inj. rewrite holdfast_int_xor_bits.
+  apply holdfast_bits_xor_zero_right; [rewrite !holdfast_int_width; reflexivity | exact hz].
+Qed.
+
+Lemma holdfast_int_xor_zero_l (tag : nat) (z a : holdfast_int tag)
+    (hz : holdfast_bits_zero (holdfast_int_bits tag z) = true) :
+  holdfast_int_xor tag z a = a.
+Proof. rewrite holdfast_int_xor_comm. apply holdfast_int_xor_zero_r. exact hz. Qed.
+
+Lemma holdfast_int_and_zero_r (tag : nat) (a z : holdfast_int tag)
+    (hz : holdfast_bits_zero (holdfast_int_bits tag z) = true) :
+  holdfast_int_and tag a z = z.
+Proof.
+  apply holdfast_int_bits_inj. rewrite holdfast_int_and_bits.
+  apply holdfast_bits_and_zero_right; [rewrite !holdfast_int_width; reflexivity | exact hz].
+Qed.
+
+Lemma holdfast_int_and_zero_l (tag : nat) (z a : holdfast_int tag)
+    (hz : holdfast_bits_zero (holdfast_int_bits tag z) = true) :
+  holdfast_int_and tag z a = z.
+Proof. rewrite holdfast_int_and_comm. apply holdfast_int_and_zero_r. exact hz. Qed.
+
+Lemma holdfast_int_or_zero_r (tag : nat) (a z : holdfast_int tag)
+    (hz : holdfast_bits_zero (holdfast_int_bits tag z) = true) :
+  holdfast_int_or tag a z = a.
+Proof.
+  apply holdfast_int_bits_inj. rewrite holdfast_int_or_bits.
+  apply holdfast_bits_or_zero_right; [rewrite !holdfast_int_width; reflexivity | exact hz].
+Qed.
+
+Lemma holdfast_int_or_zero_l (tag : nat) (z a : holdfast_int tag)
+    (hz : holdfast_bits_zero (holdfast_int_bits tag z) = true) :
+  holdfast_int_or tag z a = a.
+Proof. rewrite holdfast_int_or_comm. apply holdfast_int_or_zero_r. exact hz. Qed.
+
+Inductive holdfast_npoly_expr : Type@{holdfast_u0} :=
+| holdfast_npe_const : nat -> holdfast_npoly_expr
+| holdfast_npe_var : nat -> holdfast_npoly_expr
+| holdfast_npe_add : holdfast_npoly_expr -> holdfast_npoly_expr -> holdfast_npoly_expr
+| holdfast_npe_mul : holdfast_npoly_expr -> holdfast_npoly_expr -> holdfast_npoly_expr.
+
+Fixpoint holdfast_npoly_eval (env : holdfast_Seq nat) (e : holdfast_npoly_expr) : nat :=
+  match e with
+  | holdfast_npe_const n => n
+  | holdfast_npe_var i => holdfast_Seq_At nat 0 env i
+  | holdfast_npe_add a b => Nat.add (holdfast_npoly_eval env a) (holdfast_npoly_eval env b)
+  | holdfast_npe_mul a b => Nat.mul (holdfast_npoly_eval env a) (holdfast_npoly_eval env b)
+  end.
+
+Fixpoint holdfast_npoly_mono_eval (env : holdfast_Seq nat) (m : holdfast_Seq nat) : nat :=
+  match m with
+  | holdfast_Seq_Empty _ => 1
+  | holdfast_Seq_Cons _ v rest => Nat.mul (holdfast_Seq_At nat 0 env v) (holdfast_npoly_mono_eval env rest)
+  end.
+
+Fixpoint holdfast_npoly_mono_insert (v : nat) (m : holdfast_Seq nat) : holdfast_Seq nat :=
+  match m with
+  | holdfast_Seq_Empty _ => holdfast_Seq_Singleton nat v
+  | holdfast_Seq_Cons _ x xs =>
+      if Nat.leb v x then holdfast_Seq_Cons nat v m
+      else holdfast_Seq_Cons nat x (holdfast_npoly_mono_insert v xs)
+  end.
+
+Lemma holdfast_npoly_mono_insert_eval (env : holdfast_Seq nat) (v : nat) (m : holdfast_Seq nat) :
+  holdfast_npoly_mono_eval env (holdfast_npoly_mono_insert v m) =
+  Nat.mul (holdfast_Seq_At nat 0 env v) (holdfast_npoly_mono_eval env m).
+Proof.
+  induction m as [|x xs IH]; cbn; [reflexivity |].
+  destruct (Nat.leb v x); cbn; [reflexivity |].
+  rewrite IH, !Nat.mul_assoc.
+  rewrite (Nat.mul_comm (holdfast_Seq_At nat 0 env x) (holdfast_Seq_At nat 0 env v)).
+  reflexivity.
+Qed.
+
+Fixpoint holdfast_npoly_mono_mul (m1 m2 : holdfast_Seq nat) : holdfast_Seq nat :=
+  match m1 with
+  | holdfast_Seq_Empty _ => m2
+  | holdfast_Seq_Cons _ v rest => holdfast_npoly_mono_insert v (holdfast_npoly_mono_mul rest m2)
+  end.
+
+Lemma holdfast_npoly_mono_mul_eval (env : holdfast_Seq nat) (m1 m2 : holdfast_Seq nat) :
+  holdfast_npoly_mono_eval env (holdfast_npoly_mono_mul m1 m2) =
+  Nat.mul (holdfast_npoly_mono_eval env m1) (holdfast_npoly_mono_eval env m2).
+Proof.
+  induction m1 as [|v rest IH]; cbn; [lia |].
+  rewrite holdfast_npoly_mono_insert_eval, IH, Nat.mul_assoc. reflexivity.
+Qed.
+
+Fixpoint holdfast_npoly_mono_cmp (m1 m2 : holdfast_Seq nat) : comparison :=
+  match m1, m2 with
+  | holdfast_Seq_Empty _, holdfast_Seq_Empty _ => Eq
+  | holdfast_Seq_Empty _, holdfast_Seq_Cons _ _ _ => Lt
+  | holdfast_Seq_Cons _ _ _, holdfast_Seq_Empty _ => Gt
+  | holdfast_Seq_Cons _ x xs, holdfast_Seq_Cons _ y ys =>
+      if Nat.ltb x y then Lt
+      else if Nat.ltb y x then Gt
+      else holdfast_npoly_mono_cmp xs ys
+  end.
+
+Lemma holdfast_npoly_mono_cmp_eq (m1 m2 : holdfast_Seq nat) :
+  holdfast_npoly_mono_cmp m1 m2 = Eq -> m1 = m2.
+Proof.
+  revert m2. induction m1 as [|x xs IH]; intros [|y ys] H; cbn [holdfast_npoly_mono_cmp] in H; try discriminate; [reflexivity |].
+  destruct (Nat.ltb x y) eqn:Hxy; [discriminate |].
+  destruct (Nat.ltb y x) eqn:Hyx; [discriminate |].
+  apply Nat.ltb_ge in Hxy. apply Nat.ltb_ge in Hyx.
+  assert (x = y) by lia. subst y. f_equal. apply IH. exact H.
+Qed.
+
+Fixpoint holdfast_npoly_eval_norm (env : holdfast_Seq nat) (p : holdfast_Seq (@prod nat (holdfast_Seq nat))) : nat :=
+  match p with
+  | holdfast_Seq_Empty _ => 0
+  | holdfast_Seq_Cons _ (@pair _ _ c m) rest =>
+      Nat.add (Nat.mul c (holdfast_npoly_mono_eval env m)) (holdfast_npoly_eval_norm env rest)
+  end.
+
+Fixpoint holdfast_npoly_add_term (c : nat) (m : holdfast_Seq nat)
+    (p : holdfast_Seq (@prod nat (holdfast_Seq nat)))
+    : holdfast_Seq (@prod nat (holdfast_Seq nat)) :=
+  match c with
+  | O => p
+  | S _ =>
+      match p with
+      | holdfast_Seq_Empty _ => holdfast_Seq_Singleton _ (@pair nat (holdfast_Seq nat) c m)
+      | holdfast_Seq_Cons _ (@pair _ _ c' m') rest =>
+          match holdfast_npoly_mono_cmp m m' with
+          | Lt => holdfast_Seq_Cons _ (@pair nat (holdfast_Seq nat) c m) p
+          | Eq => holdfast_Seq_Cons _ (@pair nat (holdfast_Seq nat) (Nat.add c c') m') rest
+          | Gt => holdfast_Seq_Cons _ (@pair nat (holdfast_Seq nat) c' m') (holdfast_npoly_add_term c m rest)
+          end
+      end
+  end.
+
+Lemma holdfast_npoly_add_term_eval (env : holdfast_Seq nat) (c : nat) (m : holdfast_Seq nat)
+    (p : holdfast_Seq (@prod nat (holdfast_Seq nat))) :
+  holdfast_npoly_eval_norm env (holdfast_npoly_add_term c m p) =
+  Nat.add (Nat.mul c (holdfast_npoly_mono_eval env m)) (holdfast_npoly_eval_norm env p).
+Proof.
+  destruct c as [|c0]; [destruct p as [|[c' m'] rest]; cbn; reflexivity |].
+  induction p as [|[c' m'] rest IH]; cbn; [lia |].
+  destruct (holdfast_npoly_mono_cmp m m') eqn:Hcmp; cbn.
+  - apply holdfast_npoly_mono_cmp_eq in Hcmp. subst m'. rewrite Nat.mul_add_distr_r. lia.
+  - reflexivity.
+  - rewrite IH. lia.
+Qed.
+
+Fixpoint holdfast_npoly_add (p1 p2 : holdfast_Seq (@prod nat (holdfast_Seq nat)))
+    : holdfast_Seq (@prod nat (holdfast_Seq nat)) :=
+  match p1 with
+  | holdfast_Seq_Empty _ => p2
+  | holdfast_Seq_Cons _ (@pair _ _ c m) rest =>
+      holdfast_npoly_add_term c m (holdfast_npoly_add rest p2)
+  end.
+
+Lemma holdfast_npoly_add_eval (env : holdfast_Seq nat)
+    (p1 p2 : holdfast_Seq (@prod nat (holdfast_Seq nat))) :
+  holdfast_npoly_eval_norm env (holdfast_npoly_add p1 p2) =
+  Nat.add (holdfast_npoly_eval_norm env p1) (holdfast_npoly_eval_norm env p2).
+Proof.
+  induction p1 as [|[c m] rest IH]; cbn; [reflexivity |].
+  rewrite holdfast_npoly_add_term_eval, IH. lia.
+Qed.
+
+Fixpoint holdfast_npoly_mul_term (c : nat) (m : holdfast_Seq nat)
+    (p : holdfast_Seq (@prod nat (holdfast_Seq nat)))
+    : holdfast_Seq (@prod nat (holdfast_Seq nat)) :=
+  match p with
+  | holdfast_Seq_Empty _ => holdfast_Seq_Empty _
+  | holdfast_Seq_Cons _ (@pair _ _ c' m') rest =>
+      holdfast_npoly_add_term (Nat.mul c c') (holdfast_npoly_mono_mul m m') (holdfast_npoly_mul_term c m rest)
+  end.
+
+Lemma holdfast_npoly_mul_term_eval (env : holdfast_Seq nat) (c : nat) (m : holdfast_Seq nat)
+    (p : holdfast_Seq (@prod nat (holdfast_Seq nat))) :
+  holdfast_npoly_eval_norm env (holdfast_npoly_mul_term c m p) =
+  Nat.mul (Nat.mul c (holdfast_npoly_mono_eval env m)) (holdfast_npoly_eval_norm env p).
+Proof.
+  induction p as [|[c' m'] rest IH]; cbn; [lia |].
+  rewrite holdfast_npoly_add_term_eval, holdfast_npoly_mono_mul_eval, IH, Nat.mul_add_distr_l.
+  f_equal. rewrite !Nat.mul_assoc. f_equal.
+  rewrite <- !Nat.mul_assoc. rewrite (Nat.mul_comm c' (holdfast_npoly_mono_eval env m)).
+  rewrite Nat.mul_assoc. reflexivity.
+Qed.
+
+Fixpoint holdfast_npoly_mul (p1 p2 : holdfast_Seq (@prod nat (holdfast_Seq nat)))
+    : holdfast_Seq (@prod nat (holdfast_Seq nat)) :=
+  match p1 with
+  | holdfast_Seq_Empty _ => holdfast_Seq_Empty _
+  | holdfast_Seq_Cons _ (@pair _ _ c m) rest =>
+      holdfast_npoly_add (holdfast_npoly_mul_term c m p2) (holdfast_npoly_mul rest p2)
+  end.
+
+Lemma holdfast_npoly_mul_eval (env : holdfast_Seq nat)
+    (p1 p2 : holdfast_Seq (@prod nat (holdfast_Seq nat))) :
+  holdfast_npoly_eval_norm env (holdfast_npoly_mul p1 p2) =
+  Nat.mul (holdfast_npoly_eval_norm env p1) (holdfast_npoly_eval_norm env p2).
+Proof.
+  induction p1 as [|[c m] rest IH]; cbn; [reflexivity |].
+  rewrite holdfast_npoly_add_eval, holdfast_npoly_mul_term_eval, IH, Nat.mul_add_distr_r. reflexivity.
+Qed.
+
+Fixpoint holdfast_npoly_norm (e : holdfast_npoly_expr)
+    : holdfast_Seq (@prod nat (holdfast_Seq nat)) :=
+  match e with
+  | holdfast_npe_const n => holdfast_npoly_add_term n (holdfast_Seq_Empty nat) (holdfast_Seq_Empty _)
+  | holdfast_npe_var i => holdfast_Seq_Singleton _ (@pair nat (holdfast_Seq nat) 1 (holdfast_Seq_Singleton nat i))
+  | holdfast_npe_add a b => holdfast_npoly_add (holdfast_npoly_norm a) (holdfast_npoly_norm b)
+  | holdfast_npe_mul a b => holdfast_npoly_mul (holdfast_npoly_norm a) (holdfast_npoly_norm b)
+  end.
+
+Lemma holdfast_npoly_norm_eval (env : holdfast_Seq nat) (e : holdfast_npoly_expr) :
+  holdfast_npoly_eval_norm env (holdfast_npoly_norm e) = holdfast_npoly_eval env e.
+Proof.
+  induction e; cbn;
+    [destruct n; cbn; lia
+    | cbn; lia
+    | rewrite holdfast_npoly_add_eval, IHe1, IHe2; reflexivity
+    | rewrite holdfast_npoly_mul_eval, IHe1, IHe2; reflexivity].
+Qed.
+
+Definition holdfast_npoly_term_eqb (t1 t2 : @prod nat (holdfast_Seq nat)) : bool :=
+  holdfast_and (Nat.eqb (@fst _ _ t1) (@fst _ _ t2))
+               (match holdfast_npoly_mono_cmp (@snd _ _ t1) (@snd _ _ t2) with Eq => true | _ => false end).
+
+Definition holdfast_npoly_eqb (p1 p2 : holdfast_Seq (@prod nat (holdfast_Seq nat))) : bool :=
+  holdfast_Seq_Eq _ holdfast_npoly_term_eqb p1 p2.
+
+Lemma holdfast_npoly_eqb_eq (p1 p2 : holdfast_Seq (@prod nat (holdfast_Seq nat))) :
+  holdfast_npoly_eqb p1 p2 = true -> p1 = p2.
+Proof.
+  revert p2. induction p1 as [|[c1 m1] xs IH]; intros [|[c2 m2] ys] H;
+    unfold holdfast_npoly_eqb in H; cbn [holdfast_Seq_Eq] in H; try discriminate; [reflexivity |].
+  unfold holdfast_npoly_term_eqb in H. cbn [fst snd] in H.
+  pose proof (holdfast_and_left _ _ H) as Hhead.
+  pose proof (holdfast_and_right _ _ H) as Htail.
+  pose proof (holdfast_and_left _ _ Hhead) as Hc.
+  pose proof (holdfast_and_right _ _ Hhead) as Hm.
+  apply Nat.eqb_eq in Hc. subst c2.
+  destruct (holdfast_npoly_mono_cmp m1 m2) eqn:Hcmp; try discriminate.
+  apply holdfast_npoly_mono_cmp_eq in Hcmp. subst m2.
+  f_equal. apply IH. exact Htail.
+Qed.
+
+Lemma holdfast_npoly_sound (env : holdfast_Seq nat) (e1 e2 : holdfast_npoly_expr) :
+  holdfast_npoly_eqb (holdfast_npoly_norm e1) (holdfast_npoly_norm e2) = true ->
+  holdfast_npoly_eval env e1 = holdfast_npoly_eval env e2.
+Proof.
+  intro H. apply holdfast_npoly_eqb_eq in H.
+  rewrite <- (holdfast_npoly_norm_eval env e1), <- (holdfast_npoly_norm_eval env e2), H.
+  reflexivity.
 Qed.
 """
 
