@@ -799,20 +799,37 @@ def _batch_checker_controls() -> None:
         ensure(batch.units == ("unit_a", "unit_b"), "BatchChecker did not deduplicate registered units")
         work_dir = batch.work_dir
         ensure(work_dir.is_dir(), "BatchChecker did not create work_dir on access")
+        (work_dir / "unit_a.vo").write_bytes(b"vo_a")
+        (work_dir / "unit_a.v").write_bytes(b"Definition a := 0.\n")
         fake_chk = base / "fake-rocqchk"
         fake_chk.write_text("#!/bin/sh\n", encoding="utf-8")
         seen_cmds: list[list[str]] = []
+        clean_summary = (
+            "\nCONTEXT SUMMARY\n===============\n\n"
+            "* Theory: Set is predicative\n"
+            "* Theory: Rewrite rules are not allowed\n"
+            "* Axioms: <none>\n"
+            "* Constants/Inductives relying on type-in-type: <none>\n"
+            "* Constants/Inductives relying on unsafe (co)fixpoints: <none>\n"
+            "* Inductives whose positivity is assumed: <none>\n"
+        )
 
         def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
             seen_cmds.append(cmd)
-            ensure(kwargs["cwd"] == work_dir, "rocqchk ran outside batch work_dir")
-            return subprocess.CompletedProcess(cmd, 0, "", "")
+            run_cwd = Path(str(kwargs["cwd"]))
+            ensure(run_cwd != work_dir, "rocqchk ran in mutable build work_dir instead of isolated staging")
+            ensure((run_cwd / "unit_a.vo").is_file() and not (run_cwd / "unit_a.v").exists(),
+                   "isolated rocqchk stage did not copy only .vo artifacts")
+            env_map = kwargs.get("env")
+            ensure(isinstance(env_map, dict) and "COQPATH" not in env_map and "ROCQPATH" not in env_map,
+                   "rocqchk environment did not scrub ambient prover search paths")
+            return subprocess.CompletedProcess(cmd, 0, "", clean_summary)
 
-        with (patch.dict("os.environ", {"VOS_ROCQCHK": str(fake_chk)}),
+        with (patch.dict("os.environ", {"VOS_ROCQCHK": str(fake_chk), "COQPATH": "/amb", "ROCQPATH": "/amb"}),
               patch.object(rocq_cache.subprocess, "run", side_effect=fake_run)):
             ensure(proofenv.rocqchk_command() == [str(fake_chk)], "VOS_ROCQCHK override was ignored")
             batch.verify_all()
-        ensure(seen_cmds == [[str(fake_chk), "-silent", "unit_a", "unit_b"]],
+        ensure(seen_cmds == [[str(fake_chk), "-silent", "-o", "unit_a", "unit_b"]],
                f"BatchChecker ran unexpected rocqchk command: {seen_cmds!r}")
         ensure(not work_dir.exists(), "BatchChecker did not clean up its temporary directory")
 

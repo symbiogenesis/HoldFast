@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import tempfile
 import weakref
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from pathlib import Path
 
@@ -473,24 +473,124 @@ def use_cached_prelude(
     return f"{prefix}{_PRELUDE_IMPORTS}{suffix}", True
 
 
-def check_kernel(directory: Path, units: Sequence[str], *, timeout: int = 600) -> None:
-    """Run ``rocqchk -silent`` over one or more compiled logical unit names."""
+_SCRUBBED_CHECKER_ENV_VARS: frozenset[str] = frozenset({
+    "COQPATH",
+    "ROCQPATH",
+    "COQLIB",
+    "COQCORELIB",
+    "COQBIN",
+    "ROCQBIN",
+    "COQ_FLAGS",
+    "COQEXTRAFLAGS",
+    "ROCQEXTRAFLAGS",
+    "OCAMLPATH",
+    "CAML_LD_LIBRARY_PATH",
+})
+
+
+def scrubbed_checker_env(
+    base_env: Mapping[str, str] | None = None,
+    *,
+    extra_path: Path | None = None,
+) -> dict[str, str]:
+    """Return a clean environment for ``rocqchk`` with ambient prover search paths removed."""
+    env = dict(os.environ if base_env is None else base_env)
+    for var in _SCRUBBED_CHECKER_ENV_VARS:
+        env.pop(var, None)
+    if extra_path is not None:
+        env["PATH"] = f"{extra_path}{os.pathsep}{env.get('PATH', '')}"
+    return env
+
+
+def _stage_readonly_vo(source_dir: Path, stage_dir: Path) -> None:
+    """Copy compiled ``.vo`` artifacts into an isolated read-only staging directory."""
+    created_dirs: list[Path] = []
+    for root, dirs, files in os.walk(source_dir, followlinks=False):
+        rel = Path(root).relative_to(source_dir)
+        dirs[:] = [d for d in dirs if not (Path(root) / d).is_symlink()]
+        dest_dir = stage_dir / rel
+        if rel != Path():
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            created_dirs.append(dest_dir)
+        for name in files:
+            if not name.endswith(".vo"):
+                continue
+            src = Path(root) / name
+            if src.is_symlink():
+                raise ValueError(f"refusing symlinked compiled unit during kernel check: {src}")
+            dst = dest_dir / name
+            shutil.copyfile(src, dst)
+            if os.name == "posix":
+                dst.chmod(0o444)
+    if os.name == "posix":
+        for d in reversed(created_dirs):
+            d.chmod(0o555)
+        stage_dir.chmod(0o555)
+
+
+def _restore_writable_tree(root: Path) -> None:
+    """Restore owner write/exec bits before removing a read-only POSIX staging tree."""
+    if os.name != "posix" or not root.exists():
+        return
+    root.chmod(0o700)
+    for cur_root, dirs, files in os.walk(root, topdown=True, followlinks=False):
+        cur = Path(cur_root)
+        cur.chmod(0o700)
+        for d in dirs:
+            (cur / d).chmod(0o700)
+        for f in files:
+            (cur / f).chmod(0o600)
+
+
+def check_kernel(
+    directory: Path,
+    units: Sequence[str],
+    *,
+    timeout: int = 600,
+    allowed_axioms: Sequence[str] = (),
+    isolate: bool = True,
+) -> list[str]:
+    """Run ``rocqchk -silent -o`` in a scrubbed, isolated directory and audit its context summary."""
     if not units:
         raise ValueError("rocqchk requires at least one unit")
-    cmd = [*proofenv.rocqchk_command(), "-silent", *units]
+    cmd = [*proofenv.rocqchk_command(), "-silent", "-o", *units]
     solver_ledger.check_prover_flags(cmd)
-    result = subprocess.run(
-        cmd,
-        cwd=directory,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        check=False,
-        timeout=timeout,
-    )
+    env = scrubbed_checker_env()
+    if isolate:
+        stage_dir = Path(tempfile.mkdtemp(prefix="holdfast-rocqchk-iso-"))
+        try:
+            _stage_readonly_vo(directory, stage_dir)
+            result = subprocess.run(
+                cmd,
+                cwd=stage_dir,
+                env=env,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                check=False,
+                timeout=timeout,
+            )
+        finally:
+            _restore_writable_tree(stage_dir)
+            shutil.rmtree(stage_dir, ignore_errors=False)
+    else:
+        result = subprocess.run(
+            cmd,
+            cwd=directory,
+            env=env,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+            timeout=timeout,
+        )
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip()
         raise RuntimeError(f"rocqchk failed for {' '.join(units)}: {detail}")
+    return solver_ledger.audit_rocqchk_context(
+        f"{result.stdout}\n{result.stderr}",
+        allowed_axioms=allowed_axioms,
+    )
 
 
 def _cleanup_tempdir(temp_dir: tempfile.TemporaryDirectory[str]) -> None:
@@ -532,12 +632,22 @@ class BatchChecker:
             self._seen_units.add(unit)
             self._units.append(unit)
 
-    def verify_all(self, *, timeout: int = 180) -> None:
-        """Run ``rocqchk -silent`` once across all registered units and release temporary files."""
+    def verify_all(
+        self,
+        *,
+        timeout: int = 180,
+        allowed_axioms: Sequence[str] = (),
+    ) -> None:
+        """Run ``rocqchk -silent -o`` once across all registered units and release temporary files."""
         try:
             if not self._units:
                 raise RuntimeError("rocqchk batch has no registered units")
-            check_kernel(self.work_dir, self._units, timeout=timeout)
+            check_kernel(
+                self.work_dir,
+                self._units,
+                timeout=timeout,
+                allowed_axioms=allowed_axioms,
+            )
         finally:
             self.close()
 
