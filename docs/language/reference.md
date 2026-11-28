@@ -431,7 +431,7 @@ public struct Buffer<ghost Nat capacity>
 | Construct | Meaning | Status |
 | --- | --- | --- |
 | `proof { ... }` | Proof block whose steps elaborate to checked obligations and erase from runtime code | M |
-| `assert P;`, `assert P by e;`, `assert P by { ... }` | Intermediate fact, optionally justified by a lemma call or a nested proof block | M |
+| `assert P;`, `assert P by e;`, `assert P by (h1, h2, ...);`, `assert P by { ... }` | Intermediate fact, optionally justified by a lemma call, a multi-fact tuple of justifications, or a nested proof block | M |
 | `calc { assert a == b; assert b == c; }` | Calculational chain of transitive equalities | M |
 | `forall (T x) => P`, `exists (T x) => P` | Quantified propositions; a quantifier at the root of a clause is parenthesized | M |
 | Named hole `?name` | Each occurrence reports its available expected type or proposition and local context. An open goal blocks the build. [Mathematical diagnostics](../tooling/elaboration-prototype.md#named-goals) | M |

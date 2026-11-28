@@ -55,7 +55,7 @@ See the [elaboration research comparison](../assurance/verification-strategy.md#
 | DeepSEA/Sepref representation and scoped refinement | One explicit entry/exit representation shared by implementation and functional contract | Rocq/CHERI interpretation and representation transport |
 | Equations, Rocq-Elpi and binding generators | Generate and check dependent definitions and binding operations | Computation, equations and exact assumptions for the selected tuple; generated laws do not extend conversion |
 | Modal effects and affine handlers | Closed synchronous summaries only, with one effect presentation | Polymorphism, scoped discharge and handlers remain later extensions |
-| RefinedC/Flux-style refinements and Rocq arithmetic automation | Declared arithmetic fragment, checked reconstruction, Versioned/Slotted E-Graphs, Verified E-Graphs (Pyrosome), SMTCoq/Trakt/Sniper reflective/certificate reconstruction, and visible residuals | Correct translation between words, logical integers and target representation |
+| RefinedC/Flux-style refinements and Rocq arithmetic automation | Declared arithmetic fragment, checked reconstruction, Versioned/Slotted E-Graphs, Verified E-Graphs (Pyrosome), SMTCoq/Trakt/Sniper reflective/certificate reconstruction, Mizar/`mizar-rs`-inspired Equalizer (`NatPolyEqualizer` + `saturate_equalizer`) and `PropositionalPrechecker`, and visible residuals | Correct translation between words, logical integers and target representation |
 
 ## Judgments and interpretations
 
