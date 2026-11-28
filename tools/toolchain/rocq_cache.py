@@ -120,8 +120,18 @@ def _copy_artifacts(source_dir: Path, target_dir: Path, names: Sequence[str]) ->
         stem = Path(name).stem
         for artifact in (name, f"{stem}.vo", f"{stem}.vos", f"{stem}.glob"):
             src = source_dir / artifact
-            if src.is_file():
-                shutil.copyfile(src, target_dir / artifact)
+            if not src.is_file():
+                continue
+            with tempfile.NamedTemporaryFile(
+                dir=target_dir, prefix=f".{artifact}.", delete=False,
+            ) as tmp:
+                tmp_path = Path(tmp.name)
+            try:
+                shutil.copyfile(src, tmp_path)
+                tmp_path.replace(target_dir / artifact)
+            except BaseException:
+                tmp_path.unlink(missing_ok=True)
+                raise
 
 
 _REQUIRE_RE = re.compile(
