@@ -1266,6 +1266,13 @@ class _IntrinsicsMixin:
                         node,
                     )
                 return self._record_partial_field_move(split[0], split[1], environment, node)
+            if target_node["kind"] == "pipe_placeholder":
+                vname = "$"
+                if vname not in environment:
+                    raise self.fail("name", "'$' pipeline placeholder is only valid on the right-hand side of '|>'", target_node)
+                self._check_path_not_moved(vname, (), node)
+                self.partially_moved_fields.setdefault(vname, set()).add(())
+                return environment[vname]
             if target_node["kind"] != "name":
                 raise self.fail(
                     "type",
@@ -1275,6 +1282,12 @@ class _IntrinsicsMixin:
             vname = self.name(target_node["name"])
             if vname == "this":
                 raise self.fail("type", "cannot move borrowed receiver 'this'", node)
+            if vname in self.active_using_names:
+                raise self.fail(
+                    "type",
+                    f"cannot move or consume resource '{vname}' managed by an enclosing 'using' block",
+                    node,
+                )
             if vname not in environment:
                 if vname in self.globals:
                     raise self.fail(
@@ -3556,6 +3569,19 @@ class _IntrinsicsMixin:
                             )
                     if self._dotted_member_path(receiver) == "HoldFast.Numerics" and member_name in _INT_INTRINSICS:
                         return self._elaborate_int_intrinsic(member_name, call_args, environment, node)
+                    if member_name in {"From", "Underlying"}:
+                        distinct_type = self._interface_type_receiver(receiver, environment)
+                        if distinct_type is not None:
+                            d_head, d_args = self.spine(self.whnf(distinct_type))
+                            if (
+                                d_head.kind == "const"
+                                and isinstance(d_head.value, str)
+                                and (dinfo := self.records_by_type.get(d_head.value)) is not None
+                                and dinfo.is_distinct
+                            ):
+                                return self._elaborate_distinct_static_call(
+                                    node, dinfo, distinct_type, d_args, member_name, gen_args, call_args, environment,
+                                )
                 if any(member_name in iface.methods for iface in self.interfaces.values()):
                     implementing_type = self._interface_type_receiver(receiver, environment)
                     if implementing_type is not None:
@@ -3785,6 +3811,10 @@ class _IntrinsicsMixin:
             return self.block(node, environment)
         if kind == "binary":
             return self._elaborate_binary(node, environment)
+        if kind == "pipe":
+            return self._elaborate_pipe(node, environment)
+        if kind == "pipe_placeholder":
+            return self._elaborate_pipe_placeholder(node, environment)
         if kind == "unary":
             return self._elaborate_unary(node, environment)
         if kind == "propagate":
@@ -3811,6 +3841,10 @@ class _IntrinsicsMixin:
                 self.local(self.node(node["binding"]), environment),
                 promote_bool=promote_bool,
             )
+        if node["kind"] == "pipe":
+            return self._elaborate_pipe(
+                node, environment, expected=_PROP, in_prop=True, promote_bool=promote_bool
+            ).term
         if node["kind"] == "binary":
             operator = self.operator(node["operator"])
             if operator == "==":
@@ -3865,3 +3899,105 @@ class _IntrinsicsMixin:
 
     def proposition(self: _Elaborator, node: Node, environment: dict[str, _Binding]) -> _Term:
         return self._elaborate_proposition(node, environment, promote_bool=False)
+
+    def _elaborate_distinct_static_call(
+        self: _Elaborator,
+        node: Node,
+        dinfo: _RecordInfo,
+        distinct_type: _Term,
+        d_args: list[_Term],
+        member_name: str,
+        gen_args: list[Node],
+        call_args: list[Node],
+        environment: dict[str, _Binding],
+    ) -> _Binding:
+        if gen_args:
+            raise self.fail(
+                "type",
+                f"'{dinfo.name}.{member_name}' does not accept method generic arguments; pass type arguments on '{dinfo.name}<...>'",
+                node,
+            )
+        if member_name == "From":
+            inst_ty = dinfo.ctor_binding.type
+            for targ in d_args:
+                inst_ty = self.whnf(inst_ty)
+                inst_ty = self.substitute(inst_ty.args[1], cast("int", inst_ty.value), targ)
+            return self.apply(_Binding(_apps(dinfo.ctor_binding.term, *d_args), inst_ty), call_args, environment)
+        if len(call_args) != 1:
+            raise self.fail("type", f"'{dinfo.name}.Underlying' expects 1 argument, got {len(call_args)}", node)
+        self.node(call_args[0], "argument")
+        if call_args[0]["label"] is not None:
+            raise self.fail("name", f"'{dinfo.name}.Underlying' does not accept labeled arguments", call_args[0])
+        val_node = self.node(call_args[0]["value"])
+        val_t = self.check(val_node, distinct_type, environment)
+        self._check_value_copy(val_node, distinct_type)
+        underlying_ty = self._instantiate_record_type(dinfo, d_args, dinfo.fields[0].type)
+        return _Binding(_apps(_constant(dinfo.fields[0].proj_const), *d_args, val_t), underlying_ty)
+
+    @staticmethod
+    def _has_free_pipe_placeholder(node: object) -> bool:
+        pending: list[object] = [node]
+        while pending:
+            cur = pending.pop()
+            if isinstance(cur, dict):
+                kind = cur.get("kind")
+                if kind == "pipe_placeholder":
+                    return True
+                if kind == "pipe":
+                    pending.append(cur.get("left"))
+                    continue
+                pending.extend(cur.values())
+            elif isinstance(cur, list):
+                pending.extend(cur)
+        return False
+
+    def _elaborate_pipe_placeholder(
+        self: _Elaborator, node: Node, environment: dict[str, _Binding]
+    ) -> _Binding:
+        if "$" not in environment:
+            raise self.fail("name", "'$' pipeline placeholder is only valid on the right-hand side of '|>'", node)
+        self._check_path_not_moved("$", (), node)
+        return environment["$"]
+
+    def _elaborate_pipe(
+        self: _Elaborator,
+        node: Node,
+        environment: dict[str, _Binding],
+        *,
+        expected: _Term | None = None,
+        in_prop: bool = False,
+        promote_bool: bool = False,
+    ) -> _Binding:
+        self.site = node
+        left_node = self.node(node["left"])
+        right_node = self.node(node["right"])
+        if not self._has_free_pipe_placeholder(right_node):
+            raise self.fail(
+                "type", "pipeline right-hand side must reference the piped value with '$'", right_node
+            )
+        lhs_b = self.expression(left_node, environment)
+        self._check_value_copy(left_node, lhs_b.type)
+        pipe_var = self.fresh(lhs_b.type)
+        pipe_env = dict(environment)
+        pipe_env["$"] = _Binding(pipe_var, lhs_b.type)
+        saved_moved = self.partially_moved_fields.pop("$", None)
+        saved_borrow = self.local_borrows.pop("$", None)
+        try:
+            if in_prop:
+                rhs_term = self._elaborate_proposition(right_node, pipe_env, promote_bool=promote_bool)
+                rhs_b = _Binding(rhs_term, _PROP)
+            elif expected is not None:
+                rhs_term = self.check(right_node, expected, pipe_env)
+                rhs_b = _Binding(rhs_term, expected)
+            else:
+                rhs_b = self.expression(right_node, pipe_env)
+        finally:
+            self.partially_moved_fields.pop("$", None)
+            self.local_borrows.pop("$", None)
+            if saved_moved is not None:
+                self.partially_moved_fields["$"] = saved_moved
+            if saved_borrow is not None:
+                self.local_borrows["$"] = saved_borrow
+        lam_term = _term("lam", lhs_b.type, rhs_b.term, value=pipe_var.value)
+        result_ty = self.substitute(rhs_b.type, cast("int", pipe_var.value), lhs_b.term)
+        return _Binding(_app(lam_term, lhs_b.term), result_ty)

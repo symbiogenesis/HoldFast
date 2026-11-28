@@ -203,6 +203,7 @@ class _WhnfMixin:
                 record_info = self.records_by_ctor[rec_head.value]
                 if (
                     not record_info.is_dependent
+                    and not record_info.is_distinct
                     and record_info.fields
                     and len(rec_args) == len(record_info.generic_vars) + len(record_info.fields)
                 ):

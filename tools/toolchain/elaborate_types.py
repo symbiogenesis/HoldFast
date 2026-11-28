@@ -361,6 +361,7 @@ class _RecordInfo:
     fields: tuple[_RecordField, ...]
     properties: dict[str, _RecordProperty]
     is_dependent: bool = False
+    is_distinct: bool = False
     tail_sig_types: tuple[_Term, ...] = ()
     invariants: tuple[_RecordInvariant, ...] = ()
     methods: dict[str, _RecordMethod] = field(default_factory=dict)

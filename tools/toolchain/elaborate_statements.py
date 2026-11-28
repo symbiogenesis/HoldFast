@@ -418,6 +418,12 @@ class _StatementsMixin:
                     prop, inner_rebuild = res_u
                     return prop, self._make_nested_list_rebuilder(node, "updates", upds, i, u, "value", inner_rebuild)
             return None
+        if kind == "pipe":
+            res_l = self._split_first_propagate(self.node(node["left"]))
+            if res_l is not None:
+                prop, inner_rebuild = res_l
+                return prop, lambda repl: self._with_node_field(node, "left", inner_rebuild(repl))
+            return None
         if kind == "if_expression":
             if self._pattern_conjuncts(self.node(node["condition"])):
                 # Each operand's propagation is handled inside its successful guards.
@@ -534,6 +540,10 @@ class _StatementsMixin:
             )
             self.unify(inst_payload_types[err_idx], ret_err_type)
             early_return_term = _apps(_constant(err_ctor.ctor_const), *ret_type_args, err_var)
+        if self.active_using_cleanups:
+            early_return_term, _ = self._apply_using_cleanups(
+                early_return_term, target_return_type, environment, prop_node
+            )
         ok_type = inst_payload_types[ok_idx]
         ok_var = self.fresh(ok_type)
         temp_name = f"__holdfast_prop_{ok_var.value}"
@@ -1935,6 +1945,241 @@ class _StatementsMixin:
             lint_extra_lifts(self, statement, target, record)
         return after_env
 
+    def _prepare_using_cleanup(
+        self: _Elaborator,
+        statement: Node,
+        extended: dict[str, _Binding],
+    ) -> tuple[
+        str,
+        dict[str, _Binding],
+        Callable[[dict[str, _Binding], Node], tuple[_Term, dict[str, _Binding]]],
+        Callable[[dict[str, _Binding]], dict[str, _Binding]],
+    ]:
+        self.site = statement
+        binding_node = self.node(statement["binding"])
+        bkind = binding_node["kind"]
+        if bkind not in {"let", "var"}:
+            raise self.fail(
+                "type",
+                "'using' requires a simple 'let' or 'var' binding (not a pattern)",
+                binding_node,
+            )
+        self.no_roles(binding_node, "grade")
+        h_name = self.name(binding_node["name"])
+        if h_name in {"Type", "_", "this", "$"} or "." in h_name:
+            raise self.fail("name", f"invalid or reserved 'using' binding name '{h_name}'", binding_node)
+        if h_name in self.frozen_collections:
+            raise self.fail("type", f"cannot rebind collection '{h_name}' while iterating over it", binding_node)
+        init_node = self.node(binding_node["value"])
+        if binding_node["type"] is not None:
+            ann_ty = self.type(self.node(binding_node["type"]), extended)
+            init_term = self.check(init_node, ann_ty, extended)
+            res_type = ann_ty
+        else:
+            init_b = self.expression(init_node, extended)
+            init_term = init_b.term
+            res_type = init_b.type
+        self._check_value_copy(init_node, res_type)
+        body_env = dict(extended)
+        self._consume_call_updates(body_env, binding_node)
+
+        if self.inferred_effect_calls is not None:
+            raise self.fail(
+                "type",
+                "private effect inference requires explicit effects when using 'IDispose' cleanup",
+                statement,
+            )
+        iface = self.interfaces.get("IDispose")
+        if iface is None or len(iface.generic_vars) != 1 or "Dispose" not in iface.methods:
+            raise self.fail(
+                "name",
+                "'using' requires interface 'IDispose<T>' with a single-argument 'Dispose' method returning Unit",
+                statement,
+            )
+        mspec = iface.methods["Dispose"]
+        if mspec.nullary or len(mspec.param_vars) != 1:
+            raise self.fail("type", "'IDispose.Dispose' must take exactly one parameter", statement)
+        ret_inst = self._instantiate_generic_type(iface.generic_vars, [res_type], mspec.return_type)
+        self.unify(ret_inst, _UNIT)
+        self._resolve_single_interface_witness(iface.name, (self.whnf(res_type),), body_env, statement)
+
+        had_prior = h_name in extended
+        prior_binding = extended.get(h_name)
+        saved_mut = h_name in self.mutable_locals
+        saved_var = h_name in self.var_locals
+        saved_borrow = self.local_borrows.pop(h_name, None)
+        saved_indexed = self.indexed_local_borrows.pop(h_name, None)
+
+        self.bind_local(body_env, h_name, _Binding(init_term, res_type))
+        if bkind == "var":
+            self.mutable_locals.add(h_name)
+            self.var_locals.add(h_name)
+        else:
+            self.mutable_locals.discard(h_name)
+            self.var_locals.discard(h_name)
+
+        def run_cleanup(
+            cur_env: dict[str, _Binding], exit_site: Node
+        ) -> tuple[_Term, dict[str, _Binding]]:
+            for bname, (_mode, owner_n, _fp) in self.local_borrows.items():
+                if bname in cur_env and owner_n == h_name:
+                    raise self.fail(
+                        "type",
+                        f"cannot end 'using' scope for '{h_name}' while borrow '{bname}' is still live",
+                        exit_site,
+                    )
+            for bname, ib in self.indexed_local_borrows.items():
+                if bname in cur_env and ib.owner == h_name:
+                    raise self.fail(
+                        "type",
+                        f"cannot end 'using' scope for '{h_name}' while borrow '{bname}' is still live",
+                        exit_site,
+                    )
+            p_mod = mspec.param_modifiers[0]
+            name_node: Node = {"kind": "name", "span": exit_site["span"], "name": {"text": h_name, "span": exit_site["span"]}}
+            if p_mod in {"in", "ref", "owned"}:
+                op_name = "move" if p_mod == "owned" else p_mod
+                arg_val_node: Node = {
+                    "kind": "unary",
+                    "span": exit_site["span"],
+                    "operator": {"text": op_name, "span": exit_site["span"]},
+                    "value": name_node,
+                }
+            else:
+                arg_val_node = name_node
+            synth_arg: Node = {"kind": "argument", "span": exit_site["span"], "label": None, "value": arg_val_node}
+            synth_call: Node = {
+                "kind": "call",
+                "span": exit_site["span"],
+                "callee": {"kind": "name", "span": exit_site["span"], "name": {"text": iface.name, "span": exit_site["span"]}},
+                "arguments": [synth_arg],
+            }
+            cleanup_env = dict(cur_env)
+            was_using = h_name in self.active_using_names
+            was_mutable = h_name in self.mutable_locals
+            was_nav = self.navigation
+            self.active_using_names.discard(h_name)
+            if p_mod == "ref":
+                self.mutable_locals.add(h_name)
+            self.navigation = None
+            try:
+                dispose_b = self._elaborate_interface_method_call(
+                    synth_call, iface, mspec, self.whnf(res_type), [], None, [synth_arg], cleanup_env
+                )
+                self._consume_call_updates(cleanup_env, synth_call)
+            finally:
+                self.navigation = was_nav
+                if was_mutable:
+                    self.mutable_locals.add(h_name)
+                else:
+                    self.mutable_locals.discard(h_name)
+                if was_using:
+                    self.active_using_names.add(h_name)
+            return dispose_b.term, cleanup_env
+
+        def restore_outer(cur_env: dict[str, _Binding]) -> dict[str, _Binding]:
+            self.local_borrows.pop(h_name, None)
+            self.indexed_local_borrows.pop(h_name, None)
+            if saved_borrow is not None:
+                self.local_borrows[h_name] = saved_borrow
+            if saved_indexed is not None:
+                self.indexed_local_borrows[h_name] = saved_indexed
+            if saved_mut:
+                self.mutable_locals.add(h_name)
+            else:
+                self.mutable_locals.discard(h_name)
+            if saved_var:
+                self.var_locals.add(h_name)
+            else:
+                self.var_locals.discard(h_name)
+            outer_env = {k: v for k, v in cur_env.items() if k != h_name}
+            if had_prior and prior_binding is not None:
+                outer_env[h_name] = prior_binding
+            return outer_env
+
+        return h_name, body_env, run_cleanup, restore_outer
+
+    def _apply_using_cleanups(
+        self: _Elaborator,
+        ret_term: _Term,
+        ret_type: _Term,
+        cur_env: dict[str, _Binding],
+        exit_site: Node,
+    ) -> tuple[_Term, dict[str, _Binding]]:
+        if not self.active_using_cleanups:
+            return ret_term, cur_env
+        res_var = self.fresh(ret_type)
+        wrapped: _Term = res_var
+        dispose_terms: list[_Term] = []
+        work_env = dict(cur_env)
+        for _h_name, cleanup_fn in reversed(self.active_using_cleanups):
+            dispose_t, work_env = cleanup_fn(work_env, exit_site)
+            dispose_terms.append(dispose_t)
+        for dispose_t in reversed(dispose_terms):
+            u_var = self.fresh(_UNIT)
+            wrapped = _app(_term("lam", _UNIT, wrapped, value=u_var.value), dispose_t)
+        wrapped = _app(_term("lam", ret_type, wrapped, value=res_var.value), ret_term)
+        return wrapped, work_env
+
+    def _lift_using_propagate(
+        self: _Elaborator,
+        node: Node,
+        statement: Node,
+        bnode: Node,
+        statements: list[Node],
+        index: int,
+        extended: dict[str, _Binding],
+        expected: _Term | None,
+        active_facts: list[_Binding] | tuple[_Binding, ...],
+        statement_facts: list[_Binding],
+    ) -> _Binding | None:
+        if bnode["kind"] not in {"let", "var"} or bnode.get("value") is None:
+            return None
+        split_res = self._split_first_propagate(self.node(bnode["value"]))
+        if split_res is None:
+            return None
+        prop_node, rebuild = split_res
+        target_ret = expected if expected is not None else self.current_return_type
+        if target_ret is None:
+            raise self.fail(
+                "type",
+                "'?' propagation requires an enclosing callable or block returning an Option or Result union",
+                prop_node,
+            )
+        combined_f = (*active_facts, *statement_facts)
+        term = self._elaborate_propagate(
+            prop_node,
+            extended,
+            target_ret,
+            lambda temp_name, _ok_b, ok_env: self.block(
+                {
+                    "kind": "block",
+                    "span": node["span"],
+                    "statements": [
+                        {
+                            **statement,
+                            "binding": self._with_node_field(
+                                bnode,
+                                "value",
+                                rebuild(
+                                    {
+                                        "kind": "name",
+                                        "span": prop_node["span"],
+                                        "name": {"text": temp_name, "span": prop_node["span"]},
+                                    }
+                                ),
+                            ),
+                        },
+                        *statements[index + 1 :],
+                    ],
+                },
+                ok_env,
+                target_ret,
+                facts=combined_f,
+            ).term,
+        )
+        return _Binding(term, target_ret)
+
     def _check_loop_invariants(
         self: _Elaborator,
         contracts: list[Node],
@@ -2138,6 +2383,34 @@ class _StatementsMixin:
                     extended = self._elaborate_scope_statement(
                         statement, extended, (*facts, *statement_facts)
                     )
+                    continue
+                if kind == "using":
+                    h_name, body_env, run_cleanup, restore_outer = self._prepare_using_cleanup(
+                        statement, extended
+                    )
+                    body_block = self.node(statement["body"], "block")
+                    self.active_using_cleanups.append((h_name, run_cleanup))
+                    self.active_using_names.add(h_name)
+                    try:
+                        after_env, ctrl = self._elaborate_non_returning_block(
+                            body_block, body_env, (*facts, *statement_facts)
+                        )
+                        if ctrl in {"break", "continue"}:
+                            raise self.fail(
+                                "type",
+                                f"cannot '{ctrl}' out of a 'using' scope without closing '{h_name}'",
+                                body_block,
+                            )
+                        self.active_using_cleanups.pop()
+                        _, cleaned_env = run_cleanup(after_env, statement)
+                    finally:
+                        if self.active_using_cleanups and self.active_using_cleanups[-1][0] == h_name:
+                            self.active_using_cleanups.pop()
+                        self.active_using_names.discard(h_name)
+                        if "cleaned_env" in locals():
+                            extended = restore_outer(cleaned_env)
+                        else:
+                            restore_outer(extended)
                     continue
                 if kind == "foreach":
                     extended = self._elaborate_foreach_statement(
@@ -3367,7 +3640,7 @@ class _StatementsMixin:
             return then_b or else_b
         if kind in {"let_else", "var_else"}:
             return self._contains_break_statement(self.node(node["else"]))
-        if kind == "open_invariant":
+        if kind in {"open_invariant", "using"}:
             return self._contains_break_statement(self.node(node["body"]))
         return False
 
@@ -3527,6 +3800,104 @@ class _StatementsMixin:
                         statement, extended, (*active_facts, *statement_facts)
                     )
                     continue
+                if kind == "using":
+                    bnode = self.node(statement["binding"])
+                    lifted = self._lift_using_propagate(
+                        node, statement, bnode, statements, index, extended, expected, active_facts, statement_facts
+                    )
+                    if lifted is not None:
+                        return finish(lifted)
+                    body_block = self.node(statement["body"], "block")
+                    combined_f = (*active_facts, *statement_facts)
+                    if index < len(statements) - 1 and self._stmt_may_return(body_block):
+                        target_ret = expected if expected is not None else self.current_return_type
+                        if target_ret is None:
+                            raise self.fail("type", "returning 'using' scope requires a known return type", statement)
+                        ref_names = tuple(
+                            n for n in sorted(self.entry_env) if n in self.mutable_locals and n in extended
+                        )
+                        state_names = tuple(n for n in extended if n in self.mutable_locals)
+                        acc_term, _, _ = self._elaborate_returning_block(
+                            statements[index:], extended, target_ret, combined_f,
+                            snap_names=ref_names, state_names=state_names,
+                        )
+                        acc_t = self.infer(acc_term)
+                        m_v = self.fresh(acc_t)
+                        ret_pk_t = acc_t.args[0]
+                        st_pk_t = acc_t.args[1]
+                        rp = self.fresh(ret_pk_t)
+                        rv, _ = self._unpack_names_with_head(ref_names, extended, _Binding(rp, ret_pk_t), target_ret)
+                        sv = self.fresh(st_pk_t)
+                        res_t = _term(
+                            "sum_match",
+                            _term("lam", acc_t, target_ret, value=m_v.value),
+                            acc_term,
+                            _term("lam", ret_pk_t, rv, value=rp.value),
+                            _term("lam", st_pk_t, self._default_term_for_type(target_ret), value=sv.value),
+                        )
+                        self.final_ref_bindings = dict(extended)
+                        self.final_return_facts = list(self.active_facts[saved_active_len:])
+                        return finish(_Binding(res_t, target_ret))
+                    h_name, body_env, run_cleanup, restore_outer = self._prepare_using_cleanup(
+                        statement, extended
+                    )
+                    self.active_using_cleanups.append((h_name, run_cleanup))
+                    self.active_using_names.add(h_name)
+                    if index == len(statements) - 1 and self._stmt_may_return(body_block):
+                        try:
+                            res_b = self.block(body_block, body_env, expected, facts=combined_f)
+                            self.final_ref_bindings = restore_outer(self.final_ref_bindings)
+                            return finish(res_b)
+                        finally:
+                            if self.active_using_cleanups and self.active_using_cleanups[-1][0] == h_name:
+                                self.active_using_cleanups.pop()
+                            self.active_using_names.discard(h_name)
+                            restore_outer(extended)
+                    cleaned_env: dict[str, _Binding] | None = None
+                    try:
+                        after_env, ctrl = self._elaborate_non_returning_block(
+                            body_block, body_env, combined_f
+                        )
+                        if ctrl in {"break", "continue"}:
+                            raise self.fail(
+                                "type",
+                                f"cannot '{ctrl}' out of a 'using' scope without closing '{h_name}'",
+                                body_block,
+                            )
+                        self.active_using_cleanups.pop()
+                        dispose_t, cleaned_env = run_cleanup(after_env, statement)
+                    finally:
+                        if self.active_using_cleanups and self.active_using_cleanups[-1][0] == h_name:
+                            self.active_using_cleanups.pop()
+                        self.active_using_names.discard(h_name)
+                        if cleaned_env is not None:
+                            extended = restore_outer(cleaned_env)
+                        else:
+                            restore_outer(extended)
+                    if index == len(statements) - 1:
+                        if expected is None or self.whnf(expected) != _UNIT:
+                            raise self.fail("type", "a pure block requires an explicit terminal return", node)
+                        if self.uninitialized_out_params:
+                            uninit_list = ", ".join(sorted(self.uninitialized_out_params))
+                            raise self.fail(
+                                "type",
+                                f"cannot return before 'out' parameter '{uninit_list}' is initialized",
+                                node,
+                            )
+                        u_var = self.fresh(_UNIT)
+                        unit_term = _app(_term("lam", _UNIT, _term("unit"), value=u_var.value), dispose_t)
+                        self.final_ref_bindings = dict(extended)
+                        self.final_return_facts = list(self.active_facts[saved_active_len:])
+                        return finish(_Binding(unit_term, _UNIT))
+                    rest_b = self.block(
+                        {"kind": "block", "span": node["span"], "statements": statements[index + 1 :]},
+                        extended,
+                        expected,
+                        facts=combined_f,
+                    )
+                    u_var = self.fresh(_UNIT)
+                    wrapped_rest = _app(_term("lam", _UNIT, rest_b.term, value=u_var.value), dispose_t)
+                    return finish(_Binding(wrapped_rest, rest_b.type))
                 if kind == "foreach":
                     if index < len(statements) - 1 and self._stmt_may_return(self.node(statement["body"], "block")):
                         if self._split_range_foreach_return(self.node(statement["body"], "block")) is not None:
@@ -3807,6 +4178,9 @@ class _StatementsMixin:
                         value = _Binding(_term("unit"), _UNIT)
                         if expected is not None:
                             self.unify(value.type, expected)
+                        if self.active_using_cleanups:
+                            wrapped_u, extended = self._apply_using_cleanups(value.term, value.type, extended, cur_stmt)
+                            value = _Binding(wrapped_u, value.type)
                         self.final_ref_bindings = dict(extended)
                         self.final_return_facts = list(self.active_facts[saved_active_len:])
                         return finish(value)
@@ -3814,6 +4188,14 @@ class _StatementsMixin:
                     if lifted is not None:
                         return lifted
                     value_node = self.node(cur_stmt["value"])
+                    unwrapped_ret = self._unwrap_group(value_node)
+                    if unwrapped_ret["kind"] == "name" and self.name(unwrapped_ret["name"]) in self.active_using_names:
+                        rname = self.name(unwrapped_ret["name"])
+                        raise self.fail(
+                            "type",
+                            f"cannot return resource '{rname}' managed by an enclosing 'using' block",
+                            cur_stmt,
+                        )
                     result = (
                         self.expression(value_node, extended)
                         if expected is None
@@ -3842,6 +4224,9 @@ class _StatementsMixin:
                             + self._fallible_out_hint(result.type),
                             cur_stmt,
                         )
+                    if self.active_using_cleanups:
+                        wrapped_ret, extended = self._apply_using_cleanups(result.term, result.type, extended, cur_stmt)
+                        result = _Binding(wrapped_ret, result.type)
                     self.final_ref_bindings = dict(extended)
                     self.final_return_facts = list(self.active_facts[saved_active_len:])
                     return finish(result)

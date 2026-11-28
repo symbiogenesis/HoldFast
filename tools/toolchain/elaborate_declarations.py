@@ -465,6 +465,142 @@ class _DeclarationsMixin:
         for gnode in generics:
             gname = self.name(gnode["name"])
             generic_env[gname] = environment[gname]
+        self._finish_record_body(
+            node, name, allowed_modifiers, generics, generic_vars, generic_env,
+            record_type_app, record_fields, record_contracts, record_info,
+        )
+
+    def _distinct_declaration(self: _Elaborator, node: Node, first_meta: int) -> None:
+        """Elaborate a nominal zero-cost `distinct` wrapper whose Rocq carrier is transparent."""
+        modifiers = node["modifiers"]
+        allowed_modifiers = {"public", "private", "internal"}
+        if (not isinstance(modifiers, list)
+                or any(not isinstance(value, str) or value not in allowed_modifiers for value in modifiers)
+                or len(modifiers) != len(set(modifiers))):
+            raise self.fail("unsupported", "unsupported or repeated declaration modifiers", node)
+        record_contracts = self.nodes(node["contracts"])
+        for c_node in record_contracts:
+            self.node(c_node, "contract")
+            if c_node["role"] != "invariant":
+                raise self.fail("unsupported", f"distinct contract '{c_node['role']}' is not supported", c_node)
+        name = self.name(node["name"])
+        self._evict_builtin_if_shadowed(name)
+        if (name in self.globals or name in self.records or name in self.unions
+                or name in self.union_ctors or name in self.interfaces
+                or name in {"Type", "_", "this"} or "." in name):
+            raise self.fail("name", f"duplicate or reserved declaration '{name}'", node)
+        self._record_visibility(name, modifiers, node)
+        raw_generics = self.nodes(node["generics"])
+        generics, decl_regions = self._extract_regions(raw_generics)
+        self.active_regions = set(decl_regions)
+        underlying_node = self.node(node["type"])
+        if underlying_node["kind"] == "modified_type" and underlying_node.get("modifier") not in {"in", "ref", "shared_ref", "owned"}:
+            raise self.fail(
+                "unsupported",
+                f"distinct underlying type cannot have loan modifier '{underlying_node.get('modifier')}'",
+                node,
+            )
+        param_node: Node = {
+            "kind": "parameter",
+            "span": underlying_node["span"],
+            "name": {"text": "Value", "span": underlying_node["span"]},
+            "type": underlying_node,
+            "grade": None,
+        }
+        variables, environment = self.telescope(generics, [param_node], {}, unit=False)
+        generic_vars = variables[:len(generics)]
+        fvar = variables[len(generics)]
+        underlying_ty = self.types[cast("int", fvar.value)]
+        rep_sort = _term("sort", value=max(self.sort(underlying_ty), 0))
+        type_sig = self.wrap("pi", generic_vars, rep_sort)
+        type_def = self.wrap("lam", generic_vars, underlying_ty)
+        self.site = node
+        self.complete(type_sig)
+        self.complete(type_def)
+        for index in range(first_meta, len(self.metas)):
+            self.complete(_term("meta", value=index))
+            self.complete(self.metas[index].type)
+        type_emitted = f"{self.emission_prefix}_d{len(self.output)}_{name}"
+        self.output.append(f"Definition {type_emitted} : {self.render(type_sig)} :=\n  {self.render(type_def)}.")
+        type_binding = _Binding(_constant(type_emitted), type_sig, len(generics))
+        self.globals[name] = type_binding
+        self.constants[type_emitted] = type_binding
+        decl_reg_tuple = tuple(sorted(decl_regions))
+        self.type_region_params[type_emitted] = decl_reg_tuple
+        self.type_region_variances[type_emitted] = self._compute_record_region_variances(decl_reg_tuple, [param_node])
+        qual = self._extract_type_region_qual(underlying_node)
+        self.record_field_borrows[type_emitted] = (("Value", qual.modifier, qual.region),)
+
+        record_type_app = _apps(_constant(type_emitted), *generic_vars)
+        ctor_vars = [*generic_vars, fvar]
+        ctor_sig = self.wrap("pi", ctor_vars, record_type_app)
+        ctor_def = self.wrap("lam", ctor_vars, fvar)
+        self.complete(ctor_sig)
+        self.complete(ctor_def)
+        ctor_emitted = f"{self.emission_prefix}_d{len(self.output)}_{name}_ctor"
+        self.output.append(f"Definition {ctor_emitted} : {self.render(ctor_sig)} :=\n  {self.render(ctor_def)}.")
+        ctor_binding = _Binding(_constant(ctor_emitted), ctor_sig, len(generics))
+        self.constants[ctor_emitted] = ctor_binding
+
+        proj_self = self.fresh(record_type_app)
+        proj_vars = [*generic_vars, proj_self]
+        proj_sig = self.wrap("pi", proj_vars, underlying_ty)
+        proj_def = self.wrap("lam", proj_vars, proj_self)
+        self.complete(proj_sig)
+        self.complete(proj_def)
+        proj_emitted = f"{self.emission_prefix}_d{len(self.output)}_{name}_Value"
+        self.output.append(f"Definition {proj_emitted} : {self.render(proj_sig)} :=\n  {self.render(proj_def)}.")
+        self.constants[proj_emitted] = _Binding(_constant(proj_emitted), proj_sig, len(generics))
+
+        record_fields = [
+            _RecordField(
+                "Value",
+                fvar,
+                underlying_ty,
+                proj_emitted,
+                readonly_span=cast("int", fvar.value) in self.readonly_span_vars,
+            )
+        ]
+        record_info = _RecordInfo(
+            name=name,
+            type_const=type_emitted,
+            ctor_const=ctor_emitted,
+            ctor_binding=ctor_binding,
+            generic_vars=tuple(generic_vars),
+            fields=tuple(record_fields),
+            properties={},
+            is_dependent=False,
+            is_distinct=True,
+        )
+        self.records[name] = record_info
+        if self.package_instance is not None:
+            self.nominal_owners[type_emitted] = self.package_instance
+        self.records_by_type[type_emitted] = record_info
+        self.records_by_ctor[ctor_emitted] = record_info
+        self.record_projections[proj_emitted] = (record_info, 0)
+
+        generic_env: dict[str, _Binding] = {}
+        for gnode in generics:
+            gname = self.name(gnode["name"])
+            generic_env[gname] = environment[gname]
+        self._finish_record_body(
+            node, name, allowed_modifiers, generics, generic_vars, generic_env,
+            record_type_app, record_fields, record_contracts, record_info,
+        )
+
+    def _finish_record_body(
+        self: _Elaborator,
+        node: Node,
+        name: str,
+        allowed_modifiers: set[str],
+        generics: list[Node],
+        generic_vars: list[_Term],
+        generic_env: dict[str, _Binding],
+        record_type_app: _Term,
+        record_fields: list[_RecordField],
+        record_contracts: list[Node],
+        record_info: _RecordInfo,
+    ) -> None:
         member_declarations = self.nodes(node["declarations"])
         for member_node in member_declarations:
             self.site = member_node
@@ -2766,6 +2902,8 @@ class _DeclarationsMixin:
         self.frozen_collections.clear()
         self.lifted_invariants.clear()
         self.active_lift_scopes = 0
+        self.active_using_cleanups.clear()
+        self.active_using_names.clear()
         self.in_loop_depth = 0
         self.active_regions.clear()
         self.phase_uses.clear()
@@ -2779,6 +2917,9 @@ class _DeclarationsMixin:
             return
         if kind == "record":
             self._record_declaration(node, first_meta)
+            return
+        if kind == "distinct":
+            self._distinct_declaration(node, first_meta)
             return
         if kind == "union":
             self._union_declaration(node, first_meta)

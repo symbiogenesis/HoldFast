@@ -266,6 +266,8 @@ class _Elaborator(
         self.frozen_collections: set[str] = set()
         self.lifted_invariants: dict[str, set[str]] = {}
         self.active_lift_scopes: int = 0
+        self.active_using_cleanups: list[tuple[str, Callable[[dict[str, _Binding], Node], tuple[_Term, dict[str, _Binding]]]]] = []
+        self.active_using_names: set[str] = set()
         self._in_lifted_target_assignment: str | None = None
         self.in_loop_depth: int = 0
         self.active_regions: set[str] = set()
@@ -1458,7 +1460,7 @@ class _Elaborator(
                    or self._owns_fields(self._instantiate_generic_type(params, args, field.type)) for field in fields)
 
     def _check_value_copy(self, source: Node, value_type: _Term) -> None:
-        if (self.in_executable_function and self._unwrap_group(source)["kind"] in {"name", "member", "index"}
+        if (self.in_executable_function and self._unwrap_group(source)["kind"] in {"name", "member", "index", "pipe_placeholder"}
                 and self._owns_fields(value_type)):
             raise self.fail("type", "copying a value with owned fields requires an explicit whole-value move", source)
 
@@ -1940,8 +1942,9 @@ class _Elaborator(
                     elif is_shared_ref_param and arg_ident_node["kind"] != "name":
                         self._resolve_local_borrow_target("shared_ref", arg_ident_node, environment, node)
                         loan_targets[idx] = (arg_ident_node, value_type.args[0])
-                    if arg_ident_node["kind"] == "name":
-                        arg_vname = self.name(arg_ident_node["name"])
+                    if arg_ident_node["kind"] in {"name", "pipe_placeholder"}:
+                        is_pipe_placeholder = arg_ident_node["kind"] == "pipe_placeholder"
+                        arg_vname = "$" if is_pipe_placeholder else self.name(arg_ident_node["name"])
                         lifted_set = self.lifted_invariants.get(arg_vname)
                         if lifted_set is not None and len(lifted_set) > 0:
                             clause_n = min(lifted_set)
@@ -1950,7 +1953,15 @@ class _Elaborator(
                                 f"cannot pass record '{arg_vname}' to a callable while invariant '{clause_n}' is lifted",
                                 node,
                             )
+                        if arg_mod == "move" and arg_vname in self.active_using_names:
+                            raise self.fail(
+                                "type",
+                                f"cannot move or consume resource '{arg_vname}' managed by an enclosing 'using' block",
+                                node,
+                            )
                         if is_shared_ref_param or arg_mod == "shared_ref":
+                            if is_pipe_placeholder:
+                                raise self.fail("type", "cannot pass immutable binding '$' as a 'shared ref' argument", node)
                             if arg_vname in self.readonly_in_params or self._is_readonly_span(environment[arg_vname].term):
                                 raise self.fail("type", f"cannot take 'shared ref' borrow of read-only 'in' parameter '{arg_vname}'", node)
                             if arg_vname not in self.mutable_locals and arg_vname not in self.shared_ref_locals:
@@ -1958,6 +1969,8 @@ class _Elaborator(
                             seen_loan_names.add(arg_vname)
                             loan_targets[idx] = (arg_ident_node, value_type.args[0])
                         elif is_ref_param or arg_mod == "ref":
+                            if is_pipe_placeholder:
+                                raise self.fail("type", "cannot pass immutable binding '$' as a 'ref' argument", node)
                             if arg_vname in self.indexed_local_borrows and self.indexed_local_borrows[arg_vname].mode != "ref":
                                 raise self.fail(
                                     "type",
@@ -1991,6 +2004,12 @@ class _Elaborator(
                                 )
                             seen_loan_names.add(arg_vname)
                         elif arg_vname in seen_loan_names:
+                            if arg_vname == "$":
+                                raise self.fail(
+                                    "type",
+                                    "cannot use or borrow '$' after it was moved in the same call (use-after-owner-move)",
+                                    node,
+                                )
                             raise self.fail("type", f"overlapping loan for '{arg_vname}' in call", node)
                         if not (is_shared_ref_param or arg_mod == "shared_ref"):
                             all_arg_var_names.add(arg_vname)
@@ -2672,6 +2691,8 @@ class _Elaborator(
             return self.if_expression(node, environment, expected).term
         if node["kind"] == "with_expression":
             return self.with_expression(node, environment, expected).term
+        if node["kind"] == "pipe":
+            return self._elaborate_pipe(node, environment, expected=expected).term
         if node["kind"] == "match_expression":
             return self.match(node, environment, expected, expression_arms=True).term
         if node["kind"] == "tuple":

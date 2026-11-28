@@ -1009,7 +1009,7 @@ class _BorrowMixin:
         kind = node.get("kind")
         if kind == "return":
             return True
-        if kind in {"block", "open_invariant", "while", "foreach", "foreach_collection"}:
+        if kind in {"block", "open_invariant", "using", "while", "foreach", "foreach_collection"}:
             body = node.get("body") if kind != "block" else node
             return isinstance(body, dict) and self._stmt_may_return(self.nodes(cast("Node", body)["statements"]))
         if kind == "if":
@@ -1072,8 +1072,19 @@ class _BorrowMixin:
                     val_t = _term("unit")
                     self.unify(ret_type, _UNIT)
                 else:
-                    val_t = self.check(self.node(stmt["value"]), ret_type, cur_env)
+                    val_node = self.node(stmt["value"])
+                    unwrapped_val = self._unwrap_group(val_node)
+                    if unwrapped_val["kind"] == "name" and self.name(unwrapped_val["name"]) in self.active_using_names:
+                        rname = self.name(unwrapped_val["name"])
+                        raise self.fail(
+                            "type",
+                            f"cannot return resource '{rname}' managed by an enclosing 'using' block",
+                            stmt,
+                        )
+                    val_t = self.check(val_node, ret_type, cur_env)
                     self._consume_call_updates(cur_env, stmt)
+                if self.active_using_cleanups:
+                    val_t, cur_env = self._apply_using_cleanups(val_t, ret_type, cur_env, stmt)
                 return make_ret(val_t, cur_env), cur_env, "return"
             if kind == "break":
                 if not allow_break:
@@ -1112,6 +1123,53 @@ class _BorrowMixin:
                 if ctrl == "continue":
                     return make_cont(False, next_env), next_env, "continue"
                 return step_seq(idx + 1, next_env, cur_facts)
+            if kind == "using":
+                h_name, body_env, run_cleanup, restore_outer = self._prepare_using_cleanup(stmt, dict(cur_env))
+                body_stmts = self.nodes(self.node(stmt["body"], "block")["statements"])
+                self.active_using_cleanups.append((h_name, run_cleanup))
+                self.active_using_names.add(h_name)
+                try:
+                    sub_acc, sub_env, sub_ctrl = self._elaborate_returning_block(
+                        body_stmts,
+                        body_env,
+                        ret_type,
+                        (*facts, *cur_facts),
+                        allow_break=allow_break,
+                        snap_names=snap_names,
+                        state_names=state_names,
+                    )
+                    if sub_ctrl in {"break", "continue"}:
+                        raise self.fail(
+                            "type",
+                            f"cannot '{sub_ctrl}' out of a 'using' scope without closing '{h_name}'",
+                            stmt,
+                        )
+                    self.active_using_cleanups.pop()
+                    self.active_using_names.discard(h_name)
+                    if sub_ctrl == "return":
+                        return sub_acc, restore_outer(sub_env), "return"
+
+                    def after_using(next_env: dict[str, _Binding]) -> _Term:
+                        dispose_t, cleaned_env = run_cleanup(next_env, stmt)
+                        outer_env = restore_outer(cleaned_env)
+                        rest_t = step_seq(idx + 1, outer_env, cur_facts)[0]
+                        u_var = self.fresh(_UNIT)
+                        return _app(_term("lam", _UNIT, rest_t, value=u_var.value), dispose_t)
+
+                    return self._chain_acc_continuation(
+                        sub_acc,
+                        ret_pack_t,
+                        cont_state_t,
+                        acc_type,
+                        state_names,
+                        body_env,
+                        after_using,
+                    ), cur_env, None
+                finally:
+                    if self.active_using_cleanups and self.active_using_cleanups[-1][0] == h_name:
+                        self.active_using_cleanups.pop()
+                    self.active_using_names.discard(h_name)
+                    restore_outer(cur_env)
             if kind == "if" and self._stmt_may_return(stmt):
                 cond_node = self.node(stmt["condition"])
                 cond_t = self.check(cond_node, _BOOL, cur_env)

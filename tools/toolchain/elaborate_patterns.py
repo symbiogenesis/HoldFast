@@ -1524,8 +1524,11 @@ class _PatternsMixin:
                 if len(ctor.fields) == 1:
                     field_type = self._instantiate_generic_type(generics, col_type_args, ctor.fields[0].type)
                     field_var = self.fresh(field_type)
-                    unit_var = self.fresh(_UNIT)
                     body = constructor_body(ctor, [_Binding(field_var, field_type)])
+                    if isinstance(ctor, _RecordInfo) and ctor.is_distinct:
+                        proj_val = _apps(_constant(ctor.fields[0].proj_const), *col_type_args, col_scrutinee)
+                        return _app(_term("lam", field_type, body, value=field_var.value), proj_val)
+                    unit_var = self.fresh(_UNIT)
                     if isinstance(ctor, _UnionCtor) and motive_body is not None:
                         pair = _term("pair", field_type, _UNIT, field_var, unit_var)
                         unit_motive = self.substitute(

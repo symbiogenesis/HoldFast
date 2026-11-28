@@ -4929,6 +4929,7 @@ def _graded_borrow_and_gat_roles(source: bytes, result: dict[str, Json]) -> None
 def _zena_syntax_roles(source: bytes, result: dict[str, Json]) -> None:
     tree = result.get("ast")
     port = _named(tree, "distinct", "Port")
+    _exact_span(source, port, b"public distinct Port = u16;")
     _type_head(port.get("type"), "u16", 0)
     if port.get("declarations") != []:
         raise ValueError("semicolon distinct wrapper fabricated declarations")

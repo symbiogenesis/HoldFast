@@ -4049,6 +4049,15 @@ class _FunctionLowerer:
                 current, _ = self._lower_expr(current, right)
                 return current, ()
 
+            if kind == "pipe":
+                current, _ = self._lower_expr(current, _ast_node(expr["left"]))
+                return self._lower_expr(
+                    current, _ast_node(expr["right"]), handles_result=handles_result, case_only=case_only
+                )
+
+            if kind == "pipe_placeholder":
+                return current, ()
+
             if kind in {"group", "expression_body"}:
                 inner = _ast_node(expr.get("expression") or expr.get("value"))
                 return self._lower_expr(current, inner, handles_result=handles_result, case_only=case_only)
@@ -4736,6 +4745,19 @@ class _FunctionLowerer:
                         current = self._emit(
                             current, CloseInvariant(owner_name, lifts), f"close_{owner_name}"
                         )
+                return current
+
+            if kind == "using":
+                binding = _ast_node(stmt["binding"])
+                current = self._lower_statement(current, binding)
+                body = _body_statements(stmt.get("body"))
+                current = self._lower_statements(
+                    current, body, loop_header=loop_header, loop_exit=loop_exit
+                )
+                if current is not None and binding.get("kind") in {"let", "var"}:
+                    bname = _id_text(binding["name"])
+                    if bname in self.owners:
+                        current = self._emit(current, Access(Place(bname), "read"), f"dispose_{bname}")
                 return current
 
             if kind in {"foreach", "foreach_collection", "while"}:
