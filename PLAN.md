@@ -285,7 +285,7 @@ open until the parent's acceptance conditions are met.
 - [ ] **Q25bd · Rehearse one supported-release maintenance cycle**
   - **Owner** `release-maintenance`
   - **Start** Use the [supported release](#q25bc) and its pinned compiler, kernel and dependencies.
-  - **Check** Rehearse one coordinated tool and dependency upgrade, including semantic cache invalidation, compatibility and migration, security response, rollback and proof and conformance replay. Record actual human effort, agent time and machine time separately.
+  - **Check** Rehearse one coordinated tool and dependency upgrade, including semantic cache invalidation, compatibility and migration, security response, prover critical-bug applicability register triage against upstream Rocq advisories, rollback, and full proof and conformance replay across the upgraded prover snapshot. Record actual human effort, agent time and machine time separately.
   - Use the [evidence-aware package comparison](#q25eg) at the maintenance boundary and measure [replay under change](docs/assurance/workflow-contract.md#proof-search-and-replay-under-change), including failed searches and the first useful diagnosis.
 
 ### Remaining HoldFast ergonomics
