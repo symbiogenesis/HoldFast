@@ -2901,6 +2901,7 @@ export const HOLDFAST_GRAMMAR = Object.freeze({
     "by",
     "calc",
     "cancel",
+    "canceled",
     "captures",
     "carrier",
     "coinductive",

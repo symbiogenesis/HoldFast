@@ -634,6 +634,35 @@ class _Protocol:
             if self.source[after_lifts:after_lifts + 1] == b",":
                 cursor = after_lifts + 1
             cursor = self._child(node, span, cursor, node["body"])
+        elif kind == "effects_block":
+            values = node["values"]
+            if not isinstance(values, list) or not values:
+                raise self.error("protocol", "effects block requires a non-empty list", node)
+            if not isinstance(node["body"], dict) or node["body"].get("kind") != "block":
+                raise self.error("protocol", "effects block requires a block body", node)
+            cursor = self._token(node, cursor, b"effects")
+            cursor = self._token(node, cursor, b"(")
+            for index, value in enumerate(values):
+                if index:
+                    cursor = self._token(node, cursor, b",")
+                cursor = self._child(node, span, cursor, value)
+            cursor = self._token(node, cursor, b")")
+            cursor = self._child(node, span, cursor, node["body"])
+        elif kind == "effect_set":
+            modifiers = node.get("modifiers", [])
+            if not isinstance(modifiers, list) or any(not isinstance(item, str) for item in modifiers):
+                raise self.error("protocol", "declaration modifiers must be a name list", node)
+            for modifier in modifiers:
+                cursor = self._token(node, cursor, cast("str", modifier).encode())
+            cursor = self._token(node, cursor, b"effect")
+            cursor = self._child(node, span, cursor, node["name"])
+            cursor = self._token(node, cursor, b"=")
+            cursor = self._child(node, span, cursor, node["value"])
+            if node.get("canceled_by") is not None:
+                cursor = self._token(node, cursor, b"canceled")
+                cursor = self._token(node, cursor, b"by")
+                cursor = self._child(node, span, cursor, node["canceled_by"])
+            cursor = self._token(node, cursor, b";")
         elif kind == "return":
             cursor = self._token(node, cursor, b"return")
             if node["value"] is not None:

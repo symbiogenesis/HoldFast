@@ -1520,6 +1520,19 @@ public Nat UseZena(Nat seed, Nat right) {
     return chained;
 }
 """, ("distinct", "pipe", "pipe_placeholder", "using", "generic_application", "unary")),
+    Fixture("flow-effects-sets-cancellation-and-blocks", """// café: named effect sets, wrapping cancellation, and local effects blocks.
+module FlowEffectsSyntax;
+public effect RawPrint = calls(Print);
+public effect RawIO = RawPrint | calls(ReadFile, WriteFile) canceled by calls(SafeLog);
+public Unit Run(ref Nat x)
+    effects !RawIO, !writes(x)
+{
+    effects (!writes(x), !calls(RawPrint)) {
+        let copy = x;
+    }
+    return;
+}
+""", ("effect_set", "effects", "effects_block", "unary", "binary")),
 )
 
 
@@ -4956,6 +4969,23 @@ def _zena_syntax_roles(source: bytes, result: dict[str, Json]) -> None:
         raise ValueError("using scope lost let/var binding role")
 
 
+def _flow_effects_syntax_roles(source: bytes, result: dict[str, Json]) -> None:
+    tree = result.get("ast")
+    raw_print = _named(tree, "effect_set", "RawPrint")
+    _exact_span(source, raw_print, b"public effect RawPrint = calls(Print);")
+    if raw_print.get("canceled_by") is not None:
+        raise ValueError("uncanceled effect_set fabricated canceled_by")
+    raw_io = _named(tree, "effect_set", "RawIO")
+    if _object(raw_io.get("value"), "effect_set union").get("kind") != "binary":
+        raise ValueError("effect_set union lost binary '|' structure")
+    if raw_io.get("canceled_by") is None:
+        raise ValueError("effect_set lost canceled by expression")
+    fn = _named(tree, "function", "Run")
+    blocks = [node for node in nodes(fn) if node.get("kind") == "effects_block"]
+    if len(blocks) != 1 or len(_sequence(blocks[0].get("values"), "effects_block values")) != 2:
+        raise ValueError("effects_block AST structure differs")
+
+
 _SOURCE_FIXTURE_CHECKS: dict[str, str] = {
     "expressions-patterns-updates-guards-and-properties": "_ergonomic_expression_and_property_roles",
     "familiar-generic-calls-and-expression-arms": "_familiar_call_roles",
@@ -5004,6 +5034,7 @@ _SOURCE_FIXTURE_CHECKS: dict[str, str] = {
     "structural-local-and-lambda-annotations": "_structural_annotation_roles",
     "graded-patterns-shared-ref-and-gats": "_graded_borrow_and_gat_roles",
     "zena-distinct-pipeline-and-using": "_zena_syntax_roles",
+    "flow-effects-sets-cancellation-and-blocks": "_flow_effects_syntax_roles",
 }
 
 _AST_FIXTURE_CHECKS: dict[str, str] = {

@@ -45,7 +45,7 @@ let generic_application next state lexbuf =
       Hashtbl.add state.generic_probes offset decision;
       decision
 let pure_reserved = function
-  | "fn" | "Bool" | "async" | "await" | "effect" | "effects" | "handler"
+  | "fn" | "Bool" | "async" | "await" | "effect" | "effects" | "canceled" | "handler"
   | "handle" | "resume" | "dispose" | "mut" | "var" | "unsafe" | "borrow"
   | "requires" | "ensures" | "restores" | "ghost" | "tracked" | "grade"
   | "proof" | "owned" | "move" | "ref" | "in" | "out" | "captures" | "scope"
@@ -338,7 +338,7 @@ let identifier state lexbuf =
   | "proof" -> PROOF | "effect" -> EFFECT | "resumes" -> RESUMES
   | "handle" -> HANDLE | "shallow" -> SHALLOW | "with" -> WITH | "resume" -> RESUME
   | "dispose" -> DISPOSE | "rehandle" -> REHANDLE | "await" -> AWAIT
-  | "scope" -> SCOPE | "open" -> OPEN | "lifts" -> LIFTS | "spawn" -> SPAWN | "commit" -> COMMIT | "on" -> ON | "cancel" -> CANCEL
+  | "scope" -> SCOPE | "open" -> OPEN | "lifts" -> LIFTS | "spawn" -> SPAWN | "commit" -> COMMIT | "on" -> ON | "cancel" -> CANCEL | "canceled" -> CANCELED
   | "var" -> VAR | "foreach" -> FOREACH | "while" -> WHILE | "match" -> MATCH
   | "case" -> refuse "syntax" lexbuf "match arms use 'Pattern => body' without 'case'"
   | "break" -> BREAK | "continue" -> CONTINUE | "definition" -> DEFINITION

@@ -86,7 +86,7 @@ let rec is_range = function
 %token DISTINCT USING
 %token VIEW GROWS TYPE PREDICATE PROOF
 %token EFFECT RESUMES HANDLE SHALLOW WITH RESUME DISPOSE REHANDLE
-%token AWAIT SCOPE OPEN LIFTS SPAWN COMMIT ON CANCEL VAR FOREACH WHILE MATCH BREAK CONTINUE
+%token AWAIT SCOPE OPEN LIFTS SPAWN COMMIT ON CANCEL CANCELED VAR FOREACH WHILE MATCH BREAK CONTINUE
 %token DEFINITION THEOREM LEMMA INDUCTIVE COINDUCTIVE UNIVERSE FORALL EXISTS ASSERT BY CALC
 %token MACHINE HARDWARE STATE REGISTER TRANSITION RULE WHEN NEXT SCHEDULE CYCLE
 %token FN FNMUT FNONCE IS CARRIER ZERO ONE ADD MUL ADMITS INTERPRET LAWS
@@ -330,6 +330,10 @@ s_decl:
   LBRACE operations=list(s_effect_operation) RBRACE
     { make "effect" $startpos $endpos [("name", effect_name); ("generics", array generics);
         ("contracts", array contracts); ("operations", array operations)] (generics @ contracts @ operations) }
+| EFFECT effect_name=s_identifier EQUAL value=s_contract_expression canceled=option(s_effect_canceled) SEMICOLON
+    { make "effect_set" $startpos $endpos
+        [("name", effect_name); ("value", value.syntax); ("canceled_by", optional canceled)]
+        (value :: children canceled) }
 | VIEW view_name=s_identifier EQUAL parts=separated_nonempty_list(COMMA, s_view_part) SEMICOLON
     { make "view" $startpos $endpos [("name", view_name); ("parts", array parts)] parts }
 | TYPE type_name=s_identifier generics=s_generics kind=option(s_kind_annotation)
@@ -540,6 +544,8 @@ s_capture_type:
   CAPTURES capture=s_path { make "capture" $startpos $endpos [("name", capture)] [] }
 s_type_effects:
   EFFECTS s_open_paren effects=comma_list(s_type) RPAREN { effects }
+s_effect_canceled:
+  CANCELED BY value=s_contract_expression { value }
 s_type_arguments:
   { [] } | s_generic_open values=comma_nonempty_list(s_type_argument) GT { values }
 s_type_argument:
@@ -659,6 +665,9 @@ s_nonempty_simple_statement:
 | OPEN LPAREN values=comma_list(s_expression) RPAREN clauses=s_lifts body=s_block
     { make "open_invariant" $startpos $endpos [("resources", array values); ("lifts", Array clauses);
         ("body", body.syntax)] (body :: values) }
+| EFFECTS s_open_paren values=separated_nonempty_list(COMMA, s_contract_expression) RPAREN body=s_block
+    { make "effects_block" $startpos $endpos
+        [("values", array values); ("body", body.syntax)] (body :: values) }
 | MATCH LPAREN value=s_expression RPAREN motive=option(s_match_motive) LBRACE cases=nonempty_list(s_match_case) RBRACE
     { make "match" $startpos $endpos [("value", value.syntax); ("motive", optional motive);
         ("cases", array cases)] (value :: children motive @ cases) }
