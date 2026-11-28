@@ -12,7 +12,15 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path, PurePosixPath
 
 import toolchain as holdfast
-from toolchain import authoring, corpus, estimates, highlight_qualification, licensing, markdown
+from toolchain import (
+    authoring,
+    corpus,
+    estimates,
+    highlight_qualification,
+    licensing,
+    markdown,
+    solver_ledger,
+)
 from toolchain.cli import typecheck
 from toolchain.report import Reporter
 
@@ -919,6 +927,51 @@ def javascript_findings(
     return findings
 
 
+def rocq_kernel_profile_findings(
+    root: Path,
+    loaded: corpus.Corpus,
+    *,
+    text_cache: Mapping[str, str] | None = None,
+) -> list[str]:
+    """Verify locked Rocq TCB, critical-bug register, and tracked ``tools/rocq/*.v`` files."""
+    findings: list[str] = []
+    lock_rel = "tools/opam/rocq.lock"
+    if lock_rel not in loaded.indexed:
+        findings.append(f"{lock_rel}: missing from repository index")
+    else:
+        try:
+            lock_text = (
+                text_cache[lock_rel]
+                if text_cache is not None and lock_rel in text_cache
+                else (root / lock_rel).read_text(encoding="utf-8")
+            )
+        except (OSError, UnicodeDecodeError) as err:
+            findings.append(f"{lock_rel}: cannot read lockfile: {err}")
+        else:
+            findings.extend(solver_ledger.verify_critical_bug_register(lock_text))
+
+    for rel in loaded.tracked:
+        if not rel.startswith("tools/rocq/") or not rel.endswith(".v"):
+            continue
+        try:
+            text = (
+                text_cache[rel]
+                if text_cache is not None and rel in text_cache
+                else (root / rel).read_text(encoding="utf-8")
+            )
+        except (OSError, UnicodeDecodeError) as err:
+            findings.append(f"{rel}: cannot read Rocq support source: {err}")
+            continue
+        try:
+            entries = solver_ledger.ledger(text)
+        except ValueError as err:
+            findings.append(f"{rel}: {err}")
+            continue
+        if entries:
+            findings.append(f"{rel}: tracked Rocq support library must not declare solver-trust axioms")
+    return findings
+
+
 def _load_tracked_caches(root: Path, loaded: corpus.Corpus) -> tuple[dict[str, bytes], dict[str, str]]:
     raw_cache: dict[str, bytes] = {}
     text_cache: dict[str, str] = {}
@@ -1009,6 +1062,12 @@ def run(root: Path, *, loaded: corpus.Corpus | RuntimeError | None = None) -> Re
         rep.report("editor-syntax", "generated editor-asset finding(s):",
                    highlight_qualification.check_generated(root),
                    "secondary syntax grammars and queries match the canonical Menhir owner")
+    rep.report(
+        "rocq-kernel-profile",
+        "Rocq kernel-profile finding(s):",
+        rocq_kernel_profile_findings(root, loaded, text_cache=text_cache),
+        "locked Rocq TCB, critical-bug register, and tracked tools/rocq/*.v stay inside the minimal CIC profile",
+    )
     return rep
 
 

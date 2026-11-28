@@ -337,6 +337,33 @@ def _javascript_and_playground_controls() -> None:
             )
 
 
+def _rocq_kernel_profile_controls() -> None:
+    repo_root = corpus.find_root()
+    repo_corpus = corpus.load(repo_root)
+    ensure(
+        checks.rocq_kernel_profile_findings(repo_root, repo_corpus) == [],
+        "committed Rocq support theories and rocq.lock must pass rocq_kernel_profile_findings",
+    )
+    lock_text = (repo_root / "tools/opam/rocq.lock").read_text(encoding="utf-8")
+    with tempfile.TemporaryDirectory(prefix="holdfast-rocq-profile-") as td:
+        root = Path(td)
+        (root / "tools/opam").mkdir(parents=True)
+        (root / "tools/rocq").mkdir(parents=True)
+        (root / "tools/opam/rocq.lock").write_text(lock_text, encoding="utf-8", newline="\n")
+        (root / "tools/rocq/good.v").write_text("Definition ok : nat := 0.\n", encoding="utf-8", newline="\n")
+        tracked = ["tools/opam/rocq.lock", "tools/rocq/good.v"]
+        clean_corpus = corpus.Corpus(root, [], {}, tracked, set(tracked))
+        ensure(checks.rocq_kernel_profile_findings(root, clean_corpus) == [],
+               "clean minimal-CIC support fixture must pass")
+
+        (root / "tools/rocq/bad.v").write_text("Definition bad : SProp := True.\n", encoding="utf-8", newline="\n")
+        bad_tracked = [*tracked, "tools/rocq/bad.v"]
+        bad_corpus = corpus.Corpus(root, [], {}, bad_tracked, set(bad_tracked))
+        found = checks.rocq_kernel_profile_findings(root, bad_corpus)
+        ensure(len(found) == 1 and "tools/rocq/bad.v" in found[0],
+               f"excluded CIC feature in tools/rocq must be refused: {found!r}")
+
+
 def cases() -> list[Case]:
     return [
         Case("rumdl-settings-schema-and-policy", _rumdl_settings_policy),
@@ -347,4 +374,5 @@ def cases() -> list[Case]:
         Case("source-comment-and-docstring-references", _source_reference_controls),
         Case("prepare-python-and-markdown-selection", _prepare_selection_controls),
         Case("javascript-and-playground-asset-bindings", _javascript_and_playground_controls),
+        Case("rocq-kernel-profile-and-bug-register", _rocq_kernel_profile_controls),
     ]
