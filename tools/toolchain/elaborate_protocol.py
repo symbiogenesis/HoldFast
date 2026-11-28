@@ -103,6 +103,8 @@ _FIELDS: dict[str, set[str]] = {
     "contract": {"role", "value"},
     "type_constraint": {"parameter", "bounds"},
     "effects": {"values"},
+    "effect_set": {"name", "value", "canceled_by", "modifiers"},
+    "effects_block": {"values", "body"},
     "lifetime": {"name"},
     "propagate": {"value"},
     "assert": {"value", "by"}, "proof": {"body"}, "calc": {"body"},
