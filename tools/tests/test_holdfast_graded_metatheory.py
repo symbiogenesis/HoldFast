@@ -92,6 +92,19 @@ _GRADED_CORE_METATHEORY_PROOFS = (
     "core_derives_cenv_rel",
     "core_derives_nat_safe",
     "core_value_substitution",
+    "core_subgrade_admissible",
+    "core_grade_substitution",
+    "core_zero_type_use_irrelevance",
+)
+_GRADED_CORE_TYPE_SUBST_PROOFS = (
+    "core_type_substitution",
+)
+_GRADED_CORE_ERASURE_PROOFS = (
+    "core_erasure_simulation",
+    "core_closed_erasure_sound",
+    "core_zero_var_non_interference",
+    "core_cbv_erasure_sound",
+    "core_skip_subst_agrees",
 )
 
 
@@ -190,6 +203,14 @@ def cases() -> list[Case]:
         Case("unified GradedCore structural and substitution metatheory",
              partial(_replay, "graded_core_metatheory", "GradedCoreMetatheory", _GRADED_CORE_METATHEORY_PROOFS,
                      ("graded_pure", "graded_domains", "graded_core"), batch=batch),
+             lane="toolchain"),
+        Case("unified GradedCore type substitution",
+             partial(_replay, "graded_core_type_subst", "GradedCoreTypeSubst", _GRADED_CORE_TYPE_SUBST_PROOFS,
+                     ("graded_pure", "graded_domains", "graded_core", "graded_core_metatheory"), batch=batch),
+             lane="toolchain"),
+        Case("unified GradedCore CBV erasure, non-interference, and Q25cb skipping",
+             partial(_replay, "graded_core_erasure", "GradedCoreErasure", _GRADED_CORE_ERASURE_PROOFS,
+                     ("graded_pure", "graded_domains", "graded_core", "graded_core_metatheory"), batch=batch),
              lane="toolchain"),
         Case("kernel check metatheory, semiring, and erasure proofs with rocqchk",
              batch.verify_all,
