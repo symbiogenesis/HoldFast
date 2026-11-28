@@ -2744,10 +2744,11 @@ Extended mechanization in Rocq 9.3.0 (all 0-axiom `Print Assumptions` and
 metatheory (`weakening_*`, `exchange_derives`, `value_substitution_derives`,
 `type_substitution_derives`, explicit `(s, r)` `GrttCore` calculus), the unified
 `GradedCore` / `JoinDomain` calculus (`graded_domains.v`, `graded_core.v`,
-`graded_core_source.v`, and `graded_core_metatheory.v` proving
+`graded_core_source.v`, `graded_core_metatheory.v` proving
 `core_weakening`, `core_weakening_erasure`, `core_exchange`,
 `core_value_substitution`, `core_subgrade_admissible`,
-`core_grade_substitution`, and `core_zero_type_use_irrelevance` with
+`core_grade_substitution`, and `core_zero_type_use_irrelevance`, and
+`graded_core_type_subst.v` proving `core_type_substitution` with
 `LinearDomain`, `AffineDomain`, `SecurityLoHi`,
 and symbolic `GradeExpr`), universal symbolic semiring polymorphism
 (`graded_semiring.v`: `poly_infer_sound`, `poly_derives_all_valuations`,
@@ -2760,12 +2761,13 @@ elimination, Boolean `Presence`, and type-grade checking in `graded_modal.v`.
 [GrTT metatheory](../../tools/rocq/graded_metatheory.v) ·
 [Unified graded core](../../tools/rocq/graded_core.v) ·
 [Unified core metatheory](../../tools/rocq/graded_core_metatheory.v) ·
+[Unified core type substitution](../../tools/rocq/graded_core_type_subst.v) ·
 [Semiring polymorphism](../../tools/rocq/graded_semiring.v) ·
 [CBV erasure](../../tools/rocq/graded_erasure.v) ·
 [Protocol erasure](../../tools/rocq/graded_cbv_erasure.v) ·
 [Metatheory audit](../../tools/tests/test_holdfast_graded_metatheory.py)
 
-Remaining `core_type_substitution`/erasure proofs on `GradedCore` and target
+Remaining erasure proofs on `GradedCore` and target
 machine cost/lowering correspondence remain open.
 
 <a id="q25bj-reconstruct-checked-graded-domain-evidence"></a>
