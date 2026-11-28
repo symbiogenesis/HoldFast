@@ -1309,6 +1309,22 @@ class _BorrowMixin:
                     facts=(*facts, *cur_facts),
                 )
                 return make_ret(res_b.term, self.final_ref_bindings or cur_env), cur_env, "return"
+            if kind in {"let", "typed_local", "let_pattern", "constant_local", "var", "var_pattern"}:
+                next_facts = list(cur_facts)
+                next_env = self._local_with_facts(stmt, dict(cur_env), next_facts, record_active=True)
+                return step_seq(idx + 1, next_env, next_facts)
+            if kind in {"assert", "proof", "calc"}:
+                sub_facts = self._statement_proof_facts(stmt, dict(cur_env), (*facts, *cur_facts))
+                return step_seq(idx + 1, cur_env, [*cur_facts, *sub_facts])
+            if kind == "assignment":
+                next_env = self._elaborate_assignment(stmt, dict(cur_env))
+                return step_seq(idx + 1, next_env, cur_facts)
+            if kind == "expression_statement":
+                next_env = self._elaborate_expression_statement(stmt, dict(cur_env))
+                return step_seq(idx + 1, next_env, cur_facts)
+            if kind == "guard_scope":
+                next_env = self._leave_statement_scope(cast("tuple[str, ...]", stmt["locals"]), dict(cur_env))
+                return step_seq(idx + 1, next_env, cur_facts)
             next_env, ctrl = self._elaborate_non_returning_block(
                 {"kind": "block", "span": stmt["span"], "statements": [stmt]},
                 dict(cur_env),
@@ -1320,7 +1336,12 @@ class _BorrowMixin:
                 return make_cont(False, next_env), next_env, "continue"
             return step_seq(idx + 1, next_env, cur_facts)
 
-        return step_seq(0, dict(environment), [])
+        saved_active_len = len(self.active_facts)
+        self.active_facts.extend(self._fact_bool_terms(facts, environment))
+        try:
+            return step_seq(0, dict(environment), [])
+        finally:
+            del self.active_facts[saved_active_len:]
 
     def _pack_state_type(
         self: _Elaborator, head_type: _Term, names: tuple[str, ...], environment: dict[str, _Binding],
