@@ -42,6 +42,7 @@ _FIELDS: dict[str, set[str]] = {
     "impl": {"type", "generics", "contracts", "declarations", "modifiers"},
     "associated_type": {"name", "generics", "kind_annotation", "contracts", "definition", "modifiers"},
     "record": {"name", "generics", "parameters", "contracts", "declarations", "modifiers"},
+    "distinct": {"name", "generics", "type", "contracts", "declarations", "modifiers"},
     "union": {"name", "generics", "contracts", "constructors", "modifiers"},
     "inductive": {"name", "generics", "contracts", "constructors", "modifiers"},
     "domain": {"name", "generics", "contracts", "entries", "modifiers"},
@@ -64,6 +65,7 @@ _FIELDS: dict[str, set[str]] = {
     "call": {"callee", "arguments"}, "generic_application": {"value", "arguments"},
     "argument": {"label", "value"}, "out_variable": {"name"},
     "binary": {"operator", "left", "right"}, "unary": {"operator", "value"},
+    "pipe": {"left", "right"}, "pipe_placeholder": set(),
     "is": {"value", "pattern"},
     "with_expression": {"value", "updates"}, "field_update": {"name", "value"},
     "operator": {"name"}, "type_expression": {"type"},
@@ -85,6 +87,7 @@ _FIELDS: dict[str, set[str]] = {
     "foreach_collection": {"name", "type", "mode", "collection", "contracts", "body"},
     "while": {"condition", "contracts", "body"},
     "break": set(), "continue": set(),
+    "using": {"binding", "body"},
     "open_invariant": {"resources", "lifts", "body"},
     "if": {"condition", "then", "else"},
     "match": {"value", "motive", "cases"}, "case": {"pattern", "statements"},
@@ -134,6 +137,9 @@ _FIXED_ENVELOPES: dict[str, tuple[bytes | str, ...]] = {
     "type_argument": (b"type", "type"),
     "computed_type": (b"type", b"[", "value", b"]"),
     "propagate": ("value", b"?"),
+    "pipe": ("left", b"|>", "right"),
+    "pipe_placeholder": (b"$",),
+    "using": (b"using", b"(", "binding", b")", "body"),
 }
 
 _PATTERN_KINDS = {
@@ -155,7 +161,7 @@ _ASSIGN_OPERATORS = {"=", "+=", "-=", "*=", "/=", "%="}
 # without accepting prefixes of longer lexer tokens.
 _GENERIC_APPLICATION_FOLLOW = re.compile(
     rb"""
-    [()\[\]};,^] | \|\|? | &&? | \.(?!\.) | :(?!:<) | \?(?![?.A-Za-z_])
+    [()\[\]};,^] | \|> | \|\|? | &&? | \.(?!\.) | :(?!:<) | \?(?![?.A-Za-z_])
   | ==(?!>) | != | <=(?!=>) | >= | => | <(?!=)
   | (?:is|as)(?![A-Za-z_0-9])
     """,
@@ -298,7 +304,7 @@ class _Protocol:
                     cursor = self._token(node, cursor, part)
                 else:
                     cursor = self._child(node, span, cursor, node[part])
-        elif kind in {"definition", "function", "alias", "theorem", "lemma", "record", "union", "inductive", "domain", "property"}:
+        elif kind in {"definition", "function", "alias", "theorem", "lemma", "record", "distinct", "union", "inductive", "domain", "property"}:
             contracts = node.get("contracts")
             if node.get("cancel"):
                 return  # These roles are refused by the mathematical consumer.
@@ -320,12 +326,12 @@ class _Protocol:
                         )
                 if not seen_ensures:
                     raise self.error("protocol", "theorem requires at least one ensures clause", node)
-            elif kind == "record" and contracts:
+            elif kind in {"record", "distinct"} and contracts:
                 if not isinstance(contracts, list) or any(
                     not isinstance(item, dict) or item.get("kind") != "contract"
                     for item in contracts
                 ):
-                    raise self.error("protocol", "record contracts must be contract nodes", node)
+                    raise self.error("protocol", f"{kind} contracts must be contract nodes", node)
                 if any(item.get("role") != "invariant" for item in contracts):
                     return
             elif contracts and (
@@ -356,7 +362,10 @@ class _Protocol:
             cursor = self._child(node, span, cursor, node["name"])
             if kind != "property":
                 cursor = self._generics(node, span, cursor)
-            if kind not in {"alias", "property", "union", "inductive", "domain"}:
+            if kind == "distinct":
+                cursor = self._token(node, cursor, b"=")
+                cursor = self._child(node, span, cursor, node["type"])
+            if kind not in {"alias", "distinct", "property", "union", "inductive", "domain"}:
                 cursor = self._list(node, span, cursor, node["parameters"])
             if contracts and isinstance(contracts, list):
                 for contract_item in contracts:
@@ -367,13 +376,13 @@ class _Protocol:
                     cursor = self._child(node, span, cursor, node["body"])
                 else:
                     cursor = self._token(node, cursor, b";")
-            elif kind == "record":
+            elif kind in {"record", "distinct"}:
                 after = trivia_end(self.source, cursor, block_comments=True)
                 if self.source[after:after + 1] == b"{":
                     self._sequence_envelope(node, span, "declarations", after + 1, b"}")
                     return
                 if node["declarations"]:
-                    raise self.error("protocol", "semicolon record tail cannot carry member declarations", node)
+                    raise self.error("protocol", f"semicolon {kind} tail cannot carry member declarations", node)
                 cursor = self._token(node, cursor, b";")
             elif kind in {"union", "inductive"}:
                 constructors = node["constructors"]

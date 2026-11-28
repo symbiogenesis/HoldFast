@@ -1497,6 +1497,29 @@ public shared ref<'a> byte BorrowAndMatch<region 'a, grade k : NatExact, grade s
 """, ("interface", "impl", "associated_type", "modified_type", "function_type",
       "typed_lambda", "foreach", "foreach_collection", "match_expression",
       "match_motive", "binding_pattern", "unary", "is")),
+    Fixture("zena-distinct-pipeline-and-using", """// café: distinct wrappers, explicit-placeholder pipelines, and using scopes.
+module ZenaConcepts;
+public distinct Port = u16;
+public distinct Tagged<T> = T invariant this.Value == this.Value {
+    public T Unwrap => this.Value;
+}
+public distinct FnAlias = (Fn(Nat x) -> Nat);
+public Nat UseZena(Nat seed, Nat right) {
+    let chained = seed |> $ + 1 |> Identity<Nat>($);
+    let bool compared = seed |> $ + 1 |> Double($) == right;
+    let nested = seed |> ($ + (right |> Double($)));
+    let fieldPipe = Tagged<Nat>(seed) |> $.Value;
+    let labeledPipe = seed |> Clamp(min: 0, value: $, max: 10);
+    let genericPipe = Identity<Nat> |> $(seed);
+    using (let h = Open()) {
+        Read(in h);
+    }
+    using (var Port p = Port(80u16)) {
+        Touch(ref p);
+    }
+    return chained;
+}
+""", ("distinct", "pipe", "pipe_placeholder", "using", "generic_application", "unary")),
 )
 
 
@@ -1848,6 +1871,12 @@ NEGATIVE: tuple[tuple[str, bytes, str], ...] = (
     ("theorem-requires-after-ensures", b"module M; public theorem T(Nat n) ensures n > 0 requires n > 0;", "syntax"),
     ("handle-keyword-parameter-refused", b"module M; public void F(Handle handle);", "syntax"),
     ("trailing-input", b"module M; public void F(); garbage", "syntax"),
+    ("distinct-missing-type", b"module M; public distinct Port = ;", "syntax"),
+    ("distinct-missing-equal", b"module M; public distinct Port u16;", "syntax"),
+    ("distinct-const-modifier", b"module M; public const distinct Port = u16;", "syntax"),
+    ("using-empty-header", b"module M; void F() { using () {} }", "syntax"),
+    ("using-unbraced-body", b"module M; void F() { using (let h = Open()) Read(in h); }", "syntax"),
+    ("pipe-missing-rhs", b"module M; Nat F(Nat x) => x |> ;", "syntax"),
     ("invalid-utf8", b"// invalid \xff\nmodule M; public void F();", "encoding"),
     ("literal-limit", b"module M; public Nat F() { return " + b"9" * 257 + b"; }", "limit"),
     ("hex-literal-limit", b"module M; public Nat F() { return 0x" + b"f" * 257 + b"; }", "limit"),
@@ -4897,6 +4926,35 @@ def _graded_borrow_and_gat_roles(source: bytes, result: dict[str, Json]) -> None
     _exact_span(source, is_node, b"boxed is Box(tested @ q)")
 
 
+def _zena_syntax_roles(source: bytes, result: dict[str, Json]) -> None:
+    tree = result.get("ast")
+    port = _named(tree, "distinct", "Port")
+    _type_head(port.get("type"), "u16", 0)
+    if port.get("declarations") != []:
+        raise ValueError("semicolon distinct wrapper fabricated declarations")
+    tagged = _named(tree, "distinct", "Tagged")
+    if len(_sequence(tagged.get("generics"), "distinct generics")) != 1:
+        raise ValueError("generic distinct wrapper lost its type parameter")
+    if len(_sequence(tagged.get("contracts"), "distinct invariants")) != 1:
+        raise ValueError("distinct wrapper lost its invariant contract")
+    if len(_sequence(tagged.get("declarations"), "distinct members")) != 1:
+        raise ValueError("distinct wrapper lost its member property")
+    fn = _named(tree, "function", "UseZena")
+    compared = _object(_named(fn, "let", "compared").get("value"), "pipeline comparison")
+    if compared.get("kind") != "binary" or _texts(compared.get("operator")) != ["=="]:
+        raise ValueError("pipeline operator bound weaker than comparison '=='")
+    left_pipe = _object(compared.get("left"), "left pipeline")
+    if left_pipe.get("kind") != "pipe" or _object(left_pipe.get("left"), "inner pipeline").get("kind") != "pipe":
+        raise ValueError("pipeline operator was not left-associative")
+    usings = [node for node in nodes(fn) if node.get("kind") == "using"]
+    if len(usings) != 2:
+        raise ValueError("using scope count differs")
+    first_binding = _object(usings[0].get("binding"), "first using binding")
+    second_binding = _object(usings[1].get("binding"), "second using binding")
+    if first_binding.get("kind") != "let" or second_binding.get("kind") != "var":
+        raise ValueError("using scope lost let/var binding role")
+
+
 _SOURCE_FIXTURE_CHECKS: dict[str, str] = {
     "expressions-patterns-updates-guards-and-properties": "_ergonomic_expression_and_property_roles",
     "familiar-generic-calls-and-expression-arms": "_familiar_call_roles",
@@ -4944,6 +5002,7 @@ _SOURCE_FIXTURE_CHECKS: dict[str, str] = {
     "explicit-structural-type-arguments": "_explicit_type_argument_roles",
     "structural-local-and-lambda-annotations": "_structural_annotation_roles",
     "graded-patterns-shared-ref-and-gats": "_graded_borrow_and_gat_roles",
+    "zena-distinct-pipeline-and-using": "_zena_syntax_roles",
 }
 
 _AST_FIXTURE_CHECKS: dict[str, str] = {

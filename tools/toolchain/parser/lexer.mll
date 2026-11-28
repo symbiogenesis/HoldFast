@@ -321,7 +321,8 @@ let identifier state lexbuf =
   | "true" -> TRUE | "false" -> FALSE
   | _ when not state.surface -> IDENT word
   | "private" -> PRIVATE | "internal" -> INTERNAL | "async" -> ASYNC
-  | "record" -> RECORD | "struct" -> STRUCT | "union" -> UNION
+  | "record" -> RECORD | "distinct" -> DISTINCT | "struct" -> STRUCT | "union" -> UNION
+  | "using" -> USING
   | "interface" -> INTERFACE | "impl" -> IMPL
   | "trait" -> refuse "syntax" lexbuf "traits use 'interface' declarations"
   | "import" -> IMPORT | "alias" -> ALIAS | "namespace" -> NAMESPACE | "as" -> AS
@@ -599,6 +600,8 @@ rule token state = parse
   | "==>" { IMPLIES } | "<==>" { IFF } | "=>" { FATARROW } | "->" { ARROW }
   | "==" { EQ } | "<=" { LE } | ">=" { GE } | "!=" { NE }
   | "&&" { AND } | "||" { OR } | "!" { NOT }
+  | "|>" { if not state.surface then refuse "syntax" lexbuf "unexpected character"; PIPE }
+  | '$' { if not state.surface then refuse "syntax" lexbuf "unexpected character"; DOLLAR }
   | "&" { AMP } | "|" { BAR } | "^" { CARET } | "~" { TILDE }
   | "+=" { PLUS_ASSIGN } | "-=" { MINUS_ASSIGN } | "*=" { STAR_ASSIGN }
   | "/=" { SLASH_ASSIGN } | "%=" { MOD_ASSIGN }

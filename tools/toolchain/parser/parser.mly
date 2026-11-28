@@ -83,13 +83,14 @@ let rec is_range = function
 %token PRIVATE INTERNAL ASYNC RECORD STRUCT UNION INTERFACE IMPL IMPORT ALIAS NAMESPACE AS
 %token OWNED MOVE IN REF OUT GHOST TRACKED SCOPED SHARED REGION CAPTURES GRADE DOMAIN
 %token REQUIRES ENSURES RESTORES WHERE EFFECTS INVARIANT DECREASES PROGRESS
+%token DISTINCT USING
 %token VIEW GROWS TYPE PREDICATE PROOF
 %token EFFECT RESUMES HANDLE SHALLOW WITH RESUME DISPOSE REHANDLE
 %token AWAIT SCOPE OPEN LIFTS SPAWN COMMIT ON CANCEL VAR FOREACH WHILE MATCH BREAK CONTINUE
 %token DEFINITION THEOREM LEMMA INDUCTIVE COINDUCTIVE UNIVERSE FORALL EXISTS ASSERT BY CALC
 %token MACHINE HARDWARE STATE REGISTER TRANSITION RULE WHEN NEXT SCHEDULE CYCLE
 %token FN FNMUT FNONCE IS CARRIER ZERO ONE ADD MUL ADMITS INTERPRET LAWS
-%token LBRACKET RBRACKET DOT COLON AT QUESTION RANGE ARROW FATARROW IMPLIES IFF
+%token LBRACKET RBRACKET DOT COLON AT QUESTION RANGE ARROW FATARROW IMPLIES IFF PIPE DOLLAR
 %token MINUS SLASH PERCENT LT GT GE NE AND OR NOT AMP BAR CARET TILDE
 %token PLUS_ASSIGN MINUS_ASSIGN STAR_ASSIGN SLASH_ASSIGN MOD_ASSIGN
 %token ANGLE_GENERIC_OPEN
@@ -116,7 +117,7 @@ generic_application_prefix:
 /* See [generic disambiguation](../../../docs/language/surface-grammar.md#bindings-match-arms-and-generic-calls). */
 s_generic_follower:
   s_open_paren | RPAREN | RBRACKET | RBRACE | COLON | SEMICOLON | COMMA | DOT | QUESTION
-| EQ | NE | BAR | CARET | AND | OR | AMP | LBRACKET | FATARROW
+| EQ | NE | BAR | PIPE | CARET | AND | OR | AMP | LBRACKET | FATARROW
 | LT | ANGLE_GENERIC_OPEN | LE | GE | IS | AS { () }
 
 file:
@@ -312,6 +313,11 @@ s_decl:
     { make "record" $startpos $endpos [("name", record_name); ("generics", array generics);
         ("parameters", array parameters); ("contracts", array contracts); ("declarations", array tail)]
         (generics @ parameters @ contracts @ tail) }
+| DISTINCT distinct_name=s_identifier generics=s_generics EQUAL value=s_nonfunction_type
+  contracts=list(s_declaration_clause) tail=s_record_tail
+    { make "distinct" $startpos $endpos [("name", distinct_name); ("generics", array generics);
+        ("type", value.syntax); ("contracts", array contracts); ("declarations", array tail)]
+        (value :: generics @ contracts @ tail) }
 | kind=s_sum_kind sum_name=s_identifier generics=s_generics
   contracts=list(s_declaration_clause) LBRACE cases=list(s_constructor) RBRACE
     { make kind $startpos $endpos [("name", sum_name); ("generics", array generics);
@@ -648,6 +654,8 @@ s_nonempty_simple_statement:
       make "assert" $startpos $endpos [("value", value.syntax); ("by", by_node)] (value :: parts) }
 | SCOPE LPAREN values=comma_list(s_expression) RPAREN body=s_block
     { make "scope" $startpos $endpos [("resources", array values); ("body", body.syntax)] (body :: values) }
+| USING LPAREN binding=s_using_binding RPAREN body=s_block
+    { make "using" $startpos $endpos [("binding", binding.syntax); ("body", body.syntax)] [binding; body] }
 | OPEN LPAREN values=comma_list(s_expression) RPAREN clauses=s_lifts body=s_block
     { make "open_invariant" $startpos $endpos [("resources", array values); ("lifts", Array clauses);
         ("body", body.syntax)] (body :: values) }
@@ -685,6 +693,10 @@ s_path_segment:
   DOT value=s_identifier { name_text value }
 %inline s_local_kind:
   LET { "let" } | VAR { "var" }
+s_using_binding:
+  kind=s_local_kind initialized=s_local_initializer
+    { let suffix, fields, parts = initialized in
+      make (kind ^ suffix) $startpos $endpos fields parts }
 /* The statement or expression supplies the surrounding keyword, terminator and span. */
 s_local_initializer:
   binding_name=s_identifier grade=option(s_grade) EQUAL value=s_expression
@@ -818,12 +830,16 @@ s_disjunction_operator:
 s_conjunction_operator:
   AND { name $startpos $endpos "&&" }
 s_comparison_with(opening):
-  value=s_range_with(opening) { value }
-| left=s_range_with(opening) op=s_comparison_operator right=s_range_with(opening) { binary $startpos $endpos op left right }
-| value=s_range_with(opening) IS pattern=s_pattern
+  value=s_pipe_with(opening) { value }
+| left=s_pipe_with(opening) op=s_comparison_operator right=s_pipe_with(opening) { binary $startpos $endpos op left right }
+| value=s_pipe_with(opening) IS pattern=s_pattern
     { make "is" $startpos $endpos [("value", value.syntax); ("pattern", pattern.syntax)] [value; pattern] }
 %inline s_comparison_operator:
   value=comparison_operator { value }
+s_pipe_with(opening):
+  value=s_range_with(opening) { value }
+| left=s_pipe_with(opening) PIPE right=s_range_with(opening)
+    { make "pipe" $startpos $endpos [("left", left.syntax); ("right", right.syntax)] [left; right] }
 s_range_with(opening):
   value=s_bit_or_with(opening) { value }
 | left=s_bit_or_with(opening) RANGE right=s_bit_or_with(opening)
@@ -902,6 +918,7 @@ s_atom_with(opening):
     { let spelling, holes = value in
       make "interpolated_string" $startpos $endpos [("value", String spelling); ("holes", array holes)] holes }
 | value=s_operator_value_with(opening) | value=s_hole { value }
+| DOLLAR { make "pipe_placeholder" $startpos $endpos [] [] }
 | value=s_value_identifier { make "name" $startpos $endpos [("name", value)] [] }
 | opening RPAREN { make "unit" $startpos $endpos [] [] }
 | opening value=s_expression RPAREN { make "group" $startpos $endpos [("value", value.syntax)] [value] }

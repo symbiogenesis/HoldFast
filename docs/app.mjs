@@ -2911,6 +2911,7 @@ export const HOLDFAST_GRAMMAR = Object.freeze({
     "decreases",
     "definition",
     "dispose",
+    "distinct",
     "domain",
     "effect",
     "effects",
@@ -2980,6 +2981,7 @@ export const HOLDFAST_GRAMMAR = Object.freeze({
     "type",
     "union",
     "universe",
+    "using",
     "var",
     "view",
     "when",
@@ -3033,6 +3035,7 @@ export const HOLDFAST_GRAMMAR = Object.freeze({
     "..",
     "=>",
     "->",
+    "|>",
     "==",
     "!=",
     "<=",
@@ -3061,6 +3064,7 @@ export const HOLDFAST_GRAMMAR = Object.freeze({
     "~",
     "?",
     "@",
+    "$",
   ]),
   brackets: Object.freeze([
     ["{", "}"],
@@ -3086,7 +3090,7 @@ const MATH_MULTI_SYMBOLS = [...HOLDFAST_GRAMMAR.multiOperators];
 // Follow the [expression rule](language/surface-grammar.md#bindings-match-arms-and-generic-calls)
 // for the argument forms the preview supports.
 const MATH_GENERIC_FOLLOW_SYMBOLS = new Set([
-  "(", ")", "]", "}", ":", ";", ",", ".", "?", "==", "!=", "|", "^", "&&", "||", "&", "[",
+  "(", ")", "]", "}", ":", ";", ",", ".", "?", "==", "!=", "|", "|>", "^", "&&", "||", "&", "[",
   "=>", "<", "<=", ">=",
 ]);
 const MAX_MATH_GENERIC_PROBE_TOKENS = 200_000;
@@ -5070,7 +5074,7 @@ const HOLDFAST_GENERIC_ANGLE_SOURCE =
 const HOLDFAST_CALL_SUFFIX_SOURCE = `\\s*(?:${HOLDFAST_GENERIC_ANGLE_SOURCE}(?:->|-(?!>)|[^<>=\\r\\n;{}&|-]|<[^<>=\\r\\n;{}&|]*>)*>\\s*\\(|\\()`;
 const HOLDFAST_NUM_SUFFIX_SOURCE = "(?:u8|u16|u32|u64|usize|byte|i8|i16|i32|i64)?\\b";
 const HOLDFAST_OPERATOR_SOURCE =
-  "<==>|==>|\\.\\.|=>|->|==|!=|<=|>=|&&|\\|\\||\\+=|-=|\\*=|\\/=|%=|[+*\\/%!=<>~^&|?-]";
+  "<==>|==>|\\.\\.|=>|->|\\|>|==|!=|<=|>=|&&|\\|\\||\\+=|-=|\\*=|\\/=|%=|[+*\\/%!=<>~^&|?$-]";
 
 export const HOLDFAST_LEXICAL_PATTERNS = Object.freeze({
   regionParam: /'[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*/,

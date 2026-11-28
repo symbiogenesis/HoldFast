@@ -28,10 +28,10 @@ CONFLICTS = [
 PUNCTUATION = {
     "LPAREN": "(", "RPAREN": ")", "LBRACE": "{", "RBRACE": "}", "LBRACKET": "[", "RBRACKET": "]",
     "SEMICOLON": ";", "COMMA": ",", "DOT": ".", "COLON": ":", "AT": "@", "QUESTION": "?",
-    "RANGE": "..", "ARROW": "->", "FATARROW": "=>", "IMPLIES": "==>", "IFF": "<==>",
+    "RANGE": "..", "ARROW": "->", "FATARROW": "=>", "IMPLIES": "==>", "IFF": "<==>", "PIPE": "|>",
     "EQUAL": "=", "PLUS": "+", "STAR": "*", "EQ": "==", "LE": "<=", "MINUS": "-", "SLASH": "/",
     "PERCENT": "%", "LT": "<", "GT": ">", "GE": ">=", "NE": "!=", "AND": "&&", "OR": "||",
-    "NOT": "!", "AMP": "&", "BAR": "|", "CARET": "^", "TILDE": "~", "PLUS_ASSIGN": "+=",
+    "NOT": "!", "AMP": "&", "BAR": "|", "CARET": "^", "TILDE": "~", "DOLLAR": "$", "PLUS_ASSIGN": "+=",
     "MINUS_ASSIGN": "-=", "STAR_ASSIGN": "*=", "SLASH_ASSIGN": "/=", "MOD_ASSIGN": "%=",
     "ANGLE_GENERIC_OPEN": "<", "ANNOTATION_OPEN": "(", "LAMBDA_OPEN": "(",
 }
@@ -263,7 +263,7 @@ def textmate_grammar(root: Path) -> dict[str, object]:
                 {"name": "constant.numeric.holdfast", "match": r"\b[0-9][A-Za-z_0-9]*\b"},
                 {"name": "entity.name.type.lifetime.holdfast", "match": r"'[A-Za-z_][A-Za-z_0-9]*(?:\.[A-Za-z_][A-Za-z_0-9]*)*"},
                 {"name": "invalid.deprecated.hole.holdfast", "match": r"\?[A-Za-z_][A-Za-z_0-9]*"},
-                {"name": "keyword.operator.holdfast", "match": r"[+*/%=!<>&|^~?:@-]+"},
+                {"name": "keyword.operator.holdfast", "match": r"[+*/%=!<>&|^~?:@$-]+"},
                 {"name": "punctuation.separator.holdfast", "match": r"[(){}\[\],;.]"},
             ]},
         },

@@ -136,8 +136,8 @@ def _space(left: Part, right: Part, roles: dict[int, str]) -> bool:
     if after == b"(":
         return (roles.get(left.start) == "binary" or before in
                 (b"if", b"while", b"match", b"foreach", b"forall", b"exists", b"let", b"in", b"return",
-                 b"open", b"assert", b"definition", b"public", b"private", b"internal", b"const",
-                 b"=", b"=>", b"->", b",", b":"))
+                 b"open", b"using", b"assert", b"definition", b"public", b"private", b"internal", b"const",
+                 b"=", b"=>", b"->", b"|>", b",", b":"))
     return after != b"["
 
 
