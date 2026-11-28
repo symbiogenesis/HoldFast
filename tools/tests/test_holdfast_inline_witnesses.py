@@ -69,11 +69,12 @@ public Nat Observe(Nat n) requires n <= 4 {
 
 def _branch_witnesses(*, batch: rocq_cache.BatchChecker | None = None) -> None:
     source = b"""module InlineBranches;
-public lemma AddZeroRight(Nat n) ensures n + 0 == n
+public definition Nat IdNat(Nat n) => match (n) { 0 => 0, Succ(p) => Succ(IdNat(p)) };
+public lemma IdNatEq(Nat n) ensures IdNat(n) == n
 proof {
     match (n) {
-        0 => assert 0 + 0 == 0;
-        Succ(p) => assert Succ(p) + 0 == Succ(p) by AddZeroRight(p);
+        0 => assert IdNat(0) == 0;
+        Succ(p) => assert IdNat(Succ(p)) == Succ(p) by IdNatEq(p);
     }
 }
 public Nat Observe(Nat n) {
@@ -82,7 +83,7 @@ public Nat Observe(Nat n) {
         return n;
     } else {
         assert n > 3;
-        assert n + 0 == n by AddZeroRight(n);
+        assert IdNat(n) == n by IdNatEq(n);
         return n;
     }
 }
@@ -105,7 +106,7 @@ public Nat Clamp(Nat n) {
         for original, replacement in (
             (b"n <= 4;", b"n <= 3;"),
             (b"n > 3;", b"n < 5;"),
-            (b"n + 0 == n by AddZeroRight(n);", b"n + 0 == n;"),
+            (b"IdNat(n) == n by IdNatEq(n);", b"IdNat(n) == n;"),
         ):
             neighbor = source.replace(original, replacement)
             with raises(HoldFastError) as failure:
@@ -122,7 +123,7 @@ public Nat Clamp(Nat n) {
     _replay_witnesses("InlineBranches", source, gallina, (
         ("small", b"assert n <= 4;", "forall n, Nat.ltb n 5 = true -> Nat.leb n 4 = true"),
         ("large", b"assert n > 3;", "forall n, Nat.ltb n 5 = false -> Nat.ltb 3 n = true"),
-        ("explicit", b"assert n + 0 == n by AddZeroRight(n);", "forall n, Nat.add n 0 = n"),
+        ("explicit", b"assert IdNat(n) == n by IdNatEq(n);", "forall n, HoldFast_InlineBranches.holdfast_d0_IdNat n = n"),
         ("before_join", b"assert n < 6;", "forall n, Nat.leb n 4 = true -> Nat.ltb n 6 = true"),
         ("non_strict_false", b"assert 5 <= n;", "forall n, Nat.leb n 4 = false -> Nat.leb 5 n = true"),
     ), batch=batch)

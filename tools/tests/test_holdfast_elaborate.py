@@ -1444,13 +1444,39 @@ def _definitional_conversion() -> None:
     source, response = fixture.response()
     emitted = elaborate(source, response).gallina
     ensure("Corelib.Init.Logic.eq_refl" in emitted, "definitional equality lost its proof constructor")
-    # Nat.add recurses on its first operand: n + 0 is stuck for arbitrary n.
-    # Accepting this neighbor with bare assert would invent an arithmetic theorem.
+    # Nat.add recurses on its first operand: n + 0 is stuck for arbitrary n,
+    # so definitional type conversion must still reject Vec<Nat, n + 0> as Vec<Nat, n>.
+    # Propositional Equalizer proofs synthesize explicit Rocq terms rather than
+    # widening definitional conversion or inventing arithmetic axioms.
     wrong = _Fixture()
-    wrong.theorem("ZeroOnRight", (("n", _NAT),),
-                  _binary("==", _binary("+", n, _natural(0)), n),
-                  _assert(_binary("==", _binary("+", n, _natural(0)), n)))
+    wrong.definition(
+        "ZeroOnRightType",
+        _type("Vec", _NAT, n),
+        (("n", _NAT), ("xs", _type("Vec", _NAT, _group(_binary("+", n, _natural(0)))))),
+        _variable("xs"),
+    )
     _refuses(wrong, "type")
+    wrong_arith = _Fixture()
+    wrong_arith.theorem(
+        "AddOneNotIdentity",
+        (("n", _NAT),),
+        _binary("==", _binary("+", n, _natural(1)), n),
+        _assert(_binary("==", _binary("+", n, _natural(1)), n)),
+    )
+    _refuses(wrong_arith, "type")
+    eq_fixture = _Fixture("EqualizerProof")
+    eq_fixture.theorem(
+        "ZeroOnRight",
+        (("n", _NAT),),
+        _binary("==", _binary("+", n, _natural(0)), n),
+        _assert(_binary("==", _binary("+", n, _natural(0)), n)),
+    )
+    eq_source, eq_response = eq_fixture.response()
+    eq_emitted = elaborate(eq_source, eq_response).gallina
+    ensure(
+        "holdfast_nat_add_0_r" in eq_emitted or "holdfast_npoly_sound" in eq_emitted,
+        "ZeroOnRight must emit an explicit arithmetic proof term rather than bare eq_refl",
+    )
 
 
 def _products_and_lookup_computation() -> None:
