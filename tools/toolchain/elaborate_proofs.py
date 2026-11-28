@@ -30,6 +30,8 @@ from toolchain.elaborate_types import (
 from toolchain.proof_certificates import (
     FixedIntOrderProver,
     NatDifferenceProver,
+    NatPolyEqualizer,
+    PropositionalPrechecker,
     VersionedEGraph,
 )
 
@@ -1151,10 +1153,32 @@ class _ProofsMixin:
                 if not (
                     cmp_head.kind == "const"
                     and isinstance(cmp_head.value, str)
-                    and (cmp_head.value.startswith("int_eq_") or cmp_head.value in {"eq_bool", "<==>"})
+                    and (cmp_head.value.startswith("int_eq_") or cmp_head.value in {"eq_bool", "eq_nat", "<==>"})
                     and len(cmp_args) == 2
                 ):
                     cmp_head, cmp_args = self.spine(self.whnf(lhs_r))
+                if cmp_head == _constant("eq_nat") and len(cmp_args) == 2:
+                    if allow_refl and self._try_unify(cmp_args[0], cmp_args[1]):
+                        return _apps(
+                            _constant("holdfast_nat_eqb_of_eq"),
+                            cmp_args[0],
+                            cmp_args[0],
+                            _apps(_constant("Refl"), _NAT, cmp_args[0]),
+                        )
+                    saved_neq = self.snapshot_metas()
+                    try:
+                        p_neq = self._prove_proposition(
+                            _apps(_constant("Eq"), _NAT, cmp_args[0], cmp_args[1]),
+                            environment,
+                            facts,
+                            node,
+                            allow_refl=allow_refl,
+                            include_env=include_env,
+                            split_depth=split_depth,
+                        )
+                        return _apps(_constant("holdfast_nat_eqb_of_eq"), cmp_args[0], cmp_args[1], p_neq)
+                    except HoldFastError:
+                        self.restore_metas(saved_neq)
                 if (
                     cmp_head.kind == "const"
                     and isinstance(cmp_head.value, str)
@@ -1356,6 +1380,13 @@ class _ProofsMixin:
         for fact in reversed(all_facts):
             if self._try_unify(fact.type, goal):
                 return fact.term
+
+        if allow_refl and self._unsolved_metas == 0:
+            saved_pre = self.snapshot_metas()
+            pre_proof = PropositionalPrechecker(self).prove(goal, all_facts)
+            if pre_proof is not None:
+                return pre_proof
+            self.restore_metas(saved_pre)
 
         raise self.fail(
             "type",
@@ -1657,6 +1688,144 @@ class _ProofsMixin:
     def asserted_proposition(self: _Elaborator, node: Node, environment: dict[str, _Binding]) -> _Term:
         return self._elaborate_proposition(node, environment, promote_bool=True)
 
+    def _instantiate_by_justification(
+        self: _Elaborator,
+        by_node: Node,
+        goal_whnf: _Term,
+        environment: dict[str, _Binding],
+        facts: tuple[_Binding, ...],
+    ) -> _Binding:
+        justification = self.expression(by_node, environment)
+        while self.whnf(justification.type).kind == "pi" and goal_whnf.kind != "pi":
+            pi_type = self.whnf(justification.type)
+            if cast("int", pi_type.value) in self.nullary_parameters:
+                break
+            domain = pi_type.args[0]
+            if self._is_prop_type(domain):
+                arg = self._prove_proposition(domain, environment, facts, by_node)
+            else:
+                arg = self.meta(domain, environment)
+            justification = _Binding(
+                _app(justification.term, arg),
+                self.substitute(pi_type.args[1], cast("int", pi_type.value), arg),
+            )
+        if not self._is_prop_type(justification.type):
+            raise self.fail("type", "assert 'by' justification must be a proof of a proposition", by_node)
+        return justification
+
+    def _discharge_by_facts(
+        self: _Elaborator,
+        goal: _Term,
+        by_facts: tuple[_Binding, ...],
+        facts: tuple[_Binding, ...],
+        justifications: tuple[_Binding, ...],
+    ) -> _Term | None:
+        goal_eq = self._extract_equality(goal)
+        if goal_eq is not None:
+            goal_type, lhs, rhs = goal_eq
+            for justification in justifications:
+                just_eq = self._extract_equality(justification.type)
+                if just_eq is not None:
+                    eq_type, u, v = just_eq
+                    saved = self.snapshot_metas()
+                    if (self._try_unify(eq_type, goal_type)
+                            and self._try_unify(v, lhs)
+                            and self._try_unify(u, rhs)):
+                        return _apps(_constant("Symm"), goal_type, u, v, justification.term)
+                    self.restore_metas(saved)
+            if (egraph_proof := self._prove_with_egraph(
+                goal_type, lhs, rhs, by_facts, allow_refl=True
+            )) is not None:
+                return egraph_proof
+            if self.whnf(goal_type) == _BOOL and self.whnf(rhs) == _term("bool", value=1):
+                cmp_head, cmp_args = self.spine(self.resolve(lhs))
+                if not (
+                    cmp_head.kind == "const"
+                    and isinstance(cmp_head.value, str)
+                    and (cmp_head.value.startswith("int_eq_") or cmp_head.value in {"eq_bool", "eq_nat", "<==>"})
+                    and len(cmp_args) == 2
+                ):
+                    cmp_head, cmp_args = self.spine(self.whnf(lhs))
+                if (
+                    cmp_head == _constant("eq_nat")
+                    and len(cmp_args) == 2
+                    and (p_neq := self._prove_with_egraph(
+                        _NAT, cmp_args[0], cmp_args[1], by_facts, allow_refl=True
+                    )) is not None
+                ):
+                    return _apps(_constant("holdfast_nat_eqb_of_eq"), cmp_args[0], cmp_args[1], p_neq)
+                if (
+                    cmp_head.kind == "const"
+                    and isinstance(cmp_head.value, str)
+                    and cmp_head.value.startswith("int_eq_")
+                    and len(cmp_args) == 2
+                    and (spec := _INT_SPECS.get(cmp_head.value[len("int_eq_") :])) is not None
+                    and (p_eq := self._prove_with_egraph(
+                        spec.const, cmp_args[0], cmp_args[1], by_facts, allow_refl=True
+                    )) is not None
+                ):
+                    return _apps(
+                        _constant("holdfast_int_eq_of_eq"),
+                        _term("nat", value=spec.tag),
+                        cmp_args[0],
+                        cmp_args[1],
+                        p_eq,
+                    )
+                if (
+                    cmp_head in {_constant("eq_bool"), _constant("<==>")}
+                    and len(cmp_args) == 2
+                    and (p_beq := self._prove_with_egraph(
+                        _BOOL, cmp_args[0], cmp_args[1], by_facts, allow_refl=True
+                    )) is not None
+                ):
+                    return _apps(_constant("holdfast_eq_bool_of_eq"), cmp_args[0], cmp_args[1], p_beq)
+
+        if self._unsolved_metas == 0:
+            saved_pre = self.snapshot_metas()
+            if (pre_proof := PropositionalPrechecker(self).prove(goal, by_facts)) is not None:
+                return pre_proof
+            self.restore_metas(saved_pre)
+
+        if goal_eq is not None:
+            goal_type, lhs, rhs = goal_eq
+            for justification in justifications:
+                just_eq = self._extract_equality(justification.type)
+                if just_eq is None:
+                    continue
+                eq_type, u, v = just_eq
+                if u != lhs or v != rhs:
+                    congr = self._try_congruence(goal_type, lhs, rhs, eq_type, u, v, justification.term)
+                    if congr is not None:
+                        return congr
+                    if u != v:
+                        sym_p = _apps(_constant("Symm"), eq_type, u, v, justification.term)
+                        congr_sym = self._try_congruence(goal_type, lhs, rhs, eq_type, v, u, sym_p)
+                        if congr_sym is not None:
+                            return congr_sym
+                edges = self._equality_edges(goal_type, facts)
+                ct = self._try_congruence_trans(goal_type, lhs, rhs, eq_type, u, v, justification.term, edges)
+                if ct is not None:
+                    return ct
+                if u != v:
+                    sym_p = _apps(_constant("Symm"), eq_type, u, v, justification.term)
+                    ct_sym = self._try_congruence_trans(goal_type, lhs, rhs, eq_type, v, u, sym_p, edges)
+                    if ct_sym is not None:
+                        return ct_sym
+                if self._try_unify(eq_type, goal_type):
+                    just_orientations = [(u, v, justification.term)]
+                    if u != v:
+                        just_orientations.append((v, u, _apps(_constant("Symm"), goal_type, u, v, justification.term)))
+                    for ju, jv, jp in just_orientations:
+                        if ju == lhs or self._try_unify(ju, lhs):
+                            for _, eu, ev, ep in edges:
+                                if (jv == eu or self._try_unify(jv, eu)) and (ev == rhs or self._try_unify(ev, rhs)):
+                                    return _apps(_constant("Trans"), goal_type, lhs, jv, rhs, jp, ep)
+                        if jv == rhs or self._try_unify(jv, rhs):
+                            for _, eu, ev, ep in edges:
+                                if (eu == lhs or self._try_unify(eu, lhs)) and (ev == ju or self._try_unify(ev, ju)):
+                                    return _apps(_constant("Trans"), goal_type, lhs, ju, rhs, ep, jp)
+        return None
+
     def _elaborate_by_expression(
         self: _Elaborator,
         goal: _Term,
@@ -1671,6 +1840,36 @@ class _ProofsMixin:
         if by_node["kind"] in {"lambda", "typed_lambda", "match_expression", "if_expression"}:
             return self.check(by_node, goal, environment)
         goal_whnf = self.whnf(goal)
+        unwrapped_by = self._unwrap_group(by_node)
+        if goal_whnf.kind != "ex" and unwrapped_by["kind"] == "tuple":
+            tuple_nodes = self.nodes(unwrapped_by["values"])
+            if not tuple_nodes:
+                raise self.fail("type", "assert 'by' tuple justification cannot be empty", by_node)
+            justifications = tuple(
+                self._instantiate_by_justification(item_node, goal_whnf, environment, facts)
+                for item_node in tuple_nodes
+            )
+            for justification in justifications:
+                if self._try_unify(justification.type, goal):
+                    return justification.term
+            by_facts = self._expand_fact_bindings((*facts, *justifications))
+            discharged = self._discharge_by_facts(goal, by_facts, facts, justifications)
+            if discharged is not None:
+                return discharged
+            saved_multi = self.snapshot_metas()
+            try:
+                return self._prove_proposition(
+                    goal,
+                    environment,
+                    (*facts, *justifications),
+                    assert_node,
+                    allow_refl=True,
+                    include_env=False,
+                )
+            except HoldFastError:
+                self.restore_metas(saved_multi)
+            raise self.fail("type", "assert justification does not establish the asserted proposition", assert_node)
+
         justification = self.expression(by_node, environment)
         if goal_whnf.kind == "ex" and not self._is_prop_type(justification.type):
             ex_domains: list[tuple[_Term, _Term]] = []
@@ -1678,7 +1877,6 @@ class _ProofsMixin:
             while curr_ex.kind == "ex":
                 ex_domains.append((curr_ex.args[0], curr_ex.args[1]))
                 curr_ex = self.whnf(curr_ex.args[1].args[1])
-            unwrapped_by = self._unwrap_group(by_node)
             if len(ex_domains) > 1 and unwrapped_by["kind"] == "tuple":
                 tuple_nodes = self.nodes(unwrapped_by["values"])
                 if len(tuple_nodes) == len(ex_domains):
@@ -1726,90 +1924,10 @@ class _ProofsMixin:
                 return inst
         if self._try_unify(justification.type, goal):
             return justification.term
-        goal_eq = self._extract_equality(goal)
-        just_eq = self._extract_equality(justification.type)
-        if goal_eq is not None:
-            goal_type, lhs, rhs = goal_eq
-            if just_eq is not None:
-                eq_type, u, v = just_eq
-                saved = self.snapshot_metas()
-                if (self._try_unify(eq_type, goal_type)
-                        and self._try_unify(v, lhs)
-                        and self._try_unify(u, rhs)):
-                    return _apps(_constant("Symm"), goal_type, u, v, justification.term)
-                self.restore_metas(saved)
-            by_facts = self._expand_fact_bindings((*facts, justification))
-            if (egraph_proof := self._prove_with_egraph(
-                goal_type, lhs, rhs, by_facts, allow_refl=True
-            )) is not None:
-                return egraph_proof
-            if self.whnf(goal_type) == _BOOL and self.whnf(rhs) == _term("bool", value=1):
-                cmp_head, cmp_args = self.spine(self.resolve(lhs))
-                if not (
-                    cmp_head.kind == "const"
-                    and isinstance(cmp_head.value, str)
-                    and (cmp_head.value.startswith("int_eq_") or cmp_head.value in {"eq_bool", "<==>"})
-                    and len(cmp_args) == 2
-                ):
-                    cmp_head, cmp_args = self.spine(self.whnf(lhs))
-                if (
-                    cmp_head.kind == "const"
-                    and isinstance(cmp_head.value, str)
-                    and cmp_head.value.startswith("int_eq_")
-                    and len(cmp_args) == 2
-                    and (spec := _INT_SPECS.get(cmp_head.value[len("int_eq_") :])) is not None
-                    and (p_eq := self._prove_with_egraph(
-                        spec.const, cmp_args[0], cmp_args[1], by_facts, allow_refl=True
-                    )) is not None
-                ):
-                    return _apps(
-                        _constant("holdfast_int_eq_of_eq"),
-                        _term("nat", value=spec.tag),
-                        cmp_args[0],
-                        cmp_args[1],
-                        p_eq,
-                    )
-                if (
-                    cmp_head in {_constant("eq_bool"), _constant("<==>")}
-                    and len(cmp_args) == 2
-                    and (p_beq := self._prove_with_egraph(
-                        _BOOL, cmp_args[0], cmp_args[1], by_facts, allow_refl=True
-                    )) is not None
-                ):
-                    return _apps(_constant("holdfast_eq_bool_of_eq"), cmp_args[0], cmp_args[1], p_beq)
-            if just_eq is not None:
-                eq_type, u, v = just_eq
-                if u != lhs or v != rhs:
-                    congr = self._try_congruence(goal_type, lhs, rhs, eq_type, u, v, justification.term)
-                    if congr is not None:
-                        return congr
-                    if u != v:
-                        sym_p = _apps(_constant("Symm"), eq_type, u, v, justification.term)
-                        congr_sym = self._try_congruence(goal_type, lhs, rhs, eq_type, v, u, sym_p)
-                        if congr_sym is not None:
-                            return congr_sym
-                edges = self._equality_edges(goal_type, facts)
-                ct = self._try_congruence_trans(goal_type, lhs, rhs, eq_type, u, v, justification.term, edges)
-                if ct is not None:
-                    return ct
-                if u != v:
-                    sym_p = _apps(_constant("Symm"), eq_type, u, v, justification.term)
-                    ct_sym = self._try_congruence_trans(goal_type, lhs, rhs, eq_type, v, u, sym_p, edges)
-                    if ct_sym is not None:
-                        return ct_sym
-                if self._try_unify(eq_type, goal_type):
-                    just_orientations = [(u, v, justification.term)]
-                    if u != v:
-                        just_orientations.append((v, u, _apps(_constant("Symm"), goal_type, u, v, justification.term)))
-                    for ju, jv, jp in just_orientations:
-                        if ju == lhs or self._try_unify(ju, lhs):
-                            for _, eu, ev, ep in edges:
-                                if (jv == eu or self._try_unify(jv, eu)) and (ev == rhs or self._try_unify(ev, rhs)):
-                                    return _apps(_constant("Trans"), goal_type, lhs, jv, rhs, jp, ep)
-                        if jv == rhs or self._try_unify(jv, rhs):
-                            for _, eu, ev, ep in edges:
-                                if (eu == lhs or self._try_unify(eu, lhs)) and (ev == ju or self._try_unify(ev, ju)):
-                                    return _apps(_constant("Trans"), goal_type, lhs, ju, rhs, ep, jp)
+        by_facts = self._expand_fact_bindings((*facts, justification))
+        discharged = self._discharge_by_facts(goal, by_facts, facts, (justification,))
+        if discharged is not None:
+            return discharged
         raise self.fail("type", "assert justification does not establish the asserted proposition", assert_node)
 
     def _elaborate_by_block(
@@ -2113,6 +2231,17 @@ class _ProofsMixin:
             proof = egraph.explain(goal_type, lhs, rhs)
             if proof is not None:
                 return proof
+            if allow_refl and self._unsolved_metas == 0:
+                egraph.intern(lhs)
+                egraph.intern(rhs)
+                egraph.saturate_equalizer()
+                proof = egraph.explain(goal_type, lhs, rhs)
+                if proof is not None:
+                    return proof
+                if self.whnf(goal_type) == _NAT:
+                    poly_proof = NatPolyEqualizer(self).prove_equal_mod_egraph(egraph, lhs, rhs)
+                    if poly_proof is not None:
+                        return poly_proof
         except HoldFastError:
             pass
         self.restore_metas(saved)

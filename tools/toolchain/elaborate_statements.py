@@ -85,15 +85,22 @@ class _StatementsMixin:
     def _branch_guard(self: _Elaborator, condition: _Term, truth: bool) -> tuple[_Binding, ...]:
         if not self.in_executable_function:
             return ()
-        head, _ = self.spine(condition)
+        cond_w = self.resolve(condition)
+        if cond_w.kind == "var" and self.whnf(self.types[cast("int", cond_w.value)]) == _BOOL:
+            prop = _apps(_constant("Eq"), _BOOL, cond_w, _term("bool", value=int(truth)))
+            return (_Binding(self.fresh(prop), prop),)
+        head, _ = self.spine(cond_w)
         if head.kind != "const" or not isinstance(head.value, str):
             return ()
         cname = head.value
-        if cname not in {"<=", "<", ">=", ">", "eq_nat", "eq_bool", "&&"} and not cname.startswith(
-            ("int_le_", "int_lt_", "int_ge_", "int_gt_", "int_eq_")
+        if cname not in {
+            "<=", "<", ">=", ">", "eq_nat", "ne_nat",
+            "eq_bool", "ne_bool", "&&", "||", "!", "==>", "<==>",
+        } and not cname.startswith(
+            ("int_le_", "int_lt_", "int_ge_", "int_gt_", "int_eq_", "int_ne_")
         ):
             return ()
-        prop = _apps(_constant("Eq"), _BOOL, condition, _term("bool", value=int(truth)))
+        prop = _apps(_constant("Eq"), _BOOL, cond_w, _term("bool", value=int(truth)))
         return (_Binding(self.fresh(prop), prop),)
 
     def _branch_value(

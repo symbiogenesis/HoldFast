@@ -41,6 +41,14 @@ MAX_EGRAPH_NODES = 1024
 MAX_EGRAPH_MERGES = 512
 MAX_EXPLAIN_STEPS = 128
 MAX_INT_ORDER_STEPS = 256
+MAX_POLY_VARS = 32
+MAX_POLY_TERMS = 64
+MAX_POLY_DEGREE = 8
+MAX_POLY_DEPTH = 32
+MAX_POLY_CONST = 256
+MAX_AC_LEAVES = 8
+MAX_PRECHECKER_STEPS = 128
+MAX_PRECHECKER_ATOMS = 5
 
 
 @dataclass(frozen=True)
@@ -604,6 +612,618 @@ class VersionedEGraph:
             return _Term(lhs.kind, lhs.value, tuple(args_seq))
 
         return self._synthesize_congruence_chain(goal_type, l_args, r_args, rebuild, visited_pairs)
+
+    def saturate_equalizer(self, max_rounds: int = 4) -> None:
+        """Apply bounded Mizar-style algebraic properties, reductions, and Nat polynomial merges."""
+        truth = _term("bool", value=1)
+        false_t = _term("bool", value=0)
+        refl_true = _apps(_constant("Refl"), _BOOL, truth)
+        comm_specs: dict[str, tuple[_Term, str, _IntSpec | None]] = {
+            "&&": (_BOOL, "holdfast_and_comm", None),
+            "||": (_BOOL, "holdfast_or_comm", None),
+            "eq_bool": (_BOOL, "holdfast_eq_bool_comm", None),
+            "<==>": (_BOOL, "holdfast_eq_bool_comm", None),
+            "ne_bool": (_BOOL, "holdfast_ne_bool_comm", None),
+            "eq_nat": (_BOOL, "holdfast_eq_nat_comm", None),
+            "ne_nat": (_BOOL, "holdfast_ne_nat_comm", None),
+        }
+        ac_specs: dict[str, tuple[_IntSpec, str, str]] = {}
+        for spec in _INT_SPECS.values():
+            comm_specs[f"int_eq_{spec.name}"] = (_BOOL, "holdfast_int_eq_comm", spec)
+            comm_specs[f"int_ne_{spec.name}"] = (_BOOL, "holdfast_int_ne_comm", spec)
+            comm_specs[f"int_add_{spec.name}"] = (spec.const, "holdfast_int_add_comm", spec)
+            comm_specs[f"int_and_{spec.name}"] = (spec.const, "holdfast_int_and_comm", spec)
+            comm_specs[f"int_or_{spec.name}"] = (spec.const, "holdfast_int_or_comm", spec)
+            comm_specs[f"int_xor_{spec.name}"] = (spec.const, "holdfast_int_xor_comm", spec)
+            ac_specs[f"int_add_{spec.name}"] = (spec, "holdfast_int_add_comm", "holdfast_int_add_assoc")
+            ac_specs[f"int_and_{spec.name}"] = (spec, "holdfast_int_and_comm", "holdfast_int_and_assoc")
+            ac_specs[f"int_or_{spec.name}"] = (spec, "holdfast_int_or_comm", "holdfast_int_or_assoc")
+            ac_specs[f"int_xor_{spec.name}"] = (spec, "holdfast_int_xor_comm", "holdfast_int_xor_assoc")
+
+        poly_eq = NatPolyEqualizer(self.elab)
+
+        for _ in range(max_rounds):
+            before_merges = self.merge_count
+            snapshot_count = len(self.nodes)
+            comm_seen: dict[tuple[str, int, int], tuple[int, _Term, _Term, _Term]] = {}
+            ac_buckets: dict[tuple[str, tuple[int, ...]], list[int]] = defaultdict(list)
+            nat_candidates: list[int] = []
+
+            for nid in range(snapshot_count):
+                if self.merge_count >= MAX_EGRAPH_MERGES or len(self.nodes) >= MAX_EGRAPH_NODES:
+                    break
+                node = self.nodes[nid]
+                if node.kind == "nat":
+                    nat_candidates.append(nid)
+                    continue
+                head, args = self.elab.spine(node)
+                if head.kind != "const" or not isinstance(head.value, str):
+                    continue
+                cname = head.value
+
+                # 1. Involutiveness: !!b == b and ~~x == x
+                if cname == "!" and len(args) == 1:
+                    inner = self.elab.resolve(args[0])
+                    ih, ia = self.elab.spine(inner)
+                    if ih == _constant("!") and len(ia) == 1:
+                        self.assert_equality(_BOOL, node, ia[0], _app(_constant("holdfast_not_involutive"), ia[0]))
+                    continue
+                if cname.startswith("int_not_") and len(args) == 1:
+                    spec = _INT_SPECS.get(cname[len("int_not_") :])
+                    if spec is not None:
+                        inner = self.elab.resolve(args[0])
+                        ih, ia = self.elab.spine(inner)
+                        if ih == head and len(ia) == 1:
+                            self.assert_equality(
+                                spec.const,
+                                node,
+                                ia[0],
+                                _apps(_constant("holdfast_int_not_involutive"), _term("nat", value=spec.tag), ia[0]),
+                            )
+                    continue
+
+                if cname == "Seq_Take" and len(args) == 3:
+                    inner = self.elab.resolve(args[1])
+                    ih, ia = self.elab.spine(inner)
+                    if ih == head and len(ia) == 3:
+                        n1_id = self.term_to_id.get(self.elab.resolve(args[2]))
+                        n2_id = self.term_to_id.get(self.elab.resolve(ia[2]))
+                        if n1_id is not None and n2_id is not None and self.find(n1_id) == self.find(n2_id):
+                            p_base = _apps(_constant("holdfast_Seq_take_idempotent"), ia[0], ia[2], ia[1])
+                            if args[2] == ia[2]:
+                                self.assert_equality(_apps(_constant("Seq"), args[0]), node, inner, p_base)
+                            elif (pn := self.explain(_NAT, args[2], ia[2])) is not None:
+                                seq_ty = _apps(_constant("Seq"), args[0])
+                                z = self.elab.fresh(_NAT)
+                                lam = _term("lam", _NAT, _apps(head, args[0], inner, z), value=cast("int", z.value))
+                                p_step = _apps(_constant("Congr"), _NAT, seq_ty, args[2], ia[2], lam, pn)
+                                self.assert_equality(
+                                    seq_ty,
+                                    node,
+                                    inner,
+                                    _apps(_constant("Trans"), seq_ty, node, _apps(head, args[0], inner, ia[2]), inner, p_step, p_base),
+                                )
+                    continue
+
+                if cname == "Succ" and len(args) == 1:
+                    nat_candidates.append(nid)
+                    if (arg_id := self.term_to_id.get(self.elab.resolve(args[0]))) is not None:
+                        nat_candidates.append(arg_id)
+                    continue
+
+                if len(args) != 2:
+                    continue
+
+                if cname in {"+", "*"}:
+                    nat_candidates.append(nid)
+                    nat_candidates.extend(
+                        arg_id for arg in args
+                        if (arg_id := self.term_to_id.get(self.elab.resolve(arg))) is not None
+                    )
+                elif cname in {"eq_nat", "ne_nat", "<", "<=", ">", ">="}:
+                    nat_candidates.extend(
+                        arg_id for arg in args
+                        if (arg_id := self.term_to_id.get(self.elab.resolve(arg))) is not None
+                    )
+
+                a_res = self.elab.resolve(args[0])
+                b_res = self.elab.resolve(args[1])
+                aid = self.term_to_id.get(a_res)
+                bid = self.term_to_id.get(b_res)
+                if aid is None or bid is None:
+                    continue
+                ra = self.find(aid)
+                rb = self.find(bid)
+
+                # 2. Boolean reductions & idempotence
+                if cname == "&&":
+                    self._saturate_bool_and(node, a_res, b_res, ra, rb, truth, false_t)
+                elif cname == "||":
+                    self._saturate_bool_or(node, a_res, b_res, ra, rb, truth, false_t)
+
+                # 3. Fixed-width integer reductions & idempotence
+                if cname.startswith("int_"):
+                    self._saturate_int_binary(node, head, cname, a_res, b_res, ra, rb, refl_true)
+
+                # 4. Commutativity (zero speculative nodes: only merge when swapped partner exists)
+                if (cspec := comm_specs.get(cname)) is not None:
+                    eq_ty, comm_lemma, int_spec = cspec
+                    canon_key = (cname, min(ra, rb), max(ra, rb))
+                    prev = comm_seen.get(canon_key)
+                    if prev is None:
+                        comm_seen[canon_key] = (nid, head, a_res, b_res)
+                    else:
+                        prev_nid, _, pa_res, pb_res = prev
+                        if self.find(prev_nid) != self.find(nid):
+                            paid = self.find(self.term_to_id[pa_res])
+                            pbid = self.find(self.term_to_id[pb_res])
+                            if ra == pbid and rb == paid:
+                                swapped = _apps(head, b_res, a_res)
+                                comm_p = (
+                                    _apps(_constant(comm_lemma), _term("nat", value=int_spec.tag), a_res, b_res)
+                                    if int_spec is not None
+                                    else _apps(_constant(comm_lemma), a_res, b_res)
+                                )
+                                self.assert_equality(eq_ty, node, swapped, comm_p)
+
+                # 5. AC grouping for associative-commutative integer operators
+                if cname in ac_specs:
+                    leaves = self._flatten_ac(head, node)
+                    if 3 <= len(leaves) <= MAX_AC_LEAVES:
+                        leaf_roots: list[int] = []
+                        ok = True
+                        for leaf in leaves:
+                            lid = self.term_to_id.get(self.elab.resolve(leaf))
+                            if lid is None:
+                                ok = False
+                                break
+                            leaf_roots.append(self.find(lid))
+                        if ok:
+                            ac_buckets[(cname, tuple(sorted(leaf_roots)))].append(nid)
+
+            # Merge AC buckets that share the same sorted multiset of argument e-class roots
+            for (cname, _), group in ac_buckets.items():
+                if len(group) < 2 or self.merge_count >= MAX_EGRAPH_MERGES:
+                    continue
+                int_spec, comm_lemma, assoc_lemma = ac_specs[cname]
+                rep_nid = group[0]
+                rep_node = self.nodes[rep_nid]
+                rep_canon, rep_proof = self._ac_canonicalize(
+                    _constant(cname), int_spec, comm_lemma, assoc_lemma, rep_node,
+                )
+                if rep_proof is None:
+                    continue
+                for other_nid in group[1:]:
+                    if self.find(other_nid) == self.find(rep_nid):
+                        continue
+                    other_node = self.nodes[other_nid]
+                    other_canon, other_proof = self._ac_canonicalize(
+                        _constant(cname), int_spec, comm_lemma, assoc_lemma, other_node,
+                    )
+                    if other_proof is None or rep_canon != other_canon:
+                        continue
+                    eq_p = _apps(
+                        _constant("Trans"),
+                        int_spec.const,
+                        rep_node,
+                        rep_canon,
+                        other_node,
+                        rep_proof,
+                        _apps(_constant("Symm"), int_spec.const, other_node, other_canon, other_proof),
+                    )
+                    self.assert_equality(int_spec.const, rep_node, other_node, eq_p)
+
+            # 6. Reflective Nat polynomial equivalence modulo e-graph classes
+            if nat_candidates and self.merge_count < MAX_EGRAPH_MERGES:
+                poly_buckets: dict[tuple[tuple[tuple[int, ...], int], ...], list[int]] = defaultdict(list)
+                seen_nat: set[int] = set()
+                for nid in nat_candidates:
+                    if nid in seen_nat:
+                        continue
+                    seen_nat.add(nid)
+                    sig = poly_eq.polynomial_key(self, self.nodes[nid])
+                    if sig is not None:
+                        poly_buckets[sig].append(nid)
+                for group in poly_buckets.values():
+                    if len(group) < 2 or self.merge_count >= MAX_EGRAPH_MERGES:
+                        continue
+                    rep_nid = group[0]
+                    rep_node = self.nodes[rep_nid]
+                    for other_nid in group[1:]:
+                        if self.find(other_nid) == self.find(rep_nid):
+                            continue
+                        other_node = self.nodes[other_nid]
+                        if (poly_p := poly_eq.prove_equal_mod_egraph(self, rep_node, other_node)) is not None:
+                            self.assert_equality(_NAT, rep_node, other_node, poly_p)
+
+            if self.merge_count == before_merges:
+                break
+
+    def _saturate_bool_and(
+        self, node: _Term, a: _Term, b: _Term, ra: int, rb: int, truth: _Term, false_t: _Term,
+    ) -> None:
+        tid_true = self.term_to_id.get(truth)
+        tid_false = self.term_to_id.get(false_t)
+        r_true = self.find(tid_true) if tid_true is not None else -1
+        r_false = self.find(tid_false) if tid_false is not None else -1
+        if ra == rb:
+            if a == b:
+                self.assert_equality(_BOOL, node, a, _app(_constant("holdfast_and_idem"), a))
+            elif (p_ab := self.explain(_BOOL, a, b)) is not None:
+                z = self.elab.fresh(_BOOL)
+                lam = _term("lam", _BOOL, _apps(_constant("&&"), a, z), value=cast("int", z.value))
+                step = _apps(_constant("Congr"), _BOOL, _BOOL, a, b, lam, p_ab)
+                p_idem = _app(_constant("holdfast_and_idem"), a)
+                self.assert_equality(
+                    _BOOL,
+                    node,
+                    a,
+                    _apps(_constant("Trans"), _BOOL, node, _apps(_constant("&&"), a, a), a, _apps(_constant("Symm"), _BOOL, _apps(_constant("&&"), a, a), node, step), p_idem),
+                )
+        elif b == truth or rb == r_true:
+            if b == truth:
+                self.assert_equality(_BOOL, node, a, _app(_constant("holdfast_bool_and_true_r"), a))
+            elif (p_bt := self.explain(_BOOL, b, truth)) is not None:
+                z = self.elab.fresh(_BOOL)
+                lam = _term("lam", _BOOL, _apps(_constant("&&"), a, z), value=cast("int", z.value))
+                step = _apps(_constant("Congr"), _BOOL, _BOOL, b, truth, lam, p_bt)
+                self.assert_equality(
+                    _BOOL,
+                    node,
+                    a,
+                    _apps(_constant("Trans"), _BOOL, node, _apps(_constant("&&"), a, truth), a, step, _app(_constant("holdfast_bool_and_true_r"), a)),
+                )
+        elif a == truth or ra == r_true:
+            if a == truth:
+                self.assert_equality(
+                    _BOOL,
+                    node,
+                    b,
+                    _apps(_constant("Trans"), _BOOL, node, _apps(_constant("&&"), b, truth), b, _apps(_constant("holdfast_and_comm"), a, b), _app(_constant("holdfast_bool_and_true_r"), b)),
+                )
+        elif b == false_t or rb == r_false:
+            if b == false_t:
+                self.assert_equality(_BOOL, node, false_t, _app(_constant("holdfast_bool_and_false_r"), a))
+        elif a == false_t or ra == r_false:
+            if a == false_t:
+                self.assert_equality(
+                    _BOOL,
+                    node,
+                    false_t,
+                    _apps(_constant("Trans"), _BOOL, node, _apps(_constant("&&"), b, false_t), false_t, _apps(_constant("holdfast_and_comm"), a, b), _app(_constant("holdfast_bool_and_false_r"), b)),
+                )
+        else:
+            bh, ba = self.elab.spine(b)
+            if bh == _constant("!") and len(ba) == 1:
+                neg_id = self.term_to_id.get(self.elab.resolve(ba[0]))
+                if neg_id is not None and self.find(neg_id) == ra and a == ba[0]:
+                    self.assert_equality(_BOOL, node, false_t, _app(_constant("holdfast_bool_and_not_r"), a))
+            ah, aa = self.elab.spine(a)
+            if ah == _constant("!") and len(aa) == 1:
+                neg_id = self.term_to_id.get(self.elab.resolve(aa[0]))
+                if neg_id is not None and self.find(neg_id) == rb and b == aa[0]:
+                    self.assert_equality(
+                        _BOOL,
+                        node,
+                        false_t,
+                        _apps(_constant("Trans"), _BOOL, node, _apps(_constant("&&"), b, a), false_t, _apps(_constant("holdfast_and_comm"), a, b), _app(_constant("holdfast_bool_and_not_r"), b)),
+                    )
+
+    def _saturate_bool_or(
+        self, node: _Term, a: _Term, b: _Term, ra: int, rb: int, truth: _Term, false_t: _Term,
+    ) -> None:
+        tid_true = self.term_to_id.get(truth)
+        tid_false = self.term_to_id.get(false_t)
+        r_true = self.find(tid_true) if tid_true is not None else -1
+        r_false = self.find(tid_false) if tid_false is not None else -1
+        if ra == rb:
+            if a == b:
+                self.assert_equality(_BOOL, node, a, _app(_constant("holdfast_or_idem"), a))
+            elif (p_ab := self.explain(_BOOL, a, b)) is not None:
+                z = self.elab.fresh(_BOOL)
+                lam = _term("lam", _BOOL, _apps(_constant("||"), a, z), value=cast("int", z.value))
+                step = _apps(_constant("Congr"), _BOOL, _BOOL, a, b, lam, p_ab)
+                p_idem = _app(_constant("holdfast_or_idem"), a)
+                self.assert_equality(
+                    _BOOL,
+                    node,
+                    a,
+                    _apps(_constant("Trans"), _BOOL, node, _apps(_constant("||"), a, a), a, _apps(_constant("Symm"), _BOOL, _apps(_constant("||"), a, a), node, step), p_idem),
+                )
+        elif b == false_t or rb == r_false:
+            if b == false_t:
+                self.assert_equality(_BOOL, node, a, _app(_constant("holdfast_bool_or_false_r"), a))
+            elif (p_bf := self.explain(_BOOL, b, false_t)) is not None:
+                z = self.elab.fresh(_BOOL)
+                lam = _term("lam", _BOOL, _apps(_constant("||"), a, z), value=cast("int", z.value))
+                step = _apps(_constant("Congr"), _BOOL, _BOOL, b, false_t, lam, p_bf)
+                self.assert_equality(
+                    _BOOL,
+                    node,
+                    a,
+                    _apps(_constant("Trans"), _BOOL, node, _apps(_constant("||"), a, false_t), a, step, _app(_constant("holdfast_bool_or_false_r"), a)),
+                )
+        elif a == false_t or ra == r_false:
+            if a == false_t:
+                self.assert_equality(
+                    _BOOL,
+                    node,
+                    b,
+                    _apps(_constant("Trans"), _BOOL, node, _apps(_constant("||"), b, false_t), b, _apps(_constant("holdfast_or_comm"), a, b), _app(_constant("holdfast_bool_or_false_r"), b)),
+                )
+        elif b == truth or rb == r_true:
+            if b == truth:
+                self.assert_equality(_BOOL, node, truth, _app(_constant("holdfast_bool_or_true_r"), a))
+        elif a == truth or ra == r_true:
+            if a == truth:
+                self.assert_equality(
+                    _BOOL,
+                    node,
+                    truth,
+                    _apps(_constant("Trans"), _BOOL, node, _apps(_constant("||"), b, truth), truth, _apps(_constant("holdfast_or_comm"), a, b), _app(_constant("holdfast_bool_or_true_r"), b)),
+                )
+        else:
+            bh, ba = self.elab.spine(b)
+            if bh == _constant("!") and len(ba) == 1:
+                neg_id = self.term_to_id.get(self.elab.resolve(ba[0]))
+                if neg_id is not None and self.find(neg_id) == ra and a == ba[0]:
+                    self.assert_equality(_BOOL, node, truth, _app(_constant("holdfast_bool_or_not_r"), a))
+            ah, aa = self.elab.spine(a)
+            if ah == _constant("!") and len(aa) == 1:
+                neg_id = self.term_to_id.get(self.elab.resolve(aa[0]))
+                if neg_id is not None and self.find(neg_id) == rb and b == aa[0]:
+                    self.assert_equality(
+                        _BOOL,
+                        node,
+                        truth,
+                        _apps(_constant("Trans"), _BOOL, node, _apps(_constant("||"), b, a), truth, _apps(_constant("holdfast_or_comm"), a, b), _app(_constant("holdfast_bool_or_not_r"), b)),
+                    )
+
+    def _saturate_int_binary(
+        self, node: _Term, head: _Term, cname: str, a: _Term, b: _Term, ra: int, rb: int, refl_true: _Term,
+    ) -> None:
+        if "_" not in cname[4:]:
+            return
+        prefix, spec_name = cname.rsplit("_", 1)
+        spec = _INT_SPECS.get(spec_name)
+        if spec is None:
+            return
+        op = prefix[4:]
+        tag = _term("nat", value=spec.tag)
+        zero_t = _int_term(spec, 0)
+
+        if ra == rb:
+            if op in {"and", "or"}:
+                lemma = f"holdfast_int_{op}_idem"
+                if a == b:
+                    self.assert_equality(spec.const, node, a, _apps(_constant(lemma), tag, a))
+                elif (p_ab := self.explain(spec.const, a, b)) is not None:
+                    z = self.elab.fresh(spec.const)
+                    lam = _term("lam", spec.const, _apps(head, a, z), value=cast("int", z.value))
+                    step = _apps(_constant("Congr"), spec.const, spec.const, a, b, lam, p_ab)
+                    self.assert_equality(
+                        spec.const,
+                        node,
+                        a,
+                        _apps(
+                            _constant("Trans"),
+                            spec.const,
+                            node,
+                            _apps(head, a, a),
+                            a,
+                            _apps(_constant("Symm"), spec.const, _apps(head, a, a), node, step),
+                            _apps(_constant(lemma), tag, a),
+                        ),
+                    )
+            elif op == "xor":
+                p_self = _apps(_constant("holdfast_int_xor_self"), tag, a, zero_t, refl_true)
+                if a == b:
+                    self.assert_equality(spec.const, node, zero_t, p_self)
+                elif (p_ab := self.explain(spec.const, a, b)) is not None:
+                    z = self.elab.fresh(spec.const)
+                    lam = _term("lam", spec.const, _apps(head, a, z), value=cast("int", z.value))
+                    step = _apps(_constant("Congr"), spec.const, spec.const, a, b, lam, p_ab)
+                    self.assert_equality(
+                        spec.const,
+                        node,
+                        zero_t,
+                        _apps(
+                            _constant("Trans"),
+                            spec.const,
+                            node,
+                            _apps(head, a, a),
+                            zero_t,
+                            _apps(_constant("Symm"), spec.const, _apps(head, a, a), node, step),
+                            p_self,
+                        ),
+                    )
+            return
+
+        if op not in {"add", "xor", "and", "or"}:
+            return
+        zero_id = self.term_to_id.get(zero_t)
+        r_zero = self.find(zero_id) if zero_id is not None else -1
+        if b.kind == "int" and b.value == 0:
+            res = zero_t if op == "and" else a
+            self.assert_equality(spec.const, node, res, _apps(_constant(f"holdfast_int_{op}_zero_r"), tag, a, b, refl_true))
+        elif rb == r_zero and (p_bz := self.explain(spec.const, b, zero_t)) is not None:
+            res = zero_t if op == "and" else a
+            z = self.elab.fresh(spec.const)
+            lam = _term("lam", spec.const, _apps(head, a, z), value=cast("int", z.value))
+            step = _apps(_constant("Congr"), spec.const, spec.const, b, zero_t, lam, p_bz)
+            self.assert_equality(
+                spec.const,
+                node,
+                res,
+                _apps(
+                    _constant("Trans"),
+                    spec.const,
+                    node,
+                    _apps(head, a, zero_t),
+                    res,
+                    step,
+                    _apps(_constant(f"holdfast_int_{op}_zero_r"), tag, a, zero_t, refl_true),
+                ),
+            )
+        elif a.kind == "int" and a.value == 0:
+            res = zero_t if op == "and" else b
+            self.assert_equality(spec.const, node, res, _apps(_constant(f"holdfast_int_{op}_zero_l"), tag, a, b, refl_true))
+        elif ra == r_zero and (p_az := self.explain(spec.const, a, zero_t)) is not None:
+            res = zero_t if op == "and" else b
+            z = self.elab.fresh(spec.const)
+            lam = _term("lam", spec.const, _apps(head, z, b), value=cast("int", z.value))
+            step = _apps(_constant("Congr"), spec.const, spec.const, a, zero_t, lam, p_az)
+            self.assert_equality(
+                spec.const,
+                node,
+                res,
+                _apps(
+                    _constant("Trans"),
+                    spec.const,
+                    node,
+                    _apps(head, zero_t, b),
+                    res,
+                    step,
+                    _apps(_constant(f"holdfast_int_{op}_zero_l"), tag, zero_t, b, refl_true),
+                ),
+            )
+
+    def _flatten_ac(self, op_head: _Term, term: _Term, depth: int = 0) -> list[_Term]:
+        if depth > MAX_AC_LEAVES:
+            return [term]
+        resolved = self.elab.resolve(term)
+        h, args = self.elab.spine(resolved)
+        if h == op_head and len(args) == 2:
+            left = self._flatten_ac(op_head, args[0], depth + 1)
+            right = self._flatten_ac(op_head, args[1], depth + 1)
+            return [*left, *right]
+        return [resolved]
+
+    def _ac_canonicalize(
+        self,
+        op_head: _Term,
+        spec: _IntSpec,
+        comm_lemma: str,
+        assoc_lemma: str,
+        term: _Term,
+    ) -> tuple[_Term, _Term | None]:
+        """Normalize an AC expression to a right-associated, root-sorted chain with proof."""
+        ty = spec.const
+        tag = _term("nat", value=spec.tag)
+        comm_c = _constant(comm_lemma)
+        assoc_c = _constant(assoc_lemma)
+
+        def congr_l(l1: _Term, l2: _Term, r: _Term, p: _Term) -> _Term:
+            z = self.elab.fresh(ty)
+            lam = _term("lam", ty, _apps(op_head, z, r), value=cast("int", z.value))
+            return _apps(_constant("Congr"), ty, ty, l1, l2, lam, p)
+
+        def congr_r(left: _Term, r1: _Term, r2: _Term, p: _Term) -> _Term:
+            z = self.elab.fresh(ty)
+            lam = _term("lam", ty, _apps(op_head, left, z), value=cast("int", z.value))
+            return _apps(_constant("Congr"), ty, ty, r1, r2, lam, p)
+
+        def trans(a: _Term, b: _Term, c: _Term, p1: _Term | None, p2: _Term | None) -> tuple[_Term, _Term | None]:
+            if p1 is None:
+                return c, p2
+            if p2 is None:
+                return b, p1
+            return c, _apps(_constant("Trans"), ty, a, b, c, p1, p2)
+
+        def canon_leaf(leaf: _Term) -> tuple[_Term, _Term | None]:
+            res = self.elab.resolve(leaf)
+            nid = self.term_to_id.get(res)
+            if nid is None:
+                return res, None
+            root = self.find(nid)
+            rep = self.nodes[root]
+            if res == rep:
+                return res, None
+            p = self.explain(ty, res, rep)
+            return (rep, p) if p is not None else (res, None)
+
+        def right_assoc(cur: _Term) -> tuple[_Term, _Term | None]:
+            cur = self.elab.resolve(cur)
+            h, args = self.elab.spine(cur)
+            if h != op_head or len(args) != 2:
+                return canon_leaf(cur)
+            l_cur, r_cur = args
+            l_right, p_l = right_assoc(l_cur)
+            r_right, p_r = right_assoc(r_cur)
+            mid_term = _apps(op_head, l_right, r_right)
+            p_acc: _Term | None = None
+            if p_l is not None:
+                p_acc = congr_l(l_cur, l_right, r_cur, p_l)
+            if p_r is not None:
+                step_r = congr_r(l_right, r_cur, r_right, p_r)
+                _, p_acc = trans(cur, _apps(op_head, l_right, r_cur), mid_term, p_acc, step_r)
+            lh, la = self.elab.spine(l_right)
+            if lh == op_head and len(la) == 2:
+                x, y = la
+                step_assoc = _apps(assoc_c, tag, x, y, r_right)
+                shifted_inner, p_inner = right_assoc(_apps(op_head, y, r_right))
+                res_t = _apps(op_head, x, shifted_inner)
+                p_tail = step_assoc if p_inner is None else _apps(
+                    _constant("Trans"),
+                    ty,
+                    mid_term,
+                    _apps(op_head, x, _apps(op_head, y, r_right)),
+                    res_t,
+                    step_assoc,
+                    congr_r(x, _apps(op_head, y, r_right), shifted_inner, p_inner),
+                )
+                _, p_acc = trans(cur, mid_term, res_t, p_acc, p_tail)
+                return res_t, p_acc
+            return mid_term, p_acc
+
+        def leaf_key(leaf: _Term) -> tuple[int, str]:
+            nid = self.term_to_id.get(leaf)
+            return (self.find(nid) if nid is not None else -1, repr(leaf))
+
+        def insert_sorted(x: _Term, chain: _Term) -> tuple[_Term, _Term | None]:
+            ch, ca = self.elab.spine(chain)
+            if ch != op_head or len(ca) != 2:
+                if leaf_key(x) <= leaf_key(chain):
+                    return _apps(op_head, x, chain), None
+                return _apps(op_head, chain, x), _apps(comm_c, tag, x, chain)
+            y, ys = ca
+            if leaf_key(x) <= leaf_key(y):
+                return _apps(op_head, x, chain), None
+            # x + (y + ys) == (x + y) + ys == (y + x) + ys == y + (x + ys)
+            start = _apps(op_head, x, chain)
+            l_assoc = _apps(op_head, _apps(op_head, x, y), ys)
+            l_swapped = _apps(op_head, _apps(op_head, y, x), ys)
+            r_mid = _apps(op_head, y, _apps(op_head, x, ys))
+            p1 = _apps(_constant("Symm"), ty, l_assoc, start, _apps(assoc_c, tag, x, y, ys))
+            p2 = congr_l(_apps(op_head, x, y), _apps(op_head, y, x), ys, _apps(comm_c, tag, x, y))
+            p3 = _apps(assoc_c, tag, y, x, ys)
+            p12 = _apps(_constant("Trans"), ty, start, l_assoc, l_swapped, p1, p2)
+            p123 = _apps(_constant("Trans"), ty, start, l_swapped, r_mid, p12, p3)
+            inner_sorted, p_ins = insert_sorted(x, ys)
+            if p_ins is None:
+                return r_mid, p123
+            final_t = _apps(op_head, y, inner_sorted)
+            p4 = congr_r(y, _apps(op_head, x, ys), inner_sorted, p_ins)
+            return final_t, _apps(_constant("Trans"), ty, start, r_mid, final_t, p123, p4)
+
+        def sort_right_chain(chain: _Term) -> tuple[_Term, _Term | None]:
+            ch, ca = self.elab.spine(chain)
+            if ch != op_head or len(ca) != 2:
+                return chain, None
+            x, rest = ca
+            rest_sorted, p_rest = sort_right_chain(rest)
+            mid = _apps(op_head, x, rest_sorted)
+            p_lift = congr_r(x, rest, rest_sorted, p_rest) if p_rest is not None else None
+            inserted, p_ins = insert_sorted(x, rest_sorted)
+            return trans(chain, mid, inserted, p_lift, p_ins)
+
+        try:
+            ra_term, p_ra = right_assoc(term)
+            sorted_term, p_sort = sort_right_chain(ra_term)
+            final_term, p_all = trans(term, ra_term, sorted_term, p_ra, p_sort)
+            return final_term, p_all if p_all is not None else _apps(_constant("Refl"), ty, term)
+        except HoldFastError:
+            return term, None
 
 
 class _OrderGraphSearch:
@@ -1275,4 +1895,838 @@ class FixedIntOrderProver:
             )
             if res is not None:
                 return res
+        return None
+
+
+type _Poly = dict[tuple[int, ...], int]
+type _BoolSkel = tuple[object, ...]
+
+
+class NatPolyEqualizer:
+    """Reflective ``Nat`` semiring polynomial normalizer and e-graph bridge."""
+
+    def __init__(self, elaborator: _Elaborator) -> None:
+        self.elab = elaborator
+
+    @staticmethod
+    def _poly_add(p1: _Poly, p2: _Poly) -> _Poly | None:
+        res = dict(p1)
+        for mono, coeff in p2.items():
+            nxt = res.get(mono, 0) + coeff
+            if nxt > 0:
+                res[mono] = nxt
+            if len(res) > MAX_POLY_TERMS:
+                return None
+        return res
+
+    @staticmethod
+    def _poly_mul(p1: _Poly, p2: _Poly) -> _Poly | None:
+        res: _Poly = {}
+        for m1, c1 in p1.items():
+            for m2, c2 in p2.items():
+                mono = tuple(sorted((*m1, *m2)))
+                if len(mono) > MAX_POLY_DEGREE:
+                    return None
+                res[mono] = res.get(mono, 0) + c1 * c2
+                if len(res) > MAX_POLY_TERMS:
+                    return None
+        return res
+
+    def _collect_rep_map(self, egraph: VersionedEGraph, terms: Sequence[_Term]) -> dict[int, _Term]:
+        rep_map: dict[int, _Term] = {}
+        seen_roots: set[int] = set()
+
+        def visit(t: _Term, depth: int = 0) -> None:
+            if depth > MAX_POLY_DEPTH:
+                return
+            r = self.elab.resolve(t)
+            if r.kind == "nat":
+                return
+            h, args = self.elab.spine(r)
+            if h == _constant("Succ") and len(args) == 1:
+                visit(args[0], depth + 1)
+                return
+            if h in {_constant("+"), _constant("*")} and len(args) == 2:
+                visit(args[0], depth + 1)
+                visit(args[1], depth + 1)
+                return
+            nid = egraph.term_to_id.get(r)
+            if nid is None:
+                return
+            root = egraph.find(nid)
+            if root in seen_roots:
+                return
+            seen_roots.add(root)
+            # Prefer a small Nat literal in the e-class if one exists so e.g. a == 2 folds a + a == 4.
+            chosen = r
+            for member_id in egraph.classes.get(root, ()):
+                m_node = egraph.nodes[member_id]
+                if m_node.kind == "nat" and cast("int", m_node.value) <= MAX_POLY_CONST:
+                    chosen = m_node
+                    break
+            rep_map[root] = chosen
+
+        for term in terms:
+            visit(term)
+        return rep_map
+
+    def _reflect(
+        self,
+        term: _Term,
+        atoms: list[_Term],
+        atom_idx: dict[_Term, int],
+        *,
+        egraph: VersionedEGraph | None = None,
+        rep_map: dict[int, _Term] | None = None,
+        depth: int = 0,
+    ) -> tuple[_Term, _Poly] | None:
+        if depth > MAX_POLY_DEPTH:
+            return None
+        r = self.elab.resolve(term)
+        if r.kind == "nat":
+            val = cast("int", r.value)
+            if val <= MAX_POLY_CONST:
+                poly: _Poly = {(): val} if val > 0 else {}
+                return _app(_constant("holdfast_npe_const"), r), poly
+        else:
+            h, args = self.elab.spine(r)
+            if h == _constant("Succ") and len(args) == 1:
+                inner = self._reflect(args[0], atoms, atom_idx, egraph=egraph, rep_map=rep_map, depth=depth + 1)
+                if inner is None:
+                    return None
+                ast_x, poly_x = inner
+                poly_s = self._poly_add({(): 1}, poly_x)
+                if poly_s is None:
+                    return None
+                return _apps(_constant("holdfast_npe_add"), _app(_constant("holdfast_npe_const"), _term("nat", value=1)), ast_x), poly_s
+            if h == _constant("+") and len(args) == 2:
+                left = self._reflect(args[0], atoms, atom_idx, egraph=egraph, rep_map=rep_map, depth=depth + 1)
+                right = self._reflect(args[1], atoms, atom_idx, egraph=egraph, rep_map=rep_map, depth=depth + 1)
+                if left is None or right is None:
+                    return None
+                poly_sum = self._poly_add(left[1], right[1])
+                if poly_sum is None:
+                    return None
+                return _apps(_constant("holdfast_npe_add"), left[0], right[0]), poly_sum
+            if h == _constant("*") and len(args) == 2:
+                left = self._reflect(args[0], atoms, atom_idx, egraph=egraph, rep_map=rep_map, depth=depth + 1)
+                right = self._reflect(args[1], atoms, atom_idx, egraph=egraph, rep_map=rep_map, depth=depth + 1)
+                if left is None or right is None:
+                    return None
+                poly_prod = self._poly_mul(left[1], right[1])
+                if poly_prod is None:
+                    return None
+                return _apps(_constant("holdfast_npe_mul"), left[0], right[0]), poly_prod
+
+        key_term = r
+        if egraph is not None and rep_map is not None:
+            nid = egraph.term_to_id.get(r)
+            if nid is not None:
+                key_term = rep_map.get(egraph.find(nid), r)
+        if key_term.kind == "nat" and cast("int", key_term.value) <= MAX_POLY_CONST:
+            val = cast("int", key_term.value)
+            poly_lit: _Poly = {(): val} if val > 0 else {}
+            return _app(_constant("holdfast_npe_const"), key_term), poly_lit
+        idx = atom_idx.get(key_term)
+        if idx is None:
+            if len(atoms) >= MAX_POLY_VARS:
+                return None
+            idx = len(atoms)
+            atoms.append(key_term)
+            atom_idx[key_term] = idx
+        return _app(_constant("holdfast_npe_var"), _term("nat", value=idx)), {(idx,): 1}
+
+    def polynomial_key(
+        self, egraph: VersionedEGraph, term: _Term,
+    ) -> tuple[tuple[tuple[int, ...], int], ...] | None:
+        """Return a canonical polynomial key modulo current e-graph roots."""
+        r = self.elab.resolve(term)
+        rep_map = self._collect_rep_map(egraph, (r,))
+        atoms: list[_Term] = []
+        atom_idx: dict[_Term, int] = {}
+        reflected = self._reflect(r, atoms, atom_idx, egraph=egraph, rep_map=rep_map)
+        if reflected is None:
+            return None
+        _, poly = reflected
+        remapped: dict[tuple[int, ...], int] = {}
+        for mono, coeff in poly.items():
+            mapped_mono: list[int] = []
+            for var_idx in mono:
+                atom = atoms[var_idx]
+                nid = egraph.term_to_id.get(atom)
+                mapped_mono.append(egraph.find(nid) if nid is not None else -(var_idx + 1))
+            key_m = tuple(sorted(mapped_mono))
+            remapped[key_m] = remapped.get(key_m, 0) + coeff
+        return tuple(sorted(remapped.items()))
+
+    @staticmethod
+    def _build_env(atoms: Sequence[_Term]) -> _Term:
+        env = _app(_constant("Seq_Empty"), _NAT)
+        for atom in reversed(atoms):
+            env = _apps(_constant("Seq_Cons"), _NAT, atom, env)
+        return env
+
+    def prove_equal(self, lhs: _Term, rhs: _Term) -> _Term | None:
+        """Synthesize an axiom-free reflective proof of ``Eq nat lhs rhs`` if equal as polynomials."""
+        lhs_r = self.elab.resolve(lhs)
+        rhs_r = self.elab.resolve(rhs)
+        if lhs_r == rhs_r:
+            return _apps(_constant("Refl"), _NAT, lhs_r)
+        atoms: list[_Term] = []
+        atom_idx: dict[_Term, int] = {}
+        left = self._reflect(lhs_r, atoms, atom_idx)
+        right = self._reflect(rhs_r, atoms, atom_idx)
+        if left is None or right is None or left[1] != right[1]:
+            return None
+        env = self._build_env(atoms)
+        refl_true = _apps(_constant("Refl"), _BOOL, _term("bool", value=1))
+        return _apps(_constant("holdfast_npoly_sound"), env, left[0], right[0], refl_true)
+
+    def _rewrite_nat_atoms(
+        self,
+        egraph: VersionedEGraph,
+        term: _Term,
+        rep_map: dict[int, _Term],
+        depth: int = 0,
+    ) -> tuple[_Term, _Term | None]:
+        if depth > MAX_POLY_DEPTH:
+            return term, None
+        r = self.elab.resolve(term)
+        if r.kind == "nat":
+            return r, None
+        h, args = self.elab.spine(r)
+        if h == _constant("Succ") and len(args) == 1:
+            a_canon, p_a = self._rewrite_nat_atoms(egraph, args[0], rep_map, depth + 1)
+            if p_a is None:
+                return r, None
+            z = self.elab.fresh(_NAT)
+            lam = _term("lam", _NAT, _app(h, z), value=cast("int", z.value))
+            return _app(h, a_canon), _apps(_constant("Congr"), _NAT, _NAT, args[0], a_canon, lam, p_a)
+        if h in {_constant("+"), _constant("*")} and len(args) == 2:
+            l_canon, p_l = self._rewrite_nat_atoms(egraph, args[0], rep_map, depth + 1)
+            r_canon, p_r = self._rewrite_nat_atoms(egraph, args[1], rep_map, depth + 1)
+            if p_l is None and p_r is None:
+                return r, None
+            mid = _apps(h, l_canon, args[1])
+            final_t = _apps(h, l_canon, r_canon)
+            p_acc: _Term | None = None
+            if p_l is not None:
+                z = self.elab.fresh(_NAT)
+                lam = _term("lam", _NAT, _apps(h, z, args[1]), value=cast("int", z.value))
+                p_acc = _apps(_constant("Congr"), _NAT, _NAT, args[0], l_canon, lam, p_l)
+            if p_r is not None:
+                z = self.elab.fresh(_NAT)
+                lam = _term("lam", _NAT, _apps(h, l_canon, z), value=cast("int", z.value))
+                step_r = _apps(_constant("Congr"), _NAT, _NAT, args[1], r_canon, lam, p_r)
+                p_acc = step_r if p_acc is None else _apps(_constant("Trans"), _NAT, r, mid, final_t, p_acc, step_r)
+            return final_t, p_acc
+        nid = egraph.term_to_id.get(r)
+        if nid is None:
+            return r, None
+        rep = rep_map.get(egraph.find(nid))
+        if rep is None or rep == r:
+            return r, None
+        p = egraph.explain(_NAT, r, rep)
+        return (rep, p) if p is not None else (r, None)
+
+    def prove_equal_mod_egraph(
+        self, egraph: VersionedEGraph, lhs: _Term, rhs: _Term,
+    ) -> _Term | None:
+        """Equate ``lhs`` and ``rhs`` as ``Nat`` polynomials modulo e-graph equivalence classes."""
+        lhs_r = self.elab.resolve(lhs)
+        rhs_r = self.elab.resolve(rhs)
+        if lhs_r == rhs_r:
+            return _apps(_constant("Refl"), _NAT, lhs_r)
+        rep_map = self._collect_rep_map(egraph, (lhs_r, rhs_r))
+        atoms: list[_Term] = []
+        atom_idx: dict[_Term, int] = {}
+        left = self._reflect(lhs_r, atoms, atom_idx, egraph=egraph, rep_map=rep_map)
+        right = self._reflect(rhs_r, atoms, atom_idx, egraph=egraph, rep_map=rep_map)
+        if left is None or right is None or left[1] != right[1]:
+            return None
+        lhs_canon, p_l = self._rewrite_nat_atoms(egraph, lhs_r, rep_map)
+        rhs_canon, p_r = self._rewrite_nat_atoms(egraph, rhs_r, rep_map)
+        p_poly = self.prove_equal(lhs_canon, rhs_canon)
+        if p_poly is None:
+            return None
+        acc_p = p_poly
+        if p_l is not None:
+            acc_p = _apps(_constant("Trans"), _NAT, lhs_r, lhs_canon, rhs_canon, p_l, acc_p)
+        if p_r is not None:
+            p_r_sym = _apps(_constant("Symm"), _NAT, rhs_r, rhs_canon, p_r)
+            acc_p = _apps(_constant("Trans"), _NAT, lhs_r, rhs_canon, rhs_r, acc_p, p_r_sym)
+        return acc_p
+
+
+class PropositionalPrechecker:
+    """Mizar-style proof-producing propositional forward-chainer and bounded tableau."""
+
+    def __init__(self, elaborator: _Elaborator) -> None:
+        self.elab = elaborator
+
+    def _goal_supports_contra(self, goal: _Term) -> bool:
+        try:
+            return self.elab._is_prop_type(goal) or self.elab.sort(goal) <= 0
+        except HoldFastError:
+            return False
+
+    @staticmethod
+    def _parse_skel(term: _Term, resolve: Callable[[_Term], _Term], spine: Callable[[_Term], tuple[_Term, list[_Term]]],
+                    depth: int = 0) -> _BoolSkel:
+        t = resolve(term)
+        if depth > 24:
+            return ("atom", t)
+        if t.kind == "bool":
+            return ("lit", bool(t.value))
+        h, args = spine(t)
+        if h == _constant("!") and len(args) == 1:
+            return ("not", PropositionalPrechecker._parse_skel(args[0], resolve, spine, depth + 1))
+        if h == _constant("&&") and len(args) == 2:
+            return (
+                "and",
+                PropositionalPrechecker._parse_skel(args[0], resolve, spine, depth + 1),
+                PropositionalPrechecker._parse_skel(args[1], resolve, spine, depth + 1),
+            )
+        if h == _constant("||") and len(args) == 2:
+            return (
+                "or",
+                PropositionalPrechecker._parse_skel(args[0], resolve, spine, depth + 1),
+                PropositionalPrechecker._parse_skel(args[1], resolve, spine, depth + 1),
+            )
+        if h == _constant("==>") and len(args) == 2:
+            return (
+                "imp",
+                PropositionalPrechecker._parse_skel(args[0], resolve, spine, depth + 1),
+                PropositionalPrechecker._parse_skel(args[1], resolve, spine, depth + 1),
+            )
+        if h in {_constant("eq_bool"), _constant("<==>")} and len(args) == 2:
+            return (
+                "iff",
+                PropositionalPrechecker._parse_skel(args[0], resolve, spine, depth + 1),
+                PropositionalPrechecker._parse_skel(args[1], resolve, spine, depth + 1),
+            )
+        if h == _constant("ne_bool") and len(args) == 2:
+            return (
+                "xor",
+                PropositionalPrechecker._parse_skel(args[0], resolve, spine, depth + 1),
+                PropositionalPrechecker._parse_skel(args[1], resolve, spine, depth + 1),
+            )
+        return ("atom", t)
+
+    @staticmethod
+    def _skel_atoms(skel: _BoolSkel, out: list[_Term], seen: set[_Term]) -> None:
+        tag = skel[0]
+        if tag == "atom":
+            atom = cast("_Term", skel[1])
+            if atom not in seen:
+                seen.add(atom)
+                out.append(atom)
+        elif tag == "not":
+            PropositionalPrechecker._skel_atoms(cast("_BoolSkel", skel[1]), out, seen)
+        elif tag in {"and", "or", "imp", "iff", "xor"}:
+            PropositionalPrechecker._skel_atoms(cast("_BoolSkel", skel[1]), out, seen)
+            PropositionalPrechecker._skel_atoms(cast("_BoolSkel", skel[2]), out, seen)
+
+    @staticmethod
+    def _eval_skel(skel: _BoolSkel, assign: dict[_Term, bool]) -> bool | None:
+        tag = skel[0]
+        if tag == "lit":
+            return cast("bool", skel[1])
+        if tag == "atom":
+            return assign.get(cast("_Term", skel[1]))
+        if tag == "not":
+            v = PropositionalPrechecker._eval_skel(cast("_BoolSkel", skel[1]), assign)
+            return None if v is None else (not v)
+        lv = PropositionalPrechecker._eval_skel(cast("_BoolSkel", skel[1]), assign)
+        rv = PropositionalPrechecker._eval_skel(cast("_BoolSkel", skel[2]), assign)
+        if tag == "and":
+            if lv is False or rv is False:
+                return False
+            return True if (lv is True and rv is True) else None
+        if tag == "or":
+            if lv is True or rv is True:
+                return True
+            return False if (lv is False and rv is False) else None
+        if tag == "imp":
+            if lv is False or rv is True:
+                return True
+            return False if (lv is True and rv is False) else None
+        if lv is None or rv is None:
+            return None
+        if tag == "iff":
+            return lv == rv
+        return lv != rv
+
+    @staticmethod
+    def _rebuild_skel(skel: _BoolSkel, subst: dict[_Term, _Term]) -> _Term:
+        tag = skel[0]
+        if tag == "lit":
+            return _term("bool", value=int(cast("bool", skel[1])))
+        if tag == "atom":
+            atom = cast("_Term", skel[1])
+            return subst.get(atom, atom)
+        if tag == "not":
+            return _app(_constant("!"), PropositionalPrechecker._rebuild_skel(cast("_BoolSkel", skel[1]), subst))
+        left = PropositionalPrechecker._rebuild_skel(cast("_BoolSkel", skel[1]), subst)
+        right = PropositionalPrechecker._rebuild_skel(cast("_BoolSkel", skel[2]), subst)
+        op = {
+            "and": "&&",
+            "or": "||",
+            "imp": "==>",
+            "iff": "eq_bool",
+            "xor": "ne_bool",
+        }[cast("str", tag)]
+        return _apps(_constant(op), left, right)
+
+    def _prove_tableau(
+        self,
+        goal: _Term,
+        goal_skel: _BoolSkel | None,
+        goal_target: bool | None,
+        hyps: list[tuple[_BoolSkel, _Term, bool]],
+    ) -> _Term | None:
+        if not self._goal_supports_contra(goal):
+            return None
+        atoms: list[_Term] = []
+        seen_atoms: set[_Term] = set()
+        if goal_skel is not None:
+            self._skel_atoms(goal_skel, atoms, seen_atoms)
+        if len(atoms) > MAX_PRECHECKER_ATOMS:
+            return None
+
+        # Select relevant hypotheses without exceeding MAX_PRECHECKER_ATOMS.
+        selected: list[tuple[_BoolSkel, _Term, bool]] = []
+        if goal_skel is not None:
+            hyp_info = []
+            for hs, hp, hexp in hyps:
+                ha: list[_Term] = []
+                self._skel_atoms(hs, ha, set())
+                hyp_info.append((hs, hp, hexp, ha))
+            changed = True
+            while changed:
+                changed = False
+                for hs, hp, hexp, ha in hyp_info:
+                    if any(hp is shp for _, shp, _ in selected):
+                        continue
+                    if not ha or any(a in seen_atoms for a in ha):
+                        new_atoms = [a for a in ha if a not in seen_atoms]
+                        if len(atoms) + len(new_atoms) <= MAX_PRECHECKER_ATOMS:
+                            atoms.extend(new_atoms)
+                            seen_atoms.update(new_atoms)
+                            selected.append((hs, hp, hexp))
+                            changed = True
+        else:
+            for hs, hp, hexp in hyps:
+                ha = []
+                self._skel_atoms(hs, ha, set())
+                new_atoms = [a for a in ha if a not in seen_atoms]
+                if len(atoms) + len(new_atoms) <= MAX_PRECHECKER_ATOMS:
+                    atoms.extend(new_atoms)
+                    seen_atoms.update(new_atoms)
+                    selected.append((hs, hp, hexp))
+
+        if not atoms and goal_skel is None and not selected:
+            return None
+
+        # Fast truth-table validity check before constructing any Gallina term.
+        n_atoms = len(atoms)
+        for mask in range(1 << n_atoms):
+            assign = {atoms[i]: bool((mask >> i) & 1) for i in range(n_atoms)}
+            if all(self._eval_skel(hs, assign) == hexp for hs, _, hexp in selected):
+                if goal_skel is None or goal_target is None:
+                    return None
+                if self._eval_skel(goal_skel, assign) != goal_target:
+                    return None
+
+        def solve(
+            idx: int,
+            assign: dict[_Term, bool],
+            cur_goal: _Term,
+            cur_goal_skel: _BoolSkel | None,
+            cur_hyps: list[tuple[_BoolSkel, _Term, bool]],
+        ) -> _Term | None:
+            for hs, hp, hexp in cur_hyps:
+                val = self._eval_skel(hs, assign)
+                if val is not None and val != hexp:
+                    lemma = "holdfast_false_true_elim" if hexp else "holdfast_false_elim"
+                    return _apps(_constant(lemma), cur_goal, hp)
+            if cur_goal_skel is not None and goal_target is not None:
+                gval = self._eval_skel(cur_goal_skel, assign)
+                if gval is not None and gval == goal_target:
+                    return _apps(_constant("Refl"), _BOOL, _term("bool", value=int(goal_target)))
+            if idx >= n_atoms:
+                return None
+
+            atom = atoms[idx]
+            b_var = self.elab.fresh(_BOOL)
+            b_id = cast("int", b_var.value)
+            true_t = _term("bool", value=1)
+            false_t = _term("bool", value=0)
+            eq_true_t = _apps(_constant("Eq"), _BOOL, atom, true_t)
+            eq_false_t = _apps(_constant("Eq"), _BOOL, atom, false_t)
+            h_true = self.elab.fresh(eq_true_t)
+            h_false = self.elab.fresh(eq_false_t)
+            h_true_id = cast("int", h_true.value)
+            h_false_id = cast("int", h_false.value)
+
+            goal_b = cur_goal
+            goal_true = cur_goal
+            goal_false = cur_goal
+            if cur_goal_skel is not None and goal_target is not None:
+                g_expr_b = self._rebuild_skel(cur_goal_skel, {atom: b_var})
+                goal_b = _apps(_constant("Eq"), _BOOL, g_expr_b, _term("bool", value=int(goal_target)))
+                goal_true = _apps(
+                    _constant("Eq"), _BOOL, self._rebuild_skel(cur_goal_skel, {atom: true_t}), _term("bool", value=int(goal_target)),
+                )
+                goal_false = _apps(
+                    _constant("Eq"), _BOOL, self._rebuild_skel(cur_goal_skel, {atom: false_t}), _term("bool", value=int(goal_target)),
+                )
+
+            def specialize_hyps(repl: _Term, eq_proof: _Term) -> list[tuple[_BoolSkel, _Term, bool]]:
+                next_hyps: list[tuple[_BoolSkel, _Term, bool]] = []
+                for hs, hp, hexp in cur_hyps:
+                    ha: list[_Term] = []
+                    self._skel_atoms(hs, ha, set())
+                    if atom not in ha:
+                        next_hyps.append((hs, hp, hexp))
+                        continue
+                    h_orig = self._rebuild_skel(hs, {})
+                    h_b = self._rebuild_skel(hs, {atom: b_var})
+                    h_new = self._rebuild_skel(hs, {atom: repl})
+                    lam = _term("lam", _BOOL, h_b, value=b_id)
+                    p_congr = _apps(_constant("Congr"), _BOOL, _BOOL, atom, repl, lam, eq_proof)
+                    p_sym = _apps(_constant("Symm"), _BOOL, h_orig, h_new, p_congr)
+                    p_new = _apps(_constant("Trans"), _BOOL, h_new, h_orig, _term("bool", value=int(hexp)), p_sym, hp)
+                    new_skel = self._parse_skel(h_new, self.elab.resolve, self.elab.spine)
+                    next_hyps.append((new_skel, p_new, hexp))
+                return next_hyps
+
+            yes_proof = solve(idx + 1, {**assign, atom: True}, goal_true, cur_goal_skel, specialize_hyps(true_t, h_true))
+            if yes_proof is None:
+                return None
+            no_proof = solve(idx + 1, {**assign, atom: False}, goal_false, cur_goal_skel, specialize_hyps(false_t, h_false))
+            if no_proof is None:
+                return None
+
+            if h_true_id not in self.elab.free(yes_proof) and h_false_id not in self.elab.free(no_proof):
+                motive_lam = _term("lam", _BOOL, goal_b, value=b_id)
+                return _term("bool_match", motive_lam, atom, yes_proof, no_proof)
+            eq_b_t = _apps(_constant("Eq"), _BOOL, atom, b_var)
+            motive_lam = _term("lam", _BOOL, self.elab.pi(eq_b_t, goal_b), value=b_id)
+            yes_lam = _term("lam", eq_true_t, yes_proof, value=h_true_id)
+            no_lam = _term("lam", eq_false_t, no_proof, value=h_false_id)
+            match_t = _term("bool_match", motive_lam, atom, yes_lam, no_lam)
+            return _app(match_t, _apps(_constant("Refl"), _BOOL, atom))
+
+        return solve(0, {}, goal, goal_skel, selected)
+
+    def prove(self, goal: _Term, facts: tuple[_Binding, ...]) -> _Term | None:
+        """Discharge propositional entailments, tautologies, or equality/disequality contradictions."""
+        pos: dict[_Term, _Term] = {}
+        neg: dict[_Term, _Term] = {}
+        eq_facts: list[tuple[_Term, _Term, _Term, _Term]] = []
+        raw_hyps: list[tuple[_BoolSkel, _Term, bool]] = []
+        contra: list[tuple[_Term, _Term, _Term]] = []
+        can_contra = self._goal_supports_contra(goal)
+
+        def record_pos(t: _Term, p: _Term, depth: int = 0) -> None:
+            if depth > 16 or contra:
+                return
+            t = self.elab.resolve(t)
+            if t == _term("bool", value=0):
+                contra.append((t, p, _apps(_constant("Refl"), _BOOL, t)))
+                return
+            if t in neg:
+                contra.append((t, p, neg[t]))
+                return
+            if t in pos:
+                return
+            pos[t] = p
+            h, args = self.elab.spine(t)
+            if h == _constant("&&") and len(args) == 2:
+                record_pos(args[0], _apps(_constant("holdfast_and_left"), args[0], args[1], p), depth + 1)
+                record_pos(args[1], _apps(_constant("holdfast_and_right"), args[0], args[1], p), depth + 1)
+            elif h == _constant("!") and len(args) == 1:
+                record_neg(args[0], _apps(_constant("holdfast_not_true_to_false"), args[0], p), depth + 1)
+            elif h == _constant("ne_nat") and len(args) == 2:
+                record_neg(_apps(_constant("eq_nat"), args[0], args[1]), _apps(_constant("holdfast_ne_nat_false"), args[0], args[1], p), depth + 1)
+            elif h == _constant("ne_bool") and len(args) == 2:
+                record_neg(_apps(_constant("eq_bool"), args[0], args[1]), _apps(_constant("holdfast_ne_bool_false"), args[0], args[1], p), depth + 1)
+            elif h == _constant("eq_nat") and len(args) == 2:
+                eq_facts.append((_NAT, args[0], args[1], _apps(_constant("holdfast_nat_eq_of_eqb"), args[0], args[1], p)))
+            elif h in {_constant("eq_bool"), _constant("<==>")} and len(args) == 2:
+                eq_facts.append((_BOOL, args[0], args[1], _apps(_constant("holdfast_eq_bool_true"), args[0], args[1], p)))
+            elif h.kind == "const" and isinstance(h.value, str) and len(args) == 2:
+                if h.value.startswith("int_ne_") and (spec := _INT_SPECS.get(h.value[len("int_ne_") :])) is not None:
+                    record_neg(
+                        _apps(_constant(f"int_eq_{spec.name}"), args[0], args[1]),
+                        _apps(_constant("holdfast_int_ne_false"), _term("nat", value=spec.tag), args[0], args[1], p),
+                        depth + 1,
+                    )
+                elif h.value.startswith("int_eq_") and (spec := _INT_SPECS.get(h.value[len("int_eq_") :])) is not None:
+                    eq_facts.append((
+                        spec.const,
+                        args[0],
+                        args[1],
+                        _apps(_constant("holdfast_int_eq_true"), _term("nat", value=spec.tag), args[0], args[1], p),
+                    ))
+
+        def record_neg(t: _Term, p: _Term, depth: int = 0) -> None:
+            if depth > 16 or contra:
+                return
+            t = self.elab.resolve(t)
+            if t == _term("bool", value=1):
+                contra.append((t, _apps(_constant("Refl"), _BOOL, t), p))
+                return
+            if t in pos:
+                contra.append((t, pos[t], p))
+                return
+            if t in neg:
+                return
+            neg[t] = p
+            h, args = self.elab.spine(t)
+            if h == _constant("||") and len(args) == 2:
+                record_neg(args[0], _apps(_constant("holdfast_or_false_l"), args[0], args[1], p), depth + 1)
+                record_neg(args[1], _apps(_constant("holdfast_or_false_r"), args[0], args[1], p), depth + 1)
+            elif h == _constant("!") and len(args) == 1:
+                record_pos(args[0], _apps(_constant("holdfast_not_false_to_true"), args[0], p), depth + 1)
+            elif h == _constant("==>") and len(args) == 2:
+                record_pos(args[0], _apps(_constant("holdfast_implies_false_l"), args[0], args[1], p), depth + 1)
+                record_neg(args[1], _apps(_constant("holdfast_implies_false_r"), args[0], args[1], p), depth + 1)
+
+        truth = _term("bool", value=1)
+        false_t = _term("bool", value=0)
+
+        for fact in facts:
+            ext = self.elab._extract_equality(fact.type)
+            if ext is None:
+                continue
+            eq_ty, u, v = ext
+            eq_ty_w = self.elab.whnf(eq_ty)
+            if eq_ty_w != _BOOL:
+                eq_facts.append((eq_ty, u, v, fact.term))
+                u_r = self.elab.resolve(u)
+                v_r = self.elab.resolve(v)
+                if eq_ty_w == _NAT:
+                    record_pos(_apps(_constant("eq_nat"), u_r, v_r), _apps(_constant("holdfast_nat_eqb_of_eq"), u_r, v_r, fact.term))
+                elif (spec := self.elab._int_spec(eq_ty_w)) is not None:
+                    record_pos(
+                        _apps(_constant(f"int_eq_{spec.name}"), u_r, v_r),
+                        _apps(_constant("holdfast_int_eq_of_eq"), _term("nat", value=spec.tag), u_r, v_r, fact.term),
+                    )
+                continue
+            eq_facts.append((_BOOL, u, v, fact.term))
+            uw = self.elab.whnf(u)
+            vw = self.elab.whnf(v)
+            if vw == truth:
+                record_pos(u, fact.term)
+                raw_hyps.append((self._parse_skel(u, self.elab.resolve, self.elab.spine), fact.term, True))
+            elif uw == truth:
+                sym_p = _apps(_constant("Symm"), _BOOL, u, v, fact.term)
+                record_pos(v, sym_p)
+                raw_hyps.append((self._parse_skel(v, self.elab.resolve, self.elab.spine), sym_p, True))
+            elif vw == false_t:
+                record_neg(u, fact.term)
+                raw_hyps.append((self._parse_skel(u, self.elab.resolve, self.elab.spine), fact.term, False))
+            elif uw == false_t:
+                sym_p = _apps(_constant("Symm"), _BOOL, u, v, fact.term)
+                record_neg(v, sym_p)
+                raw_hyps.append((self._parse_skel(v, self.elab.resolve, self.elab.spine), sym_p, False))
+            else:
+                ur = self.elab.resolve(u)
+                vr = self.elab.resolve(v)
+                eqb_p = _apps(_constant("holdfast_eq_bool_of_eq"), ur, vr, fact.term)
+                record_pos(_apps(_constant("eq_bool"), ur, vr), eqb_p)
+                raw_hyps.append((self._parse_skel(_apps(_constant("eq_bool"), ur, vr), self.elab.resolve, self.elab.spine), eqb_p, True))
+
+        # Phase 1: Bounded unit-propagation natural deduction.
+        steps = 0
+        changed = True
+        while changed and not contra and steps < MAX_PRECHECKER_STEPS:
+            changed = False
+            for t, p in list(pos.items()):
+                if contra or steps >= MAX_PRECHECKER_STEPS:
+                    break
+                h, args = self.elab.spine(t)
+                if h == _constant("==>") and len(args) == 2:
+                    a, b = self.elab.resolve(args[0]), self.elab.resolve(args[1])
+                    if a in pos and b not in pos:
+                        record_pos(b, _apps(_constant("holdfast_implies_mp"), a, b, p, pos[a]))
+                        changed = True
+                        steps += 1
+                    if b in neg and a not in neg:
+                        record_neg(a, _apps(_constant("holdfast_implies_mt"), a, b, p, neg[b]))
+                        changed = True
+                        steps += 1
+                elif h == _constant("||") and len(args) == 2:
+                    a, b = self.elab.resolve(args[0]), self.elab.resolve(args[1])
+                    if a in neg and b not in pos:
+                        record_pos(b, _apps(_constant("holdfast_or_elim_l"), a, b, p, neg[a]))
+                        changed = True
+                        steps += 1
+                    if b in neg and a not in pos:
+                        record_pos(a, _apps(_constant("holdfast_or_elim_r"), a, b, p, neg[b]))
+                        changed = True
+                        steps += 1
+                elif h in {_constant("eq_bool"), _constant("<==>")} and len(args) == 2:
+                    a, b = self.elab.resolve(args[0]), self.elab.resolve(args[1])
+                    eq_ab = _apps(_constant("holdfast_eq_bool_true"), a, b, p)
+                    if a in pos and b not in pos:
+                        record_pos(b, _apps(_constant("Trans"), _BOOL, b, a, truth, _apps(_constant("Symm"), _BOOL, a, b, eq_ab), pos[a]))
+                        changed = True
+                        steps += 1
+                    if b in pos and a not in pos:
+                        record_pos(a, _apps(_constant("Trans"), _BOOL, a, b, truth, eq_ab, pos[b]))
+                        changed = True
+                        steps += 1
+                    if a in neg and b not in neg:
+                        record_neg(b, _apps(_constant("Trans"), _BOOL, b, a, false_t, _apps(_constant("Symm"), _BOOL, a, b, eq_ab), neg[a]))
+                        changed = True
+                        steps += 1
+                    if b in neg and a not in neg:
+                        record_neg(a, _apps(_constant("Trans"), _BOOL, a, b, false_t, eq_ab, neg[b]))
+                        changed = True
+                        steps += 1
+            for t, p in list(neg.items()):
+                if contra or steps >= MAX_PRECHECKER_STEPS:
+                    break
+                h, args = self.elab.spine(t)
+                if h == _constant("&&") and len(args) == 2:
+                    a, b = self.elab.resolve(args[0]), self.elab.resolve(args[1])
+                    if a in pos and b not in neg:
+                        record_neg(b, _apps(_constant("holdfast_and_false_elim_l"), a, b, p, pos[a]))
+                        changed = True
+                        steps += 1
+                    if b in pos and a not in neg:
+                        record_neg(a, _apps(_constant("holdfast_and_false_elim_r"), a, b, p, pos[b]))
+                        changed = True
+                        steps += 1
+
+        if contra and can_contra:
+            ct, pt, pf = contra[0]
+            return _apps(_constant("holdfast_bool_contra"), goal, ct, pt, pf)
+
+        # Check Equalizer-coupled equality/disequality contradiction.
+        if can_contra and eq_facts and neg:
+            diseqs = [
+                (t, neg_p)
+                for t, neg_p in neg.items()
+                if (sp := self.elab.spine(t))[0].kind == "const"
+                and isinstance(sp[0].value, str)
+                and len(sp[1]) == 2
+                and (sp[0].value in {"eq_nat", "eq_bool", "<==>"} or sp[0].value.startswith("int_eq_"))
+            ]
+            if diseqs:
+                egraph = VersionedEGraph(self.elab)
+                for eq_ty, u, v, p in eq_facts:
+                    egraph.assert_equality(eq_ty, u, v, p)
+                for t, _ in diseqs:
+                    _, args = self.elab.spine(t)
+                    egraph.intern(args[0])
+                    egraph.intern(args[1])
+                egraph.saturate_equalizer()
+                poly_eq = NatPolyEqualizer(self.elab)
+                for t, neg_p in diseqs:
+                    dh, da = self.elab.spine(t)
+                    u, v = da[0], da[1]
+                    if dh == _constant("eq_nat"):
+                        eq_p = egraph.explain(_NAT, u, v) or poly_eq.prove_equal_mod_egraph(egraph, u, v)
+                        if eq_p is not None:
+                            return _apps(_constant("holdfast_nat_eq_contra"), goal, u, v, eq_p, neg_p)
+                    elif dh in {_constant("eq_bool"), _constant("<==>")}:
+                        if (eq_p := egraph.explain(_BOOL, u, v)) is not None:
+                            pos_p = _apps(_constant("holdfast_eq_bool_of_eq"), u, v, eq_p)
+                            return _apps(_constant("holdfast_bool_contra"), goal, t, pos_p, neg_p)
+                    elif isinstance(dh.value, str) and dh.value.startswith("int_eq_"):
+                        spec = _INT_SPECS.get(dh.value[len("int_eq_") :])
+                        if spec is not None and (eq_p := egraph.explain(spec.const, u, v)) is not None:
+                            return _apps(
+                                _constant("holdfast_int_eq_contra"), goal, _term("nat", value=spec.tag), u, v, eq_p, neg_p,
+                            )
+
+        def build_goal_direct(expr: _Term, want_true: bool, depth: int = 0) -> _Term | None:
+            if depth > 16:
+                return None
+            r = self.elab.resolve(expr)
+            if want_true:
+                if r == truth:
+                    return _apps(_constant("Refl"), _BOOL, truth)
+                if r in pos:
+                    return pos[r]
+                h, args = self.elab.spine(r)
+                if h == _constant("&&") and len(args) == 2:
+                    pa = build_goal_direct(args[0], True, depth + 1)
+                    pb = build_goal_direct(args[1], True, depth + 1)
+                    if pa is not None and pb is not None:
+                        return _apps(_constant("holdfast_and_intro"), args[0], args[1], pa, pb)
+                if h == _constant("||") and len(args) == 2:
+                    if (pa := build_goal_direct(args[0], True, depth + 1)) is not None:
+                        return _apps(_constant("holdfast_or_intro_l"), args[0], args[1], pa)
+                    if (pb := build_goal_direct(args[1], True, depth + 1)) is not None:
+                        return _apps(_constant("holdfast_or_intro_r"), args[0], args[1], pb)
+                if h == _constant("!") and len(args) == 1 and (na := build_goal_direct(args[0], False, depth + 1)) is not None:
+                    return _apps(_constant("holdfast_not_intro"), args[0], na)
+                if h == _constant("==>") and len(args) == 2:
+                    if (na := build_goal_direct(args[0], False, depth + 1)) is not None:
+                        return _apps(_constant("holdfast_implies_of_false"), args[0], args[1], na)
+                    if (pb := build_goal_direct(args[1], True, depth + 1)) is not None:
+                        return _apps(_constant("holdfast_implies_of_true"), args[0], args[1], pb)
+                if h in {_constant("eq_bool"), _constant("<==>")} and len(args) == 2:
+                    a_r, b_r = self.elab.resolve(args[0]), self.elab.resolve(args[1])
+                    if a_r in pos and b_r in pos:
+                        eq_p = _apps(_constant("Trans"), _BOOL, a_r, truth, b_r, pos[a_r], _apps(_constant("Symm"), _BOOL, b_r, truth, pos[b_r]))
+                        return _apps(_constant("holdfast_eq_bool_of_eq"), a_r, b_r, eq_p)
+                    if a_r in neg and b_r in neg:
+                        eq_p = _apps(_constant("Trans"), _BOOL, a_r, false_t, b_r, neg[a_r], _apps(_constant("Symm"), _BOOL, b_r, false_t, neg[b_r]))
+                        return _apps(_constant("holdfast_eq_bool_of_eq"), a_r, b_r, eq_p)
+                return None
+            if r == false_t:
+                return _apps(_constant("Refl"), _BOOL, false_t)
+            if r in neg:
+                return neg[r]
+            h, args = self.elab.spine(r)
+            if h == _constant("!") and len(args) == 1 and (pa := build_goal_direct(args[0], True, depth + 1)) is not None:
+                z = self.elab.fresh(_BOOL)
+                lam = _term("lam", _BOOL, _app(_constant("!"), z), value=cast("int", z.value))
+                return _apps(
+                    _constant("Trans"),
+                    _BOOL,
+                    r,
+                    _app(_constant("!"), truth),
+                    false_t,
+                    _apps(_constant("Congr"), _BOOL, _BOOL, args[0], truth, lam, pa),
+                    _apps(_constant("Refl"), _BOOL, false_t),
+                )
+            return None
+
+        goal_eq = self.elab._extract_equality(goal)
+        if goal_eq is not None and self.elab.whnf(goal_eq[0]) == _BOOL:
+            gl = self.elab.resolve(goal_eq[1])
+            gr = self.elab.resolve(goal_eq[2])
+            if gr in {truth, false_t}:
+                want_true = gr == truth
+                if (direct := build_goal_direct(gl, want_true)) is not None:
+                    return direct
+                skel = self._parse_skel(gl, self.elab.resolve, self.elab.spine)
+                return self._prove_tableau(goal, skel, want_true, raw_hyps)
+            if gl in {truth, false_t}:
+                want_true = gl == truth
+                if (direct := build_goal_direct(gr, want_true)) is not None:
+                    return _apps(_constant("Symm"), _BOOL, gr, gl, direct)
+                flipped = _apps(_constant("Eq"), _BOOL, gr, gl)
+                skel = self._parse_skel(gr, self.elab.resolve, self.elab.spine)
+                if (tab := self._prove_tableau(flipped, skel, want_true, raw_hyps)) is not None:
+                    return _apps(_constant("Symm"), _BOOL, gr, gl, tab)
+                return None
+            # Propositional equivalence between two bool expressions (e.g. De Morgan).
+            eqb_expr = _apps(_constant("eq_bool"), gl, gr)
+            eqb_goal = _apps(_constant("Eq"), _BOOL, eqb_expr, truth)
+            skel = self._parse_skel(eqb_expr, self.elab.resolve, self.elab.spine)
+            if (tab := self._prove_tableau(eqb_goal, skel, True, raw_hyps)) is not None:
+                return _apps(_constant("holdfast_eq_bool_true"), gl, gr, tab)
+            return None
+
+        # Non-boolean goal: check if boolean hypotheses are unsatisfiable via bounded tableau.
+        if raw_hyps:
+            return self._prove_tableau(goal, None, None, raw_hyps)
         return None
