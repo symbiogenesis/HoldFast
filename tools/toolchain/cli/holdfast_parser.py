@@ -11,6 +11,7 @@ import tempfile
 from collections.abc import Generator
 from itertools import pairwise
 from pathlib import Path
+from typing import cast
 
 from filelock import Timeout
 
@@ -484,6 +485,7 @@ def main(argv: list[str] | None = None) -> int:
     diff = commands.add_parser("diff-contract", help="compare authored public declarations and authority clauses")
     diff.add_argument("baseline", type=Path)
     diff.add_argument("candidate", type=Path)
+    diff.add_argument("--human", action="store_true", help="render a plain-text PR audit summary instead of JSON")
     lock = commands.add_parser("lock-package", help="lock an offline mathematical package and its declared inputs")
     lock.add_argument("workspace", type=Path)
     lock.add_argument("name")
@@ -719,6 +721,9 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, RuntimeError, TypeError, ValueError, Timeout, subprocess.TimeoutExpired) as error:
         print(f"FAIL holdfast-parser: {error}", file=sys.stderr)
         return 1
+    if args.command == "diff-contract" and args.human:
+        print(contract_diff.format_human(cast("dict[str, object]", output)))
+        return 0
     print(json.dumps(output, indent=2, sort_keys=True))
     if args.command == "migration" and output["status"] != "agreed":
         return 1

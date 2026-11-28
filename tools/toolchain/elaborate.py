@@ -3322,7 +3322,115 @@ def elaborate_package(modules: Sequence[tuple[bytes, object]], *, require_word_p
         available[mname] = elaborator
         elaborations[mname] = elab
 
+    if scopes is not None:
+        _enforce_package_policies(topo, scopes, available)
+
     return elaborations
+
+
+def _enforce_package_policies(
+    topo: list[str], scopes: dict[str, PackageScope], available: dict[str, _Elaborator],
+) -> None:
+    for mname in topo:
+        policy = scopes[mname].policy
+        if policy is None:
+            continue
+        elab = available[mname]
+        rules: list[_EffectRule] = []
+        for spec in policy.forbid_calls:
+            if "." not in spec:
+                raise HoldFastError("name", 1, 1, f"module '{mname}': policy forbid_calls entry '{spec}' must be module-qualified")
+            target_mod, target_sym = spec.rsplit(".", 1)
+            if target_mod not in available:
+                raise HoldFastError("name", 1, 1, f"module '{mname}': unknown module '{target_mod}' in policy forbid_calls")
+            mod_elab = available[target_mod]
+            same_pkg = mod_elab.package_instance == elab.package_instance
+            accessible = target_sym in mod_elab.public_symbols or (same_pkg and target_sym in mod_elab.internal_symbols)
+            if not accessible or target_sym not in mod_elab.globals:
+                raise HoldFastError("name", 1, 1, f"module '{mname}': unknown or inaccessible callable '{spec}' in policy forbid_calls")
+            binding = mod_elab.globals[target_sym]
+            if mod_elab.whnf(binding.type).kind != "pi":
+                raise HoldFastError("type", 1, 1, f"module '{mname}': policy forbid_calls target '{spec}' is not a callable")
+            rules.append(_EffectRule(f"policy:{spec}", frozenset({binding.term})))
+        for spec in policy.forbid_effects:
+            if "." not in spec:
+                raise HoldFastError("name", 1, 1, f"module '{mname}': policy forbid_effects entry '{spec}' must be module-qualified")
+            target_mod, target_eset = spec.rsplit(".", 1)
+            if target_mod not in available:
+                raise HoldFastError("name", 1, 1, f"module '{mname}': unknown module '{target_mod}' in policy forbid_effects")
+            mod_elab = available[target_mod]
+            same_pkg = mod_elab.package_instance == elab.package_instance
+            accessible = target_eset in mod_elab.public_symbols or (same_pkg and target_eset in mod_elab.internal_symbols)
+            if not accessible or target_eset not in mod_elab.effect_sets:
+                raise HoldFastError("name", 1, 1, f"module '{mname}': unknown or inaccessible effect set '{spec}' in policy forbid_effects")
+            rules.extend(mod_elab.effect_sets[target_eset].rules)
+        if not policy.require_explicit_effects and not rules:
+            continue
+        for sym in sorted(elab.public_symbols):
+            binding = elab.globals.get(sym)
+            if binding is None or binding.term.kind != "const":
+                continue
+            emitted = str(binding.term.value)
+            if emitted not in elab.callable_source_names:
+                continue
+            if policy.require_explicit_effects and emitted in elab.untracked_effect_functions:
+                raise HoldFastError(
+                    "type",
+                    1,
+                    1,
+                    f"module '{mname}': package policy requires an explicit effects clause on public callable '{sym}'",
+                )
+            for rule in rules:
+                if binding.term in rule.canceled_by:
+                    continue
+                if binding.term in rule.targets:
+                    raise HoldFastError(
+                        "type",
+                        1,
+                        1,
+                        f"module '{mname}': public callable '{sym}' violates package policy '{rule.label}'",
+                    )
+                if emitted in elab.untracked_effect_functions:
+                    raise HoldFastError(
+                        "type",
+                        1,
+                        1,
+                        f"module '{mname}': cannot verify package policy '{rule.label}' on '{sym}' without closed effects",
+                    )
+                visited: set[_Term] = set()
+                pending = list(elab.callable_effect_calls.get(emitted, ()))
+                while pending:
+                    dep = pending.pop()
+                    if dep in visited or dep in rule.canceled_by:
+                        continue
+                    visited.add(dep)
+                    if dep in rule.targets:
+                        raise HoldFastError(
+                            "type",
+                            1,
+                            1,
+                            f"module '{mname}': public callable '{sym}' transitively invokes "
+                            f"'{elab._effect_call_name(dep)}' forbidden by package policy '{rule.label}'",
+                        )
+                    if dep.kind == "const":
+                        dep_name = str(dep.value)
+                        if dep_name in elab.untracked_effect_functions:
+                            raise HoldFastError(
+                                "type",
+                                1,
+                                1,
+                                f"module '{mname}': cannot verify package policy '{rule.label}' across "
+                                f"'{elab._effect_call_name(dep)}' without closed effects",
+                            )
+                        pending.extend(elab.callable_effect_calls.get(dep_name, ()))
+                    elif dep.kind == "var" and cast("int", dep.value) in elab.parameter_names:
+                        raise HoldFastError(
+                            "type",
+                            1,
+                            1,
+                            f"module '{mname}': cannot verify package policy '{rule.label}' across indirect callable "
+                            f"'{elab._effect_call_name(dep)}'",
+                        )
 
 
 def check_client_upgrade(

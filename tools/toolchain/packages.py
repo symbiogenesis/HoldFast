@@ -16,7 +16,7 @@ from toolchain.ast import MAX_SOURCE_BYTES
 from toolchain.atomic import atomic_path
 from toolchain.authoring import OPT_IN_MATHEMATICAL_LINTS, Finding
 from toolchain.elaborate import FRONTEND_SOURCES, elaborate_package
-from toolchain.elaborate_types import CheckedElaboration, PackageScope
+from toolchain.elaborate_types import CheckedElaboration, PackagePolicy, PackageScope
 from toolchain.graded_source import SUPPORT_FILES
 from toolchain.hashing import file_sha256
 from toolchain.hashing import sha256_bytes as _sha
@@ -105,6 +105,51 @@ class Closure:
     files: set[Path]
 
 
+def _parse_policy(raw: object, path: Path) -> tuple[Object, PackagePolicy]:
+    table = _object(raw, "policy")
+    allowed = {"forbid_calls", "forbid_effects", "require_explicit_effects"}
+    if unknown := set(table) - allowed:
+        raise ValueError(f"unsupported policy key(s) {sorted(unknown)} in {path}")
+    forbid_calls: list[str] = []
+    if "forbid_calls" in table:
+        raw_calls = table["forbid_calls"]
+        if not isinstance(raw_calls, list):
+            raise TypeError(f"expected policy.forbid_calls list in {path}")
+        for item in raw_calls:
+            spec = _token(item, MODULE, "policy forbid_calls entry")
+            if "." not in spec:
+                raise ValueError(f"policy forbid_calls entry must be module-qualified: {spec!r}")
+            forbid_calls.append(spec)
+    forbid_effects: list[str] = []
+    if "forbid_effects" in table:
+        raw_effects = table["forbid_effects"]
+        if not isinstance(raw_effects, list):
+            raise TypeError(f"expected policy.forbid_effects list in {path}")
+        for item in raw_effects:
+            spec = _token(item, MODULE, "policy forbid_effects entry")
+            if "." not in spec:
+                raise ValueError(f"policy forbid_effects entry must be module-qualified: {spec!r}")
+            forbid_effects.append(spec)
+    require_explicit = False
+    if "require_explicit_effects" in table:
+        raw_req = table["require_explicit_effects"]
+        if type(raw_req) is not bool:
+            raise TypeError(f"expected boolean policy.require_explicit_effects in {path}")
+        require_explicit = raw_req
+    sorted_calls = sorted(set(forbid_calls))
+    sorted_effects = sorted(set(forbid_effects))
+    normalized: Object = {
+        "forbid_calls": sorted_calls,
+        "forbid_effects": sorted_effects,
+        "require_explicit_effects": require_explicit,
+    }
+    return normalized, PackagePolicy(
+        forbid_calls=tuple(sorted_calls),
+        forbid_effects=tuple(sorted_effects),
+        require_explicit_effects=require_explicit,
+    )
+
+
 def resolve(workspace: Path, root_name: str, root_revision: str, producer: Object, *, locked: Object | None = None) -> Closure:
     workspace = workspace.resolve(strict=True)
     packages: dict[str, Object] = {}
@@ -141,10 +186,13 @@ def resolve(workspace: Path, root_name: str, root_revision: str, producer: Objec
             raise ValueError(f"stale package lock: manifest for {name}@{revision} changed")
         files.add(path)
         manifest = tomllib.loads(raw.decode("utf-8"))
-        if (set(manifest) != {"name", "revision", "edition", "target", "modules", "dependencies", "inputs"}
+        if (set(manifest) - {"policy"} != {"name", "revision", "edition", "target", "modules", "dependencies", "inputs"}
                 or (manifest["name"], manifest["revision"]) != (name, revision)
                 or manifest["edition"] != "math-2" or manifest["target"] != "rocq-gallina"):
             raise ValueError(f"unsupported manifest identity, fields, edition or target in {path}")
+        parsed_policy: tuple[Object, PackagePolicy] | None = (
+            _parse_policy(manifest["policy"], path) if "policy" in manifest else None
+        )
         dependencies = {key: _token(val, REVISION, "dependency revision")
                         for key, val in _object(manifest["dependencies"], "dependencies").items()}
         active.append(name)
@@ -181,6 +229,8 @@ def resolve(workspace: Path, root_name: str, root_revision: str, producer: Objec
                 sources[declared_module] = body
         entry: Object = {"revision": revision, "manifest_sha256": manifest_digest, "files": digests,
                          "dependencies": dependencies, "modules": declared, "edition": manifest["edition"], "target": "rocq-gallina"}
+        if parsed_policy is not None:
+            entry["policy"] = parsed_policy[0]
         instance = _sha(_encode([name, entry, {dep: packages[dep]["instance"] for dep in dependencies}]))
         entry["instance"] = instance
         if locked is not None and _encode(row) != _encode(entry):
@@ -189,8 +239,9 @@ def resolve(workspace: Path, root_name: str, root_revision: str, producer: Objec
         visible = set(declared)
         for dep in dependencies:
             visible.update(_object(packages[dep]["modules"], "dependency modules"))
+        package_policy = parsed_policy[1] if parsed_policy is not None else None
         for module in declared:
-            scopes[module] = PackageScope(instance, frozenset(visible), manifest["edition"])
+            scopes[module] = PackageScope(instance, frozenset(visible), manifest["edition"], package_policy)
 
     visit(root_name, root_revision, "workspace root")
     lock: Object = {"schema": 1, "root": [root_name, root_revision], "packages": packages, "producer": producer}
