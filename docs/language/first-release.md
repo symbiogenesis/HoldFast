@@ -319,10 +319,17 @@ checked bounds.
 Each exported runtime callable declares its closed bound, including
 `effects none` for an empty bound. Within the package, the checker composes
 inferred and explicit footprints and verifies each export against its published
-bound. Importing clients check calls against that published bound with the
-implementation opaque. Calls use the resolved declaration and parameter
-identities under qualification and import aliases. The
-[footprint rules](reference.md#contracts) define propagation to caller places.
+bound. Named effect sets (`effect Name = calls(F) | ... canceled by calls(Wrapper);`),
+negative prohibitions (`!reads(...)`, `!writes(...)`, `!calls(...)`, `!EffectSet`),
+and local confinement blocks (`effects (...) { ... }`) let modules encapsulate
+raw primitives behind vetted wrappers without disabling closed package checks.
+An optional `[policy]` table in `holdfast-package.toml` (`forbid_calls`,
+`forbid_effects`, `require_explicit_effects`) is bound into the lockfile and
+enforced across public callables at package build time. Importing clients check
+calls against that published bound with the implementation opaque. Calls use
+the resolved declaration and parameter identities under qualification and import
+aliases. The [footprint rules](reference.md#contracts) define propagation to
+caller places.
 
 ### Public API evolution
 
@@ -342,11 +349,13 @@ be implemented. An API intended to admit new internal cases can expose an
 abstract type with stable eliminators.
 
 Run `holdfast-parser diff-contract BASELINE CANDIDATE` to review the authored
-changes to one module. The JSON report binds both source digests and lists
-added and removed public declarations, changed declaration fields, and changes
-to imports and implementation declarations that can affect resolution.
-It compares syntax without source locations or comments. It includes contracts
-and effect clauses and retains transparent definition bodies. It omits
+changes to one module (add `--human` for a plain-text PR audit summary). The JSON
+report binds both source digests and lists added and removed public declarations,
+changed declaration fields, changes to imports and implementation declarations that
+can affect resolution, and a `review_summary` highlighting risk flags (such as
+changed preconditions/postconditions, dropped `!` prohibitions, and modified effect
+sets). It compares syntax without source locations or comments. It includes
+contracts and effect clauses and retains transparent definition bodies. It omits
 top-level executable function and theorem/lemma bodies. The comparison treats
 changes to binder spelling and equivalent expressions as differences and gives
 no semantic compatibility, kernel assumption or runtime permission verdict.

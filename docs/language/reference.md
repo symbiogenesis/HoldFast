@@ -68,6 +68,7 @@ distinct binding name to retain the whole value. Parentheses preserve this rule.
 | Union | `union Name { Case1(T x); Case2(); }`; nullary cases are declared with `()` and written bare in patterns and expressions | M |
 | Property | `public T Name => expression;`: total, effect-free and allocation-free | M |
 | Interface and implementation | `interface ISized<T> { ... }`, `impl ISized<Nat> { ... }`, used through `where T : ISized<T>` | M |
+| Named effect set | `effect Name = calls(F) \| Other canceled by calls(Wrapper);` | M |
 | Inductive and coinductive types | `inductive Name { Ctor(...); }`, `coinductive Name<T> { ... }` | S |
 
 **Parsed example** (module, constant, functions and a static parameter):
@@ -275,6 +276,7 @@ public Nat Groups(Nat count, Nat size)
 | Collection loop | `foreach (let x in xs)`, `foreach (in x in xs)`, `foreach (ref x in xs)`: value, shared-read and exclusive element iteration | S (located modes), D (represented iteration) |
 | While loop | `while (c) invariant P decreases m { ... }` | M |
 | Scoped disposal | `using (let h = init) { ... }` invokes `IDispose<T>.Dispose(in h)` returning `Unit` on fallthrough, `return`, and `?` in the body (skipping disposal if `?` exits from `init`) | M |
+| Local effect confinement | `effects (!writes(x), !RawIO) { ... }` enforces tighter positive or negative (`!`) effect bounds over the block | M |
 | `break`, `continue` | Leave or restart the innermost loop, closing local loans | M |
 | Assignment | `x = e;`, `x += e;` and the other compound forms, on `var` locals, fields and indexed elements | M |
 | Propagation | `e?` yields the payload of `Ok` or `Some`. On `Err` or `None`, it returns the failure from the enclosing function. | M |
@@ -377,7 +379,7 @@ public Result<PacketView<'input>, ParseError> ParsePrefix(in Span<byte> input)
 | `restores P` | Predicate over the lender that holds when a returned loan ends; `final(x)` is the value the loan leaves behind | S (syntax), D (meaning, see [restoration contracts](../assurance/verification-strategy.md#flow-sensitive-loans-and-restoration-contracts)) |
 | `invariant Name: P` | Named record or struct invariant conjunct, or a loop invariant | M |
 | `decreases m` | Termination measure of a recursive definition or loop | M |
-| `effects reads(a), writes(b), calls(f)` | Closed upper bound on reads, writes and calls, including transitive callees and captures; no allocation | M |
+| `effects reads(a), writes(b), calls(f)` | Closed upper bound on reads, writes and calls, including transitive callees and captures; supports named effect sets, `\|` unions, `canceled by` encapsulation, and `!` prohibitions | M |
 | `open (ref this, ref d) lifts A, B { ... }` | Opens only the listed invariant conjuncts. Unlifted conjuncts stay in force. The block re-establishes the lifted ones at its closing brace and forbids early exits. | M |
 
 A `ref` view parameter's descriptor metadata (base, length and permissions) is
