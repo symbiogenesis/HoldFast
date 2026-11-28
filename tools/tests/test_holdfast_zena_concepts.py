@@ -6,7 +6,6 @@ import subprocess
 import tempfile
 from functools import partial
 from pathlib import Path
-from typing import cast
 
 from tests.harness import TOOLS, Case, ensure, raises
 from toolchain import elaborate, mathematical_authoring, parser, proofenv, rocq_cache, solver_ledger
