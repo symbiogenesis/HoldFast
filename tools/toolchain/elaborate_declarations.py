@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Module-level declaration checking, record/union lowering, and Gallina rendering for HoldFast."""
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
 from toolchain import loans
@@ -29,6 +30,8 @@ from toolchain.elaborate_types import (
     _apps,
     _Binding,
     _constant,
+    _EffectRule,
+    _EffectSetInfo,
     _ImplInstance,
     _InterfaceInfo,
     _InterfaceLawSpec,
@@ -66,6 +69,17 @@ _RESTORED_SLOTS_FIELDS = (
 _ACCESS_PROPERTIES = frozenset({"CanRead", "CanWrite"})
 _RESTORED_SPAN_PROPERTIES = _ACCESS_PROPERTIES.union(field for field, _ in _RESTORED_SPAN_FIELDS)
 _RESTORED_SLOTS_PROPERTIES = _ACCESS_PROPERTIES.union(field for field, _ in _RESTORED_SLOTS_FIELDS)
+
+
+@dataclass(frozen=True)
+class _ParsedEffects:
+    reads: set[str]
+    writes: set[str]
+    calls: set[_Term]
+    forbid_reads: set[str]
+    forbid_writes: set[str]
+    forbid_rules: tuple[_EffectRule, ...]
+    has_positive: bool
 
 
 class _DeclarationsMixin:
@@ -284,7 +298,7 @@ class _DeclarationsMixin:
         name = self.name(node["name"])
         self._evict_builtin_if_shadowed(name)
         if (name in self.globals or name in self.records or name in self.unions
-                or name in self.union_ctors or name in self.interfaces
+                or name in self.union_ctors or name in self.interfaces or name in self.effect_sets
                 or name in {"Type", "_", "this"} or "." in name):
             raise self.fail("name", f"duplicate or reserved declaration '{name}'", node)
         self._record_visibility(name, modifiers, node)
@@ -486,7 +500,7 @@ class _DeclarationsMixin:
         name = self.name(node["name"])
         self._evict_builtin_if_shadowed(name)
         if (name in self.globals or name in self.records or name in self.unions
-                or name in self.union_ctors or name in self.interfaces
+                or name in self.union_ctors or name in self.interfaces or name in self.effect_sets
                 or name in {"Type", "_", "this"} or "." in name):
             raise self.fail("name", f"duplicate or reserved declaration '{name}'", node)
         self._record_visibility(name, modifiers, node)
@@ -817,10 +831,15 @@ class _DeclarationsMixin:
         m_gen_vars = m_vars[:len(m_generics)]
         param_vars = m_vars[len(m_generics):]
         m_ref_param_names = set(self.mutable_locals)
-        m_effect_reads, m_effect_writes, m_effect_calls = (
+        m_effects = (
             self._parse_effects_clause(effects_clauses[0], method_env, m_ref_param_names)
             if effects_clauses
-            else (set(), set(), set())
+            else _ParsedEffects(set(), set(), set(), set(), set(), (), False)
+        )
+        m_effect_reads, m_effect_writes, m_effect_calls = (
+            m_effects.reads,
+            m_effects.writes,
+            m_effects.calls,
         )
         self.entry_env = dict(method_env)
         self.final_ref_bindings = dict(method_env)
@@ -879,10 +898,12 @@ class _DeclarationsMixin:
         saved_body_facts = list(self.active_facts)
         self.active_facts.extend(entry_body_facts)
         prev_effect_calls = self.active_effect_calls
+        prev_forbidden_rules = self.active_forbidden_rules
         prev_executable = self.in_executable_function
         self.in_executable_function = m_kind == "function"
         if effects_clauses:
             self.active_effect_calls = set(m_effect_calls)
+            self.active_forbidden_rules = m_effects.forbid_rules
         try:
             self.runtime_writes.clear()
             self.runtime_reads.clear()
@@ -898,6 +919,8 @@ class _DeclarationsMixin:
                     body_node,
                     body_term,
                     self_var=self_var,
+                    forbid_reads=m_effects.forbid_reads,
+                    forbid_writes=m_effects.forbid_writes,
                 )
             elif m_kind == "function":
                 m_effect_reads, m_effect_writes = self._memory_footprint(
@@ -905,6 +928,7 @@ class _DeclarationsMixin:
             self._check_callable_loans(member_node, enclosing_type=name)
         finally:
             self.active_effect_calls = prev_effect_calls
+            self.active_forbidden_rules = prev_forbidden_rules
             self.in_executable_function = prev_executable
             self.active_facts = saved_body_facts
             self.current_return_type = prev_ret
@@ -1020,7 +1044,7 @@ class _DeclarationsMixin:
         name = self.name(node["name"])
         self._evict_builtin_if_shadowed(name)
         if (name in self.globals or name in self.records or name in self.unions
-                or name in self.union_ctors or name in self.interfaces
+                or name in self.union_ctors or name in self.interfaces or name in self.effect_sets
                 or name in {"Type", "_", "this"} or "." in name):
             raise self.fail("name", f"duplicate or reserved declaration '{name}'", node)
         is_pub = self._record_visibility(name, modifiers, node)
@@ -1047,7 +1071,7 @@ class _DeclarationsMixin:
                 raise self.fail("name", "constructor declaration requires an uppercase initial", ctor_node)
             self._evict_builtin_if_shadowed(cname)
             if (cname in self.globals or cname in self.records or cname in self.unions
-                    or cname in self.union_ctors or cname in self.interfaces
+                    or cname in self.union_ctors or cname in self.interfaces or cname in self.effect_sets
                     or cname == name or cname in seen_ctors
                     or cname in {"Type", "_", "this"} or "." in cname):
                 raise self.fail("name", f"duplicate or reserved union constructor '{cname}'", ctor_node)
@@ -1388,7 +1412,7 @@ class _DeclarationsMixin:
                     raise self.fail("name", f"constructor import '{visible_name}' requires an uppercase initial", node)
                 if (visible_name in self.globals or visible_name in self.records or visible_name in self.unions
                         or visible_name in self.union_ctors or visible_name in self.interfaces
-                        or visible_name in self.module_aliases):
+                        or visible_name in self.effect_sets or visible_name in self.module_aliases):
                     raise self.fail("name", f"imported declaration '{visible_name}' from '{imp_name}' conflicts with an existing binding", node)
                 self.inaccessible_private_symbols.pop(visible_name, None)
                 if symbol in mod.globals:
@@ -1401,6 +1425,8 @@ class _DeclarationsMixin:
                     self.union_ctors[visible_name] = mod.union_ctors[symbol]
                 if symbol in mod.interfaces:
                     self.interfaces[visible_name] = mod.interfaces[symbol]
+                if symbol in mod.effect_sets:
+                    self.effect_sets[visible_name] = mod.effect_sets[symbol]
         for iface_name, mod_inst_list in mod.impls.items():
             target_list = self.impls.setdefault(iface_name, [])
             for inst in mod_inst_list:
@@ -1532,6 +1558,7 @@ class _DeclarationsMixin:
             or name in self.unions
             or name in self.union_ctors
             or name in self.interfaces
+            or name in self.effect_sets
             or name in {"Type", "_", "this"}
             or "." in name
         ):
@@ -2602,22 +2629,152 @@ class _DeclarationsMixin:
                 raise self._format_borrow_conflict_error(issue, lowered, borrow_origins, fn_node)
         self._discharge_loan_obligations(report, lowered, fn_node)
 
-    def _parse_effects_clause(
+    def _resolve_effect_callable(
+        self: _Elaborator, eff_val: Node, environment: dict[str, _Binding],
+    ) -> tuple[str, _Term]:
+        path = self._dotted_member_path(eff_val)
+        if path is None:
+            raise self.fail("type", "effects calls(...) target must be an identifier", eff_val)
+        binding = environment.get(path)
+        if binding is None and path.split(".", 1)[0] not in environment:
+            binding = self.globals.get(path)
+        if binding is not None:
+            if self.whnf(binding.type).kind != "pi":
+                raise self.fail("type", f"effects calls('{path}') target is not a callable", eff_val)
+            return path, binding.term
+        if eff_val["kind"] == "member":
+            recv_node = self._unwrap_group(self.node(eff_val["value"]))
+            receiver = self._dotted_member_path(recv_node)
+            m_name = self.name(eff_val["name"])
+            if receiver is not None:
+                record = self.records.get(receiver)
+                if receiver in environment:
+                    receiver_type, _ = self.spine(self.whnf(environment[receiver].type))
+                    record = self.records_by_type.get(str(receiver_type.value)) if receiver_type.kind == "const" else None
+                if record is not None and m_name in record.methods:
+                    return path, _constant(record.methods[m_name].method_const)
+        raise self.fail("name", f"unknown callable '{path}' in effects calls(...)", eff_val)
+
+    def _resolve_effect_set_expr(
+        self: _Elaborator, expr: Node, environment: dict[str, _Binding], *, label: str | None = None,
+    ) -> tuple[_EffectRule, ...]:
+        node = self._unwrap_group(expr)
+        kind = node["kind"]
+        if kind == "binary" and self.operator(node["operator"]) == "|":
+            return (
+                *self._resolve_effect_set_expr(self.node(node["left"]), environment, label=label),
+                *self._resolve_effect_set_expr(self.node(node["right"]), environment, label=label),
+            )
+        if kind in {"name", "member"}:
+            path = self._dotted_member_path(node)
+            if path is None or path not in self.effect_sets:
+                raise self.fail("name", f"unknown effect set '{path or ''}'", node)
+            return self.effect_sets[path].rules
+        if kind == "call":
+            eff_callee = self.node(node["callee"])
+            eff_name = self.name(eff_callee["name"]) if eff_callee["kind"] == "name" else ""
+            if eff_name != "calls":
+                raise self.fail(
+                    "type",
+                    "effect set definitions only support calls(...) or named effect set unions",
+                    node,
+                )
+            eff_args = self.nodes(node["arguments"])
+            if not eff_args:
+                raise self.fail("type", "effects calls(...) requires at least one target", node)
+            targets: list[_Term] = []
+            paths: list[str] = []
+            for eff_arg in eff_args:
+                self.node(eff_arg, "argument")
+                if eff_arg["label"] is not None:
+                    raise self.fail("name", "effects calls(...) does not accept labeled arguments", eff_arg)
+                target_path, target_term = self._resolve_effect_callable(
+                    self._unwrap_group(self.node(eff_arg["value"])), environment,
+                )
+                paths.append(target_path)
+                targets.append(target_term)
+            rule_label = label if label is not None else f"calls({', '.join(paths)})"
+            return (_EffectRule(rule_label, frozenset(targets)),)
+        raise self.fail(
+            "type",
+            "effect expression must be calls(...), a named effect set, or a '|' union",
+            node,
+        )
+
+    def _effect_set_declaration(self: _Elaborator, node: Node) -> None:
+        modifiers = node["modifiers"]
+        allowed_modifiers = {"public", "private", "internal"}
+        if (
+            not isinstance(modifiers, list)
+            or any(not isinstance(value, str) or value not in allowed_modifiers for value in modifiers)
+            or len(modifiers) != len(set(modifiers))
+        ):
+            raise self.fail("unsupported", "unsupported or repeated declaration modifiers", node)
+        self.no_roles(node, "contracts")
+        name = self.name(node["name"])
+        self._evict_builtin_if_shadowed(name)
+        if (
+            name in self.globals
+            or name in self.records
+            or name in self.unions
+            or name in self.union_ctors
+            or name in self.interfaces
+            or name in self.effect_sets
+            or name in {"Type", "_", "this"}
+            or "." in name
+        ):
+            raise self.fail("name", f"duplicate or reserved declaration '{name}'", node)
+        self._record_visibility(name, modifiers, node)
+        rules = self._resolve_effect_set_expr(self.node(node["value"]), {}, label=name)
+        if node.get("canceled_by") is not None:
+            cancel_rules = self._resolve_effect_set_expr(self.node(node["canceled_by"]), {}, label=f"{name}.cancel")
+            wrappers = frozenset().union(*(rule.targets for rule in cancel_rules))
+            if not wrappers:
+                raise self.fail("type", "canceled by clause requires at least one wrapper callable", node)
+            rules = tuple(
+                _EffectRule(rule.label, rule.targets, rule.canceled_by | wrappers)
+                for rule in rules
+            )
+        self.effect_sets[name] = _EffectSetInfo(name, rules)
+
+    def _parse_effects_items(
         self: _Elaborator,
-        eff_clause: Node,
+        eff_items: list[Node],
         environment: dict[str, _Binding],
-        ref_param_names: set[str],
-    ) -> tuple[set[str], set[str], set[_Term]]:
+        write_targets: set[str],
+    ) -> _ParsedEffects:
         declared_reads: set[str] = set()
         declared_writes: set[str] = set()
         declared_calls: set[_Term] = set()
-        for eff_item in self.nodes(eff_clause["values"]):
+        forbid_reads: set[str] = set()
+        forbid_writes: set[str] = set()
+        forbid_rules: list[_EffectRule] = []
+        has_positive = False
+        for raw_item in eff_items:
+            eff_item = self._unwrap_group(raw_item)
+            negated = eff_item["kind"] == "unary" and self.operator(eff_item["operator"]) == "!"
+            if negated:
+                eff_item = self._unwrap_group(self.node(eff_item["value"]))
             if eff_item["kind"] == "name" and self.name(eff_item["name"]) == "none":
+                if negated:
+                    raise self.fail("type", "negating 'none' is not permitted in an effects clause", eff_item)
+                has_positive = True
+                continue
+            if eff_item["kind"] in {"name", "member"} or (
+                eff_item["kind"] == "binary" and self.operator(eff_item["operator"]) == "|"
+            ):
+                rules = self._resolve_effect_set_expr(eff_item, environment)
+                if negated:
+                    forbid_rules.extend(rules)
+                else:
+                    has_positive = True
+                    for rule in rules:
+                        declared_calls.update(rule.targets)
                 continue
             if eff_item["kind"] != "call":
                 raise self.fail(
                     "type",
-                    "effects clause item must be reads(...), writes(...), calls(...) or none",
+                    "effects clause item must be reads(...), writes(...), calls(...), an effect set, '!' prohibition, or none",
                     eff_item,
                 )
             eff_callee = self.node(eff_item["callee"])
@@ -2627,6 +2784,8 @@ class _DeclarationsMixin:
             eff_args = self.nodes(eff_item["arguments"])
             if not eff_args:
                 raise self.fail("type", f"effects {eff_name}(...) requires at least one target", eff_item)
+            if not negated:
+                has_positive = True
             for eff_arg in eff_args:
                 self.node(eff_arg, "argument")
                 if eff_arg["label"] is not None:
@@ -2645,42 +2804,54 @@ class _DeclarationsMixin:
                                 f"effects reads('{t_ident}') cannot name an uninitialized 'out' parameter",
                                 eff_val,
                             )
-                        declared_reads.add(t_ident)
+                        (forbid_reads if negated else declared_reads).add(t_ident)
                     else:
-                        if t_ident not in ref_param_names:
+                        if t_ident not in write_targets:
                             raise self.fail(
                                 "type",
-                                f"effects writes('{t_ident}') requires a 'ref' or 'out' parameter",
+                                f"effects writes('{t_ident}') requires a mutable local, 'ref', or 'out' target",
                                 eff_val,
                             )
-                        declared_writes.add(t_ident)
+                        (forbid_writes if negated else declared_writes).add(t_ident)
                 else:
-                    path = self._dotted_member_path(eff_val)
-                    if path is None:
-                        raise self.fail("type", "effects calls(...) target must be an identifier", eff_val)
-                    binding = environment.get(path)
-                    if binding is None and path.split(".", 1)[0] not in environment:
-                        binding = self.globals.get(path)
-                    if binding is not None:
-                        if self.whnf(binding.type).kind != "pi":
-                            raise self.fail("type", f"effects calls('{path}') target is not a callable", eff_val)
-                        declared_calls.add(binding.term)
-                        continue
-                    if eff_val["kind"] == "member":
-                        recv_node = self._unwrap_group(self.node(eff_val["value"]))
-                        receiver = self._dotted_member_path(recv_node)
-                        m_name = self.name(eff_val["name"])
-                        if receiver is not None:
-                            record = self.records.get(receiver)
-                            if receiver in environment:
-                                receiver_type, _ = self.spine(self.whnf(environment[receiver].type))
-                                record = self.records_by_type.get(str(receiver_type.value)) if receiver_type.kind == "const" else None
-                            if record is not None and m_name in record.methods:
-                                declared_calls.add(_constant(record.methods[m_name].method_const))
-                                continue
-                    raise self.fail("name", f"unknown callable '{path}' in effects calls(...)", eff_val)
+                    path, target_term = self._resolve_effect_callable(eff_val, environment)
+                    if negated:
+                        forbid_rules.append(_EffectRule(f"calls({path})", frozenset({target_term})))
+                    else:
+                        declared_calls.add(target_term)
+        if overlap := declared_reads & forbid_reads:
+            name = min(overlap)
+            raise self.fail("type", f"effects clause both allows and forbids reads('{name}')", eff_items[0])
+        if overlap := declared_writes & forbid_writes:
+            name = min(overlap)
+            raise self.fail("type", f"effects clause both allows and forbids writes('{name}')", eff_items[0])
+        for rule in forbid_rules:
+            for target in declared_calls:
+                if target in rule.targets and target not in rule.canceled_by:
+                    raise self.fail(
+                        "type",
+                        f"effects clause both allows and forbids '{self._effect_call_name(target)}'",
+                        eff_items[0],
+                    )
+        return _ParsedEffects(
+            reads=declared_reads,
+            writes=declared_writes,
+            calls=declared_calls,
+            forbid_reads=forbid_reads,
+            forbid_writes=forbid_writes,
+            forbid_rules=tuple(forbid_rules),
+            has_positive=has_positive,
+        )
+
+    def _parse_effects_clause(
+        self: _Elaborator,
+        eff_clause: Node,
+        environment: dict[str, _Binding],
+        ref_param_names: set[str],
+    ) -> _ParsedEffects:
+        parsed = self._parse_effects_items(self.nodes(eff_clause["values"]), environment, ref_param_names)
         lint_effect_entries(self, eff_clause)
-        return declared_reads, declared_writes, declared_calls
+        return parsed
 
     def _split_effect_calls(
         self: _Elaborator, calls: set[_Term], parameters: list[Node], environment: dict[str, _Binding],
@@ -2742,6 +2913,10 @@ class _DeclarationsMixin:
             return set()
         active_shadow = set() if shadowed is None else set(shadowed)
         kind = node.get("kind")
+        if kind == "effects_block":
+            return self._collect_runtime_read_names(
+                self.node(node["body"]), candidates, active_shadow
+            )
         if kind in {"assert", "proof", "calc", "contract", "invariant", "open_invariant"}:
             if kind == "open_invariant" and isinstance(node.get("body"), dict):
                 return self._collect_runtime_read_names(
@@ -2872,8 +3047,14 @@ class _DeclarationsMixin:
         self: _Elaborator, eff_clause: Node, parameters: list[Node], ref_param_names: set[str],
         declared_reads: set[str], declared_writes: set[str], body_node: Node, body_term: _Term,
         *, self_var: _Term | None = None, lint_public: bool | None = None,
+        forbid_reads: frozenset[str] | set[str] = frozenset(),
+        forbid_writes: frozenset[str] | set[str] = frozenset(),
     ) -> None:
         reads, writes = self._memory_footprint(parameters, ref_param_names, body_node, body_term, self_var=self_var)
+        if violated := writes & forbid_writes:
+            raise self.fail("type", f"callable mutates parameter '{min(violated)}' forbidden by effects !writes(...)", eff_clause)
+        if violated := reads & forbid_reads:
+            raise self.fail("type", f"callable reads parameter '{min(violated)}' forbidden by effects !reads(...)", eff_clause)
         if missing := writes - declared_writes:
             raise self.fail("type", f"callable mutates parameter '{min(missing)}' not declared in effects writes(...)", eff_clause)
         if missing := reads - declared_reads - declared_writes:
@@ -2935,6 +3116,9 @@ class _DeclarationsMixin:
             return
         if kind == "impl":
             self._impl_declaration(node, first_meta)
+            return
+        if kind == "effect_set":
+            self._effect_set_declaration(node)
             return
         if kind not in {"alias", "definition", "function", "property", "theorem", "lemma", "constant"}:
             raise self.fail("unsupported", f"declaration '{kind}' requires the full frontend")
@@ -3002,7 +3186,7 @@ class _DeclarationsMixin:
         name = self.name(node["name"])
         self._evict_builtin_if_shadowed(name)
         if (name in self.globals or name in self.records or name in self.unions
-                or name in self.union_ctors or name in self.interfaces
+                or name in self.union_ctors or name in self.interfaces or name in self.effect_sets
                 or name in {"Type", "_", "this"} or "." in name):
             raise self.fail("name", f"duplicate or reserved declaration '{name}'")
         public = self._record_visibility(name, modifiers, node)
@@ -3027,10 +3211,15 @@ class _DeclarationsMixin:
         ):
             raise self.fail("type", "proof declarations do not accept 'owned' consuming parameters", node)
         ref_param_names = set(self.mutable_locals)
-        declared_effect_reads, declared_effect_writes, declared_effect_calls = (
+        parsed_effects = (
             self._parse_effects_clause(effects_clauses[0], environment, ref_param_names)
             if effects_clauses
-            else (set(), set(), set())
+            else _ParsedEffects(set(), set(), set(), set(), set(), (), False)
+        )
+        declared_effect_reads, declared_effect_writes, declared_effect_calls = (
+            parsed_effects.reads,
+            parsed_effects.writes,
+            parsed_effects.calls,
         )
         self.entry_env = dict(environment)
         self.final_ref_bindings = dict(environment)
@@ -3253,8 +3442,10 @@ class _DeclarationsMixin:
                 self.runtime_reads.clear()
                 self.result_bindings.clear()
                 prev_effect_calls = self.active_effect_calls
+                prev_forbidden_rules = self.active_forbidden_rules
                 if effects_clauses:
                     self.active_effect_calls = set(declared_effect_calls)
+                    self.active_forbidden_rules = parsed_effects.forbid_rules
                 self.inferred_effect_calls = declared_effect_calls if infer_effects or summarize_definition else None
                 if summarize_definition:
                     self.definition_effect_parameters = {
@@ -3358,6 +3549,8 @@ class _DeclarationsMixin:
                                 body_node,
                                 body,
                                 lint_public="public" in modifiers,
+                                forbid_reads=parsed_effects.forbid_reads,
+                                forbid_writes=parsed_effects.forbid_writes,
                             )
                         elif kind == "function" and (ref_param_names or self.readonly_in_params):
                             reads, writes = self._memory_footprint(parameters, ref_param_names, body_node, body)
@@ -3385,6 +3578,7 @@ class _DeclarationsMixin:
                                 )
                 finally:
                     self.active_effect_calls = prev_effect_calls
+                    self.active_forbidden_rules = prev_forbidden_rules
                     self.inferred_effect_calls = None
                     self.definition_effect_parameters = None
                     self.in_executable_function = False

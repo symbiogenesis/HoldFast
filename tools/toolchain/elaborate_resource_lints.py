@@ -20,11 +20,27 @@ _report = report_lint
 
 
 def _effect_entries(elab: _Elaborator, clause: Node) -> Iterator[tuple[str, str, Node]]:
-    for item in elab.nodes(clause["values"]):
+    for raw_item in elab.nodes(clause["values"]):
+        item = elab._unwrap_group(raw_item)
+        negated = item["kind"] == "unary" and elab.operator(item["operator"]) == "!"
+        if negated:
+            item = elab._unwrap_group(elab.node(item["value"]))
+        prefix = "!" if negated else ""
         if item["kind"] == "name":
-            yield "none", "", item
+            name = elab.name(item["name"])
+            if not negated and name == "none":
+                yield "none", "", item
+            else:
+                yield f"{prefix}effect", name, item
             continue
-        kind = elab.name(elab.node(item["callee"])["name"])
+        if item["kind"] == "member":
+            path = elab._dotted_member_path(item)
+            if path is not None:
+                yield f"{prefix}effect", path, item
+            continue
+        if item["kind"] != "call":
+            continue
+        kind = f"{prefix}{elab.name(elab.node(item['callee'])['name'])}"
         for arg in elab.nodes(item["arguments"]):
             target = elab._unwrap_group(elab.node(arg["value"]))
             path = elab._dotted_member_path(target)
@@ -40,7 +56,7 @@ def lint_effect_entries(elab: _Elaborator, clause: Node) -> None:
         if kind == "none" and has_effects:
             _report(elab, "HOLDFAST118", site, "'none' adds nothing to this effect bound")
         elif (kind, target) in seen:
-            name = "none" if kind == "none" else f"{kind}({target})"
+            name = "none" if kind == "none" else (target if kind == "effect" else f"!{target}" if kind == "!effect" else f"{kind}({target})")
             _report(elab, "HOLDFAST118", site, f"duplicate effect allowance '{name}'")
         seen.add((kind, target))
 

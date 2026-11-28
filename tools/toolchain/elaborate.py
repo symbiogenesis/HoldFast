@@ -66,6 +66,8 @@ from toolchain.elaborate_types import (
     _apps,
     _Binding,
     _constant,
+    _EffectRule,
+    _EffectSetInfo,
     _FnContract,
     _ImplInstance,
     _IndexedBorrowPeer,
@@ -194,6 +196,9 @@ class _Elaborator(
         self.checked_resource_consumers: set[str] = set()
         self.untracked_effect_functions: set[str] = set()
         self.active_effect_calls: set[_Term] | None = None
+        self.effect_sets: dict[str, _EffectSetInfo] = {}
+        self.active_forbidden_rules: tuple[_EffectRule, ...] = ()
+        self.block_forbidden_rules: tuple[_EffectRule, ...] = ()
         self.callable_ensures: dict[
             str, list[tuple[tuple[int, ...], tuple[tuple[int, int], ...], int | None, _Term]]
         ] = {}
@@ -1634,6 +1639,96 @@ class _Elaborator(
             return record.fields[index].name
         return self.callable_source_names.get(name, name)
 
+    def _check_forbidden_call(
+        self, head: _Term, arguments: Sequence[Node], terms: Sequence[_Term], site: Node | None,
+    ) -> None:
+        if not self.active_forbidden_rules:
+            return
+        if head == self.current_rec_var:
+            if self.block_forbidden_rules:
+                rule = self.block_forbidden_rules[0]
+                raise self.fail(
+                    "type",
+                    f"cannot verify forbidden effect '{rule.label}' across recursive call '{self.current_rec_name}'",
+                    site,
+                )
+            return
+        if head.kind != "const":
+            ident = cast("int", head.value)
+            if head.kind == "var" and ident in self.fn_contracts:
+                return
+            if head.kind == "var" and ident in self.parameter_names:
+                pname = self.parameter_names[ident]
+                for rule in self.active_forbidden_rules:
+                    if head in rule.canceled_by:
+                        continue
+                    if head in rule.targets:
+                        raise self.fail(
+                            "type",
+                            f"callable invokes parameter '{pname}' forbidden by effect '{rule.label}'",
+                            site,
+                        )
+                    raise self.fail(
+                        "type",
+                        f"cannot verify forbidden effect '{rule.label}' across indirect callable '{pname}'",
+                        site,
+                    )
+            return
+        callee = str(head.value)
+        name = self.callable_source_names.get(callee, callee)
+        for rule in self.active_forbidden_rules:
+            if head in rule.canceled_by:
+                continue
+            if head in rule.targets:
+                raise self.fail(
+                    "type",
+                    f"callable invokes '{name}' forbidden by effect '{rule.label}'",
+                    site,
+                )
+            if callee in self.untracked_effect_functions:
+                raise self.fail(
+                    "type",
+                    f"cannot verify forbidden effect '{rule.label}' across callee '{name}' without closed effects",
+                    site,
+                )
+            visited: set[_Term] = set()
+            pending = list(self.callable_effect_calls.get(callee, ()))
+            while pending:
+                dep = pending.pop()
+                if dep in visited or dep in rule.canceled_by:
+                    continue
+                visited.add(dep)
+                if dep in rule.targets:
+                    raise self.fail(
+                        "type",
+                        f"callable transitively invokes '{self._effect_call_name(dep)}' via '{name}' "
+                        f"forbidden by effect '{rule.label}'",
+                        site,
+                    )
+                if dep.kind == "const":
+                    dep_name = str(dep.value)
+                    if dep_name in self.untracked_effect_functions:
+                        raise self.fail(
+                            "type",
+                            f"cannot verify forbidden effect '{rule.label}' across callee '{self._effect_call_name(dep)}' "
+                            "without closed effects",
+                            site,
+                        )
+                    pending.extend(self.callable_effect_calls.get(dep_name, ()))
+                elif dep.kind == "var" and cast("int", dep.value) in self.parameter_names:
+                    raise self.fail(
+                        "type",
+                        f"cannot verify forbidden effect '{rule.label}' across indirect callable '{self._effect_call_name(dep)}'",
+                        site,
+                    )
+        for index in self.callable_callback_effects.get(callee, set()):
+            if index >= min(len(arguments), len(terms)):
+                continue
+            if self._pure_callback(arguments[index], terms[index]):
+                continue
+            actual = self.resolve(terms[index])
+            self._check_forbidden_call(actual, (), (), site)
+
     def _check_call_effects(self, head: _Term, prefix: list[_Term], arguments: list[Node],
                             terms: list[_Term], site: Node | None) -> None:
         if site is not None and not self._static_call_permitted(head, arguments, terms):
@@ -1642,6 +1737,7 @@ class _Elaborator(
             self.static_effect_sites.append(site)
         collecting, bound = self.inferred_effect_calls, self.active_effect_calls
         if collecting is None and bound is None:
+            self._check_forbidden_call(head, arguments, terms, site)
             return
         if head.kind != "const":
             ident = cast("int", head.value)
@@ -1657,6 +1753,7 @@ class _Elaborator(
                 name = self.parameter_names[ident]
                 if bound is not None and head not in bound:
                     raise self.fail("type", f"callable invokes parameter '{name}' not declared in effects calls(...)", site)
+            self._check_forbidden_call(head, arguments, terms, site)
             return
         callee = str(head.value)
         name = self.callable_source_names.get(callee, callee)
@@ -1702,6 +1799,7 @@ class _Elaborator(
         if bound is not None and (missing := required - bound):
             target = min(self._effect_call_name(effect) for effect in missing)
             raise self.fail("type", f"callable transitively invokes '{target}' via '{name}' not declared in effects calls(...)", site)
+        self._check_forbidden_call(head, arguments, terms, site)
 
     def _has_static_effects(self, callee: str) -> bool:
         return (callee in self.nonstatic_callables or bool(self.callable_effect_calls.get(callee))

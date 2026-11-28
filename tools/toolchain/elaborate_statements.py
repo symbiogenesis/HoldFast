@@ -1945,6 +1945,114 @@ class _StatementsMixin:
             lint_extra_lifts(self, statement, target, record)
         return after_env
 
+    @contextmanager
+    def _effects_block_scope(
+        self: _Elaborator,
+        statement: Node,
+        extended: dict[str, _Binding],
+    ) -> Generator[Callable[[dict[str, _Binding]], None]]:
+        self.site = statement
+        parsed = self._parse_effects_items(
+            self.nodes(statement["values"]), extended, set(self.mutable_locals),
+        )
+        if parsed.has_positive and self.active_effect_calls is not None and (
+            extra := parsed.calls - self.active_effect_calls
+        ):
+            target = min(self._effect_call_name(item) for item in extra)
+            raise self.fail(
+                "type",
+                f"effects block cannot widen enclosing effects calls('{target}')",
+                statement,
+            )
+        prev_active_calls = self.active_effect_calls
+        prev_forbidden = self.active_forbidden_rules
+        prev_block_forbidden = self.block_forbidden_rules
+        prev_reads = self.runtime_reads
+        prev_writes = self.runtime_writes
+        local_reads: set[str] = set()
+        local_writes: set[str] = set()
+        if parsed.has_positive:
+            self.active_effect_calls = set(parsed.calls)
+        self.active_forbidden_rules = (*prev_forbidden, *parsed.forbid_rules)
+        self.block_forbidden_rules = (*prev_block_forbidden, *parsed.forbid_rules)
+        self.runtime_reads = local_reads
+        self.runtime_writes = local_writes
+        body_block = self.node(statement["body"], "block")
+
+        def finalize(after_env: dict[str, _Binding]) -> None:
+            changed_mutables = {
+                name
+                for name in extended
+                if name in self.mutable_locals and name in after_env and after_env[name].term != extended[name].term
+            }
+            block_writes = local_writes | changed_mutables
+            if violated := block_writes & parsed.forbid_writes:
+                raise self.fail(
+                    "type",
+                    f"effects block mutates '{min(violated)}' forbidden by !writes(...)",
+                    statement,
+                )
+            read_candidates = set(extended) - self.uninitialized_out_params
+            ast_reads = self._collect_runtime_read_names(body_block, read_candidates)
+            block_reads = local_reads | ast_reads | {
+                name
+                for name in read_candidates
+                if name in after_env and after_env[name].term != extended[name].term
+            }
+            if violated := block_reads & parsed.forbid_reads:
+                raise self.fail(
+                    "type",
+                    f"effects block reads '{min(violated)}' forbidden by !reads(...)",
+                    statement,
+                )
+            if parsed.has_positive:
+                tracked_write = set(extended) & self.mutable_locals
+                tracked_read = {
+                    name
+                    for name in extended
+                    if name not in self.uninitialized_out_params
+                    and (
+                        name in self.mutable_locals
+                        or name in self.readonly_in_params
+                        or self._is_readonly_span(extended[name].term)
+                    )
+                }
+                if missing := (block_writes & tracked_write) - parsed.writes:
+                    raise self.fail(
+                        "type",
+                        f"effects block mutates '{min(missing)}' not declared in writes(...)",
+                        statement,
+                    )
+                if missing := (block_reads & tracked_read) - parsed.reads - parsed.writes:
+                    raise self.fail(
+                        "type",
+                        f"effects block reads '{min(missing)}' not declared in reads(...) or writes(...)",
+                        statement,
+                    )
+
+        try:
+            yield finalize
+        finally:
+            self.active_effect_calls = prev_active_calls
+            self.active_forbidden_rules = prev_forbidden
+            self.block_forbidden_rules = prev_block_forbidden
+            prev_reads.update(local_reads)
+            prev_writes.update(local_writes)
+            self.runtime_reads = prev_reads
+            self.runtime_writes = prev_writes
+
+    def _elaborate_effects_block(
+        self: _Elaborator,
+        statement: Node,
+        extended: dict[str, _Binding],
+        facts: tuple[_Binding, ...],
+    ) -> tuple[dict[str, _Binding], str | None]:
+        body_block = self.node(statement["body"], "block")
+        with self._effects_block_scope(statement, extended) as finalize:
+            after_env, ctrl = self._elaborate_non_returning_block(body_block, extended, facts)
+            finalize(after_env)
+        return after_env, ctrl
+
     def _prepare_using_cleanup(
         self: _Elaborator,
         statement: Node,
@@ -2383,6 +2491,13 @@ class _StatementsMixin:
                     extended = self._elaborate_scope_statement(
                         statement, extended, (*facts, *statement_facts)
                     )
+                    continue
+                if kind == "effects_block":
+                    extended, ctrl = self._elaborate_effects_block(
+                        statement, extended, (*facts, *statement_facts)
+                    )
+                    if ctrl in {"break", "continue"}:
+                        return extended, ctrl
                     continue
                 if kind == "using":
                     h_name, body_env, run_cleanup, restore_outer = self._prepare_using_cleanup(
@@ -3799,6 +3914,45 @@ class _StatementsMixin:
                     extended = self._elaborate_scope_statement(
                         statement, extended, (*active_facts, *statement_facts)
                     )
+                    continue
+                if kind == "effects_block":
+                    body_block = self.node(statement["body"], "block")
+                    combined_f = (*active_facts, *statement_facts)
+                    if index < len(statements) - 1 and self._stmt_may_return(body_block):
+                        target_ret = expected if expected is not None else self.current_return_type
+                        if target_ret is None:
+                            raise self.fail("type", "returning 'effects' scope requires a known return type", statement)
+                        ref_names = tuple(
+                            n for n in sorted(self.entry_env) if n in self.mutable_locals and n in extended
+                        )
+                        state_names = tuple(n for n in extended if n in self.mutable_locals)
+                        acc_term, _, _ = self._elaborate_returning_block(
+                            statements[index:], extended, target_ret, combined_f,
+                            snap_names=ref_names, state_names=state_names,
+                        )
+                        acc_t = self.infer(acc_term)
+                        m_v = self.fresh(acc_t)
+                        ret_pk_t = acc_t.args[0]
+                        st_pk_t = acc_t.args[1]
+                        rp = self.fresh(ret_pk_t)
+                        rv, _ = self._unpack_names_with_head(ref_names, extended, _Binding(rp, ret_pk_t), target_ret)
+                        sv = self.fresh(st_pk_t)
+                        res_t = _term(
+                            "sum_match",
+                            _term("lam", acc_t, target_ret, value=m_v.value),
+                            acc_term,
+                            _term("lam", ret_pk_t, rv, value=rp.value),
+                            _term("lam", st_pk_t, self._default_term_for_type(target_ret), value=sv.value),
+                        )
+                        self.final_ref_bindings = dict(extended)
+                        self.final_return_facts = list(self.active_facts[saved_active_len:])
+                        return finish(_Binding(res_t, target_ret))
+                    if index == len(statements) - 1 and self._stmt_may_return(body_block):
+                        with self._effects_block_scope(statement, extended) as finalize:
+                            res_b = self.block(body_block, extended, expected, facts=combined_f)
+                            finalize(self.final_ref_bindings)
+                        return finish(res_b)
+                    extended, _ = self._elaborate_effects_block(statement, extended, combined_f)
                     continue
                 if kind == "using":
                     bnode = self.node(statement["binding"])

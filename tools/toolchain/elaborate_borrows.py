@@ -1009,7 +1009,7 @@ class _BorrowMixin:
         kind = node.get("kind")
         if kind == "return":
             return True
-        if kind in {"block", "open_invariant", "using", "while", "foreach", "foreach_collection"}:
+        if kind in {"block", "open_invariant", "using", "effects_block", "while", "foreach", "foreach_collection"}:
             body = node.get("body") if kind != "block" else node
             return isinstance(body, dict) and self._stmt_may_return(self.nodes(cast("Node", body)["statements"]))
         if kind == "if":
@@ -1170,6 +1170,30 @@ class _BorrowMixin:
                         self.active_using_cleanups.pop()
                     self.active_using_names.discard(h_name)
                     restore_outer(cur_env)
+            if kind == "effects_block":
+                body_stmts = self.nodes(self.node(stmt["body"], "block")["statements"])
+                with self._effects_block_scope(stmt, cur_env) as finalize_effects:
+                    sub_acc, sub_env, sub_ctrl = self._elaborate_returning_block(
+                        body_stmts,
+                        dict(cur_env),
+                        ret_type,
+                        (*facts, *cur_facts),
+                        allow_break=allow_break,
+                        snap_names=snap_names,
+                        state_names=state_names,
+                    )
+                    finalize_effects(sub_env)
+                if sub_ctrl is not None:
+                    return sub_acc, sub_env, sub_ctrl
+                return self._chain_acc_continuation(
+                    sub_acc,
+                    ret_pack_t,
+                    cont_state_t,
+                    acc_type,
+                    state_names,
+                    cur_env,
+                    lambda next_env: step_seq(idx + 1, next_env, cur_facts)[0],
+                ), cur_env, None
             if kind == "if" and self._stmt_may_return(stmt):
                 cond_node = self.node(stmt["condition"])
                 cond_t = self.check(cond_node, _BOOL, cur_env)

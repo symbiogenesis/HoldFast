@@ -4760,6 +4760,12 @@ class _FunctionLowerer:
                         current = self._emit(current, Access(Place(bname), "read"), f"dispose_{bname}")
                 return current
 
+            if kind == "effects_block":
+                body = _body_statements(stmt.get("body"))
+                return self._lower_statements(
+                    current, body, loop_header=loop_header, loop_exit=loop_exit
+                )
+
             if kind in {"foreach", "foreach_collection", "while"}:
                 if kind == "foreach":
                     if "range" in stmt and isinstance(stmt["range"], dict):

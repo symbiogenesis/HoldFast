@@ -495,12 +495,39 @@ class _ImplInstance:
 
 
 @dataclass(frozen=True)
+class PackagePolicy:
+    """Package-level effect confinement policy declared in holdfast-package.toml."""
+
+    forbid_calls: tuple[str, ...] = ()
+    forbid_effects: tuple[str, ...] = ()
+    require_explicit_effects: bool = False
+
+
+@dataclass(frozen=True)
+class _EffectRule:
+    label: str
+    targets: frozenset[_Term]
+    canceled_by: frozenset[_Term] = frozenset()
+
+
+@dataclass(frozen=True)
+class _EffectSetInfo:
+    name: str
+    rules: tuple[_EffectRule, ...]
+
+    @property
+    def calls(self) -> frozenset[_Term]:
+        return frozenset(target for rule in self.rules for target in rule.targets)
+
+
+@dataclass(frozen=True)
 class PackageScope:
     """Exact package instance, available modules and importing source edition."""
 
     instance: str
     modules: frozenset[str]
     edition: str = "math-2"
+    policy: PackagePolicy | None = None
 
 
 
