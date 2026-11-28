@@ -332,6 +332,24 @@ Lemma cty_alpha_eq_trans : forall (D : JoinDomain) (T1 T2 T3 : cty D),
   cty_alpha_eq T1 T2 -> cty_alpha_eq T2 T3 -> cty_alpha_eq T1 T3.
 Proof. intros D T1 T2 T3 H12 H23. unfold cty_alpha_eq in *. etransitivity; eauto. Qed.
 
+Definition cty_non_univ {D : JoinDomain} (T : cty D) : bool :=
+  match T with
+  | CUniv _ | CTVar _ | CTProm _ _ | CTUnbox _ => false
+  | _ => true
+  end.
+
+Lemma cty_non_univ_erase_hints : forall (D : JoinDomain) (T : cty D),
+  cty_non_univ (erase_hints T) = cty_non_univ T.
+Proof. intros D T; destruct T; reflexivity. Qed.
+
+Lemma cty_non_univ_alpha : forall (D : JoinDomain) (T1 T2 : cty D),
+  cty_alpha_eq T1 T2 -> cty_non_univ T1 = cty_non_univ T2.
+Proof.
+  intros D T1 T2 H. unfold cty_alpha_eq in H.
+  rewrite <- (cty_non_univ_erase_hints D T1), <- (cty_non_univ_erase_hints D T2), H.
+  reflexivity.
+Qed.
+
 Fixpoint cty_alpha_eqb {D : JoinDomain} (T1 T2 : cty D) : bool :=
   match T1, T2 with
   | CNat, CNat => true
@@ -879,6 +897,24 @@ Fixpoint subst_tvar_in_cty {D : JoinDomain} (k : nat) (U T : cty D) : cty D :=
   end.
 
 (* Specialization helpers for dependent elimination motives *)
+
+Fixpoint map_cidx_in_cty {D : JoinDomain} (f : nat -> cidx D -> cidx D) (k : nat) (T : cty D) : cty D :=
+  match T with
+  | CNat => CNat
+  | CBool => CBool
+  | CVec elem len => CVec (map_cidx_in_cty f k elem) (f k len)
+  | CUniv lvl => CUniv lvl
+  | CTVar x => CTVar (if x <? k then x else if x =? k then 0 else x - 1)
+  | CTProm q inner => CTProm q (map_cidx_in_cty f k inner)
+  | CTUnbox b => CTUnbox (if b <? k then b else if b =? k then 0 else b - 1)
+  | CPi x s r dom cod => CPi x s r (map_cidx_in_cty f k dom) (map_cidx_in_cty f (S k) cod)
+  | CSigma x r fst_ty snd_ty => CSigma x r (map_cidx_in_cty f k fst_ty) (map_cidx_in_cty f (S k) snd_ty)
+  | CBox q inner => CBox q (map_cidx_in_cty f k inner)
+  | CSum lhs rhs => CSum (map_cidx_in_cty f k lhs) (map_cidx_in_cty f k rhs)
+  | CRecord id fields =>
+      CRecord id (map (fun '(fn, fg, ft) => (fn, fg, map_cidx_in_cty f k ft)) fields)
+  | CInd id indices => CInd id (map (f k) indices)
+  end.
 
 (* For CLetBox body in (x : A) :: env: replace unboxed 0 with Promoted 0, keep outer >= 1 *)
 Fixpoint spec_box_body_cidx {D : JoinDomain} (q : grade D) (k : nat) (i : cidx D) : cidx D :=
@@ -1812,6 +1848,33 @@ Definition app_result_ty {D : JoinDomain} (dom cod : cty D) (arg : cterm D) : op
   | _, _ => if cty_uses_var 0 cod then None else Some (unshift_cty 0 cod)
   end.
 
+Lemma cty_non_univ_ren : forall (D : JoinDomain) rho (T : cty D),
+  cty_non_univ (ren_cty rho T) = cty_non_univ T.
+Proof. intros D rho T; destruct T; reflexivity. Qed.
+
+Lemma cty_non_univ_subst_cidx : forall (D : JoinDomain) k val (T : cty D),
+  cty_non_univ (subst_cidx_in_cty k val T) = cty_non_univ T.
+Proof. intros D k val T; destruct T; reflexivity. Qed.
+
+Lemma cty_non_univ_subst_tvar_true : forall (D : JoinDomain) k U (T : cty D),
+  cty_non_univ T = true -> cty_non_univ (subst_tvar_in_cty k U T) = true.
+Proof. intros D k U T HT; destruct T; try discriminate; reflexivity. Qed.
+
+Lemma cty_non_univ_app_result : forall (D : JoinDomain) (A B res : cty D) arg,
+  cty_non_univ A = true ->
+  cty_non_univ B = true ->
+  app_result_ty A B arg = Some res ->
+  cty_non_univ res = true.
+Proof.
+  intros D A B res arg HA HB Happ.
+  unfold app_result_ty in Happ.
+  destruct A; try discriminate;
+    try (destruct (term_as_cidx arg);
+         [ destruct B; try discriminate; inversion Happ; subst; reflexivity
+         | destruct (cty_uses_var 0 B); inversion Happ; subst; destruct B; try discriminate; reflexivity ]);
+    destruct (cty_uses_var 0 B); inversion Happ; subst; destruct B; try discriminate; reflexivity.
+Qed.
+
 Definition app_type_arg_demand {D : JoinDomain} (dom : cty D) (arg : cterm D)
   (u_arg v_arg : list (grade D)) : list (grade D) :=
   match dom, arg with
@@ -1934,9 +1997,9 @@ Inductive CoreDerives {D : JoinDomain} : cenv D -> cterm D -> cjudgment D -> Pro
     allows (nth_grade u_b 0) s ->
     (match pr with
      | CPair _ _ _ _ fv sv =>
-         match term_as_cidx fv, term_as_cidx sv with
-         | Some _, Some _ => True
-         | _, _ => cty_uses_var 0 mot = false
+         match term_as_cidx fv, term_as_cidx sv, cty_non_univ A, cty_non_univ B with
+         | Some _, Some _, true, true => True
+         | _, _, _, _ => cty_uses_var 0 mot = false
          end
      | CVar _ => True
      | _ => cty_uses_var 0 mot = false
@@ -2290,9 +2353,9 @@ Fixpoint core_infer {D : JoinDomain} (env : cenv D) (t : cterm D)
                   let dep_ok :=
                     match pr with
                     | CPair _ _ _ _ fv sv =>
-                        match term_as_cidx fv, term_as_cidx sv with
-                        | Some _, Some _ => true
-                        | _, _ => negb (cty_uses_var 0 mot)
+                        match term_as_cidx fv, term_as_cidx sv, cty_non_univ A, cty_non_univ B with
+                        | Some _, Some _, true, true => true
+                        | _, _, _, _ => negb (cty_uses_var 0 mot)
                         end
                     | CVar _ => true
                     | _ => negb (cty_uses_var 0 mot)
@@ -2632,7 +2695,7 @@ Proof.
       | apply cty_alpha_eqb_sound; exact Hmot_eq
       | assumption | assumption
       | (destruct t1 as [| | | | | | | ? ? ? ? fv sv | | | | | | | | | | |]; cbn in Hdep; try exact I; try (apply negb_true_iff; exact Hdep);
-         destruct (term_as_cidx fv), (term_as_cidx sv); try exact I; apply negb_true_iff; exact Hdep)
+         destruct (term_as_cidx fv), (term_as_cidx sv), (cty_non_univ A), (cty_non_univ B); try exact I; apply negb_true_iff; exact Hdep)
       | reflexivity].
   - (* CPromote *)
     destruct (core_infer env t) as [[A u v] |] eqn:Hv; inversion Hchk; subst.
