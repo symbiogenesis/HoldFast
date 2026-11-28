@@ -19,7 +19,12 @@ Ordinary arithmetic, evaluation order, loan and move semantics, observable
 failure and authored contracts have the same meaning in shared code. Compare
 the two profiles on admitted inputs with the same represented widths.
 
-The first hosted implementation selects one host and its actual ABI. Its
+The first hosted implementation selects one host and its actual ABI. WebAssembly
+GC paired with the Component Model (WIT/WASI) is a candidate hosted target under
+[Q25eh](../../PLAN.md#q25eh) and [Q25ei](../../PLAN.md#q25ei), aligning HoldFast's
+nominal `distinct` wrappers, immutable records/unions, and value-passing
+contracts cleanly with immutable GC structs and WIT canonical ABI boundaries
+without altering the supported bare-metal CHERI release baseline. Its
 standard library supplies owned text, growable collections, validated external
 data, scoped task and resource management, and adapters to the host ecosystem.
 Owned text preserves the [shared UTF-8 semantics](first-release.md#bytes-and-text).

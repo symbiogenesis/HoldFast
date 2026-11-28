@@ -63,6 +63,7 @@ distinct binding name to retain the whole value. Parentheses preserve this rule.
 | Mathematical definition | `definition T Name(...) => expression;`, with no runtime representation implied | M |
 | Theorem and lemma | `theorem Name(...) ensures P proof { ... }`; `lemma` likewise | M |
 | Record | `record Name(T1 Field1, ...)` with optional `invariant` clauses and a member body | M |
+| Distinct wrapper | `distinct Name = T` with optional generics, `invariant` clauses, `.Value`/`.From`/`.Underlying`, and properties/methods; zero-wrapper runtime representation | M |
 | Struct | `struct Name<...> { private fields; view ...; members }` | S |
 | Union | `union Name { Case1(T x); Case2(); }`; nullary cases are declared with `()` and written bare in patterns and expressions | M |
 | Property | `public T Name => expression;`: total, effect-free and allocation-free | M |
@@ -203,16 +204,17 @@ Operators from weakest to strongest binding, as fixed by the
 | 3 | `\|\|` | Left | P |
 | 4 | `&&` | Left | P |
 | 5 | `==`, `!=`, `<`, `<=`, `>`, `>=`, `e is Pattern` | None | P (`is`: M) |
-| 6 | Range `a..b` | None | M |
-| 7 | Bitwise `\|` | Left | M |
-| 8 | Bitwise `^` | Left | M |
-| 9 | Bitwise `&` | Left | M |
-| 10 | `+`, `-` | Left | P |
-| 11 | `*`, `/`, `%` | Left | P |
-| 12 | Record update `e with { Field = v, ... }` | Left | M |
-| 13 | Prefix `!`, `-`, `~`, `*p`, `&place`, `move`, `in`, `ref`, `out` | Right | P (`!`), M (`-`, `~`, `move`, `in`, `ref`, `out`), S (rest) |
-| 14 | Postfix call `f(...)`, member `.Name`, index `e[i]`, generic `F<T>`, propagation `e?` | Left | P (calls), M |
-| 15 | Literals, names, `(e)`, tuples, `match`, holes `?name`, operator values `(+)` | n/a | P (literals, names, grouping), M |
+| 6 | `lhs \|> rhs` | Left | M |
+| 7 | Range `a..b` | None | M |
+| 8 | Bitwise `\|` | Left | M |
+| 9 | Bitwise `^` | Left | M |
+| 10 | Bitwise `&` | Left | M |
+| 11 | `+`, `-` | Left | P |
+| 12 | `*`, `/`, `%` | Left | P |
+| 13 | Record update `e with { Field = v, ... }` | Left | M |
+| 14 | Prefix `!`, `-`, `~`, `*p`, `&place`, `move`, `in`, `ref`, `out` | Right | P (`!`), M (`-`, `~`, `move`, `in`, `ref`, `out`), S (rest) |
+| 15 | Postfix call `f(...)`, member `.Name`, index `e[i]`, generic `F<T>`, propagation `e?` | Left | P (calls), M |
+| 16 | Literals, names, `$`, `(e)`, tuples, `match`, holes `?name`, operator values `(+)` | n/a | P (literals, names, grouping), M |
 
 Comparisons do not chain; parenthesize them. Short-circuit `&&` and `||`
 evaluate the right operand only when needed. In expressions such as `Foo<T>.Bar`,
@@ -240,6 +242,7 @@ elaborator's resource limit. [Pure arithmetic checks](../tooling/pure-prototype.
 | Match expression | `match (e) { Pattern => value, ... }`, exhaustive, optional final comma | M |
 | Pattern test `e is P` | A successful pattern binds its variables in later `&&` operands, the `then` branch of an `if` guard and the consequent of `==>`. [Pattern test scope](surface-grammar.md#pattern-test-scope) | M |
 | Record update `move base with { F = v }` | Declaration-order update; linear or affine records require `move` | M |
+| Pipeline `e \|> f($, y)` | Evaluates the LHS once by value and binds `$` across the RHS (supporting calls, labeled args, expressions, `move $`, and `in $`; linear values allow at most one `move $`) | M |
 | Formatting `Format.Write(ref builder, $"n={n}")` | The mathematical builder model returns an updated `TextBuilder` observed through `Fits`, `Written` and `WrittenBytes`. A failed append preserves the bytes present before the call. The represented buffer API returns `Result<usize, CapacityError>`. | M (builder model), D (represented result) |
 
 **Parsed example** (operators, a conditional expression and a match):
@@ -271,6 +274,7 @@ public Nat Groups(Nat count, Nat size)
 | Range loop | `foreach (let i in low..high) invariant P { ... }` | M |
 | Collection loop | `foreach (let x in xs)`, `foreach (in x in xs)`, `foreach (ref x in xs)`: value, shared-read and exclusive element iteration | S (located modes), D (represented iteration) |
 | While loop | `while (c) invariant P decreases m { ... }` | M |
+| Scoped disposal | `using (let h = init) { ... }` invokes `IDispose<T>.Dispose(in h)` returning `Unit` on fallthrough, `return`, and `?` in the body (skipping disposal if `?` exits from `init`) | M |
 | `break`, `continue` | Leave or restart the innermost loop, closing local loans | M |
 | Assignment | `x = e;`, `x += e;` and the other compound forms, on `var` locals, fields and indexed elements | M |
 | Propagation | `e?` yields the payload of `Ok` or `Some`. On `Err` or `None`, it returns the failure from the enclosing function. | M |
@@ -278,6 +282,9 @@ public Nat Groups(Nat count, Nat size)
 A range loop supplies its bound, a representable increment and its decreasing
 measure; only the functional invariant is authored. Every loop exit closes the
 loans opened in the iteration ([loans and control flow](core-design.md#loans-and-control-flow)).
+Scoped `using` blocks forbid moving or returning the managed resource, reject
+escaping borrows or `break`/`continue` out of the `using` scope, and run nested
+cleanup in LIFO order before enclosing returns complete.
 
 **Parsed example** (statement match with a nullary case):
 

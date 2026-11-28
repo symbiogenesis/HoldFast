@@ -20,10 +20,13 @@ loopback service. [Browser editor asset terms](../../THIRD-PARTY.md#browser-edit
 
 The native service uses the cached Menhir surface parser and the
 [mathematical elaborator](elaboration-prototype.md) to check the complete
-buffer. It displays Gallina from the pure compiler when that compiler also
+buffer (including `distinct` wrappers, `|>` / `$` pipelines, and `using` resource
+scopes). It displays Gallina from the pure compiler when that compiler also
 accepts the buffer, and from the mathematical elaborator otherwise. The hosted
 page shows pure Gallina for the pure profile and an evaluation preview with
-located unchecked claims for wider source. Interface constraints require the
+located unchecked claims for wider source; WebAssembly GC and the Component Model
+remain a separate candidate [hosted application target](../language/application-profile.md)
+rather than replacing the browser evaluator. Interface constraints require the
 native compiler. Each playground compiles one buffer. To resolve imports from
 other HoldFast files, use the [locked package builder](elaboration-prototype.md#locked-mathematical-packages).
 
